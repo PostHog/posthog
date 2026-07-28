@@ -291,6 +291,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             lease_ttl: config.lease_ttl,
             heartbeat_interval: config.heartbeat_interval(),
             participant_stall_threshold: config.participant_stall_threshold(),
+            reconcile_interval: config.router_reconcile_interval(),
         };
 
         let coordination_routing_table =
@@ -377,6 +378,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     rebalance_debounce_interval: config.coordinator_rebalance_debounce_interval(),
                     reconcile_interval: config.coordinator_reconcile_interval(),
                     handoff_deadline: config.coordinator_handoff_deadline(),
+                    warming_deadline: config.coordinator_warming_deadline(),
                 },
                 Arc::new(StickyBalancedStrategy),
                 k8s_awareness,

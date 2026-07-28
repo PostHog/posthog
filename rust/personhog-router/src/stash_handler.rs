@@ -139,9 +139,9 @@ async fn forward_one(
         .await
     {
         // A FailedPrecondition during drain means the target's fence or
-        // ownership is still settling: a cancellation's drain-back races
-        // the old owner's resume, and a completion's drain races the new
-        // owner's cutover. The condition clears in watch-propagation
+        // ownership is still settling: a reaffirm's drain races the
+        // owner's resume, and a completion's drain races the new owner's
+        // cutover. The condition clears in watch-propagation
         // time, but FailedPrecondition reads as "do not retry" to
         // clients — remap it to the same definitive retry contract as
         // the deadline path above. Never silent: the write was never

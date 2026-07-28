@@ -103,6 +103,7 @@ pub fn start_coordinator(
             // warming behavior, and a live deadline would delete the
             // state under test.
             handoff_deadline: Duration::from_secs(86_400),
+            warming_deadline: Duration::from_secs(86_400),
         },
         strategy,
         None,
@@ -171,6 +172,7 @@ pub fn start_router(
             router_name: name.to_string(),
             lease_ttl: 10,
             heartbeat_interval: Duration::from_secs(3),
+            reconcile_interval: Duration::from_secs(86_400),
             ..RoutingTableConfig::default()
         },
     );
@@ -351,6 +353,9 @@ pub async fn start_leader_pod(
         store,
         PodConfig {
             pod_name: name.to_string(),
+            // Parked: event-driven tests assert exact handler-call
+            // sequences a live reconcile pass would duplicate.
+            reconcile_interval: Duration::from_secs(86_400),
             ..Default::default()
         },
         Arc::new(handler),
@@ -423,6 +428,9 @@ pub async fn start_leader_pod_with_lease_ttl(
             pod_name: name.to_string(),
             lease_ttl,
             heartbeat_interval: Duration::from_secs(heartbeat_secs),
+            // Parked: event-driven tests assert exact handler-call
+            // sequences a live reconcile pass would duplicate.
+            reconcile_interval: Duration::from_secs(86_400),
             ..Default::default()
         },
         Arc::new(handler),

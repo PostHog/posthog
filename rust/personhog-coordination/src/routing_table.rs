@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, RwLock as StdRwLock};
 use std::time::{Duration, Instant};
@@ -147,6 +147,15 @@ pub struct RoutingTableConfig {
     /// down, and the process supervisor restarts a healthy participant.
     /// `None` disables the watchdog.
     pub participant_stall_threshold: Option<Duration>,
+    /// How often the watch loop re-derives its state from a fresh etcd
+    /// snapshot, independent of events. Watches are the latency path;
+    /// this pass is the truth path — it repairs anything a dropped,
+    /// stalled, or reconnected watch stream failed to deliver, exactly
+    /// as the coordinator's reconcile tick and the pod's fresh-read
+    /// convergence do for theirs. It runs as an arm of the watch loop
+    /// itself, so the routing table keeps a single writer and the stall
+    /// watchdog supervises it too.
+    pub reconcile_interval: Duration,
 }
 
 impl Default for RoutingTableConfig {
@@ -160,6 +169,7 @@ impl Default for RoutingTableConfig {
             lease_ttl: 10,
             heartbeat_interval: Duration::from_secs(3),
             participant_stall_threshold: Some(Duration::from_secs(60)),
+            reconcile_interval: Duration::from_secs(5),
         }
     }
 }
@@ -346,6 +356,7 @@ impl RoutingTable {
             let router_name = self.config.router_name.clone();
             let lanes = Arc::new(DrainLanes::new(lanes_cancel.clone()));
             let last_progress = Arc::clone(&last_progress);
+            let reconcile_interval = self.config.reconcile_interval;
             let token = cancel.child_token();
             tasks.spawn(async move {
                 Self::watch_handoffs_loop(
@@ -360,6 +371,7 @@ impl RoutingTable {
                     last_progress,
                     progress_epoch,
                     stamp_interval,
+                    reconcile_interval,
                 )
                 .await
             });
@@ -533,11 +545,24 @@ impl RoutingTable {
         last_progress: Arc<AtomicU64>,
         progress_epoch: Instant,
         stamp_interval: Duration,
+        reconcile_interval: Duration,
     ) -> Result<()> {
         // The stamp arm can only run while the loop is free to iterate —
         // an event handler stuck in an inline await freezes the stamp,
         // which is exactly what the watchdog listens for.
         let mut stamp_tick = tokio::time::interval(stamp_interval);
+        // The truth path: periodically re-derive stash, table, and drain
+        // state from a fresh snapshot, repairing whatever the event path
+        // failed to deliver. An arm of this loop on purpose — the routing
+        // table keeps a single writer, and a reconcile that hangs stops
+        // the progress stamp and trips the watchdog.
+        // First pass one full interval out: load_initial has just done
+        // this exact convergence, and an immediate re-pass would only
+        // duplicate handler calls.
+        let mut reconcile_tick = tokio::time::interval_at(
+            tokio::time::Instant::now() + reconcile_interval,
+            reconcile_interval,
+        );
         loop {
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
@@ -546,6 +571,17 @@ impl RoutingTable {
                         progress_epoch.elapsed().as_millis() as u64,
                         Ordering::Relaxed,
                     );
+                }
+                _ = reconcile_tick.tick() => {
+                    Self::reconcile_pass(
+                        &store,
+                        &table,
+                        &addresses,
+                        &handler,
+                        &lanes,
+                        &router_name,
+                    )
+                    .await?;
                 }
                 msg = stream.message() => {
                     let resp = msg?.ok_or_else(|| Error::invalid_state("handoff watch stream ended".to_string()))?;
@@ -563,79 +599,136 @@ impl RoutingTable {
                                 ).await?;
                             }
                             EventType::Delete => {
-                                // Handoff cancelled (typically by
-                                // cleanup_stale_handoffs). Disposal depends on
-                                // who can still receive the stash. During
-                                // Freezing/Warming the assignment never moved,
-                                // so the routing table still points at the old
-                                // owner: if that owner is registered, drain
-                                // back to it and resume normal routing. If it
-                                // is dead — or there is no assignment at all —
-                                // leave the stash intact: a partition without
-                                // a live owner is guaranteed a successor
-                                // handoff, and its completion drains the stash
-                                // to whichever pod actually wins ownership.
-                                // Draining toward a dead pod would never
-                                // converge — nothing can be delivered while
-                                // new arrivals keep the queue alive.
+                                // A handoff record is never deleted while
+                                // non-terminal — cancellation replaces it
+                                // with the record that resolves its stashes
+                                // — so a deletion has exactly one protocol
+                                // meaning: cleanup after Complete, which
+                                // requires nothing from the router. If a
+                                // stash is somehow still open here (an
+                                // out-of-protocol raw deletion), it stays
+                                // parked; the reconcile tick derives
+                                // disposal from durable state and drains it
+                                // to the assignment owner.
                                 let Some(kv) = event.kv() else { continue };
                                 let key = std::str::from_utf8(kv.key()).unwrap_or("");
                                 let Some(partition) = store::extract_partition_from_key(key) else {
                                     continue
                                 };
-                                let target = table.read().await.get(&partition).cloned();
-                                let Some(owner) = target else {
-                                    tracing::warn!(
-                                        router = %router_name,
-                                        partition,
-                                        "handoff cancelled with no current assignment; stash left intact"
-                                    );
-                                    continue;
-                                };
-                                // A linearizable read: any owner death that
-                                // led to this cancellation is already visible
-                                // in etcd. On a read error, fall back to
-                                // draining — no worse than assuming alive.
-                                let owner_registered = match store.get_pod(&owner).await {
-                                    Ok(pod) => pod.is_some(),
-                                    Err(e) => {
-                                        tracing::warn!(
-                                            router = %router_name,
-                                            partition,
-                                            owner = %owner,
-                                            error = %e,
-                                            "could not verify owner registration; assuming alive"
-                                        );
-                                        true
-                                    }
-                                };
-                                if owner_registered {
-                                    tracing::warn!(
-                                        router = %router_name,
-                                        partition,
-                                        owner = %owner,
-                                        "handoff cancelled, draining stash back to current owner"
-                                    );
-                                    lanes.request(
-                                        Arc::clone(&handler),
-                                        router_name.clone(),
-                                        partition,
-                                        owner,
-                                    );
-                                } else {
-                                    tracing::warn!(
-                                        router = %router_name,
-                                        partition,
-                                        owner = %owner,
-                                        "handoff cancelled but current owner is not registered; stash left intact for successor handoff"
-                                    );
-                                }
+                                tracing::debug!(
+                                    router = %router_name,
+                                    partition,
+                                    "handoff record deleted"
+                                );
                             }
                         }
                     }
                 }
             }
         }
+    }
+
+    /// One level-triggered convergence pass over a fresh snapshot: the
+    /// router's equivalent of the coordinator's reconcile tick and the
+    /// pod's fresh-read convergence. Every action here is idempotent
+    /// against the event path — `begin_stash` no-ops on a live entry,
+    /// freeze acks are id-correlated, table writes are last-writer-wins
+    /// from the authority, and drain requests are absorbed by a running
+    /// same-target lane.
+    ///
+    /// Ordering matters exactly as in `load_initial`: stashes converge
+    /// before tables, so a mid-handoff partition is stashing before it is
+    /// routable. The final rule — no handoff means no stash, so drain
+    /// anything parked to the assignment owner — makes stash disposal a
+    /// property derived from durable state rather than a decision taken
+    /// on any single event, which is what heals a missed Complete, a
+    /// silently dead watch stream, or an out-of-protocol raw deletion.
+    async fn reconcile_pass(
+        store: &PersonhogStore,
+        table: &Arc<RwLock<HashMap<u32, String>>>,
+        addresses: &Arc<StdRwLock<HashMap<String, String>>>,
+        handler: &Arc<dyn StashHandler>,
+        lanes: &Arc<DrainLanes>,
+        router_name: &str,
+    ) -> Result<()> {
+        // Registrations are the address authority; refresh them wholesale
+        // so a pod that re-registered at a new address is dialable even
+        // when the address watch missed the event.
+        let pods = store.list_pods().await?;
+        {
+            let mut addresses = addresses.write().expect("addresses lock poisoned");
+            for pod in pods {
+                if let Some(address) = pod.advertise_address {
+                    addresses.insert(pod.pod_name, address);
+                }
+            }
+        }
+
+        let handoffs = store.list_handoffs().await?;
+        let mut constrained: HashSet<u32> = HashSet::new();
+        for handoff in &handoffs {
+            constrained.insert(handoff.partition);
+            match handoff.phase {
+                HandoffPhase::Freezing | HandoffPhase::Draining | HandoffPhase::Warming => {
+                    handler
+                        .begin_stash(handoff.partition, &handoff.new_owner)
+                        .await?;
+                    if handoff.phase == HandoffPhase::Freezing {
+                        let ack = RouterFreezeAck {
+                            router_name: router_name.to_string(),
+                            partition: handoff.partition,
+                            acked_at: util::now_seconds(),
+                            handoff_id: handoff.handoff_id.clone(),
+                        };
+                        store.put_freeze_ack(&ack).await?;
+                    }
+                }
+                HandoffPhase::Complete => {
+                    if let Some(address) = &handoff.new_owner_address {
+                        addresses
+                            .write()
+                            .expect("addresses lock poisoned")
+                            .entry(handoff.new_owner.clone())
+                            .or_insert_with(|| address.clone());
+                    }
+                    table
+                        .write()
+                        .await
+                        .insert(handoff.partition, handoff.new_owner.clone());
+                    lanes.request(
+                        Arc::clone(handler),
+                        router_name.to_string(),
+                        handoff.partition,
+                        handoff.new_owner.clone(),
+                    );
+                }
+            }
+        }
+
+        let assignments = store.list_assignments().await?;
+        for assignment in assignments {
+            if constrained.contains(&assignment.partition) {
+                continue;
+            }
+            if let Some(address) = &assignment.advertise_address {
+                addresses
+                    .write()
+                    .expect("addresses lock poisoned")
+                    .entry(assignment.owner.clone())
+                    .or_insert_with(|| address.clone());
+            }
+            table
+                .write()
+                .await
+                .insert(assignment.partition, assignment.owner.clone());
+            lanes.request(
+                Arc::clone(handler),
+                router_name.to_string(),
+                assignment.partition,
+                assignment.owner,
+            );
+        }
+        Ok(())
     }
 
     async fn handle_handoff_put(

@@ -147,6 +147,11 @@ pub struct PodConfig {
     /// Should be less than K8s terminationGracePeriodSeconds to allow
     /// time for lease revocation before SIGKILL.
     pub drain_timeout: Duration,
+    /// How often the watch loop re-derives every involved partition's
+    /// state from a fresh snapshot, independent of events — the same
+    /// truth path the router's reconcile pass provides. Runs as an arm
+    /// of the watch loop, serialized with event-driven convergence.
+    pub reconcile_interval: Duration,
     /// `host:port` where this pod's gRPC server is reachable; registered
     /// so routers can dial the pod through the routing table.
     pub advertise_address: Option<String>,
@@ -161,6 +166,7 @@ impl Default for PodConfig {
             lease_ttl: 30,
             heartbeat_interval: Duration::from_secs(10),
             drain_timeout: Duration::from_secs(30),
+            reconcile_interval: Duration::from_secs(5),
             advertise_address: None,
         }
     }
@@ -481,6 +487,12 @@ impl PodHandle {
                 partitions.insert(h.partition);
             }
         }
+        // Locally-held partitions the durable state no longer involves
+        // this pod in still need convergence — that is how a warm or
+        // fence left over from a departed ownership gets released when
+        // the Complete event that should have done it was missed.
+        partitions.extend(self.warmed_partitions.lock().await.keys().copied());
+        partitions.extend(self.fenced_partitions.lock().await.iter().copied());
 
         tracing::info!(
             pod,
@@ -656,9 +668,21 @@ impl PodHandle {
         mut stream: WatchStream,
         cancel: CancellationToken,
     ) -> Result<()> {
+        // The truth path: periodically re-derive every involved
+        // partition from a fresh snapshot, repairing whatever the event
+        // path failed to deliver. First pass one interval out — the
+        // startup reconcile has just run. An arm of this loop on
+        // purpose: convergence stays serialized with event handling.
+        let mut reconcile_tick = tokio::time::interval_at(
+            tokio::time::Instant::now() + self.config.reconcile_interval,
+            self.config.reconcile_interval,
+        );
         loop {
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
+                _ = reconcile_tick.tick() => {
+                    self.reconcile_all().await?;
+                }
                 msg = stream.message() => {
                     let resp = msg?.ok_or_else(|| Error::invalid_state("handoff watch stream ended".to_string()))?;
                     for event in resp.events() {

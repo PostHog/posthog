@@ -11,12 +11,14 @@
 //! `list_*_acks(partition)` returns them).
 
 use std::collections::{HashMap, HashSet};
+use std::time::Duration;
 
 use assignment_coordination::util::compute_required_handoffs;
 
 use crate::strategy::AssignmentStrategy;
 use crate::types::{
-    HandoffState, PodDrainedAck, PodWarmedAck, RegisteredPod, RegisteredRouter, RouterFreezeAck,
+    HandoffPhase, HandoffState, PodDrainedAck, PodWarmedAck, RegisteredPod, RegisteredRouter,
+    RouterFreezeAck,
 };
 
 /// One handoff a rebalance has decided to create. `old_owner` is `None`
@@ -167,6 +169,48 @@ pub fn required_freeze_ackers<'a>(
         })
 }
 
+/// Whether `handoff` has sat in its *current phase* longer than that
+/// phase's deadline.
+///
+/// Per-phase rather than total-age on purpose: the deadline exists to
+/// catch a handoff that is wedged, and wedged is a property of a phase,
+/// not of a lifetime. Freezing and Draining wait only on
+/// acknowledgements, so their budget is short. Warming replays a
+/// changelog whose length scales with the partition — a total-age
+/// deadline would cancel a legitimately long warm and restart it from
+/// zero, forever. Warming therefore gets its own, far more generous
+/// budget (`warming_deadline`; zero disables it).
+///
+/// Records written before the phase clock existed carry a zero
+/// `phase_entered_at_ms`; they fall back to the creation-time seconds
+/// clock. A record with neither stamp cannot be judged on age at all —
+/// acting on it would be acting on an age of "since the epoch".
+pub fn past_phase_deadline(
+    handoff: &HandoffState,
+    now_ms: i64,
+    handoff_deadline: Duration,
+    warming_deadline: Duration,
+) -> bool {
+    if handoff.phase == HandoffPhase::Complete {
+        return false;
+    }
+    let entered_ms = if handoff.phase_entered_at_ms > 0 {
+        handoff.phase_entered_at_ms
+    } else if handoff.started_at > 0 {
+        handoff.started_at.saturating_mul(1000)
+    } else {
+        return false;
+    };
+    let deadline = match handoff.phase {
+        HandoffPhase::Warming => warming_deadline,
+        _ => handoff_deadline,
+    };
+    if deadline.is_zero() {
+        return false;
+    }
+    now_ms.saturating_sub(entered_ms) > deadline.as_millis() as i64
+}
+
 /// The subset of [`required_freeze_ackers`] whose ack for `handoff` has
 /// not arrived. Acks are correlated by handoff id, exactly as in
 /// [`freeze_quorum_met`]: a stale ack left over from a predecessor
@@ -236,7 +280,7 @@ mod tests {
             partition,
             old_owner: old_owner.map(str::to_string),
             new_owner: new_owner.to_string(),
-            phase: crate::types::HandoffPhase::Warming,
+            phase: HandoffPhase::Warming,
             started_at: 0,
             handoff_id: String::new(),
             freeze_quorum: None,
@@ -277,6 +321,57 @@ mod tests {
             freeze_quorum_met(&[router("router-0"), router("late-joiner")], &acks, &h),
             "a router registered after creation must not block the quorum"
         );
+    }
+
+    /// The deadline is a per-phase clock: a warm that outlives the
+    /// general deadline must survive on Warming's own budget, while a
+    /// wedged freeze of the same age cancels. A total-age deadline would
+    /// livelock any partition whose changelog replay exceeds it — cancel,
+    /// replan, warm from zero, cancel again.
+    #[test]
+    fn deadline_is_per_phase_and_patient_with_warming() {
+        let short = Duration::from_secs(120);
+        let long = Duration::from_secs(1800);
+        let mut h = handoff(0, Some("pod-a"), "pod-b");
+        h.phase = HandoffPhase::Warming;
+        h.phase_entered_at_ms = 1_000;
+        let now = 1_000 + 600_000;
+
+        assert!(
+            !past_phase_deadline(&h, now, short, long),
+            "ten minutes into a warm is within Warming's budget"
+        );
+        h.phase = HandoffPhase::Freezing;
+        assert!(
+            past_phase_deadline(&h, now, short, long),
+            "the same age in Freezing is a wedge"
+        );
+
+        // The phase clock restarts on advancement: a warm that follows a
+        // slow freeze starts a fresh budget.
+        h.phase = HandoffPhase::Warming;
+        h.phase_entered_at_ms = now - 1_000;
+        assert!(!past_phase_deadline(&h, now, short, long));
+
+        // Zero disables a budget outright.
+        h.phase_entered_at_ms = 1_000;
+        assert!(!past_phase_deadline(&h, now, short, Duration::ZERO));
+    }
+
+    /// Pre-upgrade records fall back to the creation-time seconds clock;
+    /// a record with no stamp at all is never judged on age.
+    #[test]
+    fn deadline_falls_back_to_started_at_and_skips_unstamped_records() {
+        let short = Duration::from_secs(120);
+        let long = Duration::from_secs(1800);
+        let mut h = handoff(0, Some("pod-a"), "pod-b");
+        h.phase = HandoffPhase::Freezing;
+
+        h.started_at = 1;
+        assert!(past_phase_deadline(&h, 601_000, short, long));
+
+        h.started_at = 0;
+        assert!(!past_phase_deadline(&h, i64::MAX, short, long));
     }
 
     /// Attribution mirror of the quorum predicate: the missing set names
