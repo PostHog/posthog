@@ -33,9 +33,10 @@ from posthog.api.oauth.cimd import (
     refresh_cimd_metadata_task,
     register_cimd_provisioning_application_task,
     validate_cimd_url,
+    validate_fetchable_https_url,
 )
 from posthog.api.oauth.client_name import sanitize_client_name
-from posthog.models.oauth import OAuthApplication, create_cimd_verification_token
+from posthog.models.oauth import OAuthApplication, TokenEndpointAuthMethod, create_cimd_verification_token
 from posthog.scopes import OAUTH_SCOPES_HIDDEN, PRIVILEGED_SCOPES
 
 VALID_CIMD_URL = "https://app.example.com/.well-known/oauth-client-metadata.json"
@@ -54,6 +55,15 @@ def _make_metadata(url: str = VALID_CIMD_URL, com_posthog: dict | None = None, *
         metadata["com.posthog"] = com_posthog
     metadata.update(overrides)
     return metadata
+
+
+CIMD_JWKS_URI = "https://app.example.com/.well-known/jwks.json"
+
+
+def _metadata_for_auth(with_jwks: bool) -> dict:
+    if not with_jwks:
+        return _make_metadata()
+    return _make_metadata(token_endpoint_auth_method="private_key_jwt", jwks_uri=CIMD_JWKS_URI)
 
 
 def _mock_response(metadata: dict | None = None, status_code: int = 200, headers: dict | None = None):
@@ -209,13 +219,44 @@ class TestFetchCimdMetadata(APIBaseTest):
         with self.assertRaises(CIMDFetchError):
             fetch_cimd_metadata(VALID_CIMD_URL)
 
+    @parameterized.expand([("client_secret_post",), ("client_secret_basic",), ("client_secret_jwt",), ("tls_auth",)])
     @patch("posthog.api.oauth.cimd.requests.get")
-    def test_forbidden_auth_method(self, mock_get, _url_mock):
-        metadata = _make_metadata(token_endpoint_auth_method="client_secret_post")
-        mock_get.return_value = _mock_response(metadata)
+    def test_unsupported_auth_method(self, auth_method, mock_get, _url_mock):
+        # Only "none" and "private_key_jwt" are supported: CIMD has no ceremony in which a
+        # shared secret could be delivered, and anything unrecognized fails closed.
+        mock_get.return_value = _mock_response(_make_metadata(token_endpoint_auth_method=auth_method))
         with self.assertRaises(CIMDValidationError) as ctx:
             fetch_cimd_metadata(VALID_CIMD_URL)
-        self.assertIn("client_secret_post", str(ctx.exception))
+        self.assertIn(auth_method, str(ctx.exception))
+
+    @parameterized.expand([("missing_jwks_uri", None), ("non_https_jwks_uri", "http://app.example.com/jwks.json")])
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_private_key_jwt_requires_a_usable_jwks_uri(self, _name, jwks_uri, mock_get, _url_mock):
+        metadata = _make_metadata(token_endpoint_auth_method="private_key_jwt")
+        if jwks_uri is not None:
+            metadata["jwks_uri"] = jwks_uri
+        mock_get.return_value = _mock_response(metadata)
+        with self.assertRaises(CIMDValidationError):
+            fetch_cimd_metadata(VALID_CIMD_URL)
+
+    @parameterized.expand(
+        [
+            # A jwks_uri names a document rather than identifying the client, so the CIMD
+            # client_id shape rules must not apply to it. A versioned key set is legitimate.
+            ("query_string", "https://app.example.com/jwks.json?v=2", True),
+            ("bare_host", "https://app.example.com", True),
+            ("plaintext_http", "http://app.example.com/jwks.json", False),
+            ("fragment", "https://app.example.com/jwks.json#k", False),
+        ]
+    )
+    def test_jwks_uri_is_not_held_to_cimd_client_id_shape_rules(self, _url_mock, _name, url, expected_valid):
+        valid, _error = validate_fetchable_https_url(url)
+        assert valid is expected_valid
+        if not expected_valid:
+            return
+        # The same URL as a client_id is a different question: that one must be a stable
+        # identifier, so a query string or a bare host is rejected there.
+        assert validate_cimd_url(url)[0] is False
 
     @patch("posthog.api.oauth.cimd.requests.get")
     def test_cache_ttl_clamped_to_minimum(self, mock_get, _url_mock):
@@ -261,6 +302,40 @@ class TestFetchAndUpsertCimdApplication(APIBaseTest):
         self.assertIsNotNone(app.cimd_metadata_last_fetched)
         self.assertIsNone(app.organization)
         self.assertIsNone(app.user)
+
+    @parameterized.expand(
+        [
+            # Publishing a key set is the upgrade path with no re-onboarding: the client edits
+            # its own metadata document and the next refresh promotes it in place.
+            ("promoted_when_a_jwks_uri_appears", False, True, TokenEndpointAuthMethod.PRIVATE_KEY_JWT),
+            # A confidential client whose key source disappeared could never authenticate again,
+            # so it must fall back to public rather than becoming permanently unusable.
+            ("demoted_when_the_jwks_uri_disappears", True, False, TokenEndpointAuthMethod.NONE),
+        ]
+    )
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_client_authentication_is_re_derived_on_every_refresh(
+        self, _name, starts_with_jwks, ends_with_jwks, expected_method, mock_get, _url_mock
+    ):
+        mock_get.return_value = _mock_response(_metadata_for_auth(starts_with_jwks), headers={})
+        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+        assert app is not None
+
+        mock_get.return_value = _mock_response(_metadata_for_auth(ends_with_jwks), headers={})
+        refreshed = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        assert refreshed is not None
+        # Same row and same client_id: the transition needs no operator and no re-registration.
+        self.assertEqual(refreshed.pk, app.pk)
+        self.assertEqual(refreshed.client_id, app.client_id)
+        self.assertIs(refreshed.token_endpoint_auth_method, expected_method)
+        if ends_with_jwks:
+            self.assertEqual(refreshed.jwks_uri, CIMD_JWKS_URI)
+            # It holds no secret, but it can authenticate, so it is confidential per RFC 6749.
+            self.assertEqual(refreshed.client_type, OAuthApplication.CLIENT_CONFIDENTIAL)
+        else:
+            self.assertIsNone(refreshed.jwks_uri)
+            self.assertEqual(refreshed.client_type, OAuthApplication.CLIENT_PUBLIC)
 
     @patch("posthog.api.oauth.cimd.requests.get")
     def test_updates_existing_application(self, mock_get, _url_mock):
@@ -495,7 +570,7 @@ class TestGetOrCreateCimdProvisioningApplication(APIBaseTest):
 
         self.assertTrue(app.is_cimd_client)
         self.assertEqual(app.cimd_metadata_url, VALID_CIMD_URL)
-        self.assertEqual(app.provisioning_auth_method, "pkce")
+        self.assertTrue(app.is_provisioning_partner)
         self.assertTrue(app.provisioning_active)
         self.assertTrue(app.provisioning_can_create_accounts)
         self.assertTrue(app.provisioning_can_provision_resources)
@@ -537,7 +612,7 @@ class TestGetOrCreateCimdProvisioningApplication(APIBaseTest):
         assert app is not None
 
         self.assertEqual(app.pk, existing.pk)
-        self.assertEqual(app.provisioning_auth_method, "pkce")
+        self.assertTrue(app.is_provisioning_partner)
         self.assertTrue(app.provisioning_active)
         self.assertTrue(app.provisioning_can_create_accounts)
         self.assertTrue(app.provisioning_can_provision_resources)
@@ -547,17 +622,17 @@ class TestGetOrCreateCimdProvisioningApplication(APIBaseTest):
         mock_get.return_value = _mock_response(_make_metadata(), headers={})
         existing = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
         assert existing is not None
-        existing.provisioning_auth_method = "hmac"
+        existing.is_provisioning_partner = True
         existing.provisioning_active = False
         existing.provisioning_can_create_accounts = False
         existing.save(
-            update_fields=["provisioning_auth_method", "provisioning_active", "provisioning_can_create_accounts"]
+            update_fields=["is_provisioning_partner", "provisioning_active", "provisioning_can_create_accounts"]
         )
 
         app = get_or_create_cimd_provisioning_application(VALID_CIMD_URL)
         assert app is not None
 
-        self.assertEqual(app.provisioning_auth_method, "hmac")
+        self.assertTrue(app.is_provisioning_partner)
         self.assertFalse(app.provisioning_active)
         self.assertFalse(app.provisioning_can_create_accounts)
 

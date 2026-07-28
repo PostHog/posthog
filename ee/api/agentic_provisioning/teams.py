@@ -20,46 +20,6 @@ class ProjectIdCollisionError(Exception):
         self.project_id = project_id
 
 
-def resolve_team_for_existing_user(user: User, requested_team_id: int | None = None) -> Team | None:
-    """Pick a team for an existing user during email-based account linking.
-
-    If requested_team_id is provided and the user has access, use it.
-    Otherwise auto-select: single non-demo team → use it, only demo teams →
-    create a new project, multiple teams → create a new project in the first org.
-    """
-    memberships = list(user.organization_memberships.select_related("organization").all())
-    if not memberships:
-        return None
-
-    org_ids = [m.organization_id for m in memberships]
-
-    if requested_team_id is not None:
-        try:
-            team = Team.objects.get(id=requested_team_id, is_demo=False)
-        except Team.DoesNotExist:
-            return None
-        if team.organization_id not in org_ids:
-            return None
-        # Org membership alone is not access: a partner can name any team id in
-        # the user's orgs, so a team the user is excluded from must not become
-        # the scope of the minted code.
-        if not user_can_access_team(user, team):
-            return None
-        return team
-
-    non_demo_teams = [
-        team
-        for team in Team.objects.filter(organization_id__in=org_ids, is_demo=False)
-        if user_can_access_team(user, team)
-    ]
-
-    if len(non_demo_teams) == 1:
-        return non_demo_teams[0]
-
-    organization = memberships[0].organization
-    return Team.objects.create_with_data(initiating_user=user, organization=organization)
-
-
 def resolve_or_create_project_team(
     project_id: str,
     scoped_teams: list[int],

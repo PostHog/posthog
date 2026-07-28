@@ -60,15 +60,12 @@ REPOSITORIES_RESPONSE = _github_response(
 
 
 class TestGitHubGrants(ProvisioningTestBase):
-    def setUp(self):
-        super().setUp()
-        self.bearer = self._get_bearer_token()
-
     def _post_grants(self, body: dict):
-        return self._post_with_bearer("/api/agentic/provisioning/github/grants", body, token=self.bearer)
+        return self._post_with_client_secret("/api/agentic/provisioning/github/grants", body)
 
     def _get_grants(self, url: str):
-        return self._get_with_bearer(url, self.bearer)
+        # A GET has no body to carry the credentials, so these endpoints need Basic auth.
+        return self._get_api(url, HTTP_AUTHORIZATION=self._basic_auth_header())
 
     def _create_grant_via_api(self):
         with (
@@ -151,7 +148,7 @@ class TestGitHubGrants(ProvisioningTestBase):
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://pkce.example.com",
             algorithm="RS256",
-            provisioning_auth_method="pkce",
+            is_provisioning_partner=True,
             provisioning_active=True,
             provisioning_can_create_accounts=True,
         )
@@ -270,7 +267,7 @@ class TestGitHubGrants(ProvisioningTestBase):
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://other.example.com",
             algorithm="RS256",
-            provisioning_auth_method="bearer",
+            is_provisioning_partner=True,
             provisioning_active=True,
             provisioning_can_create_accounts=True,
         )

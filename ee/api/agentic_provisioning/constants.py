@@ -21,6 +21,13 @@ CIMD_DOMAIN_RATE_LIMIT_PREFIX = "cimd_registration_domain_rate:"
 CIMD_DOMAIN_RATE_LIMIT_MAX = 5
 CIMD_DOMAIN_RATE_LIMIT_WINDOW_SECONDS = 3600
 
+# The client registration endpoint dereferences a caller-supplied URL synchronously, so it is
+# capped per client_id on top of the per-IP and per-domain CIMD limits. Generous enough for a
+# partner iterating on a broken metadata document, low enough that it is not an amplifier.
+CLIENT_REGISTRATION_RATE_LIMIT_PREFIX = "provisioning_client_registration:"
+CLIENT_REGISTRATION_RATE_LIMIT_MAX = 30
+CLIENT_REGISTRATION_RATE_LIMIT_WINDOW_SECONDS = 3600
+
 PARTNER_RATE_LIMIT_PREFIX = "provisioning_partner_rate:"
 PARTNER_RATE_LIMIT_WINDOW_SECONDS = 3600
 PARTNER_RATE_LIMIT_DEFAULTS: dict[str, int] = {

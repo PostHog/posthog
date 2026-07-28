@@ -19,7 +19,7 @@ from posthog.scopes import effective_ceiling
 
 from ee.api.agentic_provisioning.accounts import handle_existing_user, handle_new_user
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
-from ee.api.agentic_provisioning.authentication import ProvisioningAuthentication
+from ee.api.agentic_provisioning.authentication import CLIENT_NOT_REGISTERED_MESSAGE, ProvisioningAuthentication
 from ee.api.agentic_provisioning.constants import CODE_CHALLENGE_RE
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
 from ee.api.agentic_provisioning.serializers import AccountRequestSerializer
@@ -30,27 +30,25 @@ from ee.api.agentic_provisioning.views.base import ProvisioningAPIView
 class AccountRequestsView(ProvisioningAPIView):
     region_proxy_strategy = "body_region"
     partner_throttle_classes = [CIMDRegistrationThrottle]
+    # Identifies the partner inline rather than through an authentication class because the
+    # region proxy and the request-id echo both need the parsed body alongside the partner.
+    authenticates_in_handler = True
 
     def post(self, request: Request) -> Response:
         # --- Identify partner ---
         auth = ProvisioningAuthentication()
         partner = None
-        authenticated_user = None
         try:
             result = auth.authenticate(request)
             if result:
-                authenticated_user, partner = result
-        except AuthenticationFailed:
-            raise ProvisioningError("unauthorized", "Authentication failed", status=401)
-
-        if partner is None and auth.cimd_registration_pending:
-            return Response(
-                {"type": "registering", "retry_after": 5},
-                status=202,
-            )
+                _, partner = result
+        except AuthenticationFailed as exc:
+            # Surface the reason: an unregistered client needs to be told to register, which
+            # a flat "authentication failed" does not convey.
+            raise ProvisioningError("unauthorized", str(exc.detail), status=401)
 
         if partner is None:
-            raise ProvisioningError("unauthorized", "Authentication required", status=401)
+            raise ProvisioningError("unauthorized", CLIENT_NOT_REGISTERED_MESSAGE, status=401)
 
         # --- Parse request ---
         data = self.validated_body(AccountRequestSerializer, request)
@@ -86,15 +84,6 @@ class AccountRequestsView(ProvisioningAPIView):
 
         region = (configuration.get("region") or "US").upper()
 
-        requested_team_id = configuration.get("team_id")
-        if requested_team_id is not None:
-            try:
-                requested_team_id = int(requested_team_id)
-            except (ValueError, TypeError):
-                raise ProvisioningError(
-                    "invalid_request", "configuration.team_id must be an integer", request_id=request_id
-                )
-
         existing_user = User.objects.filter(email=email).first()
 
         if existing_user:
@@ -104,11 +93,9 @@ class AccountRequestsView(ProvisioningAPIView):
                     existing_user,
                     scopes,
                     region=region,
-                    team_id=requested_team_id,
                     partner=partner,
                     code_challenge=code_challenge,
                     code_challenge_method=code_challenge_method,
-                    authenticated_user=authenticated_user,
                 )
             )
 
@@ -122,6 +109,5 @@ class AccountRequestsView(ProvisioningAPIView):
                 partner=partner,
                 code_challenge=code_challenge,
                 code_challenge_method=code_challenge_method,
-                authenticated_user=authenticated_user,
             )
         )
