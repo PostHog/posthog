@@ -158,6 +158,11 @@ def _make_paginated_request(
                 raise LinearRetryableError(f"Linear: rate limited - {joined}")
             if not response.ok:
                 raise Exception(f"{response.status_code} Client Error: {response.reason} (Linear API: {joined})")
+            # Linear's GraphQL layer sometimes wraps a resolver-side blip as a 200 with a generic
+            # "Internal server error" message instead of an HTTP 5xx. Treat it the same as the
+            # status-code case above rather than failing the activity outright.
+            if any("internal server error" in message.lower() for message in error_messages):
+                raise LinearRetryableError(f"Linear: internal server error - {joined}")
             raise Exception(f"Linear GraphQL error: {joined}")
 
         if not response.ok:

@@ -241,6 +241,136 @@ export interface PatchedSignalReportContentUpdateApi {
     summary?: string
 }
 
+/**
+ * One CI check on a pull request's head commit — a GitHub Actions check run or a legacy commit
+ * status, normalized to a common shape.
+ */
+export interface PullRequestCheckApi {
+    /** Check run name or status context. */
+    readonly name: string
+    /**
+     * Lifecycle state: 'queued', 'in_progress', or 'completed'.
+     * @nullable
+     */
+    readonly status: string | null
+    /**
+     * Outcome once completed: 'success', 'failure', 'neutral', 'cancelled', 'skipped', 'timed_out', or 'action_required'. Null while still running.
+     * @nullable
+     */
+    readonly conclusion: string | null
+    /**
+     * Link to the check run / status detail on GitHub.
+     * @nullable
+     */
+    readonly url: string | null
+}
+
+/**
+ * Response for the PR checks endpoint — the CI status of a report's implementation PR.
+ */
+export interface PullRequestChecksResponseApi {
+    readonly checks: readonly PullRequestCheckApi[]
+}
+
+/**
+ * * `conversation` - conversation
+ * * `review` - review
+ */
+export type CommentTypeEnumApi = (typeof CommentTypeEnumApi)[keyof typeof CommentTypeEnumApi]
+
+export const CommentTypeEnumApi = {
+    Conversation: 'conversation',
+    Review: 'review',
+} as const
+
+/**
+ * * `LEFT` - LEFT
+ * * `RIGHT` - RIGHT
+ */
+export type SideEnumApi = (typeof SideEnumApi)[keyof typeof SideEnumApi]
+
+export const SideEnumApi = {
+    Left: 'LEFT',
+    Right: 'RIGHT',
+} as const
+
+/**
+ * One comment on a pull request — a conversation comment or an inline review comment.
+ */
+export interface PullRequestCommentApi {
+    /** GitHub comment id. */
+    readonly id: string
+    /**
+     * Comment author's GitHub login.
+     * @nullable
+     */
+    readonly author: string | null
+    /**
+     * Author's GitHub avatar URL.
+     * @nullable
+     */
+    readonly author_avatar_url: string | null
+    /** Comment body (GitHub-flavored markdown). */
+    readonly body: string
+    /**
+     * ISO 8601 creation timestamp.
+     * @nullable
+     */
+    readonly created_at: string | null
+    /**
+     * Link to the comment on GitHub.
+     * @nullable
+     */
+    readonly url: string | null
+    /** 'conversation' for a PR discussion comment, 'review' for an inline code-review comment.
+     *
+     * * `conversation` - conversation
+     * * `review` - review */
+    readonly comment_type: CommentTypeEnumApi
+    /**
+     * File path the review comment is anchored to (review comments only).
+     * @nullable
+     */
+    readonly path: string | null
+    /**
+     * Line in the diff the review comment is anchored to — the end line for multi-line comments (review comments only; null when the comment is outdated relative to the PR head).
+     * @nullable
+     */
+    readonly line: number | null
+    /**
+     * First line of a multi-line review comment's range (review comments only).
+     * @nullable
+     */
+    readonly start_line: number | null
+    /** Diff side the review comment is anchored to: 'LEFT' = deletions, 'RIGHT' = additions (review comments only).
+     *
+     * * `LEFT` - LEFT
+     * * `RIGHT` - RIGHT */
+    readonly side: SideEnumApi | null
+    /**
+     * Diff hunk excerpt the review comment applies to (review comments only).
+     * @nullable
+     */
+    readonly diff_hunk: string | null
+    /**
+     * Id of the thread root comment this one replies to; null for thread roots and conversation comments.
+     * @nullable
+     */
+    readonly in_reply_to_id: string | null
+    /**
+     * SHA of the commit the review comment was made against (review comments only).
+     * @nullable
+     */
+    readonly commit_id: string | null
+}
+
+/**
+ * Response for the PR comments endpoint — conversation and review comments merged chronologically.
+ */
+export interface PullRequestCommentsResponseApi {
+    readonly comments: readonly PullRequestCommentApi[]
+}
+
 export interface SignalReportRefundRequestApi {
     /** Why this PR is being refunded. One of: pr_incorrect (the PR doesn't address what the report promised), pr_not_useful (technically fine but not worth paying for), duplicate (covers work already charged elsewhere), other. Required — refund reviews key on it.
      *
@@ -540,6 +670,11 @@ export interface JiraIssueSignalExtraApi {
     updated: string | null
 }
 
+export interface ConversationsTicketImageApi {
+    url: string
+    author: string
+}
+
 export interface ConversationsTicketSignalExtraApi {
     ticket_number: number
     channel_source: string
@@ -548,6 +683,7 @@ export interface ConversationsTicketSignalExtraApi {
     priority: string | null
     created_at: string
     email_subject: string | null
+    images?: ConversationsTicketImageApi[] | null
 }
 
 export interface ErrorTrackingSignalExtraApi {
@@ -1759,6 +1895,8 @@ export interface ScoutNoteApi {
      * @nullable
      */
     created_by_name: string | null
+    /** Where the note came from: `human` for one left directly through this API, or `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports. A `report_dismissal` note is one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. */
+    origin: string
 }
 
 /**
@@ -1888,6 +2026,50 @@ export interface EmitEligibilityApi {
      * @nullable
      */
     remediation: string | null
+}
+
+/**
+ * One scout in either bucket of `inventory.scout_fleet`.
+ */
+export interface ScoutFleetEntryApi {
+    /** The `signals-scout-*` skill this config schedules. */
+    skill_name: string
+    /** Minutes between runs when no cron schedule is set (default 1440, every 24 hours). */
+    run_interval_minutes: number
+    /**
+     * Optional cron expression, evaluated in the project timezone. Takes precedence over the interval.
+     * @nullable
+     */
+    run_cron_schedule: string | null
+    /** Whether this scout's findings actually reach the inbox. False means dry-run: it runs and logs but emits nothing, so its silence says nothing about the surface it watches. */
+    emit: boolean
+    /**
+     * ISO-8601 timestamp the coordinator last dispatched this scout, or null if it has never run.
+     * @nullable
+     */
+    last_run_at: string | null
+    /**
+     * ISO-8601 timestamp this scout last produced output on either channel (a finding, or an authored/edited report), within `emitted_lookback_days`. Null means quiet for at least that window, not never.
+     * @nullable
+     */
+    last_emitted_at: string | null
+    /**
+     * Why this scout is in the `disabled` bucket: `turned_off` (an operator set it off) or `skill_unavailable` (left on, but its skill was deleted, superseded, or withheld, so it never dispatches). Null for scouts that actually run.
+     * @nullable
+     */
+    not_running_reason: string | null
+}
+
+/**
+ * `inventory.scout_fleet` — the other scouts running on this project, split by enablement.
+ */
+export interface ScoutFleetApi {
+    /** Scouts that actually run on this team: enabled, with a live skill the coordinator dispatches. */
+    enabled: ScoutFleetEntryApi[]
+    /** Scouts that do not run, each carrying a `not_running_reason` — turned off, or left on with a skill that can't dispatch. Different from a surface no scout ever covered. */
+    disabled: ScoutFleetEntryApi[]
+    /** The window `last_emitted_at` was resolved over, so a null reads as 'quiet', not 'never'. */
+    emitted_lookback_days: number
 }
 
 /**
@@ -2331,6 +2513,8 @@ export interface ProjectProfileInventoryApi {
     signal_source_configs: SignalSourceConfigsBucketsApi
     /** Whether scout findings can actually reach the inbox for this team — the org-level AI data-processing consent gate and the `signals_scout` source toggle, plus a one-line remediation pointer. Read at cold start to quick-close before doing throwaway work. */
     emit_eligibility: EmitEligibilityApi
+    /** The other scouts configured on this project, split into enabled / disabled, each with its cadence, dry-run posture, last run, and last emit. Read it to see who else is watching this project before investigating a surface a sibling already covers. */
+    scout_fleet: ScoutFleetApi
     /** Counts of reports already in the inbox, grouped by status. */
     existing_inbox_reports: ExistingInboxReportsApi
     /** Per-scope counts off the activity log over the recent-activity window — cross-cutting orientation across every entity type (surveys, feature flags, experiments, dashboards, insights, cohorts, notebooks, actions, etc.). Each scope reports `edits` (total log entries), `users` (distinct user count), and `last_edit` (ISO-8601). Use to triage which scope a team has been working in lately before drilling down via the per-entity readers or `advanced-activity-logs-list`. */
@@ -3286,6 +3470,10 @@ export type SignalsReportsListParams = {
      * Case-insensitive substring match against report title and summary.
      */
     search?: string
+    /**
+     * Comma-separated list of source record ids. Reports are kept if at least one of their contributing signals came from one of these records — e.g. pass a support ticket's UUID to see what the inbox already found for that ticket. Requires exactly one source_product, since a source id is only unique within its product.
+     */
+    source_id?: string
     /**
      * Comma-separated list of source products to include. Reports are kept if at least one of their contributing signals comes from one of these products (e.g. error_tracking, session_replay).
      */

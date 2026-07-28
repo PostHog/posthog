@@ -163,6 +163,39 @@ function createMockEditor(): any {
     }
 }
 
+// A Monaco model that records pushEditOperations as if it had a real undo stack, so tests can
+// assert an edit is applied undoably (pushEditOperations) rather than via model.setValue
+// (which would wipe history).
+function createUndoTrackingModel(initialValue: string): any {
+    let value = initialValue
+    return {
+        getValue: () => value,
+        getFullModelRange: () => ({
+            startLineNumber: 1,
+            startColumn: 1,
+            endLineNumber: 1,
+            endColumn: value.length + 1,
+        }),
+        pushStackElement: jest.fn(),
+        pushEditOperations: jest.fn((_before: any, ops: any[]) => {
+            value = ops[0].text
+            return null
+        }),
+        setValue: jest.fn((next: string) => {
+            value = next
+        }),
+        onDidChangeContent: jest.fn(() => ({ dispose: jest.fn() })),
+        dispose: jest.fn(),
+    }
+}
+
+function createMonacoWithModel(model: any): any {
+    const monaco = createMockMonaco()
+    monaco.editor.getModel = () => model
+    monaco.editor.createModel = () => model
+    return monaco
+}
+
 describe('sqlEditorLogic', () => {
     let logic: ReturnType<typeof sqlEditorLogic.build>
     let editorRootLogic: ReturnType<typeof editorSceneLogic.build> | undefined
@@ -235,6 +268,7 @@ describe('sqlEditorLogic', () => {
             },
             delete: {
                 '/api/environments/:team_id/query/:id/': [204],
+                '/api/environments/:team_id/warehouse_saved_queries/:id/': [204],
             },
         })
 
@@ -708,6 +742,40 @@ describe('sqlEditorLogic', () => {
 
             // The button should not appear "dirty" immediately after load
             expect(editorRootLogic.values.updateInsightButtonEnabled).toEqual(false)
+        })
+
+        it('applies filters from the URL hash on top of the opened insight so view-mode filter edits can be saved', async () => {
+            // The insight scene's Edit button carries unsaved view-mode filter edits via
+            // urls.sqlEditor({ insightShortId, filters }) — they must land in sourceQuery
+            // (not the saved insight's filters) with the tab still bound to the insight,
+            // so Update insight is enabled and persists them.
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            editorRootLogic = editorSceneLogic({ tabId: TAB_ID })
+            editorRootLogic.mount()
+
+            const filters: HogQLFilters = { dateRange: { date_from: '-30d', date_to: null } }
+            router.actions.push(urls.sqlEditor({ insightShortId: MOCK_INSIGHT_SHORT_ID, filters }))
+
+            await expectLogic(logic)
+                .toDispatchActions(['editInsight', 'createTab', 'updateTab'])
+                .toMatchValues({
+                    editingInsight: partial({
+                        short_id: MOCK_INSIGHT_SHORT_ID,
+                    }),
+                    sourceQuery: partial({
+                        source: partial({
+                            query: (MOCK_INSIGHT_QUERY.source as HogQLQuery).query,
+                            filters: partial({ dateRange: partial({ date_from: '-30d' }) }),
+                        }),
+                    }),
+                })
+
+            expect(editorRootLogic.values.updateInsightButtonEnabled).toEqual(true)
         })
 
         it('enables Update insight as soon as sourceQuery diverges from the saved insight, even when dataVisualizationLogic mirror lags behind', async () => {
@@ -1628,39 +1696,6 @@ describe('sqlEditorLogic', () => {
         const ORIGINAL = 'SELECT 1'
         const ACCEPTED = 'SELECT 2 FROM events'
 
-        // A Monaco model that records pushEditOperations as if it had a real undo stack,
-        // so we can assert the accepted query is applied as an undoable edit rather than a
-        // model.setValue (which would wipe history).
-        function createUndoTrackingModel(initialValue: string): any {
-            let value = initialValue
-            return {
-                getValue: () => value,
-                getFullModelRange: () => ({
-                    startLineNumber: 1,
-                    startColumn: 1,
-                    endLineNumber: 1,
-                    endColumn: value.length + 1,
-                }),
-                pushStackElement: jest.fn(),
-                pushEditOperations: jest.fn((_before: any, ops: any[]) => {
-                    value = ops[0].text
-                    return null
-                }),
-                setValue: jest.fn((next: string) => {
-                    value = next
-                }),
-                onDidChangeContent: jest.fn(() => ({ dispose: jest.fn() })),
-                dispose: jest.fn(),
-            }
-        }
-
-        function createMonacoWithModel(model: any): any {
-            const monaco = createMockMonaco()
-            monaco.editor.getModel = () => model
-            monaco.editor.createModel = () => model
-            return monaco
-        }
-
         function mountWithModel(model: any): any {
             const monaco = createMonacoWithModel(model)
             logic = sqlEditorLogic({ tabId: TAB_ID, monaco, editor: createMockEditor() })
@@ -1724,6 +1759,51 @@ describe('sqlEditorLogic', () => {
             act()
 
             expect(model.pushEditOperations).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('deleting the open view', () => {
+        it('clears the tab and the editor content when the active view is deleted', async () => {
+            const viewsLogic = dataWarehouseViewsLogic()
+            viewsLogic.mount()
+
+            const model = createUndoTrackingModel(MOCK_VIEW.query.query)
+            const monaco = createMonacoWithModel(model)
+            logic = sqlEditorLogic({ tabId: TAB_ID, monaco, editor: createMockEditor() })
+            logic.mount()
+            logic.actions.updateTab({ uri: monaco.Uri.parse(`tab-${TAB_ID}`), name: MOCK_VIEW.name, view: MOCK_VIEW })
+            logic.actions.setQueryInput(MOCK_VIEW.query.query)
+
+            viewsLogic.actions.deleteDataWarehouseSavedQuery(MOCK_VIEW.id)
+            await expectLogic(viewsLogic).toDispatchActions(['deleteDataWarehouseSavedQuerySuccess'])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(model.getValue()).toEqual('')
+            expect(logic.values.queryInput).toEqual('')
+            expect(logic.values.activeTab?.view).toBeUndefined()
+
+            viewsLogic.unmount()
+        })
+
+        it('leaves an unrelated tab untouched', async () => {
+            const viewsLogic = dataWarehouseViewsLogic()
+            viewsLogic.mount()
+
+            const model = createUndoTrackingModel('SELECT 2')
+            const monaco = createMonacoWithModel(model)
+            logic = sqlEditorLogic({ tabId: TAB_ID, monaco, editor: createMockEditor() })
+            logic.mount()
+            logic.actions.updateTab({ uri: monaco.Uri.parse(`tab-${TAB_ID}`), name: 'Untitled' })
+            logic.actions.setQueryInput('SELECT 2')
+
+            viewsLogic.actions.deleteDataWarehouseSavedQuery(MOCK_VIEW.id)
+            await expectLogic(viewsLogic).toDispatchActions(['deleteDataWarehouseSavedQuerySuccess'])
+            await expectLogic(viewsLogic).toFinishAllListeners()
+
+            expect(model.getValue()).toEqual('SELECT 2')
+            expect(logic.values.queryInput).toEqual('SELECT 2')
+
+            viewsLogic.unmount()
         })
     })
 

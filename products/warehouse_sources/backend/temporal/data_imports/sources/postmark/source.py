@@ -112,10 +112,21 @@ The token grants read access to the following server-level resources:
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_postmark_credentials(config.server_token):
+        is_valid, status = validate_postmark_credentials(config.server_token)
+        if is_valid:
             return True, None
 
-        return False, "Invalid Postmark server API token"
+        if status == 403:
+            return (
+                False,
+                "Your Postmark server API token doesn't have the required permissions. Please check the token and try again.",
+            )
+        if status is None or status == 429 or status >= 500:
+            return (
+                False,
+                "Couldn't reach Postmark to verify your token. Please try again in a moment.",
+            )
+        return False, "Invalid Postmark server API token. Please check the token and try again."
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
