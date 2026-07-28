@@ -1,3 +1,4 @@
+import re
 import json
 import uuid
 import typing
@@ -10,6 +11,7 @@ from django.db import close_old_connections
 
 import duckdb
 import deltalake
+from psycopg import sql as psql
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -53,11 +55,13 @@ from posthog.temporal.ducklake.metrics import (
     get_ducklake_copy_data_imports_verification_metric,
 )
 
+from products.data_warehouse.backend.facade.api import get_s3_client
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.pipelines import DUCKGRES_BATCH_SINK_FLAG, is_duckgres_sink_team_member
 
 LOGGER = get_logger(__name__)
 DATA_IMPORTS_DUCKLAKE_WORKFLOW_PREFIX = "data_imports"
+DATA_IMPORTS_LANDING_PREFIX = "data_imports"
 
 
 class _VerificationCursor(typing.Protocol):
@@ -87,6 +91,7 @@ class DataImportsDuckLakeCopyInputs:
     team_id: int
     job_id: str
     schema_ids: list[uuid.UUID]
+    prepared_queryable_folders: dict[str, str] = dataclasses.field(default_factory=dict)
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
@@ -94,6 +99,7 @@ class DataImportsDuckLakeCopyInputs:
             "team_id": self.team_id,
             "job_id": self.job_id,
             "schema_ids": [str(sid) for sid in self.schema_ids],
+            "prepared_queryable_folders": self.prepared_queryable_folders,
         }
 
 
@@ -116,6 +122,10 @@ class DuckLakeCopyDataImportsMetadata:
 
     # Source metadata (optional, with defaults)
     source_partition_column: str | None = None
+    prepared_source_uri: str | None = None
+
+    # Permanent object paths copied into the DuckLake-managed bucket.
+    landing_uri: str | None = None
 
     # Staging (duckgres path)
     staging_uri: str | None = None
@@ -261,9 +271,21 @@ async def prepare_data_imports_ducklake_metadata_activity(
                 )
                 continue
         source_table_uri = _data_imports_source_table_uri(schema)
-        staging_uri = await database_sync_to_async(_resolve_data_imports_staging_uri)(
-            source_table_uri, team_id=inputs.team_id
-        )
+        prepared_queryable_folder = inputs.prepared_queryable_folders.get(str(schema.id))
+        prepared_source_uri = None
+        landing_uri = None
+        staging_uri = None
+        if prepared_queryable_folder:
+            prepared_source_uri = _data_imports_prepared_source_uri(schema, prepared_queryable_folder)
+            landing_uri = await database_sync_to_async(_resolve_data_imports_landing_uri)(
+                team_id=inputs.team_id,
+                schema_id=str(schema.id),
+                job_id=inputs.job_id,
+            )
+        else:
+            staging_uri = await database_sync_to_async(_resolve_data_imports_staging_uri)(
+                source_table_uri, team_id=inputs.team_id
+            )
 
         # Get partition column from Delta metadata (source of truth)
         partition_column = await database_sync_to_async(_detect_data_imports_partition_column)(
@@ -281,6 +303,8 @@ async def prepare_data_imports_ducklake_metadata_activity(
                 ducklake_table_name=duckgres_data_imports_table_name(schema),
                 verification_queries=list(get_data_imports_verification_queries(normalized_name)),
                 source_partition_column=partition_column,
+                prepared_source_uri=prepared_source_uri,
+                landing_uri=landing_uri,
                 staging_uri=staging_uri,
             )
         )
@@ -289,7 +313,7 @@ async def prepare_data_imports_ducklake_metadata_activity(
 
 
 @activity.defn
-def copy_data_imports_to_ducklake_activity(inputs: DuckLakeCopyDataImportsActivityInputs) -> None:
+def copy_data_imports_to_ducklake_activity(inputs: DuckLakeCopyDataImportsActivityInputs) -> bool:
     """Copy a single data imports schema's Delta snapshot into DuckLake."""
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind(model_label=inputs.model.model_label, job_id=inputs.job_id)
@@ -302,13 +326,15 @@ def copy_data_imports_to_ducklake_activity(inputs: DuckLakeCopyDataImportsActivi
     heartbeater = HeartbeaterSync(details=("ducklake_copy", inputs.model.model_label), logger=logger)
     with heartbeater:
         if is_dev_mode():
-            _copy_data_imports_via_duckdb(inputs, logger)
-        else:
-            _copy_data_imports_via_duckgres(inputs, logger)
+            return _copy_data_imports_via_duckdb(inputs, logger)
+        return _copy_data_imports_via_duckgres(inputs, logger)
 
 
-def _copy_data_imports_via_duckdb(inputs: DuckLakeCopyDataImportsActivityInputs, logger: typing.Any) -> None:
+def _copy_data_imports_via_duckdb(inputs: DuckLakeCopyDataImportsActivityInputs, logger: typing.Any) -> bool:
     """Create the DuckLake table directly from Delta using the local DuckDB client."""
+    if inputs.model.prepared_source_uri and inputs.model.landing_uri:
+        return _copy_prepared_data_imports_via_duckdb(inputs, logger)
+
     alias = "ducklake"
     with duckdb.connect() as conn:
         config = get_config()
@@ -330,9 +356,10 @@ def _copy_data_imports_via_duckdb(inputs: DuckLakeCopyDataImportsActivityInputs,
             [inputs.model.source_table_uri],
         )
         logger.info("Successfully materialized DuckLake table", ducklake_table=qualified_table)
+    return True
 
 
-def _copy_data_imports_via_duckgres(inputs: DuckLakeCopyDataImportsActivityInputs, logger: typing.Any) -> None:
+def _copy_data_imports_via_duckgres(inputs: DuckLakeCopyDataImportsActivityInputs, logger: typing.Any) -> bool:
     """Stage Delta files and create the DuckLake table via duckgres."""
     org_id = _get_org_id_for_team(inputs.team_id)
     server = get_duckgres_server_for_organization(org_id)
@@ -341,6 +368,8 @@ def _copy_data_imports_via_duckgres(inputs: DuckLakeCopyDataImportsActivityInput
     bucket = server.bucket
     if not bucket:
         raise ApplicationError(f"No S3 bucket configured for team {inputs.team_id}", non_retryable=True)
+    if inputs.model.prepared_source_uri and inputs.model.landing_uri:
+        return _copy_prepared_data_imports_via_duckgres(inputs, logger, server)
     if not inputs.model.staging_uri:
         raise ApplicationError(f"No staging_uri for model {inputs.model.model_label}", non_retryable=True)
 
@@ -372,6 +401,181 @@ def _copy_data_imports_via_duckgres(inputs: DuckLakeCopyDataImportsActivityInput
             [inputs.model.staging_uri],
         )
         logger.info("Successfully materialized DuckLake table via duckgres", ducklake_table=table)
+    return True
+
+
+def _copy_prepared_parquet_files(source_uri: str, landing_uri: str) -> list[str]:
+    """Copy prepared Parquet objects byte-for-byte, preserving their relative keys."""
+    source_prefix = source_uri.removeprefix("s3://").rstrip("/")
+    landing_prefix = landing_uri.removeprefix("s3://").rstrip("/")
+    s3 = get_s3_client()
+    found = s3.find(source_prefix)
+    source_paths = list(found.keys()) if isinstance(found, dict) else list(found)
+    parquet_paths = sorted(path for path in source_paths if str(path).lower().endswith(".parquet"))
+    if not parquet_paths:
+        raise ApplicationError(f"No prepared Parquet files found under {source_uri}", non_retryable=True)
+
+    landing_paths: list[str] = []
+    for source_path_value in parquet_paths:
+        source_path = str(source_path_value).removeprefix("s3://")
+        relative_path = source_path.removeprefix(f"{source_prefix}/")
+        if relative_path == source_path or relative_path.startswith("../"):
+            raise ApplicationError(f"Prepared file escaped source prefix: {source_path}", non_retryable=True)
+        landing_path = f"{landing_prefix}/{relative_path}"
+        s3.copy(source_path, landing_path)
+        landing_paths.append(f"s3://{landing_path}")
+
+    return landing_paths
+
+
+def _data_imports_shadow_table_name(inputs: DuckLakeCopyDataImportsActivityInputs) -> str:
+    schema_fragment = re.sub(r"[^A-Za-z0-9]", "", inputs.model.source_schema_id)[:8]
+    job_fragment = re.sub(r"[^A-Za-z0-9]", "", inputs.job_id)[:8]
+    return f"__ph_copy_{schema_fragment}_{job_fragment}"
+
+
+def _prepared_generation_is_current(inputs: DuckLakeCopyDataImportsActivityInputs) -> bool:
+    if not inputs.model.prepared_source_uri:
+        return False
+    try:
+        schema = ExternalDataSchema.objects.select_related("table").get(
+            id=inputs.model.source_schema_id,
+            team_id=inputs.team_id,
+        )
+    except ExternalDataSchema.DoesNotExist:
+        return False
+    return (
+        schema.table is not None
+        and schema.table.queryable_folder == inputs.model.prepared_source_uri.rsplit("/", 1)[-1]
+    )
+
+
+def _copy_prepared_data_imports_via_duckdb(inputs: DuckLakeCopyDataImportsActivityInputs, logger: typing.Any) -> bool:
+    alias = "ducklake"
+    assert inputs.model.prepared_source_uri is not None
+    assert inputs.model.landing_uri is not None
+    landing_paths = _copy_prepared_parquet_files(inputs.model.prepared_source_uri, inputs.model.landing_uri)
+    if not _prepared_generation_is_current(inputs):
+        logger.info("Skipping stale prepared Parquet generation", prepared_source_uri=inputs.model.prepared_source_uri)
+        return False
+
+    with duckdb.connect() as conn:
+        config = get_config()
+        configure_connection(conn)
+        ensure_ducklake_bucket_exists(config=config, team_id=inputs.team_id)
+        _attach_ducklake_catalog(conn, config, alias=alias)
+
+        schema = f"{alias}.{inputs.model.ducklake_schema_name}"
+        live_table = f"{schema}.{inputs.model.ducklake_table_name}"
+        shadow_name = _data_imports_shadow_table_name(inputs)
+        shadow_table = f"{schema}.{shadow_name}"
+        conn.execute("BEGIN")
+        try:
+            conn.execute(f"CREATE SCHEMA IF NOT EXISTS {schema}")
+            conn.execute(f"DROP TABLE IF EXISTS {shadow_table}")
+            conn.execute(
+                f"CREATE TABLE {shadow_table} AS "
+                "SELECT * FROM read_parquet(?, union_by_name=true, hive_partitioning=true) LIMIT 0",
+                [landing_paths],
+            )
+            if inputs.model.source_partition_column:
+                conn.execute(
+                    f"ALTER TABLE {shadow_table} SET PARTITIONED BY "
+                    f"({_quote_identifier(inputs.model.source_partition_column)})"
+                )
+            for landing_path in landing_paths:
+                conn.execute(
+                    f"CALL ducklake_add_data_files('{alias}', ?, ?, schema => ?, "
+                    "allow_missing => true, hive_partitioning => true)",
+                    [shadow_name, landing_path, inputs.model.ducklake_schema_name],
+                )
+            conn.execute(f"DROP TABLE IF EXISTS {live_table}")
+            conn.execute(f"ALTER TABLE {shadow_table} RENAME TO {_quote_identifier(inputs.model.ducklake_table_name)}")
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
+
+    logger.info(
+        "Copied and registered prepared Parquet files in DuckLake",
+        ducklake_table=live_table,
+        file_count=len(landing_paths),
+        landing_uri=inputs.model.landing_uri,
+    )
+    return True
+
+
+def _copy_prepared_data_imports_via_duckgres(
+    inputs: DuckLakeCopyDataImportsActivityInputs, logger: typing.Any, server: typing.Any
+) -> bool:
+    assert inputs.model.prepared_source_uri is not None
+    assert inputs.model.landing_uri is not None
+    landing_paths = _copy_prepared_parquet_files(inputs.model.prepared_source_uri, inputs.model.landing_uri)
+    if not _prepared_generation_is_current(inputs):
+        logger.info("Skipping stale prepared Parquet generation", prepared_source_uri=inputs.model.prepared_source_uri)
+        return False
+    schema_name = inputs.model.ducklake_schema_name
+    table_name = inputs.model.ducklake_table_name
+    shadow_name = _data_imports_shadow_table_name(inputs)
+    parquet_paths = psql.SQL("[{}]").format(psql.SQL(", ").join(psql.Literal(path) for path in landing_paths))
+
+    with connect_to_duckgres(server) as conn:
+        setup_duckgres_session(conn, extensions=("ducklake", "httpfs"))
+        with conn.transaction():
+            conn.execute(psql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(psql.Identifier(schema_name)))
+            conn.execute(
+                psql.SQL("DROP TABLE IF EXISTS {}.{}").format(
+                    psql.Identifier(schema_name), psql.Identifier(shadow_name)
+                )
+            )
+            conn.execute(
+                psql.SQL(
+                    "CREATE TABLE {}.{} AS SELECT * FROM "
+                    "read_parquet({}, union_by_name=true, hive_partitioning=true) LIMIT 0"
+                ).format(
+                    psql.Identifier(schema_name),
+                    psql.Identifier(shadow_name),
+                    parquet_paths,
+                )
+            )
+            if inputs.model.source_partition_column:
+                conn.execute(
+                    psql.SQL("ALTER TABLE {}.{} SET PARTITIONED BY ({})").format(
+                        psql.Identifier(schema_name),
+                        psql.Identifier(shadow_name),
+                        psql.Identifier(inputs.model.source_partition_column),
+                    )
+                )
+            for landing_path in landing_paths:
+                conn.execute(
+                    psql.SQL(
+                        "CALL ducklake_add_data_files({}, {}, {}, schema => {}, "
+                        "allow_missing => true, hive_partitioning => true)"
+                    ).format(
+                        psql.Literal("ducklake"),
+                        psql.Literal(shadow_name),
+                        psql.Literal(landing_path),
+                        psql.Literal(schema_name),
+                    )
+                )
+            conn.execute(
+                psql.SQL("DROP TABLE IF EXISTS {}.{}").format(psql.Identifier(schema_name), psql.Identifier(table_name))
+            )
+            conn.execute(
+                psql.SQL("ALTER TABLE {}.{} RENAME TO {}").format(
+                    psql.Identifier(schema_name),
+                    psql.Identifier(shadow_name),
+                    psql.Identifier(table_name),
+                )
+            )
+
+    logger.info(
+        "Copied and registered prepared Parquet files in DuckLake",
+        ducklake_table=f"{schema_name}.{table_name}",
+        file_count=len(landing_paths),
+        landing_uri=inputs.model.landing_uri,
+    )
+    return True
 
 
 @dataclasses.dataclass
@@ -404,6 +608,27 @@ def _data_imports_source_table_uri(schema: ExternalDataSchema) -> str:
     and surfaces as "No files in log segment".
     """
     return f"{settings.BUCKET_URL}/{schema.folder_path()}/{schema.normalized_s3_folder_name}"
+
+
+def _data_imports_prepared_source_uri(schema: ExternalDataSchema, queryable_folder: str) -> str:
+    """Resolve the exact prepared Parquet generation produced by this import job."""
+    if not queryable_folder or "/" in queryable_folder or queryable_folder in {".", ".."}:
+        raise ApplicationError(f"Invalid prepared queryable folder '{queryable_folder}'", non_retryable=True)
+    return f"{settings.BUCKET_URL}/{schema.folder_path()}/{queryable_folder}"
+
+
+def _resolve_data_imports_landing_uri(*, team_id: int, schema_id: str, job_id: str) -> str:
+    """Return a permanent, import-generation-specific prefix in the DuckLake bucket."""
+    if is_dev_mode():
+        bucket = get_config().get("DUCKLAKE_BUCKET")
+    else:
+        server = get_duckgres_server_by_team_org(team_id)
+        bucket = server.bucket if server is not None else None
+    if not bucket:
+        raise ApplicationError(f"No S3 bucket configured for team {team_id}", non_retryable=True)
+
+    safe_job_id = re.sub(r"[^A-Za-z0-9_-]", "_", str(job_id))
+    return f"s3://{bucket}/{DATA_IMPORTS_LANDING_PREFIX}/{team_id}/{schema_id}/{safe_job_id}"
 
 
 def _resolve_data_imports_staging_uri(source_uri: str, *, team_id: int) -> str | None:
@@ -511,8 +736,9 @@ def _verify_data_imports_ducklake_copy_via_duckdb(
             inputs,
             ducklake_table,
             format_values,
-            source_uri=inputs.model.source_table_uri,
+            source_uri=_data_imports_verification_source_uri(inputs.model),
             parameter_placeholder="?",
+            source_is_parquet=inputs.model.landing_uri is not None,
             logger=logger,
         )
 
@@ -524,7 +750,7 @@ def _verify_data_imports_ducklake_copy_via_duckgres(
     server = get_duckgres_server_for_organization(org_id)
     if server is None:
         raise ApplicationError(f"No DuckgresServer configured for team {inputs.team_id}", non_retryable=True)
-    if not inputs.model.staging_uri:
+    if not inputs.model.staging_uri and not inputs.model.landing_uri:
         raise ApplicationError(f"No staging_uri for model {inputs.model.model_label}", non_retryable=True)
 
     ducklake_table = f"{inputs.model.ducklake_schema_name}.{inputs.model.ducklake_table_name}"
@@ -536,17 +762,29 @@ def _verify_data_imports_ducklake_copy_via_duckgres(
     )
 
     with connect_to_duckgres(server) as conn:
-        setup_duckgres_session(conn)
-        create_staging_read_secret(conn, urlparse(inputs.model.staging_uri).netloc)
+        source_is_parquet = inputs.model.landing_uri is not None
+        if source_is_parquet:
+            setup_duckgres_session(conn, extensions=("ducklake", "httpfs"))
+        else:
+            setup_duckgres_session(conn)
+        if inputs.model.staging_uri:
+            create_staging_read_secret(conn, urlparse(inputs.model.staging_uri).netloc)
         return _run_data_imports_verification_checks(
             conn,
             inputs,
             ducklake_table,
             format_values,
-            source_uri=inputs.model.staging_uri,
+            source_uri=_data_imports_verification_source_uri(inputs.model),
             parameter_placeholder="%s",
+            source_is_parquet=source_is_parquet,
             logger=logger,
         )
+
+
+def _data_imports_verification_source_uri(model: DuckLakeCopyDataImportsMetadata) -> str:
+    if model.landing_uri:
+        return f"{model.landing_uri.rstrip('/')}/**/*.parquet"
+    return model.staging_uri or model.source_table_uri
 
 
 def _get_data_imports_verification_format_values(
@@ -573,12 +811,17 @@ def _run_data_imports_verification_checks(
     *,
     source_uri: str,
     parameter_placeholder: str,
+    source_is_parquet: bool,
     logger: typing.Any,
 ) -> list[DuckLakeCopyDataImportsVerificationResult]:
     results: list[DuckLakeCopyDataImportsVerificationResult] = []
 
     for query in inputs.model.verification_queries:
         rendered_sql = query.sql.format(**format_values)
+        if source_is_parquet:
+            rendered_sql = rendered_sql.replace(
+                "delta_scan(?)", "read_parquet(?, union_by_name=true, hive_partitioning=true)"
+            )
         if parameter_placeholder != "?":
             rendered_sql = _replace_duckdb_parameter_placeholders(rendered_sql, parameter_placeholder)
         params = [
@@ -674,6 +917,7 @@ def _run_data_imports_verification_checks(
         inputs,
         source_uri_override=source_uri,
         parameter_placeholder=parameter_placeholder,
+        source_is_parquet=source_is_parquet,
     )
     if schema_result:
         results.append(schema_result)
@@ -684,6 +928,7 @@ def _run_data_imports_verification_checks(
         inputs,
         source_uri_override=source_uri,
         parameter_placeholder=parameter_placeholder,
+        source_is_parquet=source_is_parquet,
     )
     if partition_result:
         results.append(partition_result)
@@ -726,11 +971,17 @@ def _run_data_imports_schema_verification(
     *,
     source_uri_override: str | None = None,
     parameter_placeholder: str = "?",
+    source_is_parquet: bool = False,
 ) -> DuckLakeCopyDataImportsVerificationResult | None:
-    """Compare schema between Delta source and DuckLake table."""
+    """Compare schema between the copied source files and DuckLake table."""
     effective_source_uri = source_uri_override or inputs.model.source_table_uri
     try:
-        source_schema = _fetch_delta_schema(conn, effective_source_uri, parameter_placeholder=parameter_placeholder)
+        source_schema = _fetch_source_schema(
+            conn,
+            effective_source_uri,
+            parameter_placeholder=parameter_placeholder,
+            source_is_parquet=source_is_parquet,
+        )
         ducklake_schema = _fetch_schema(conn, ducklake_table)
     except Exception as exc:
         return DuckLakeCopyDataImportsVerificationResult(
@@ -767,6 +1018,7 @@ def _run_data_imports_partition_verification(
     *,
     source_uri_override: str | None = None,
     parameter_placeholder: str = "?",
+    source_is_parquet: bool = False,
 ) -> DuckLakeCopyDataImportsVerificationResult | None:
     """Verify partition counts match between source and DuckLake."""
     effective_source_uri = source_uri_override or inputs.model.source_table_uri
@@ -775,7 +1027,12 @@ def _run_data_imports_partition_verification(
         return None
 
     # Get partition column type from Delta schema directly
-    source_schema = _fetch_delta_schema(conn, effective_source_uri, parameter_placeholder=parameter_placeholder)
+    source_schema = _fetch_source_schema(
+        conn,
+        effective_source_uri,
+        parameter_placeholder=parameter_placeholder,
+        source_is_parquet=source_is_parquet,
+    )
     partition_column_type = _get_column_type_from_schema(source_schema, partition_column)
     if partition_column_type is None:
         # Partition column doesn't exist in Delta schema - skip verification
@@ -787,10 +1044,15 @@ def _run_data_imports_partition_verification(
         )
 
     bucket_expr = _build_partition_bucket_expression(partition_column, partition_column_type)
+    source_scan = (
+        f"read_parquet({parameter_placeholder}, union_by_name=true, hive_partitioning=true)"
+        if source_is_parquet
+        else f"delta_scan({parameter_placeholder})"
+    )
     sql = f"""
         WITH source AS (
             SELECT {bucket_expr} AS bucket, count(*) AS cnt
-            FROM delta_scan({parameter_placeholder})
+            FROM {source_scan}
             GROUP BY 1
         ),
         ducklake AS (
@@ -844,6 +1106,22 @@ def _fetch_delta_schema(
     """Fetch schema from a Delta table."""
     cursor = conn.execute(
         f"SELECT * FROM delta_scan({parameter_placeholder}) LIMIT 0",
+        [source_uri],
+    )
+    return _schema_from_cursor_description(cursor)
+
+
+def _fetch_source_schema(
+    conn: _VerificationConnection,
+    source_uri: str,
+    *,
+    parameter_placeholder: str = "?",
+    source_is_parquet: bool = False,
+) -> list[tuple[str, str]]:
+    if not source_is_parquet:
+        return _fetch_delta_schema(conn, source_uri, parameter_placeholder=parameter_placeholder)
+    cursor = conn.execute(
+        f"SELECT * FROM read_parquet({parameter_placeholder}, union_by_name=true, hive_partitioning=true) LIMIT 0",
         [source_uri],
     )
     return _schema_from_cursor_description(cursor)
@@ -949,6 +1227,7 @@ class DuckLakeCopyDataImportsWorkflow(PostHogWorkflow):
             team_id=loaded["team_id"],
             job_id=loaded["job_id"],
             schema_ids=schema_ids,
+            prepared_queryable_folders=loaded.get("prepared_queryable_folders", {}),
         )
 
     @workflow.run
@@ -989,7 +1268,7 @@ class DuckLakeCopyDataImportsWorkflow(PostHogWorkflow):
                 activity_inputs = DuckLakeCopyDataImportsActivityInputs(
                     team_id=inputs.team_id, job_id=inputs.job_id, model=model
                 )
-                await workflow.execute_activity(
+                copy_applied = await workflow.execute_activity(
                     copy_data_imports_to_ducklake_activity,
                     activity_inputs,
                     # TODO: Adjust timeouts based on table size?
@@ -997,6 +1276,10 @@ class DuckLakeCopyDataImportsWorkflow(PostHogWorkflow):
                     heartbeat_timeout=dt.timedelta(minutes=2),
                     retry_policy=RetryPolicy(maximum_attempts=2),
                 )
+
+                if copy_applied is False:
+                    logger.info("Skipped a stale prepared Parquet generation", model_label=model.model_label)
+                    continue
 
                 if model.staging_uri:
                     pending_staging_cleanup.append(model.staging_uri)

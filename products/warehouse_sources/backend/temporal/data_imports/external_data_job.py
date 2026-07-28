@@ -691,14 +691,25 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
             # Start DuckLake copy workflow as a child (fire-and-forget)
             try:
+                prepared_queryable_folder = pipeline_result.get("prepared_queryable_folder")
+                copy_inputs = DataImportsDuckLakeCopyInputs(
+                    team_id=inputs.team_id,
+                    job_id=job_id,
+                    schema_ids=[inputs.external_data_schema_id],
+                )
+                copy_workflow_id = f"ducklake-copy-data-imports-{inputs.team_id}-{inputs.external_data_schema_id}"
+                if workflow.patched("data-imports-ducklake-prepared-parquet-v1"):
+                    copy_inputs.prepared_queryable_folders = (
+                        {str(inputs.external_data_schema_id): prepared_queryable_folder}
+                        if prepared_queryable_folder
+                        else {}
+                    )
+                    copy_workflow_id = f"{copy_workflow_id}-{job_id}"
+
                 await workflow.start_child_workflow(
                     DuckLakeCopyDataImportsWorkflow.run,
-                    DataImportsDuckLakeCopyInputs(
-                        team_id=inputs.team_id,
-                        job_id=job_id,
-                        schema_ids=[inputs.external_data_schema_id],
-                    ),
-                    id=f"ducklake-copy-data-imports-{inputs.team_id}-{inputs.external_data_schema_id}",
+                    copy_inputs,
+                    id=copy_workflow_id,
                     task_queue=settings.DUCKLAKE_TASK_QUEUE,
                     parent_close_policy=workflow.ParentClosePolicy.ABANDON,
                 )

@@ -59,8 +59,11 @@ Every copy is written to a deterministic schema inside DuckLake. Each workflow n
 - **Schema**: `posthog_data_imports_team_<team_id>`
 - **Table**: `<source_type>_<prefix>_<normalized_name>` (prefix is user-defined on the external data source)
 - **Example**: `ducklake.posthog_data_imports_team_123.stripe_prod_invoices`
+- **Registered files**: `s3://<ducklake-bucket>/data_imports/<team_id>/<schema_id>/<job_id>/<prepared-relative-path>`
 
-Re-running a copy simply overwrites the same table. Choose the bucket so its lifecycle/replication policies fit that structure.
+Each completed import creates a timestamped prepared Parquet snapshot in the data warehouse bucket. The copy workflow copies those objects directly into the DuckLake bucket, preserving Hive partition directories, registers the destination objects with `ducklake_add_data_files`, and swaps a shadow table into the stable table name. Each import job gets its own object prefix and child workflow ID, so a later sync does not append into the previous snapshot.
+
+The registered objects are permanent DuckLake data files, not staging files. Old generations remain reachable through DuckLake snapshots until snapshot expiration and old-file cleanup make them eligible for object deletion. Choose the bucket lifecycle policy with that retention behavior in mind.
 
 ## Required permissions
 
@@ -69,7 +72,7 @@ Temporal workers must be able to:
 1. Read from the existing PostHog object storage bucket where Delta tables live (already required for the modeling pipeline).
 2. Read/write/delete within the DuckLake data bucket referenced by `DUCKLAKE_BUCKET`.
 
-For AWS S3, grant the worker role at least `s3:ListBucket`, `s3:GetObject`, `s3:PutObject`, and `s3:DeleteObject` on the DuckLake bucket/prefix (plus `s3:CreateBucket` if you want local MinIO-style auto-creation). For MinIO, reuse the same access/secret keys configured in the `DUCKLAKE_*` variables and ensure they have full access to the DuckLake bucket.
+For AWS S3, grant the worker role at least `s3:ListBucket`, `s3:GetObject`, `s3:PutObject`, and `s3:DeleteObject` on the DuckLake bucket/prefix (plus `s3:CreateBucket` for local auto-creation). Local development uses the configured SeaweedFS object store and the `DUCKLAKE_*` access keys.
 
 ## Local testing (dev)
 
@@ -78,7 +81,7 @@ Follow these checklists to exercise the DuckLake copy workflows on a local check
 ### Testing Data Modeling workflow
 
 1. **Start the dev stack**
-   Run `hogli start` (or `bin/start`) so Postgres, MinIO, Temporal, and all DuckLake defaults are up. Make sure the `ducklake-data-modeling-copy-workflow` feature flag is enabled for the team you plan to use.
+   Run `hogli start` (or `bin/start`) so Postgres, SeaweedFS, Temporal, and all DuckLake defaults are up. Make sure the `ducklake-data-modeling-copy-workflow` feature flag is enabled for the team you plan to use.
 
 2. **Trigger a model materialization from the app**
    In the PostHog UI, open Data Warehouse → Views, pick (or create) a view, open the Materialization section, enable it if needed, and click **Sync now**. This schedules the `data-modeling-run` workflow for that team/view.
@@ -119,7 +122,7 @@ Follow these checklists to exercise the DuckLake copy workflows on a local check
 ### Testing Data Imports workflow
 
 1. **Start the dev stack**
-   Run `hogli start` (or `bin/start`) so Postgres, MinIO, Temporal, and all DuckLake defaults are up. Make sure the `ducklake-data-imports-copy-workflow` feature flag is enabled for the team you plan to use.
+   Run `hogli start` (or `bin/start`) so Postgres, SeaweedFS, Temporal, and all DuckLake defaults are up. Make sure the `ducklake-data-imports-copy-workflow` feature flag is enabled for the team you plan to use.
 
 2. **Trigger a data import sync from the app**
    In the PostHog UI, open Data Warehouse → Sources, connect a source (e.g., Stripe, Hubspot), select the schemas to sync, and click **Sync**. This schedules the `external-data-job` workflow.

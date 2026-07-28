@@ -69,7 +69,12 @@ class _FakeVerificationConnection:
 @pytest.mark.asyncio
 async def test_data_imports_ducklake_copy_inputs_round_trip_serialization():
     schema_id = uuid.uuid4()
-    inputs = DataImportsDuckLakeCopyInputs(team_id=1, job_id="job-123", schema_ids=[schema_id])
+    inputs = DataImportsDuckLakeCopyInputs(
+        team_id=1,
+        job_id="job-123",
+        schema_ids=[schema_id],
+        prepared_queryable_folders={str(schema_id): "customers__query_1234567890_abcdef12"},
+    )
 
     data_converter = temporalio.converter.default()
     encoded = await data_converter.encode([inputs])
@@ -78,6 +83,7 @@ async def test_data_imports_ducklake_copy_inputs_round_trip_serialization():
     assert decoded[0].team_id == inputs.team_id
     assert decoded[0].job_id == inputs.job_id
     assert str(decoded[0].schema_ids[0]) == str(schema_id)
+    assert decoded[0].prepared_queryable_folders == inputs.prepared_queryable_folders
 
 
 @pytest.mark.asyncio
@@ -232,7 +238,13 @@ async def test_prepare_data_imports_ducklake_metadata_activity_basic(ateam, monk
         },
     )
 
-    inputs = DataImportsDuckLakeCopyInputs(team_id=ateam.id, job_id="job-123", schema_ids=[schema.id])
+    prepared_folder = "customers__query_1234567890_abcdef12"
+    inputs = DataImportsDuckLakeCopyInputs(
+        team_id=ateam.id,
+        job_id="job-123",
+        schema_ids=[schema.id],
+        prepared_queryable_folders={str(schema.id): prepared_folder},
+    )
 
     result = await prepare_data_imports_ducklake_metadata_activity(inputs)
 
@@ -242,6 +254,10 @@ async def test_prepare_data_imports_ducklake_metadata_activity_basic(ateam, monk
     assert metadata.ducklake_schema_name == f"posthog_data_imports_team_{ateam.id}"
     assert metadata.ducklake_table_name == "postgres_customers"
     assert metadata.source_partition_column == "created_at"
+    folder_path = await database_sync_to_async(schema.folder_path)()
+    assert metadata.prepared_source_uri == f"{settings.BUCKET_URL}/{folder_path}/{prepared_folder}"
+    assert metadata.landing_uri == f"s3://ducklake-dev/data_imports/{ateam.id}/{schema.id}/job-123"
+    assert metadata.staging_uri is None
 
 
 @pytest.mark.asyncio
@@ -402,6 +418,46 @@ def _create_mock_server():
     mock_server.catalog_password = "password"
     mock_server.bucket = "test-bucket"
     return mock_server
+
+
+def test_copy_prepared_parquet_files_preserves_relative_partition_paths(monkeypatch):
+    class FakeS3:
+        def __init__(self) -> None:
+            self.copies: list[tuple[str, str]] = []
+
+        def find(self, prefix: str) -> list[str]:
+            assert prefix == "source/team_1/customers__query_123_abcdef12"
+            return [
+                f"{prefix}/_ph_partition_key=2026-07/part-1.parquet",
+                f"{prefix}/part-2.PARQUET",
+                f"{prefix}/_delta_log/000.json",
+            ]
+
+        def copy(self, source: str, destination: str) -> None:
+            self.copies.append((source, destination))
+
+    s3 = FakeS3()
+    monkeypatch.setattr(ducklake_module, "get_s3_client", lambda: s3)
+
+    landed = ducklake_module._copy_prepared_parquet_files(
+        "s3://source/team_1/customers__query_123_abcdef12",
+        "s3://ducklake/data_imports/1/schema/job",
+    )
+
+    assert landed == [
+        "s3://ducklake/data_imports/1/schema/job/_ph_partition_key=2026-07/part-1.parquet",
+        "s3://ducklake/data_imports/1/schema/job/part-2.PARQUET",
+    ]
+    assert s3.copies == [
+        (
+            "source/team_1/customers__query_123_abcdef12/_ph_partition_key=2026-07/part-1.parquet",
+            "ducklake/data_imports/1/schema/job/_ph_partition_key=2026-07/part-1.parquet",
+        ),
+        (
+            "source/team_1/customers__query_123_abcdef12/part-2.PARQUET",
+            "ducklake/data_imports/1/schema/job/part-2.PARQUET",
+        ),
+    ]
 
 
 def test_resolve_data_imports_staging_uri_returns_none_in_dev(monkeypatch):
@@ -621,6 +677,105 @@ def test_copy_data_imports_to_ducklake_activity_via_duckgres(monkeypatch):
     assert "s3://test-bucket/__posthog_staging/team_1/customers" in str(table_call)
 
 
+def test_copy_prepared_data_imports_copies_and_registers_files_before_atomic_swap(monkeypatch):
+    mock_conn = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+    mock_conn.transaction.return_value.__enter__ = MagicMock()
+    mock_conn.transaction.return_value.__exit__ = MagicMock(return_value=False)
+
+    mock_heartbeater = MagicMock()
+    mock_heartbeater.__enter__ = MagicMock(return_value=mock_heartbeater)
+    mock_heartbeater.__exit__ = MagicMock(return_value=False)
+    monkeypatch.setattr(ducklake_module, "HeartbeaterSync", MagicMock(return_value=mock_heartbeater))
+    monkeypatch.setattr(ducklake_module, "is_dev_mode", MagicMock(return_value=False))
+    monkeypatch.setattr(ducklake_module, "_get_org_id_for_team", MagicMock(return_value="org-123"))
+    monkeypatch.setattr(
+        ducklake_module, "get_duckgres_server_for_organization", MagicMock(return_value=_create_mock_server())
+    )
+    monkeypatch.setattr(ducklake_module, "connect_to_duckgres", MagicMock(return_value=mock_conn))
+    mock_setup_session = MagicMock()
+    monkeypatch.setattr(ducklake_module, "setup_duckgres_session", mock_setup_session)
+    copied_paths = [
+        "s3://test-bucket/data_imports/1/schema-123/job-123/_ph_partition_key=2026-07/a.parquet",
+        "s3://test-bucket/data_imports/1/schema-123/job-123/_ph_partition_key=2026-08/b.parquet",
+    ]
+    mock_copy = MagicMock(return_value=copied_paths)
+    monkeypatch.setattr(ducklake_module, "_copy_prepared_parquet_files", mock_copy)
+    monkeypatch.setattr(ducklake_module, "_prepared_generation_is_current", MagicMock(return_value=True))
+    monkeypatch.setattr(
+        ducklake_module,
+        "stage_delta_table",
+        MagicMock(side_effect=AssertionError("prepared Parquet must not use Delta staging")),
+    )
+
+    metadata = DuckLakeCopyDataImportsMetadata(
+        model_label="postgres_customers",
+        source_schema_id="schema-123",
+        source_schema_name="customers",
+        source_normalized_name="customers",
+        source_table_uri="s3://source/team_1/customers",
+        ducklake_schema_name="posthog_data_imports_team_1",
+        ducklake_table_name="postgres_customers",
+        source_partition_column="_ph_partition_key",
+        prepared_source_uri="s3://source/team_1/customers__query_123_abcdef12",
+        landing_uri="s3://test-bucket/data_imports/1/schema-123/job-123",
+    )
+
+    copy_data_imports_to_ducklake_activity(
+        DuckLakeCopyDataImportsActivityInputs(team_id=1, job_id="job-123", model=metadata)
+    )
+
+    mock_copy.assert_called_once_with(metadata.prepared_source_uri, metadata.landing_uri)
+    mock_setup_session.assert_called_once_with(mock_conn, extensions=("ducklake", "httpfs"))
+    executed = [str(call.args[0]) for call in mock_conn.execute.call_args_list]
+    registration_indexes = [index for index, query in enumerate(executed) if "ducklake_add_data_files" in query]
+    drop_live_index = next(
+        index
+        for index, query in enumerate(executed)
+        if "DROP TABLE IF EXISTS" in query and "postgres_customers" in query
+    )
+    rename_index = next(index for index, query in enumerate(executed) if "RENAME TO" in query)
+
+    assert len(registration_indexes) == len(copied_paths)
+    assert max(registration_indexes) < drop_live_index < rename_index
+    assert any("hive_partitioning" in query for query in executed)
+    assert any("SET PARTITIONED BY" in query for query in executed)
+
+
+def test_copy_prepared_data_imports_does_not_swap_a_stale_generation(monkeypatch):
+    monkeypatch.setattr(
+        ducklake_module,
+        "_copy_prepared_parquet_files",
+        MagicMock(return_value=["s3://test-bucket/data_imports/1/schema/job/file.parquet"]),
+    )
+    monkeypatch.setattr(ducklake_module, "_prepared_generation_is_current", MagicMock(return_value=False))
+    monkeypatch.setattr(
+        ducklake_module,
+        "connect_to_duckgres",
+        MagicMock(side_effect=AssertionError("a stale generation must not update the catalog")),
+    )
+    metadata = DuckLakeCopyDataImportsMetadata(
+        model_label="postgres_customers",
+        source_schema_id="schema-123",
+        source_schema_name="customers",
+        source_normalized_name="customers",
+        source_table_uri="s3://source/team_1/customers",
+        ducklake_schema_name="posthog_data_imports_team_1",
+        ducklake_table_name="postgres_customers",
+        prepared_source_uri="s3://source/team_1/customers__query_123_abcdef12",
+        landing_uri="s3://test-bucket/data_imports/1/schema-123/job-123",
+    )
+
+    applied = ducklake_module._copy_prepared_data_imports_via_duckgres(
+        DuckLakeCopyDataImportsActivityInputs(team_id=1, job_id="job-123", model=metadata),
+        MagicMock(),
+        _create_mock_server(),
+    )
+
+    assert applied is False
+
+
 def test_verify_data_imports_ducklake_copy_activity_returns_empty_when_no_queries(monkeypatch):
     mock_heartbeater = MagicMock()
     mock_heartbeater.__enter__ = MagicMock(return_value=mock_heartbeater)
@@ -723,6 +878,7 @@ def test_verify_data_imports_ducklake_copy_activity_uses_duckdb_in_dev(monkeypat
         ducklake_schema_name="posthog_data_imports_team_1",
         ducklake_table_name="postgres_customers_abc12345",
         verification_queries=[query],
+        landing_uri="s3://ducklake-dev/data_imports/1/schema-123/job-123",
     )
     inputs = DuckLakeCopyDataImportsActivityInputs(team_id=1, job_id="job-123", model=metadata)
 
@@ -734,8 +890,8 @@ def test_verify_data_imports_ducklake_copy_activity_uses_duckdb_in_dev(monkeypat
     mock_attach_catalog.assert_called_once_with(mock_conn, {"DUCKLAKE_BUCKET": "ducklake-dev"}, alias="ducklake")
     executed_sql, executed_params = mock_conn.execute.call_args.args
     assert "ducklake.posthog_data_imports_team_1.postgres_customers_abc12345" in executed_sql
-    assert "delta_scan(?)" in executed_sql
-    assert executed_params == ["s3://bucket/team_1/customers"]
+    assert "read_parquet(?, union_by_name=true, hive_partitioning=true)" in executed_sql
+    assert executed_params == ["s3://ducklake-dev/data_imports/1/schema-123/job-123/**/*.parquet"]
 
 
 def test_verify_data_imports_ducklake_copy_activity_executes_configured_query(monkeypatch):
@@ -1058,7 +1214,8 @@ def test_ducklake_copy_data_imports_workflow_parse_inputs():
     json_input = f"""{{
         "team_id": 1,
         "job_id": "job-123",
-        "schema_ids": ["{schema_id}"]
+        "schema_ids": ["{schema_id}"],
+        "prepared_queryable_folders": {{"{schema_id}": "customers__query_123_abcdef12"}}
     }}"""
 
     inputs = DuckLakeCopyDataImportsWorkflow.parse_inputs([json_input])
@@ -1067,6 +1224,7 @@ def test_ducklake_copy_data_imports_workflow_parse_inputs():
     assert inputs.job_id == "job-123"
     assert len(inputs.schema_ids) == 1
     assert inputs.schema_ids[0] == schema_id
+    assert inputs.prepared_queryable_folders == {str(schema_id): "customers__query_123_abcdef12"}
 
 
 def test_copy_data_imports_to_ducklake_activity_raises_when_no_catalog(monkeypatch):
