@@ -9,8 +9,10 @@ import {
     LemonInputSelect,
     LemonModal,
     LemonSelect,
+    LemonSelectOption,
     LemonSelectProps,
     LemonTable,
+    LemonTag,
     Tooltip,
 } from '@posthog/lemon-ui'
 
@@ -20,7 +22,7 @@ import { UserSelectItem } from 'lib/components/UserSelectItem'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { ProfileBubbles, ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { getAccessControlTooltip } from 'lib/utils/accessControlUtils'
+import { getAccessControlTooltip, pluralizeResource } from 'lib/utils/accessControlUtils'
 import { capitalizeFirstLetter, fullName } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -37,6 +39,8 @@ import {
 } from '~/types'
 
 import { AccessControlLogicProps, accessControlLogic } from './accessControlLogic'
+import { humanizeAccessControlLevel } from './ResourceAccessControlsV2/helpers'
+import { ScopeIcon } from './ResourceAccessControlsV2/ScopeIcon'
 
 export function AccessControlObject(props: AccessControlLogicProps): JSX.Element | null {
     const { canEditAccessControls, humanReadableResource, resource } = useValues(accessControlLogic(props))
@@ -71,6 +75,7 @@ export function AccessControlObject(props: AccessControlLogicProps): JSX.Element
                         <div className="deprecated-space-y-2">
                             <h3>Default access to {suffix}</h3>
                             <AccessControlObjectDefaults />
+                            <AccessControlObjectInheritedAccess />
                         </div>
 
                         <AccessControlObjectUsers />
@@ -87,26 +92,98 @@ export function AccessControlObject(props: AccessControlLogicProps): JSX.Element
 }
 
 function AccessControlObjectDefaults(): JSX.Element | null {
-    const { accessControlDefault, accessControlDefaultOptions, accessControlsLoading, canEditAccessControls } =
-        useValues(accessControlLogic)
+    const {
+        accessControlDefault,
+        accessControlDefaultOptions,
+        accessControls,
+        accessControlsLoading,
+        canEditAccessControls,
+    } = useValues(accessControlLogic)
     const { updateAccessControlDefault } = useActions(accessControlLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
 
     return (
-        <LemonSelect
+        <LemonSelect<AccessControlLevel | null>
             placeholder="Loading..."
-            value={accessControlDefault?.access_level ?? undefined}
+            value={(accessControlDefault?.access_level as AccessControlLevel | null) ?? null}
             onChange={(newValue) => {
                 guardAvailableFeature(AvailableFeature.ACCESS_CONTROL, () => {
-                    updateAccessControlDefault(newValue as AccessControlLevel)
+                    updateAccessControlDefault(newValue)
                 })
             }}
             disabledReason={
                 accessControlsLoading ? 'Loading…' : !canEditAccessControls ? 'You cannot edit this' : undefined
             }
             dropdownMatchSelectWidth={false}
-            options={accessControlDefaultOptions}
+            // Before the controls land nothing matches the null value, so the placeholder shows
+            // instead of a misleading "No override"
+            options={
+                accessControls
+                    ? [
+                          { value: null, label: 'No override' },
+                          ...(accessControlDefaultOptions as LemonSelectOption<AccessControlLevel | null>[]),
+                      ]
+                    : []
+            }
         />
+    )
+}
+
+function AccessControlObjectInheritedAccess(): JSX.Element | null {
+    const {
+        accessControlDefault,
+        accessControlDefaultLevel,
+        accessControls,
+        humanReadableResource,
+        inheritedAccessRules,
+        inheritedResource,
+    } = useValues(accessControlLogic)
+
+    if (!accessControls || !inheritedResource) {
+        return null
+    }
+
+    const hasOverride = !!accessControlDefault
+    const resourceLabel = pluralizeResource(inheritedResource)
+
+    return (
+        <div className="p-3 rounded border border-border bg-surface-primary deprecated-space-y-2">
+            <div className="flex items-center gap-2">
+                <span className="text-lg flex items-center text-muted-alt">
+                    <ScopeIcon scope={inheritedResource} />
+                </span>
+                <h4 className="mb-0 font-semibold">Project access to {resourceLabel}</h4>
+                <LemonTag type={hasOverride ? 'muted' : 'success'}>{hasOverride ? 'Overridden' : 'In effect'}</LemonTag>
+            </div>
+            <p className="text-xs text-muted-alt mb-0">
+                {hasOverride
+                    ? `Select "No override" above to use these project-wide rules instead.`
+                    : `This ${humanReadableResource} has no override, so the project-wide rules apply.`}
+            </p>
+
+            {inheritedAccessRules.length ? (
+                <div className="flex flex-col gap-1">
+                    {inheritedAccessRules.map((rule) => (
+                        <div key={rule.key} className="flex items-center justify-between gap-2">
+                            <span className="text-sm">{rule.label}</span>
+                            <LemonTag type="default">{humanizeAccessControlLevel(rule.access_level)}</LemonTag>
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                <p className="text-xs mb-0">
+                    No project-wide rules are set for {resourceLabel}, so access falls back to{' '}
+                    {humanizeAccessControlLevel(
+                        (accessControlDefaultLevel as AccessControlLevel | null) ?? AccessControlLevel.Editor
+                    )}
+                    .
+                </p>
+            )}
+
+            <LemonButton type="secondary" size="xsmall" to={urls.settings('environment-access-control')} targetBlank>
+                Manage project access
+            </LemonButton>
+        </div>
     )
 }
 

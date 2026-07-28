@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from rest_framework import exceptions, serializers, status
 from rest_framework.decorators import action
@@ -14,6 +14,7 @@ from posthog.rbac.user_access_control import (
     ACCESS_CONTROL_LEVELS_RESOURCE,
     ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE,
     ACCESS_CONTROL_RESOURCES,
+    RESOURCE_INHERITANCE_MAP,
     AccessControlLevel,
     AccessSource,
     UserAccessControl,
@@ -283,20 +284,45 @@ class AccessControlViewSetMixin(_GenericViewSet):
         serializer = self._get_access_control_serializer(instance=access_controls, many=True)
         user_access_level = user_access_control.get_user_access_level(obj)
 
-        return Response(
-            {
-                "access_controls": serializer.data,
-                # NOTE: For resource level based controls we are always configuring resource level items
-                "available_access_levels": ACCESS_CONTROL_LEVELS_RESOURCE
-                if is_resource_level
-                else ordered_access_levels(resource),
-                "default_access_level": "editor" if is_resource_level else default_access_level(resource),
-                "minimum_access_level": minimum_access_level(resource) if not is_resource_level else "none",
-                "maximum_access_level": highest_access_level(resource) if not is_resource_level else "manager",
-                "user_access_level": user_access_level,
-                "user_can_edit_access_levels": user_access_control.check_can_modify_access_levels_for_object(obj),
-            }
-        )
+        payload: dict[str, Any] = {
+            "access_controls": serializer.data,
+            # NOTE: For resource level based controls we are always configuring resource level items
+            "available_access_levels": ACCESS_CONTROL_LEVELS_RESOURCE
+            if is_resource_level
+            else ordered_access_levels(resource),
+            "default_access_level": "editor" if is_resource_level else default_access_level(resource),
+            "minimum_access_level": minimum_access_level(resource) if not is_resource_level else "none",
+            "maximum_access_level": highest_access_level(resource) if not is_resource_level else "manager",
+            "user_access_level": user_access_level,
+            "user_can_edit_access_levels": user_access_control.check_can_modify_access_levels_for_object(obj),
+        }
+
+        if not is_resource_level:
+            # The project-wide rules this object falls back to when it carries no override of its own,
+            # so the UI can spell out what removing the override means. Follows
+            # RESOURCE_INHERITANCE_MAP because that's the resource the runtime check consults —
+            # a warehouse view is gated by the warehouse_objects rules, not by its own.
+            inherited_resource = self._inherited_resource(resource)
+            payload["inherited_resource"] = inherited_resource
+            payload["inherited_access_controls"] = (
+                self._get_access_control_serializer(
+                    instance=AccessControl.objects.filter(
+                        team=team, resource=inherited_resource, resource_id=None
+                    ).all(),
+                    many=True,
+                ).data
+                if inherited_resource
+                else []
+            )
+
+        return Response(payload)
+
+    @staticmethod
+    def _inherited_resource(resource: APIScopeObject) -> APIScopeObject | None:
+        """The resource whose project-wide rules gate `resource`, or None when it has none."""
+        if resource in ("project", "organization", "plugin"):
+            return None
+        return RESOURCE_INHERITANCE_MAP.get(resource, resource)
 
     def _get_users_with_access(self, request: Request):
         """

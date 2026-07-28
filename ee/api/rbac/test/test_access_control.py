@@ -10,6 +10,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rbac.user_access_control import AccessSource
+from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.utils import render_template
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -264,7 +265,41 @@ class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
             "user_can_edit_access_levels": True,
             "minimum_access_level": "none",
             "maximum_access_level": "manager",
+            "inherited_resource": "notebook",
+            "inherited_access_controls": [],
         }
+
+    def test_get_access_controls_includes_the_project_wide_rules_it_falls_back_to(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        role = Role.objects.create(name="Engineering", organization=self.organization)
+        for payload in [
+            {"resource": "notebook", "access_level": "viewer"},
+            {"resource": "notebook", "access_level": "editor", "role": str(role.id)},
+            # A rule on another resource must not leak into this notebook's fallback
+            {"resource": "dashboard", "access_level": "none"},
+        ]:
+            res = self._put_global_access_control(payload)
+            assert res.status_code == status.HTTP_200_OK, res.json()
+
+        res = self._get_access_controls()
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert res.json()["inherited_resource"] == "notebook"
+        assert {(ac["access_level"], ac["role"]) for ac in res.json()["inherited_access_controls"]} == {
+            ("viewer", None),
+            ("editor", str(role.id)),
+        }
+
+    def test_inherited_resource_follows_the_resource_it_actually_inherits_from(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        res = self._put_global_access_control({"resource": "session_recording", "access_level": "viewer"})
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        playlist = SessionRecordingPlaylist.objects.create(team=self.team, created_by=self.user, short_id="abc123")
+
+        res = self.client.get(f"/api/projects/@current/session_recording_playlists/{playlist.short_id}/access_controls")
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        # Playlists are gated by the session_recording rules, so that's what "no override" falls back to
+        assert res.json()["inherited_resource"] == "session_recording"
+        assert [ac["access_level"] for ac in res.json()["inherited_access_controls"]] == ["viewer"]
 
     def test_change_rejected_if_not_org_admin(self):
         self._org_membership(OrganizationMembership.Level.MEMBER)
