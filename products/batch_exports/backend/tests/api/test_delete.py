@@ -3,6 +3,7 @@ import datetime as dt
 
 import pytest
 from posthog.test.base import _create_event, flush_persons_and_events
+from unittest.mock import patch
 
 from django.test.client import Client as HttpClient
 
@@ -61,6 +62,36 @@ def test_delete_batch_export(client: HttpClient, temporal, organization, team, u
 
     with pytest.raises(RPCError):
         describe_schedule(temporal, batch_export_id)
+
+
+def test_delete_batch_export_pauses_schedule_first(client: HttpClient, temporal, organization, team, user):
+    destination_data = {
+        "type": "AwsS3",
+        "config": {
+            "bucket_name": "my-production-s3-bucket",
+            "region": "us-east-1",
+            "prefix": "posthog-events/",
+            "aws_access_key_id": "abc123",
+            "aws_secret_access_key": "secret",
+        },
+    }
+    batch_export_data = {
+        "name": "my-production-s3-bucket-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    client.force_login(user)
+
+    batch_export = create_batch_export_ok(client, team.pk, batch_export_data)
+    batch_export_id = batch_export["id"]
+
+    # Hold the Schedule open past the delete so we can observe the pause that would
+    # otherwise be invisible: deletion is the last step of the same request.
+    with patch("products.batch_exports.backend.service.batch_export_delete_schedule"):
+        delete_batch_export_ok(client, team.pk, batch_export_id)
+
+    assert describe_schedule(temporal, batch_export_id).schedule.state.paused is True
 
 
 @async_to_sync

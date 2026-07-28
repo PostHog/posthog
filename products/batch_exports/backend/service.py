@@ -738,7 +738,7 @@ def delete_batch_export(instance: BatchExport):
     instance.deleted = True
 
     try:
-        pause_batch_export(temporal, instance.id, note=f"Pausing due to delete request by team {instance.team_id}")
+        pause_batch_export(temporal, str(instance.pk), note=f"Pausing due to delete request by team {instance.team_id}")
     except BatchExportServiceRPCError:
         logger.exception(
             "Failed to pause batch export before deletion",

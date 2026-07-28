@@ -917,6 +917,8 @@ SELECT DISTINCT event FROM events where team_id = %(team_id)s AND event NOT IN [
 # Demo data
 #
 
+GET_EVENT_COUNT_FOR_TEAM = "SELECT count() AS count FROM events WHERE team_id = %(team_id)s"
+
 COPY_EVENTS_BETWEEN_TEAMS = COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.format(
     table_name=WRITABLE_EVENTS_DATA_TABLE(),
     columns_except_team_id="""uuid, event, properties, timestamp, distinct_id, elements_chain, created_at, person_id, person_created_at,

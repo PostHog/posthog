@@ -147,36 +147,39 @@ describe('Projects', { concurrent: false }, () => {
     describe('property-definition-update tool', () => {
         const updateTool = updatePropertyDefinitionTool()
 
+        // Event property definitions are derived from ingested data and the API has no create
+        // route, so the suite adopts one the seeded project already has instead of naming a
+        // specific property that may or may not have been inferred.
+        let propertyName: string
+
         beforeAll(async () => {
-            // Ensure the $browser property definition exists before running update tests.
-            // In a fresh test environment no events have been ingested, so property
-            // definitions don't exist yet. We create one via the API if missing.
-            const searchResult = await context.api.request<{ results: { name: string }[] }>({
+            const searchResult = await context.api.request<{ results: { name: string; virtual?: boolean }[] }>({
                 method: 'GET',
                 path: `/api/projects/${TEST_PROJECT_ID}/property_definitions/`,
-                query: { properties: '$browser', type: 'event' },
+                query: { type: 'event' },
             })
-            const exists = searchResult.results.some((def) => def.name === '$browser')
-            if (!exists) {
-                await context.api.request({
-                    method: 'POST',
-                    path: `/api/projects/${TEST_PROJECT_ID}/property_definitions/`,
-                    body: { name: '$browser', type: 1, is_numerical: false },
-                })
+            // Virtual properties are computed, not rows, so they can't be updated.
+            const candidates = searchResult.results.filter((def) => !def.virtual)
+            const chosen = candidates.find((def) => def.name === '$browser') ?? candidates[0]
+            if (!chosen) {
+                throw new Error(
+                    `Project ${TEST_PROJECT_ID} has no event property definitions to update. The seeded dataset should have inferred some from its events.`
+                )
             }
+            propertyName = chosen.name
         })
 
         it('should update property definition description', async () => {
             const testDescription = `Test description ${uuidv4()}`
             const result = await updateTool.handler(context, {
-                propertyName: '$browser',
+                propertyName,
                 type: 'event',
                 data: { description: testDescription },
             })
             const propertyDef = parseToolResponse(result)
 
             expect(propertyDef.description).toBe(testDescription)
-            expect(propertyDef.name).toBe('$browser')
+            expect(propertyDef.name).toBe(propertyName)
             // The definition-detail route is keyed by id, not name, so the link must carry the id
             expect(propertyDef.url).toContain(`/data-management/properties/${propertyDef.id}`)
         })
@@ -184,7 +187,7 @@ describe('Projects', { concurrent: false }, () => {
         it('should update property definition tags', async () => {
             const testTag = `test-tag-${uuidv4().slice(0, 8)}`
             const result = await updateTool.handler(context, {
-                propertyName: '$browser',
+                propertyName,
                 type: 'event',
                 data: { tags: [testTag] },
             })
@@ -195,7 +198,7 @@ describe('Projects', { concurrent: false }, () => {
 
         it('should update verified status', async () => {
             const result = await updateTool.handler(context, {
-                propertyName: '$browser',
+                propertyName,
                 type: 'event',
                 data: { verified: true },
             })
@@ -208,7 +211,7 @@ describe('Projects', { concurrent: false }, () => {
             const testDescription = `Multi-field test ${uuidv4()}`
             const testTag = `multi-tag-${uuidv4().slice(0, 8)}`
             const result = await updateTool.handler(context, {
-                propertyName: '$browser',
+                propertyName,
                 type: 'event',
                 data: {
                     description: testDescription,

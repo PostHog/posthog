@@ -35,6 +35,7 @@ class MatrixManager:
 
     _persons_created: int
     _person_distinct_ids_created: int
+    _events_created: int
 
     def __init__(self, matrix: Matrix, *, use_pre_save: bool = False, print_steps: bool = False):
         self.matrix = matrix
@@ -42,6 +43,7 @@ class MatrixManager:
         self.print_steps = print_steps
         self._persons_created = 0
         self._person_distinct_ids_created = 0
+        self._events_created = 0
 
     def ensure_account_and_save(
         self,
@@ -199,7 +201,7 @@ class MatrixManager:
         for sim_person in sim_persons:
             self._save_sim_person(data_team, sim_person)
         # We need to wait a bit for data just queued into Kafka to show up in CH
-        self._sleep_until_person_data_in_clickhouse(data_team.pk)
+        self._sleep_until_data_in_clickhouse(data_team.pk)
 
     @classmethod
     def _prepare_master_team(cls, *, ensure_blank_slate: bool = False) -> Team:
@@ -280,11 +282,11 @@ class MatrixManager:
                 )
             self._save_past_sim_events(team, subject.past_events)
 
-    @staticmethod
-    def _save_past_sim_events(team: Team, events: list[SimEvent]):
+    def _save_past_sim_events(self, team: Team, events: list[SimEvent]):
         """Past events are saved into ClickHouse right away (via Kafka of course)."""
         from posthog.models.event.util import create_event
 
+        self._events_created += len(events)
         for event in events:
             event_uuid = UUIDT(unix_time_ms=int(event.timestamp.timestamp() * 1000))
             create_event(
@@ -321,7 +323,15 @@ class MatrixManager:
 
         raw_create_group_ch(team.pk, type_index, key, properties, timestamp)
 
-    def _sleep_until_person_data_in_clickhouse(self, team_id: int):
+    def _sleep_until_data_in_clickhouse(self, team_id: int):
+        """Wait for everything we queued into Kafka to be readable in ClickHouse.
+
+        Events matter as much as persons here: `infer_taxonomy_for_team` derives event
+        definitions, event property definitions and event-property pairs by querying the
+        `events` table, so returning while events are still in flight silently produces a
+        demo project with an empty taxonomy.
+        """
+        from posthog.models.event.sql import GET_EVENT_COUNT_FOR_TEAM
         from posthog.models.person.sql import GET_PERSON_COUNT_FOR_TEAM, GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM
 
         MAX_WAIT_ITERATIONS = 240  # 240 * 0.5s = 120 seconds (increased from 60s for CI reliability)
@@ -330,34 +340,36 @@ class MatrixManager:
             person_distinct_id_count: int = sync_execute(GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM, {"team_id": team_id})[
                 0
             ][0]
+            event_count: int = sync_execute(GET_EVENT_COUNT_FOR_TEAM, {"team_id": team_id})[0][0]
             persons_ready = person_count >= self._persons_created
             person_distinct_ids_ready = person_distinct_id_count >= self._person_distinct_ids_created
+            events_ready = event_count >= self._events_created
             persons_progress = f"{'✔' if persons_ready else '✘'} {person_count}/{self._persons_created}"
             person_distinct_ids_progress = f"{'✔' if person_distinct_ids_ready else '✘'} {person_distinct_id_count}/{self._person_distinct_ids_created}"
-            if persons_ready and person_distinct_ids_ready:
+            events_progress = f"{'✔' if events_ready else '✘'} {event_count}/{self._events_created}"
+            progress = (
+                f"Persons: {persons_progress}. "
+                f"Person distinct IDs: {person_distinct_ids_progress}. "
+                f"Events: {events_progress}."
+            )
+            if persons_ready and person_distinct_ids_ready and events_ready:
                 if self.print_steps:
                     print(
-                        f"Source person data fully loaded into ClickHouse after {i * 0.5:.1f}s. "
-                        f"Persons: {persons_progress}. Person distinct IDs: {person_distinct_ids_progress}.\n"
+                        f"Source data fully loaded into ClickHouse after {i * 0.5:.1f}s. {progress}\n"
                         "Setting up project..."
                     )
                 break
             if self.print_steps:
-                print(
-                    "Waiting for person data to land in ClickHouse... "
-                    f"Persons: {persons_progress}. Person distinct IDs: {person_distinct_ids_progress}."
-                )
+                print(f"Waiting for data to land in ClickHouse... {progress}")
             elif i % 20 == 0 and i > 0:
-                print(
-                    f"Still waiting for ClickHouse sync... {i * 0.5:.0f}s elapsed. "
-                    f"Persons: {persons_progress}. Person distinct IDs: {person_distinct_ids_progress}."
-                )
+                print(f"Still waiting for ClickHouse sync... {i * 0.5:.0f}s elapsed. {progress}")
             sleep(0.5)
         else:
             raise TimeoutError(
-                f"Person data did not land in ClickHouse after {MAX_WAIT_ITERATIONS * 0.5}s. "
-                f"Expected {self._persons_created} persons and {self._person_distinct_ids_created} distinct IDs, "
-                f"got {person_count} persons and {person_distinct_id_count} distinct IDs."
+                f"Simulated data did not land in ClickHouse after {MAX_WAIT_ITERATIONS * 0.5}s. "
+                f"Expected {self._persons_created} persons, {self._person_distinct_ids_created} distinct IDs "
+                f"and {self._events_created} events, got {person_count} persons, "
+                f"{person_distinct_id_count} distinct IDs and {event_count} events."
             )
 
     @classmethod
