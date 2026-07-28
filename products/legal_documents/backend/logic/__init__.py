@@ -16,7 +16,7 @@ import structlog
 import posthoganalytics
 
 from posthog.cloud_utils import get_cached_instance_license
-from posthog.email import EmailMessage, is_email_available
+from posthog.email import EmailMessage, get_email_footer_context, is_email_available
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization, OrganizationMembership
@@ -249,6 +249,7 @@ def _send_baa_signed_ai_disabled_email(organization: Organization, document: Leg
             template_context={
                 "organization_name": organization.name,
                 "ai_settings_url": f"{settings.SITE_URL}/settings/organization-details#organization-ai-consent",
+                **get_email_footer_context(organization=organization),
             },
             use_http=True,
         )
