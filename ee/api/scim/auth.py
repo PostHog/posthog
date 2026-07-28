@@ -89,7 +89,7 @@ class SCIMBearerTokenAuthentication(BaseAuthentication):
 
 @dataclass(frozen=True)
 class ScimToken:
-    # `plain` is shown to the user once; only `hashed` is persisted.
+    # `plain` is shown to the user once. Only `hashed` is persisted.
     plain: str
     hashed: str
 
