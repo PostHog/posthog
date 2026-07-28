@@ -128,7 +128,7 @@ describe('DateFilter with a custom trigger', () => {
     })
 
     it('opens the date options from the rendered trigger', async () => {
-        const trigger = screen.getByRole('button', { name: /Custom:/ })
+        const trigger = screen.getByText(/Custom:/)
 
         expect(trigger).toHaveAttribute('aria-expanded', 'false')
         await userEvent.click(trigger)

@@ -352,11 +352,7 @@ export function MenuFilterCombobox({
         const merged: MenuFilterEntry[] = []
         const trimmedQuery = searchQuery.trim()
         for (const group of targetGroups) {
-            const excludedProperties = new Set(group.excludedProperties ?? [])
-            const items = (itemsByType[group.type] ?? []).filter((item) => {
-                const value = group.getValue?.(item) ?? ('name' in item ? item.name : null)
-                return typeof value !== 'string' || !excludedProperties.has(value)
-            })
+            const items = itemsByType[group.type] ?? []
             // Collapse to a single "URL contains <query>" row when the contains
             // search found at least one matching URL. The synthetic item's value
             // is the typed query (its `name`, since the group's getValue reads
@@ -520,7 +516,7 @@ export function MenuFilterCombobox({
         const entries: MenuFilterEntry[] = []
         for (const option of options) {
             const realGroup = groups.find((g) => g.type === option.group)
-            if (!realGroup || realGroup.excludedProperties?.includes(option.name)) {
+            if (!realGroup) {
                 continue
             }
             const item = { name: option.name } as unknown as TaxonomicDefinitionTypes
