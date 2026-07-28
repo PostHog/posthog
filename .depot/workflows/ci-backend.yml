@@ -1282,7 +1282,13 @@ jobs:
                   RUN_POE: ${{ needs.select-tests.outputs.run_poe }}
                   RUN_TEMPORAL: ${{ needs.select-tests.outputs.run_temporal }}
                   CORE_FILES: ${{ needs.select-tests.outputs.core_files }}
-                  IS_DRAFT: ${{ github.event.pull_request.draft }}
+                  # A trunk-merge/** PR opens as a draft but is the merge gate, and
+                  # select-tests deliberately does not run for it. Reporting it as a
+                  # draft here would turn that empty MODE into "skip" and build an
+                  # empty matrix, so the queue would merge having run no Django tests
+                  # at all. Not-draft makes the empty MODE fall through to the full
+                  # matrix, which is what the queue has to run.
+                  IS_DRAFT: ${{ github.event.pull_request.draft && !startsWith(github.head_ref, 'trunk-merge/') }}
                   FORCE_FULL: ${{ contains(github.event.pull_request.labels.*.name, 'run-ci-backend') }}
               run: |
                   # :NOTE: Keep shard counts/group ranges in sync with historical Django matrix tuning.
