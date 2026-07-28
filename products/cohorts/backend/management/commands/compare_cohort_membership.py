@@ -55,6 +55,7 @@ from products.cohorts.backend.parity.recompute import (
     classify_recompute,
     compute_oracle_members,
     screen_for_recompute,
+    segmentation_blocker,
     skip_comparison,
     summarize_recompute,
 )
@@ -104,7 +105,8 @@ COVERAGE_CAVEATS = (
 RECOMPUTE_CAVEATS = (
     "the oracle reproduces only performed_event / performed_event_multiple leaves with a string event key, no event_filters (property matching is HogVM bytecode, not SQL), and whole-day sliding windows within --max-window-days; everything else SKIPs",
     "over-count (false_members) is the hard gate; the sweep-lag share — still a member one day-slide back, or entered within --grace-minutes — is reported but not gated",
-    "under-count segmentation needs a single supported leaf, a monotone op (gte/gt), and a backfill run; without them the cohort reports SKIP (parity not established), never PASS",
+    "under-count segmentation needs a single supported leaf, a monotone op (gte/gt), a backfill run, and a grace window opening after that run's boundary; without them the cohort reports SKIP (parity not established), never PASS",
+    "past the per-person read cap the two sides fail differently: over-count keeps scoring every false member hard (FAIL), since over-inclusion is the hard invariant, while under-count drops to unsegmented (SKIP); a cap-driven FAIL is called out in the cohort notes and is not on its own evidence of over-inclusion",
     "missing_boundary_day is the expected decaying gap; missing_seed_domain, missing_unseeded_day and missing_post_boundary gate FAIL — raise --grace-minutes to absorb known live-path lag",
     "day boundaries use the current team tz, the only tz the processor uses; a run pinned to a different tz SKIPs rather than mis-attributing seed days",
     "the oracle counts only events ingested by --at (the seeder's inserted_at cutoff), so a longer ingestion lag reads as neither over- nor under-count",
@@ -660,11 +662,12 @@ class Command(BaseCommand):
                 }
 
             # Under-count segmentation: per-day counts for the missing set of a single monotone leaf.
-            # `classify_recompute` owns whether the shape is segmentable at all; this only decides
+            # `segmentation_blocker` owns whether the shape is segmentable at all; this only decides
             # whether the query is worth issuing, and reports back if the cap stopped it.
             day_counts: dict[str, list[Any]] = {}
             day_counts_loaded = True
-            if screen.single_leaf and screen.sole_leaf.monotone and ctx is not None and missing_targets:
+            if missing_targets and segmentation_blocker(screen, ctx, at=at, grace=grace) is None:
+                assert ctx is not None  # segmentation_blocker rejects a missing run context
                 if not _within_target_cap(missing_targets, "under-count", cohort_notes):
                     day_counts_loaded = False
                 else:

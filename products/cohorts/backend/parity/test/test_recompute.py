@@ -351,6 +351,9 @@ class TestMissingSegmentation(SimpleTestCase):
             # 2026-07-21 is post-boundary: only the live path could have entered them, so a drop there
             # is exactly what this gate exists to catch — grace is the lever for known live lag.
             ("post_boundary", [_dm(date(2026, 7, 21), "post_boundary")], "missing_post_boundary", "FAIL"),
+            # No day counts at all for a person the member-set read returned: the two oracle reads
+            # disagree (override drift, a dropped chunk), which is not the lag noise `grace` means.
+            ("unattributed", [], "missing_unattributed", "SKIP"),
         ]
     )
     def test_missing_person_precedence(
@@ -416,6 +419,9 @@ class TestEvictionAndUnsegmented(SimpleTestCase):
             ("non_monotone_op", {"spec": _spec(op="lte", op_value=2)}, "non-monotone"),
             ("multi_leaf", {"spec": _spec(single_leaf=False)}, "multi-leaf"),
             ("no_run_context", {"ctx": None}, "no backfill run"),
+            # The segmentation query stamps `grace` ahead of both boundary buckets, so a grace window
+            # opening before the boundary would file a real seed-domain miss as lag noise and PASS.
+            ("grace_reaches_over_the_boundary", {"grace": timedelta(days=4)}, "before the run boundary"),
         ]
     )
     def test_unadjudicated_missing_is_skip_not_pass(self, _name: str, overrides: dict, note: str) -> None:

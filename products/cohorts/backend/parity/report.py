@@ -149,7 +149,8 @@ def format_recompute_summary(summary: RecomputeSummary) -> str:
         f"over-count: false_hard={summary.false_hard_total} (eviction_pending={summary.eviction_pending_total}); "
         f"under-count: missing={summary.missing_total} (seed_domain={summary.seed_domain_total}, "
         f"unseeded={summary.unseeded_total}, post_boundary={summary.post_boundary_total}, "
-        f"boundary={summary.boundary_total}, unsegmented={summary.unsegmented_total})",
+        f"boundary={summary.boundary_total}, unsegmented={summary.unsegmented_total}, "
+        f"unattributed={summary.unattributed_total})",
     ]
     for warning in summary.warnings:
         lines.append(f"WARNING: {warning}")

@@ -24,7 +24,8 @@ MVP scope: ``performed_event`` / ``performed_event_multiple`` leaves with a stri
 ``event_filters`` (property matching is HogVM bytecode, not reproducible in SQL), and whole-day
 sliding windows within ``max_window_days``. Anything else SKIPs with a specific reason. Tree
 composition over supported leaves is in scope (cheap set algebra); the under-count segmentation
-additionally needs a single leaf and a monotone operator.
+additionally needs a single leaf, a monotone operator, and a run boundary the grace window does not
+reach back over (see :func:`segmentation_blocker`).
 
 Pure — no ClickHouse, no Kafka, no Django. The ClickHouse member-set / segmentation reads and the
 Django run-context load live in :mod:`.oracle`.
@@ -406,7 +407,8 @@ class RecomputeComparison:
     missing_boundary_day: int = 0  # needs boundary-day pre-boundary events — the decaying gap
     missing_unseeded_day: int = 0  # needs a pre-boundary window day with no confirmed chunk — FAIL
     missing_post_boundary: int = 0  # needs post-boundary events the live path owns — gates FAIL
-    missing_unsegmented: int = 0  # multi-leaf / non-monotone / no run context — not adjudicated
+    missing_unsegmented: int = 0  # shape or grace window admits no segmentation — not adjudicated
+    missing_unattributed: int = 0  # in the member set but absent from the day read — reads disagree
     expires_by_day: Mapping[str, int] = field(default_factory=dict)  # boundary-class decay prediction
     samples: Mapping[str, tuple[str, ...]] = field(default_factory=dict)  # bounded person ids per class
     run_id: Optional[str] = None
@@ -484,11 +486,17 @@ def _classify_missing_person(
     ctx: RunContext,
     min_count: int,
 ) -> str:
-    """Assign a missing (oracle - fold) person to a day-domain class. Precedence grace ≻ seed ≻
-    boundary ≻ unseeded ≻ post: the highest-precedence domain whose cumulative count crosses the
-    membership threshold. The classes are exhaustive — the final fall-through implies ``post > 0``,
-    since the three preceding sums were all below the threshold the total clears."""
+    """Assign a missing (oracle - fold) person to a day-domain class. A person with no in-window
+    matches at all is unattributed; otherwise precedence runs grace ≻ seed ≻ boundary ≻ unseeded ≻
+    post: the highest-precedence domain whose cumulative count crosses the membership threshold. The
+    classes are exhaustive — the final fall-through implies ``post > 0``, since the three preceding
+    sums were all below the threshold the total clears."""
     grace, seed, boundary, unseeded, post = _domain_counts(matches, window=window, ctx=ctx)
+    if grace + seed + boundary + unseeded + post == 0:
+        # The member-set read put this person in the oracle, so the day read over the same event and
+        # window has to find their matches. Zero means the two reads disagree — override/merge drift
+        # between them, or a dropped chunk — which is not the ingestion lag `grace` stands for.
+        return "missing_unattributed"
     if seed + boundary + unseeded + post < min_count:
         return "missing_grace"  # crossing depends on the last grace-minutes — lag noise
     if seed >= min_count:
@@ -522,12 +530,39 @@ def _expiry_date(
     return critical_day + timedelta(days=window_days + 1)
 
 
-def _unsegmentable_note(leaf: Optional[OracleLeaf], ctx: Optional[RunContext]) -> str:
-    if leaf is None:
+def segmentation_blocker(
+    spec: RecomputeSpec,
+    ctx: Optional[RunContext],
+    *,
+    at: datetime,
+    grace: timedelta,
+) -> Optional[str]:
+    """Why the missing set cannot be segmented by day-domain, or ``None`` when it can.
+
+    One formula, shared by the caller deciding whether the per-day read is worth issuing and by
+    :func:`classify_recompute` deciding whether the counts can be trusted. Re-deriving it on either
+    side drifts, and the two failure directions are both silent: a caller that reads when this says
+    no wastes a scan, one that skips when this says yes scores the diff against evidence it never
+    gathered.
+    """
+    if not spec.single_leaf:
         return "multi-leaf cohort: day-domain segmentation unavailable"
+    leaf = spec.sole_leaf
     if not leaf.monotone:
         return f"non-monotone op {leaf.op!r}: missing set left unsegmented (membership parity only)"
-    return "no backfill run with a boundary; missing set left unsegmented"
+    if ctx is None:
+        return "no backfill run with a boundary; missing set left unsegmented"
+    grace_start = at - grace
+    if grace_start < ctx.boundary_at:
+        # The segmentation query stamps `grace` ahead of both boundary buckets, so a grace window
+        # reaching back over the boundary would bucket real seed-day matches as lag noise and let a
+        # seeder drop report PASS.
+        return (
+            f"grace window opens {grace_start.isoformat()}, before the run boundary "
+            f"{ctx.boundary_at.isoformat()}: pre-boundary matches would read as lag noise, so the "
+            "missing set is left unsegmented (lower --grace-minutes)"
+        )
+    return None
 
 
 def classify_recompute(
@@ -559,6 +594,7 @@ def classify_recompute(
         "missing_unseeded_day": 0,
         "missing_post_boundary": 0,
         "missing_unsegmented": 0,
+        "missing_unattributed": 0,
     }
     per_class: dict[str, list[str]] = defaultdict(list)
     expires_by_day: dict[str, int] = defaultdict(int)
@@ -584,14 +620,12 @@ def classify_recompute(
         if evaluate_tree(spec.root, extended_bits):
             eviction_pending.add(person)
 
-    # Under-count segmentation. Needs one leaf (a per-day scan of one event name), a monotone op (a
-    # day's matches can only push a person toward membership), and a run to attribute days against.
-    # That structural decision lives here, not in the caller: the caller only reports whether it
-    # managed to load the per-person day counts.
-    leaf = spec.sole_leaf if spec.single_leaf else None
-    segmentable = leaf is not None and leaf.monotone and ctx is not None
-    if segmentable and day_counts_loaded:
-        assert leaf is not None and ctx is not None
+    # Under-count segmentation. The caller only reports whether it managed to load the per-person day
+    # counts; whether the shape admits segmentation at all is `segmentation_blocker`'s call.
+    blocker = segmentation_blocker(spec, ctx, at=at, grace=grace)
+    if blocker is None and day_counts_loaded:
+        assert ctx is not None  # segmentation_blocker rejects a missing run context
+        leaf = spec.sole_leaf
         window = frozenset(window_dates(at, leaf.window_days, team_tz))
         min_count = _min_count(leaf.op, leaf.op_value)
         for person in missing_set:
@@ -606,19 +640,27 @@ def classify_recompute(
     else:
         counts["missing_unsegmented"] = len(missing_set)
         per_class["missing_unsegmented"] = list(missing_set)
-        # When the shape itself is segmentable, the caller failed to load the counts and already
-        # recorded why in extra_notes.
-        if not segmentable:
-            notes.append(_unsegmentable_note(leaf, ctx))
+        # A segmentable shape can only land here because the caller failed to load the counts, and it
+        # already recorded why in extra_notes.
+        if blocker is not None:
+            notes.append(blocker)
+
+    if counts["missing_unsegmented"]:
+        notes.append(f"{counts['missing_unsegmented']} missing person(s) unadjudicated; parity not established")
+    if counts["missing_unattributed"]:
+        notes.append(
+            f"{counts['missing_unattributed']} missing person(s) are in the oracle member set but have no "
+            "in-window day counts; the two oracle reads disagree (override drift between them?), so they are "
+            "not adjudicated"
+        )
 
     false_hard_set = false_set - eviction_pending
     gated_missing = counts["missing_seed_domain"] + counts["missing_unseeded_day"] + counts["missing_post_boundary"]
     if false_hard_set or gated_missing:
         verdict = VERDICT_FAIL
-    elif counts["missing_unsegmented"]:
-        # Not a PASS: the over-count side is clean but the under-count was never adjudicated.
+    elif counts["missing_unsegmented"] or counts["missing_unattributed"]:
+        # Not a PASS: the over-count side is clean but part of the under-count was never adjudicated.
         verdict = VERDICT_SKIP
-        notes.append(f"{counts['missing_unsegmented']} missing person(s) unadjudicated; parity not established")
     else:
         verdict = VERDICT_PASS
 
@@ -646,6 +688,7 @@ def classify_recompute(
         missing_unseeded_day=counts["missing_unseeded_day"],
         missing_post_boundary=counts["missing_post_boundary"],
         missing_unsegmented=counts["missing_unsegmented"],
+        missing_unattributed=counts["missing_unattributed"],
         expires_by_day=dict(sorted(expires_by_day.items())),
         samples={cls: ids for cls, ids in sorted(samples.items()) if ids},
         run_id=ctx.run_id if ctx else None,
@@ -673,6 +716,7 @@ class RecomputeSummary:
     boundary_total: int = 0
     post_boundary_total: int = 0
     unsegmented_total: int = 0
+    unattributed_total: int = 0
     warnings: list[str] = field(default_factory=list)
 
 
@@ -693,4 +737,5 @@ def summarize_recompute(rows: Sequence[RecomputeComparison]) -> RecomputeSummary
         summary.boundary_total += row.missing_boundary_day
         summary.post_boundary_total += row.missing_post_boundary
         summary.unsegmented_total += row.missing_unsegmented
+        summary.unattributed_total += row.missing_unattributed
     return summary
