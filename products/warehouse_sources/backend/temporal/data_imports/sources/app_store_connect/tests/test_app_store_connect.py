@@ -18,11 +18,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_
     AppStoreConnectAuthError,
     AppStoreConnectResumeConfig,
     AppStoreConnectTokenProvider,
+    AppStoreConnectUrlError,
     _flatten_resource,
     _get,
     _normalize_private_key,
     _normalize_report_column,
     _parse_report,
+    _require_api_url,
     app_store_connect_source,
     check_credentials,
     get_rows,
@@ -272,6 +274,56 @@ class TestGet:
 
         assert response.status_code == 404
         missing.raise_for_status.assert_not_called()
+
+
+class TestUrlPinning:
+    @parameterized.expand(
+        [
+            ("base", BASE_URL),
+            ("collection", f"{BASE_URL}/v1/apps"),
+            ("pagination_cursor", f"{BASE_URL}/v1/apps?cursor=P2&limit=200"),
+            ("explicit_default_port", f"https://{BASE_URL.split('//')[1]}:443/v1/apps"),
+        ]
+    )
+    def test_apple_origin_urls_are_allowed(self, _name: str, url: str) -> None:
+        assert _require_api_url(url) == url
+
+    @parameterized.expand(
+        [
+            ("off_host", "https://evil.test/v1/apps"),
+            ("look_alike_host", "https://api.appstoreconnect.apple.com.evil.test/v1/apps"),
+            ("http_scheme", "http://api.appstoreconnect.apple.com/v1/apps"),
+            ("non_default_port", "https://api.appstoreconnect.apple.com:8443/v1/apps"),
+            ("scheme_relative", "//evil.test/v1/apps"),
+        ]
+    )
+    def test_non_apple_urls_are_refused(self, _name: str, url: str) -> None:
+        # A tampered `links.next` or a poisoned resume cursor could otherwise redirect a token-bearing
+        # request off Apple's origin.
+        with pytest.raises(AppStoreConnectUrlError):
+            _require_api_url(url)
+
+    def test_off_host_pagination_cursor_aborts_the_walk(self) -> None:
+        # The pin runs inside `_get`, so an off-host `links.next` fails before the request is dispatched.
+        api = _FakeApi(
+            {f"{BASE_URL}/v1/apps": _page([_resource("apps", "1")], next_url="https://evil.test/v1/apps?cursor=P2")}
+        )
+
+        with pytest.raises(AppStoreConnectUrlError):
+            _collect("apps", api, _FakeManager())
+
+    def test_off_host_resume_url_is_refused(self) -> None:
+        manager = _FakeManager(AppStoreConnectResumeConfig(next_url="https://evil.test/v1/apps?cursor=P9"))
+
+        with pytest.raises(AppStoreConnectUrlError):
+            _collect("apps", _FakeApi({}), manager)
+
+    def test_unexpected_redirect_is_treated_as_a_failure(self) -> None:
+        session = MagicMock()
+        session.get.return_value = _json_response({}, status_code=302)
+
+        with pytest.raises(AppStoreConnectUrlError):
+            _get(session, f"{BASE_URL}/v1/apps", token_provider=_FakeTokenProvider(), logger=MagicMock())
 
 
 class TestFlattenResource:

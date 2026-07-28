@@ -7,6 +7,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
+from urllib.parse import urlsplit
 
 import jwt
 import requests
@@ -25,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 BASE_URL = "https://api.appstoreconnect.apple.com"
+API_HOST = "api.appstoreconnect.apple.com"
 
 # Apple rejects a token whose `exp` is more than 20 minutes past `iat`, so mint just under the ceiling
 # and re-mint while a couple of minutes still remain.
@@ -51,6 +53,28 @@ _NON_ALNUM = re.compile(r"[^0-9a-z]+")
 
 class AppStoreConnectAuthError(Exception):
     """The .p8 private key, key ID, or issuer ID can't produce a signed token."""
+
+
+class AppStoreConnectUrlError(Exception):
+    """A request or pagination URL points somewhere other than the App Store Connect API origin."""
+
+
+def _require_api_url(url: str) -> str:
+    """Reject any URL that isn't ``https://api.appstoreconnect.apple.com`` on the default HTTPS port.
+
+    ``links.next`` cursors from a response body and resume URLs loaded from persisted state are both
+    attacker-influenceable: a tampered API response or a poisoned checkpoint could otherwise point the
+    next request — which carries a freshly minted, replayable Apple bearer token — at an arbitrary host.
+    Pinning every outbound request to Apple's origin makes a stray URL fail closed.
+    """
+    try:
+        parts = urlsplit(url)
+    except Exception as e:
+        raise AppStoreConnectUrlError(f"Unparseable App Store Connect URL: {url!r}") from e
+
+    if parts.scheme != "https" or parts.hostname != API_HOST or parts.port not in (None, 443):
+        raise AppStoreConnectUrlError(f"Refusing to request a non-App Store Connect URL: {url!r}")
+    return url
 
 
 @dataclasses.dataclass
@@ -116,8 +140,9 @@ class AppStoreConnectTokenProvider:
 
 def _make_session(private_key: str) -> requests.Session:
     # The private key itself is never sent — only the signature it produces — but redact it so a future
-    # change can't leak it into a captured sample.
-    return make_tracked_session(redact_values=(private_key,))
+    # change can't leak it into a captured sample. Redirects stay off so a 3xx can't quietly forward a
+    # bearer-token-bearing request to another host; `_get` treats any redirect as a failure.
+    return make_tracked_session(redact_values=(private_key,), allow_redirects=False)
 
 
 def _get(
@@ -133,6 +158,10 @@ def _get(
 ) -> requests.Response:
     """GET with a freshly-valid token. 429 and transient 5xx are already retried by the tracked adapter."""
 
+    # Pin the target to Apple's origin before attaching a token — covers freshly built URLs, `links.next`
+    # cursors, and resume URLs alike, since every request funnels through here.
+    _require_api_url(url)
+
     def _send(token: str) -> requests.Response:
         return session.get(
             url,
@@ -146,6 +175,12 @@ def _get(
         # Tokens live 20 minutes and a long sync outlives one. Forcing a single re-mint separates a
         # merely stale token from a genuinely bad key, which stays a 401 and fails non-retryably.
         response = _send(token_provider.token(force_refresh=True))
+
+    if 300 <= response.status_code < 400:
+        # Redirects are pinned off on the session, so a 3xx is Apple's origin (or something posing as it)
+        # trying to forward the request elsewhere. Fail closed rather than chase it with a live token.
+        logger.error(f"App Store Connect unexpected redirect: status={response.status_code}, url={url}")
+        raise AppStoreConnectUrlError(f"Unexpected redirect from App Store Connect: {url!r}")
 
     if response.status_code in tolerate:
         return response
