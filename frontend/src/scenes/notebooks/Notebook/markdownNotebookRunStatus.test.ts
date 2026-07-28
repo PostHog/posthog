@@ -55,14 +55,26 @@ describe('markdownNotebookRunStatus', () => {
             expected: 'error',
         },
         {
-            // Run outcomes don't survive a reload, but the result the run persisted does.
-            label: 'a reloaded cell with a persisted result',
-            node: sqlCell({ nodeId: 'node-1', result: { row_count: 1 } }),
+            // The session's run record is gone after a reload, so the cell's own record stands in.
+            label: 'a reloaded cell that completed',
+            node: sqlCell({ nodeId: 'node-1', result: { row_count: 1 }, runStatus: 'done' }),
             expected: 'success',
         },
         {
-            label: 'a reloaded cell with no persisted result',
-            node: sqlCell({ nodeId: 'node-1', result: null }),
+            // An interrupted run persists a partial result, so the result can't imply success.
+            label: 'a reloaded cell that was interrupted mid-run',
+            node: sqlCell({ nodeId: 'node-1', result: { stdout: 'partial' }, runStatus: 'interrupted' }),
+            expected: 'error',
+        },
+        {
+            label: 'a reloaded cell that never ran',
+            node: sqlCell({ nodeId: 'node-1', result: null, runStatus: null }),
+            expected: 'idle',
+        },
+        {
+            // Cells written before the outcome was persisted, and hand-authored markdown.
+            label: 'a cell carrying an unrecognized persisted outcome',
+            node: sqlCell({ nodeId: 'node-1', result: { row_count: 1 }, runStatus: 'whatever' }),
             expected: 'idle',
         },
         {

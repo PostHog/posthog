@@ -12,6 +12,11 @@ import { NotebookNodeRunTerminalStatus, notebookNodeStalenessLogic } from './not
 // has nothing to run, so it stays grey.
 const RUNNABLE_NODE_TYPES: (NotebookNodeType | undefined)[] = [NotebookNodeType.SQLV2, NotebookNodeType.PythonV2]
 
+const TERMINAL_STATUSES: NotebookNodeRunTerminalStatus[] = ['done', 'failed', 'interrupted']
+
+const persistedRunStatus = (value: unknown): NotebookNodeRunTerminalStatus | undefined =>
+    TERMINAL_STATUSES.find((status) => status === value)
+
 export function resolveNotebookComponentRunStatus(
     node: NotebookComponentBlockNode,
     staleNodeIds: Record<string, true>,
@@ -24,18 +29,20 @@ export function resolveNotebookComponentRunStatus(
     // A cell pins its own id the first time it runs; until then the block id is a content
     // fingerprint, which is what the rest of the notebook keys the cell by too.
     const nodeId = typeof node.props.nodeId === 'string' ? node.props.nodeId : node.id
-    const runStatus = nodeRunStatuses[nodeId]
+    // The session's own record of the run wins. A cell that produced a result persists how that
+    // run ended too, so a reload keeps the color — an interrupted run leaves a partial result
+    // behind just like a completed one, so the result alone can't stand in for the outcome.
+    const runStatus = nodeRunStatuses[nodeId] ?? persistedRunStatus(node.props.runStatus)
 
-    // A run that failed or was interrupted left no result behind, so there is nothing for a
-    // later upstream run to make stale — the failure is the more useful signal.
+    // A cell that didn't finish has nothing trustworthy to be out of date, so its own outcome
+    // outranks an upstream re-run.
     if (runStatus === 'failed' || runStatus === 'interrupted') {
         return 'error'
     }
     if (staleNodeIds[nodeId]) {
         return 'stale'
     }
-    // Run outcomes are session-local, so on a reload the persisted result stands in for them.
-    return runStatus === 'done' || node.props.result ? 'success' : 'idle'
+    return runStatus === 'done' ? 'success' : 'idle'
 }
 
 export function useNotebookComponentRunStatusResolver(shortId: string): NotebookComponentRunStatusResolver {
