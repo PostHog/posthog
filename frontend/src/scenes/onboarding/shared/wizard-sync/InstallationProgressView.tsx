@@ -28,6 +28,8 @@ import {
     InstallationProgress,
     installationProgressLogic,
     InstallationStepStatus,
+    resolveWorkflowId,
+    SELF_DRIVING_WORKFLOW_ID,
 } from './installationProgressLogic'
 import { DetectedDashboard, wizardDashboardLogic } from './wizardDashboardLogic'
 
@@ -74,6 +76,7 @@ const CONNECTING_SUBTITLE: Record<InstallationMode, string> = {
  * progress from the Installation layer.
  */
 export function InstallationProgressContent({
+    workflowId,
     progress,
     mode,
     dashboard,
@@ -84,6 +87,8 @@ export function InstallationProgressContent({
     progress: InstallationProgress
     /** Tailors the connecting state (copy + upcoming-step preview) to where the run happens. */
     mode?: InstallationMode
+    /** Wizard program being watched — picks the copy, since the programs do different work. */
+    workflowId?: string
     /** Dashboard the wizard built, when detected — surfaced as the completed state's payoff. */
     dashboard?: DetectedDashboard | null
     /** Telemetry hook for the dashboard CTA — navigation itself rides the button's `to`. */
@@ -121,25 +126,36 @@ export function InstallationProgressContent({
         triggerHogfetti()
     }, [prMerged, triggerHogfetti])
 
+    // The self-driving program sets up scouts and signal sources rather than installing an SDK, so
+    // the "what just happened" copy has to follow the program. Wording matches the CLI's own outro
+    // so the terminal and the browser tell the same story.
+    const selfDriving = resolveWorkflowId({ workflowId }) === SELF_DRIVING_WORKFLOW_ID
+
     const headline =
         phase === 'completed'
-            ? 'PostHog is wired up'
+            ? selfDriving
+                ? 'Self-driving is on'
+                : 'PostHog is wired up'
             : phase === 'error'
               ? (error?.title ?? "Setup didn't finish")
               : prReady
                 ? prMerged
                     ? 'Pull request merged'
                     : 'Pull request ready'
-                : 'Setting up PostHog'
+                : selfDriving
+                  ? 'Setting up self-driving'
+                  : 'Setting up PostHog'
     const subtitle =
         phase === 'completed'
             ? prUrl
                 ? prMerged
                     ? 'Your pull request is merged. Deploy the changes and data starts flowing.'
                     : 'Review and merge the pull request, then deploy. Data starts flowing the moment it ships.'
-                : mode === 'local'
-                  ? 'The wizard finished its work on your machine.'
-                  : "You're all set."
+                : selfDriving
+                  ? 'Your scouts are watching. First findings hit your inbox within about 30 minutes.'
+                  : mode === 'local'
+                    ? 'The wizard finished its work on your machine.'
+                    : "You're all set."
             : phase === 'error'
               ? "We couldn't finish the setup."
               : prReady
@@ -431,6 +447,7 @@ export function InstallationProgressView({
 
     return (
         <InstallationProgressContent
+            workflowId={workflowId}
             progress={installationProgress}
             mode={mode}
             dashboard={dashboard}
