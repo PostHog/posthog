@@ -55,19 +55,22 @@ class TestObservationLabels(_VisionAPITestCase):
         self.assertEqual(label, {"is_correct": False, "feedback": "should be yes"})
 
     def test_rating_reports_calibration_event(self) -> None:
-        # The rating is the core calibration signal, so the thumb direction and whether feedback was left
-        # must ride on the event — a fire that drops is_correct/has_feedback would make the signal useless.
-        with patch("products.replay_vision.backend.api.observations.report_user_action") as report:
+        # The rating is the core calibration signal, so the thumb direction, whether feedback was left,
+        # and the calling surface must all ride on the event. Asserted at the capture boundary because
+        # the source tag is merged in from the request by report_user_action itself.
+        with patch("posthoganalytics.capture") as capture:
             resp = self.client.post(
                 self._label_url(self.observation), {"is_correct": False, "feedback": "should be yes"}, format="json"
             )
         self.assertEqual(resp.status_code, 200, resp.content)
-        report.assert_called_once()
-        event, properties = report.call_args.args[1], report.call_args.args[2]
-        self.assertEqual(event, "replay_vision_observation_rated")
+        rated = [
+            call for call in capture.call_args_list if call.kwargs.get("event") == "replay_vision_observation_rated"
+        ]
+        self.assertEqual(len(rated), 1)
+        properties = rated[0].kwargs["properties"]
         self.assertFalse(properties["is_correct"])
         self.assertTrue(properties["has_feedback"])
-        self.assertEqual(properties["source"], "ui")
+        self.assertEqual(properties["source"], "web")
 
     def test_product_flag_off_hides_observation_endpoints(self) -> None:
         with patch("products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled", return_value=False):

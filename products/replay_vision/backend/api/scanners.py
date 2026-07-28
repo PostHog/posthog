@@ -26,7 +26,6 @@ from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
-from products.replay_vision.backend.api.analytics import event_source
 from products.replay_vision.backend.api.filters import (
     MultiChoiceFilter,
     OrderByFilter,
@@ -493,15 +492,17 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
         report_user_action(
             user,
             "replay_vision_scanner_created",
-            {**_scanner_lifecycle_properties(scanner), "source": event_source(self.context["request"])},
+            _scanner_lifecycle_properties(scanner),
             team=team,
+            request=self.context["request"],
         )
         return scanner
 
     def update(self, instance: ReplayScanner, validated_data: dict[str, Any]) -> ReplayScanner:
+        # Snapshot the written fields' current values: the UI PATCHes the whole form on save, so the
+        # submitted keys alone would report every field as edited on every save.
+        before = {field: getattr(instance, field) for field in validated_data}
         was_enabled = instance.enabled
-        # PATCH-only viewset, so validated_data holds exactly the fields the caller sent.
-        changed_fields = sorted(validated_data.keys())
         try:
             scanner = super().update(instance, validated_data)
         except IntegrityError as e:
@@ -513,16 +514,17 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
         )
         if needs_refresh:
             _refresh_estimate_fail_soft(scanner)
+        changed_fields = sorted(field for field, value in before.items() if getattr(scanner, field) != value)
         request = self.context["request"]
         user = cast(User, request.user)
         team = self.context["get_team"]()
-        source = event_source(request)
         if scanner.enabled != was_enabled:
             report_user_action(
                 user,
                 "replay_vision_scanner_enabled" if scanner.enabled else "replay_vision_scanner_disabled",
-                {**_scanner_lifecycle_properties(scanner), "source": source},
+                _scanner_lifecycle_properties(scanner),
                 team=team,
+                request=request,
             )
         # A config edit is any change beyond the enable/disable toggle, so a pure toggle fires only the
         # enabled/disabled event above and a config save (which may also flip enabled) additionally fires this.
@@ -530,8 +532,9 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
             report_user_action(
                 user,
                 "replay_vision_scanner_edited",
-                {**_scanner_lifecycle_properties(scanner), "edited_fields": changed_fields, "source": source},
+                {**_scanner_lifecycle_properties(scanner), "edited_fields": changed_fields},
                 team=team,
+                request=request,
             )
         return scanner
 
@@ -1068,20 +1071,27 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         response = super().retrieve(request, *args, **kwargs)
-        # Funnel entry point (created → viewed → rated); `id` is always present on a 200 detail response.
+        # Funnel entry point (created → viewed → rated).
         report_user_action(
             cast(User, request.user),
             "replay_vision_scanner_viewed",
-            {"scanner_id": str(response.data.get("id")), "source": event_source(request)},
+            {"scanner_id": str(response.data["id"])},
             team=self.team,
+            request=request,
         )
         return response
 
     def perform_destroy(self, instance: ReplayScanner) -> None:
-        # Capture lifecycle props before the row is gone; the in-memory instance still has them after delete.
-        properties = {**_scanner_lifecycle_properties(instance), "source": event_source(self.request)}
+        # Capture lifecycle props before the delete, since the row is gone afterwards.
+        properties = _scanner_lifecycle_properties(instance)
         super().perform_destroy(instance)
-        report_user_action(cast(User, self.request.user), "replay_vision_scanner_deleted", properties, team=self.team)
+        report_user_action(
+            cast(User, self.request.user),
+            "replay_vision_scanner_deleted",
+            properties,
+            team=self.team,
+            request=self.request,
+        )
 
     @extend_schema(responses={200: ScannerCreatorsResponseSerializer})
     @action(detail=False, methods=["get"], pagination_class=None)
@@ -1166,9 +1176,9 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 "scanner_id": str(scanner.id),
                 "scanner_type": scanner.scanner_type,
                 "model": scanner.model,
-                "source": event_source(request),
             },
             team=self.team,
+            request=request,
         )
         return Response(
             ObserveResponseSerializer({"workflow_id": workflow_id}).data,
@@ -1242,12 +1252,14 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 "scanner_type": scanner.scanner_type,
                 "requested": len(session_ids),
                 "started": started,
-                "source": event_source(request),
             },
             team=self.team,
+            request=request,
         )
-        # The batch hit the monthly credit cap: some sessions were left unscanned specifically for quota.
-        if skip_reason == "skipped_quota" and started < len(session_ids):
+        # Fire only when a session was actually left unscanned for quota. Checking the outcomes (not
+        # skip_reason) matters: skip_reason names the limit that WOULD bind, so a batch that never
+        # reached the cap (some sessions already running or failed) must not report exhaustion.
+        if any(result["scan_outcome"] == "skipped_quota" for result in results):
             self._report_quota_exhausted(scanner, "bulk")
         return Response(
             BulkObserveResponseSerializer({"started": started, "results": results}).data,
@@ -1362,9 +1374,9 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 "cohort_id": cohort.id,
                 "users_in_cohort": inserted,
                 "window_days": window_days,
-                "source": event_source(request),
             },
             team=self.team,
+            request=request,
         )
         return Response(
             AffectedCohortResponseSerializer(

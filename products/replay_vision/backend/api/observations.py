@@ -30,7 +30,6 @@ from posthog.models.user import User
 from posthog.renderers import ServerSentEventRenderer
 from posthog.utils import relative_date_parse
 
-from products.replay_vision.backend.api.analytics import event_source
 from products.replay_vision.backend.api.filters import MultiChoiceFilter, OrderByFilter, ordering_enum
 from products.replay_vision.backend.api.observation_progress import stream_observation_progress
 from products.replay_vision.backend.api.observation_stats import compute_observation_stats
@@ -44,6 +43,7 @@ from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.error_kinds import ERROR_REASON_HELP_TEXT
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.models.replay_observation import (
+    IN_FLIGHT_STATUSES,
     ObservationStatus,
     ObservationTrigger,
     ReplayObservation,
@@ -704,17 +704,21 @@ class ReplayObservationViewSet(
         observation = self.get_object()
         context = {**self.get_serializer_context(), "neighbors": self._observation_neighbors(observation)}
         response = Response(self.get_serializer(observation, context=context).data)
-        # Funnel step (created → viewed → rated); fires from both the scanner scene and the in-player dock.
-        report_user_action(
-            cast(User, request.user),
-            "replay_vision_observation_viewed",
-            {
-                "observation_id": str(observation.id),
-                "scanner_id": str(observation.scanner_id),
-                "source": event_source(request),
-            },
-            team=self.team,
-        )
+        # Funnel step (created → viewed → rated). Only terminal observations count as viewed results:
+        # the observation scene polls this endpoint every few seconds while a scan is in flight, which
+        # would otherwise emit one event per tick.
+        if observation.status not in IN_FLIGHT_STATUSES:
+            report_user_action(
+                cast(User, request.user),
+                "replay_vision_observation_viewed",
+                {
+                    "observation_id": str(observation.id),
+                    "scanner_id": str(observation.scanner_id),
+                    "status": observation.status,
+                },
+                team=self.team,
+                request=request,
+            )
         return response
 
     def _observation_neighbors(self, observation: ReplayObservation) -> dict[str, uuid.UUID | None]:
@@ -944,9 +948,9 @@ class ReplayObservationViewSet(
                 "scanner_id": str(observation.scanner_id),
                 "is_correct": label.is_correct,
                 "has_feedback": bool(label.feedback),
-                "source": event_source(request),
             },
             team=self.team,
+            request=request,
         )
         return Response(ReplayObservationLabelSerializer(label).data)
 
