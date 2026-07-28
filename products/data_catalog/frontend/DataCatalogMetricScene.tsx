@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ReactNode, useState } from 'react'
 
-import { IconCheck, IconGraph, IconExternal, IconPlay, IconRefresh, IconServer, IconTrash } from '@posthog/icons'
+import { IconCheck, IconGraph, IconPlay, IconRefresh, IconServer, IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonTag } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
@@ -233,6 +233,22 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
                                     View source insight
                                 </LemonButton>
                             )}
+                        </div>
+                    </LemonBanner>
+                )}
+
+                {!isApproved && !metric.is_drifted && (
+                    <LemonBanner type="info">
+                        This metric is proposed. Approve it once the definition looks right.
+                        <div className="flex gap-2 mt-2">
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                onClick={approveMetric}
+                                disabledReason={mutating ? 'Working' : undefined}
+                            >
+                                Approve metric
+                            </LemonButton>
                         </div>
                     </LemonBanner>
                 )}
@@ -536,7 +552,6 @@ interface DataCatalogMetricRunResult {
     results?: unknown
     instructions?: string | null
     compiled_query?: string | null
-    posthog_url?: string | null
 }
 
 function RunResult({ runResult }: { runResult: DataCatalogMetricRunResult }): JSX.Element {
@@ -557,13 +572,6 @@ function RunResult({ runResult }: { runResult: DataCatalogMetricRunResult }): JS
                         },
                     ]}
                 />
-            )}
-            {runResult.posthog_url && (
-                <div>
-                    <LemonButton type="secondary" size="small" icon={<IconExternal />} to={runResult.posthog_url}>
-                        Open in PostHog
-                    </LemonButton>
-                </div>
             )}
         </div>
     )
