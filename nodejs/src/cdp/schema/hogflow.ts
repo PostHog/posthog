@@ -143,6 +143,19 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
                 )
                 .optional(),
             max_wait_duration: z.string(),
+            // Server-derived, never client-supplied: how this wait can be woken. Each timer is a
+            // bytecode expression returning an instant at which a clock threshold in the condition
+            // flips, so the executor parks to the earliest future one instead of re-checking on a
+            // cap. `unsupported_reason` means no timer could be proven and the wait keeps the
+            // polling backstop.
+            wake_plan: z
+                .object({
+                    streams: z.array(z.string()).optional(),
+                    timers: z.array(z.any()).optional(),
+                    unsupported_reason: z.string().nullable().optional(),
+                })
+                .nullable()
+                .optional(),
         }),
     }),
 

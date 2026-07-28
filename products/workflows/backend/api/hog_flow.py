@@ -45,6 +45,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import log_activity_from_viewset
 from posthog.auth import InternalAPIAuthentication
+from posthog.cdp.filters import compile_filters_expr
 from posthog.cdp.validation import (
     HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,
@@ -108,6 +109,7 @@ from products.workflows.backend.services.timing_reschedule import (
     get_timing_reschedule_action_ids,
     use_workflows_timing_reschedule,
 )
+from products.workflows.backend.services.wake_plan import analyze_wait_condition
 from products.workflows.backend.tasks.hog_flows import reschedule_hog_flow_timing
 from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
@@ -140,6 +142,29 @@ DRAFT_CONTENT_FIELDS = (
     "abort_action",
     "variables",
 )
+
+
+def _derive_wake_plan(config: dict, team: Team) -> Optional[dict]:
+    """
+    Work out how a wait_until_condition can be woken, so the executor can park to the instant a
+    clock condition flips rather than re-checking on a cap.
+
+    Always server-computed; any client-supplied `wake_plan` is discarded, since the executor
+    schedules from it. Returns None for a wait with no condition (those rely on their event
+    filters). Fails closed: if the condition can't be compiled or analyzed, the returned plan
+    carries an `unsupported_reason` so the wait keeps the polling backstop instead of being
+    treated as covered.
+    """
+    filters = (config.get("condition") or {}).get("filters")
+    if not filters:
+        return None
+
+    try:
+        plan = analyze_wait_condition(compile_filters_expr(filters, team), team.id)
+    except Exception as e:
+        return {"streams": [], "timers": [], "unsupported_reason": f"analysis failed ({type(e).__name__})"}
+
+    return {"streams": plan.streams, "timers": plan.timers, "unsupported_reason": plan.unsupported_reason}
 
 
 def snapshot_flow_content(flow: HogFlow) -> dict:
@@ -937,6 +962,9 @@ class HogFlowActionSerializer(serializers.Serializer):
                     else:
                         serializer.is_valid(raise_exception=True)
                         event_config["filters"] = serializer.validated_data
+            # Derived last, from the condition filters compiled above, so the plan describes what
+            # the runtime will actually evaluate.
+            data["config"]["wake_plan"] = _derive_wake_plan(data["config"], self.context["get_team"]())
 
         if data.get("type") == "delay":
             delay_duration = data.get("config", {}).get("delay_duration")

@@ -779,6 +779,84 @@ class TestHogFlowAPI(APIBaseTest):
         wait = next(a for a in response.json()["actions"] if a["type"] == "wait_until_condition")
         assert wait["config"]["condition"] == {"filters": None}, wait["config"]
 
+    def test_hog_flow_wait_until_condition_stores_wake_plan(self):
+        # A clock-based wait must persist a timer the executor can park to, instead of relying on the
+        # polling re-check. Regression this catches: the plan silently not being stored (a wrong
+        # insertion point, or a client value winning), which reads as "no clock dependence" and
+        # would drop the wake entirely once polling goes.
+        wait_action = {
+            "id": "wait_1",
+            "name": "wait_1",
+            "type": "wait_until_condition",
+            "config": {
+                "condition": {
+                    "filters": {
+                        "properties": [
+                            {"key": "now() >= toDateTime(person.properties.due_at)", "type": "hogql", "value": None}
+                        ]
+                    }
+                },
+                "max_wait_duration": "10d",
+                # A client-supplied plan must never be trusted; the executor schedules from it.
+                "wake_plan": {"timers": ["bogus"], "streams": ["nonsense"]},
+            },
+        }
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+            },
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            {"name": "Test Flow", "actions": [trigger_action, wait_action]},
+        )
+        assert response.status_code == 201, response.json()
+
+        wait = next(a for a in response.json()["actions"] if a["type"] == "wait_until_condition")
+        plan = wait["config"]["wake_plan"]
+        assert plan["unsupported_reason"] is None, plan
+        assert len(plan["timers"]) == 1, plan
+        assert plan["streams"] == ["person"], plan
+        assert "bogus" not in plan["timers"][0], plan
+
+    def test_hog_flow_wait_until_condition_wake_plan_absent_without_condition(self):
+        # An events-only wait has no condition to analyze, so it gets no plan and keeps relying on
+        # its event filters — storing an empty-but-present plan would read as "nothing wakes this".
+        wait_action = {
+            "id": "wait_1",
+            "name": "wait_1",
+            "type": "wait_until_condition",
+            "config": {
+                "events": [
+                    {"filters": {"events": [{"id": "purchase", "name": "purchase", "type": "events", "order": 0}]}}
+                ],
+                "max_wait_duration": "1h",
+            },
+        }
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+            },
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            {"name": "Test Flow", "actions": [trigger_action, wait_action]},
+        )
+        assert response.status_code == 201, response.json()
+
+        wait = next(a for a in response.json()["actions"] if a["type"] == "wait_until_condition")
+        assert wait["config"]["wake_plan"] is None, wait["config"]
+
     def test_hog_flow_conditional_branch_condition_missing_filters_rejected(self):
         # A bare {properties: [...]} (no 'filters' wrapper) compiles to always-false; reject it in strict mode.
         conditional_action = {
