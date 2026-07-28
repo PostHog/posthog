@@ -4,11 +4,13 @@ on:
         # Draft PRs run a narrowed visual-regression matrix when the Storybook module
         # graph can safely identify affected stories. Ready PRs run the full chromium
         # matrix as the merge gate. To force the full matrix on a draft, add the
-        # `run-ci-frontend` label —
-        # labeled/unlabeled re-trigger the run so it starts without needing a push.
-        # The `no-ci` label does the opposite: it silences this workflow on a draft
-        # entirely (prototypes), until it is removed or the PR is marked ready.
-        types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+        # `run-ci-frontend` label. The `no-ci` label does the opposite: it silences
+        # this workflow on a draft entirely (prototypes).
+        # No labeled/unlabeled triggers: GitHub cannot filter a label trigger by name,
+        # so every unrelated label re-ran the full chromium matrix against a commit CI
+        # had already covered. A label here takes effect from the next push, or from
+        # ready_for_review.
+        types: [opened, synchronize, reopened, ready_for_review]
     push:
         branches:
             - master

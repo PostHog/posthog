@@ -4,11 +4,13 @@ on:
         # Draft PRs run a narrowed jest selection; ready PRs run the full matrix
         # (the merge gate). ready_for_review re-triggers the full run on the
         # current head when a PR leaves draft. To force the full matrix on a
-        # draft, add the `run-ci-frontend` label — labeled/unlabeled re-trigger
-        # the run so it starts without needing a new push. The `no-ci` label does
-        # the opposite: it silences this workflow on a draft entirely (prototypes),
-        # until the label is removed or the PR is marked ready for review.
-        types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+        # draft, add the `run-ci-frontend` label. The `no-ci` label does the
+        # opposite: it silences this workflow on a draft entirely (prototypes).
+        # No labeled/unlabeled triggers: GitHub cannot filter a label trigger by
+        # name, so every unrelated label re-ran the full jest matrix against a
+        # commit CI had already covered. A label here takes effect from the next
+        # push, or from ready_for_review.
+        types: [opened, synchronize, reopened, ready_for_review]
     push:
         branches:
             - master

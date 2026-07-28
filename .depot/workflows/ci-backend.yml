@@ -93,10 +93,11 @@ on:
         # Draft PRs run the snob-selected Django subset (≤3 shards); turbo-tests
         # still skip drafts. Ready PRs run the full matrices — the merge gate —
         # and ready_for_review re-triggers them when a PR leaves draft. Add the
-        # `run-ci-backend` label (labeled/unlabeled re-trigger) to force the full
-        # matrices on a draft; the `no-ci` label silences the workflow on a draft
-        # entirely. Mirrors canonical.
-        types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+        # `run-ci-backend` label to force the full matrices on a draft; the
+        # `no-ci` label silences the workflow on a draft entirely. No
+        # labeled/unlabeled triggers, so a label takes effect from the next push
+        # or from ready_for_review. Mirrors canonical.
+        types: [opened, synchronize, reopened, ready_for_review]
 concurrency:
     # PRs: one active run per branch, cancel stale. Push: per-SHA so master
     # pushes never cancel each other (check-migrations always completes).
