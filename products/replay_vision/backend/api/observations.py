@@ -25,10 +25,12 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.streaming import sse_streaming_response
+from posthog.event_usage import report_user_action
 from posthog.models.user import User
 from posthog.renderers import ServerSentEventRenderer
 from posthog.utils import relative_date_parse
 
+from products.replay_vision.backend.api.analytics import event_source
 from products.replay_vision.backend.api.filters import MultiChoiceFilter, OrderByFilter, ordering_enum
 from products.replay_vision.backend.api.observation_progress import stream_observation_progress
 from products.replay_vision.backend.api.observation_stats import compute_observation_stats
@@ -701,7 +703,19 @@ class ReplayObservationViewSet(
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         observation = self.get_object()
         context = {**self.get_serializer_context(), "neighbors": self._observation_neighbors(observation)}
-        return Response(self.get_serializer(observation, context=context).data)
+        response = Response(self.get_serializer(observation, context=context).data)
+        # Funnel step (created → viewed → rated); fires from both the scanner scene and the in-player dock.
+        report_user_action(
+            cast(User, request.user),
+            "replay_vision_observation_viewed",
+            {
+                "observation_id": str(observation.id),
+                "scanner_id": str(observation.scanner_id),
+                "source": event_source(request),
+            },
+            team=self.team,
+        )
+        return response
 
     def _observation_neighbors(self, observation: ReplayObservation) -> dict[str, uuid.UUID | None]:
         # Neighbors honor the same filters and ordering as the scanner's list endpoint, so prev/next
@@ -917,6 +931,19 @@ class ReplayObservationViewSet(
                 "feedback": input_serializer.validated_data.get("feedback", ""),
                 "created_by": user,
             },
+        )
+        # The core quality/calibration signal: thumbs up/down on whether the scanner got the session right.
+        report_user_action(
+            user,
+            "replay_vision_observation_rated",
+            {
+                "observation_id": str(observation.id),
+                "scanner_id": str(observation.scanner_id),
+                "is_correct": label.is_correct,
+                "has_feedback": bool(label.feedback),
+                "source": event_source(request),
+            },
+            team=self.team,
         )
         return Response(ReplayObservationLabelSerializer(label).data)
 

@@ -701,19 +701,22 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 201, resp.json())
         report.assert_called_once()
         event, properties = report.call_args.args[1], report.call_args.args[2]
-        self.assertEqual(event, "replay vision scanner created")
+        self.assertEqual(event, "replay_vision_scanner_created")
         self.assertEqual(properties["scanner_type"], ScannerType.MONITOR)
         self.assertEqual(properties["sampling_rate"], 0.25)
         self.assertTrue(properties["has_filters"])
         self.assertEqual(properties["organization_id"], str(self.team.organization_id))
+        # Every product event is tagged with the calling surface; the test client authenticates as the UI.
+        self.assertEqual(properties["source"], "ui")
 
     @parameterized.expand(
         [
-            ("disable", True, False, "replay vision scanner disabled"),
-            ("enable", False, True, "replay vision scanner enabled"),
+            ("disable", True, False, "replay_vision_scanner_disabled"),
+            ("enable", False, True, "replay_vision_scanner_enabled"),
         ]
     )
     def test_enabled_transition_reports_once(self, _name: str, before: bool, after: bool, event: str) -> None:
+        # A pure enable/disable toggle fires the transition event only — not the config-edit event.
         scanner = self._create_scanner(enabled=before)
         with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
             resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"enabled": after}, format="json")
@@ -722,14 +725,16 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
         report.assert_called_once()
         self.assertEqual(report.call_args.args[1], event)
 
-    def test_update_without_enabled_transition_reports_nothing(self) -> None:
-        # A rename must not show up as an enable/disable in the lifecycle funnel.
+    def test_config_edit_reports_edited_not_toggle(self) -> None:
+        # A rename is a config edit: it fires the edit event and must not be miscounted as an enable/disable.
         scanner = self._create_scanner(enabled=True)
         with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
             resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"name": "renamed"}, format="json")
 
         self.assertEqual(resp.status_code, 200, resp.json())
-        report.assert_not_called()
+        events = [call.args[1] for call in report.call_args_list]
+        self.assertEqual(events, ["replay_vision_scanner_edited"])
+        self.assertIn("name", report.call_args.args[2]["edited_fields"])
 
 
 class TestScannerDigestProvisioning(_VisionAPITestCase):

@@ -21,10 +21,12 @@ from posthog.schema import RecordingsQuery
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
+from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
+from products.replay_vision.backend.api.analytics import event_source
 from products.replay_vision.backend.api.filters import (
     MultiChoiceFilter,
     OrderByFilter,
@@ -467,11 +469,18 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
         # Flag-gated so teams without the actions feature don't accrue synthesis runs they can't see.
         if is_replay_vision_actions_enabled(user, team):
             provision_scanner_digest(scanner, user)
-        report_user_action(user, "replay vision scanner created", _scanner_lifecycle_properties(scanner), team=team)
+        report_user_action(
+            user,
+            "replay_vision_scanner_created",
+            {**_scanner_lifecycle_properties(scanner), "source": event_source(self.context["request"])},
+            team=team,
+        )
         return scanner
 
     def update(self, instance: ReplayScanner, validated_data: dict[str, Any]) -> ReplayScanner:
         was_enabled = instance.enabled
+        # PATCH-only viewset, so validated_data holds exactly the fields the caller sent.
+        changed_fields = sorted(validated_data.keys())
         try:
             scanner = super().update(instance, validated_data)
         except IntegrityError as e:
@@ -483,12 +492,25 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
         )
         if needs_refresh:
             _refresh_estimate_fail_soft(scanner)
+        request = self.context["request"]
+        user = cast(User, request.user)
+        team = self.context["get_team"]()
+        source = event_source(request)
         if scanner.enabled != was_enabled:
             report_user_action(
-                cast(User, self.context["request"].user),
-                "replay vision scanner enabled" if scanner.enabled else "replay vision scanner disabled",
-                _scanner_lifecycle_properties(scanner),
-                team=self.context["get_team"](),
+                user,
+                "replay_vision_scanner_enabled" if scanner.enabled else "replay_vision_scanner_disabled",
+                {**_scanner_lifecycle_properties(scanner), "source": source},
+                team=team,
+            )
+        # A config edit is any change beyond the enable/disable toggle, so a pure toggle fires only the
+        # enabled/disabled event above and a config save (which may also flip enabled) additionally fires this.
+        if any(field != "enabled" for field in changed_fields):
+            report_user_action(
+                user,
+                "replay_vision_scanner_edited",
+                {**_scanner_lifecycle_properties(scanner), "edited_fields": changed_fields, "source": source},
+                team=team,
             )
         return scanner
 
@@ -1023,6 +1045,23 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
     def safely_get_queryset(self, queryset: QuerySet[ReplayScanner]) -> QuerySet[ReplayScanner]:
         return queryset.filter(team_id=self.team_id).select_related("created_by").order_by("name", "id")
 
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        response = super().retrieve(request, *args, **kwargs)
+        # Funnel entry point (created → viewed → rated); `id` is always present on a 200 detail response.
+        report_user_action(
+            cast(User, request.user),
+            "replay_vision_scanner_viewed",
+            {"scanner_id": str(response.data.get("id")), "source": event_source(request)},
+            team=self.team,
+        )
+        return response
+
+    def perform_destroy(self, instance: ReplayScanner) -> None:
+        # Capture lifecycle props before the row is gone; the in-memory instance still has them after delete.
+        properties = {**_scanner_lifecycle_properties(instance), "source": event_source(self.request)}
+        super().perform_destroy(instance)
+        report_user_action(cast(User, self.request.user), "replay_vision_scanner_deleted", properties, team=self.team)
+
     @extend_schema(responses={200: ScannerCreatorsResponseSerializer})
     @action(detail=False, methods=["get"], pagination_class=None)
     def creators(self, request: Request, **kwargs: Any) -> Response:
@@ -1071,17 +1110,21 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
     def observe(self, request: Request, **kwargs: Any) -> Response:
         """Apply this scanner to one specific session, on demand. Returns 202 with the workflow handle."""
         scanner = self.get_object()
+        user = cast(User, request.user)
         # Observation output exposes recording contents, so observe requires session_recording read.
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Triggering an on-demand observation requires session_recording read access.")
 
-        check_observation_quota(self.team.organization_id, observation_credits_for_model(scanner.model))
+        try:
+            check_observation_quota(self.team.organization_id, observation_credits_for_model(scanner.model))
+        except QuotaLimitExceeded:
+            self._report_quota_exhausted(scanner, "on_demand")
+            raise
         check_team_in_flight_capacity(self.team.id)
 
         body = ObserveRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
         session_id: str = body.validated_data["session_id"]
-        user = cast(User, request.user)
 
         workflow_id, outcome = start_apply_scanner_workflow(
             scanner, session_id, triggered_by_user_id=user.id, trigger=ObservationTrigger.ON_DEMAND
@@ -1092,6 +1135,17 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
+        report_user_action(
+            user,
+            "replay_vision_scan_requested_on_demand",
+            {
+                "scanner_id": str(scanner.id),
+                "scanner_type": scanner.scanner_type,
+                "model": scanner.model,
+                "source": event_source(request),
+            },
+            team=self.team,
+        )
         return Response(
             ObserveResponseSerializer({"workflow_id": workflow_id}).data,
             status=status.HTTP_202_ACCEPTED,
@@ -1144,9 +1198,38 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             else:
                 results.append({"session_id": session_id, "scan_outcome": "failed"})
 
+        report_user_action(
+            user,
+            "replay_vision_bulk_scan_started",
+            {
+                "scanner_id": str(scanner.id),
+                "scanner_type": scanner.scanner_type,
+                "requested": len(session_ids),
+                "started": started,
+                "source": event_source(request),
+            },
+            team=self.team,
+        )
+        # The batch hit the monthly credit cap: some sessions were left unscanned specifically for quota.
+        if skip_reason == "skipped_quota" and started < len(session_ids):
+            self._report_quota_exhausted(scanner, "bulk")
         return Response(
             BulkObserveResponseSerializer({"started": started, "results": results}).data,
             status=status.HTTP_202_ACCEPTED,
+        )
+
+    def _report_quota_exhausted(self, scanner: ReplayScanner, trigger: str) -> None:
+        """A scan was blocked or capped by the org's monthly Replay vision credit limit — a GA-cap signal."""
+        report_user_action(
+            cast(User, self.request.user),
+            "replay_vision_quota_exhausted",
+            {
+                "scanner_id": str(scanner.id),
+                "scanner_type": scanner.scanner_type,
+                "trigger": trigger,
+                "source": event_source(self.request),
+            },
+            team=self.team,
         )
 
     def _bulk_observe_headroom(self, scanner: ReplayScanner) -> tuple[int, str]:
@@ -1232,6 +1315,19 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             )
         except ValueError as exc:
             raise ValidationError(str(exc)) from exc
+        report_user_action(
+            cast(User, request.user),
+            "replay_vision_affected_cohort_created",
+            {
+                "scanner_id": str(scanner.id),
+                "scanner_type": scanner.scanner_type,
+                "cohort_id": cohort.id,
+                "users_in_cohort": inserted,
+                "window_days": window_days,
+                "source": event_source(request),
+            },
+            team=self.team,
+        )
         return Response(
             AffectedCohortResponseSerializer(
                 {
