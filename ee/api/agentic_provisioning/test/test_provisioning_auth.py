@@ -595,7 +595,7 @@ class TestCimdProvisioningAutoRegistration(ProvisioningTestBase):
     @patch("posthog.api.oauth.cimd.CIMD_THROTTLE_CLASSES", new=[])
     @patch("ee.api.agentic_provisioning.authentication.register_cimd_provisioning_application_task")
     def test_cimd_domain_rate_limit_blocks_excessive_registrations(self, mock_task, _url_mock):
-        from ee.api.agentic_provisioning.views import CIMD_DOMAIN_RATE_LIMIT_MAX
+        from ee.api.agentic_provisioning.constants import CIMD_DOMAIN_RATE_LIMIT_MAX
 
         base_domain = "evil.example.com"
         _, challenge = self._pkce_pair()
@@ -633,7 +633,7 @@ class TestCimdProvisioningAutoRegistration(ProvisioningTestBase):
     @patch("posthog.api.oauth.cimd.CIMD_THROTTLE_CLASSES", new=[])
     @patch("ee.api.agentic_provisioning.authentication.register_cimd_provisioning_application_task")
     def test_cimd_domain_rate_limit_does_not_block_different_domains(self, mock_task, _url_mock):
-        from ee.api.agentic_provisioning.views import CIMD_DOMAIN_RATE_LIMIT_MAX
+        from ee.api.agentic_provisioning.constants import CIMD_DOMAIN_RATE_LIMIT_MAX
 
         _, challenge = self._pkce_pair()
 
@@ -655,7 +655,7 @@ class TestCimdProvisioningAutoRegistration(ProvisioningTestBase):
     @patch("posthog.api.oauth.cimd.CIMD_THROTTLE_CLASSES", new=[])
     @patch("posthog.api.oauth.cimd.refresh_cimd_metadata_task")
     def test_cimd_domain_rate_limit_skipped_for_existing_apps(self, mock_refresh, _url_mock):
-        from ee.api.agentic_provisioning.views import CIMD_DOMAIN_RATE_LIMIT_MAX
+        from ee.api.agentic_provisioning.constants import CIMD_DOMAIN_RATE_LIMIT_MAX
 
         base_domain = "existing.example.com"
         _, challenge = self._pkce_pair()
