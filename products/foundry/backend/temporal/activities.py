@@ -32,6 +32,7 @@ from .constants import (
     FOUNDRY_CLAUDE_CLI_PACKAGE,
     FOUNDRY_EVENT_HELPER_PATH,
     FOUNDRY_EVENT_HELPER_SCRIPT,
+    FOUNDRY_EVENT_LOG_PATH,
     FOUNDRY_EVENT_PREFIX,
     FOUNDRY_MEMORY_MOUNT_PATH,
     FOUNDRY_TARGET_REPO_PATH,
@@ -219,6 +220,13 @@ def run_node_activity(input: RunNodeInput) -> RunNodeOutput:
             if input.install_claude_cli and result.exit_code != 0:
                 tail = "\n".join((result.stdout + result.stderr).splitlines()[-20:])
                 notes.append(f"node command failed (exit {result.exit_code}): {tail[:500]}")
+        event_log_text = ""
+        if input.install_claude_cli:
+            try:
+                event_log = sandbox.execute(f"cat {shlex.quote(FOUNDRY_EVENT_LOG_PATH)} 2>/dev/null || true")
+                event_log_text = event_log.stdout
+            except Exception:
+                activity.logger.exception(f"Failed to read foundry-event log for node {input.node_id}")
     finally:
         try:
             sandbox.destroy()
@@ -228,7 +236,16 @@ def run_node_activity(input: RunNodeInput) -> RunNodeOutput:
     assert result is not None  # the final unconditional branch above always assigns it
 
     secrets = secret_values_from_env(input.env)
-    events = [redact_secret_values(e, secrets) for e in _parse_foundry_events(result.stdout)]
+    # A real coding agent's own stdout is its paraphrased final response, not a raw passthrough
+    # of what its tool calls wrote — a scripted demo's sentinel line lands in result.stdout
+    # directly, but a real agent's foundry-event call doesn't reliably show up there, only in
+    # the log file the helper also appends to. Only fall back to the file when stdout parsing
+    # found nothing, so every existing scripted-demo test (whose fake sandbox never simulates
+    # the file) keeps working unchanged.
+    parsed_events = _parse_foundry_events(result.stdout)
+    if not parsed_events and event_log_text:
+        parsed_events = _parse_foundry_events(event_log_text)
+    events = [redact_secret_values(e, secrets) for e in parsed_events]
     spawn_requests = [e for e in events if e.get("type") == "spawn_child"]
     knowledge_events = [e for e in events if e.get("type") == "knowledge_published"]
     artifact_ready_events = [e for e in events if e.get("type") == "artifact_ready"]

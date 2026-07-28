@@ -34,6 +34,17 @@ FOUNDRY_EVENT_PREFIX = "##FOUNDRY_EVENT## "
 # as a JSON string value inside an outer command however many levels deep — raw JSON wrapped in
 # shell quotes does not, since quoting rules don't compose across nesting levels.
 FOUNDRY_EVENT_HELPER_PATH = "/usr/local/bin/foundry-event"
+
+# Every foundry-event call also appends its sentinel line here, not just to stdout — a real
+# coding agent (Claude Code in -p mode) prints its own paraphrased final response, not a raw
+# passthrough of what its Bash tool calls wrote to their stdout, so a scripted demo's sentinel
+# line reaching the node's own captured stdout directly is not something a real agent's
+# invocation can be relied on to reproduce. activities.py parses stdout first (unchanged, so
+# every existing scripted demo behaves exactly as before) and falls back to this file only when
+# that yields nothing — verified against a real `claude -p` run calling `foundry-event` before
+# trusting it (see build_workflow.py's module docstring).
+FOUNDRY_EVENT_LOG_PATH = "/tmp/foundry-events.log"
+
 # `printf '%s'`, not `echo`, for the decoded payload: on a `/bin/sh` that's dash (as in the
 # slim sandbox image), the builtin `echo` interprets backslash escapes by default — so a
 # payload whose JSON contains an escaped newline (`\n`, two characters, from any multi-line
@@ -42,7 +53,12 @@ FOUNDRY_EVENT_HELPER_PATH = "/usr/local/bin/foundry-event"
 # starts with the sentinel prefix, so the event silently fails to parse. `printf '%s'` never
 # interprets escapes in its arguments (only in its own format string), so the decoded bytes
 # come out exactly as encoded.
-FOUNDRY_EVENT_HELPER_SCRIPT = "#!/bin/sh\nprintf '%s%s\\n' '" + FOUNDRY_EVENT_PREFIX + '\' "$(echo "$1" | base64 -d)"\n'
+FOUNDRY_EVENT_HELPER_SCRIPT = (
+    "#!/bin/sh\n"
+    'decoded="$(echo "$1" | base64 -d)"\n'
+    f"printf '%s%s\\n' '{FOUNDRY_EVENT_PREFIX}' \"$decoded\"\n"
+    f"printf '%s%s\\n' '{FOUNDRY_EVENT_PREFIX}' \"$decoded\" >> {FOUNDRY_EVENT_LOG_PATH}\n"
+)
 
 # Where a bet's memory_repo_url (if set) is cloned into a managed node's sandbox.
 FOUNDRY_MEMORY_MOUNT_PATH = "/memory"
