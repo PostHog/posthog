@@ -951,12 +951,16 @@ def property_to_expr(
                     return ast.And(exprs=exprs)
                 return ast.Or(exprs=exprs)
         elif property.type == "data_warehouse_person_property":
-            if isinstance(property.key, str):
-                table, key = property.key.split(".")
-                chain = ["person", table]
-                property.key = key
-            else:
+            if not isinstance(property.key, str):
                 raise QueryError("Data warehouse person property filter value must be a string")
+
+            # A qualified `<join_field>.<column>` key resolves through the person join.
+            # An unqualified key references a column on the table already in scope — e.g. an
+            # experiment data-warehouse funnel step selects directly FROM the warehouse table,
+            # with no person join to hang the chain off — so resolve it against that table.
+            *join_chain, key = property.key.split(".")
+            chain = ["person", *join_chain] if join_chain else []
+            property.key = key
         elif property.type == "group" and scope != "group":
             chain = [f"group_{property.group_type_index}", "properties"]
         elif property.type == "session" and scope in ["event", "replay"]:

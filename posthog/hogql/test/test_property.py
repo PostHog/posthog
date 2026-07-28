@@ -1085,6 +1085,22 @@ class TestProperty(BaseTest):
             self._parse_expr("person.extended_properties.bool_prop = true"),
         )
 
+    def test_data_warehouse_person_property_unqualified_key(self):
+        # An unqualified key (no `table.` prefix) references a column on the table already in
+        # scope, e.g. an experiment data-warehouse funnel step that selects FROM the warehouse
+        # table. It must resolve as a direct column rather than raising on the missing prefix.
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "data_warehouse_person_property",
+                    "key": "enquiry_type_grouped",
+                    "value": ["call"],
+                    "operator": "exact",
+                }
+            ),
+            self._parse_expr("enquiry_type_grouped = 'call'"),
+        )
+
     def test_data_warehouse_property_with_list_values(self):
         credential = DataWarehouseCredential.objects.create(
             team=self.team, access_key="_accesskey", access_secret="_secret"
