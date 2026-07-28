@@ -24,7 +24,6 @@ import {
     createOnlyCookielessRateLimitToOverflowStep,
     createOverflowLaneTTLRefreshStep,
     createSkipCookielessRateLimitToOverflowStep,
-    parseMessageTopHogMetrics,
 } from '~/ingestion/common/steps/event-preprocessing'
 import { createCreateEventStep } from '~/ingestion/common/steps/event-processing/create-event-step'
 import { EmitEventStepOutput, createEmitEventStep } from '~/ingestion/common/steps/event-processing/emit-event-step'
@@ -146,6 +145,7 @@ export function createErrorTrackingPipeline(config: ErrorTrackingPipelineConfig)
         outputs,
         promiseScheduler,
         concurrentBatches: 1,
+        topHog,
     })
         // Header-only steps: parse Kafka headers and apply token-level restrictions.
         // Cheap; runs per-event before we touch the body.
@@ -161,15 +161,12 @@ export function createErrorTrackingPipeline(config: ErrorTrackingPipelineConfig)
         // handled post-cookieless by createOnlyCookielessRateLimitToOverflowStep, which
         // keys on the hashed distinct_id assigned by the cookieless step.
         .pipeChunk(createSkipCookielessRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
-        .parseMessage({ wrap: (step) => topHogWrapper(step, parseMessageTopHogMetrics()) })
-        .resolveTeam({
-            wrap: (step) =>
-                topHogWrapper(step, [
-                    countOk('resolved_teams', (output) => ({
-                        team_id: String(output.team.id),
-                    })),
-                ]),
-        })
+        .parseMessage()
+        .resolveTeam([
+            countOk('resolved_teams', (output) => ({
+                team_id: String(output.team.id),
+            })),
+        ])
         // Carry the Kafka message byte size through for Cymbal batch chunking.
         .pipe(createAttachMessageBytesStep())
         // Cookieless processing: rewrites event.distinct_id for cookieless

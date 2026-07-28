@@ -33,7 +33,6 @@ import { eventRateStrategy } from '~/ingestion/common/overflow-redirect/overflow
 import { Scope, extend } from '~/ingestion/common/scopes'
 import { PromiseSchedulerComponent } from '~/ingestion/common/utils/promise-scheduler'
 import { IngestionConsumerConfig, IngestionOutputsConfig } from '~/ingestion/config'
-import { createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
 import { TopHog } from '~/ingestion/framework/tophog'
 import { RedisPool } from '~/types'
 
@@ -212,7 +211,7 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
             cdpHogWatcherSampleRate: config.CDP_HOG_WATCHER_SAMPLE_RATE,
             eventSchemaEnforcementEnabled: config.EVENT_SCHEMA_ENFORCEMENT_ENABLED,
             eventSchemaEnforcementManager: new EventSchemaEnforcementManager(container.postgres),
-            topHog: createTopHogWrapper(container.topHog),
+            topHog: container.topHog,
             aiBlobStore: container.aiBlobStore.store,
             aiBlobOffloadConfig,
         })

@@ -1,7 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
-import { APP_METRICS_OUTPUT, DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT } from '~/common/outputs'
+import { APP_METRICS_OUTPUT, DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, TOPHOG_OUTPUT } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
 import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
@@ -119,7 +119,14 @@ describe('ClientWarningsPipeline', () => {
                     mockKafkaProducer,
                     'test'
                 ),
+                [TOPHOG_OUTPUT]: new SingleIngestionOutput(TOPHOG_OUTPUT, 'tophog_test', mockKafkaProducer, 'test'),
             }),
+            // No-op metrics registry — these tests assert pipeline output, not topHog counters.
+            topHog: {
+                registerSum: () => ({ record: () => {} }),
+                registerMax: () => ({ record: () => {} }),
+                registerAverage: () => ({ record: () => {} }),
+            },
             teamManager: mockTeamManager,
             eventIngestionRestrictionManager: mockEventIngestionRestrictionManager,
             eventFilterManager: mockEventFilterManager,

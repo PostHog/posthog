@@ -27,7 +27,6 @@ import {
     createSkipCookielessRateLimitToOverflowStep,
     createValidateAiEventTokensStep,
     createValidateHistoricalMigrationStep,
-    parseMessageTopHogMetrics,
 } from '~/ingestion/common/steps/event-preprocessing'
 import { EventPipelineRunnerOptions } from '~/ingestion/common/steps/event-processing/event-pipeline-options'
 import { createFlushBatchStoresStep } from '~/ingestion/common/steps/event-processing/flush-batch-stores-step'
@@ -190,6 +189,7 @@ export function createJoinedIngestionPipeline<
             teamManager,
             outputs,
             promiseScheduler,
+            topHog,
             // Batch stores are singleton persistent caches, but each batch receives a
             // batch-bound view so entries can be reference-counted and released after
             // that batch's flush lifecycle completes. The Rust consumer's per-worker
@@ -219,7 +219,7 @@ export function createJoinedIngestionPipeline<
             // handled by the matching only-cookieless step in post-team, which keys on
             // the hashed distinct_id assigned by the cookieless step.
             .pipeChunk(createSkipCookielessRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
-            .parseMessage({ wrap: (step) => topHogWrapper(step, parseMessageTopHogMetrics()) })
+            .parseMessage()
             .resolveTeam()
             .pipe(createValidateHistoricalMigrationStep())
             .pipe(createValidateAiEventTokensStep())

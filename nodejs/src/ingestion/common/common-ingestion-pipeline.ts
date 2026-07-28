@@ -17,6 +17,7 @@ import { newBatchingPipeline } from '~/ingestion/framework/builders'
 import { ChunkPipelineBuilder, GroupProcessingBuilder } from '~/ingestion/framework/builders/chunk-pipeline-builders'
 import { PipelineBuilder, StartPipelineBuilder } from '~/ingestion/framework/builders/pipeline-builders'
 import { GroupingFunction } from '~/ingestion/framework/concurrently-grouping-chunk-pipeline'
+import { TopHogMetricFactory, TopHogRegistry, createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
 import { FanInFunction, FanOutFunction, FanOutSubContext } from '~/ingestion/framework/fan-out-fan-in-chunk-pipeline'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 import { ok } from '~/ingestion/framework/results'
@@ -25,7 +26,12 @@ import { ProcessingStep } from '~/ingestion/framework/steps'
 import { PluginEvent } from '~/plugin-scaffold'
 import { EventHeaders, IncomingEvent, Team } from '~/types'
 
-import { createParseHeadersStep, createParseKafkaMessageStep, createResolveTeamStep } from './steps/event-preprocessing'
+import {
+    createParseHeadersStep,
+    createParseKafkaMessageStep,
+    createResolveTeamStep,
+    parseMessageTopHogMetrics,
+} from './steps/event-preprocessing'
 import { addTeamToContext } from './subpipelines/helpers'
 
 /**
@@ -76,6 +82,13 @@ export interface CommonIngestionPipelineConfig<ROut extends string = never> {
     teamManager: TeamManager
     outputs: IngestionOutputs<IngestionWarningsOutput | DlqOutput | ROut>
     promiseScheduler: PromiseScheduler
+    /**
+     * TopHog registry for per-tenant metrics. The skeleton itself records
+     * parse timing and message sizes (see `parseMessageTopHogMetrics`);
+     * pipelines can layer their own metrics via the `parseMessage` /
+     * `resolveTeam` factory lists.
+     */
+    topHog: TopHogRegistry
     /** Maximum number of batches accepted concurrently. Defaults to the framework default. */
     concurrentBatches?: number
     /**
@@ -297,16 +310,20 @@ export class CommonPreTeamStage<
     /**
      * Parse the message body; after this, body-dependent steps can be piped.
      *
-     * `options.wrap` decorates the parse step while preserving its types —
-     * e.g. a topHog metrics wrapper for parse timing and message sizes.
+     * Parse timing and raw message sizes are always recorded to topHog
+     * (`parseMessageTopHogMetrics`); `extraMetrics` appends pipeline-specific
+     * factories on top.
      */
-    parseMessage(options?: {
-        wrap?: (
-            step: ProcessingStep<TCurrent, TCurrent & { event: IncomingEvent }>
-        ) => ProcessingStep<TCurrent, TCurrent & { event: IncomingEvent }, ROut>
-    }): CommonPreTeamStage<TInput, TContext, ROut, CBatch, TCurrent & { event: IncomingEvent }> {
-        const step = createParseKafkaMessageStep<TCurrent>()
-        return this.pipe(options?.wrap ? options.wrap(step) : step)
+    parseMessage(
+        extraMetrics?: TopHogMetricFactory<TCurrent, TCurrent & { event: IncomingEvent }>[]
+    ): CommonPreTeamStage<TInput, TContext, ROut, CBatch, TCurrent & { event: IncomingEvent }> {
+        const topHog = createTopHogWrapper(this.config.topHog)
+        return this.pipe(
+            topHog(createParseKafkaMessageStep<TCurrent>(), [
+                ...parseMessageTopHogMetrics<TCurrent, TCurrent & { event: IncomingEvent }>(),
+                ...(extraMetrics ?? []),
+            ])
+        )
     }
 
     /**
@@ -314,19 +331,16 @@ export class CommonPreTeamStage<
      * open the team-aware scope: every step piped after this runs inside
      * `handleIngestionWarnings`, with warnings routed to the resolved team.
      *
-     * `options.wrap` decorates the team-resolution step while preserving its
-     * types — e.g. a topHog metrics wrapper.
+     * `metrics` records topHog metrics around the team-resolution step (e.g.
+     * a per-team resolved counter).
      */
     resolveTeam(
         this: CommonPreTeamStage<TInput, TContext, ROut, CBatch, TCurrent & { event: IncomingEvent }>,
-        options?: {
-            wrap?: (
-                step: ProcessingStep<TCurrent & { event: IncomingEvent }, TeamResolved<TCurrent>>
-            ) => ProcessingStep<TCurrent & { event: IncomingEvent }, TeamResolved<TCurrent>, ROut>
-        }
+        metrics?: TopHogMetricFactory<TCurrent & { event: IncomingEvent }, TeamResolved<TCurrent>>[]
     ): CommonTeamStage<TInput, TContext, ROut, CBatch, TeamResolved<TCurrent>, TeamResolved<TCurrent>> {
         const step = createResolveTeamStep<TCurrent & { event: IncomingEvent }>(this.config.teamManager)
-        const resolved = this.chain.extend(options?.wrap ? options.wrap(step) : step)
+        const topHog = createTopHogWrapper(this.config.topHog)
+        const resolved = this.chain.extend(metrics?.length ? topHog(step, metrics) : step)
         return new CommonTeamStage(
             this.config,
             this.beforeBatchCallback,

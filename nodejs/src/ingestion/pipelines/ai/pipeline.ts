@@ -31,7 +31,6 @@ import {
     createValidateEventPropertiesStep,
     createValidateEventSchemaStep,
     createValidateHistoricalMigrationStep,
-    parseMessageTopHogMetrics,
 } from '~/ingestion/common/steps/event-preprocessing'
 import { createCreateEventStep } from '~/ingestion/common/steps/event-processing/create-event-step'
 import { createDropOldEventsStep } from '~/ingestion/common/steps/event-processing/drop-old-events-step'
@@ -49,7 +48,7 @@ import { createStripPersonUpdatePropertiesStep } from '~/ingestion/common/steps/
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
 import { AI_EVENT_TYPES } from '~/ingestion/common/subpipelines/ai-event-types'
 import { IngestionOverflowMode } from '~/ingestion/config'
-import { TopHogWrapper, sum, sumOk, sumResult } from '~/ingestion/framework/extensions/tophog'
+import { TopHogRegistry, createTopHogWrapper, sum, sumOk, sumResult } from '~/ingestion/framework/extensions/tophog'
 import { isDropResult } from '~/ingestion/framework/results'
 
 import { BlobStore } from './blob-offload/blob-store'
@@ -84,7 +83,7 @@ export interface AiIngestionPipelineConfig {
     cdpHogWatcherSampleRate: number
     eventSchemaEnforcementEnabled: boolean
     eventSchemaEnforcementManager: EventSchemaEnforcementManager
-    topHog: TopHogWrapper
+    topHog: TopHogRegistry
     aiBlobStore: BlobStore | null
     aiBlobOffloadConfig: OffloadAiBlobsConfig
 }
@@ -138,12 +137,15 @@ export function createAiIngestionPipeline<
         aiBlobOffloadConfig,
     } = config
 
+    const topHogWrapper = createTopHogWrapper(topHog)
+
     return (
         newCommonIngestionPipeline<TInput, TContext, OverflowOutput>({
             teamManager,
             outputs,
             promiseScheduler,
             concurrentBatches,
+            topHog,
         })
             .beforeBatch((b) => b.pipe(createEventFiltersBatchAppMetricsBeforeBatchStep(outputs)))
             // Header-only steps: allow only AI events, apply token restrictions.
@@ -158,7 +160,7 @@ export function createAiIngestionPipeline<
             // Rate-limit non-cookieless events to overflow before parsing the body.
             // Cookieless events pass through and are handled post-cookieless below.
             .pipeChunk(createSkipCookielessRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
-            .parseMessage({ wrap: (step) => topHog(step, parseMessageTopHogMetrics()) })
+            .parseMessage()
             .resolveTeam()
             .pipe(createValidateHistoricalMigrationStep())
             .pipe(createValidateAiEventTokensStep())
@@ -186,7 +188,7 @@ export function createAiIngestionPipeline<
             // fetch, emit) retry, matching the analytics per-distinct-id path.
             .pipe(createNormalizeProcessPersonFlagStep())
             .pipe(
-                topHog(createHogTransformEventStep(hogTransformer), [
+                topHogWrapper(createHogTransformEventStep(hogTransformer), [
                     sumOk(
                         'transformations_run',
                         (output) => ({ team_id: String(output.team.id) }),
@@ -248,7 +250,7 @@ export function createAiIngestionPipeline<
             // Double-write to events + ai_events outputs.
             .pipe(createSplitAiEventsStep())
             .pipe(
-                topHog(createEmitEventStep({ outputs }), [
+                topHogWrapper(createEmitEventStep({ outputs }), [
                     sum(
                         'emitted_events',
                         (input) => ({ team_id: String(input.teamId) }),

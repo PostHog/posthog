@@ -9,6 +9,7 @@ import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { TeamManager } from '~/common/utils/team-manager'
 import { UUIDT } from '~/common/utils/utils'
 import { ChunkProcessingStep } from '~/ingestion/framework/base-chunk-pipeline'
+import { TopHogRegistry, countResult } from '~/ingestion/framework/extensions/tophog'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { PipelineResult, dlq, drop, isDropResult, isOkResult, ok, redirect } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
@@ -61,6 +62,8 @@ describe('CommonIngestionPipelineBuilder', () => {
     let mockTeamManager: jest.Mocked<TeamManager>
     let promiseScheduler: PromiseScheduler
     let config: CommonIngestionPipelineConfig<TestRedirectOutput>
+    let topHog: TopHogRegistry
+    let topHogRecords: { name: string; key: Record<string, string>; value: number }[]
 
     const team = createTestTeam({ id: 42, api_token: 'token-42' })
 
@@ -177,8 +180,21 @@ describe('CommonIngestionPipelineBuilder', () => {
 
         promiseScheduler = new PromiseScheduler()
 
+        topHogRecords = []
+        const recorder = (name: string) => ({
+            record: (key: Record<string, string>, value: number) => {
+                topHogRecords.push({ name, key, value })
+            },
+        })
+        topHog = {
+            registerSum: recorder,
+            registerMax: recorder,
+            registerAverage: recorder,
+        }
+
         config = {
             teamManager: mockTeamManager,
+            topHog,
             outputs: new IngestionOutputs({
                 [DLQ_OUTPUT]: new SingleIngestionOutput(DLQ_OUTPUT, DLQ_TOPIC, mockKafkaProducer, 'test'),
                 [INGESTION_WARNINGS_OUTPUT]: new SingleIngestionOutput(
@@ -737,20 +753,17 @@ describe('CommonIngestionPipelineBuilder', () => {
         expect(parseJSON(warnings[0].details).marker).toBe('sub-step')
     })
 
-    it('applies the resolveTeam wrap decorator around team resolution', async () => {
-        const wrapObserved: string[] = []
+    it('records resolveTeam topHog metrics around team resolution', async () => {
         const pipeline = newCommonIngestionPipeline<MessageOnly, MessageOnly>(config)
             .parseHeaders()
             .parseMessage()
-            .resolveTeam({
-                wrap: (step) => async (input) => {
-                    const result = await step(input)
-                    wrapObserved.push(
-                        isOkResult(result) ? `ok:${result.value.team.id}` : `miss:${input.headers.distinct_id}`
-                    )
-                    return result
-                },
-            })
+            .resolveTeam([
+                countResult('teams_resolved', (result, input) =>
+                    isOkResult(result)
+                        ? { outcome: `ok:${result.value.team.id}` }
+                        : { outcome: `miss:${input.headers.distinct_id}` }
+                ),
+            ])
             .build()
 
         const batches = await runPipeline(pipeline, [
@@ -758,10 +771,27 @@ describe('CommonIngestionPipelineBuilder', () => {
             createMessage('user-1', 'test_event', 'unknown-token'),
         ])
 
-        expect(wrapObserved).toEqual(['ok:42', 'miss:user-1'])
+        const resolved = topHogRecords.filter((r) => r.name === 'teams_resolved')
+        expect(resolved.map((r) => r.key)).toEqual([{ outcome: 'ok:42' }, { outcome: 'miss:user-1' }])
         const elements = batches.flatMap((batch) => batch.elements)
         expect(isOkResult(elements[0].result)).toBe(true)
         expect(isDropResult(elements[1].result)).toBe(true)
+    })
+
+    it('records parse timing and message sizes for every parsed message', async () => {
+        const pipeline = newCommonIngestionPipeline<MessageOnly, MessageOnly>(config)
+            .parseHeaders()
+            .parseMessage()
+            .resolveTeam()
+            .build()
+
+        await runPipeline(pipeline, [createMessage('user-0')])
+
+        const sizes = topHogRecords.filter((r) => r.name === 'message_size_by_token')
+        expect(sizes).toHaveLength(1)
+        expect(sizes[0].key).toEqual({ token: team.api_token })
+        expect(sizes[0].value).toBeGreaterThan(0)
+        expect(topHogRecords.some((r) => r.name === 'parse_time_ms_by_token')).toBe(true)
     })
 
     it('passes retry options through to chunk steps', async () => {
