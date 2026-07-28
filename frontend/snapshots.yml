@@ -6735,13 +6735,13 @@ snapshots:
     scenes-app-posthog-ai--thread-with-multiple-context-objects--light:
         hash: v1.k794b7964.37f894dbe521fe73a27b410291a78f0923b47724e7a39cbf7db15c276f438508.-6CML5IWBfVRwqAaunxC77tcqM-10BAvLhGbhXTvemU
     scenes-app-posthog-ai--thread-with-opened-suggestions--dark:
-        hash: v1.k794b7964.8c73cdf7bf2dace2fb229f3020df37ab6f448ee744c389888c8ce0b487a2dc07.tMZr_nR6fXzfhdZP7hKMYvOFCLy5JvmSY-BkmY7Bs10
+        hash: v1.k794b7964.c79ac281f0b66d67344b562edc6c2cbff16e8f682696111a553aef7b8884ddb9.C9NmPxKsTOkt8iaHcVzRKEtzXRZcZkLFRU_MyjJcx2k
     scenes-app-posthog-ai--thread-with-opened-suggestions--light:
-        hash: v1.k794b7964.9e5a59a2bd14ff1971710ebbf7c1c937fd9fc38dc18ac5301187f6ae3461f4bf.jjRrZLaE7on6A_kc-HQc0jX-SXVDBIaIf9tLtt43GGo
+        hash: v1.k794b7964.9c6105576943a59057f2e9928df3e26ac5e7f80ec98f774a0ba3288a4b3ac568.5BQzurf66egTBupaf5vDBYFxSUbKQLMuRTGXmjIImhw
     scenes-app-posthog-ai--thread-with-opened-suggestions-mobile--dark:
-        hash: v1.k794b7964.8c73cdf7bf2dace2fb229f3020df37ab6f448ee744c389888c8ce0b487a2dc07.1sNRAgSPDu6G3QQPRdrd29G5EZ2riv_tiArl3mfMRME
+        hash: v1.k794b7964.c79ac281f0b66d67344b562edc6c2cbff16e8f682696111a553aef7b8884ddb9.6WI7SnQGqgSKvP4EfLvSQIIPchaSG_tL5hMQ8K80PRg
     scenes-app-posthog-ai--thread-with-opened-suggestions-mobile--light:
-        hash: v1.k794b7964.9e5a59a2bd14ff1971710ebbf7c1c937fd9fc38dc18ac5301187f6ae3461f4bf.AeODbRDxzTWJNhaTxgiu9vFiTn-PSoDrQgQC4psGQ7A
+        hash: v1.k794b7964.9c6105576943a59057f2e9928df3e26ac5e7f80ec98f774a0ba3288a4b3ac568.RUUG3hSKh3sZTu4XM2XKEmhGj0mkLlup_7AlK2v0pIg
     scenes-app-posthog-ai--thread-with-quick-replies--dark:
         hash: v1.k794b7964.bf2e3ec6f1256a7e1a41120510001d6eb825d70c85f0858a184f028c00a4752d.ttC4L7QLV8_5xjTvtSnk2TQEemTWuumQUT4__5_s3_w
     scenes-app-posthog-ai--thread-with-quick-replies--light:
