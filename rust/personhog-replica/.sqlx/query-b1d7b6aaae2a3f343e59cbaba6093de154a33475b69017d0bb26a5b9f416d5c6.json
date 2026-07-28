@@ -1,16 +1,16 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                SELECT p.id as \"id!\", p.uuid as \"uuid!\", p.team_id::bigint as \"team_id!\",\n                       p.properties::text as \"properties?\",\n                       p.properties_last_updated_at::text as \"properties_last_updated_at?\",\n                       p.properties_last_operation::text as \"properties_last_operation?\",\n                       p.created_at as \"created_at!\", p.version, p.is_identified as \"is_identified!\",\n                       CASE WHEN p.is_user_id IS NULL THEN NULL ELSE (p.is_user_id != 0) END as is_user_id,\n                       p.last_seen_at\n                FROM posthog_person p\n                JOIN unnest($1::int[], $2::uuid[]) AS k(team_id, uuid)\n                  ON p.team_id = k.team_id AND p.uuid = k.uuid\n                ",
+  "query": "\n                    SELECT id, uuid, team_id::bigint as \"team_id!\",\n                           CASE WHEN $3::boolean THEN properties::text ELSE NULL END as \"properties?\",\n                           CASE WHEN $3::boolean THEN properties_last_updated_at::text ELSE NULL END as \"properties_last_updated_at?\",\n                           CASE WHEN $3::boolean THEN properties_last_operation::text ELSE NULL END as \"properties_last_operation?\",\n                           created_at, version, is_identified,\n                           CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,\n                           last_seen_at\n                    FROM posthog_person\n                    WHERE team_id = $1 AND id = ANY($2) AND is_deleted = false\n                    ",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "id!",
+        "name": "id",
         "type_info": "Int8"
       },
       {
         "ordinal": 1,
-        "name": "uuid!",
+        "name": "uuid",
         "type_info": "Uuid"
       },
       {
@@ -35,7 +35,7 @@
       },
       {
         "ordinal": 6,
-        "name": "created_at!",
+        "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
@@ -45,7 +45,7 @@
       },
       {
         "ordinal": 8,
-        "name": "is_identified!",
+        "name": "is_identified",
         "type_info": "Bool"
       },
       {
@@ -61,8 +61,9 @@
     ],
     "parameters": {
       "Left": [
-        "Int4Array",
-        "UuidArray"
+        "Int4",
+        "Int8Array",
+        "Bool"
       ]
     },
     "nullable": [
@@ -79,5 +80,5 @@
       true
     ]
   },
-  "hash": "b69ec4c1a3eaba4a40ef4c0fbbc3b3473ad6dbc501a3933a10ce759a36362677"
+  "hash": "b1d7b6aaae2a3f343e59cbaba6093de154a33475b69017d0bb26a5b9f416d5c6"
 }

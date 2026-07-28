@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT person_id FROM posthog_persondistinctid WHERE team_id = $1 AND distinct_id = $2",
+  "query": "SELECT person_id FROM posthog_persondistinctid WHERE team_id = $1 AND distinct_id = $2 AND is_deleted = false",
   "describe": {
     "columns": [
       {
@@ -19,5 +19,5 @@
       false
     ]
   },
-  "hash": "423195f96062037eb486b038c35db0a8556ba0d7f054b6bd661a4b5e514e397b"
+  "hash": "5e8e078ce072b19e2d310d7ac3eb15edfaf70f9c945b0de1689645781b65cc47"
 }

@@ -55,6 +55,101 @@ impl TestContext {
             .await
             .expect("Failed to count persons")
     }
+
+    /// Tombstones a person the way the delete saga does: flag flipped,
+    /// version parked above every prior write, properties cleared.
+    async fn tombstone_person(&self, person_id: i64, version: i64) {
+        sqlx::query(
+            r#"
+            UPDATE posthog_person
+            SET is_deleted = true, version = $3, properties = '{}'::jsonb
+            WHERE team_id = $1 AND id = $2
+            "#,
+        )
+        .bind(self.team_id as i32)
+        .bind(person_id)
+        .bind(version)
+        .execute(&self.pool)
+        .await
+        .expect("Failed to tombstone person");
+    }
+
+    async fn tombstone_distinct_id(&self, distinct_id: &str, version: i64) {
+        sqlx::query(
+            r#"
+            UPDATE posthog_persondistinctid
+            SET is_deleted = true, version = $3
+            WHERE team_id = $1 AND distinct_id = $2
+            "#,
+        )
+        .bind(self.team_id as i32)
+        .bind(distinct_id)
+        .bind(version)
+        .execute(&self.pool)
+        .await
+        .expect("Failed to tombstone distinct id");
+    }
+
+    async fn insert_tombstoned_person(&self, uuid: uuid::Uuid, version: i64) -> i64 {
+        sqlx::query_scalar(
+            r#"
+            INSERT INTO posthog_person
+                (created_at, properties, properties_last_updated_at, properties_last_operation,
+                 team_id, is_identified, uuid, version, is_deleted)
+            VALUES (now(), '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, $1, false, $2, $3, true)
+            RETURNING id
+            "#,
+        )
+        .bind(self.team_id as i32)
+        .bind(uuid)
+        .bind(version)
+        .fetch_one(&self.pool)
+        .await
+        .expect("Failed to insert tombstoned person")
+    }
+
+    async fn insert_tombstoned_distinct_id(&self, distinct_id: &str, person_id: i64, version: i64) {
+        sqlx::query(
+            r#"
+            INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version, is_deleted)
+            VALUES ($1, $2, $3, $4, true)
+            "#,
+        )
+        .bind(distinct_id)
+        .bind(person_id)
+        .bind(self.team_id as i32)
+        .bind(version)
+        .execute(&self.pool)
+        .await
+        .expect("Failed to insert tombstoned distinct id");
+    }
+
+    /// (is_deleted, version) for a person row, tombstoned or not.
+    async fn person_state(&self, person_id: i64) -> (bool, Option<i64>) {
+        sqlx::query_as(
+            "SELECT is_deleted, version FROM posthog_person WHERE team_id = $1 AND id = $2",
+        )
+        .bind(self.team_id as i32)
+        .bind(person_id)
+        .fetch_one(&self.pool)
+        .await
+        .expect("Failed to fetch person state")
+    }
+
+    /// (person_id, is_deleted, version) for a distinct id row, tombstoned or not.
+    async fn distinct_id_state(&self, distinct_id: &str) -> Option<(i64, bool, Option<i64>)> {
+        sqlx::query_as(
+            r#"
+            SELECT person_id, is_deleted, version FROM posthog_persondistinctid
+            WHERE team_id = $1 AND distinct_id = $2
+            "#,
+        )
+        .bind(self.team_id as i32)
+        .bind(distinct_id)
+        .fetch_optional(&self.pool)
+        .await
+        .expect("Failed to fetch distinct id state")
+    }
 }
 
 fn stub(ctx: &TestContext, distinct_id: &str, extras: &[&str]) -> PersonStub {
@@ -454,6 +549,148 @@ async fn create_blocked_on_uncommitted_mapping_rolls_back_as_lost_race() {
         resolved[&(ctx.team_id, "stolen-key".to_string())].id,
         other_id
     );
+
+    ctx.cleanup().await.ok();
+}
+
+/// A deleted person's rows stay behind as tombstones; re-creating the same
+/// distinct id must revive them above the tombstone version instead of
+/// inserting a fresh row that restarts at version 0 (which would lose to the
+/// ClickHouse tombstone forever).
+#[tokio::test]
+async fn deleted_person_is_revived_above_the_tombstone_on_recreate() {
+    let ctx = TestContext::new().await;
+
+    let first = ctx
+        .storage
+        .create_person_stubs(&[stub(&ctx, "revive-me", &[])])
+        .await
+        .expect("first create should succeed");
+    let [StubOutcome::Committed { person, .. }] = &first[..] else {
+        panic!("expected committed outcome");
+    };
+    let person_id = person.id;
+
+    ctx.tombstone_person(person_id, 7).await;
+    ctx.tombstone_distinct_id("revive-me", 3).await;
+
+    // Tombstoned rows are invisible to resolution.
+    let resolved = ctx
+        .storage
+        .resolve_distinct_ids(&[(ctx.team_id, "revive-me".to_string())])
+        .await
+        .expect("resolve should succeed");
+    assert!(resolved.is_empty(), "tombstoned person must not resolve");
+
+    let second = ctx
+        .storage
+        .create_person_stubs(&[stub(&ctx, "revive-me", &[])])
+        .await
+        .expect("recreate should succeed");
+    let [StubOutcome::Committed { person, created }] = &second[..] else {
+        panic!("expected committed outcome, got {second:?}");
+    };
+    assert!(created, "a revival is a creation to the caller");
+    assert_eq!(person.id, person_id, "revival keeps the row, not a new one");
+    assert_eq!(person.version, Some(8), "revived above the tombstone");
+    assert_eq!(person.properties.as_deref(), Some("{}"));
+    assert_eq!(
+        ctx.distinct_id_state("revive-me").await,
+        Some((person_id, false, Some(4))),
+        "mapping revived above its tombstone"
+    );
+    assert_eq!(ctx.person_count().await, 1);
+
+    ctx.cleanup().await.ok();
+}
+
+/// A revived stub that loses the mapping race must be re-tombstoned, not
+/// hard-deleted: the tombstones predate this transaction and deleting them
+/// would reopen the version-0-resurrection hole for the next recreate.
+#[tokio::test]
+async fn lost_race_rollback_re_tombstones_revived_rows() {
+    let ctx = TestContext::new().await;
+    // "steal-did" is live-mapped to another person, while its deterministic
+    // uuid still belongs to a tombstoned person with a tombstoned extra.
+    let live_id = ctx.insert_person_with_distinct_id("steal-did").await;
+    let dead_id = ctx
+        .insert_tombstoned_person(person_uuid(ctx.team_id, "steal-did"), 5)
+        .await;
+    ctx.insert_tombstoned_distinct_id("dead-extra", dead_id, 2)
+        .await;
+
+    let outcomes = ctx
+        .storage
+        .create_person_stubs(&[stub(&ctx, "steal-did", &["dead-extra"])])
+        .await
+        .expect("create should not error");
+    assert!(
+        matches!(outcomes[..], [StubOutcome::LostRace]),
+        "live mapping must win, got {outcomes:?}"
+    );
+
+    let (is_deleted, version) = ctx.person_state(dead_id).await;
+    assert!(
+        is_deleted,
+        "revived person must be re-tombstoned, not deleted"
+    );
+    assert!(
+        version > Some(5),
+        "re-tombstone stays above the old tombstone"
+    );
+    let (_, extra_deleted, extra_version) = ctx
+        .distinct_id_state("dead-extra")
+        .await
+        .expect("revived mapping must be re-tombstoned, not deleted");
+    assert!(extra_deleted);
+    assert!(extra_version > Some(2));
+
+    let resolved = ctx
+        .storage
+        .resolve_distinct_ids(&[(ctx.team_id, "steal-did".to_string())])
+        .await
+        .expect("resolve should succeed");
+    assert_eq!(
+        resolved[&(ctx.team_id, "steal-did".to_string())].id,
+        live_id
+    );
+    assert_eq!(ctx.person_count().await, 2, "no orphan third person");
+
+    ctx.cleanup().await.ok();
+}
+
+/// Duplicate keys in one batch conflict-update the same tombstoned row; the
+/// pre-insert dedup keeps Postgres from rejecting the command with "ON
+/// CONFLICT DO UPDATE cannot affect row a second time".
+#[tokio::test]
+async fn duplicate_batch_keys_against_tombstones_do_not_error() {
+    let ctx = TestContext::new().await;
+    let dead_id = ctx
+        .insert_tombstoned_person(person_uuid(ctx.team_id, "dup-did"), 4)
+        .await;
+    ctx.insert_tombstoned_distinct_id("dup-did", dead_id, 1)
+        .await;
+    ctx.insert_tombstoned_distinct_id("dup-extra", dead_id, 1)
+        .await;
+
+    let outcomes = ctx
+        .storage
+        .create_person_stubs(&[
+            stub(&ctx, "dup-did", &["dup-extra"]),
+            stub(&ctx, "dup-did", &["dup-extra"]),
+        ])
+        .await
+        .expect("duplicate keys in one batch must not error");
+
+    let [StubOutcome::Committed { person: a, .. }, StubOutcome::Committed { person: b, .. }] =
+        &outcomes[..]
+    else {
+        panic!("expected two committed outcomes, got {outcomes:?}");
+    };
+    assert_eq!(a.id, dead_id);
+    assert_eq!(b.id, dead_id);
+    let (is_deleted, _) = ctx.person_state(dead_id).await;
+    assert!(!is_deleted, "person revived exactly once");
 
     ctx.cleanup().await.ok();
 }
