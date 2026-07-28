@@ -853,6 +853,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'stamphog',
                 'product-data-catalog',
                 'loops',
+                'review-hog',
                 'warehouse-person-properties',
             ])
         )
