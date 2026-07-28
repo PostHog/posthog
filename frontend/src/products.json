@@ -222,15 +222,15 @@
             "type": "replay_vision",
             "intents": ["replay_vision"]
         },
-        {
-            "path": "Revenue analytics",
-            "category": "Analytics",
-            "iconType": null,
-            "type": "revenue",
-            "intents": ["revenue_analytics"]
-        },
         { "path": "Code review", "category": "Unreleased", "iconType": null, "type": null, "intents": ["review_hog"] },
         { "path": "Skills", "category": "Tools", "iconType": null, "type": "llm_skills", "intents": ["skills"] },
+        {
+            "path": "Apps",
+            "category": "Unreleased",
+            "iconType": "tools",
+            "type": "streamlit_app",
+            "intents": ["streamlit_apps"]
+        },
         { "path": "Surveys", "category": "Behavior", "iconType": "survey", "type": "survey", "intents": ["surveys"] },
         { "path": "Toolbar", "category": "Tools", "iconType": "toolbar", "type": "toolbar", "intents": ["toolbar"] },
         {

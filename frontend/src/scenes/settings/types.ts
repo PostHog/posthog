@@ -120,6 +120,8 @@ export type SettingId =
     | 'csp-reporting'
     | 'customer-analytics-accounts'
     | 'customer-analytics-dashboard-events'
+    | 'customer-analytics-event-stream'
+    | 'customer-analytics-group-properties'
     | 'customer-analytics-person-properties'
     | 'customer-analytics-usage-metrics'
     | 'customization-irl'
@@ -238,7 +240,6 @@ export type SettingId =
     | 'revenue-analytics-events'
     | 'revenue-analytics-external-data-sources'
     | 'revenue-analytics-filter-test-accounts'
-    | 'revenue-analytics-goals'
     | 'revenue-base-currency'
     | 'session-join-mode'
     | 'session-table-version'
@@ -257,6 +258,7 @@ export type SettingId =
     | 'web-analytics-pre-aggregated-tables'
     | 'web-revenue-events'
     | 'web-vitals-autocapture'
+    | 'workflows-email-tracking-consent'
     | 'workflows-engagement-events'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS

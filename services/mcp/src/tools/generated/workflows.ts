@@ -1,13 +1,7 @@
 // AUTO-GENERATED from products/workflows/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
-
 import type { Schemas } from '@/api/generated'
-import { withUiApp } from '@/resources/ui-apps'
-import { WorkflowGraphPatchSchema } from '@/schema/tool-inputs'
-
 import {
     HogFlowsBatchJobsListParams,
     HogFlowsCreateBody,
@@ -36,6 +30,10 @@ import {
     HogFlowsSchedulesPartialUpdateBody,
     HogFlowsSchedulesPartialUpdateParams,
 } from '@/generated/workflows/api'
+import { withUiApp } from '@/resources/ui-apps'
+import { WorkflowGraphPatchSchema } from '@/schema/tool-inputs'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const WorkflowsCreateSchema = HogFlowsCreateBody
 
@@ -186,6 +184,7 @@ const workflowsList = (): ToolBase<typeof WorkflowsListSchema, WithPostHogUrl<Sc
                     id: params.id,
                     limit: params.limit,
                     offset: params.offset,
+                    search: params.search,
                     status: params.status,
                     updated_at: params.updated_at,
                 },
@@ -435,12 +434,6 @@ const workflowsUpdate = (): ToolBase<typeof WorkflowsUpdateSchema, WithPostHogUr
             }
             if (params.exit_condition !== undefined) {
                 body['exit_condition'] = params.exit_condition
-            }
-            if (params.edges !== undefined) {
-                body['edges'] = params.edges
-            }
-            if (params.actions !== undefined) {
-                body['actions'] = params.actions
             }
             if (params.variables !== undefined) {
                 body['variables'] = params.variables

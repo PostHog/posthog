@@ -8,13 +8,89 @@
 //! a process exit code.
 
 use std::process;
+use std::time::Duration;
 
 use anyhow::Result;
 use axum::routing::get;
 use axum::Router;
-use metrics::counter;
+use metrics::{counter, histogram};
+use personhog_common::grpc::{code_as_str, NON_STATUS};
 
 use crate::report::ConsistencyViolation;
+
+/// The harness's own traffic sources, kept separable because they fail
+/// for different reasons: `blast` is the paced write load, `prober` the
+/// read-your-write canary a live client would notice, and `verify` the
+/// epoch close-out sweep whose failure means the epoch cannot be checked
+/// at all rather than that a client was served badly.
+pub const LANE_BLAST: &str = "blast";
+pub const LANE_PROBER: &str = "prober";
+pub const LANE_VERIFY: &str = "verify";
+
+/// Metric label for a failed request: the gRPC status code the client
+/// wrapped in anyhow context, in the shared vocabulary every personhog
+/// service labels with.
+pub fn status_reason(err: &anyhow::Error) -> &'static str {
+    match err.downcast_ref::<tonic::Status>() {
+        Some(status) => code_as_str(status.code()),
+        None => NON_STATUS,
+    }
+}
+
+fn millis(elapsed: Duration) -> f64 {
+    elapsed.as_secs_f64() * 1000.0
+}
+
+/// Record an acked write. `reason` carries `ok` rather than being
+/// omitted so every series of this counter has the same label set.
+pub fn record_write_ok(lane: &'static str, elapsed: Duration) {
+    counter!(
+        "personhog_traffic_writes_total",
+        "lane" => lane,
+        "outcome" => "ok",
+        "reason" => "ok",
+    )
+    .increment(1);
+    histogram!("personhog_traffic_write_duration_ms", "lane" => lane).record(millis(elapsed));
+}
+
+/// Record a write the stack refused or dropped. Latency is deliberately
+/// not recorded: a timeout's duration is the deadline, not the stack's
+/// service time, and mixing the two distorts the percentiles.
+pub fn record_write_failed(lane: &'static str, err: &anyhow::Error) {
+    counter!(
+        "personhog_traffic_writes_total",
+        "lane" => lane,
+        "outcome" => "failed",
+        "reason" => status_reason(err),
+    )
+    .increment(1);
+}
+
+pub fn record_read_ok(lane: &'static str, elapsed: Duration) {
+    counter!(
+        "personhog_traffic_reads_total",
+        "lane" => lane,
+        "outcome" => "ok",
+        "reason" => "ok",
+    )
+    .increment(1);
+    histogram!("personhog_traffic_read_duration_ms", "lane" => lane).record(millis(elapsed));
+}
+
+/// Record a strong read that did not return the person. `reason` is a
+/// gRPC code for a failed call, or `missing` when the read succeeded but
+/// found nothing — a served empty answer is a different failure from an
+/// unavailable one, and only the harness can tell them apart.
+pub fn record_read_failed(lane: &'static str, reason: &'static str) {
+    counter!(
+        "personhog_traffic_reads_total",
+        "lane" => lane,
+        "outcome" => "failed",
+        "reason" => reason,
+    )
+    .increment(1);
+}
 
 /// Serve liveness + Prometheus metrics; runs for the process lifetime.
 pub fn spawn_server(port: u16) -> Result<()> {

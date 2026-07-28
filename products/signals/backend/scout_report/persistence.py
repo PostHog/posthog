@@ -295,6 +295,10 @@ def update_scout_report(
             raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
         updated_fields = report.update_authored_content(title=title, summary=summary)
         if updated_fields:
+            # Agent-authored text that the safety judge has not seen; the report's existing verdict was
+            # reached on the text this edit replaces. Marking the save retracts the report's embedding
+            # rather than indexing unreviewed content under a stale approval (see receivers.py).
+            report._unreviewed_edit = True  # type: ignore[attr-defined]
             report.save(update_fields=updated_fields)
             if attribution is not None:
                 SignalReportArtefact.add_log(
@@ -381,6 +385,11 @@ def _merge_forward_reviewer_evidence(*, report_id: str, suggested_reviewers: Sug
             "github_name": entry.github_name if entry.github_name is not None else prior.get("github_name"),
             "relevant_commits": entry.relevant_commits or prior.get("relevant_commits") or [],
             "reason": entry.reason if entry.reason is not None else prior.get("reason"),
+            # Owner provenance is recomputed from the live `LLMSkillOwner` set on every
+            # reviewers-setting edit, so the fresh entry's flag wins — OR-ing in the prior value
+            # would keep a former owner, re-added as a normal reviewer, excluded from autostart
+            # identity selection on stale evidence.
+            "is_skill_owner": entry.is_skill_owner,
         }
         try:
             merged.append(SuggestedReviewerEntry.model_validate(candidate))

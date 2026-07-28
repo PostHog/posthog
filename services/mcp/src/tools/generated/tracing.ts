@@ -1,12 +1,7 @@
 // AUTO-GENERATED from products/tracing/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-import { withPostHogUrl, pickResponseFields } from '@/tools/tool-utils'
-
 import type { Schemas } from '@/api/generated'
-import { withUiApp } from '@/resources/ui-apps'
-
 import {
     TracingSpansAggregateCreateBody,
     TracingSpansAttributeBreakdownCreateBody,
@@ -22,6 +17,9 @@ import {
     TracingSpansTreeCreateBody,
     TracingSpansValuesRetrieveQueryParams,
 } from '@/generated/tracing/api'
+import { withUiApp } from '@/resources/ui-apps'
+import { withPostHogUrl, pickResponseFields } from '@/tools/tool-utils'
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ApmAttributeBreakdownSchema = TracingSpansAttributeBreakdownCreateBody
 

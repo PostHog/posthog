@@ -28,7 +28,6 @@ import structlog
 from pydantic import BaseModel, model_validator
 
 from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, SNAPSHOT_KIND_FILESYSTEM, SnapshotKind
-from products.tasks.backend.logic.services.local_skills import BUNDLED_SKILLS_PATHS, bundled_skills_disabled
 from products.tasks.backend.logic.services.sandbox_config import (
     BURSTABLE_REQUEST_CPU_CORES,
     BURSTABLE_REQUEST_MEMORY_MB,
@@ -172,6 +171,8 @@ def build_agent_runtime_env_prefix(
     provider: str | None = None,
     model: str | None = None,
     reasoning_effort: str | None = None,
+    context_window: str | None = None,
+    fast_mode: bool | None = None,
     initial_permission_mode: str | None = None,
     event_ingest_token: str | None = None,
     event_ingest_url: str | None = None,
@@ -184,6 +185,9 @@ def build_agent_runtime_env_prefix(
         "POSTHOG_CODE_PROVIDER": provider,
         "POSTHOG_CODE_MODEL": model,
         "POSTHOG_CODE_REASONING_EFFORT": reasoning_effort,
+        "POSTHOG_CODE_CONTEXT_WINDOW": context_window,
+        # Explicit false pins fast mode off even if a stale env value survives in a resumed sandbox.
+        "POSTHOG_CODE_FAST_MODE": None if fast_mode is None else ("true" if fast_mode else "false"),
         "POSTHOG_CODE_INITIAL_PERMISSION_MODE": initial_permission_mode,
         "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN": event_ingest_token,
         "POSTHOG_TASK_RUN_EVENT_INGEST_URL": event_ingest_url,
@@ -243,15 +247,6 @@ class SandboxBase(ABC):
             "exit 1",
             timeout_seconds=45,
         )
-
-    def clear_bundled_skills_if_disabled(self) -> None:
-        if not bundled_skills_disabled(self.config.environment_variables):
-            return
-
-        paths = " ".join(shlex.quote(path) for path in BUNDLED_SKILLS_PATHS)
-        result = self.execute(f"rm -rf {paths} && mkdir -p {paths}", timeout_seconds=30)
-        if result.exit_code != 0:
-            raise RuntimeError(f"Failed to clear bundled skills in sandbox {self.id}: {result.stderr}")
 
     def agent_server_supports_auto_publish(self) -> bool:
         """Sandboxes restored from old snapshots can carry an agent-server that rejects unknown
@@ -343,6 +338,8 @@ class SandboxBase(ABC):
         provider: str | None = None,
         model: str | None = None,
         reasoning_effort: str | None = None,
+        context_window: str | None = None,
+        fast_mode: bool | None = None,
         initial_permission_mode: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
         relayed_mcp_servers: list[str] | None = None,

@@ -507,7 +507,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     "start_to_close_timeout": dt.timedelta(weeks=1),
                     "retry_policy": RetryPolicy(
                         maximum_attempts=max_resumable_attempts,
-                        non_retryable_error_types=["NonRetryableException"],
+                        non_retryable_error_types=["NonRetryableException", "BillingLimitsWillBeReachedException"],
                     ),
                 }
             elif incremental_or_append:
@@ -515,14 +515,15 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     "start_to_close_timeout": dt.timedelta(weeks=1),
                     "retry_policy": RetryPolicy(
                         maximum_attempts=max_incremental_attempts,
-                        non_retryable_error_types=["NonRetryableException"],
+                        non_retryable_error_types=["NonRetryableException", "BillingLimitsWillBeReachedException"],
                     ),
                 }
             else:
                 timeout_params = {
                     "start_to_close_timeout": dt.timedelta(hours=24),
                     "retry_policy": RetryPolicy(
-                        maximum_attempts=3, non_retryable_error_types=["NonRetryableException"]
+                        maximum_attempts=3,
+                        non_retryable_error_types=["NonRetryableException", "BillingLimitsWillBeReachedException"],
                     ),
                 }
 

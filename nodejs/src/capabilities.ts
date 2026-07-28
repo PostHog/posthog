@@ -209,6 +209,7 @@ export function getPluginServerCapabilities(
         case PluginServerMode.recordings_blob_ingestion_v2_ml_mirror:
         case PluginServerMode.recordings_blob_ingestion_v2_ml_parquet_sink:
         case PluginServerMode.recordings_blob_ingestion_v2_ml_image_scrub:
+        case PluginServerMode.recordings_blob_ingestion_v2_ml_image_scrub_dlq_replay:
         case PluginServerMode.recording_api:
             throw new Error(`Mode ${mode} is handled by IngestionSessionReplayServer, not PluginServer`)
     }

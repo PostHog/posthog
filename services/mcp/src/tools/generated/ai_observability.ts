@@ -1,12 +1,7 @@
 // AUTO-GENERATED from products/ai_observability/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
-
 import type { Schemas } from '@/api/generated'
-import { PromptListInputSchema, ScoreDefinitionConfigSchema } from '@/schema/tool-inputs'
-
 import {
     EvaluationRunsCreateBody,
     EvaluationsCreateBody,
@@ -77,6 +72,9 @@ import {
     TaggersListQueryParams,
     TaggersTestHogCreateBody,
 } from '@/generated/ai_observability/api'
+import { PromptListInputSchema, ScoreDefinitionConfigSchema } from '@/schema/tool-inputs'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const LlmaClusteringConfigGetSchema = z.object({})
 
@@ -652,6 +650,12 @@ const llmaEvaluationTestHog = (): ToolBase<typeof LlmaEvaluationTestHogSchema, S
         if (params.conditions !== undefined) {
             body['conditions'] = params.conditions
         }
+        if (params.target !== undefined) {
+            body['target'] = params.target
+        }
+        if (params.target_config !== undefined) {
+            body['target_config'] = params.target_config
+        }
         const result = await context.api.request<Schemas.TestHogResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/evaluations/test_hog/`,
@@ -871,9 +875,9 @@ const llmaPromptList = (): ToolBase<
     },
 })
 
-const LlmaPromptUpdateSchema = LlmPromptsNamePartialUpdateParams.omit({ project_id: true }).extend(
-    LlmPromptsNamePartialUpdateBody.shape
-)
+const LlmaPromptUpdateSchema = LlmPromptsNamePartialUpdateParams.omit({ project_id: true })
+    .extend(LlmPromptsNamePartialUpdateBody.shape)
+    .extend({ base_version: LlmPromptsNamePartialUpdateBody.shape['base_version'].unwrap() })
 
 const llmaPromptUpdate = (): ToolBase<typeof LlmaPromptUpdateSchema, Schemas.LLMPrompt> => ({
     name: 'llma-prompt-update',

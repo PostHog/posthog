@@ -25,7 +25,7 @@ from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
 from django.conf import settings
-from django.db import IntegrityError, close_old_connections, transaction
+from django.db import IntegrityError, transaction
 from django.db.models import CharField, Count, Exists, F, Min, OuterRef, Q, QuerySet, Subquery
 from django.db.models.fields.json import KeyTextTransform
 from django.utils import timezone as django_timezone
@@ -49,7 +49,7 @@ from products.tasks.backend.logic.services.image_builder import (
     is_custom_images_enabled,
     read_spec_from_builder_sandbox,
 )
-from products.tasks.backend.mentions import format_mention_token, resolve_mentioned_user_ids
+from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
     Channel,
     ChannelFeedMessage,
@@ -59,6 +59,7 @@ from products.tasks.backend.models import (
     SandboxEnvironment,
     SandboxSnapshot,
     Task,
+    TaskActivity,
     TaskAutomation,
     TaskRun,
     TaskThreadMessage,
@@ -156,6 +157,7 @@ __all__ = [
     "get_task_run_stream_info",
     "get_task_summaries",
     "is_internal_debug_team",
+    "is_signal_report_task",
     "is_task_controllable_by_user",
     "is_valid_sandbox_env_var_key",
     "latest_task_run_pr_merged_subquery",
@@ -504,6 +506,24 @@ def get_task_id_for_run(run_id: str | UUID, team_id: int) -> UUID | None:
 def task_exists(task_id: str | UUID, team_id: int) -> bool:
     """Whether a (non-deleted) task exists for the team."""
     return Task.objects.filter(id=task_id, team_id=team_id).exists()
+
+
+def is_signal_report_task(task_id: str | UUID, team_id: int) -> bool:
+    """Whether the task is a genuine Signals report task rather than a PostHog Code task.
+
+    True only when the origin is ``SIGNAL_REPORT`` and it links to a report in this team. The Inbox
+    "Create PR" / "Discuss" actions create such tasks, and acting on them is entitled through
+    self-driving (the ``product-autonomy`` Inbox, which is generally available) — not the PostHog
+    Code (``tasks``) product. So the ``run`` gate skips the Code entitlement for them, matching
+    auto-start, which runs the same tasks server-side without a Code check. The report link is
+    team-scoped by the write serializer, so a caller can't forge it onto another team's report.
+    """
+    return Task.objects.filter(
+        id=task_id,
+        team_id=team_id,
+        origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        signal_report__isnull=False,
+    ).exists()
 
 
 def count_in_progress_runs_for_github_integration(team_id: int, integration_id: int) -> int:
@@ -1126,11 +1146,11 @@ def create_completed_sandbox_snapshot(external_id: str) -> UUID:
     return snapshot.id
 
 
-# --- Code invites ---
+# --- Desktop invites ---
 
 
 def redeem_code_invite(code: str, user_id: int) -> contracts.CodeInviteRedeemResult:
-    """Redeem a PostHog Code invite for a user.
+    """Redeem a PostHog Desktop invite for a user.
 
     Idempotent: a user who already redeemed this code gets ``REDEEMED`` without a second
     redemption row. A fresh redemption takes a row lock on the invite, re-checks
@@ -1728,6 +1748,10 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "snapshot_mount_path",
         "workflow_id",
         "pending_dispatch",
+        # Written once at loop fire time; seeding copies these storage paths into the
+        # run's artifact prefix, so a PATCHable value would be an arbitrary
+        # object-storage read (and write-location) primitive.
+        "skill_bundle_seeds",
         "cancel_requested_at",
         "cancel_requested_by_user_id",
         "cancel_source",
@@ -2112,6 +2136,7 @@ def update_task_run(
     if new_pr_url and new_pr_url != old_pr_url:
         _post_slack_update_for_pr(run)
         _send_wizard_pr_ready_email_for_pr(run)
+        post_pr_created_thread_update(run, new_pr_url)
         # Surface the PR in the run's progress timeline the moment the agent reports it, so the install
         # UI advances past "Started agent" instead of waiting on the 15-min CI follow-up loop to emit
         # these. Steps coalesce by id with the workflow's own pr/ci emissions (frontend mergeProgressStep),
@@ -2162,6 +2187,8 @@ def set_task_run_output(
     run.publish_stream_state_event()
     _post_slack_update_for_pr(run)
     _send_wizard_pr_ready_email_for_pr(run)
+    if merged.get("pr_url"):
+        post_pr_created_thread_update(run, merged["pr_url"])
     return _task_run_detail_to_dto(run)
 
 
@@ -3059,6 +3086,8 @@ def bootstrap_task_run(
     runtime_adapter = validated_data.get("runtime_adapter")
     model = validated_data.get("model")
     reasoning_effort = validated_data.get("reasoning_effort")
+    context_window = validated_data.get("context_window")
+    fast_mode = validated_data.get("fast_mode")
     github_user_token = validated_data.get("github_user_token")
     initial_permission_mode = validated_data.get("initial_permission_mode")
     imported_mcp_servers = validated_data.get("imported_mcp_servers")
@@ -3081,6 +3110,8 @@ def bootstrap_task_run(
         "provider": provider,
         "model": model,
         "reasoning_effort": reasoning_effort,
+        "context_window": context_window,
+        "fast_mode": fast_mode,
         "rtk_enabled": validated_data.get("rtk_enabled"),
     }.items():
         if value is not None:
@@ -4372,12 +4403,16 @@ def run_task(
                 warm_state.get("runtime_adapter") or None,
                 warm_state.get("model") or None,
                 warm_state.get("reasoning_effort") or None,
+                warm_state.get("context_window") or None,
+                warm_state.get("fast_mode") or None,
                 warm_state.get("sandbox_environment_id") or None,
                 warm_state.get("custom_image_id") or None,
             ) == (
                 validated_data.get("runtime_adapter") or None,
                 validated_data.get("model") or None,
                 validated_data.get("reasoning_effort") or None,
+                validated_data.get("context_window") or None,
+                validated_data.get("fast_mode") or None,
                 str(validated_data["sandbox_environment_id"]) if validated_data.get("sandbox_environment_id") else None,
                 str(validated_data["custom_image_id"]) if validated_data.get("custom_image_id") else None,
             )
@@ -4421,6 +4456,8 @@ def run_task(
     runtime_adapter = validated_data.get("runtime_adapter")
     model = validated_data.get("model")
     reasoning_effort = validated_data.get("reasoning_effort")
+    context_window = validated_data.get("context_window")
+    fast_mode = validated_data.get("fast_mode")
     github_user_token = validated_data.get("github_user_token")
     initial_permission_mode = validated_data.get("initial_permission_mode")
     imported_mcp_servers = validated_data.get("imported_mcp_servers")
@@ -4436,6 +4473,8 @@ def run_task(
         "runtime_adapter": runtime_adapter,
         "model": model,
         "reasoning_effort": reasoning_effort,
+        "context_window": context_window,
+        "fast_mode": fast_mode,
     }
 
     extra_state: dict | None = None
@@ -4494,6 +4533,8 @@ def run_task(
         runtime_adapter = runtime_state_fields["runtime_adapter"]
         model = runtime_state_fields["model"]
         reasoning_effort = runtime_state_fields["reasoning_effort"]
+        context_window = runtime_state_fields["context_window"]
+        fast_mode = runtime_state_fields["fast_mode"]
         if branch is None and prev_state.pr_base_branch is not None:
             branch = prev_state.pr_base_branch
 
@@ -4509,6 +4550,8 @@ def run_task(
         "provider": provider,
         "model": model,
         "reasoning_effort": reasoning_effort,
+        "context_window": context_window,
+        "fast_mode": fast_mode,
     }.items():
         if value is not None:
             extra_state = extra_state or {}
@@ -5109,6 +5152,9 @@ def list_thread_messages(
         return None
     messages = (
         TaskThreadMessage.objects.filter(task_id=task_id, team_id=team_id)
+        # The thread is human-to-human plus artifact announcements; rows written
+        # back when the agent finished a turn (a since-removed behavior) stay out.
+        .exclude(event="turn_complete")
         .select_related("author", "forwarded_by")
         .order_by("created_at", "id")
     )
@@ -5122,6 +5168,10 @@ def create_thread_message(
     if _visible_task(task_id, team_id, user_id) is None:
         return None
     message = TaskThreadMessage.objects.create(team_id=team_id, task_id=task_id, author_id=user_id, content=content)
+    try:
+        project_thread_message_activity(message)
+    except Exception:
+        logger.exception("Failed to project thread message activity", extra={"message_id": str(message.id)})
     try:
         _index_thread_message_mentions(message)
     except Exception:
@@ -5140,19 +5190,29 @@ def _index_thread_message_mentions(message: TaskThreadMessage) -> None:
     mentioned_user_ids = resolve_mentioned_user_ids(
         User, message.content, team_id=message.team_id, author_id=message.author_id
     )
+    mentions = [
+        TaskThreadMessageMention(
+            team_id=message.team_id,
+            message_id=message.id,
+            task_id=message.task_id,
+            mentioned_user_id=mentioned_user_id,
+            created_at=message.created_at,
+        )
+        for mentioned_user_id in mentioned_user_ids
+    ]
     TaskThreadMessageMention.objects.for_team(message.team_id).bulk_create(
-        [
-            TaskThreadMessageMention(
-                team_id=message.team_id,
-                message_id=message.id,
-                task_id=message.task_id,
-                mentioned_user_id=mentioned_user_id,
-                created_at=message.created_at,
-            )
-            for mentioned_user_id in mentioned_user_ids
-        ],
+        mentions,
         ignore_conflicts=True,
     )
+    for mention in mentions:
+        TaskActivity.record(
+            team_id=message.team_id,
+            user_id=mention.mentioned_user_id,
+            task_id=message.task_id,
+            kind=TaskActivity.Kind.MENTION,
+            activity_at=message.created_at,
+            message_id=message.id,
+        )
 
 
 def list_mentions(
@@ -5166,7 +5226,9 @@ def list_mentions(
         mentioned_user_id=user_id,
         # task__in keeps the visibility rules single-sourced in _visible_task_qs.
         task__in=_visible_task_qs(team_id, user_id),
-    )
+        # Legacy turn_complete rows are hidden from threads (see list_thread_messages),
+        # so their indexed mentions must not surface notifications pointing at them.
+    ).exclude(message__event="turn_complete")
     if since is not None:
         qs = qs.filter(created_at__gt=since)
     mentions = qs.select_related("message__author", "task__channel").order_by("-created_at")[:limit]
@@ -5184,6 +5246,129 @@ def list_mentions(
         )
         for mention in mentions
     ]
+
+
+def project_thread_message_activity(message: TaskThreadMessage) -> None:
+    """Project a new thread message onto the feed of everyone it concerns."""
+    recipient_ids = {recipient_id for recipient_id in (message.author_id, message.task.created_by_id) if recipient_id}
+    for recipient_id in recipient_ids:
+        TaskActivity.record(
+            team_id=message.team_id,
+            user_id=recipient_id,
+            task_id=message.task_id,
+            kind=TaskActivity.Kind.MESSAGE,
+            activity_at=message.created_at,
+            message_id=message.id,
+            actor_id=message.author_id,
+        )
+
+
+def project_awaiting_input_activity(task_run: "TaskRun") -> None:
+    """Flag the task creator's feed row when a run stops and needs them.
+
+    Called from ``push_dispatcher.notify_task_run_awaiting_input`` so every path that
+    decides a run is waiting (stream ingest, agent proxy callback, sandbox relay) projects
+    the same row. Deliberately outside the push feature flag and its Redis cooldown — the
+    in-app feed should update even where the mobile push is off.
+    """
+    creator_id = task_run.task.created_by_id
+    if creator_id is None:
+        return
+    TaskActivity.record(
+        team_id=task_run.task.team_id,
+        user_id=creator_id,
+        task_id=task_run.task_id,
+        kind=TaskActivity.Kind.AWAITING_INPUT,
+        activity_at=django_timezone.now(),
+    )
+
+
+def project_completed_activity(task_run: "TaskRun") -> None:
+    creator_id = task_run.task.created_by_id
+    if creator_id is None:
+        return
+    TaskActivity.record(
+        team_id=task_run.task.team_id,
+        user_id=creator_id,
+        task_id=task_run.task_id,
+        kind=TaskActivity.Kind.COMPLETED,
+        activity_at=task_run.completed_at or django_timezone.now(),
+    )
+
+
+def _task_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskActivity]:
+    """The requester's feed rows, gated to tasks they can still see.
+
+    Rows outlive visibility changes (a task moving to a private channel, say), so the
+    visibility gate belongs on read rather than being enforced when projecting.
+    """
+    return TaskActivity.objects.filter(team_id=team_id, user_id=user_id, task__in=_visible_task_qs(team_id, user_id))
+
+
+def count_unread_task_activity(team_id: int, user_id: int | None) -> int:
+    """Unread tasks across the requester's whole feed. Backs the sidebar badge."""
+    if user_id is None:
+        return 0
+    return _task_activity_qs(team_id, user_id).filter(read_at__isnull=True).count()
+
+
+def list_task_activity(
+    team_id: int,
+    user_id: int | None,
+    *,
+    limit: int = 100,
+    before: datetime | None = None,
+    before_id: UUID | None = None,
+) -> contracts.TaskActivityPageDTO:
+    """The requester's feed: one row per task they are involved in, newest activity first.
+
+    ``unread_count`` counts every unread row the requester can see, not just the ones in
+    this page, so the sidebar badge stays honest past ``limit``.
+    """
+    if user_id is None:
+        return contracts.TaskActivityPageDTO(results=[], unread_count=0)
+    qs = _task_activity_qs(team_id, user_id)
+    if before is not None and before_id is not None:
+        qs = qs.filter(Q(activity_at__lt=before) | Q(activity_at=before, id__lt=before_id))
+    rows = list(qs.select_related("task__channel", "message__author").order_by("-activity_at", "-id")[: limit + 1])
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+    next_row = rows[-1] if has_more else None
+    return contracts.TaskActivityPageDTO(
+        results=[
+            contracts.TaskActivityDTO(
+                id=row.id,
+                task_id=row.task_id,
+                task_title=row.task.title,
+                channel_id=row.task.channel_id,
+                channel_name=row.task.channel.name if row.task.channel else None,
+                activity_at=row.activity_at,
+                activity_kind=row.kind,
+                snippet=row.message.content if row.message else "",
+                latest_author=_user_basic_info(row.message.author if row.message and row.message.author_id else None),
+                latest_message_id=row.message_id,
+                is_unread=row.read_at is None,
+            )
+            for row in rows
+        ],
+        unread_count=_task_activity_qs(team_id, user_id).filter(read_at__isnull=True).count(),
+        next_before=next_row.activity_at if next_row else None,
+        next_before_id=next_row.id if next_row else None,
+    )
+
+
+def mark_task_activity_read(team_id: int, user_id: int | None, activities: Sequence[tuple[UUID, datetime]]) -> int:
+    """Mark feed rows read only when their latest activity was visible to the requester."""
+    if user_id is None or not activities:
+        return 0
+    activity_versions = Q()
+    for task_id, seen_before in activities:
+        activity_versions |= Q(task_id=task_id, activity_at__lte=seen_before)
+    return (
+        TaskActivity.objects.filter(team_id=team_id, user_id=user_id, read_at__isnull=True)
+        .filter(activity_versions)
+        .update(read_at=django_timezone.now())
+    )
 
 
 def delete_thread_message(message_id: str | UUID, task_id: str | UUID, team_id: int, user_id: int | None) -> str:
@@ -5248,13 +5433,6 @@ def forward_thread_message(
 # updates are gated on the same flag — evaluated for the task creator.
 AGENT_THREAD_UPDATES_FLAG = "project-bluebird"
 
-# One turn-complete post per run within the window, so an SSE relay reconnect
-# replaying the tail of the stream can't double-post the same end-of-turn.
-_TURN_COMPLETE_COOLDOWN_SECONDS = 30
-
-# Cap the relayed final message so one agent essay can't dwarf the thread.
-_TURN_MESSAGE_MAX_CHARS = 4000
-
 
 def _create_agent_thread_message(task: Task, content: str, *, event: str, payload: dict | None = None) -> None:
     """Write an agent-authored thread message and index its mentions.
@@ -5274,6 +5452,7 @@ def _create_agent_thread_message(task: Task, content: str, *, event: str, payloa
         payload=payload or {},
         content=content,
     )
+    project_thread_message_activity(message)
     try:
         _index_thread_message_mentions(message)
     except Exception:
@@ -5326,42 +5505,79 @@ def post_canvas_created_thread_update(
         logger.exception("Failed to post canvas-created thread update", extra={"task_id": str(task_id)})
 
 
-def post_turn_complete_thread_update(
-    run_id: str | UUID, task_id: str | UUID, team_id: int, *, message: str | None = None
-) -> None:
-    """Post the agent's final turn message into the task's thread, @-mentioning the task creator.
+_GITHUB_PR_PATH_PATTERN = re.compile(r"/([^/]+)/([^/]+)/pull/(\d+)/?", re.IGNORECASE)
 
-    Fires from the sandbox event relay on every end-of-turn of a channel task's
-    background run, so the update lands even with no client open. ``message`` is
-    the agent's closing prose for the turn; when the relay captured none, a plain
-    "Turn complete." stands in. Best-effort and never raises — a failed post must
-    not disturb the relay.
+# Characters that could break out of a markdown [label](url) token or smuggle
+# extra markdown into the rendered thread message.
+_PR_URL_UNSAFE_CHARS = set(" \t\n\r()[]<>\"'`\\")
+
+_PR_URL_MAX_LENGTH = 2048
+
+
+def _is_safe_pr_url(pr_url: str) -> bool:
+    """Whether ``pr_url`` is a plain http(s) URL safe to embed in a markdown link.
+
+    ``pr_url`` originates from task-run output APIs, so it is caller-controlled.
+    Real PR URLs never contain whitespace, quotes, brackets, or parentheses;
+    anything that does is rejected rather than escaped.
+    """
+    if not pr_url or len(pr_url) > _PR_URL_MAX_LENGTH or any(char in _PR_URL_UNSAFE_CHARS for char in pr_url):
+        return False
+    parsed = urlparse(pr_url)
+    return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+
+
+def _pr_display_label(pr_url: str) -> str:
+    parsed = urlparse(pr_url)
+    if parsed.hostname is None or parsed.hostname.lower() != "github.com":
+        return pr_url
+    match = _GITHUB_PR_PATH_PATTERN.fullmatch(parsed.path)
+    if match:
+        owner, repo, number = match.groups()
+        return f"{owner}/{repo}#{number}"
+    return pr_url
+
+
+def post_pr_created_thread_update(run: TaskRun, pr_url: str) -> None:
+    """Announce a run's freshly opened pull request in its task's thread.
+
+    Posts "[owner/repo#N](url) has been opened" as an agent artifact message
+    (``event="pr_created"``). Both the agent-output path and the GitHub webhook
+    backstop can observe the same PR, so the announcement dedupes on the task's
+    existing ``pr_created`` rows for this URL. Best-effort and never raises —
+    recording the PR must not fail because its announcement couldn't be written.
     """
     try:
-        if not settings.TEST:
-            close_old_connections()
-        task = Task.objects.select_related("created_by").filter(id=task_id, team_id=team_id).first()
-        # Threads hang off a task's channel feed; a channel-less task has no audience.
-        if task is None or task.channel_id is None:
+        if not _is_safe_pr_url(pr_url):
+            logger.info("pr_created thread update skipped", extra={"task_id": str(run.task_id), "reason": "unsafe_url"})
             return
-        creator = task.created_by
-        if creator is None or not _agent_thread_updates_enabled(creator):
+        # Unlike turn_complete's old channel guard, artifact rows post for
+        # channel-less tasks too: every task has a thread panel.
+        task = Task.objects.select_related("created_by").filter(id=run.task_id, team_id=run.team_id).first()
+        if task is None:
             return
-        from products.tasks.backend.redis import get_tasks_cache  # noqa: PLC0415 — keep redis off the api import path
-
-        if not get_tasks_cache().add(f"thread_update:{run_id}:turn_complete", True, _TURN_COMPLETE_COOLDOWN_SECONDS):
+        if task.created_by is None or not _agent_thread_updates_enabled(task.created_by):
+            logger.info(
+                "pr_created thread update skipped",
+                extra={"task_id": str(task.id), "reason": "no_creator" if task.created_by is None else "flag_off"},
+            )
             return
-        body = (message or "").strip() or "Turn complete."
-        if len(body) > _TURN_MESSAGE_MAX_CHARS:
-            body = body[: _TURN_MESSAGE_MAX_CHARS - 1] + "…"
-        mention = format_mention_token(creator.get_full_name() or creator.email, creator.email)
-        # payload.run_id is the dedupe key: a client already rendering this run's
-        # live agent turns can suppress the durable row (or vice versa).
-        _create_agent_thread_message(
-            task,
-            f"{mention} {body}",
-            event="turn_complete",
-            payload={"run_id": str(run_id)},
-        )
+        # The agent-output path and the webhook backstop can race on the same PR;
+        # locking the task row makes the dedupe check-and-create atomic across them.
+        with transaction.atomic():
+            Task.objects.select_for_update().filter(id=task.id).first()
+            if (
+                TaskThreadMessage.objects.for_team(task.team_id)
+                .filter(task_id=task.id, event="pr_created", payload__pr_url=pr_url)
+                .exists()
+            ):
+                return
+            label = _pr_display_label(pr_url)
+            _create_agent_thread_message(
+                task,
+                f"[{label}]({pr_url}) has been opened",
+                event="pr_created",
+                payload={"pr_url": pr_url},
+            )
     except Exception:
-        logger.exception("Failed to post turn-complete thread update", extra={"task_id": str(task_id)})
+        logger.exception("Failed to post pr-created thread update", extra={"task_id": str(run.task_id)})
