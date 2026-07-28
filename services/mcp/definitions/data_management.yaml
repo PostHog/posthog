@@ -8,8 +8,6 @@ category: Data management
 feature: data_management
 url_prefix: /data-management/ingestion-warnings
 ui_apps: {}
-# Ingestion warnings are surfaced to users through the health check system (the `health_issues`
-# category and the ingestion_warning health check), not a standalone tool, so this stays disabled.
 tools:
     ingestion-warnings-list:
         operation: ingestion_warnings_v2_list

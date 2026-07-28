@@ -63,7 +63,6 @@ export const AGENT_USE_CASE_SCOPES = [
     'hog_flow:write',
     'hog_function:read',
     'hog_function:write',
-    'ingestion_warning:read',
     'insight:read',
     'insight:write',
     'insight_variable:write',
