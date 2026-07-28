@@ -1363,8 +1363,12 @@ class TestVersionDeclaration:
 
 
 class TestApiVersionDispatch:
-    @pytest.mark.parametrize("api_version", ["v23", "v24", "v25"])
-    def test_search_service_built_for_resolved_version(self, api_version):
+    # A version the installed google-ads library predates must clamp to the newest one this build
+    # has, not reach `get_service` and fail the sync with a ModuleNotFoundError.
+    _VERSION_CASES = [("v23", "v23"), ("v24", "v24"), ("v25", "v25"), ("v26", "v25")]
+
+    @pytest.mark.parametrize("api_version, expected", _VERSION_CASES)
+    def test_search_service_built_for_resolved_version(self, api_version, expected):
         # The resolved pin must reach GoogleAdsService.get_service so each source syncs against the
         # version it is pinned to — the SDK's default flipped to the newest version, so an unpinned
         # call would silently move older sources to v25.
@@ -1386,10 +1390,10 @@ class TestApiVersionDispatch:
             )
             list(typing.cast(collections.abc.Iterable, response.items()))
 
-        client.get_service.assert_called_once_with("GoogleAdsService", version=api_version, interceptors=mock.ANY)
+        client.get_service.assert_called_once_with("GoogleAdsService", version=expected, interceptors=mock.ANY)
 
-    @pytest.mark.parametrize("api_version", ["v23", "v24", "v25"])
-    def test_field_service_built_for_resolved_version(self, api_version):
+    @pytest.mark.parametrize("api_version, expected", _VERSION_CASES)
+    def test_field_service_built_for_resolved_version(self, api_version, expected):
         # Schema discovery must also target the resolved version — before the SDK bump it relied on
         # the client default being v23, which the bump changed to the newest version.
         client = mock.Mock()
@@ -1404,14 +1408,14 @@ class TestApiVersionDispatch:
         ):
             get_schemas(config, team_id=1, api_version=api_version)
 
-        client.get_service.assert_called_once_with("GoogleAdsFieldService", version=api_version, interceptors=mock.ANY)
+        client.get_service.assert_called_once_with("GoogleAdsFieldService", version=expected, interceptors=mock.ANY)
 
     @pytest.mark.parametrize(
         "is_mcc, service_name",
         [(False, "CustomerService"), (True, "GoogleAdsService")],
         ids=["direct_account_probe", "mcc_account_probe"],
     )
-    @pytest.mark.parametrize("pin, expected", [("v23", "v23"), ("v24", "v24"), (None, "v25")])
+    @pytest.mark.parametrize("pin, expected", [("v23", "v23"), ("v24", "v24"), (None, "v25"), ("v26", "v25")])
     def test_validate_credentials_probes_are_pinned(self, is_mcc, service_name, pin, expected):
         # Unpinned probes fall through to the SDK's newest bundled version, so a v23 source would
         # be validated against v25 and pass (or fail) on a version it never syncs with.

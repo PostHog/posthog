@@ -8,6 +8,7 @@ from django.db import OperationalError, close_old_connections
 
 import grpc
 import pyarrow as pa
+import structlog
 from dateutil import parser as dateutil_parser
 from google.ads.googleads import client as google_ads_client_module
 from google.ads.googleads.client import GoogleAdsClient
@@ -53,6 +54,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads
     RESOURCE_SCHEMAS,
 )
 from products.warehouse_sources.backend.types import IncrementalFieldType
+
+logger = structlog.get_logger(__name__)
 
 # Host used to label the tracked gRPC transport's logs/metrics. Matches
 # `GoogleAdsServiceClient.DEFAULT_ENDPOINT`.
@@ -324,6 +327,33 @@ _PROTO_MODULES_BY_VERSION: dict[str, dict[str, typing.Any]] = {
     "v25": {"common": ga_common_v25, "enums": ga_enums_v25, "resources": ga_resources_v25},
 }
 
+# Newest version this build can talk. The imports above already prove the installed google-ads
+# library ships each key, so the mapping doubles as the set of versions we can serve.
+_NEWEST_USABLE_API_VERSION = max(_PROTO_MODULES_BY_VERSION, key=lambda version: int(version.removeprefix("v")))
+
+
+def usable_api_version(api_version: str) -> str:
+    """Clamp a resolved API version to one this build can actually talk.
+
+    The google-ads library bundles a separate proto package per major, so a version label is only
+    usable if `google.ads.googleads.<version>` is installed here. Code and library ship together,
+    but a *resolved* version does not: supporting a new major flips `default_version` in the same
+    commit as the library bump, while pins live in the database and reach every process. During a
+    rolling deploy a process on the previous release can therefore be handed a version its library
+    predates, and `get_service` fails it with a bare `ModuleNotFoundError` before a single row is
+    fetched. Falling back to the newest version we do have keeps the sync working — the pin still
+    stands, and the next run on rolled-forward code honors it.
+    """
+    if api_version in _PROTO_MODULES_BY_VERSION:
+        return api_version
+
+    logger.warning(
+        "data_imports.google_ads.api_version_unavailable",
+        requested_api_version=api_version,
+        fallback_api_version=_NEWEST_USABLE_API_VERSION,
+    )
+    return _NEWEST_USABLE_API_VERSION
+
 
 def _resolve_protobuf_message_type_url(type_url: str) -> type:
     """Traverse a protobuf message type URL to find it's Python type.
@@ -409,7 +439,9 @@ def get_schemas(config: GoogleAdsSourceConfigUnion, team_id: int, api_version: s
     """
     client = google_ads_client(config, team_id)
     gaf_service = client.get_service(
-        "GoogleAdsFieldService", version=api_version, interceptors=tracked_interceptors(GOOGLE_ADS_HOST)
+        "GoogleAdsFieldService",
+        version=usable_api_version(api_version),
+        interceptors=tracked_interceptors(GOOGLE_ADS_HOST),
     )
     fields_query = _search_fields_with_transient_retry(
         gaf_service, "select name, data_type, is_repeated, type_url where selectable = true"
@@ -545,7 +577,9 @@ def google_ads_source(
     def get_rows() -> collections.abc.Iterator[pa.Table]:
         client = google_ads_client(config, team_id)
         service: GoogleAdsServiceClient = client.get_service(
-            "GoogleAdsService", version=api_version, interceptors=tracked_interceptors(GOOGLE_ADS_HOST)
+            "GoogleAdsService",
+            version=usable_api_version(api_version),
+            interceptors=tracked_interceptors(GOOGLE_ADS_HOST),
         )
         customer_id = clean_customer_id(config.customer_id)
 

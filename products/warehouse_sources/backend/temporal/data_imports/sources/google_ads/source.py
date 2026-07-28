@@ -410,11 +410,12 @@ class GoogleAdsSource(
         from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads import (  # noqa: PLC0415
             _is_transient_grpc_error,
             google_ads_client,
+            usable_api_version,
         )
 
         # The SDK's client default is the newest bundled version, so leaving these probes unpinned
         # would validate against a version the source may not sync with.
-        resolved_version = self.resolve_api_version(api_version)
+        resolved_version = usable_api_version(self.resolve_api_version(api_version))
 
         try:
             client = google_ads_client(config, team_id)
