@@ -32,6 +32,7 @@ import type {
     HogFlowsMetricsGlobalRetrieveParams,
     HogFlowsMetricsRetrieveParams,
     HogFlowsMetricsTotalsRetrieveParams,
+    HogFlowsReputationRetrieveParams,
     HogFlowsRevisionsListParams,
     HogInvocationRerunRequestApi,
     HogInvocationRerunResponseApi,
@@ -840,8 +841,20 @@ export const hogFlowsMetricsGlobalRetrieve = async (
     })
 }
 
-export const getHogFlowsReputationRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/hog_flows/reputation/`
+export const getHogFlowsReputationRetrieveUrl = (projectId: string, params?: HogFlowsReputationRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flows/reputation/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flows/reputation/`
 }
 
 /**
@@ -851,9 +864,10 @@ export const getHogFlowsReputationRetrieveUrl = (projectId: string) => {
  */
 export const hogFlowsReputationRetrieve = async (
     projectId: string,
+    params?: HogFlowsReputationRetrieveParams,
     options?: RequestInit
 ): Promise<TeamEmailReputationResponseApi> => {
-    return apiMutator<TeamEmailReputationResponseApi>(getHogFlowsReputationRetrieveUrl(projectId), {
+    return apiMutator<TeamEmailReputationResponseApi>(getHogFlowsReputationRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

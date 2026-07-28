@@ -46,11 +46,14 @@ impl Pipeline {
     /// deployment writes to `analytics` (normal events), `errortracking`
     /// (`$exception` events split off in `process_single_event`), and `ai`
     /// (`$ai_*` events diverted by the `AiRouting` policy), so its restriction
-    /// service must serve restrictions for all three pipelines.
+    /// service must serve restrictions for all three pipelines. `Import` is an
+    /// events deployment restricted to backfills, so it serves the same three.
     /// Other deployments serve their single pipeline.
     pub fn for_capture_mode(mode: CaptureMode) -> Vec<Pipeline> {
         match mode {
-            CaptureMode::Events => vec![Self::Analytics, Self::ErrorTracking, Self::Ai],
+            CaptureMode::Events | CaptureMode::Import => {
+                vec![Self::Analytics, Self::ErrorTracking, Self::Ai]
+            }
             CaptureMode::Recordings => vec![Self::SessionRecordings],
             CaptureMode::Ai => vec![Self::Ai],
         }
@@ -383,6 +386,13 @@ mod tests {
         assert_eq!(
             Pipeline::for_capture_mode(CaptureMode::Events),
             vec![Pipeline::Analytics, Pipeline::ErrorTracking, Pipeline::Ai]
+        );
+        // Import is an events deployment restricted to backfills, so it must
+        // serve the identical pipeline set -- a backfill can carry $exception
+        // and $ai_* events too.
+        assert_eq!(
+            Pipeline::for_capture_mode(CaptureMode::Import),
+            Pipeline::for_capture_mode(CaptureMode::Events)
         );
         assert_eq!(
             Pipeline::for_capture_mode(CaptureMode::Recordings),
