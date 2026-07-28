@@ -29,7 +29,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dbt.dbt im
     validate_credentials as validate_dbt_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.dbt.settings import (
+    DBT_DEFAULT_VERSION,
     DBT_ENDPOINTS,
+    DBT_SUPPORTED_VERSIONS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
@@ -41,6 +43,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class DbtSource(ResumableSource[DbtSourceConfig, DbtResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.getdbt.com/docs/dbt-cloud-apis/overview"  # coverage spans both Admin API v2 and v3
+    supported_versions = DBT_SUPPORTED_VERSIONS
+    default_version = DBT_DEFAULT_VERSION
 
     @property
     def source_type(self) -> ExternalDataSourceType:
