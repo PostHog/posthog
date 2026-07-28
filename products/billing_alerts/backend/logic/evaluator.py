@@ -241,8 +241,8 @@ def evaluate_billing_alert(
         # current_value >= minimum_value was checked above, so max(minimum_value, threshold_value)
         # reduces to threshold_value.
         breached = current_value >= threshold_value
-        # baseline_value > 0 here, so relative_delta_percentage was computed above.
-        assert relative_delta_percentage is not None
+        # baseline_value > 0 here; reassigning narrows the Optional for the type checker.
+        relative_delta_percentage = (absolute_delta / baseline_value) * Decimal("100")
         direction = "above" if relative_delta_percentage >= 0 else "below"
         reason = (
             f"Current value {current_value} was {abs(relative_delta_percentage).quantize(Decimal('0.01'))}% "

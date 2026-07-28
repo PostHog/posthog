@@ -44,7 +44,7 @@ from ..logic.state_machine import (
     billing_alert_snapshot,
     next_billing_alert_check_at,
 )
-from ..models import BillingAlertConfiguration, BillingAlertEvent
+from ..models import BillingAlertConfiguration, BillingAlertEvent, validate_threshold_configuration
 
 
 @dataclass(frozen=True)
@@ -258,5 +258,6 @@ __all__ = [
     "initialize_billing_alert_lifecycle",
     "reschedule_billing_alert_configuration",
     "slack_integration_belongs_to_team",
+    "validate_threshold_configuration",
     "visible_events_for_alert",
 ]
