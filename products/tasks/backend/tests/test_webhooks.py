@@ -1055,7 +1055,15 @@ class TestFindTaskRun(TestCase):
         )
         self.assertEqual(result, branch_run)
 
-    def test_finds_wizard_run_by_state_head_branch(self):
+    @parameterized.expand(
+        [
+            ("setup", "posthog/instrumentation-ab12cd"),
+            # Sentry migration runs use their own prefix; the prefix gate in find_task_run
+            # must recognize it or their PRs never bind back to the run.
+            ("sentry_migration", "posthog/sentry-migration-ab12cd"),
+        ]
+    )
+    def test_finds_wizard_run_by_state_head_branch(self, _name, head_branch):
         # Wizard cloud runs never have the PR head branch in TaskRun.branch (that column is
         # the checkout base); the server-generated head branch lives in run state. Dropping
         # this match leg silently unbinds every wizard PR from its run again.
@@ -1064,12 +1072,12 @@ class TestFindTaskRun(TestCase):
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
             branch="main",
-            state={"wizard_head_branch": "posthog/instrumentation-ab12cd"},
+            state={"wizard_head_branch": head_branch},
         )
-        result = find_task_run(branch="posthog/instrumentation-ab12cd", repository="posthog/posthog")
+        result = find_task_run(branch=head_branch, repository="posthog/posthog")
         self.assertEqual(result, wizard_run)
         # Same branch name from a foreign repository must not be attributed to this run.
-        self.assertIsNone(find_task_run(branch="posthog/instrumentation-ab12cd", repository="acme/other"))
+        self.assertIsNone(find_task_run(branch=head_branch, repository="acme/other"))
         # The run's `branch` column holds the checkout base, so a same-repo PR whose head
         # ref equals it must not claim the wizard run through the plain branch leg.
         self.assertIsNone(find_task_run(branch="main", repository="posthog/posthog"))

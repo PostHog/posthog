@@ -65,7 +65,12 @@ from products.tasks.backend.models import (
     TaskThreadMessage,
     TaskThreadMessageMention,
 )
-from products.tasks.backend.prompts import build_wizard_pr_agent_prompt, generate_wizard_head_branch
+from products.tasks.backend.prompts import (
+    WIZARD_SENTRY_MIGRATION_HEAD_BRANCH_PREFIX,
+    WIZARD_SENTRY_MIGRATION_PR_AGENT_PROMPT,
+    build_wizard_pr_agent_prompt,
+    generate_wizard_head_branch,
+)
 from products.tasks.backend.visibility import task_control_q, task_run_visibility_q, task_visibility_q
 
 from . import contracts
@@ -885,6 +890,7 @@ def create_wizard_cloud_run(
     user_id: int,
     repository: str,
     branch: str | None = None,
+    use_case: Literal["setup", "sentry_migration"] = "setup",
 ) -> contracts.CreatedTaskDTO:
     """Create + run a cloud setup-wizard task.
 
@@ -894,6 +900,10 @@ def create_wizard_cloud_run(
     token (see ``create_wizard_oauth_access_token``), independent of the agent's sandbox token, so
     the agent runs with read-only PostHog scopes.``wizard_config`` marks the run so the workflow runs the wizard pre-agent step.
 
+    ``use_case`` selects what the wizard does: ``"setup"`` integrates PostHog, ``"sentry_migration"``
+    runs the wizard's ``sentry`` subcommand to migrate the repo's Sentry setup to PostHog error
+    tracking (the subcommand is allowlisted in the ``run_wizard`` activity).
+
     ``user_id`` is the person going through onboarding; it becomes the task's ``created_by`` so the
     run is explicitly attributed to them.
 
@@ -901,19 +911,29 @@ def create_wizard_cloud_run(
     opened PR back to this run by branch + repository — wizard PRs are bot-authored, which the
     agent-side PR attribution cannot match.
     """
-    head_branch = generate_wizard_head_branch()
-    prompt = build_wizard_pr_agent_prompt(head_branch)
+    if use_case == "sentry_migration":
+        head_branch = generate_wizard_head_branch(prefix=WIZARD_SENTRY_MIGRATION_HEAD_BRANCH_PREFIX)
+        prompt = build_wizard_pr_agent_prompt(head_branch, template=WIZARD_SENTRY_MIGRATION_PR_AGENT_PROMPT)
+        title = "Migrate from Sentry"
+        origin_product = Task.OriginProduct.ERROR_TRACKING
+        wizard_config: dict = {"subcommand": "sentry"}
+    else:
+        head_branch = generate_wizard_head_branch()
+        prompt = build_wizard_pr_agent_prompt(head_branch)
+        title = "Set up PostHog"
+        origin_product = Task.OriginProduct.ONBOARDING
+        wizard_config = {}
     return create_and_run_task(
         team=team,
-        title="Set up PostHog",
+        title=title,
         description=prompt,
-        origin_product=Task.OriginProduct.ONBOARDING,
+        origin_product=origin_product,
         user_id=user_id,
         repository=repository,
         create_pr=True,
         mode="background",
         branch=branch,
-        wizard_config={},
+        wizard_config=wizard_config,
         wizard_head_branch=head_branch,
         posthog_mcp_scopes="read_only",
         # The agent server boots idle; this is the message that actually kicks it off once ready

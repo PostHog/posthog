@@ -18,7 +18,7 @@ from products.signals.backend.models import InvalidStatusTransition, SignalRepor
 from products.tasks.backend.facade.api import post_pr_created_thread_update, signal_workflow_completion
 from products.tasks.backend.facade.cancellation import cancel_task_run
 from products.tasks.backend.models import TaskRun
-from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PREFIX
+from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PREFIXES
 
 logger = structlog.get_logger(__name__)
 
@@ -82,7 +82,7 @@ def find_task_run(
         # The prefix check keeps this leg off the hot path for ordinary PR webhooks, and
         # terminal runs are excluded so a reopened branch can't fire events on a dead run
         # (post-merge events for bound runs resolve via the pr_url leg above).
-        if branch.startswith(WIZARD_HEAD_BRANCH_PREFIX):
+        if branch.startswith(WIZARD_HEAD_BRANCH_PREFIXES):
             task_run = (
                 TaskRun.objects.filter(
                     state__wizard_head_branch=branch,

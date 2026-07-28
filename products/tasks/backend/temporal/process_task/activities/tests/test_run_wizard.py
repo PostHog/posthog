@@ -3,6 +3,7 @@ from unittest.mock import patch
 from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
+from temporalio.exceptions import ApplicationError
 
 from products.tasks.backend.logic.services.sandbox import ExecutionResult
 from products.tasks.backend.temporal.process_task.activities.run_wizard import (
@@ -32,6 +33,27 @@ class TestBuildWizardCommand(SimpleTestCase):
         assert WIZARD_PACKAGE in command
         assert "--install-dir ." in command
         assert "--project-id 123" in command
+
+    def test_subcommand_is_inserted_between_package_and_flags(self) -> None:
+        # The sentry migration runs `npx @posthog/wizard sentry <flags>`; inserting the subcommand
+        # after the flags (or dropping it) would run the default setup wizard instead.
+        base = _build_wizard_command("/tmp/workspace/repos/acme/app", 123)
+        with_subcommand = _build_wizard_command("/tmp/workspace/repos/acme/app", 123, subcommand="sentry")
+
+        assert f"npx --yes {WIZARD_PACKAGE} sentry --headless-DONOTUSE-EXPERIMENTAL" in with_subcommand
+        # No subcommand leaves the command byte-identical to before the parameter existed.
+        assert f"npx --yes {WIZARD_PACKAGE} --headless-DONOTUSE-EXPERIMENTAL" in base
+        assert with_subcommand.replace(" sentry ", " ", 1) == base
+
+    @parameterized.expand([("self-driving",), ("",)])
+    def test_unknown_subcommand_raises_non_retryable(self, subcommand: str) -> None:
+        # wizard_config comes from run state; an unrecognized subcommand must fail the run
+        # permanently instead of executing an arbitrary wizard mode in the sandbox.
+        with self.assertRaises(ApplicationError) as ctx:
+            _build_wizard_command("/tmp/workspace/repos/acme/app", 123, subcommand=subcommand)
+
+        assert ctx.exception.non_retryable is True
+        assert repr(subcommand) in str(ctx.exception)
 
     @parameterized.expand([(True,), (False,)])
     def test_base_url_pins_local_instance_only_in_debug(self, debug: bool) -> None:

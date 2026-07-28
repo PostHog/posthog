@@ -61,6 +61,10 @@ OPENAI_SUPPORTED_MODELS = {"o4-mini", "gpt-5-mini", "gpt-5-nano", "gpt-5"}
 # loop lands on. Only requests that reach creation consume it.
 WIZARD_CLOUD_RUN_DAILY_ATTEMPT_CAP = 15
 
+# Gates the sentry_migration use case server-side; the serializer alone would let anyone
+# start migration runs before the feature launches.
+SENTRY_MIGRATION_FEATURE_FLAG = "error-tracking-sentry-migration"
+
 WIZARD_CLOUD_RUN_REQUESTS_TOTAL = Counter(
     "posthog_wizard_cloud_run_requests_total",
     "Cloud-run wizard kickoff requests, by outcome (created/unavailable/invalid/permission_denied/throttled)",
@@ -121,6 +125,14 @@ class SetupWizardCloudRunSerializer(serializers.Serializer):
         required=False,
         allow_blank=True,
         help_text="Base branch the wizard's pull request should target. Defaults to the repository's default branch.",
+    )
+    use_case = serializers.ChoiceField(
+        choices=["setup", "sentry_migration"],
+        default="setup",
+        help_text=(
+            "What the wizard run should do: 'setup' integrates PostHog into the repository, 'sentry_migration' "
+            "migrates the repository's existing Sentry setup to PostHog error tracking."
+        ),
     )
 
     def validate_repository(self, value: str) -> str:
@@ -505,6 +517,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
         project_id = serializer.validated_data["project_id"]
         repository = serializer.validated_data["repository"]
         branch = serializer.validated_data.get("branch") or None
+        use_case = serializer.validated_data["use_case"]
 
         visible_project_ids = UserPermissions(cast(User, request.user)).project_ids_visible_for_user
         try:
@@ -515,6 +528,16 @@ class SetupWizardViewSet(viewsets.ViewSet):
         if project.id not in visible_project_ids:
             raise exceptions.PermissionDenied("You don't have access to this project.")
 
+        if use_case == "sentry_migration" and not posthoganalytics.feature_enabled(
+            SENTRY_MIGRATION_FEATURE_FLAG,
+            str(cast(User, request.user).distinct_id),
+            groups={"organization": str(project.organization_id), "project": str(project.id)},
+            group_properties={"organization": {"id": str(project.organization_id)}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        ):
+            raise exceptions.ValidationError("Migrating from Sentry is not available for this project yet.")
+
         self._reserve_cloud_run_attempt(cast(User, request.user).id)
 
         try:
@@ -523,6 +546,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
                 user_id=cast(User, request.user).id,
                 repository=repository,
                 branch=branch,
+                use_case=use_case,
             )
         except ValueError as e:
             # e.g. the team/user has no GitHub integration with access to the repository.

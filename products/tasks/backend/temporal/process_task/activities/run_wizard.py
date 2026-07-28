@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from django.conf import settings
 
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.utils import asyncify
 from posthog.utils import get_instance_region
@@ -18,6 +19,10 @@ logger = logging.getLogger(__name__)
 
 # Published npm package, pinned to @latest so cloud runs exercise the same build users install.
 WIZARD_PACKAGE = "@posthog/wizard@latest"
+
+# Subcommands the wizard may be asked to run via wizard_config; anything else fails the run
+# rather than executing an arbitrary wizard mode in the sandbox.
+_ALLOWED_WIZARD_SUBCOMMANDS = {"sentry"}
 
 # Large repos can take ~45 min to integrate (observed p99.9 of real runs). The Temporal activity's
 # start_to_close_timeout (see workflow._run_wizard_if_configured) must stay above this so the
@@ -64,7 +69,15 @@ def _format_wizard_output(result: ExecutionResult) -> str:
     return "\n".join(sections) + "\n"
 
 
-def _build_wizard_command(repo_path: str, project_id: int) -> str:
+def _build_wizard_command(repo_path: str, project_id: int, subcommand: str | None = None) -> str:
+    # wizard_config comes from run state; validating here keeps every caller behind the allowlist.
+    # non_retryable: retrying would run the same unknown subcommand again.
+    if subcommand is not None and subcommand not in _ALLOWED_WIZARD_SUBCOMMANDS:
+        raise ApplicationError(
+            f"Unknown wizard subcommand {subcommand!r}; allowed: {sorted(_ALLOWED_WIZARD_SUBCOMMANDS)}",
+            non_retryable=True,
+        )
+
     # The wizard reads its access token from the POSTHOG_WIZARD_API_KEY env var injected into the
     # sandbox (see provision_sandbox), so the token never appears on the command line.
     # --headless-DONOTUSE-EXPERIMENTAL runs the published wizard non-interactively.
@@ -74,6 +87,12 @@ def _build_wizard_command(repo_path: str, project_id: int) -> str:
         # detect, with partial output preserved. -k 30 escalates to SIGKILL 30s after SIGTERM.
         f"timeout -k 30 {WIZARD_RUN_TIMEOUT_SECONDS}",
         f"npx --yes {WIZARD_PACKAGE}",
+    ]
+
+    if subcommand is not None:
+        parts.append(shlex.quote(subcommand))
+
+    parts += [
         "--headless-DONOTUSE-EXPERIMENTAL",
         "--install-dir .",
         f"--region {shlex.quote(_wizard_region())}",
@@ -114,7 +133,7 @@ def run_wizard(input: RunWizardInput) -> None:
 
         emit_agent_log(ctx.run_id, "info", "Running the PostHog setup wizard")
         sandbox = Sandbox.get_by_id(input.sandbox_id)
-        command = _build_wizard_command(repo_path, ctx.team_id)
+        command = _build_wizard_command(repo_path, ctx.team_id, subcommand=(ctx.wizard_config or {}).get("subcommand"))
 
         result = sandbox.execute(command, timeout_seconds=_SANDBOX_EXEC_TIMEOUT_SECONDS)
 

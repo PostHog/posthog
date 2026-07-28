@@ -585,6 +585,31 @@ class TestFacadeReadsAndMappers(TestCase):
         # overlap-clone-boot launch (before run_wizard) burns the prompt on an untouched repo
         # and the run never opens a PR. Wizard runs must pin the overlap boot off.
         self.assertIs(run.state.get("overlap_clone_boot_enabled"), False)
+        # No subcommand for the default use case — a leaked one would run the wrong wizard.
+        self.assertEqual(run.state.get("wizard_config"), {})
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_wizard_cloud_run_sentry_migration_variant(self, _mock_workflow):
+        Integration.objects.create(team=self.team, kind="github", config={})
+        created = facade.create_wizard_cloud_run(
+            team=self.team,
+            user_id=self.user.id,
+            repository="acme-co/web",
+            use_case="sentry_migration",
+        )
+        task = Task.objects.get(id=created.task_id)
+        self.assertEqual(task.origin_product, Task.OriginProduct.ERROR_TRACKING)
+        self.assertEqual(task.title, "Migrate from Sentry")
+        run = TaskRun.objects.get(task_id=created.task_id)
+        # run_wizard reads this to invoke `npx @posthog/wizard sentry` (the subcommand is
+        # allowlisted there); losing it silently runs the default setup wizard instead.
+        self.assertEqual(run.state.get("wizard_config"), {"subcommand": "sentry"})
+        head_branch = run.state.get("wizard_head_branch")
+        assert head_branch is not None
+        self.assertRegex(head_branch, r"^posthog/sentry-migration-[0-9a-f]{6}$")
+        self.assertIn(f"`{head_branch}`", run.state["pending_user_message"])
+        self.assertNotIn(WIZARD_HEAD_BRANCH_PLACEHOLDER, run.state["pending_user_message"])
+        self.assertIn("Migrate from Sentry to PostHog error tracking", run.state["pending_user_message"])
 
 
 class TestRecentWizardCloudRunTimes(TestCase):

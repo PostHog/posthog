@@ -11,7 +11,7 @@ from django.utils import timezone
 
 from rest_framework import status
 
-from posthog.api.wizard.http import SETUP_WIZARD_CACHE_PREFIX, SETUP_WIZARD_CACHE_TIMEOUT
+from posthog.api.wizard.http import SENTRY_MIGRATION_FEATURE_FLAG, SETUP_WIZARD_CACHE_PREFIX, SETUP_WIZARD_CACHE_TIMEOUT
 from posthog.cloud_utils import get_api_host
 from posthog.models import Organization, PersonalAPIKey, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -484,6 +484,34 @@ class SetupWizardCloudRunTests(APIBaseTest):
         assert kwargs["user_id"] == self.user.id
         assert kwargs["branch"] is None
         assert kwargs["team"].id == self.team.id
+        assert kwargs["use_case"] == "setup"
+
+    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=False)
+    @patch("posthog.api.wizard.http.tasks_facade.create_wizard_cloud_run")
+    def test_sentry_migration_rejected_when_flag_off(self, mock_create, mock_flag):
+        response = self.client.post(
+            self.CLOUD_RUN_URL,
+            data={"project_id": self.team.id, "repository": "acme/app", "use_case": "sentry_migration"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_create.assert_not_called()
+        assert mock_flag.call_args.args[0] == SENTRY_MIGRATION_FEATURE_FLAG
+
+    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.wizard.http.tasks_facade.create_wizard_cloud_run")
+    def test_sentry_migration_passes_use_case_when_flag_on(self, mock_create, _mock_flag):
+        mock_create.return_value = MagicMock(task_id="task-uuid", latest_run=MagicMock(id="run-uuid", status="queued"))
+
+        response = self.client.post(
+            self.CLOUD_RUN_URL,
+            data={"project_id": self.team.id, "repository": "acme/app", "use_case": "sentry_migration"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert mock_create.call_args.kwargs["use_case"] == "sentry_migration"
 
     @patch("posthog.api.wizard.http.tasks_facade.create_wizard_cloud_run")
     def test_rejects_invalid_repository_format(self, mock_create):

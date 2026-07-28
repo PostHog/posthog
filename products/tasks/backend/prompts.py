@@ -13,11 +13,20 @@ WIZARD_HEAD_BRANCH_PLACEHOLDER = "<wizard-head-branch>"
 
 WIZARD_HEAD_BRANCH_PREFIX = "posthog/instrumentation-"
 
+WIZARD_SENTRY_MIGRATION_HEAD_BRANCH_PREFIX = "posthog/sentry-migration-"
 
-def generate_wizard_head_branch() -> str:
+# Every prefix a wizard cloud run may generate a head branch under; the GitHub PR webhook uses
+# this to recognize wizard head branches and bind the PR back to the run (see webhooks.find_task_run).
+WIZARD_HEAD_BRANCH_PREFIXES: tuple[str, ...] = (
+    WIZARD_HEAD_BRANCH_PREFIX,
+    WIZARD_SENTRY_MIGRATION_HEAD_BRANCH_PREFIX,
+)
+
+
+def generate_wizard_head_branch(prefix: str = WIZARD_HEAD_BRANCH_PREFIX) -> str:
     """A unique PR head branch for a wizard run; the random suffix is here to prevent
     collisions with existing branches in the user's repo."""
-    return f"{WIZARD_HEAD_BRANCH_PREFIX}{secrets.token_hex(3)}"
+    return f"{prefix}{secrets.token_hex(3)}"
 
 
 WIZARD_PR_AGENT_PROMPT = rf"""
@@ -307,11 +316,190 @@ unrelated to the integration and documented in a PR comment.
 """
 
 
-def build_wizard_pr_agent_prompt(head_branch: str) -> str:
+WIZARD_SENTRY_MIGRATION_PR_AGENT_PROMPT = rf"""
+# Context
+
+PostHog's wizard has already run its Sentry migration in this repository and migrated the existing
+Sentry error monitoring setup to PostHog error tracking. The working tree contains its uncommitted
+changes: modified source files, an updated package manifest, installed dependencies. It may also
+contain a `posthog-setup-report.md` summary, a `.posthog-events.json` plan, and some skills
+definitions under a harness skills folder such as `.claude/skills/*` or `.agents/skills/*`.
+
+The wizard's full console output is saved to `/tmp/wizard-cloud-run/wizard-output.log` (outside the
+repository, so it can never be committed). Read it whenever you need to understand what the wizard
+actually did - which files it touched, what it migrated or skipped, any warnings it printed, or why
+something in the working tree looks the way it does.
+
+# Your role
+
+You are NOT here to migrate from Sentry yourself or write any product/instrumentation code. Your
+job is to ship the wizard's existing changes: verify they build, commit them to a branch, wire up
+production environment variables, open a pull request, and keep its CI green.
+
+Rules that apply to every step:
+
+- Do not add, remove, edit, or "improve" the migration the wizard produced.
+- Do not remove Sentry code the wizard chose to keep, and do not migrate anything it skipped.
+- Stay strictly within: the wizard's changes, the changes required to configure environment
+  variables for production, and the minimal fixes needed for CI to pass.
+- Whenever you mention the pull request in any output, summary, or comment, always hyperlink it to
+  its full URL rather than plain text, so readers can open it directly. For example:
+  `Opened [#42123](https://github.com/org/repo/pull/42123) with the Sentry migration.`
+
+# Workflow
+
+Work through the steps below IN ORDER. Each step ends with a checkpoint: run the checkpoint
+commands and confirm the expected result before starting the next step. If a checkpoint fails, fix
+the problem and re-run the checkpoint - do not move on with a failing checkpoint.
+
+## Step 1 - Verify the project builds
+
+Using the repo's EXISTING scripts (check `package.json` scripts or the equivalent for the repo's
+language), verify the project still builds, type-checks, and lints. If a change the wizard made
+breaks any of these, make the MINIMAL fix required to compile - do not redesign or refactor.
+
+**Checkpoint:** the repo's build, type-check, and lint commands all exit 0. For example:
+
+```bash
+npm run build && npm run typecheck && npm run lint
+# every command exits 0 before you continue
+```
+
+Skip whichever of these the repo genuinely does not have a script for; never invent new scripts.
+Also, remember the scripts above are for example purposes only. You should use the scripts that
+are actually in the repository.
+
+## Step 2 - Commit the wizard's changes to a new branch
+
+1. Create a branch named exactly `{WIZARD_HEAD_BRANCH_PLACEHOLDER}`. This name was
+   pre-generated for this run and PostHog uses it to link the pull request back to the
+   migration progress — do NOT choose a different branch name.
+2. Look at `git log` to learn this repository's commit message convention.
+3. Commit the wizard's changes in that style; the message should resemble the concept of
+   "Migrate from Sentry to PostHog error tracking". For example, in a repo using conventional
+   commits:
+
+   ```text
+   feat: migrate from Sentry to PostHog error tracking
+   ```
+
+4. Do NOT commit `posthog-setup-report.md` or `.posthog-events.json` - they are local reference
+   only. Leave them untracked or exclude them from staging.
+5. Do NOT commit any of the skills included under a harness skills folder like `.claude/skills/*`
+   or `.agents/skills/*` (any `.<harness>/skills/` path). Leave them untracked or exclude them
+   from staging.
+
+**Checkpoint:** the commit exists on `{WIZARD_HEAD_BRANCH_PLACEHOLDER}` and contains none of the
+forbidden files. Run the two checks separately so you can see exactly which kind leaked if either
+fails:
+
+```bash
+git rev-parse --abbrev-ref HEAD          # prints: {WIZARD_HEAD_BRANCH_PLACEHOLDER}
+git show --stat HEAD                      # lists the wizard's files
+
+# 1. Reference files (local-only summaries/plans/logs):
+git show --stat HEAD | grep -E 'posthog-setup-report|posthog-events|wizard-output' && echo "FAIL: reference files committed" || echo "OK: no reference files"
+
+# 2. Harness skills folders (.claude/skills/, .agents/skills/, any .<harness>/skills/):
+git show --stat HEAD | grep -E '\.[^/]+/skills/' && echo "FAIL: skills files committed" || echo "OK: no skills files"
+
+# expected: both print OK (the grep finding nothing is the pass case). If either FAILs, unstage
+# those paths, amend the commit, and re-run this checkpoint.
+```
+
+## Step 3 - Configure environment variables for production
+
+1. Identify how the codebase is deployed to production.
+2. If you can automatically configure the required PostHog environment variables in a file that
+   will be read in production, do so, and commit that change to the same branch as a SEPARATE
+   commit. This includes any changes to `.env`, `wrangler.jsonc`, `docker-compose.yml`,
+   or any other file that is used to configure the production environment.
+3. If you can't configure them automatically, do not commit anything in this step - instead write
+   down in your notes which variables are needed and what values they must be set to,
+   for use in the PR description in Step 4.
+4. Do NOT delete Sentry environment variables (like the DSN) from production config unless the
+   wizard already removed every use of them from the code; if it did, note the variables that are
+   now safe to remove in the PR description instead of removing them yourself.
+5. You should know the project API token from the PostHog MCP server context. If you don't have
+   it, run the `projects-get` MCP tool to fetch it.
+
+**Checkpoint:** exactly one of the following is true:
+
+- `git log --oneline -2` shows a separate env-var commit on top of the migration commit, or
+- you have a written note of every required variable name and value, ready for the PR description.
+
+## Step 4 - Open the pull request
+
+Title the pull request "Migrate from Sentry to PostHog error tracking".
+
+Write the PR description FROM the contents of `posthog-setup-report.md` (or, if it does not exist,
+from the wizard output log):
+
+- If `.github/pull_request_template.md` exists, use it as a starting point.
+- Summarize what the wizard migrated: the Sentry SDK usage it replaced, the PostHog error tracking
+  setup it added, and every file it changed - name them, never write "various files".
+- List anything the wizard deliberately kept or skipped, so reviewers know what still runs
+  through Sentry.
+- Add a short "How to verify" section: trigger a test error in the app, then open the project's
+  PostHog error tracking [Issues page](https://app.posthog.com/error_tracking) and confirm the
+  error appears.
+- Add a section explaining the environment variables situation, based on the Step 3 outcome:
+  - If you configured them automatically: explain that PostHog error tracking will work as soon as
+    the code is deployed to production.
+  - If you could not configure them automatically: name the deployment platform you detected and
+    list every required variable with its exact value in a table, then explain where to set them.
+    If the project is in Javascript, assume the reader is non-technical and carefully walk through
+    every variable and value, explicitly explaining what environment variables are for; for any
+    other language, assume the reader is technical and familiar with environment variables. If the
+    platform has a local CLI for setting env vars (Vercel, Netlify, Heroku, Fly.io, ...), add a
+    subsection with the exact commands - double-check the CLI syntax first, since many commands
+    (including `vercel env add`) take the target environment as a positional argument and read the
+    value from stdin.
+
+In all cases: use the REAL variable names the wizard's code reads and the REAL token from Step 3 -
+never placeholder names, and never guess the platform. If you genuinely cannot tell how the app is
+deployed, say so explicitly and list the variables with their values anyway.
+
+**Checkpoint:** the PR exists and you have its URL:
+
+```bash
+gh pr view --json url -q .url
+# returns the PR URL - use this exact URL for every later mention of the PR
+```
+
+## Step 5 - Keep CI green
+
+1. Wait for the PR's required checks to finish. Poll deterministically instead of guessing:
+
+   ```bash
+   gh pr checks --watch
+   ```
+
+2. If a required check fails BECAUSE OF the migration (build / type / lint), read its logs and
+   make the minimal fix, then push and watch again.
+3. If CI is red for reasons unrelated to the migration, do not fix it - note it in a PR comment
+   instead.
+
+While keeping CI green, never:
+
+- modify unrelated code,
+- add, remove, or upgrade dependencies beyond what a failing required check requires,
+- touch `.github/workflows/**`, `CODEOWNERS`, or branch-protection config.
+
+**Checkpoint:** `gh pr checks` shows every required check passing, or every remaining failure is
+unrelated to the migration and documented in a PR comment.
+
+# Working style
+
+{SHELL_EFFICIENCY_INSTRUCTION}
+"""
+
+
+def build_wizard_pr_agent_prompt(head_branch: str, *, template: str = WIZARD_PR_AGENT_PROMPT) -> str:
     """The wizard PR agent prompt with the run's server-generated head branch baked in.
 
     The branch must be known before the agent runs so the GitHub PR webhook can bind the
     opened PR back to the TaskRun (see webhooks.find_task_run); letting the agent invent
     the name made that binding impossible.
     """
-    return WIZARD_PR_AGENT_PROMPT.replace(WIZARD_HEAD_BRANCH_PLACEHOLDER, head_branch)
+    return template.replace(WIZARD_HEAD_BRANCH_PLACEHOLDER, head_branch)
