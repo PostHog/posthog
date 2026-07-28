@@ -5141,6 +5141,31 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(launch_response.status_code, status.HTTP_200_OK)
         self.assertEqual(launch_response.json()["status"], "running")
 
+    def test_launch_experiment_endpoint_with_list_body(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "List Body Endpoint",
+                "feature_flag_key": "list-body-endpoint-flag",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+
+        # The endpoint declares no request body, so a JSON array must not reach the flag serializer
+        # as a non-dict `request.data`.
+        launch_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/launch/",
+            [],
+            format="json",
+        )
+        self.assertEqual(launch_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(launch_response.json()["status"], "running")
+
+        flag = FeatureFlag.objects.get(key="list-body-endpoint-flag", team=self.team)
+        self.assertTrue(flag.active)
+
     def test_archive_experiment_endpoint(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",

@@ -34,6 +34,7 @@ DEFAULT_PRODUCT_COST_LIMITS: dict[str, "ProductCostLimit"] = {
     "custom_image_scans": ProductCostLimit(limit_usd=1000.0, window_seconds=86400),
     "signals": ProductCostLimit(limit_usd=25000.0, window_seconds=86400),
     "posthog_ai": ProductCostLimit(limit_usd=5000.0, window_seconds=86400),
+    "changelog_bot": ProductCostLimit(limit_usd=500.0, window_seconds=86400),
 }
 
 DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
@@ -153,6 +154,7 @@ class Settings(BaseSettings):
     # Modal-hosted GLM inference (OpenAI-compatible vLLM endpoint); auth is a proxy-token pair
     # sent as Modal-Key/Modal-Secret headers. All three must be set for Modal routing.
     modal_api_base: str | None = None
+    modal_kimi_api_base: str | None = None
     modal_key: str | None = None
     modal_secret: str | None = None
 

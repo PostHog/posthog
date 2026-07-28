@@ -216,8 +216,13 @@ export interface SessionRow {
 
 export type NotableRule = 'worst_error_rate' | 'all_fail' | 'most_exploratory' | 'exemplar' | 'high_activity'
 
-// Fill the table out to this many rows: the rule-based picks first, then the busiest remaining sessions.
-const NOTABLE_SESSION_TARGET = 8
+// Calls the busiest session needs before it is worth flagging. Absolute rather than relative to the
+// median, because the query returns the 500 busiest sessions, so the median of what we get is not the
+// account's median.
+const MIN_OUTLIER_CALLS = 5
+
+// Below this, a session is an ordinary task rather than an exploration.
+const MIN_JOURNEY_TOOLS = 4
 
 export interface NotableSession {
     rule: NotableRule
@@ -1003,8 +1008,8 @@ function median(values: number[]): number {
     return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
 }
 
-// Pick at most one session per rule. Thresholds relax automatically when the
-// data is small so something demo-worthy always shows.
+// Pick at most one session per rule, so every row has a reason to be there. Deliberately returns
+// short, or empty, when nothing qualifies.
 export function pickNotableSessions(rows: SessionRow[]): NotableSession[] {
     if (rows.length === 0) {
         return []
@@ -1012,6 +1017,7 @@ export function pickNotableSessions(rows: SessionRow[]): NotableSession[] {
 
     const medianCalls = median(rows.map((r) => r.tool_calls))
     const medianDuration = median(rows.map((r) => r.duration_seconds))
+    const busyThreshold = Math.max(medianCalls, 3)
     const used = new Set<string>()
     const picked: NotableSession[] = []
 
@@ -1024,7 +1030,7 @@ export function pickNotableSessions(rows: SessionRow[]): NotableSession[] {
     }
 
     // 1. Worst error rate at high volume — top err% among above-median-volume sessions
-    const highVolume = rows.filter((r) => r.tool_calls >= Math.max(medianCalls, 3) && r.error_rate_pct > 0)
+    const highVolume = rows.filter((r) => r.tool_calls >= busyThreshold && r.error_rate_pct > 0)
     take(
         'worst_error_rate',
         'Worst error rate at high volume',
@@ -1035,32 +1041,29 @@ export function pickNotableSessions(rows: SessionRow[]): NotableSession[] {
     const allFail = rows.filter((r) => r.error_rate_pct >= 100 && r.tool_calls >= 3)
     take(
         'all_fail',
-        'Every call failed — likely auth scope',
+        'Every call failed, likely an auth scope issue',
         [...allFail].sort((a, b) => b.tool_calls - a.tool_calls)[0]
     )
 
-    // 3. Most exploratory — highest distinct_tools count (multi-step journey)
+    // 3. Most exploratory — highest distinct_tools count, among sessions that are journeys at all
+    const journeys = rows.filter((r) => r.distinct_tools >= MIN_JOURNEY_TOOLS)
     take(
         'most_exploratory',
         'Most exploratory journey',
-        [...rows].sort((a, b) => b.distinct_tools - a.distinct_tools || b.tool_calls - a.tool_calls)[0]
+        [...journeys].sort((a, b) => b.distinct_tools - a.distinct_tools || b.tool_calls - a.tool_calls)[0]
     )
 
     // 4. Exemplar — zero errors, above-median calls, faster than median duration
     const exemplars = rows.filter(
-        (r) =>
-            r.error_rate_pct === 0 && r.tool_calls >= Math.max(medianCalls, 3) && r.duration_seconds <= medianDuration
+        (r) => r.error_rate_pct === 0 && r.tool_calls >= busyThreshold && r.duration_seconds <= medianDuration
     )
-    take('exemplar', 'Exemplar — concise success', [...exemplars].sort((a, b) => b.tool_calls - a.tool_calls)[0])
+    take('exemplar', 'Concise success', [...exemplars].sort((a, b) => b.tool_calls - a.tool_calls)[0])
 
-    // Top up to the target with the busiest sessions not already chosen, so the table reads as a
-    // fuller list rather than a sparse handful.
-    const byVolume = [...rows].sort((a, b) => b.tool_calls - a.tool_calls)
-    for (const candidate of byVolume) {
-        if (picked.length >= NOTABLE_SESSION_TARGET) {
-            break
-        }
-        take('high_activity', 'High activity', candidate)
+    // 5. High activity — the busiest session, once it is busy enough to be worth reading. Being the
+    // largest of a small set is not notable: on a quiet account that can be a single tool call.
+    const busiest = [...rows].sort((a, b) => b.tool_calls - a.tool_calls)[0]
+    if (busiest && busiest.tool_calls >= MIN_OUTLIER_CALLS) {
+        take('high_activity', 'High activity', busiest)
     }
 
     return picked
