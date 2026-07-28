@@ -67,6 +67,7 @@ One bullet per unresolved request or commitment: who asked, what they need. Writ
 Rules:
 - Be factual and specific. No filler, no speculation.
 - Cover every distinct thread or topic in the transcript at least briefly before going deep on any one.
+- For a thread marked as started before this period, write one bullet for the original message with its date in parentheses, then indented sub-bullets under it summarizing only this period's replies. Do not present the original message as new activity.
 - Back every claim with a citation: a markdown link on a short phrase pointing to the source message's link from the transcript, like [asked about SSO](https://...). Every bullet needs at least one citation.
 - Do not use em-dashes.
 - Do not address the customer; this is an internal recap.
@@ -118,7 +119,10 @@ def _fetch_period_messages(
                 for r in thread_messages
                 if r.get("ts") != parent["ts"] and oldest <= float(r.get("ts", 0)) < latest and _include_message(r)
             ]
-        threads.append((parent, replies))
+        # latest_reply can point at a reply our filters drop (a bot post, or one after the
+        # window) — an old parent with no surviving replies isn't period activity.
+        if float(parent["ts"]) >= oldest or replies:
+            threads.append((parent, replies))
     return threads
 
 
@@ -172,12 +176,16 @@ def _message_line(client: WebClient, channel_id: str, message: dict, tz, cache: 
     return f"{indent}[{when}] {author}: {text}\n{indent}  link: {link}"
 
 
-def _build_transcript(client: WebClient, team: Team, channel_id: str, threads: list[tuple[dict, list[dict]]]) -> str:
+def _build_transcript(
+    client: WebClient, team: Team, channel_id: str, threads: list[tuple[dict, list[dict]]], period_start: float
+) -> str:
     tz = team.timezone_info
     cache: dict[str, str] = {}
     blocks: list[str] = []
     for parent, replies in threads:
         lines = [_message_line(client, channel_id, parent, tz, cache, "")]
+        if float(parent["ts"]) < period_start:
+            lines[0] = "(thread started before this period; only the replies below are new)\n" + lines[0]
         lines.extend(_message_line(client, channel_id, reply, tz, cache, "    ") for reply in replies)
         blocks.append("\n".join(lines))
 
@@ -235,7 +243,9 @@ async def _summarize(input: ChannelSummaryInput) -> ChannelSummaryOutput:
         )
         return ChannelSummaryOutput(summary_id=None, message_count=0)
 
-    transcript = await asyncio.to_thread(_build_transcript, client, team, input.slack_channel_id, threads)
+    transcript = await asyncio.to_thread(
+        _build_transcript, client, team, input.slack_channel_id, threads, period_start.timestamp()
+    )
 
     user_content = (
         f"Slack channel activity for account {input.account_name!r} "

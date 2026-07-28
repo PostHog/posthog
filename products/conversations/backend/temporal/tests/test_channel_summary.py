@@ -110,19 +110,34 @@ class TestSummarizeHelpers:
             "reply_count": 1,
             "latest_reply": "30.0",
         }
+        # latest_reply lands in the window, but the reply itself falls outside it — the
+        # parent must not surface as period activity.
+        phantom_parent = {
+            "text": "old demo",
+            "ts": "15.0",
+            "thread_ts": "15.0",
+            "user": "U1",
+            "reply_count": 1,
+            "latest_reply": "150.0",
+        }
         before_window_reply = {"text": "old answer", "ts": "30.0", "thread_ts": "10.0", "user": "U2"}
         in_window_reply = {"text": "new answer", "ts": "150.0", "thread_ts": "10.0", "user": "U2"}
 
         def history(channel, oldest, latest, limit, cursor):
             in_window_scan = float(oldest) == 50.0
             return {
-                "messages": [] if in_window_scan else [stale_parent, quiet_old_parent],
+                "messages": [] if in_window_scan else [stale_parent, quiet_old_parent, phantom_parent],
                 "response_metadata": {},
             }
 
+        def replies(channel, ts, limit):
+            if ts == "10.0":
+                return {"messages": [stale_parent, before_window_reply, in_window_reply]}
+            return {"messages": [phantom_parent, {"text": "late", "ts": "999.0", "thread_ts": "15.0", "user": "U2"}]}
+
         client = MagicMock()
         client.conversations_history.side_effect = history
-        client.conversations_replies.return_value = {"messages": [stale_parent, before_window_reply, in_window_reply]}
+        client.conversations_replies.side_effect = replies
 
         threads = _fetch_period_messages(client, "C1", oldest=50.0, latest=200.0)
 
