@@ -6,6 +6,8 @@ from pathlib import Path
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 import anthropic
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
@@ -547,7 +549,7 @@ class TestMaxChatOpenAI(BaseTest):
         self.assertTrue(callable(ChatAnthropic.__dict__["_async_client"].func))
 
 
-class TestProjectOrgUserContextPrompt(BaseTest):
+class TestProjectOrgUserContextPrompt(SimpleTestCase):
     """`PROJECT_ORG_USER_CONTEXT_PROMPT` is the only place the assistant learns app URL patterns
     from, and nothing else validates the settings section IDs it names against the real ones. A
     plausible-but-fake ID such as `/settings/project-members` (members live at

@@ -167,7 +167,7 @@ describe('settingsSceneLogic', () => {
     })
 
     it('leaves an unmapped section id on the not-found path', async () => {
-        // Aliases are added one at a time on purpose. A catch-all redirect for anything unrecognised
+        // Aliases are added one at a time on purpose. A catch-all redirect for anything unrecognized
         // would shadow the app-level redirects in scenes.ts and would drop the `not_found_shown`
         // report that makes broken settings links visible in the first place.
         router.actions.push('/settings/organization-teapot')
