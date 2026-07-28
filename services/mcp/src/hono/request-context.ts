@@ -79,6 +79,13 @@ export class RequestContext {
         return this.tokenCache
     }
 
+    private async readCachedOAuthClientName(): Promise<string | undefined> {
+        if (!this.props.userHash) {
+            return undefined
+        }
+        return (await this.tokenCache.get('clientName')) || undefined
+    }
+
     private async api(): Promise<ApiClient> {
         if (!this.apiInstance) {
             const customApiBaseUrl = getCustomApiBaseUrl()
@@ -101,6 +108,11 @@ export class RequestContext {
                 mcpClientVersion: this.props.mcpClientVersion,
                 mcpProtocolVersion: this.props.mcpProtocolVersion,
                 mcpConsumer: this.props.mcpConsumer,
+                // Cached from a previous request's token introspection. On a cold cache this is
+                // still unset here, so `StateManager` also stamps it onto the live client's config
+                // the moment introspection resolves it — otherwise a token's first request would
+                // reach the API unattributed.
+                oauthClientName: await this.readCachedOAuthClientName(),
                 taskId: this.props.taskId,
             })
         }

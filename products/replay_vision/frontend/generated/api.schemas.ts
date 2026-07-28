@@ -168,25 +168,30 @@ export interface AlertConfigApi {
 
 /**
  * * `slack` - Slack
+ * * `webhook` - Webhook
  */
 export type DeliveryTargetTypeEnumApi = (typeof DeliveryTargetTypeEnumApi)[keyof typeof DeliveryTargetTypeEnumApi]
 
 export const DeliveryTargetTypeEnumApi = {
     Slack: 'slack',
+    Webhook: 'webhook',
 } as const
 
 /**
- * A single delivery destination. MVP supports Slack only.
+ * A single delivery destination: a Slack channel or an HTTP webhook URL.
  */
 export interface DeliveryTargetApi {
-    /** Destination channel type. MVP supports 'slack' only.
+    /** Destination type: 'slack' posts to a Slack channel; 'webhook' POSTs a JSON payload to a URL.
      *
-     * * `slack` - Slack */
+     * * `slack` - Slack
+     * * `webhook` - Webhook */
     type: DeliveryTargetTypeEnumApi
-    /** ID of the Slack Integration on this team used to deliver the summary. */
-    integration_id: number
-    /** Slack channel ID or name the summary is posted to. */
-    channel: string
+    /** ID of the Slack Integration on this team used to deliver. Required when type is 'slack'. */
+    integration_id?: number
+    /** Slack channel ID or name the summary is posted to. Required when type is 'slack'. */
+    channel?: string
+    /** HTTPS endpoint the summary is POSTed to as JSON. Required when type is 'webhook'. Redacted to scheme+host in responses for users without editor access to the scanner. */
+    url?: string
 }
 
 /**
