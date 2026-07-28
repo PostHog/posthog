@@ -93,6 +93,8 @@ from products.feature_flags.backend.tasks import (
     refresh_expiring_flags_cache_entries,
     sync_cross_region_flags_task,
 )
+from products.foundry.backend.tasks.schedules import SCOUT_SWEEP_CRONTAB
+from products.foundry.backend.tasks.tasks import foundry_scout_task
 from products.logs.backend.facade.tasks import logs_alert_events_cleanup_task
 from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
 from products.reminders.backend.tasks import process_due_reminders
@@ -858,4 +860,11 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         DAILY_DIGEST_CRONTAB,
         send_daily_digests.s(),
         name="stamphog daily merged-pr digests",
+    )
+
+    # Foundry scout sweep: evaluate exposed bets' conclusion conditions.
+    sender.add_periodic_task(
+        SCOUT_SWEEP_CRONTAB,
+        foundry_scout_task.s(),
+        name="foundry scout sweep",
     )

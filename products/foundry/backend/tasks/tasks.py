@@ -5,14 +5,23 @@ foundry_attempt_gate_task drives the automatic ReviewHog gate: triggered by
 logic/gate.py on run.finished/artifact.ready while building, it self-reschedules
 until the review turn completes (or times out), then always resolves to a
 gate.result BetEvent — mapped violations, or {skipped: true, reason}.
+
+foundry_scout_task is the beat-scheduled sweep (ADR-6): evaluate every exposed bet's
+conclusion conditions (logic/scout.py) and record any new verdict.proposed events.
 """
 
 from __future__ import annotations
+
+import logging
 
 from celery import shared_task
 
 from ..facade import api as foundry_api
 from ..facade.enums import BetEventKind, BetState
+from ..logic import scout
+from ..models import Bet
+
+logger = logging.getLogger(__name__)
 
 GATE_POLL_INTERVAL_SECONDS = 15
 GATE_POLL_MAX_ATTEMPTS = 40  # ~10 minutes total
@@ -69,3 +78,23 @@ def foundry_attempt_gate_task(bet_id: str, team_id: int, pr_url: str | None, att
         BetEventKind.GATE_RESULT,
         {"pass": not blocking, "violations": violations, "review_id": status.review_id},
     )
+
+
+@shared_task(ignore_result=True)
+def foundry_scout_task() -> None:
+    """Sweep every exposed bet across every team and record any new verdict.proposed
+    events. Cross-team by design — a beat task has no natural single-team context,
+    unlike a request or a bet-scoped Temporal workflow (see CLAUDE.md's ``for_team``/
+    ``unscoped()`` guidance: this is exactly the "genuinely cross-team" case).
+    """
+    for bet in Bet.objects.unscoped().filter(state=BetState.EXPOSED):
+        try:
+            for proposal in scout.propose_verdicts_for_bet(bet):
+                foundry_api.record_event(
+                    bet.team_id,
+                    str(bet.id),
+                    BetEventKind.VERDICT_PROPOSED,
+                    {"recommendation": proposal.recommendation.value, "evidence": proposal.evidence},
+                )
+        except Exception:
+            logger.exception("foundry-scout: sweep failed for bet", extra={"bet_id": str(bet.id)})

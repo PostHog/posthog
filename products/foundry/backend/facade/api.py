@@ -29,7 +29,7 @@ class BetNotFound(Exception):
     pass
 
 
-def _to_dto(bet: Bet) -> contracts.BetDTO:
+def _to_dto(bet: Bet, *, exposure_advanced_steps: int = 0, exposure_halted: bool = False) -> contracts.BetDTO:
     return contracts.BetDTO(
         id=bet.id,
         slug=bet.slug,
@@ -53,6 +53,38 @@ def _to_dto(bet: Bet) -> contracts.BetDTO:
         created_by_id=bet.created_by_id,
         created_at=bet.created_at,
         updated_at=bet.updated_at,
+        exposure_advanced_steps=exposure_advanced_steps,
+        exposure_halted=exposure_halted,
+    )
+
+
+def _exposure_advanced_counts(team_id: int, bet_ids: list) -> dict[Any, int]:
+    """One batched COUNT query, not one per bet — used by list_bets so the portfolio
+    table's ramp-progress column doesn't pay for an event-log fetch per row.
+    ``.for_team()``, not the bare default manager: BetEvent is fail-closed
+    (TeamScopedRootMixin) and get_bet/list_bets are called from contexts with no ambient
+    team_scope() (e.g. Temporal activities, foundry_attempt_gate_task), not just requests."""
+    if not bet_ids:
+        return {}
+    from django.db.models import Count  # noqa: PLC0415 — only needed for this one aggregate
+
+    rows = (
+        BetEvent.objects.for_team(team_id)
+        .filter(bet_id__in=bet_ids, kind=BetEventKind.EXPOSURE_ADVANCED)
+        .values("bet_id")
+        .annotate(count=Count("id"))
+    )
+    return {row["bet_id"]: row["count"] for row in rows}
+
+
+def _exposure_halted_bet_ids(team_id: int, bet_ids: list) -> set:
+    if not bet_ids:
+        return set()
+    return set(
+        BetEvent.objects.for_team(team_id)
+        .filter(bet_id__in=bet_ids, kind=BetEventKind.EXPOSURE_HALTED)
+        .values_list("bet_id", flat=True)
+        .distinct()
     )
 
 
@@ -114,12 +146,22 @@ def create_bet(input: contracts.CreateBetInput, *, user: User | None = None) -> 
 
 
 def get_bet(team_id: int, bet_id: UUID | str) -> contracts.BetDTO:
-    return _to_dto(_get_bet(team_id, bet_id))
+    bet = _get_bet(team_id, bet_id)
+    return _to_dto(
+        bet,
+        exposure_advanced_steps=_exposure_advanced_counts(team_id, [bet.id]).get(bet.id, 0),
+        exposure_halted=bet.id in _exposure_halted_bet_ids(team_id, [bet.id]),
+    )
 
 
 def list_bets(team_id: int) -> list[contracts.BetDTO]:
+    bets = list(Bet.objects.for_team(team_id).select_related("feature_flag").order_by("-created_at"))
+    bet_ids = [bet.id for bet in bets]
+    advanced_counts = _exposure_advanced_counts(team_id, bet_ids)
+    halted_ids = _exposure_halted_bet_ids(team_id, bet_ids)
     return [
-        _to_dto(bet) for bet in Bet.objects.for_team(team_id).select_related("feature_flag").order_by("-created_at")
+        _to_dto(bet, exposure_advanced_steps=advanced_counts.get(bet.id, 0), exposure_halted=bet.id in halted_ids)
+        for bet in bets
     ]
 
 

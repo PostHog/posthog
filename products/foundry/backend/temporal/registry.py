@@ -9,6 +9,8 @@ from __future__ import annotations
 from products.foundry.backend.temporal.activities import record_bet_event_activity, run_node_activity
 from products.foundry.backend.temporal.build_activities import check_gate_result_activity, count_gate_results_activity
 from products.foundry.backend.temporal.build_workflow import FoundryBuildBetWorkflow
+from products.foundry.backend.temporal.expose_activities import evaluate_guardrails_activity, set_flag_rollout_activity
+from products.foundry.backend.temporal.expose_workflow import FoundryExposeBetWorkflow
 from products.foundry.backend.temporal.gate_activities import (
     provision_gate_sandbox_activity,
     run_command_check_activity,
@@ -22,7 +24,7 @@ from products.foundry.backend.temporal.gate_activities import (
 from products.foundry.backend.temporal.gate_workflow import FoundryGateWorkflow
 from products.foundry.backend.temporal.workflow import FoundryNodeWorkflow
 
-WORKFLOWS = [FoundryNodeWorkflow, FoundryGateWorkflow, FoundryBuildBetWorkflow]
+WORKFLOWS = [FoundryNodeWorkflow, FoundryGateWorkflow, FoundryBuildBetWorkflow, FoundryExposeBetWorkflow]
 
 ACTIVITIES = [
     run_node_activity,
@@ -37,6 +39,8 @@ ACTIVITIES = [
     run_reviewhog_check_activity,
     check_gate_result_activity,
     count_gate_results_activity,
+    set_flag_rollout_activity,
+    evaluate_guardrails_activity,
 ]
 
 __all__ = ["WORKFLOWS", "ACTIVITIES"]
