@@ -1417,6 +1417,9 @@ async fn handoff_delete_drains_stash_to_current_owner() {
         phase: HandoffPhase::Freezing,
         started_at: 0,
         handoff_id: String::new(),
+        freeze_quorum: None,
+        created_at_ms: 0,
+        phase_entered_at_ms: 0,
         new_owner_address: None,
     };
     store.put_handoff(&stuck_handoff).await.unwrap();
@@ -1542,6 +1545,9 @@ async fn stale_handoff_address_never_overwrites_a_fresher_registration() {
             phase: personhog_coordination::types::HandoffPhase::Complete,
             started_at: 0,
             handoff_id: "h-stale-addr".to_string(),
+            freeze_quorum: None,
+            created_at_ms: 0,
+            phase_entered_at_ms: 0,
         })
         .await
         .unwrap();
@@ -1763,6 +1769,9 @@ async fn late_joining_router_during_warming_begins_stash() {
         phase: HandoffPhase::Warming,
         started_at: 0,
         handoff_id: String::new(),
+        freeze_quorum: None,
+        created_at_ms: 0,
+        phase_entered_at_ms: 0,
         new_owner_address: None,
     };
     store.put_handoff(&warming_handoff).await.unwrap();
@@ -1827,6 +1836,9 @@ async fn dead_old_owner_in_freezing_advances_to_completion() {
         phase: HandoffPhase::Freezing,
         started_at: 0,
         handoff_id: String::new(),
+        freeze_quorum: None,
+        created_at_ms: 0,
+        phase_entered_at_ms: 0,
         new_owner_address: None,
     };
     store.put_handoff(&stale).await.unwrap();
@@ -1879,6 +1891,9 @@ async fn late_joining_router_during_freezing_acks_and_stashes() {
         phase: HandoffPhase::Freezing,
         started_at: 0,
         handoff_id: String::new(),
+        freeze_quorum: None,
+        created_at_ms: 0,
+        phase_entered_at_ms: 0,
         new_owner_address: None,
     };
     store.put_handoff(&freezing_handoff).await.unwrap();
@@ -1958,6 +1973,9 @@ async fn handoff_delete_during_warming_drains_to_current_owner() {
         phase: HandoffPhase::Warming,
         started_at: 0,
         handoff_id: String::new(),
+        freeze_quorum: None,
+        created_at_ms: 0,
+        phase_entered_at_ms: 0,
         new_owner_address: None,
     };
     store.put_handoff(&stuck).await.unwrap();
@@ -2056,6 +2074,9 @@ async fn reconcile_advances_warming_with_pre_staged_warmed_ack() {
         phase: HandoffPhase::Warming,
         started_at: 0,
         handoff_id: String::new(),
+        freeze_quorum: None,
+        created_at_ms: 0,
+        phase_entered_at_ms: 0,
         new_owner_address: None,
     };
     store.put_handoff(&warming).await.unwrap();
@@ -2135,6 +2156,9 @@ async fn draining_old_owner_blocks_phase_advance() {
         phase: HandoffPhase::Freezing,
         started_at: 0,
         handoff_id: String::new(),
+        freeze_quorum: None,
+        created_at_ms: 0,
+        phase_entered_at_ms: 0,
         new_owner_address: None,
     };
     store.put_handoff(&handoff).await.unwrap();
@@ -2236,6 +2260,9 @@ async fn draining_old_owner_does_not_trigger_cleanup() {
         phase: HandoffPhase::Freezing,
         started_at: 0,
         handoff_id: String::new(),
+        freeze_quorum: None,
+        created_at_ms: 0,
+        phase_entered_at_ms: 0,
         new_owner_address: None,
     };
     store.put_handoff(&handoff).await.unwrap();
@@ -2268,6 +2295,108 @@ async fn draining_old_owner_does_not_trigger_cleanup() {
 /// wrote DrainedAck, advancing Kafka HWM past the point warming
 /// snapshots and leaving the new owner with a stale cache.
 ///
+/// A handoff whose quorum can never be met must not sit in etcd
+/// forever. Nothing else removes it: cleanup only fires when the *new
+/// owner* is gone, and an in-flight handoff pins its partition so no
+/// re-plan can replace it — which is exactly how a wedge survives until
+/// someone restarts a pod by hand. Past its deadline the coordinator
+/// deletes it so a later plan can try again.
+#[tokio::test]
+async fn a_handoff_that_can_never_reach_quorum_is_cancelled() {
+    use personhog_coordination::types::{
+        HandoffPhase, HandoffState, PodStatus, RegisteredPod, RegisteredRouter,
+    };
+
+    let store = test_store("handoff-deadline-cancels").await;
+    let cancel = CancellationToken::new();
+    store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
+
+    // A live new owner, so the dead-new-owner cleanup path stays out of
+    // this: the handoff must be removed by the deadline alone.
+    let pod_lease = store.grant_lease(60).await.unwrap();
+    store
+        .register_pod(
+            &RegisteredPod {
+                pod_name: "writer-new".to_string(),
+                generation: String::new(),
+                status: PodStatus::Ready,
+                registered_at: 0,
+                last_heartbeat: 0,
+                controller: None,
+                advertise_address: None,
+            },
+            pod_lease,
+        )
+        .await
+        .unwrap();
+
+    // A router that is required but never acks — the shape of every
+    // wedge seen in production.
+    let router_lease = store.grant_lease(60).await.unwrap();
+    store
+        .register_router(
+            &RegisteredRouter {
+                router_name: "silent-router".to_string(),
+                registered_at: 0,
+                last_heartbeat: 0,
+            },
+            router_lease,
+        )
+        .await
+        .unwrap();
+
+    let strategy: Arc<dyn AssignmentStrategy> = Arc::new(StickyBalancedStrategy);
+    let _coord = common::start_coordinator_with_deadline(
+        Arc::clone(&store),
+        "coordinator-0",
+        10,
+        Duration::from_secs(1),
+        strategy,
+        cancel.clone(),
+    );
+
+    store
+        .put_handoff(&HandoffState {
+            partition: 1,
+            old_owner: None,
+            new_owner: "writer-new".to_string(),
+            new_owner_address: None,
+            phase: HandoffPhase::Freezing,
+            // A real creation time: the deadline is evaluated against it,
+            // and a zero here would mean "unknown age", which is never
+            // cancelled.
+            started_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64,
+            handoff_id: "wedged-handoff".to_string(),
+            freeze_quorum: Some(vec!["silent-router".to_string()]),
+            created_at_ms: 0,
+            phase_entered_at_ms: 0,
+        })
+        .await
+        .unwrap();
+
+    // Cancellation wakes the planner, which is free to create a fresh
+    // handoff for the same partition — that successor (different id) is
+    // the retry working as designed, not the wedge persisting. The
+    // property under test is only that the unsatisfiable handoff itself
+    // does not outlive its deadline.
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            !matches!(
+                store.get_handoff(1).await.unwrap(),
+                Some(ref s) if s.handoff_id == "wedged-handoff"
+            )
+        }
+    })
+    .await;
+
+    cancel.cancel();
+}
+
 /// This test verifies the gate by injecting a Freezing handoff with a
 /// registered router that never acks. The handoff must remain in
 /// Freezing — it cannot advance to Draining without the freeze quorum,
@@ -2326,6 +2455,9 @@ async fn freezing_blocks_until_routers_ack_before_draining() {
         phase: HandoffPhase::Freezing,
         started_at: 0,
         handoff_id: String::new(),
+        freeze_quorum: None,
+        created_at_ms: 0,
+        phase_entered_at_ms: 0,
         new_owner_address: None,
     };
     store.put_handoff(&handoff).await.unwrap();
@@ -2366,6 +2498,15 @@ async fn freezing_blocks_until_routers_ack_before_draining() {
         }
     })
     .await;
+
+    // The advance restarts the phase clock: the injected record carried
+    // no stamp, so a nonzero value proves the CAS wrote one — what the
+    // phase-duration metrics and the per-phase age gauge depend on.
+    let advanced = store.get_handoff(1).await.unwrap().unwrap();
+    assert!(
+        advanced.phase_entered_at_ms > 0,
+        "phase advance must stamp phase_entered_at_ms"
+    );
 
     cancel.cancel();
 }
@@ -2413,6 +2554,9 @@ async fn initial_assignment_skips_draining_phase() {
         phase: HandoffPhase::Freezing,
         started_at: 0,
         handoff_id: String::new(),
+        freeze_quorum: None,
+        created_at_ms: 0,
+        phase_entered_at_ms: 0,
         new_owner_address: None,
     };
     store.put_handoff(&handoff).await.unwrap();
@@ -2472,6 +2616,9 @@ async fn dead_old_owner_in_draining_recovers() {
         phase: HandoffPhase::Draining,
         started_at: 0,
         handoff_id: String::new(),
+        freeze_quorum: None,
+        created_at_ms: 0,
+        phase_entered_at_ms: 0,
         new_owner_address: None,
     };
     store.put_handoff(&handoff).await.unwrap();
@@ -2571,6 +2718,9 @@ async fn reconcile_advances_draining_with_pre_staged_drained_ack() {
         phase: HandoffPhase::Draining,
         started_at: 0,
         handoff_id: String::new(),
+        freeze_quorum: None,
+        created_at_ms: 0,
+        phase_entered_at_ms: 0,
         new_owner_address: None,
     };
     store.put_handoff(&handoff).await.unwrap();
@@ -2630,6 +2780,9 @@ async fn late_joining_router_during_draining_begins_stash_no_ack() {
         phase: HandoffPhase::Draining,
         started_at: 0,
         handoff_id: String::new(),
+        freeze_quorum: None,
+        created_at_ms: 0,
+        phase_entered_at_ms: 0,
         new_owner_address: None,
     };
     store.put_handoff(&draining_handoff).await.unwrap();
@@ -2714,6 +2867,9 @@ async fn handoff_delete_during_draining_drains_to_current_owner() {
         phase: HandoffPhase::Draining,
         started_at: 0,
         handoff_id: String::new(),
+        freeze_quorum: None,
+        created_at_ms: 0,
+        phase_entered_at_ms: 0,
         new_owner_address: None,
     };
     store.put_handoff(&stuck).await.unwrap();
@@ -2960,6 +3116,9 @@ async fn conflicting_plan_cannot_replace_an_in_flight_handoff() {
         phase: HandoffPhase::Warming,
         started_at: 0,
         handoff_id: "first".to_string(),
+        freeze_quorum: None,
+        created_at_ms: 0,
+        phase_entered_at_ms: 0,
         new_owner_address: None,
     };
     assert!(store
@@ -2976,6 +3135,9 @@ async fn conflicting_plan_cannot_replace_an_in_flight_handoff() {
         phase: HandoffPhase::Freezing,
         started_at: 0,
         handoff_id: "second".to_string(),
+        freeze_quorum: None,
+        created_at_ms: 0,
+        phase_entered_at_ms: 0,
         new_owner_address: None,
     };
     let stable = PartitionAssignment {
@@ -3024,6 +3186,9 @@ async fn stale_plan_is_rejected_when_the_assignment_moved() {
         phase: HandoffPhase::Freezing,
         started_at: 0,
         handoff_id: id.to_string(),
+        freeze_quorum: None,
+        created_at_ms: 0,
+        phase_entered_at_ms: 0,
         new_owner_address: None,
     };
 
@@ -3101,6 +3266,9 @@ async fn fresh_plan_is_rejected_when_an_assignment_appeared() {
         phase: HandoffPhase::Freezing,
         started_at: 0,
         handoff_id: id.to_string(),
+        freeze_quorum: None,
+        created_at_ms: 0,
+        phase_entered_at_ms: 0,
         new_owner_address: None,
     };
 
