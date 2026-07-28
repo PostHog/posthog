@@ -13,7 +13,6 @@ from rest_framework.exceptions import ValidationError
 
 from products.billing_alerts.backend.facade import api as billing_alerts_api
 from products.billing_alerts.backend.facade.api import BillingAlertConfiguration, BillingAlertEvent
-from products.billing_alerts.backend.models import DAILY_CHECK_INTERVAL_HOURS
 
 _DESTINATIONS_CACHE_KEY = "_billing_alert_destinations_by_alert_id"
 _NOT_PROVIDED = object()
@@ -162,7 +161,6 @@ class BillingAlertDestinationCreateDataSerializer(serializers.Serializer):
 
 
 class BillingAlertDestinationChangesSerializer(serializers.Serializer):
-    create = BillingAlertDestinationCreateDataSerializer(many=True, required=False, default=list)
     delete = serializers.ListField(
         child=serializers.ListField(
             child=serializers.UUIDField(),
@@ -172,6 +170,11 @@ class BillingAlertDestinationChangesSerializer(serializers.Serializer):
         required=False,
         default=list,
     )
+
+    def get_fields(self) -> dict[str, serializers.Field]:
+        fields = super().get_fields()
+        fields["create"] = BillingAlertDestinationCreateDataSerializer(many=True, required=False, default=list)
+        return fields
 
 
 class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
@@ -233,7 +236,7 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
     evaluation_delay_hours = serializers.IntegerField(required=False, min_value=0, max_value=72)
     state = serializers.ChoiceField(choices=BillingAlertConfiguration.State.choices, read_only=True)
     check_interval_hours = serializers.ChoiceField(
-        choices=[DAILY_CHECK_INTERVAL_HOURS],
+        choices=[billing_alerts_api.DAILY_CHECK_INTERVAL_HOURS],
         required=False,
         help_text="Billing alerts evaluate one UTC billing date per day.",
     )
