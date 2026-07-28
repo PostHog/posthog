@@ -18,18 +18,9 @@ jobs:
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-        # Skipping on forks as Braintrust credentials are not available there.
-        # `evals-ready` is the only label this workflow reads, and the
-        # labeled/unlabeled triggers exist for it alone, so ignore every other label:
-        # once evals-ready is on a PR, an unrelated label would otherwise re-dispatch
-        # the whole 45-minute eval matrix against an unchanged SHA.
-        if: >-
-            github.repository == 'PostHog/posthog'
-            && contains(github.event.pull_request.labels.*.name, 'evals-ready')
-            && (
-                !contains(fromJSON('["labeled", "unlabeled"]'), github.event.action)
-                || github.event.label.name == 'evals-ready'
-            )
+        # Skipping on forks as Braintrust credentials are not available there
+        if: |
+            github.repository == 'PostHog/posthog' && contains(github.event.pull_request.labels.*.name, 'evals-ready')
 
         strategy:
             fail-fast: false
