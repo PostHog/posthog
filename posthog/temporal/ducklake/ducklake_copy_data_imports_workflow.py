@@ -213,7 +213,7 @@ async def prepare_data_imports_ducklake_metadata_activity(
     # Per-source mutual exclusion with the Duckgres v3 batch sink. The sink owns a
     # registered team's v3 sources (it mirrors them live + backfills history), so
     # drop those here; non-v3 sources stay on the copy workflow because the sink never
-    # touches them. A flagged team without a DuckgresServerTeam membership remains
+    # touches them. A flagged team without a duckgres control-plane team row remains
     # on this copy path until it completes the enable flow.
     # is_pipeline_v3_enabled is the same gate the v3 router uses, so "copy" and
     # "sink" never disagree on who owns a source (and both fail to "copy owns it").

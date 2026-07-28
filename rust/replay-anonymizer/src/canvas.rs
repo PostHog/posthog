@@ -6,7 +6,7 @@ use base64::Engine;
 use simd_json::borrowed::{Object, Value};
 
 use crate::blur::{is_image_data_uri, split_data_uri, BLANK_PNG_BASE64};
-use crate::collect::{is_image_ref, normalize_collected_mime};
+use crate::collect::{is_image_ref, is_image_ref_strict, normalize_collected_mime};
 use crate::context::Ctx;
 use crate::images::ImageFallback;
 use crate::json::{
@@ -170,6 +170,13 @@ fn blur_blob_image(ctx: &Ctx<'_>, blob: &mut Object<'_>) -> bool {
         Some(s) => s.to_string(),
         None => return false,
     };
+    // A content ref left by an earlier pass. Reassembling it into `data:{mime};base64,image:...`
+    // below yields a URI that cannot decode, which `scrub_image` fails safe to a blank pixel —
+    // destroying the join key and stranding the image. Left alone only on an explicitly trusted
+    // re-scrub, and only when fully well-formed: see `assets::apply_blur`.
+    if ctx.keeps_image_refs() && is_image_ref_strict(&base64) {
+        return false;
+    }
     let original = format!("data:{mime};base64,{base64}");
     // scrub_image never fails outward (fallbacks are baked in). The collection lane's ref
     // replaces the payload wholesale (it is the consumer's join key, not decodable bytes); the

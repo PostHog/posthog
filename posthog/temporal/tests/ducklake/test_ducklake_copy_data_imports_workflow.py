@@ -13,7 +13,8 @@ import temporalio.converter
 from temporalio import activity as temporal_activity
 from temporalio.testing import WorkflowEnvironment
 
-from posthog.ducklake.models import DuckgresServer, DuckgresServerTeam
+from posthog.ducklake import cp_teams
+from posthog.ducklake.models import DuckgresServer
 from posthog.ducklake.storage import compute_staging_uri
 from posthog.ducklake.verification import DuckLakeCopyVerificationParameter, DuckLakeCopyVerificationQuery
 from posthog.sync import database_sync_to_async
@@ -37,6 +38,18 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSource,
 )
+
+
+@pytest.fixture(autouse=True)
+def _cp_no_rows():
+    # The data-imports schema resolves via the team's control-plane row; serve the
+    # no-row (legacy team-id schema) shape so these tests stay CP-independent.
+    from unittest.mock import patch
+
+    cp_teams.clear_cache()
+    with patch("posthog.ducklake.cp_teams._fetch_org_rows", return_value=[]):
+        yield
+    cp_teams.clear_cache()
 
 
 class _FakeColumn:
@@ -139,14 +152,20 @@ async def test_prepare_excludes_only_v3_sink_owned_schemas(ateam, monkeypatch):
         create_job_model, "is_pipeline_v3_enabled", lambda team_id, source_type: source_type == "Postgres"
     )
 
-    server = await database_sync_to_async(DuckgresServer.objects.create)(
+    await database_sync_to_async(DuckgresServer.objects.create)(
         organization_id=ateam.organization_id,
         host="h",
         username="root",
         password="x",
         bucket="bucket",
     )
-    membership = await database_sync_to_async(DuckgresServerTeam.objects.create)(server=server, team=ateam)
+    # Sink membership now lives in the duckgres control plane; toggle it at the seam the
+    # activity reads (membership resolution itself is covered in the enablement tests).
+    member = {"value": True}
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.is_duckgres_sink_team_member",
+        lambda team_id: member["value"],
+    )
 
     credential = await database_sync_to_async(DataWarehouseCredential.objects.create)(
         team=ateam, access_key="k", access_secret="s"
@@ -183,7 +202,7 @@ async def test_prepare_excludes_only_v3_sink_owned_schemas(ateam, monkeypatch):
     # v3 source dropped (sink owns it); non-v3 source still copied.
     assert [m.source_schema_id for m in result] == [str(non_v3_schema.id)]
 
-    await database_sync_to_async(membership.delete)()
+    member["value"] = False
     result_without_membership = await prepare_data_imports_ducklake_metadata_activity(inputs)
 
     assert {m.source_schema_id for m in result_without_membership} == {str(v3_schema.id), str(non_v3_schema.id)}

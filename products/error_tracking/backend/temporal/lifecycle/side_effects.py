@@ -70,6 +70,8 @@ def produce_issue_lifecycle_internal_event(
     *,
     event: str,
     exception_timestamp: str,
+    extra_properties: dict[str, object] | None = None,
+    include_status: bool = True,
     humanize_status: bool = True,
 ) -> None:
     try:
@@ -93,20 +95,23 @@ def produce_issue_lifecycle_internal_event(
         "exception_timestamp": timestamp.isoformat(),
         "exception_props": event_properties,
     }
-    status = inputs.issue.status
-    properties["status"] = (
-        {
-            "archived": "Archived",
-            "active": "Active",
-            "resolved": "Resolved",
-            "pending_release": "Pending Release",
-            "suppressed": "Suppressed",
-        }.get(status, status)
-        if humanize_status
-        else status
-    )
+    if include_status:
+        status = inputs.issue.status
+        properties["status"] = (
+            {
+                "archived": "Archived",
+                "active": "Active",
+                "resolved": "Resolved",
+                "pending_release": "Pending Release",
+                "suppressed": "Suppressed",
+            }.get(status, status)
+            if humanize_status
+            else status
+        )
     if inputs.assignee is not None:
         properties["assignee"] = inputs.assignee
+    if extra_properties is not None:
+        properties.update(extra_properties)
 
     def produce(properties_to_send: dict[str, object]) -> None:
         result = produce_internal_event(
