@@ -68,6 +68,23 @@ describe('wizardInstallStepLogic', () => {
         expect(logic.values.escapeHatchTrigger).toBe('timeout')
     })
 
+    it('a revisit after unmount gets a fresh timeout window', () => {
+        // kea keeps a built logic's cache across remounts, so a deadline stashed there would
+        // survive leaving the step and reveal the hatch instantly on the next visit.
+        logic.actions.armEscapeHatch()
+        jest.advanceTimersByTime(ESCAPE_HATCH_TIMEOUT_MS - 1)
+        logic.unmount()
+
+        logic = wizardInstallStepLogic()
+        logic.mount()
+        logic.actions.armEscapeHatch()
+        jest.advanceTimersByTime(ESCAPE_HATCH_TIMEOUT_MS - 1)
+        expect(logic.values.escapeHatchRevealed).toBe(false)
+
+        jest.advanceTimersByTime(1)
+        expect(logic.values.escapeHatchTrigger).toBe('timeout')
+    })
+
     it('disarming cancels the pending timeout', () => {
         // Installation completing disarms the hatch; a live timer would still reveal it afterwards.
         logic.actions.armEscapeHatch()
