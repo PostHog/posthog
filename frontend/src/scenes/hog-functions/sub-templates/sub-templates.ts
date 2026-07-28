@@ -993,23 +993,23 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                                     options: [
                                         {
                                             text: { text: 'For 1 hour', type: 'plain_text' },
-                                            value: '{event.properties.alert_id}|1h',
+                                            value: '{event.properties.alert_id}|{event.properties.alert_id_sig}|1h',
                                         },
                                         {
                                             text: { text: 'For 6 hours', type: 'plain_text' },
-                                            value: '{event.properties.alert_id}|6h',
+                                            value: '{event.properties.alert_id}|{event.properties.alert_id_sig}|6h',
                                         },
                                         {
                                             text: { text: 'For 1 day', type: 'plain_text' },
-                                            value: '{event.properties.alert_id}|1d',
+                                            value: '{event.properties.alert_id}|{event.properties.alert_id_sig}|1d',
                                         },
                                         {
                                             text: { text: 'For 1 week', type: 'plain_text' },
-                                            value: '{event.properties.alert_id}|1w',
+                                            value: '{event.properties.alert_id}|{event.properties.alert_id_sig}|1w',
                                         },
                                         {
                                             text: { text: 'Pick a date & time…', type: 'plain_text' },
-                                            value: '{event.properties.alert_id}|custom',
+                                            value: '{event.properties.alert_id}|{event.properties.alert_id_sig}|custom',
                                         },
                                     ],
                                     type: 'static_select',
