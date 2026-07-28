@@ -130,6 +130,9 @@ NON_RETRYABLE_ERROR_TYPES = (
     # Raised when a PostgreSQL stored procedure or function fails.
     # We don't (at the moment) create or run any ourselves, so it must be something set up by the user.
     "SqlRoutineException",
+    # The inputs are missing required connection details (e.g. credentials or host).
+    # This usually means the backing integration is misconfigured or absent, so retrying won't help.
+    "PostgreSQLMissingRequiredInputsError",
 )
 
 
@@ -154,6 +157,13 @@ class PostgreSQLTransactionError(Exception):
 
     def __init__(self, max_attempts: int, err_msg: str):
         super().__init__(f"A transaction failed to complete after {max_attempts} attempts: {err_msg}")
+
+
+class PostgreSQLMissingRequiredInputsError(Exception):
+    """Raised when required connection inputs (credentials or host/port) are missing.
+
+    This usually means the backing integration is misconfigured or absent, so retrying won't recover it.
+    """
 
 
 class _PostgreSQLClientInputsProtocol(typing.Protocol):
@@ -183,7 +193,7 @@ class PostgresInsertInputs(BatchExportInsertInputs):
         password = self.password
 
         if user is None or password is None:
-            raise ValueError("Missing required inputs")
+            raise PostgreSQLMissingRequiredInputsError("Missing required credentials (user and/or password)")
 
         return Credentials(user, password)
 
@@ -192,7 +202,7 @@ class PostgresInsertInputs(BatchExportInsertInputs):
         port = self.port
 
         if host is None or port is None:
-            raise ValueError("Missing required inputs")
+            raise PostgreSQLMissingRequiredInputsError("Missing required connection details (host and/or port)")
 
         return Authority(host, port)
 
