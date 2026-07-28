@@ -88,7 +88,9 @@ ENGINE = {
 """
 
 
-def KAFKA_USAGE_REPORT_EVENTS_PREAGG_TABLE_SQL() -> str:
+def KAFKA_USAGE_REPORT_EVENTS_PREAGG_TABLE_SQL(topic: str = KAFKA_EVENTS_JSON) -> str:
+    # `topic` is only overridden by tests, which point the table at a throwaway topic so
+    # the MV sees nothing but the rows the test produced.
     return f"""
 CREATE TABLE IF NOT EXISTS {KAFKA_USAGE_REPORT_EVENTS_PREAGG_TABLE}
 (
@@ -96,7 +98,7 @@ CREATE TABLE IF NOT EXISTS {KAFKA_USAGE_REPORT_EVENTS_PREAGG_TABLE}
 )
 ENGINE = {
         kafka_engine(
-            topic=KAFKA_EVENTS_JSON,
+            topic=topic,
             group=CONSUMER_GROUP_USAGE_REPORT_EVENTS_PREAGG,
             named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION,
         )
