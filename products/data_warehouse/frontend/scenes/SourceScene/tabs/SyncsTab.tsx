@@ -44,13 +44,21 @@ export const SyncsTab = ({ id, lockedSchema }: SyncsTabProps): JSX.Element => {
     // Lock to a single schema when asked, otherwise apply a `?schema=<name>` deep link once on
     // mount so links from the schemas list and the schema configuration page land here filtered.
     useEffect(() => {
-        if (lockedSchema) {
-            setSelectedSchemas([lockedSchema])
+        if (!lockedSchema) {
+            const schemaParam = router.values.searchParams.schema
+            if (schemaParam) {
+                setSelectedSchemas(Array.isArray(schemaParam) ? schemaParam : [schemaParam])
+            }
             return
         }
-        const schemaParam = router.values.searchParams.schema
-        if (schemaParam) {
-            setSelectedSchemas(Array.isArray(schemaParam) ? schemaParam : [schemaParam])
+        setSelectedSchemas([lockedSchema])
+        // `sourceSettingsLogic` is keyed by source id and shared with the source page, which can
+        // keep it mounted past this tab. Release the lock on the way out, or the source's own
+        // Syncs tab stays filtered to this one schema.
+        return () => {
+            if (logic.isMounted()) {
+                logic.actions.setSelectedSchemas([])
+            }
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
