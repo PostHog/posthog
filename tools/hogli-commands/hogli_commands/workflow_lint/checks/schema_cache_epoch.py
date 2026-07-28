@@ -18,7 +18,7 @@ _SAVER = "ci-backend.yml"
 
 
 def _declarations(wf: Workflow) -> list[tuple[str | None, str | None, str]]:
-    """Yield ``(job, step, value)`` for each env block declaring the epoch."""
+    """Return ``(job, step, value)`` for each env block declaring the epoch."""
     found: list[tuple[str | None, str | None, str]] = []
     env = wf.raw.get("env")
     if isinstance(env, dict) and _ENV_KEY in env:
@@ -35,7 +35,7 @@ def _declarations(wf: Workflow) -> list[tuple[str | None, str | None, str]]:
 
 
 class SchemaCacheEpochCheck(WorkflowCheck):
-    id = "WF007-schema-cache-epoch"
+    id = "WF009-schema-cache-epoch"
     label = "schema cache epoch sync"
     description = "every SCHEMA_CACHE_EPOCH declaration carries the same value"
 
@@ -49,10 +49,7 @@ class SchemaCacheEpochCheck(WorkflowCheck):
 
     def run(self, workflows: list[Workflow]) -> CheckResult:
         result = CheckResult()
-        decls: list[tuple[Workflow, str | None, str | None, str]] = []
-        for wf in workflows:
-            for job, step, value in _declarations(wf):
-                decls.append((wf, job, step, value))
+        decls = [(wf, job, step, value) for wf in workflows for job, step, value in _declarations(wf)]
         if len({value for _, _, _, value in decls}) <= 1:
             return result
 

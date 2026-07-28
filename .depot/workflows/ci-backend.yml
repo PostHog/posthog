@@ -1191,7 +1191,7 @@ jobs:
                   # Verify the dump is valid
                   gunzip -t schema.sql.gz
             - name: Save schema to Actions cache for PR shards
-              # Kept for fallback and for other workflows that still restore by merge-base SHA.
+              # Kept as the exact merge-base key that every consumer's restore-keys falls back to.
               if: github.event_name == 'push'
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
