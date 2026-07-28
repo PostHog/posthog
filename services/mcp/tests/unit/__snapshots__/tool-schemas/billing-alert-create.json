@@ -2,16 +2,13 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "baseline_window_days": {
+            "description": "Number of preceding UTC billing dates averaged for relative and absolute increase baselines.",
             "maximum": 90,
             "minimum": 1,
             "type": "number"
         },
-        "check_interval_hours": {
-            "const": 24,
-            "description": "Billing alerts evaluate one UTC billing date per day.\n\n* `24` - 24",
-            "type": "number"
-        },
         "cooldown_hours": {
+            "description": "Minimum hours between repeated firing notifications.",
             "maximum": 720,
             "minimum": 0,
             "type": "number"
@@ -27,12 +24,15 @@
                     "items": {
                         "properties": {
                             "slack_channel_id": {
+                                "description": "Slack channel ID for alert delivery.",
                                 "type": "string"
                             },
                             "slack_channel_name": {
+                                "description": "Optional Slack channel name shown in the UI.",
                                 "type": "string"
                             },
                             "slack_workspace_id": {
+                                "description": "Slack integration ID in the alert execution project.",
                                 "type": "number"
                             },
                             "type": {
@@ -41,6 +41,7 @@
                                 "type": "string"
                             },
                             "webhook_url": {
+                                "description": "HTTPS webhook URL for webhook or Microsoft Teams delivery.",
                                 "format": "uri",
                                 "type": "string"
                             }
@@ -69,6 +70,7 @@
             "type": "boolean"
         },
         "evaluation_delay_hours": {
+            "description": "Hours after a UTC billing date ends before it becomes eligible for evaluation.",
             "maximum": 72,
             "minimum": 0,
             "type": "number"
@@ -94,7 +96,8 @@
                 {
                     "type": "null"
                 }
-            ]
+            ],
+            "description": "ISO 8601 timestamp until which evaluation and notifications are snoozed, or null to resume."
         },
         "threshold_percentage": {
             "anyOf": [
