@@ -2,7 +2,9 @@ import json
 import datetime
 from typing import TYPE_CHECKING, Literal, Optional, Union
 
-from posthog.models.property import Property
+import posthoganalytics
+from posthog.exceptions_capture import capture_exception
+from posthog.models.property import Property, PropertyValidationError
 
 if TYPE_CHECKING:
     from posthog.models.entity import Entity
@@ -395,7 +397,17 @@ class FunnelCorrelationActorsMixin(BaseParamMixin):
                     try:
                         new_prop = Property(**prop_params)
                         _properties.append(new_prop)
-                    except:
+                    except (PropertyValidationError, ValidationError, TypeError) as e:
+                        prop_dict = prop_params if isinstance(prop_params, dict) else {}
+                        with posthoganalytics.new_context():
+                            posthoganalytics.set_capture_exception_code_variables_context(False)
+                            capture_exception(
+                                e,
+                                additional_properties={
+                                    "property_type": prop_dict.get("type"),
+                                    "property_fields": sorted(prop_dict.keys()) or None,
+                                },
+                            )
                         continue
             return _properties
         return None
