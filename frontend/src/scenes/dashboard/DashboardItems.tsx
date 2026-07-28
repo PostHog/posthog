@@ -560,7 +560,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                           detail: tile.error!.message,
                                           code: 'dashboard_tile_error',
                                       })
-                                    : refreshError || queryError
+                                    : refreshError || queryError || undefined
                                 const loadingQueued = isErrorTile ? false : isRefreshingQueued(insight.short_id)
                                 const loading = isErrorTile ? false : isRefreshing(insight.short_id)
 
