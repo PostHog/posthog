@@ -2,15 +2,13 @@
  * End-to-end proof that a hogflow job relocated from cyclotron V1 -> V2 by the operator
  * script actually RESUMES and advances in V2 — not just that a row lands in the table.
  *
- * Chain exercised, all real except `fetch`:
- *   V1 producer serializes a parked-on-delay hogflow invocation into test_cyclotron
- *     -> relocate() (the script under test) moves it to test_cyclotron_node
- *     -> CdpCyclotronWorkerHogFlow polls V2 -> HogFlowExecutorService resumes the delay
- *     -> next action (fetch) fires -> workflow completes.
- *
- * This is the regression the row-shape tests can't catch: a payload that lands structurally
- * intact but is not executable (wrong state shape, missing currentAction) would pass every
- * "did the row land" assertion yet silently never resume in production.
+ * Two parked-wait shapes, both seeded into V1 via the real V1 producer, relocated with the
+ * real relocate(), then executed by the real CdpCyclotronWorkerHogFlow polling V2:
+ *   1. delay: comes due on a schedule -> resumes to the next action -> completes.
+ *   2. wait_until_condition: woken by the subscription matcher on a matching event. The matcher
+ *      finds parked jobs by the V2 `distinct_id`/`person_id` lookup columns, so this proves
+ *      relocation populates them — a relocated event-wait that lost those columns would be
+ *      invisible to the matcher and silently never wake (the failure mode a row-shape check misses).
  */
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
@@ -28,12 +26,13 @@ import { KafkaProducerWrapper } from '../../common/kafka/producer'
 import { Hub, Team } from '../../types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { HOG_FILTERS_EXAMPLES } from '../_tests/examples'
-import { insertHogFunctionTemplate } from '../_tests/fixtures'
+import { createHogExecutionGlobals, insertHogFunctionTemplate } from '../_tests/fixtures'
 import { insertHogFlow } from '../_tests/fixtures-hogflows'
 import { CdpCyclotronWorkerHogFlow } from '../consumers/cdp-cyclotron-worker-hogflow.consumer'
+import { CdpHogflowSubscriptionMatcherConsumer } from '../consumers/cdp-hogflow-subscription-matcher.consumer'
 import { CyclotronJobQueuePostgres } from '../services/job-queue/job-queue-postgres'
 import { CyclotronJobQueuePostgresV2 } from '../services/job-queue/job-queue-postgres-v2'
-import { CyclotronJobInvocationHogFlow } from '../types'
+import { CyclotronJobInvocationHogFlow, HogFunctionInvocationGlobals } from '../types'
 import { convertBatchHogFlowRequestToHogFunctionInvocationGlobals } from '../utils'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { relocate } from './relocate-cyclotron-v1-jobs'
@@ -55,6 +54,7 @@ describe('relocate-cyclotron-v1-jobs resume (e2e)', () => {
     let v1Producer: CyclotronJobQueuePostgres
     let v2RelocateProducer: CyclotronJobQueuePostgresV2
     let worker: CdpCyclotronWorkerHogFlow
+    let deps: ReturnType<typeof createCdpConsumerDeps>
 
     beforeEach(async () => {
         await ensureKafkaTopics(TEST_KAFKA_TOPICS)
@@ -80,7 +80,7 @@ describe('relocate-cyclotron-v1-jobs resume (e2e)', () => {
             ],
         })
 
-        const deps = {
+        deps = {
             ...createCdpConsumerDeps(hub, kafkaProducer),
             personRepository: {
                 fetchPerson: jest.fn().mockResolvedValue(undefined),
@@ -223,5 +223,135 @@ describe('relocate-cyclotron-v1-jobs resume (e2e)', () => {
             )
             expect(terminal.rows).toHaveLength(1)
         }, 5000)
+    })
+
+    // Mirrors what Django compiles for a single-event wait entry {events: [{id: <name>}]}.
+    const eventNameFilter = (eventName: string) => ({
+        filters: { events: [{ id: eventName }], bytecode: ['_H', 1, 32, eventName, 32, 'event', 1, 1, 11] },
+    })
+
+    const buildGlobals = (eventName: string, distinctId: string): HogFunctionInvocationGlobals =>
+        createHogExecutionGlobals({
+            project: { id: team.id } as any,
+            event: {
+                uuid: new UUIDT().toString(),
+                event: eventName,
+                distinct_id: distinctId,
+                properties: { $current_url: 'https://posthog.com' },
+                timestamp: '2024-09-03T09:00:00Z',
+            } as any,
+        })
+
+    it('a wait_until_condition job relocated from V1 is woken by the subscription matcher in V2', async () => {
+        // trigger -> wait_condition -> (matched branch | timeout continue) -> exit.
+        // Condition never matches the trigger event, so the job parks; the wake comes from a
+        // subscribed 'wakeup_event', which the matcher can only see for a job living in V2.
+        const flow = new FixtureHogFlowBuilder()
+            .withTeamId(team.id)
+            .withStatus('active')
+            .withWorkflow({
+                actions: {
+                    trigger: {
+                        type: 'trigger',
+                        config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                    },
+                    wait_condition: {
+                        type: 'wait_until_condition',
+                        config: {
+                            condition: { filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters },
+                            events: [eventNameFilter('wakeup_event')],
+                            max_wait_duration: '5m',
+                        },
+                    },
+                    function_matched: {
+                        type: 'function',
+                        config: {
+                            template_id: 'template-relocate-resume-fetch',
+                            inputs: {
+                                url: { value: 'https://example.com/condition-matched' },
+                                method: { value: 'POST' },
+                            },
+                        },
+                    },
+                    function_timeout: {
+                        type: 'function',
+                        config: {
+                            template_id: 'template-relocate-resume-fetch',
+                            inputs: {
+                                url: { value: 'https://example.com/timed-out' },
+                                method: { value: 'POST' },
+                            },
+                        },
+                    },
+                    exit: { type: 'exit', config: {} },
+                },
+                edges: [
+                    { from: 'trigger', to: 'wait_condition', type: 'continue' },
+                    { from: 'wait_condition', to: 'function_matched', type: 'branch', index: 0 },
+                    { from: 'wait_condition', to: 'function_timeout', type: 'continue' },
+                    { from: 'function_matched', to: 'exit', type: 'continue' },
+                    { from: 'function_timeout', to: 'exit', type: 'continue' },
+                ],
+            })
+            .build()
+        await insertHogFlow(hub.postgres, flow)
+
+        // Parked on the wait node: currentAction on wait_condition, started recently (well within
+        // the 5m cap so it's genuinely waiting, not timed out), a known distinct_id so the matcher
+        // can find it, and a future queueScheduledAt (the polling cap) so it's parked.
+        const distinctId = 'wait-relocate-user'
+        const globals = buildGlobals('$pageview', distinctId)
+        const parked: CyclotronJobInvocationHogFlow = {
+            id: new UUIDT().toString(),
+            state: {
+                event: globals.event,
+                actionStepCount: 1,
+                currentAction: { id: 'wait_condition', startedAtTimestamp: Date.now() - 60 * 1000 },
+                variables: {},
+            },
+            teamId: team.id,
+            functionId: flow.id,
+            parentRunId: new UUIDT().toString(),
+            hogFlow: flow,
+            person: globals.person,
+            filterGlobals: convertToHogFunctionFilterGlobal(globals),
+            queue: 'hogflow',
+            queuePriority: 1,
+            queueScheduledAt: DateTime.utc().plus({ minutes: 2 }),
+        } as CyclotronJobInvocationHogFlow
+
+        await v1Producer.queueInvocations([parked])
+
+        const result = await relocate(
+            { v1: v1Pool, v2Pool, v2Queue: v2RelocateProducer },
+            { queue: 'hogflow', envLabel: 'test', apply: true }
+        )
+        expect(result).toMatchObject({ relocated: 1, remaining: 0, missingIds: [] })
+
+        // The lookup column the matcher queries on must be populated by relocation — otherwise the
+        // matcher can't find the job and it never wakes.
+        const relocated = await v2Pool.query(
+            `SELECT distinct_id FROM cyclotron_jobs WHERE queue_name='hogflow' AND status='available'`
+        )
+        expect(relocated.rows).toHaveLength(1)
+        expect(relocated.rows[0].distinct_id).toBe(distinctId)
+        expect(mockFetch).not.toHaveBeenCalled()
+
+        // The subscribed event fires for this person; the matcher finds the relocated V2 job by its
+        // lookup column, marks it matched + due, and the worker resumes it onto the matched branch.
+        const matcher = new CdpHogflowSubscriptionMatcherConsumer({ ...hub }, deps)
+        try {
+            await matcher.processBatch([buildGlobals('wakeup_event', distinctId)])
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 15000)
+            expect(mockFetch).toHaveBeenCalledWith(
+                'https://example.com/condition-matched',
+                expect.objectContaining({ method: 'POST' })
+            )
+        } finally {
+            await matcher.stop().catch(() => undefined)
+        }
     })
 })
