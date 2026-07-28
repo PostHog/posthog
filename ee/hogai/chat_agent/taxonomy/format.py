@@ -90,10 +90,11 @@ def enrich_props_with_descriptions(
 ):
     """Attach a description to each property.
 
-    The built-in core taxonomy wins. For custom properties it has never heard of, fall back to the
-    user-authored description stored on the property definition (passed in already sanitized). This
-    only enriches properties the caller already discovered via ClickHouse — it never sources the
-    property list itself from Postgres.
+    A non-empty core-taxonomy description wins, so a stored description can never override (or
+    spoof) a built-in one. Where core has none (custom properties, or label-only core entries such
+    as the web-vitals values), fall back to the user-authored description stored on the property
+    definition (passed in already sanitized). This only enriches properties the caller already
+    discovered via ClickHouse; it never sources the property list itself from Postgres.
     """
     enriched_props = []
     mapping = {
@@ -110,7 +111,5 @@ def enrich_props_with_descriptions(
             if entity_definition.get("system") or entity_definition.get("ignored_in_assistant"):
                 continue
             description = entity_definition.get("description_llm") or entity_definition.get("description")
-        else:
-            description = stored_descriptions.get(prop_name)
-        enriched_props.append((prop_name, prop_type, description))
+        enriched_props.append((prop_name, prop_type, description or stored_descriptions.get(prop_name)))
     return enriched_props

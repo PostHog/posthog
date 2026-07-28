@@ -48,15 +48,21 @@ class TestTaxonomyAgentToolkit(BaseTest):
         self.assertEqual(browser_prop[1], "String")
         self.assertIsNotNone(browser_prop[2])
 
-    def test_enrich_props_uses_stored_description_only_for_custom_props(self):
-        # Custom properties fall back to the user-authored description; core taxonomy still wins so a
-        # stored description can never override (or spoof) a built-in one.
-        props = [("$browser", "String"), ("custom_prop", "Numeric")]
-        stored = {"custom_prop": "Revenue in cents", "$browser": "should be ignored"}
+    def test_enrich_props_stored_description_precedence(self):
+        # The stored description fills in for custom properties and for core entries that have no
+        # description of their own (label-only, like $web_vitals_FCP_value); a core description
+        # still wins so a stored one can never override (or spoof) a built-in.
+        props = [("$browser", "String"), ("custom_prop", "Numeric"), ("$web_vitals_FCP_value", "Numeric")]
+        stored = {
+            "$browser": "should be ignored",
+            "custom_prop": "Revenue in cents",
+            "$web_vitals_FCP_value": "First contentful paint, in milliseconds",
+        }
         enriched = self.toolkit._enrich_props_with_descriptions("event", props, stored)
         by_name = {name: description for name, _, description in enriched}
 
         self.assertEqual(by_name["custom_prop"], "Revenue in cents")
+        self.assertEqual(by_name["$web_vitals_FCP_value"], "First contentful paint, in milliseconds")
         self.assertNotEqual(by_name["$browser"], "should be ignored")
 
     @parameterized.expand(
