@@ -10,7 +10,7 @@ import {
     PostHogRateLimitError,
     PostHogValidationError,
 } from '@/lib/errors'
-import { getSearchParamsFromRecord } from '@/lib/utils.js'
+import { getSearchParamsFromRecord, sanitizeHeaders } from '@/lib/utils.js'
 import type {
     ApiEventDefinition,
     ApiOAuthIntrospection,
@@ -161,34 +161,33 @@ export class ApiClient {
     private async fetch(url: string, options?: RequestInit): Promise<Response> {
         const defaultHeaders: HeadersInit = {
             Authorization: `Bearer ${this.config.apiToken}`,
-            'User-Agent': getUserAgent({ clientUserAgent: this.config.clientUserAgent }),
-            ...(this.config.clientUserAgent
-                ? {
-                      // Forward the originating client's User-Agent as a custom header so the
-                      // PostHog API can attach it to analytics events for MCP source attribution.
-                      'x-posthog-mcp-user-agent': this.config.clientUserAgent,
-                  }
-                : {}),
-            // Forward MCP clientInfo fields from the initialize request so the
-            // PostHog API can attach them to analytics events.
-            ...(this.config.mcpClientName ? { 'x-posthog-mcp-client-name': this.config.mcpClientName } : {}),
-            ...(this.config.mcpClientVersion ? { 'x-posthog-mcp-client-version': this.config.mcpClientVersion } : {}),
-            ...(this.config.mcpProtocolVersion
-                ? { 'x-posthog-mcp-protocol-version': this.config.mcpProtocolVersion }
-                : {}),
-            ...(this.config.mcpConsumer ? { 'x-posthog-mcp-consumer': this.config.mcpConsumer } : {}),
-            ...(this.config.oauthClientName ? { 'x-posthog-mcp-oauth-client-name': this.config.oauthClientName } : {}),
-            // Forward MCP session and conversation ids so backend logs and OTLP
-            // spans for downstream API hops can correlate with the same MCP context
-            // the events carry. This is attribute-based correlation only — we do
-            // not forward `traceparent` (the Worker emits no OTLP today), so the
-            // Django-rooted span is not a child of any Worker-side span.
-            ...(this.config.mcpSessionId ? { 'x-posthog-mcp-session-id': this.config.mcpSessionId } : {}),
-            ...(this.config.mcpConversationId
-                ? { 'x-posthog-mcp-conversation-id': this.config.mcpConversationId }
-                : {}),
-            // Forward the sandbox task id so API writes are attributed to the agent's task.
-            ...(this.config.taskId ? { 'X-PostHog-Task-Id': this.config.taskId } : {}),
+            // Every value below originates from the MCP client, so it is sanitized here at
+            // assembly rather than trusted to have been sanitized at the boundary it arrived
+            // on. A character above U+00FF (an emoji in a client or OAuth app name) throws
+            // when the runtime converts headers to a ByteString, which would fail the API
+            // call itself — losing attribution detail is the cheaper outcome.
+            ...sanitizeHeaders({
+                'User-Agent': getUserAgent({ clientUserAgent: this.config.clientUserAgent }),
+                // Forward the originating client's User-Agent as a custom header so the
+                // PostHog API can attach it to analytics events for MCP source attribution.
+                'x-posthog-mcp-user-agent': this.config.clientUserAgent,
+                // Forward MCP clientInfo fields from the initialize request so the
+                // PostHog API can attach them to analytics events.
+                'x-posthog-mcp-client-name': this.config.mcpClientName,
+                'x-posthog-mcp-client-version': this.config.mcpClientVersion,
+                'x-posthog-mcp-protocol-version': this.config.mcpProtocolVersion,
+                'x-posthog-mcp-consumer': this.config.mcpConsumer,
+                'x-posthog-mcp-oauth-client-name': this.config.oauthClientName,
+                // Forward MCP session and conversation ids so backend logs and OTLP
+                // spans for downstream API hops can correlate with the same MCP context
+                // the events carry. This is attribute-based correlation only — we do
+                // not forward `traceparent` (the Worker emits no OTLP today), so the
+                // Django-rooted span is not a child of any Worker-side span.
+                'x-posthog-mcp-session-id': this.config.mcpSessionId,
+                'x-posthog-mcp-conversation-id': this.config.mcpConversationId,
+                // Forward the sandbox task id so API writes are attributed to the agent's task.
+                'X-PostHog-Task-Id': this.config.taskId,
+            }),
             'X-PostHog-Client': 'mcp',
         }
         if (options?.body) {

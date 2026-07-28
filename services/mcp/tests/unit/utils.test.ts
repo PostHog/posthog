@@ -178,6 +178,12 @@ describe('utils', () => {
             ['strips then trims', '\x00  hello  \x1f', 'hello'],
             ['whitespace only is undefined', ' ', undefined],
             ['undefined is undefined', undefined, undefined],
+            ['strips emoji', 'Claude \u{1F389} Code', 'Claude  Code'],
+            ['strips lone surrogates', 'Claude \uD83D Code', 'Claude  Code'],
+            ['strips non-Latin-1 scripts', 'クライアント v1', 'v1'],
+            ['keeps printable Latin-1', 'Café Müller', 'Café Müller'],
+            ['strips C1 control chars', 'a\u0085b', 'ab'],
+            ['emoji only is undefined', '\u{1F389}', undefined],
         ])('%s', (_name, input, expected) => {
             expect(sanitizeHeaderValue(input)).toBe(expected)
         })

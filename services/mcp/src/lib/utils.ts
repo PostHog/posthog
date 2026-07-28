@@ -47,16 +47,36 @@ export function formatPrompt(template: string, vars: Record<string, string>): st
 
 const MAX_HEADER_VALUE_LENGTH = 1000
 
+// Anything outside printable Latin-1: C0/C1 control characters, DEL, and every code
+// unit above U+00FF. Header values are converted to a ByteString before the request
+// goes out (undici, the Node runtime's `fetch`, throws `TypeError: Cannot convert
+// argument to a ByteString` on anything higher), so a single emoji or CJK character in
+// a client-supplied name would abort the outgoing API call. Matching on code units
+// rather than code points also drops lone surrogates.
+const HEADER_UNSAFE_PATTERN = /[^\x20-\x7e\xa0-\xff]/g
+
+// Make a client-supplied string safe to send as an outgoing header value. A value that
+// is entirely unsafe collapses to undefined so the header is omitted — these headers
+// only feed analytics attribution, so lossy attribution beats a failed request.
 export function sanitizeHeaderValue(value?: string): string | undefined {
     if (!value) {
         return undefined
     }
-    // Strip control characters, then trim and truncate
-    const sanitised = value
-        .replace(/[\x00-\x1f\x7f]/g, '')
-        .trim()
-        .slice(0, MAX_HEADER_VALUE_LENGTH)
+    const sanitised = value.replace(HEADER_UNSAFE_PATTERN, '').trim().slice(0, MAX_HEADER_VALUE_LENGTH).trim()
     return sanitised || undefined
+}
+
+// Sanitize a batch of optional header values, dropping the ones that are absent or that
+// sanitize away to nothing, so the result can be spread straight into a headers object.
+export function sanitizeHeaders(headers: Record<string, string | undefined>): Record<string, string> {
+    const sanitised: Record<string, string> = {}
+    for (const [name, value] of Object.entries(headers)) {
+        const safeValue = sanitizeHeaderValue(value)
+        if (safeValue) {
+            sanitised[name] = safeValue
+        }
+    }
+    return sanitised
 }
 
 export type McpMode = 'tools' | 'cli'
