@@ -10,7 +10,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { isKeyOf } from 'lib/utils/guards'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import { getRelativeNextPath } from 'lib/utils/url'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { resolveOnboardingFlowVariant } from 'scenes/onboarding/onboardingVariants'
 import { availableOnboardingProducts } from 'scenes/onboarding/shared/utils'
@@ -835,9 +834,11 @@ export const onboardingLogic = kea<onboardingLogicType>([
                     completed_snippet_onboarding: true,
                     has_completed_onboarding_for: completedMap,
                 })
-                router.actions.push(
-                    getRelativeNextPath(router.values.searchParams['next'], window.location) ?? urls.default()
-                )
+                // Always the inbox: it is where the wizard's output lands, so it's the only ending
+                // that continues the flow. `next` is deliberately ignored — the onboarding gate
+                // stamps it with whatever page it bounced the user off (sceneLogic), so honouring
+                // it would send most people back to /home instead.
+                router.actions.push(urls.inbox())
             } catch {
                 lemonToast.error("Couldn't finish onboarding. Please try again.")
             } finally {
