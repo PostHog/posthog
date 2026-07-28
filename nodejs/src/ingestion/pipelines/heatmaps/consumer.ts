@@ -8,9 +8,9 @@ import { EventFilterManagerComponent } from '~/ingestion/common/event-filters'
 import { CommonIngestionConsumerConfig, CommonIngestionConsumerScope } from '~/ingestion/common/ingestion-consumer'
 import { ProducerName } from '~/ingestion/common/outputs/producers'
 import { Scope, extend } from '~/ingestion/common/scopes'
+import { extendWithTopHog } from '~/ingestion/common/tophog-scope'
 import { PromiseSchedulerComponent } from '~/ingestion/common/utils/promise-scheduler'
 import { IngestionConsumerConfig, IngestionOutputsConfig } from '~/ingestion/config'
-import { TopHog } from '~/ingestion/framework/tophog'
 import { RedisPool } from '~/types'
 
 import { createOutputsRegistry } from './outputs/registry'
@@ -47,22 +47,9 @@ export function createHeatmapsConsumer(config: HeatmapsConsumerConfig, sharedSco
             )
     )
 
-    // Own scope so the topHog component can see the outputs registered above.
-    const scopeWithTopHog = extend(scope, 'heatmaps-tophog', (container, builder) =>
-        builder
-            // TopHog metrics registry for this pipeline's outputs (drains per-team counters).
-            .add('topHog', {
-                start: () => {
-                    const topHog = new TopHog({
-                        outputs: container.outputs,
-                        pipeline: config.INGESTION_PIPELINE ?? 'unknown',
-                        lane: config.INGESTION_LANE ?? 'unknown',
-                    })
-                    topHog.start()
-                    return Promise.resolve({ value: topHog, stop: () => topHog.stop() })
-                },
-            })
-    )
+    // Own scope (not shared): the registry drains through this consumer's
+    // outputs under this pipeline's labels.
+    const scopeWithTopHog = extendWithTopHog(scope, 'heatmaps', config)
 
     return new CommonIngestionConsumerScope('heatmaps', config, scopeWithTopHog, ({ container }) =>
         createHeatmapsPipeline(container)

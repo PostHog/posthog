@@ -31,9 +31,9 @@ import { OverflowLaneOverflowRedirectComponent } from '~/ingestion/common/overfl
 import { RedisOverflowRepositoryComponent } from '~/ingestion/common/overflow-redirect/overflow-redis-repository'
 import { eventRateStrategy } from '~/ingestion/common/overflow-redirect/overflow-strategy'
 import { Scope, extend } from '~/ingestion/common/scopes'
+import { extendWithTopHog } from '~/ingestion/common/tophog-scope'
 import { PromiseSchedulerComponent } from '~/ingestion/common/utils/promise-scheduler'
 import { IngestionConsumerConfig, IngestionOutputsConfig } from '~/ingestion/config'
-import { TopHog } from '~/ingestion/framework/tophog'
 import { RedisPool } from '~/types'
 
 import { AiBlobStoreComponent } from './blob-offload/blob-store'
@@ -156,18 +156,6 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
             )
             // Personhog client owned by the AI scope (created from common, torn down with it).
             .add('personhogClient', new PersonHogClientComponent(config))
-            // TopHog metrics registry for this lane's outputs (drains per-team/partition counters).
-            .add('topHog', {
-                start: () => {
-                    const topHog = new TopHog({
-                        outputs: container.outputs,
-                        pipeline: config.INGESTION_PIPELINE ?? 'unknown',
-                        lane: config.INGESTION_LANE ?? 'unknown',
-                    })
-                    topHog.start()
-                    return Promise.resolve({ value: topHog, stop: () => topHog.stop() })
-                },
-            })
             // Owned by the scope so the store's startup healthcheck runs at
             // scope start, before any traffic is consumed.
             .add('aiBlobStore', new AiBlobStoreComponent(config))
@@ -189,7 +177,11 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
         uploadMaxConcurrency,
     }
 
-    return new CommonIngestionConsumerScope('ai', config, scope, ({ container }) =>
+    // Own scope (not shared): the registry drains through this lane's outputs
+    // under this pipeline's labels.
+    const scopeWithTopHog = extendWithTopHog(scope, 'ai', config)
+
+    return new CommonIngestionConsumerScope('ai', config, scopeWithTopHog, ({ container }) =>
         createAiIngestionPipeline({
             outputs: container.outputs,
             teamManager: container.teamManager,
