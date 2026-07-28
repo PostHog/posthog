@@ -4,8 +4,9 @@ import { loaders } from 'kea-loaders'
 import { ApiConfig } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
-import { engineeringAnalyticsRepoOverview } from '../generated/api'
-import type { RepoOverviewApi } from '../generated/api.schemas'
+import type { ActivityRun } from '../components/RunActivityChart'
+import { engineeringAnalyticsRepoOverview, engineeringAnalyticsRepoRunActivity } from '../generated/api'
+import type { RepoOverviewApi, WorkflowRunActivityApi } from '../generated/api.schemas'
 import { ciStatusOf } from '../lib/ci'
 import { HUB_PREVIEW_MAX, HUB_PREVIEW_ROWS, HUB_PREVIEW_STEP } from '../lib/preview'
 import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
@@ -33,6 +34,8 @@ export interface repoOverviewLogicValues {
     sourceId: string | null // engineeringAnalyticsLogic
     workflowHealth: WorkflowHealthRow[] // engineeringAnalyticsLogic
     workflowHealthLoading: boolean // engineeringAnalyticsLogic
+    activityRuns: ActivityRun[]
+    activityTruncated: boolean
     attentionPrs: PullRequestRow[]
     costByWorkflow: CostShareRow[]
     costPerMergeSeries: {
@@ -48,6 +51,7 @@ export interface repoOverviewLogicValues {
     } | null
     otherCostWorkflowCount: number
     overview: RepoOverviewApi | null
+    overviewDefaultBranch: string
     overviewFailed: boolean
     overviewLoading: boolean
     passRateSeries: {
@@ -55,6 +59,9 @@ export interface repoOverviewLogicValues {
         values: number[]
     } | null
     prPreviewCount: number
+    repoActivity: WorkflowRunActivityApi
+    repoActivityFailed: boolean
+    repoActivityLoading: boolean
     timeToGreenSeries: {
         labels: string[]
         values: number[]
@@ -79,6 +86,21 @@ export interface repoOverviewLogicActions {
         overview: RepoOverviewApi
         payload?: any
     }
+    loadRepoActivity: () => any
+    loadRepoActivityFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadRepoActivitySuccess: (
+        repoActivity: WorkflowRunActivityApi,
+        payload?: any
+    ) => {
+        repoActivity: WorkflowRunActivityApi
+        payload?: any
+    }
     showMorePrs: () => {
         value: true
     }
@@ -91,6 +113,9 @@ export interface repoOverviewLogicActions {
 export interface repoOverviewLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         jobsAvailable: (overview: RepoOverviewApi | null) => boolean
+        overviewDefaultBranch: (overview: RepoOverviewApi | null) => string
+        activityRuns: (repoActivity: WorkflowRunActivityApi) => ActivityRun[]
+        activityTruncated: (repoActivity: WorkflowRunActivityApi) => boolean
         attentionPrs: (pullRequests: PullRequestRow[]) => PullRequestRow[]
         draftCount: (pullRequests: PullRequestRow[]) => number
         costByWorkflow: (workflowHealth: WorkflowHealthRow[]) => CostShareRow[]
@@ -160,6 +185,20 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
                     }),
             },
         ],
+        // One collapsed point per default-branch commit (all its workflows folded together) for the
+        // master-health strip — the backend owns the collapse, so the UI just plots the points.
+        repoActivity: [
+            { points: [], truncated: false, limit: 0 } as WorkflowRunActivityApi,
+            {
+                loadRepoActivity: async (): Promise<WorkflowRunActivityApi> =>
+                    await engineeringAnalyticsRepoRunActivity(projectId(), {
+                        date_from: values.dateFrom ?? undefined,
+                        date_to: values.dateTo ?? undefined,
+                        source_id: values.sourceId ?? undefined,
+                        repo: values.scopeRepo ?? undefined,
+                    }),
+            },
+        ],
     })),
 
     reducers({
@@ -170,6 +209,16 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
                 loadOverview: () => false,
                 loadOverviewSuccess: () => false,
                 loadOverviewFailure: () => true,
+            },
+        ],
+        // Without this, a failed activity fetch is indistinguishable from a quiet branch — the scene
+        // would show the "no runs" empty state over a real error.
+        repoActivityFailed: [
+            false,
+            {
+                loadRepoActivity: () => false,
+                loadRepoActivitySuccess: () => false,
+                loadRepoActivityFailure: () => true,
             },
         ],
         // How many rows the hub's preview tables show. Start short (HUB_PREVIEW_ROWS), grow by a fixed
@@ -190,6 +239,29 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
         jobsAvailable: [
             (s) => [s.overview],
             (overview: RepoOverviewApi | null): boolean => overview?.jobs_available ?? false,
+        ],
+        overviewDefaultBranch: [
+            (s) => [s.overview],
+            (overview: RepoOverviewApi | null): string => overview?.default_branch ?? 'master',
+        ],
+        // Backend-collapsed commit points, mapped to the shared chart shape (one bar per default-branch
+        // commit: start time, wall-clock CI duration, overall verdict).
+        activityRuns: [
+            (s) => [s.repoActivity],
+            (repoActivity: WorkflowRunActivityApi): ActivityRun[] =>
+                repoActivity.points.map((point) => ({
+                    runId: point.run_id,
+                    conclusion: point.conclusion,
+                    startedAt: point.run_started_at,
+                    durationSeconds: point.duration_seconds,
+                    headBranch: point.head_branch,
+                    prNumber: point.pr_number,
+                    headSha: point.head_sha,
+                })),
+        ],
+        activityTruncated: [
+            (s) => [s.repoActivity],
+            (repoActivity: WorkflowRunActivityApi): boolean => repoActivity.truncated,
         ],
         // Open PRs with failing CI or stuck (open >7d, non-draft, non-bot) — not the full open list.
         attentionPrs: [
@@ -337,16 +409,20 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
     listeners(({ actions }) => ({
         [engineeringAnalyticsFiltersLogic.actionTypes.setDateRange]: () => {
             actions.loadOverview()
+            actions.loadRepoActivity()
         },
         [engineeringAnalyticsLogic.actionTypes.setSourceId]: () => {
             actions.loadOverview()
+            actions.loadRepoActivity()
         },
         [engineeringAnalyticsLogic.actionTypes.refresh]: () => {
             actions.loadOverview()
+            actions.loadRepoActivity()
         },
     })),
 
     afterMount(({ actions }) => {
         actions.loadOverview()
+        actions.loadRepoActivity()
     }),
 ])

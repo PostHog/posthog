@@ -26,8 +26,8 @@ export function verdictTag(conclusion: string | null): { label: string; type: Le
     return { label, type: 'warning' }
 }
 
-// CSS color per verdict type, keyed by the `verdictTag` type above so the run-activity scatter and
-// the run tables' StatusDot color the same conclusion identically.
+// CSS color per verdict type, keyed by the `verdictTag` type above so every run-activity chart (scatter,
+// mini bars) and the run tables' StatusDot color the same conclusion identically.
 export const VERDICT_COLOR: Record<string, string> = {
     success: 'var(--success)',
     danger: 'var(--danger)',

@@ -1,5 +1,5 @@
-// The repo hub landing page: PRs needing attention, then windowed trends and workflows as
-// sections on one page.
+// The repo hub landing page: PRs needing attention, then windowed trends, master health, and
+// workflows as sections on one page.
 
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -15,12 +15,14 @@ import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
 import { RepoEntityHeader } from '../components/EntityHeader'
 import { PullRequestTable } from '../components/PullRequestTable'
-import { formatAxisMinutes } from '../components/RunActivityChart'
+import { formatAxisMinutes, hasEnoughRunActivity } from '../components/RunActivityChart'
+import { RunActivityMiniBars } from '../components/RunActivityMiniBars'
 import { ScopeDateFilter, SourceScopeChip } from '../components/ScopeBar'
 import { Section } from '../components/Section'
 import { TrendCard } from '../components/TrendCard'
 import { WorkflowHealthTable } from '../components/WorkflowHealthTable'
 import { compactHoursLabel, compactMinutes, compactUsd, percent } from '../lib/format'
+import { githubCommitUrl } from '../lib/github'
 import { HUB_PREVIEW_MAX } from '../lib/preview'
 import { withCurrentScope, withScope } from '../lib/scope'
 import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
@@ -29,12 +31,17 @@ import { repoOverviewLogic } from './repoOverviewLogic'
 export function RepoOverviewScene(): JSX.Element {
     const {
         overview,
+        activityRuns,
+        activityTruncated,
+        repoActivityLoading,
+        repoActivityFailed,
         attentionPrs,
         costPerMergeSeries,
         timeToGreenSeries,
         passRateSeries,
         openToMergeSeries,
         jobsAvailable,
+        overviewDefaultBranch,
         notConnected,
         overviewFailed,
         overviewLoading,
@@ -43,15 +50,15 @@ export function RepoOverviewScene(): JSX.Element {
     } = useValues(repoOverviewLogic)
     const { pullRequestsLoading, workflowHealth, workflowHealthLoading, sourceId, activeSource } =
         useValues(engineeringAnalyticsLogic)
-    const { loadOverview, showMorePrs, showMoreWorkflows } = useActions(repoOverviewLogic)
+    const { loadOverview, loadRepoActivity, showMorePrs, showMoreWorkflows } = useActions(repoOverviewLogic)
     const { searchParams } = useValues(router)
     const { timezone } = useValues(teamLogic)
     const chartTheme = useChartTheme()
 
-    // Window/source changes reload the overview and workflow health (the date-scoped surfaces);
-    // the PR backlog is current-state, not windowed, so it stays put. Surface the reload so a window
-    // change doesn't silently swap stale numbers.
-    const hubReloading = overviewLoading || workflowHealthLoading
+    // Window/source changes reload the overview, activity, and workflow health (the date-scoped
+    // surfaces); the PR backlog is current-state, not windowed, so it stays put. Surface the reload
+    // so a window change doesn't silently swap stale numbers.
+    const hubReloading = overviewLoading || repoActivityLoading || workflowHealthLoading
 
     // The hub previews each table: a short, sorted slice with "Show more" to grow in place, and "View all"
     // to the dedicated full table. Workflows are ranked by cost (or run count) to pick the top few; the
@@ -73,7 +80,14 @@ export function RepoOverviewScene(): JSX.Element {
         return <ConnectGitHubSource />
     }
     if (overviewFailed) {
-        return <CIAnalyticsLoadError onRetry={() => loadOverview()} />
+        return (
+            <CIAnalyticsLoadError
+                onRetry={() => {
+                    loadOverview()
+                    loadRepoActivity()
+                }}
+            />
+        )
     }
 
     return (
@@ -197,6 +211,41 @@ export function RepoOverviewScene(): JSX.Element {
                         </div>
                     </LemonCard>
                 </div>
+            </Section>
+
+            <Section
+                id="master"
+                title={`${overviewDefaultBranch === 'main' ? 'Main' : 'Master'} health`}
+                busy={repoActivityLoading}
+            >
+                {/* Hub preview: one bar per default-branch commit, height = CI duration, color = verdict — the
+                    at-a-glance "is master healthy and fast lately" read without the full chart's weight. The
+                    full scatter (start-time axis, in-flight band, zoom) lives on the workflow page. */}
+                {hasEnoughRunActivity(activityRuns) ? (
+                    <RunActivityMiniBars
+                        runs={activityRuns}
+                        truncated={activityTruncated}
+                        title="CI duration per commit"
+                        noun="commit"
+                        onBarClick={(run) => {
+                            // Each bar is a whole commit (its workflows collapsed), so open the commit on
+                            // GitHub — all its checks — rather than one arbitrary workflow run.
+                            const [owner, repoName] = (activeSource?.repo || '').split('/')
+                            if (!run.headSha || !owner || !repoName) {
+                                return
+                            }
+                            window.open(githubCommitUrl(owner, repoName, run.headSha), '_blank', 'noopener,noreferrer')
+                        }}
+                    />
+                ) : (
+                    <LemonCard hoverEffect={false} className="p-4 text-xs text-secondary">
+                        {repoActivityLoading
+                            ? 'Loading…'
+                            : repoActivityFailed
+                              ? `Couldn't load ${overviewDefaultBranch} activity. Refresh to retry.`
+                              : `Not enough completed runs on ${overviewDefaultBranch} in the window to chart yet.`}
+                    </LemonCard>
+                )}
             </Section>
 
             <Section

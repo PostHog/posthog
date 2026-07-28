@@ -34,6 +34,7 @@ import type {
     FlakyTestItemClassificationEnumApi,
     GitHubSourceApi,
     PullRequestListItemApi,
+    PushCISampleApi,
     QuarantineRequestApi,
     QuarantineRequestResultApi,
 } from '../generated/api.schemas'
@@ -86,6 +87,8 @@ export interface PullRequestRow {
     failingWorkflows: string[]
     /** Distinct head SHAs across the PR's workflow runs. Fork PRs unattributed. */
     pushes: number
+    /** Per-push CI rounds oldest first, capped server-side — drives the push-history sparkline. */
+    pushHistory: PushCISampleApi[]
     /** Workflow runs attributed to this PR that were a 2nd+ attempt. */
     rerunCycles: number
     /** Estimated CI cost (USD) over the PR's billable jobs. Null when the job source isn't synced. */
@@ -142,6 +145,37 @@ export interface WorkflowHealthRow {
     successRatePrev?: number | null
 }
 
+export interface WorkflowFailureSeries {
+    completed: number[]
+    failures: number[]
+    labels: string[]
+}
+
+function formatBucket(bucketStart: string, granularity: WorkflowGranularity): string {
+    const at = dayjs(bucketStart)
+    if (granularity === 'hour') {
+        return at.format('MMM D, HH:mm')
+    }
+    if (granularity === 'week') {
+        return `Week of ${at.format('MMM D')}`
+    }
+    return at.format('MMM D')
+}
+
+/** Stacked sparkline series: bar height = completed runs, red portion = decisive failures. */
+export function workflowFailureSeries(
+    buckets: WorkflowHealthBucket[],
+    granularity: WorkflowGranularity
+): WorkflowFailureSeries {
+    const completed = buckets.map((b) => b.completed)
+    const failures = buckets.map((b) => b.failures)
+    const labels = buckets.map((b) => {
+        const when = formatBucket(b.bucketStart, granularity)
+        return b.completed > 0 ? `${when} · ${b.failures} of ${b.completed} failed` : `${when} · no completed runs`
+    })
+    return { completed, failures, labels }
+}
+
 /** 'failing'/'passing' key off the latest settled run; rows with nothing completed show only under 'all'. */
 export type WorkflowStatusFilter = 'all' | 'failing' | 'passing'
 
@@ -191,6 +225,7 @@ export function toPullRequestRow(it: PullRequestListItemApi): PullRequestRow {
         pending: it.ci.pending,
         failingWorkflows: it.ci.failing_workflows ?? [],
         pushes: it.pushes ?? 0,
+        pushHistory: it.push_history ?? [],
         rerunCycles: it.rerun_cycles ?? 0,
         estimatedCostUsd: it.estimated_cost_usd ?? null,
         billableMinutes: it.billable_minutes ?? null,

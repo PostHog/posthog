@@ -15,8 +15,9 @@ import { urls } from 'scenes/urls'
 
 import { rowNavigationProps } from '../lib/rowNavigation'
 import { withScope } from '../lib/scope'
-import { WorkflowHealthRow } from '../scenes/engineeringAnalyticsLogic'
+import { WorkflowHealthRow, workflowFailureSeries } from '../scenes/engineeringAnalyticsLogic'
 import { BillableBadge } from './BillableBadge'
+import { FailureSparkline } from './FailureSparkline'
 import { DeltaBadge, pointChange } from './MetricTile'
 
 function formatSeconds(seconds: number | null): string {
@@ -85,14 +86,14 @@ export interface WorkflowHealthTableProps {
     dataAttr?: string
     /** Drop the table's own border when it sits inside a LemonCard (the hub) — avoids a double frame. */
     embedded?: boolean
-    /** Hub preview variant: a focused column set (status · pass rate · Δ · cost). The full
-     *  run/p50/p95/re-runs/last-failure columns stay on the Workflows tab. */
+    /** Hub preview variant: a focused column set (status · pass rate · Δ · cost · health) with the health
+     *  sparkline given room. The full run/p50/p95/re-runs/last-failure columns stay on the Workflows tab. */
     compact?: boolean
 }
 
 // The compact (hub preview) column set, in display order: the health-and-cost story with pass rate next
 // to its own trend (Δ). Cost only appears when showCost adds it. Headers stay intact.
-const COMPACT_COLUMN_ORDER = ['workflowName', 'status', 'successRate', 'successRateDelta', 'cost']
+const COMPACT_COLUMN_ORDER = ['workflowName', 'status', 'successRate', 'successRateDelta', 'cost', 'trend']
 
 export function WorkflowHealthTable({
     rows,
@@ -248,6 +249,26 @@ export function WorkflowHealthTable({
             ),
         },
         {
+            title: 'Health',
+            key: 'trend',
+            // Pinned so the layout doesn't shift when sorting reorders rows with and without history.
+            width: 132,
+            render: function RenderTrend(_, row) {
+                if (row.buckets.length === 0) {
+                    return <span className="text-xs text-secondary">—</span>
+                }
+                const { completed, failures, labels } = workflowFailureSeries(row.buckets, row.granularity)
+                return (
+                    <FailureSparkline
+                        completed={completed}
+                        failures={failures}
+                        labels={labels}
+                        ariaLabel={`${row.workflowName} failure history`}
+                    />
+                )
+            },
+        },
+        {
             title: 'Last failure',
             key: 'lastFailureAt',
             width: 100,
@@ -263,11 +284,11 @@ export function WorkflowHealthTable({
         },
     ]
 
-    // Compact keeps the focused column set (in COMPACT_COLUMN_ORDER).
+    // Compact keeps the focused column set (in COMPACT_COLUMN_ORDER) and lets the health sparkline breathe.
     const displayColumns = compact
-        ? COMPACT_COLUMN_ORDER.map((key) => columns.find((column) => String(column.key) === key)).filter(
-              (column): column is (typeof columns)[number] => column !== undefined
-          )
+        ? COMPACT_COLUMN_ORDER.map((key) => columns.find((column) => String(column.key) === key))
+              .filter((column): column is (typeof columns)[number] => column !== undefined)
+              .map((column) => (column.key === 'trend' ? { ...column, title: 'Health', width: 220 } : column))
         : columns
 
     return (

@@ -268,10 +268,7 @@ function LifecycleStrip({ summary, openedAt, commitGroups }: LifecycleStripProps
                                             } · ${pushRoundVerdictLabel(node.round)}`}
                                         >
                                             <span
-                                                className={cn(
-                                                    'w-2.5 rounded-t-sm',
-                                                    node.round.pending && 'animate-pulse'
-                                                )}
+                                                className="w-2.5 rounded-t-sm"
                                                 // eslint-disable-next-line react/forbid-dom-props
                                                 style={{
                                                     height: barPx(node.round),

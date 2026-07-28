@@ -11,6 +11,7 @@ import type {
     PullRequestListApi,
     RepoOverviewApi,
     WorkflowHealthItemApi,
+    WorkflowRunActivityApi,
 } from '../generated/api.schemas'
 
 const SOURCES: GitHubSourceApi[] = [{ id: 'src-1', repo: 'PostHog/posthog', prefix: '' }]
@@ -61,6 +62,20 @@ const OVERVIEW: RepoOverviewApi = {
     open_to_merge_series_granularity: 'day',
 }
 
+const ACTIVITY: WorkflowRunActivityApi = {
+    points: [520, 680, 1450, 760, 590, 2100, 830, 640].map((duration, i) => ({
+        run_id: 9000 + i,
+        conclusion: i === 5 ? 'failure' : 'success',
+        run_started_at: `2026-07-01T${String(8 + i * 2).padStart(2, '0')}:00:00Z`,
+        duration_seconds: duration,
+        head_branch: 'master',
+        pr_number: 0,
+        head_sha: `deadbeef${String(i).padStart(2, '0')}`,
+    })),
+    truncated: false,
+    limit: 500,
+}
+
 function healthItem(
     workflowName: string,
     costUsd: number,
@@ -108,7 +123,29 @@ const PULL_REQUESTS: PullRequestListApi = {
             author: { handle: 'jane-dev', display_name: 'Jane Dev', avatar_url: '', is_bot: false },
             repo: { provider: 'github', owner: 'PostHog', name: 'posthog' },
             ci: { runs: 6, passing: 4, failing: 2, pending: 0, failing_workflows: ['Backend CI', 'E2E - Playwright'] },
-            push_history: [],
+            push_history: [
+                {
+                    head_sha: 'aaa111',
+                    started_at: '2026-06-24T11:00:00Z',
+                    wall_seconds: 1320,
+                    failed: false,
+                    pending: false,
+                },
+                {
+                    head_sha: 'bbb222',
+                    started_at: '2026-06-25T09:30:00Z',
+                    wall_seconds: 1500,
+                    failed: false,
+                    pending: false,
+                },
+                {
+                    head_sha: 'ccc333',
+                    started_at: '2026-06-26T14:00:00Z',
+                    wall_seconds: 1680,
+                    failed: true,
+                    pending: false,
+                },
+            ],
             number: 41231,
             title: 'feat(insights): sticky breakdown legends',
             state: 'open',
@@ -126,7 +163,29 @@ const PULL_REQUESTS: PullRequestListApi = {
             author: { handle: 'sam-eng', display_name: 'Sam Eng', avatar_url: '', is_bot: false },
             repo: { provider: 'github', owner: 'PostHog', name: 'posthog' },
             ci: { runs: 5, passing: 5, failing: 0, pending: 0 },
-            push_history: [],
+            push_history: [
+                {
+                    head_sha: 'ddd444',
+                    started_at: '2026-06-30T09:15:00Z',
+                    wall_seconds: 900,
+                    failed: false,
+                    pending: false,
+                },
+                {
+                    head_sha: 'eee555',
+                    started_at: '2026-06-30T15:00:00Z',
+                    wall_seconds: 1020,
+                    failed: false,
+                    pending: false,
+                },
+                {
+                    head_sha: 'fff666',
+                    started_at: '2026-07-01T08:00:00Z',
+                    wall_seconds: 960,
+                    failed: false,
+                    pending: false,
+                },
+            ],
             number: 41250,
             title: 'fix(cohorts): handle empty cohort in query builder',
             state: 'merged',
@@ -163,6 +222,7 @@ const meta: Meta = {
             get: {
                 'api/projects/:team_id/engineering_analytics/sources/': SOURCES,
                 'api/projects/:team_id/engineering_analytics/repo_overview/': OVERVIEW,
+                'api/projects/:team_id/engineering_analytics/repo_run_activity/': ACTIVITY,
                 'api/projects/:team_id/engineering_analytics/ci_cards/': {
                     open_prs: 18,
                     repos: 1,
