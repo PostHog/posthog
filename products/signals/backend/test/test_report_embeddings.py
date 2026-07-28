@@ -9,6 +9,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.receivers import _verdict_is_unsafe
 from products.signals.backend.report_embeddings import (
     TOMBSTONE_CONTENT,
     emit_report_embedding,
@@ -72,6 +73,25 @@ class TestEmittedRow(SimpleTestCase):
         # row without ever introducing text the safety judge withheld.
         assert self._emit(tombstone=True)["content"] == TOMBSTONE_CONTENT
         assert self._emit(tombstone=False)["content"] == REPORT_DOCUMENT
+
+
+class TestVerdictIsUnsafe(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("approved", json.dumps({"choice": True, "explanation": None}), False),
+            ("rejected", json.dumps({"choice": False, "explanation": "prompt injection"}), True),
+            # A verdict that cannot be read may be a rejection, so it counts as one. Reading it as
+            # approval would index content the judge withheld, and do it silently.
+            ("unreadable", "{not json", True),
+            # Absence is not a rejection. Pipeline reports are embedded before the judge runs at all,
+            # which only happens after promotion, so requiring a verdict would exclude every
+            # POTENTIAL report from the index.
+            ("never_judged", None, False),
+            ("empty", "", False),
+        ]
+    )
+    def test_only_a_readable_approval_allows_indexing(self, _name, content, expected):
+        assert _verdict_is_unsafe(content) == expected
 
 
 class TestUpdateAuthoredContent(SimpleTestCase):
@@ -309,6 +329,26 @@ class TestReportEmbeddingReceiver(BaseTest):
             report.save(update_fields=["title", "updated_at"])
         assert self.embed.call_count == 0
         assert self.tombstone.call_count == 1
+
+    @parameterized.expand([("no_verdicts", []), ("cascading_verdicts", [False, True])])
+    def test_hard_deleting_a_report_retracts_it_exactly_once(self, _name, verdicts):
+        # The reingestion workflow and the cleanup command drop rows instead of flipping status, and
+        # once the row is gone nothing is left in Postgres to retract the vector later. The cascading
+        # verdicts must not each reconcile on the way down: deleting the latest one normally promotes
+        # the verdict beneath it, but here the report is going away in the same operation, and a
+        # teardown does this for every report a team has inside one activity.
+        with self.captureOnCommitCallbacks(execute=True):
+            report = self._create_report(title=REPORT_TITLE, summary=REPORT_SUMMARY)
+            for safe in verdicts:
+                self._write_verdict(report, safe=safe)
+        report_id, created_at = str(report.id), report.created_at
+        self.tombstone.reset_mock()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            SignalReport.objects.filter(team_id=self.team.id).delete()
+        assert self.tombstone.call_count == 1
+        assert self.tombstone.call_args.kwargs["report_id"] == report_id
+        assert self.tombstone.call_args.kwargs["created_at"] == created_at
 
     def test_editing_a_deleted_report_does_not_resurrect_its_embedding(self):
         with self.captureOnCommitCallbacks(execute=True):

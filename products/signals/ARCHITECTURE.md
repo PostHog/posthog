@@ -676,7 +676,7 @@ That read is pinned to the writer (`using("default")`), because it runs immediat
 Withholding new emissions is not sufficient on its own, because a report can be embedded while safe and only later be judged unsafe.
 Three paths therefore **retract** an existing vector by re-emitting the row with `metadata.deleted = true`, preserving `created_at` so it replaces the live row in the same partition:
 
-- **Deletion** — the report-level counterpart to `soft_delete_report_signals`.
+- **Deletion** — the report-level counterpart to `soft_delete_report_signals`. Both the soft path, where `delete_report_activity` flips status to `DELETED`, and a hard `delete()` of the row, which is what `delete_team_reports_activity` and the `cleanup_signals` command issue. The hard path matters most: once the row is gone, no later write can retract the vector.
 - **A later unsafe verdict** — the summary workflow re-judges safety on every run, and a READY report re-researches whenever new signals join it.
 - **An unreviewed edit** — the `PATCH` endpoint and the scout `edit_report` channel supply text the judge has never seen, so the report is retracted and left unindexed until the pipeline writes judged text again.
 
@@ -686,6 +686,11 @@ It also guarantees a retraction can never introduce the very text the safety jud
 This is a deliberate divergence from `soft_delete_report_signals`, which re-emits signal text verbatim and so makes rows filterable rather than erased.
 
 Readers must filter with `NOT JSONExtractBool(metadata, 'deleted')`, as every existing signals query already does.
+
+A caller removing reports in bulk should delete the reports and let their artefacts cascade, rather than deleting artefacts first.
+Django reports the cascade as the artefact's deletion `origin`, which is what lets the verdict receiver skip reconciliation it does not need:
+the report is going away in the same operation and retracts its own embedding.
+Deleting artefacts directly costs two extra queries each, which `delete_team_reports_activity` cannot afford inside its five minute budget.
 
 ### Soft Deletion
 

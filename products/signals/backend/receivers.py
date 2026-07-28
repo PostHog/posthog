@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from django.db import transaction
+from django.db.models import QuerySet
 from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 from django.utils import timezone
@@ -325,6 +326,31 @@ def tombstone_report_embedding_on_delete(
     )
 
 
+@receiver(post_delete, sender=SignalReport)
+def tombstone_report_embedding_on_hard_delete(
+    sender: type[SignalReport],
+    instance: SignalReport,
+    **kwargs: Any,
+) -> None:
+    """Tombstone the report's embedding when its row is removed from Postgres outright.
+
+    The status receiver above covers the product's own deletion flow, which soft-deletes by flipping
+    status to DELETED. It does not cover the paths that drop rows: `delete_team_reports_activity` in
+    the reingestion workflow and the `cleanup_signals` command both issue a queryset `delete()`. Those
+    leave the report's vector live until the table's three month TTL, with nothing left in Postgres to
+    reconcile it against, which is worse than the soft-delete case because no later write can fix it.
+
+    A report deleted through the soft path and later dropped tombstones twice. That costs one spare row
+    and is the same trade the unconditional tombstone already makes everywhere else.
+    """
+    _schedule_tombstone(
+        team_id=instance.team_id,
+        report_id=str(instance.id),
+        created_at=instance.created_at,
+        reason="hard deletion",
+    )
+
+
 def _reconcile_report_embedding_with_verdict(instance: SignalReportArtefact) -> None:
     """Retract a report's embedding when its canonical safety verdict is unsafe.
 
@@ -387,13 +413,37 @@ def reconcile_report_embedding_on_verdict_saved(
     _reconcile_report_embedding_with_verdict(instance)
 
 
+def _deleted_directly(origin: Any) -> bool:
+    """Whether a delete was issued against artefacts themselves rather than cascading from a report.
+
+    Django passes the instance or queryset that `delete()` was called on as `origin`, so a cascade
+    from a report, or from the team above it, is distinguishable from the artefact DELETE endpoint
+    without any query. Unknown origins count as direct, which keeps the reconciliation the safety
+    boundary depends on rather than dropping it if this ever stops being populated.
+    """
+    if origin is None:
+        return True
+    model = origin.model if isinstance(origin, QuerySet) else type(origin)
+    return model is SignalReportArtefact
+
+
 @receiver(post_delete, sender=SignalReportArtefact)
 def reconcile_report_embedding_on_verdict_deleted(
     sender: type[SignalReportArtefact],
     instance: SignalReportArtefact,
+    origin: Any = None,
     **kwargs: Any,
 ) -> None:
-    """Deleting the latest verdict reverts the report to the previous one, which can be unsafe."""
+    """Deleting the latest verdict reverts the report to the previous one, which can be unsafe.
+
+    Skipped when the artefact is going away as part of its report's deletion. The report's own
+    tombstone already retracts the vector, so reconciling each verdict on the way down would spend two
+    queries per artefact to reach the same place. That is the difference between a bounded and an
+    unbounded teardown: `delete_team_reports_activity` has five minutes to remove every report and
+    artefact a team has accumulated, and deleting a team cascades wider still.
+    """
+    if not _deleted_directly(origin):
+        return
     _reconcile_report_embedding_with_verdict(instance)
 
 
