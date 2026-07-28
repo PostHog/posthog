@@ -279,6 +279,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         exact_model_match=True,
         allow_api_keys=True,
         credit_bucket=None,
+    ),
     # Stamphog: the sandboxed PR reviewer (Sonnet, OAuth-only in practice) and the daily merged-PR
     # digest summarization (Haiku, server-side via the shared key). Low volume, internal infra.
     # The reviewer runs inside a sandbox over untrusted PR content, so it authenticates with a
