@@ -29,9 +29,8 @@ function chartThemeDefaults(isDarkModeOn: boolean): Partial<ChartTheme> {
 }
 
 /** Theme for app quill charts. `buildTheme()` reads CSS variables from the DOM, so the memo keys on
- *  `isDarkModeOn` to re-read them when the app theme flips. It also applies the app chart colors
- *  (faint dashed grid, muted axis lines); caller `overrides` win over those. Pass a stable (memoized
- *  or module-level) `overrides` object — a fresh object every render defeats the memo. */
+ *  `isDarkModeOn` to re-read them when the app theme flips. Pass a stable (memoized or module-level)
+ *  `overrides` object — a fresh object every render defeats the memo. */
 export function useChartTheme(overrides?: Partial<ChartTheme>): ChartTheme {
     const { isDarkModeOn } = useValues(themeLogic)
     return useMemo(() => buildTheme({ ...chartThemeDefaults(isDarkModeOn), ...overrides }), [isDarkModeOn, overrides])
@@ -72,19 +71,18 @@ export function useDateRangeZoom(
     return enabled && dates?.length && onZoom ? handler : undefined
 }
 
-/** Drop-in replacement for the `useMemo` that builds a chart's config object. On top of memoizing,
- *  it applies app-level rendering defaults (monotone curve, axis lines, tick marks, crosshair,
- *  grid). Keys the config sets explicitly (non-undefined) always win over the defaults. */
+/** Builds a chart's config object, memoized on `deps`, applying `CHART_CONFIG_DEFAULTS` for any
+ *  key the factory leaves undefined. Keys the factory sets explicitly always win over the defaults. */
 export function useChartConfig<T extends object>(factory: () => T, deps: DependencyList): T
 export function useChartConfig<T extends object>(factory: () => T | undefined, deps: DependencyList): T | undefined
 export function useChartConfig<T extends object>(factory: () => T | undefined, deps: DependencyList): T | undefined {
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    const config = useMemo(factory, deps)
     return useMemo(() => {
+        const config = factory()
         if (!config) {
             return config
         }
         const defined = Object.fromEntries(Object.entries(config).filter(([, value]) => value !== undefined))
         return { ...CHART_CONFIG_DEFAULTS, ...defined } as T
-    }, [config])
+    }, deps)
 }
