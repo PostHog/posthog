@@ -29,7 +29,7 @@ from products.billing_alerts.backend.presentation.serializers import (
 )
 
 
-@extend_schema(tags=["billing"], extensions={"x-product": "core"})
+@extend_schema(tags=["billing"])
 class BillingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = billing_alerts_api.billing_alert_configuration_queryset()
@@ -42,10 +42,10 @@ class BillingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def _execution_team(self) -> Team:
         user = cast(User, self.request.user)
-        team = billing_alerts_api.execution_team_for_organization(self.organization.id, user.team)
-        if team is None:
-            raise ValidationError("This organization does not have an execution team.")
-        return team
+        try:
+            return billing_alerts_api.execution_team_for_organization(self.organization.id, user.team)
+        except billing_alerts_api.BillingAlertExecutionTeamUnavailable as e:
+            raise ValidationError(str(e)) from e
 
     def perform_create(self, serializer: serializers.BaseSerializer) -> None:
         user = cast(User, self.request.user)
@@ -94,8 +94,10 @@ class BillingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=["POST"], url_path="check_now", required_scopes=["billing:write"])
     def check_now(self, request: Request, *args: object, **kwargs: object) -> Response:
         alert = self.get_object()
-        event, dispatched = billing_alerts_api.evaluate_and_dispatch_alert(alert)
-        response = BillingAlertCheckNowResponseSerializer({"event": event, "dispatched_destinations": dispatched})
+        result = billing_alerts_api.evaluate_and_dispatch_alert(alert)
+        response = BillingAlertCheckNowResponseSerializer(
+            {"event": result.event, "dispatched_destinations": result.dispatched_destinations}
+        )
         report_user_action(request.user, "billing alert checked now", {"alert_id": str(alert.id)}, request=request)
         return Response(response.data)
 

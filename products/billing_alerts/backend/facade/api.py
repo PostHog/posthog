@@ -22,30 +22,39 @@ from ..alert_destinations import (
 from ..logic.notifications import dispatch_billing_alert_event
 from ..logic.state_machine import evaluate_and_record_billing_alert, event_should_dispatch
 from ..models import BillingAlertConfiguration, BillingAlertEvent
+from .contracts import BillingAlertDispatchResult
 
 
 class BillingAlertDestinationOwnershipError(Exception):
     """Raised when deleting destinations that do not all belong to an alert."""
 
 
+class BillingAlertExecutionTeamUnavailable(Exception):
+    """Raised when an organization has no team to use for destination execution."""
+
+
 def billing_alert_configuration_queryset() -> QuerySet[BillingAlertConfiguration]:
-    return BillingAlertConfiguration.objects.unscoped().all()
+    return BillingAlertConfiguration.objects.all()
 
 
-def execution_team_for_organization(organization_id: UUID, preferred_team: Team | None) -> Team | None:
+def execution_team_for_organization(organization_id: UUID, preferred_team: Team | None) -> Team:
     if preferred_team and preferred_team.organization_id == organization_id:
         return preferred_team
-    return Team.objects.filter(organization_id=organization_id).order_by("id").first()
+
+    team = Team.objects.filter(organization_id=organization_id).order_by("id").first()
+    if team is None:
+        raise BillingAlertExecutionTeamUnavailable("This organization does not have an execution team.")
+    return team
 
 
 def visible_events_for_alert(alert: BillingAlertConfiguration) -> QuerySet[BillingAlertEvent]:
-    return BillingAlertEvent.objects.unscoped().filter(alert=alert).order_by("-created_at")
+    return BillingAlertEvent.objects.filter(alert=alert).order_by("-created_at")
 
 
-def evaluate_and_dispatch_alert(alert: BillingAlertConfiguration) -> tuple[BillingAlertEvent, int]:
+def evaluate_and_dispatch_alert(alert: BillingAlertConfiguration) -> BillingAlertDispatchResult:
     event = evaluate_and_record_billing_alert(alert)
     dispatched = dispatch_billing_alert_event(event) if event_should_dispatch(event) else 0
-    return event, dispatched
+    return BillingAlertDispatchResult(event=event, dispatched_destinations=dispatched)
 
 
 def delete_alert_and_destinations(alert: BillingAlertConfiguration) -> None:
@@ -106,8 +115,7 @@ def slack_integration_belongs_to_team(*, integration_id: int, team_id: int) -> b
 
 def create_destination(alert: BillingAlertConfiguration, *, request: Any, data: dict[str, Any]) -> list[UUID]:
     with transaction.atomic():
-        team = Team.objects.get(id=alert.execution_team_id)
-        hog_functions = [_build_and_create_hog_function(alert, team, data, kind, request) for kind in EVENT_KINDS]
+        hog_functions = [_build_and_create_hog_function(alert, alert.team, data, kind, request) for kind in EVENT_KINDS]
     return [hog_function.id for hog_function in hog_functions]
 
 
@@ -141,9 +149,11 @@ def delete_destination(alert: BillingAlertConfiguration, hog_function_ids: list[
 
 __all__ = [
     "EVENT_KINDS",
+    "BillingAlertDispatchResult",
     "BillingAlertConfiguration",
     "BillingAlertDestinationOwnershipError",
     "BillingAlertEvent",
+    "BillingAlertExecutionTeamUnavailable",
     "EventKind",
     "billing_alert_configuration_queryset",
     "create_destination",

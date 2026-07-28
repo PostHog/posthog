@@ -5,7 +5,7 @@ import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { AlertingChoiceCard, AlertingWizardLayout } from 'lib/components/Alerting'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import type { MetricEnumApi, ThresholdTypeEnumApi } from '~/generated/core/api.schemas'
+import type { MetricEnumApi, ThresholdTypeEnumApi } from 'products/billing_alerts/frontend/generated/api.schemas'
 
 import { BillingAlertDestinationFields } from './BillingAlertDestination'
 import {
@@ -13,6 +13,7 @@ import {
     BILLING_ALERT_NUMBER_FIELDS,
     BILLING_ALERT_WIZARD_STEPS,
 } from './billingAlertDisplay'
+import { BILLING_ALERT_FORM_LIMITS } from './billingAlertFields'
 import { BILLING_ALERT_TRIGGERS, BillingAlertWizardStep, billingAlertsLogic } from './billingAlertsLogic'
 import type { BillingAlertForm } from './billingAlertsLogic'
 
@@ -162,7 +163,8 @@ function BillingAlertThresholdFields(): JSX.Element {
                                 setFormValue('threshold_percentage', thresholdPercentage ?? 0)
                             }
                             suffix={<span>%</span>}
-                            min={0}
+                            min={BILLING_ALERT_FORM_LIMITS.threshold_percentage.min}
+                            step={BILLING_ALERT_FORM_LIMITS.threshold_percentage.step}
                             data-attr="billing-alert-threshold-percentage"
                         />
                     </LemonField.Pure>
@@ -205,6 +207,7 @@ function BillingAlertNumberField({
                 suffix={field.suffix ? <span>{field.suffix}</span> : undefined}
                 min={field.min}
                 max={field.max}
+                step={field.step}
             />
         </LemonField.Pure>
     )

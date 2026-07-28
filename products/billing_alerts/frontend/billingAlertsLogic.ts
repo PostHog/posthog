@@ -4,6 +4,9 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { ApiError } from 'lib/api'
+import { billingLogic } from 'scenes/billing/billingLogic'
+
+import type { UserBasicType } from '~/types'
 
 import {
     billingAlertsCheckNowCreate,
@@ -13,7 +16,7 @@ import {
     billingAlertsEventsList,
     billingAlertsList,
     billingAlertsPartialUpdate,
-} from '~/generated/core/api'
+} from 'products/billing_alerts/frontend/generated/api'
 import type {
     BillingAlertCreateDestinationApi,
     BillingAlertConfigurationApi as GeneratedBillingAlertConfigurationApi,
@@ -21,11 +24,10 @@ import type {
     MetricEnumApi,
     PatchedBillingAlertConfigurationApi,
     ThresholdTypeEnumApi,
-} from '~/generated/core/api.schemas'
-import type { UserBasicType } from '~/types'
+} from 'products/billing_alerts/frontend/generated/api.schemas'
 
+import { BILLING_ALERT_FORM_LIMITS } from './billingAlertFields'
 import type { billingAlertsLogicType } from './billingAlertsLogicType'
-import { billingLogic } from './billingLogic'
 
 export type BillingAlertConfiguration = GeneratedBillingAlertConfigurationApi & {
     created_by?: UserBasicType | null
@@ -136,16 +138,6 @@ function triggerDefaults(triggerKey: BillingAlertTriggerKey): Partial<BillingAle
     }
 }
 
-const BILLING_ALERT_FORM_LIMITS: Partial<Record<keyof BillingAlertForm, { min: number; max?: number }>> = {
-    threshold_percentage: { min: 0 },
-    threshold_value: { min: 0 },
-    minimum_value: { min: 0 },
-    baseline_window_days: { min: 1, max: 90 },
-    evaluation_delay_hours: { min: 0, max: 72 },
-    check_interval_hours: { min: 1, max: 24 },
-    cooldown_hours: { min: 0, max: 720 },
-}
-
 function numberInRange(value: number | undefined, limits: { min: number; max?: number }): boolean {
     return value !== undefined && value >= limits.min && (limits.max === undefined || value <= limits.max)
 }
@@ -249,7 +241,7 @@ function createPayload(form: BillingAlertForm): Parameters<typeof billingAlertsC
 }
 
 export const billingAlertsLogic = kea<billingAlertsLogicType>([
-    path(['scenes', 'billing', 'billingAlertsLogic']),
+    path(['products', 'billing_alerts', 'frontend', 'billingAlertsLogic']),
 
     connect(() => ({
         values: [billingLogic, ['currentOrganization', 'canAccessBilling']],

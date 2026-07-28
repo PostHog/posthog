@@ -2,7 +2,7 @@ import { LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 
-import type { BillingAlertEventApi } from '~/generated/core/api.schemas'
+import type { BillingAlertEventApi } from 'products/billing_alerts/frontend/generated/api.schemas'
 
 export function BillingAlertEvents({
     events,
