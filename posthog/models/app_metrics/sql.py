@@ -8,7 +8,11 @@
 # then delete this file along with KAFKA_APP_METRICS in posthog/kafka_client/topics.py
 # and CONSUMER_GROUP_APP_METRICS in posthog/clickhouse/kafka_engine.py.
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
-from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_APP_METRICS, KAFKA_COLUMNS_WITH_PARTITION, kafka_engine
+from posthog.clickhouse.kafka_engine import (
+    CONSUMER_GROUP_APP_METRICS,
+    KAFKA_COLUMNS_WITH_PARTITION_AGGREGATED,
+    kafka_engine,
+)
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_APP_METRICS
 
@@ -38,7 +42,7 @@ BASE_APP_METRICS_COLUMNS = """
     failures SimpleAggregateFunction(sum, Int64),
     error_uuid UUID,
     error_type String,
-    error_details String CODEC(ZSTD(3))
+    error_details SimpleAggregateFunction(any, String) CODEC(ZSTD(3))
 """.strip()
 
 # NOTE: We have producers that take advantage of the timestamp being truncated to the hour,
@@ -51,7 +55,7 @@ APP_METRICS_DATA_TABLE_SQL = lambda on_cluster=True: (
 CREATE TABLE IF NOT EXISTS {APP_METRICS_SHARDED_TABLE} {ON_CLUSTER_CLAUSE(on_cluster)}
 (
     {BASE_APP_METRICS_COLUMNS}
-    {KAFKA_COLUMNS_WITH_PARTITION}
+    {KAFKA_COLUMNS_WITH_PARTITION_AGGREGATED}
 )
 ENGINE = {SHARDED_APP_METRICS_TABLE_ENGINE()}
 PARTITION BY toYYYYMM(timestamp)
@@ -65,7 +69,7 @@ DISTRIBUTED_APP_METRICS_TABLE_SQL = lambda: (
 CREATE TABLE IF NOT EXISTS {APP_METRICS_TABLE}
 (
     {BASE_APP_METRICS_COLUMNS}
-    {KAFKA_COLUMNS_WITH_PARTITION}
+    {KAFKA_COLUMNS_WITH_PARTITION_AGGREGATED}
 )
 ENGINE={Distributed(data_table=APP_METRICS_SHARDED_TABLE, sharding_key="rand()")}
 """
@@ -76,7 +80,7 @@ WRITABLE_APP_METRICS_TABLE_SQL = lambda: (
 CREATE TABLE IF NOT EXISTS {APP_METRICS_WRITABLE_TABLE}
 (
     {BASE_APP_METRICS_COLUMNS}
-    {KAFKA_COLUMNS_WITH_PARTITION}
+    {KAFKA_COLUMNS_WITH_PARTITION_AGGREGATED}
 )
 ENGINE={Distributed(data_table=APP_METRICS_SHARDED_TABLE, sharding_key="rand()")}
 """

@@ -93,6 +93,16 @@ KAFKA_COLUMNS_WITH_PARTITION = """
 , _partition UInt64
 """
 
+# AggregatingMergeTree/SummingMergeTree require every column to be either in the sorting key
+# or an aggregate measure. ClickHouse 26+ rejects the CREATE otherwise (BAD_ARGUMENTS). When
+# the Kafka metadata columns are carried on such an engine, wrap them as `any` measures so the
+# table is valid; we never group by or filter on them, so collapsing to an arbitrary value is fine.
+KAFKA_COLUMNS_WITH_PARTITION_AGGREGATED = """
+, _timestamp SimpleAggregateFunction(any, DateTime)
+, _offset SimpleAggregateFunction(any, UInt64)
+, _partition SimpleAggregateFunction(any, UInt64)
+"""
+
 KAFKA_TIMESTAMP_MS_COLUMN = "_timestamp_ms DateTime64"
 
 
