@@ -45,10 +45,9 @@ function BaseBranchOverrideRows(): JSX.Element | null {
     return (
         <div className="flex flex-col gap-1">
             {baseBranchOverrides.map(({ repo, branch }) => {
-                const integration =
-                    githubIntegrations.find(
-                        (candidate) => candidate.display_name.toLowerCase() === repo.split('/')[0]
-                    ) ?? githubIntegrations[0]
+                const integration = githubIntegrations.find(
+                    (candidate) => candidate.display_name.toLowerCase() === repo.split('/')[0]
+                )
                 return (
                     <div key={repo} className="flex items-center gap-1">
                         <span className="text-xs text-default min-w-0 flex-1 truncate" title={repo}>
