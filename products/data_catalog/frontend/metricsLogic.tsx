@@ -129,13 +129,17 @@ export interface metricsLogicActions {
             label: string
             short_id: string
         }[],
-        payload?: any
+        payload?: {
+            value: true
+        }
     ) => {
         savedInsights: {
             label: string
             short_id: string
         }[]
-        payload?: any
+        payload?: {
+            value: true
+        }
     }
     openNewMetricModal: () => {
         value: true
