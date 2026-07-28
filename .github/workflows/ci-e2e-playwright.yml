@@ -526,6 +526,17 @@ jobs:
               shell: bash
               run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
+            # The runner image ships an apt source for twingate that intermittently answers
+            # 401, which makes any later `apt-get update` exit 100 — including the ones
+            # inside `playwright install --with-deps` and setup-qt-libs, failing the job
+            # before a spec runs. Unconditional here, rather than a side effect of the
+            # cache-gated SAML step below, so the uv-cache-hit path is covered too.
+            - name: Harden apt sources
+              shell: bash
+              run: |
+                  sudo rm -f /etc/apt/sources.list.d/*twingate*
+                  echo 'Acquire::Retries "3";' | sudo tee /etc/apt/apt.conf.d/99-ci-retries
+
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
@@ -553,7 +564,7 @@ jobs:
               if: steps.setup-uv.outputs.cache-hit != 'true'
               shell: bash
               run: |
-                  sudo rm -f /etc/apt/sources.list.d/*twingate* && sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+                  sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
             - name: Install pnpm
               uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
@@ -810,9 +821,53 @@ jobs:
                   # ingestion-traces: traces ingestion (ingestion-traces mode)
                   COMPOSE_FILE=docker-compose.dev.yml COMPOSE_PROFILES=capture,ingestion bin/ci-wait-for-docker launch plugins ingestion-general ingestion-sessionreplay recording-api ingestion-error-tracking ingestion-logs ingestion-traces
 
-            # Install Playwright browsers while we wait for PostHog to be ready
+            # Read from the installed package so the cache key tracks the browser build
+            # rather than every unrelated edit to the version catalog.
+            - name: Resolve Playwright version
+              id: playwright-version
+              shell: bash
+              run: |
+                  # Never let a failed lookup fail the step — an unresolved version just
+                  # means this run installs browsers the way it always has, uncached.
+                  version=$(pnpm --filter=@posthog/playwright exec playwright --version 2>/dev/null | tail -1 | awk '{print $NF}' || true)
+                  if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                      echo "::warning::Could not resolve the Playwright version — installing browsers uncached"
+                      version=unresolved
+                  fi
+                  echo "version=$version" >> "$GITHUB_OUTPUT"
+
+            - name: Restore Playwright browsers from cache
+              id: playwright-cache
+              if: steps.playwright-version.outputs.version != 'unresolved'
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ~/.cache/ms-playwright
+                  key: playwright-chromium-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright-version.outputs.version }}
+
+            # Runs while we wait for PostHog to be ready. A cache hit skips the ~170 MB
+            # chromium download, leaving only the apt dependency install; the retry is the
+            # backstop for a transient CDN failure on a miss.
             - name: Install Playwright browsers
-              run: pnpm --filter=@posthog/playwright exec playwright install chromium --with-deps
+              shell: bash
+              run: |
+                  for attempt in 1 2 3; do
+                      if pnpm --filter=@posthog/playwright exec playwright install chromium --with-deps; then
+                          exit 0
+                      fi
+                      if [ "$attempt" -lt 3 ]; then
+                          echo "::warning::playwright install failed (attempt $attempt/3), retrying"
+                          sleep $((attempt * 10))
+                      fi
+                  done
+                  echo "::error::playwright install failed after 3 attempts"
+                  exit 1
+
+            - name: Save Playwright browsers to cache
+              if: github.ref == 'refs/heads/master' && steps.playwright-cache.outputs.cache-hit != 'true' && steps.playwright-version.outputs.version != 'unresolved'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ~/.cache/ms-playwright
+                  key: playwright-chromium-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright-version.outputs.version }}
 
             - name: Wait for PostHog to be ready
               uses: iFaxity/wait-on-action@1fe019e0475491e9e8c4f421b6914ccc3ed8f99c # v1.2.1
