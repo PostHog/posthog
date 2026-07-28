@@ -78,7 +78,6 @@ import { insightsModel } from '~/models/insightsModel'
 import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableDataLogic'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import { getQueryBasedDashboard, getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { parseErrorMessage } from '~/queries/query'
 import {
     BreakdownFilter,
     DashboardFilter,
@@ -135,6 +134,7 @@ import {
     encodeURLFilters,
     encodeURLVariables,
     getDashboardWidgetType,
+    getInsightQueryError,
     getInsightWithRetry,
     isLayoutEditEventSource,
     layoutsByTile,
@@ -162,20 +162,6 @@ export interface RefreshStatus {
     error?: Error
     errored?: boolean
     timer?: Date | null
-}
-
-function getInsightQueryError(insight: QueryBasedInsightModel): ApiError | null {
-    const queryStatus = insight.query_status
-    if (!queryStatus?.error) {
-        return null
-    }
-
-    const parsedError = parseErrorMessage(queryStatus.error_message ?? undefined)
-    return new ApiError(undefined, 400, undefined, {
-        detail: parsedError.message,
-        code: queryStatus.error_code ?? parsedError.code,
-        queryId: queryStatus.id,
-    })
 }
 
 /**

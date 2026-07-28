@@ -404,4 +404,63 @@ describe('DashboardItems', () => {
         expect(insightCard).toHaveAttribute('data-api-error-code', 'dashboard_tile_error')
         expect(insightCard).toHaveAttribute('data-api-error-detail', 'There is a problem loading this dashboard tile.')
     })
+
+    it('shows a query status error from an initially serialized insight', () => {
+        const errorTile = {
+            id: 2,
+            insight: {
+                id: 101,
+                short_id: 'abc123',
+                query: { kind: 'InsightVizNode' },
+                query_status: {
+                    id: 'failed-query-id',
+                    error: true,
+                    error_message: 'This query ran out of memory before it could finish',
+                    error_code: 'query_memory_limit',
+                },
+            },
+        }
+        mockedUseValues.mockImplementation((logic) => {
+            if (logic === dashboardLogic) {
+                return {
+                    dashboard: { id: 5 },
+                    tiles: [errorTile],
+                    layouts: { sm: [{ i: '2', x: 0, y: 0, w: 6, h: 5 }] },
+                    dashboardMode: null,
+                    placement: DashboardPlacement.Dashboard,
+                    isRefreshingQueued: () => false,
+                    isRefreshing: () => false,
+                    highlightedInsightId: null,
+                    refreshStatus: {},
+                    dashboardStreaming: false,
+                    effectiveEditBarFilters: {},
+                    effectiveDashboardVariableOverrides: {},
+                    temporaryBreakdownColors: [],
+                    dataColorThemeId: null,
+                    canEditDashboard: true,
+                    layoutZoom: 1,
+                    dashboardWidgetsEnabled: true,
+                    widgetResultsByTileId: {},
+                    widgetRefreshStatus: {},
+                }
+            }
+
+            if (logic === dashboardsModel) {
+                return { nameSortedDashboards: [] }
+            }
+
+            return {}
+        })
+
+        const { container } = render(<DashboardItems />)
+        const insightCard = container.querySelector('[data-attr="insight-card"]')
+
+        expect(insightCard).toHaveAttribute('data-api-errored', 'true')
+        expect(insightCard).toHaveAttribute('data-api-error-status', '400')
+        expect(insightCard).toHaveAttribute('data-api-error-code', 'query_memory_limit')
+        expect(insightCard).toHaveAttribute(
+            'data-api-error-detail',
+            'This query ran out of memory before it could finish'
+        )
+    })
 })
