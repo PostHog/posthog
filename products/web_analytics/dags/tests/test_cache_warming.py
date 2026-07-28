@@ -398,8 +398,9 @@ class TestWarmQueriesOp(BaseTest):
             patch("products.web_analytics.dags.cache_warming.build_replay_runner", return_value=(runner, {}, True)),
             patch("products.web_analytics.dags.cache_warming.QueryCache") as mock_cm,
         ):
-            entry = MagicMock() if has_entry else None
+            entry = None
             if has_entry:
+                entry = MagicMock()
                 entry.as_full_response.return_value = {"last_refresh": "2026-07-01T00:00:00Z"}
             mock_cm.return_value.lookup.return_value.entry = entry
             warm_queries_op(
