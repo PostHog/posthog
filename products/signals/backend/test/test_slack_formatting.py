@@ -21,6 +21,9 @@ class TestStripChartReferences(SimpleTestCase):
             # A title may contain parens. Ending the match at the first one leaves `")` in the prose.
             ("title_containing_parens", '[Daily](chart:daily "Daily signups (UTC)")', "Daily"),
             ("single_quoted_title", "[Daily](chart:daily 'Daily signups')", "Daily"),
+            # CommonMark's third title delimiter. mdast reads the destination as `chart:daily` and the
+            # title as `UTC`, so the inbox draws the chart and Slack must not keep the raw syntax.
+            ("parenthesized_title", "[Daily](chart:daily (UTC))", "Daily"),
             # Neither is a reference the inbox resolves, so Slack should read what the author wrote.
             ("image_is_left_alone", "![Daily](chart:daily)", "![Daily](chart:daily)"),
             ("escaped_bracket_is_left_alone", r"\[Daily](chart:daily)", r"\[Daily](chart:daily)"),

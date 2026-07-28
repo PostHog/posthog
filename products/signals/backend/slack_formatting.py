@@ -20,10 +20,12 @@ _SLACK_ANGLE_TOKEN_RE = re.compile(r"<([^<>|]*)(\|[^<>]*)?>")
 # on screen. Any target is matched, not just the id charset `ReportChart` enforces: a typo'd
 # reference is just as unrenderable here, and pinning the charset would leave it showing as markup.
 # A markdown link title (`[label](chart:id "a note")`) is a form the inbox renders — mdast parses the
-# title off the destination and resolves the reference — so the title is matched as its own quoted
-# run rather than by scanning to the first `)`. A title is allowed to contain parens (`"signups
-# (UTC)"`), and scanning to the first one would end the match inside it and leave the tail (`")`) in
-# the prose, which reads worse than the raw link it replaced.
+# title off the destination and resolves the reference — so the title is matched as its own delimited
+# run rather than by scanning to the first `)`. A quoted title is allowed to contain parens
+# (`"signups (UTC)"`), and scanning to the first one would end the match inside it and leave the tail
+# (`")`) in the prose, which reads worse than the raw link it replaced. All three CommonMark
+# delimiters are matched: the parenthesized form (`(UTC)`) resolves the same way, and a title in that
+# form cannot itself hold an unescaped paren.
 # `![…]` is an image and `\[…]` is an escaped bracket, neither of which the inbox resolves as a
 # reference, so a fixed-width lookbehind leaves both as the author wrote them. A reference inside a
 # code span is the one literal form still rewritten: the renderer shows it verbatim while Slack gets
@@ -32,7 +34,9 @@ _SLACK_ANGLE_TOKEN_RE = re.compile(r"<([^<>|]*)(\|[^<>]*)?>")
 # Every class excludes `[`, which keeps the scan linear. Without it, a summary of `[a](chart:` over
 # and over makes every start position scan the whole remaining suffix before failing, and a summary
 # is long enough for that to cost seconds of a Celery worker.
-_CHART_REF_LINK_RE = re.compile(r"""(?<![!\\])\[([^\[\]\n]*)\]\(chart:[^\s)\[]*(?:\s+"[^"\n]*"|\s+'[^'\n]*')?\s*\)""")
+_CHART_REF_LINK_RE = re.compile(
+    r"""(?<![!\\])\[([^\[\]\n]*)\]\(chart:[^\s)\[]*(?:\s+"[^"\n]*"|\s+'[^'\n]*'|\s+\([^()\n]*\))?\s*\)"""
+)
 
 
 def strip_chart_references(text: str) -> str:
