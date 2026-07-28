@@ -120,6 +120,13 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             # an audit trail. Bypass ModelActivityMixin.save() so we skip its extra _get_before_update
             # SELECT — that read needs a fresh pooler connection and raises OperationalError when the
             # transaction pooler has dropped the connection mid-sync, failing the import activity.
+            #
+            # These calls always target an already-persisted row. Without force_update, Django's
+            # UUID-pk-with-default fallback would silently retry a no-op UPDATE as an INSERT if the
+            # row was deleted concurrently (e.g. the source/schema deleted mid-sync) — either
+            # resurrecting deleted data, or failing with a misleading FK IntegrityError on source_id
+            # instead of a clear "no such row" error.
+            kwargs.setdefault("force_update", True)
             super(ModelActivityMixin, self).save(*args, **kwargs)
         else:
             super().save(*args, **kwargs)
@@ -723,6 +730,26 @@ def _parse_datetime_string(value: str) -> datetime:
         return parser.parse(stripped)
 
 
+def _coerce_incremental_datetime(value: str) -> datetime | int:
+    """Parse a DateTime/Timestamp/Date cursor string, falling back to a raw integer.
+
+    Some drivers surface a numeric cursor as a bare digit string even though the field is
+    typed as a date/time type (e.g. a ClickHouse column Arrow can't emit natively, cast to
+    String, whose current type no longer matches the incremental field's stored type).
+    dateutil's heuristics then misread the digits as a calendar year and overflow past
+    datetime's year-9999 ceiling (`ParserError`), or raise a bare `OverflowError` for longer
+    digit runs. Legitimate compact date strings like "20240115" (YYYYMMDD) parse correctly
+    above and never reach this fallback.
+    """
+    try:
+        return _parse_datetime_string(value)
+    except (parser.ParserError, OverflowError):
+        stripped = value.strip()
+        if stripped.lstrip("-").isdigit():
+            return int(stripped)
+        raise
+
+
 def process_incremental_value(value: Any | None, field_type: IncrementalFieldType | None) -> Any:
     if value is None or value == "None" or field_type is None:
         return None
@@ -743,7 +770,7 @@ def process_incremental_value(value: Any | None, field_type: IncrementalFieldTyp
         if isinstance(value, int | float) and not isinstance(value, bool):
             return value
 
-        return _parse_datetime_string(value)
+        return _coerce_incremental_datetime(value)
 
     if field_type == IncrementalFieldType.Date:
         if isinstance(value, datetime):
@@ -755,7 +782,8 @@ def process_incremental_value(value: Any | None, field_type: IncrementalFieldTyp
         if isinstance(value, int | float) and not isinstance(value, bool):
             return value
 
-        return _parse_datetime_string(value).date()
+        parsed = _coerce_incremental_datetime(value)
+        return parsed if isinstance(parsed, int) else parsed.date()
 
     if field_type == IncrementalFieldType.ObjectID:
         return str(value)

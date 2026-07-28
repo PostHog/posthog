@@ -22,6 +22,7 @@ import {
     DEFAULT_COMPONENT_PANEL_VISIBILITY,
     withPersistedComponentPanelProps,
 } from './componentPanels'
+import { useNotebookComponentRunStatus } from './componentRunStatus'
 import { getNotebookObjectProp, getNotebookStringProp } from './documentModel'
 import { InsertMenuSelectionDirection } from './editorTypes'
 import { getMarkdownNotebookComponentDefinition } from './registry'
@@ -81,6 +82,7 @@ export function NotebookComponentShell({
     moveFocusToAdjacentNode,
 }: NotebookComponentShellProps): JSX.Element {
     const definition = getMarkdownNotebookComponentDefinition(registry, node.tagName)
+    const runStatus = useNotebookComponentRunStatus(node)
     const errors = [...(node.errors ?? []), ...(definition?.validateProps?.(node.props) ?? [])]
     const ViewComponent = definition?.ViewComponent
     const EditComponent = definition?.EditComponent ?? definition?.ViewComponent
@@ -276,6 +278,7 @@ export function NotebookComponentShell({
         <div
             className={clsx(
                 'MarkdownNotebook__component-shell',
+                `MarkdownNotebook__component-shell--status-${runStatus}`,
                 isSelected && 'MarkdownNotebook__component-shell--selected',
                 errors.length && 'MarkdownNotebook__component-shell--error'
             )}

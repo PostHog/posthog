@@ -14,7 +14,12 @@ jest.mock('lib/utils/accessControlUtils', () => ({
 }))
 
 jest.mock('./ScoutCreateModal', () => ({
-    ScoutCreateModal: () => <div>Manual scout form</div>,
+    ScoutCreateModal: ({ initialValues }: { initialValues?: { name?: string } }) => (
+        <div>
+            Manual scout form
+            {initialValues?.name ? <span>{initialValues.name}</span> : null}
+        </div>
+    ),
 }))
 
 const mockGetAccessControlDisabledReason = getAccessControlDisabledReason as jest.MockedFunction<
@@ -71,6 +76,25 @@ describe('ScoutCreateButton', () => {
         fireEvent.click(await findByText('Create manually'))
 
         expect(await findByText('Manual scout form')).toBeTruthy()
+        expect(createdTaskDescriptions).toEqual([])
+    })
+
+    it('opens a prefilled manual form directly when configured for manual creation', async () => {
+        const { findByText, getByText, queryByLabelText } = render(
+            <ScoutCreateButton
+                creationMode="manual"
+                initialValues={{ name: 'signals-scout-daily-digest' }}
+                type="secondary"
+            >
+                Create daily digest
+            </ScoutCreateButton>
+        )
+
+        fireEvent.click(getByText('Create daily digest'))
+
+        expect(await findByText('Manual scout form')).toBeTruthy()
+        expect(await findByText('signals-scout-daily-digest')).toBeTruthy()
+        expect(queryByLabelText('Alternative ways to create a scout')).toBeNull()
         expect(createdTaskDescriptions).toEqual([])
     })
 

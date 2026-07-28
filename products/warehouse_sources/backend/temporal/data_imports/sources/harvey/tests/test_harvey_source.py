@@ -1,3 +1,4 @@
+import datetime
 from typing import Any
 
 from unittest import mock
@@ -45,6 +46,18 @@ class TestHarveySource:
 
     def test_source_type(self) -> None:
         assert self.source.source_type == ExternalDataSourceType.HARVEY
+
+    def test_v1_is_deprecated_with_vendor_sunset_and_default_is_v2(self) -> None:
+        # New sources start on v2; v1 stays supported so already-pinned rows keep resolving to the
+        # unchanged v2 wire, but it carries Harvey's 2025-06-30 sunset date so the generic
+        # in-product deprecation warning fires.
+        assert self.source.default_version == "v2"
+        assert set(self.source.supported_versions) == {"v1", "v2"}
+
+        deprecation = self.source.get_version_deprecation("v1")
+        assert deprecation is not None
+        assert deprecation.sunset_at == datetime.date(2025, 6, 30)
+        assert self.source.get_version_deprecation("v2") is None
 
     def test_connection_host_fields_includes_region(self) -> None:
         # `region` selects the host the stored API token is sent to, so editing it must re-require the secret.

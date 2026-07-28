@@ -81,6 +81,36 @@ describe('StateManager', () => {
         })
     })
 
+    describe('getApiKey', () => {
+        function oauthApi(clientName: string | null): ApiClient {
+            return {
+                config: { apiToken: 'phx_test' },
+                apiKeys: () => ({
+                    current: async () => ({ success: false, error: { message: 'not a personal key' } }),
+                }),
+                oauth: () => ({
+                    introspect: async () => ({
+                        success: true,
+                        data: { active: true, scope: 'insight:read', client_name: clientName },
+                    }),
+                }),
+            } as unknown as ApiClient
+        }
+
+        it.each([
+            { label: 'an OAuth app name', clientName: 'Claude', expected: 'Claude' },
+            { label: 'no OAuth app name', clientName: null, expected: undefined },
+        ])('stamps $label onto the live client so the same request forwards it', async ({ clientName, expected }) => {
+            const api = oauthApi(clientName)
+            stateManager = new StateManager(cache, api)
+
+            await stateManager.getApiKey()
+
+            expect(api.config.oauthClientName).toBe(expected)
+            expect(await cache.get('clientName')).toBe(expected)
+        })
+    })
+
     describe('setDefaultOrganizationAndProject', () => {
         it('should handle team-scoped API key with single team', async () => {
             const teamScopedApiKey = {
