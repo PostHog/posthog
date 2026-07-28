@@ -138,10 +138,16 @@ class BillingAlertDestinationSummarySerializer(serializers.Serializer):
 
 class BillingAlertDestinationCreateDataSerializer(serializers.Serializer):
     type = serializers.ChoiceField(choices=["slack", "webhook", "teams"], help_text="Destination type.")
-    slack_workspace_id = serializers.IntegerField(required=False)
-    slack_channel_id = serializers.CharField(required=False)
-    slack_channel_name = serializers.CharField(required=False, allow_blank=True)
-    webhook_url = serializers.URLField(required=False)
+    slack_workspace_id = serializers.IntegerField(
+        required=False, help_text="Slack integration ID in the alert execution project."
+    )
+    slack_channel_id = serializers.CharField(required=False, help_text="Slack channel ID for alert delivery.")
+    slack_channel_name = serializers.CharField(
+        required=False, allow_blank=True, help_text="Optional Slack channel name shown in the UI."
+    )
+    webhook_url = serializers.URLField(
+        required=False, help_text="HTTPS webhook URL for webhook or Microsoft Teams delivery."
+    )
 
     def validate(self, attrs: dict) -> dict:
         destination_type = attrs["type"]
@@ -232,16 +238,35 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
         required=False,
         help_text="Minimum current value before the alert can fire.",
     )
-    baseline_window_days = serializers.IntegerField(required=False, min_value=1, max_value=90)
-    evaluation_delay_hours = serializers.IntegerField(required=False, min_value=0, max_value=72)
+    baseline_window_days = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=90,
+        help_text="Number of preceding UTC billing dates averaged for relative and absolute increase baselines.",
+    )
+    evaluation_delay_hours = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        max_value=72,
+        help_text="Hours after a UTC billing date ends before it becomes eligible for evaluation.",
+    )
     state = serializers.ChoiceField(choices=BillingAlertConfiguration.State.choices, read_only=True)
     check_interval_hours = serializers.ChoiceField(
         choices=[billing_alerts_api.DAILY_CHECK_INTERVAL_HOURS],
         required=False,
         help_text="Billing alerts evaluate one UTC billing date per day.",
     )
-    cooldown_hours = serializers.IntegerField(required=False, min_value=0, max_value=24 * 30)
-    snooze_until = serializers.DateTimeField(required=False, allow_null=True)
+    cooldown_hours = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        max_value=24 * 30,
+        help_text="Minimum hours between repeated firing notifications.",
+    )
+    snooze_until = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text="ISO 8601 timestamp until which evaluation and notifications are snoozed, or null to resume.",
+    )
     next_check_at = serializers.DateTimeField(read_only=True, allow_null=True)
     last_checked_at = serializers.DateTimeField(read_only=True, allow_null=True)
     last_notified_at = serializers.DateTimeField(read_only=True, allow_null=True)

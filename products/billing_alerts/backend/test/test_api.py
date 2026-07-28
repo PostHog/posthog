@@ -316,6 +316,36 @@ class TestBillingAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert not BillingAlertConfiguration.objects.exists()
 
+    def test_organization_write_key_can_create_and_update(self) -> None:
+        api_key = self.create_personal_api_key_with_scopes(["organization:write"])
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        created = self.client.post(self.url, self._payload(), format="json")
+
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        alert_id = created.json()["id"]
+
+        updated = self.client.patch(
+            f"{self.url}{alert_id}/",
+            {"threshold_percentage": "75.00"},
+            format="json",
+        )
+
+        assert updated.status_code == status.HTTP_200_OK, updated.json()
+        assert updated.json()["threshold_percentage"] == "75.00"
+        assert updated.json()["configuration_revision"] == 2
+
+    def test_organization_read_key_cannot_create(self) -> None:
+        api_key = self.create_personal_api_key_with_scopes(["organization:read"])
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        response = self.client.post(self.url, self._payload(), format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert not BillingAlertConfiguration.objects.exists()
+
     def test_webhook_destinations_require_https(self) -> None:
         alert = self._alert()
 

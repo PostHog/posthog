@@ -32,7 +32,7 @@ from products.billing_alerts.backend.presentation.throttles import BillingAlertC
 
 @extend_schema(tags=["billing"])
 class BillingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "organization"
     queryset = billing_alerts_api.billing_alert_configuration_queryset()
     serializer_class = BillingAlertConfigurationSerializer
     lookup_field = "id"
@@ -74,7 +74,7 @@ class BillingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         responses={200: BillingAlertEventSerializer(many=True)},
         description="List evaluation and notification events for this billing alert, newest first.",
     )
-    @action(detail=True, methods=["GET"], url_path="events", required_scopes=["billing:read"])
+    @action(detail=True, methods=["GET"], url_path="events", required_scopes=["organization:read"])
     def events(self, request: Request, *args: object, **kwargs: object) -> Response:
         alert = self.get_object()
         queryset = billing_alerts_api.visible_events_for_alert(alert)
@@ -98,7 +98,7 @@ class BillingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         detail=True,
         methods=["POST"],
         url_path="check_now",
-        required_scopes=["billing:write"],
+        required_scopes=["organization:write"],
         throttle_classes=[BillingAlertCheckNowThrottle],
     )
     def check_now(self, request: Request, *args: object, **kwargs: object) -> Response:
@@ -115,7 +115,7 @@ class BillingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         responses={201: BillingAlertDestinationResponseSerializer},
         description="Create a notification destination for this alert. One HogFunction is created per alert event kind.",
     )
-    @action(detail=True, methods=["POST"], url_path="destinations", required_scopes=["billing:write"])
+    @action(detail=True, methods=["POST"], url_path="destinations", required_scopes=["organization:write"])
     def create_destination(self, request: Request, *args: object, **kwargs: object) -> Response:
         alert = self.get_object()
         serializer = BillingAlertCreateDestinationSerializer(data=request.data, context={"alert": alert})
@@ -138,7 +138,7 @@ class BillingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         responses={204: None},
         description="Delete a notification destination by deleting its HogFunction group atomically.",
     )
-    @action(detail=True, methods=["POST"], url_path="destinations/delete", required_scopes=["billing:write"])
+    @action(detail=True, methods=["POST"], url_path="destinations/delete", required_scopes=["organization:write"])
     def delete_destination(self, request: Request, *args: object, **kwargs: object) -> Response:
         alert = self.get_object()
         serializer = BillingAlertDeleteDestinationSerializer(data=request.data)
