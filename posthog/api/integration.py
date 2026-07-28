@@ -458,7 +458,12 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 key_info = config.get("key_info")
                 if not key_info:
                     raise ValidationError("Firebase service account key must be provided")
-            instance = FirebaseIntegration.integration_from_key(key_info, team_id, request.user)
+            instance = FirebaseIntegration.integration_from_key(
+                key_info,
+                team_id,
+                request.user,
+                push_identity_verification=(validated_data.get("config") or {}).get("push_identity_verification"),
+            )
             return instance
 
         elif validated_data["kind"] == "email":
@@ -670,6 +675,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 team_id=team_id,
                 created_by=request.user,
                 environment=environment,
+                push_identity_verification=config.get("push_identity_verification"),
             )
             return instance
 

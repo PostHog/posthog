@@ -110,6 +110,40 @@ REFRESH_TERMINAL_FAILURE_COUNT = 5
 # `config` key flagging a grant that only the legacy fallback credentials can refresh.
 CONFIG_LEGACY_OAUTH_CLIENT = "oauth_uses_legacy_client"
 
+# `config` key holding the push device-registration identity verification policy, read by the
+# push subscriptions endpoint. Owned by the customer, not by the provider credentials.
+CONFIG_PUSH_IDENTITY_VERIFICATION = "push_identity_verification"
+PUSH_IDENTITY_VERIFICATION_MODES = ("disabled", "optional", "required")
+
+
+def preserved_push_config(
+    team_id: int,
+    kind: str,
+    integration_id: str,
+    push_identity_verification: str | None,
+) -> dict:
+    """Config keys a push credential upsert must carry over rather than drop.
+
+    Connecting a push integration is an upsert, and the provider helpers rebuild `config` from the
+    credentials they were handed. Anything they don't know about would be lost, so rotating a
+    Firebase key or APNs .p8 would silently reset an enabled identity verification policy back to
+    disabled, reopening the device takeover it exists to prevent. Carry the existing value forward
+    unless the caller explicitly sets a new one.
+    """
+    if push_identity_verification is not None:
+        if push_identity_verification not in PUSH_IDENTITY_VERIFICATION_MODES:
+            raise ValidationError(
+                f"push_identity_verification must be one of: {', '.join(PUSH_IDENTITY_VERIFICATION_MODES)}"
+            )
+        return {CONFIG_PUSH_IDENTITY_VERIFICATION: push_identity_verification}
+
+    existing = (
+        Integration.objects.filter(team_id=team_id, kind=kind, integration_id=integration_id).only("config").first()
+    )
+    existing_mode = (existing.config or {}).get(CONFIG_PUSH_IDENTITY_VERIFICATION) if existing else None
+    return {CONFIG_PUSH_IDENTITY_VERIFICATION: existing_mode} if existing_mode else {}
+
+
 # Values for the counter's `reason` label, bucketed from the OAuth error response.
 REFRESH_FAILURE_REASON_INVALID_GRANT = "invalid_grant"
 REFRESH_FAILURE_REASON_INVALID_CLIENT = "invalid_client"
@@ -2206,7 +2240,13 @@ class FirebaseIntegration:
         self.integration = integration
 
     @classmethod
-    def integration_from_key(cls, key_info: dict, team_id: int, created_by: User | None = None) -> "Integration":
+    def integration_from_key(
+        cls,
+        key_info: dict,
+        team_id: int,
+        created_by: User | None = None,
+        push_identity_verification: str | None = None,
+    ) -> "Integration":
         scope = "https://www.googleapis.com/auth/firebase.messaging"
 
         try:
@@ -2225,6 +2265,7 @@ class FirebaseIntegration:
             integration_id=project_id,
             defaults={
                 "config": {
+                    **preserved_push_config(team_id, "firebase", project_id, push_identity_verification),
                     "project_id": project_id,
                     "expires_in": credentials.expiry.timestamp() - int(time.time()),
                     "refreshed_at": int(time.time()),
@@ -2316,6 +2357,7 @@ class ApplePushIntegration:
         team_id: int,
         created_by: User | None = None,
         environment: str = "production",
+        push_identity_verification: str | None = None,
     ) -> "Integration":
         if not all([signing_key, key_id, team_id_apple, bundle_id]):
             raise ValidationError("All APNS fields are required: signing_key, key_id, team_id_apple, bundle_id")
@@ -2323,12 +2365,14 @@ class ApplePushIntegration:
         if environment not in ("production", "sandbox"):
             raise ValidationError("APNS environment must be 'production' or 'sandbox'")
 
+        integration_id = f"{team_id_apple}.{bundle_id}"
         integration, created = Integration.objects.update_or_create(
             team_id=team_id,
             kind="apns",
-            integration_id=f"{team_id_apple}.{bundle_id}",
+            integration_id=integration_id,
             defaults={
                 "config": {
+                    **preserved_push_config(team_id, "apns", integration_id, push_identity_verification),
                     "team_id": team_id_apple,
                     "bundle_id": bundle_id,
                     "key_id": key_id,
