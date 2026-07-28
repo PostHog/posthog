@@ -1,0 +1,25 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "type": "string"
+        },
+        "pending_user_artifact_ids": {
+            "description": "Identifiers for run artifacts that should be attached to the next user message delivered to the sandbox.",
+            "items": {
+                "maxLength": 128,
+                "type": "string"
+            },
+            "type": "array"
+        },
+        "pending_user_message": {
+            "description": "Initial or follow-up user message to include in the run prompt.",
+            "type": "string"
+        },
+        "task_id": {
+            "type": "string"
+        }
+    },
+    "required": ["id", "task_id"],
+    "type": "object"
+}

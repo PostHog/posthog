@@ -1,0 +1,188 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "auto_publish": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask."
+        },
+        "branch": {
+            "anyOf": [
+                {
+                    "maxLength": 255,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Git branch to checkout in the sandbox"
+        },
+        "context_window": {
+            "description": "Context window size for models that support the 1M window.\n\n* `200k` - 200k\n* `1m` - 1m",
+            "enum": ["200k", "1m"],
+            "type": "string"
+        },
+        "custom_image_id": {
+            "description": "Optional custom base image for this cloud run's sandbox (Modal VM runtime only); takes precedence over the environment's image.",
+            "type": "string"
+        },
+        "environment": {
+            "default": "local",
+            "description": "Execution environment for the new run. Use 'cloud' for remote sandbox runs and 'local' for desktop sessions.\n\n* `local` - local\n* `cloud` - cloud",
+            "enum": ["local", "cloud"],
+            "type": "string"
+        },
+        "fast_mode": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Enable fast mode for models that support it."
+        },
+        "github_user_token": {
+            "description": "Ephemeral GitHub user token from PostHog Desktop for user-authored cloud pull requests.",
+            "type": "string"
+        },
+        "imported_mcp_servers": {
+            "anyOf": [
+                {
+                    "items": {
+                        "description": "One client-imported MCP server, in the agent server's --mcpServers entry shape.",
+                        "properties": {
+                            "headers": {
+                                "items": {
+                                    "properties": {
+                                        "name": {
+                                            "maxLength": 256,
+                                            "type": "string"
+                                        },
+                                        "value": {
+                                            "maxLength": 4096,
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": ["name", "value"],
+                                    "type": "object"
+                                },
+                                "type": "array"
+                            },
+                            "name": {
+                                "maxLength": 64,
+                                "type": "string"
+                            },
+                            "type": {
+                                "description": "* `http` - http\n* `sse` - sse",
+                                "enum": ["http", "sse"],
+                                "type": "string"
+                            },
+                            "url": {
+                                "format": "uri",
+                                "maxLength": 2048,
+                                "type": "string"
+                            }
+                        },
+                        "required": ["type", "name", "url"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Local url-based MCP servers from the creating client (PostHog Desktop) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API."
+        },
+        "initial_permission_mode": {
+            "description": "Initial permission mode for the agent session. Claude runtimes accept PostHog permission presets like 'plan'. Codex runtimes accept native Codex modes like 'plan', 'auto', and 'read-only'.\n\n* `default` - default\n* `acceptEdits` - acceptEdits\n* `plan` - plan\n* `bypassPermissions` - bypassPermissions\n* `auto` - auto\n* `read-only` - read-only\n* `full-access` - full-access",
+            "enum": ["default", "acceptEdits", "plan", "bypassPermissions", "auto", "read-only", "full-access"],
+            "type": "string"
+        },
+        "mode": {
+            "default": "background",
+            "description": "Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs\n\n* `interactive` - interactive\n* `background` - background",
+            "enum": ["interactive", "background"],
+            "type": "string"
+        },
+        "model": {
+            "description": "LLM model identifier to run in the selected runtime.",
+            "type": "string"
+        },
+        "pr_authorship_mode": {
+            "description": "Whether pull requests for this run should be authored by the user or the bot.\n\n* `user` - user\n* `bot` - bot",
+            "enum": ["user", "bot"],
+            "type": "string"
+        },
+        "reasoning_effort": {
+            "description": "Reasoning effort to request for models that expose an effort control.\n\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `xhigh` - xhigh\n* `max` - max\n* `ultracode` - ultracode",
+            "enum": ["low", "medium", "high", "xhigh", "max", "ultracode"],
+            "type": "string"
+        },
+        "relayed_mcp_servers": {
+            "anyOf": [
+                {
+                    "items": {
+                        "description": "One desktop-only MCP server relayed into the run — a name only, never configuration.",
+                        "properties": {
+                            "name": {
+                                "maxLength": 64,
+                                "type": "string"
+                            }
+                        },
+                        "required": ["name"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Names of desktop-only MCP servers the creating client (PostHog Desktop) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire."
+        },
+        "rtk_enabled": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out."
+        },
+        "run_source": {
+            "description": "High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.\n\n* `manual` - manual\n* `signal_report` - signal_report",
+            "enum": ["manual", "signal_report"],
+            "type": "string"
+        },
+        "runtime_adapter": {
+            "description": "Agent runtime adapter to launch for this run. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime.\n\n* `claude` - claude\n* `codex` - codex",
+            "enum": ["claude", "codex"],
+            "type": "string"
+        },
+        "sandbox_environment_id": {
+            "description": "Optional sandbox environment to apply for this cloud run.",
+            "type": "string"
+        },
+        "signal_report_id": {
+            "description": "Optional signal report identifier when this run was started from Inbox.",
+            "type": "string"
+        },
+        "task_id": {
+            "type": "string"
+        }
+    },
+    "required": ["task_id"],
+    "type": "object"
+}
