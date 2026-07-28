@@ -63,6 +63,9 @@ export const workflowsReputationLogic = kea<workflowsReputationLogicType>([
         values: [projectLogic, ['currentProjectId']],
     })),
     actions({
+        // Declared here (as well as auto-created by the loader) so kea-typegen sees a payload-less
+        // action; without this, TS types the first loader arg as required and callers fail typecheck.
+        loadReputation: true,
         setSearch: (search: string) => ({ search }),
     }),
     reducers({
