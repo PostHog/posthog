@@ -2856,18 +2856,12 @@ class SignalReportArtefactViewSet(
                 {"error": f"content does not match the '{artefact_type}' schema: {e}"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        # The append itself can also reject the payload — a type whose limit is a function of what the
-        # report already holds (charts) can only be judged against the stored rows, not the content
-        # alone. Same class of caller error as a schema mismatch, so it answers 400 the same way.
-        try:
-            artefact = SignalReportArtefact.append(
-                team_id=self.team.id,
-                report_id=report_id,
-                content=parsed_content,
-                attribution=attribution,
-            )
-        except ArtefactContentValidationError as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        artefact = SignalReportArtefact.append(
+            team_id=self.team.id,
+            report_id=report_id,
+            content=parsed_content,
+            attribution=attribution,
+        )
         return Response(self._write_response_data(artefact), status=status.HTTP_201_CREATED)
 
     @validated_request(
