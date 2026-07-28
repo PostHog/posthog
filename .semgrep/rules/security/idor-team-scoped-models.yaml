@@ -83,8 +83,6 @@ rules:
                               |BatchExportOnDemand
                               |BatchExportSource
                               |BatchImport
-                              |BillingAlertConfiguration
-                              |BillingAlertEvent
                               |BriefConfig
                               |ButtonTile
                               |Canvas
@@ -429,8 +427,6 @@ rules:
                         |BatchExportOnDemand
                         |BatchExportSource
                         |BatchImport
-                        |BillingAlertConfiguration
-                        |BillingAlertEvent
                         |BriefConfig
                         |ButtonTile
                         |Canvas
