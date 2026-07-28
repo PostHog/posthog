@@ -1,5 +1,6 @@
--- Snapshot pinned to products/cohorts/backend/migrations/0004_cohort_backfill_tables.py.
--- External Team/Cohort foreign keys are omitted so the contract test stays schema-local.
+-- Snapshot pinned to products/cohorts/backend/migrations/0007_cohortbackfillrun_cohort_bfr_reconciling_idx.py
+-- (the 0004 DDL, the six columns 0006 adds, and the partial index 0007 adds). External Team/Cohort
+-- foreign keys are omitted so the contract test stays schema-local.
 
 CREATE TABLE cohort_backfill_runs (
     id uuid PRIMARY KEY,
@@ -21,11 +22,19 @@ CREATE TABLE cohort_backfill_runs (
     finished_at timestamptz,
     cohort_id integer,
     superseded_by_id uuid REFERENCES cohort_backfill_runs(id),
-    team_id integer NOT NULL
+    team_id integer NOT NULL,
+    -- 0006 completion columns.
+    chunks_planned_at timestamptz,
+    reconcile_dispatched_at timestamptz,
+    reconcile_observed_at timestamptz,
+    marker_watch jsonb
 );
 
 CREATE INDEX cohort_bfr_team_status_idx ON cohort_backfill_runs(team_id, status);
 CREATE INDEX cohort_bfr_team_created_idx ON cohort_backfill_runs(team_id, created_at DESC);
+CREATE INDEX cohort_bfr_reconciling_idx
+    ON cohort_backfill_runs(backfill_kind, reconcile_observed_at)
+    WHERE status = 'reconciling';
 CREATE UNIQUE INDEX cohort_bfr_active_cohort_uq
     ON cohort_backfill_runs(cohort_id)
     WHERE cohort_id IS NOT NULL
@@ -70,5 +79,18 @@ CREATE TABLE cohort_backfill_run_cohorts (
     cohort_id integer NOT NULL,
     run_id uuid NOT NULL REFERENCES cohort_backfill_runs(id),
     team_id integer NOT NULL,
+    -- 0006 completion columns.
+    reconcile_completed_at timestamptz,
+    reconcile_marker_bits bigint NOT NULL DEFAULT 0,
     CONSTRAINT cohort_bfrc_run_cohort_uq UNIQUE (run_id, cohort_id)
+);
+
+-- A minimal projection of posthog_cohort, present only so load_current_behavioral_hashes can read a
+-- cohort's current behavioral shape hash for INV-1 hash attribution. Not part of the cohorts app's
+-- backfill migrations.
+CREATE TABLE posthog_cohort (
+    id integer PRIMARY KEY,
+    team_id integer NOT NULL,
+    behavioral_filters_shape_hash varchar(64),
+    deleted boolean NOT NULL DEFAULT false
 );

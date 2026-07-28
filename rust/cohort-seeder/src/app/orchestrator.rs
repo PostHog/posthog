@@ -22,6 +22,7 @@ use crate::observability::metrics::{CHUNKS_CLAIMED, CHUNKS_POISONED, CHUNKS_RECL
 use crate::store::chunks::{Claim, PgChunkStore};
 use crate::store::Claimant;
 
+use super::completion::CompletionDriver;
 use super::execute::{execute_chunk, record_task_result, ChunkOutcome, ChunkTaskContext};
 use super::prepare::refresh_runs;
 use super::settings::OrchestratorSettings;
@@ -39,6 +40,7 @@ pub struct SeederOrchestrator {
     settings: OrchestratorSettings,
     handle: Handle,
     claimant: Claimant,
+    completion_driver: Option<CompletionDriver>,
 }
 
 impl SeederOrchestrator {
@@ -52,6 +54,7 @@ impl SeederOrchestrator {
         settings: OrchestratorSettings,
         handle: Handle,
         claimed_by: String,
+        completion_driver: Option<CompletionDriver>,
     ) -> Self {
         let claimant =
             Claimant::new(claimed_by).expect("seeder claimant is 1..=255 bytes by construction");
@@ -65,6 +68,7 @@ impl SeederOrchestrator {
             settings,
             handle,
             claimant,
+            completion_driver,
         }
     }
 
@@ -99,6 +103,9 @@ impl SeederOrchestrator {
                     .await;
                     self.reap_poisoned_chunks(&eligible_runs).await;
                     self.fill_claim_slots(&eligible_runs, &mut tasks, &shutdown).await;
+                    if let Some(driver) = &self.completion_driver {
+                        driver.tick().await;
+                    }
                     self.handle.report_healthy();
                 }
             }
