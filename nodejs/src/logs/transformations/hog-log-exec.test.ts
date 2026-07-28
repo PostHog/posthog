@@ -246,6 +246,26 @@ describe('hog-log-exec', () => {
             }
         })
 
+        it('redacts sensitive values written into output fields', async () => {
+            // A transformation can copy a decrypted input into the record; without
+            // output redaction the secret becomes readable by anyone with Logs access.
+            const record = createRecord()
+            const outcome = await run(
+                `
+                let rec := record
+                rec.body := f'key: {inputs.apiKey}'
+                return rec
+                `,
+                record,
+                { apiKey: 'super-secret-key' },
+                { sensitiveValues: ['super-secret-key'] }
+            )
+
+            expect(outcome.status).toBe('mutated')
+            expect(record.body).not.toContain('super-secret-key')
+            expect(record.body).toContain('***REDACTED***')
+        })
+
         it('captures print output up to the cap and redacts sensitive values', async () => {
             const record = createRecord()
             const outcome = await run(
