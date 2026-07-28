@@ -1,5 +1,6 @@
 import logging
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 from django.conf import settings
 from django.utils import timezone as django_timezone
@@ -27,7 +28,7 @@ from posthog.temporal.common.schedule import (
     update_schedule,
 )
 
-from .models import Loop, LoopTrigger
+from .models import Loop, LoopTrigger, TaskRun
 
 logger = logging.getLogger(__name__)
 
@@ -279,6 +280,39 @@ def signal_loop_run_cancelled(workflow_id: str) -> None:
         )
     except Exception:
         logger.exception("loop_run_cancel_signal_failed", extra={"workflow_id": workflow_id})
+
+
+def capture_loop_runs_cancelled_terminal(run_ids: list[UUID], *, cancel_source: str, cancel_reason: str) -> None:
+    """Emit `task_run_cancelled_terminal` for runs a loop path cancelled with a bulk update.
+
+    Those paths flip the rows themselves and then signal `complete_task`, so two things that
+    would normally capture the event don't: a queryset `.update()` never reaches
+    `TaskRun.capture_event`, and the `update_task_run_status` activity that runs afterwards
+    sees the row already CANCELLED, finds no transition and skips its own capture. Shared by
+    every such path so the property shape and the single-emitter contract can't drift.
+
+    Re-reads the rows so `completed_at` (and with it `duration_seconds`) reflects the
+    committed transition rather than the pre-update snapshot, and joins what
+    `capture_event` reads so cancelling N runs stays one query instead of 3N.
+
+    Call after the transaction commits: best-effort, a capture must never fail the
+    cancellation it describes.
+    """
+    if not run_ids:
+        return
+    try:
+        runs = TaskRun.objects.filter(id__in=run_ids).select_related("task", "team", "task__created_by")
+        for run in runs:
+            run.capture_event(
+                "task_run_cancelled_terminal",
+                {
+                    "cancel_reason": cancel_reason,
+                    "cancel_source": cancel_source,
+                    "duration_seconds": run._duration_seconds(),
+                },
+            )
+    except Exception:
+        logger.exception("loop_run_cancelled_terminal_capture_failed", extra={"cancel_source": cancel_source})
 
 
 def resume_loop_schedules(loop: Loop) -> None:
