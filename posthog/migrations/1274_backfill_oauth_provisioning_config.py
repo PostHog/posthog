@@ -31,13 +31,13 @@ def backfill_provisioning_config(apps, schema_editor):
             "disabled": app.provisioning_disabled,
             "can_create_accounts": app.provisioning_can_create_accounts,
             "can_provision_resources": app.provisioning_can_provision_resources,
-            # Previously gated on `is_cimd_client and not provisioning_partner_type`, so a
-            # non-CIMD partner passed on being admin-created alone. Both collapse to the same
-            # rule now, and this preserves who can call the endpoints today.
+            # The old gate was `is_cimd_client and not provisioning_partner_type`, so a non-CIMD
+            # partner passed on being admin-created alone. Both collapse to one capability, and
+            # this mapping preserves exactly who can call the endpoints.
             "can_use_github_grants": vouched_for or not app.is_cimd_client,
-            # Previously ungated: any active partner with can_provision_resources could start a
-            # cloud wizard run, self-registered CIMD partners included. Narrowed to vouched-for
-            # partners here.
+            # The wizard endpoints carried no gate of their own, so any active partner with
+            # can_provision_resources could start a cloud run, self-registered CIMD partners
+            # included. Narrowed to vouched-for partners here.
             "can_start_wizard_runs": vouched_for and app.provisioning_can_provision_resources,
             "can_issue_deep_links": app.provisioning_can_issue_deep_links,
             "skip_existing_user_consent": app.provisioning_skip_existing_user_consent,

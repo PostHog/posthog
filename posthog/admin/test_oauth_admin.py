@@ -26,6 +26,7 @@ class TestOAuthApplicationAdmin(BaseTest):
             "name": app.name,
             "client_id": app.client_id,
             "client_type": app.client_type,
+            "auth_brand": app.auth_brand,
             "authorization_grant_type": app.authorization_grant_type,
             "redirect_uris": app.redirect_uris,
             "algorithm": app.algorithm,

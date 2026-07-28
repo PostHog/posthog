@@ -155,9 +155,8 @@ class TestWizardResourceActions(ProvisioningTestBase):
 
     @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID="wizard-client-id")
     def test_wizard_runs_rejects_a_partner_without_the_capability(self):
-        # Holding a bearer token for an active partner used to be enough to start a coding-agent
-        # run in a customer's repository. It now takes its own grant, which self-registration
-        # never gives out.
+        # Starting a coding-agent run in a customer's repository takes its own grant, which
+        # self-registration never gives out - a bearer token for an active partner is not enough.
         self.partner.update_provisioning(can_start_wizard_runs=False)
 
         with patch("ee.api.agentic_provisioning.wizard.tasks_facade.create_wizard_cloud_run") as mock_create:

@@ -107,7 +107,7 @@ class TestAccountRequests(ProvisioningTestBase):
     @parameterized.expand(
         [
             ("with_name", {"region": "US", "organization_name": "Acme Corp"}, "Acme Corp"),
-            ("without_name", {"region": "US"}, "Test_partner (orgname@example.com)"),
+            ("without_name", {"region": "US"}, "Test Provisioning Partner (orgname@example.com)"),
         ]
     )
     def test_new_user_organization_name(self, _name, config, expected_org_name):
@@ -337,9 +337,9 @@ class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
 
 
 class TestCaptureProvisioningEvent(ProvisioningTestBase):
-    def _make_partner(self, partner_type: str = "test_partner") -> OAuthApplication:
+    def _make_partner(self) -> OAuthApplication:
         return OAuthApplication.objects.create(
-            client_id=f"attribution-test-{partner_type or 'untyped'}",
+            client_id="attribution-test",
             name="Attribution Test Client",
             client_secret="",
             client_type=OAuthApplication.CLIENT_PUBLIC,
@@ -348,16 +348,10 @@ class TestCaptureProvisioningEvent(ProvisioningTestBase):
             algorithm="RS256",
         )
 
-    @parameterized.expand(
-        [
-            ("typed_partner", "test_partner", True, "test_partner"),
-            ("untyped_partner", "", True, None),
-            ("no_partner", None, False, None),
-        ]
-    )
+    @parameterized.expand([("with_partner", True), ("no_partner", False)])
     @patch("ee.api.agentic_provisioning.analytics.posthoganalytics.capture")
-    def test_partner_attribution(self, _name, partner_type, expects_client, expected_partner_type, mock_capture):
-        partner = None if partner_type is None else self._make_partner(partner_type=partner_type)
+    def test_partner_attribution(self, _name, expects_client, mock_capture):
+        partner = self._make_partner() if expects_client else None
         capture_provisioning_event("account_request", "new_user", partner=partner, team_id=42)
 
         props = mock_capture.call_args.kwargs["properties"]
@@ -368,7 +362,3 @@ class TestCaptureProvisioningEvent(ProvisioningTestBase):
         else:
             assert "client_name" not in props
             assert "partner_id" not in props
-        if expected_partner_type is None:
-            assert "partner_type" not in props
-        else:
-            assert props["partner_type"] == expected_partner_type

@@ -128,6 +128,18 @@ def create_wizard_run(
 ) -> dict[str, str]:
     """Gate + throttle + create a cloud wizard run. Returns the run payload;
     raises :class:`ProvisioningError` on failure."""
+    # Checked here rather than in each caller: the resource endpoint and the account-request
+    # wizard block both land on this function, so this is the one place a new caller cannot
+    # forget. Before the rate limits, so a partner without the grant can't spend its quota.
+    if not partner.provisioning.can_start_wizard_runs:
+        capture_provisioning_event("wizard_run", "error", partner=partner, error_code="forbidden")
+        raise ProvisioningError(
+            "forbidden",
+            "Starting wizard runs is not enabled for this partner",
+            resource_id=str(team.id),
+            status=403,
+        )
+
     if not bool(settings.WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID):
         capture_provisioning_event("wizard_run", "error", partner=partner, error_code="wizard_unavailable")
         raise ProvisioningError(

@@ -52,8 +52,6 @@ class OAuthApplicationForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        for name, field in _provisioning_form_fields().items():
-            self.fields[name] = field
         self._load_provisioning_initial()
 
         # Set algorithm constraints
@@ -119,6 +117,13 @@ class OAuthApplicationForm(forms.ModelForm):
             instance.save()
             self.save_m2m()
         return instance
+
+
+# Declared on the class rather than added per instance, so admin's fieldset validation and
+# modelform_factory can see them. Fields added in __init__ exist too late for either.
+for _field_name, _form_field in _provisioning_form_fields().items():
+    OAuthApplicationForm.declared_fields[_field_name] = _form_field
+    OAuthApplicationForm.base_fields[_field_name] = _form_field
 
 
 class ProvisioningCapabilityFilter(admin.SimpleListFilter):

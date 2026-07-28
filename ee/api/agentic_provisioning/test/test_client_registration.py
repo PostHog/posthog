@@ -94,7 +94,14 @@ class TestClientRegistration(ProvisioningTestBase):
             "algorithm": "RS256",
             "scopes": TEST_PARTNER_SCOPES,
             "is_provisioning_partner": True,
-            "_provisioning_config": provisioning_config(active=True, can_create_accounts=True),
+            # The default here is a client that registered itself: it does ordinary
+            # provisioning, and holds none of the capabilities an admin has to grant.
+            "_provisioning_config": provisioning_config(
+                active=True,
+                can_create_accounts=True,
+                can_use_github_grants=False,
+                can_start_wizard_runs=False,
+            ),
         }
         return OAuthApplication.objects.create(**{**defaults, **overrides})
 

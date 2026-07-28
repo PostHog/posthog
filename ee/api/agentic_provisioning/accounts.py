@@ -39,9 +39,7 @@ from ee.api.agentic_provisioning.wizard import (
 def partner_label(partner: OAuthApplication | None) -> str:
     """How a partner is named to a user, in the org it provisions and on the consent screen.
 
-    The app's own name, which is what the user already saw when they authorized it. There used
-    to be a separate admin-set label that took precedence; a second name for the same partner
-    only ever meant the two could disagree.
+    The app's own name, which is what the user already saw when they authorized it.
     """
     if partner is None or not partner.name:
         return "Partner"
@@ -337,6 +335,17 @@ def process_wizard_block(*, partner: OAuthApplication, user: User, team: Team, w
     {"error": {code, message}} for the partner to branch on and retry granularly.
     """
     try:
+        # create_wizard_run refuses an ungranted partner anyway, but checking before the grant
+        # is linked keeps a refused request from consuming a single-use grant the partner
+        # would then have to mint again.
+        if not partner.provisioning.can_start_wizard_runs:
+            return {
+                "error": {
+                    "code": "forbidden",
+                    "message": "Starting wizard runs is not enabled for this partner",
+                }
+            }
+
         grant_id = wizard_config.get("grant_id")
         installation_id = wizard_config.get("installation_id")
         repository = wizard_config.get("repository")

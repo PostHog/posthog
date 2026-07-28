@@ -178,10 +178,11 @@ class ResourceCreatesThrottle(PartnerRateThrottle):
 
     def get_partner(self, request: Request) -> OAuthApplication | None:
         # Plain OAuth apps whose tokens reach this endpoint are not partners and carry no
-        # partner quota. Keyed on is_provisioning_partner rather than any capability flag, so
-        # revoking a capability narrows what a partner may do without also un-throttling it.
+        # partner quota. Keyed on carrying provisioning config rather than on a capability or
+        # on is_provisioning_partner, so neither revoking a capability nor disabling the
+        # partner outright also un-throttles its outstanding tokens.
         partner = super().get_partner(request)
-        if partner is None or not partner.is_provisioning_partner:
+        if partner is None or not partner.carries_provisioning_config:
             return None
         return partner
 

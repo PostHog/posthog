@@ -241,7 +241,7 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
 
     # --- Org naming ---
 
-    def test_wizard_org_named_with_partner_type(self):
+    def test_org_named_after_the_partner_app(self):
         _, challenge = self._pkce_pair()
         email = "org-name-test@example.com"
 
@@ -251,7 +251,7 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
         membership = user.organization_memberships.first()
         assert membership is not None
         org = membership.organization
-        assert org.name == f"Wizard ({email})"
+        assert org.name == f"PostHog Wizard ({email})"
 
     # --- PAT scopes ---
 

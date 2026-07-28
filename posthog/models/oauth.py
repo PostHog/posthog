@@ -246,16 +246,39 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         """Apply a partial change to the config and persist it.
 
         The blob is one column, so a read-modify-write is the only way to set a single key
-        without clobbering its neighbours. Centralized here so no caller has to remember that,
-        and so ``update_fields`` stays correct.
+        without clobbering its neighbours. That makes concurrent writers a lost-update
+        problem - an admin granting a capability while a CIMD refresh re-tiers a rate limit
+        would otherwise have one silently overwrite the other - so the row is locked and
+        re-read inside the transaction rather than trusting the copy in memory.
         """
-        self.provisioning = self.provisioning.model_copy(update=changes)
-        self.save(update_fields=["_provisioning_config"])
+        with transaction.atomic():
+            current = OAuthApplication.objects.select_for_update().get(pk=self.pk)
+            self._provisioning_config = current._provisioning_config
+            self.provisioning = self.provisioning.model_copy(update=changes)
+            self.save(update_fields=["_provisioning_config"])
         return self.provisioning
 
     def update_provisioning_rate_limits(self, **changes: object) -> "ProvisioningConfig":
-        """Apply a partial change to the nested rate limits and persist it."""
-        return self.update_provisioning(rate_limits=self.provisioning.rate_limits.model_copy(update=changes))
+        """Apply a partial change to the nested rate limits and persist it.
+
+        Nested under the same lock as any other partial change, so the read of the current
+        limits can't be stale by the time it is written back.
+        """
+        with transaction.atomic():
+            current = OAuthApplication.objects.select_for_update().get(pk=self.pk)
+            self._provisioning_config = current._provisioning_config
+            return self.update_provisioning(rate_limits=self.provisioning.rate_limits.model_copy(update=changes))
+
+    @property
+    def carries_provisioning_config(self) -> bool:
+        """Whether this app has ever been configured for provisioning, whatever
+        ``is_provisioning_partner`` says now.
+
+        Partner quotas key on this rather than the flag, so an admin who disables a partner
+        without revoking its outstanding tokens doesn't also exempt those tokens from the
+        rate limits.
+        """
+        return bool(self._provisioning_config)
 
     # Client authentication is registration state on purpose. A client_id is public, so
     # inferring the method from what a request happens to present would let anyone act as a

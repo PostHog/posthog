@@ -129,28 +129,11 @@ class GitHubGrantsAPIView(ProvisioningAPIView):
 
 
 class BearerResourceAPIView(ProvisioningAPIView):
-    """Base for the bearer-authenticated resource endpoints (status envelope).
-
-    An endpoint that does more than ordinary resource provisioning calls
-    :meth:`require_capability` in its handler.
-    """
+    """Base for the bearer-authenticated resource endpoints (status envelope)."""
 
     error_envelope = "status"
     region_proxy_strategy = "bearer_lookup"
     authentication_classes = [ProvisioningBearerAuthentication]
-
-    def require_capability(self, access_token: OAuthAccessToken, capability: str, resource_id: str = "") -> None:
-        """Refuse an endpoint the partner has not been granted.
-
-        ``ProvisioningBearerAuthentication`` only establishes that the token belongs to an
-        active partner allowed to provision resources at all, so anything beyond that is
-        checked here rather than being implied by holding a token.
-        """
-        app = access_token.application
-        if app is None or not getattr(app.provisioning, capability):
-            raise ProvisioningError(
-                "forbidden", "This endpoint is not enabled for this partner", resource_id=resource_id, status=403
-            )
 
     def parse_resource_team_id(self, resource_id: str, access_token: OAuthAccessToken) -> int:
         try:
