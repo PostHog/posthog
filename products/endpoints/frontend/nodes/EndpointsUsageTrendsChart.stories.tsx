@@ -1,5 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { ReactNode } from 'react'
+
+import { Stage, playHoverAtFraction } from '@posthog/quill-charts/story-helpers'
 
 import { EndpointsUsageTrendsChart } from './EndpointsUsageTrendsNode'
 
@@ -17,51 +18,32 @@ type Story = StoryObj<typeof EndpointsUsageTrendsChart>
 
 const DAYS = ['2026-07-01', '2026-07-02', '2026-07-03', '2026-07-04', '2026-07-05', '2026-07-06', '2026-07-07']
 
-function Stage({ children }: { children: ReactNode }): JSX.Element {
-    return <div className="w-[760px]">{children}</div>
+const REQUESTS_BY_ENDPOINT: Record<string, number[]> = {
+    '/api/events': [210, 190, 260, 240, 300, 330, 290],
+    '/api/persons': [90, 110, 80, 130, 120, 140, 100],
+    '/api/insights': [40, 55, 60, 45, 70, 65, 80],
 }
 
-export const Requests: Story = {
+/**
+ * One breakdown story, hovered mid-chart. Scaling and grouping are covered by
+ * `endpointsUsageTrendsTransforms.test.ts`, so what a snapshot uniquely buys is that the chart
+ * paints at all (it once rendered zero-height) plus the tooltip — whose date header and total row
+ * no unit test reaches.
+ */
+export const Breakdown: Story = {
     render: () => (
-        <Stage>
+        <Stage width={760}>
             <EndpointsUsageTrendsChart
                 metric="requests"
-                results={DAYS.map((date, i) => ({ date, value: [420, 380, 510, 470, 560, 610, 540][i] }))}
+                results={DAYS.flatMap((date, i) =>
+                    Object.entries(REQUESTS_BY_ENDPOINT).map(([breakdown, values]) => ({
+                        date,
+                        breakdown,
+                        value: values[i],
+                    }))
+                )}
             />
         </Stage>
     ),
-}
-
-export const BytesReadArea: Story = {
-    render: () => (
-        <Stage>
-            <EndpointsUsageTrendsChart
-                metric="bytes_read"
-                results={DAYS.map((date, i) => ({
-                    date,
-                    value: [12, 18, 15, 22, 19, 27, 24][i] * 1024 * 1024,
-                }))}
-            />
-        </Stage>
-    ),
-}
-
-export const Breakdown: Story = {
-    render: () => {
-        const byEndpoint: Record<string, number[]> = {
-            '/api/events': [210, 190, 260, 240, 300, 330, 290],
-            '/api/persons': [90, 110, 80, 130, 120, 140, 100],
-            '/api/insights': [40, 55, 60, 45, 70, 65, 80],
-        }
-        return (
-            <Stage>
-                <EndpointsUsageTrendsChart
-                    metric="requests"
-                    results={DAYS.flatMap((date, i) =>
-                        Object.entries(byEndpoint).map(([breakdown, values]) => ({ date, breakdown, value: values[i] }))
-                    )}
-                />
-            </Stage>
-        )
-    },
+    play: async ({ canvasElement }) => await playHoverAtFraction(canvasElement, 0.5),
 }
