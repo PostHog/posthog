@@ -1,16 +1,17 @@
 from typing import Any
 
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db import DatabaseError, transaction
+from django.db import DataError, IntegrityError, transaction
 from django.db.models import Field, Model
 from django.utils import timezone
 
 import structlog
+from rest_framework.serializers import ValidationError as DRFValidationError
 
 from posthog.egress.github.transport import github_request
 
 from ..models.community_skills import CommunitySkill, CommunitySkillFile, CommunitySkillTrustTier
-from .skill_serializers import RESERVED_SKILL_NAMES, SKILL_NAME_PATTERN
+from .skill_serializers import RESERVED_SKILL_NAMES, SKILL_NAME_PATTERN, validate_skill_file_path
 from .skill_services import MAX_SKILL_BODY_BYTES, MAX_SKILL_FILE_BYTES, MAX_SKILL_FILE_COUNT
 
 logger = structlog.get_logger(__name__)
@@ -57,9 +58,11 @@ def _validate_entry_shape(entry: dict[str, Any]) -> None:
     # satisfy the skill-name rules — lowercase alnum + single hyphens, not reserved. This also
     # keeps DRF's default lookup regex (which rejects '.'/'/') able to route detail/install URLs,
     # and means the default-name install can never raise an uncaught name ValidationError.
+    # fullmatch, not match: `$` also matches just before a trailing newline, so `match` would
+    # accept "valid-skill\n" and persist the newline into the URL segment and install name.
     if (
         not isinstance(slug, str)
-        or not SKILL_NAME_PATTERN.match(slug)
+        or not SKILL_NAME_PATTERN.fullmatch(slug)
         or "--" in slug
         or slug.lower() in RESERVED_SKILL_NAMES
     ):
@@ -97,6 +100,10 @@ def _validate_entry_within_caps(entry: dict[str, Any]) -> None:
 
     for field in _CHECKED_CHAR_FIELDS:
         value = entry.get(field, "") or ""
+        # Type before length: a list/dict has a len() but CharField would persist its repr, so an
+        # unchecked non-string lands as corrupt catalog text while counting as a healthy entry.
+        if not isinstance(value, str):
+            raise ValueError(f"'{field}' must be a string")
         max_length = _field_max_length(CommunitySkill, field)
         if max_length is not None and len(value) > max_length:
             raise ValueError(f"'{field}' exceeds the {max_length} character limit")
@@ -107,7 +114,16 @@ def _validate_entry_within_caps(entry: dict[str, Any]) -> None:
     path_max = _field_max_length(CommunitySkillFile, "path")
     seen_paths: set[str] = set()
     for f in files:
-        path = f.get("path", "") or ""
+        raw_path = f.get("path", "") or ""
+        if not isinstance(raw_path, str):
+            raise ValueError("file path must be a string")
+        # Same invariant the skill create/import paths enforce: traversal, absolute, reserved and
+        # backslash spellings produce corrupt git/export trees. Normalizing here also means dedup
+        # compares canonical paths, so `references\g.md` and `references/g.md` can't both land.
+        try:
+            path = validate_skill_file_path(raw_path)
+        except DRFValidationError as err:
+            raise ValueError(f"file path '{raw_path}' is invalid: {err.detail}") from err
         if path_max is not None and len(path) > path_max:
             raise ValueError(f"file path '{path}' exceeds the {path_max} character limit")
         if path in seen_paths:
@@ -146,9 +162,11 @@ def _upsert_community_skill(entry: dict[str, Any]) -> bool:
         "body": entry.get("body") or "",
         "license": entry.get("license", ""),
         "compatibility": entry.get("compatibility", ""),
-        "allowed_tools": entry.get("allowed_tools", []),
-        "metadata": entry.get("metadata", {}),
-        "tags": entry.get("tags", []),
+        # `or <empty>` rather than a .get default: an explicitly-null field in the registry makes
+        # .get return None, which these non-nullable JSON columns reject at insert time.
+        "allowed_tools": entry.get("allowed_tools") or [],
+        "metadata": entry.get("metadata") or {},
+        "tags": entry.get("tags") or [],
         "trust_tier": trust_tier,
         "author_handle": entry.get("author_handle", ""),
         "github_url": entry.get("github_url", ""),
@@ -169,8 +187,9 @@ def _upsert_community_skill(entry: dict[str, Any]) -> bool:
             CommunitySkillFile.objects.bulk_create(
                 [
                     CommunitySkillFile(
+                        # Store the canonical form the caps check produced, not the raw spelling.
+                        path=validate_skill_file_path(f["path"]),
                         skill=skill,
-                        path=f["path"],
                         content=f.get("content", ""),
                         content_type=f.get("content_type", "text/plain"),
                     )
@@ -217,17 +236,23 @@ def sync_community_skills_from_github(registry_url: str = COMMUNITY_SKILLS_REGIS
         if not isinstance(entry, dict):
             continue
         slug = entry.get("slug")
-        if not slug:
+        # Must be a string before it can go in a set: a truthy-but-unhashable slug (object/array
+        # from a malformed registry) would raise TypeError here, outside the per-entry boundary,
+        # and abort the whole sync. Full slug validation still happens inside the upsert.
+        if not slug or not isinstance(slug, str):
             continue
         # Mark the slug seen before upserting so a malformed entry can't soft-delete the
         # existing row for a skill that's still present in the registry.
         seen_slugs.add(slug)
         try:
             created_or_updated = _upsert_community_skill(entry)
-        except (KeyError, ValueError, TypeError, AttributeError, DjangoValidationError, DatabaseError):
+        except (KeyError, ValueError, TypeError, AttributeError, DjangoValidationError, IntegrityError, DataError):
             # One bad entry (missing/oversized/mistyped field, or a constraint violation) must not
             # abort the whole loop or skip the reconciliation below. Each upsert runs in its own
-            # atomic block, so a DatabaseError has already rolled back cleanly by the time we catch.
+            # atomic block, so the failed insert has already rolled back cleanly by the time we
+            # catch. Only entry-local constraint errors are caught: operational failures
+            # (connection loss, failover, statement timeout) are not one bad entry, and swallowing
+            # them would report a successful sync while the catalog silently went stale.
             logger.warning("community_skills_sync_skipped_invalid_entry", slug=slug, exc_info=True)
             skipped += 1
             continue

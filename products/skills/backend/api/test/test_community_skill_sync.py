@@ -1,6 +1,8 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.db import OperationalError
+
 from parameterized import parameterized
 
 from ...models.community_skills import CommunitySkill
@@ -154,6 +156,22 @@ class TestCommunitySkillSync(APIBaseTest):
             ),
             ("non_string_body", {"body": {"nested": "object"}}),
             ("non_dict_file", {"files": ["not-a-dict"]}),
+            # A non-string bounded field has a len(), so a length-only check would pass it and
+            # CharField would persist its repr as the catalog's visible text.
+            ("non_string_name", {"name": ["Bad", "skill"]}),
+            ("non_string_source_sha", {"source_sha": {"sha": "abc"}}),
+            # `$` matches before a trailing newline, so a match-only check would let the newline
+            # into the slug — the URL segment and the default installed-skill name.
+            ("trailing_newline_slug", {"slug": "bad-skill\n"}),
+            # Paths that would synthesize a corrupt git/export tree, rejected at ingest the same
+            # way the skill create/import paths reject them.
+            ("traversal_file_path", {"files": [{"path": "../secret", "content": "x"}]}),
+            ("absolute_file_path", {"files": [{"path": "/etc/passwd", "content": "x"}]}),
+            ("reserved_file_path", {"files": [{"path": "SKILL.md", "content": "x"}]}),
+            (
+                "backslash_duplicate_file_paths",
+                {"files": [{"path": "ref/g.md", "content": "a"}, {"path": "ref\\g.md", "content": "b"}]},
+            ),
             # Shape checks: a slug DRF can't route, or a mistyped metadata/tags/allowed_tools that
             # would 500 the list/detail render or fracture allowed-tools on export.
             ("non_routable_slug", {"slug": "triage.v2"}),
@@ -208,6 +226,65 @@ class TestCommunitySkillSync(APIBaseTest):
         result = sync_community_skills_from_github()
         self.assertEqual(result, {"synced": 1, "skipped": 0, "removed": 0})
         self.assertEqual(CommunitySkill.objects.get(slug="nullish").body, "")
+
+    @patch("products.skills.backend.api.community_skill_sync.github_request")
+    def test_sync_coerces_null_collection_fields_to_empty(self, mock_get) -> None:
+        mock_get.return_value.raise_for_status.return_value = None
+        mock_get.return_value.json.return_value = {
+            "skills": [
+                {
+                    "slug": "nullish",
+                    "name": "Nullish",
+                    "description": "Explicit nulls",
+                    "body": "# Nullish",
+                    "allowed_tools": None,
+                    "metadata": None,
+                    "tags": None,
+                }
+            ],
+        }
+
+        # An explicitly-null collection makes .get return None rather than the model default,
+        # which these non-nullable JSON columns reject at insert time.
+        result = sync_community_skills_from_github()
+        self.assertEqual(result, {"synced": 1, "skipped": 0, "removed": 0})
+        skill = CommunitySkill.objects.get(slug="nullish")
+        self.assertEqual((skill.allowed_tools, skill.metadata, skill.tags), ([], {}, []))
+
+    @patch("products.skills.backend.api.community_skill_sync.github_request")
+    def test_sync_survives_unhashable_slug(self, mock_get) -> None:
+        _create_community_skill(slug="stale-skill")
+
+        mock_get.return_value.raise_for_status.return_value = None
+        mock_get.return_value.json.return_value = {
+            "skills": [
+                {"slug": {"nested": "object"}, "name": "Unhashable", "description": "d", "body": "# b"},
+                {"slug": "fresh-skill", "name": "Fresh skill", "description": "New one", "body": "# Fresh"},
+            ],
+        }
+
+        # A truthy-but-unhashable slug is tracked in a set outside the per-entry boundary, so it
+        # would raise TypeError and abort the sync before later entries or reconciliation ran.
+        result = sync_community_skills_from_github()
+        self.assertEqual(result, {"synced": 1, "skipped": 0, "removed": 1})
+        self.assertTrue(CommunitySkill.objects.filter(slug="fresh-skill", deleted=False).exists())
+        self.assertTrue(CommunitySkill.objects.get(slug="stale-skill").deleted)
+
+    @patch("products.skills.backend.api.community_skill_sync.github_request")
+    def test_sync_lets_operational_database_errors_escape(self, mock_get) -> None:
+        mock_get.return_value.raise_for_status.return_value = None
+        mock_get.return_value.json.return_value = {
+            "skills": [{"slug": "fresh-skill", "name": "Fresh skill", "description": "New one", "body": "# Fresh"}],
+        }
+
+        # A connection loss / failover / statement timeout is not one bad entry. Swallowing it
+        # would report a successful sync (and skip reconciliation) while the catalog went stale.
+        with patch(
+            "products.skills.backend.api.community_skill_sync._upsert_community_skill",
+            side_effect=OperationalError("server closed the connection unexpectedly"),
+        ):
+            with self.assertRaises(OperationalError):
+                sync_community_skills_from_github()
 
     @patch("products.skills.backend.api.community_skill_sync.github_request")
     def test_sync_coerces_unknown_trust_tier_to_community(self, mock_get) -> None:
