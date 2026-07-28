@@ -79,10 +79,16 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
     }, [showMetrics, currentTab, setCurrentTab])
 
     useEffect(() => {
+        // Wait for the source before deciding the tab is unavailable. While it's null `showSyncs` is
+        // false, so a URL-selected "syncs" tab would get bounced to Configuration and push a bogus
+        // history entry over the URL the user actually navigated to.
+        if (!source) {
+            return
+        }
         if (!showSyncs && currentTab === 'syncs') {
             setCurrentTab('configuration')
         }
-    }, [showSyncs, currentTab, setCurrentTab])
+    }, [source, showSyncs, currentTab, setCurrentTab])
 
     useEffect(() => {
         if (!showColumnsSection && currentSection === 'columns') {

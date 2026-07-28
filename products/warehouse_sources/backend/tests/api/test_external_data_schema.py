@@ -3442,6 +3442,8 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
         summary = response.json()["source"]
         assert summary["id"] == str(source.id)
         assert summary["source_type"] == source_type.value
+        # The schema page reads this to hide sync-history UI on direct-query sources.
+        assert summary["access_method"] == source.access_method
         assert summary["supports_column_selection"] is expected_column_selection
         assert summary["supports_row_filters"] is expected_row_filters
         assert "user_access_level" in summary
