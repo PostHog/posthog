@@ -94,11 +94,11 @@ describe('action.conditional_branch', () => {
 
         describe('wait logic', () => {
             it('should handle wait duration and schedule next check', async () => {
-                action.config.delay_duration = '2h'
+                action.config.delay_duration = '5h'
                 const result = await checkConditions(invocation, action)
                 expect(result).toEqual({
-                    // Should schedule for 10 minutes from now
-                    scheduledAt: DateTime.utc().plus({ minutes: 10 }),
+                    // Capped: schedules an hour out rather than the full five
+                    scheduledAt: DateTime.utc().plus({ hours: 1 }),
                 })
             })
 
@@ -265,11 +265,11 @@ describe('action.conditional_branch', () => {
             expect(result.nextAction).toBeUndefined()
         })
 
-        it('re-parks a wait_until_condition on the 10-minute cap (polling retained as backstop)', async () => {
-            // Polling is kept for now: a wait_until_condition re-parks on the 10-minute cap and
-            // re-checks its condition, even though the subscription matcher also wakes it early on a
-            // matching signal. A 30-minute wait therefore schedules ~10 minutes out, not ~30.
-            waitAction.config.max_wait_duration = '30m'
+        it('re-parks a wait_until_condition on the polling cap (retained as backstop)', async () => {
+            // Polling is kept for now: a wait_until_condition re-parks on the cap and re-checks its
+            // condition, even though the subscription matcher also wakes it early on a matching
+            // signal. A 90-minute wait therefore schedules an hour out, not the full 90.
+            waitAction.config.max_wait_duration = '90m'
 
             const result = await handler.execute({
                 invocation: waitInvocation,
@@ -277,7 +277,21 @@ describe('action.conditional_branch', () => {
                 result: createInvocationResult(waitInvocation),
             })
 
-            expect(result.scheduledAt).toEqual(DateTime.utc().plus({ minutes: 10 }))
+            expect(result.scheduledAt).toEqual(DateTime.utc().plus({ hours: 1 }))
+        })
+
+        it('still parks to its own deadline when that is shorter than the cap', async () => {
+            // Unchanged by the cap: short waits are governed by max_wait, so raising the cap must not
+            // stretch them. This is the guard that keeps sub-cap waits (the common shape) intact.
+            waitAction.config.max_wait_duration = '5m'
+
+            const result = await handler.execute({
+                invocation: waitInvocation,
+                action: waitAction,
+                result: createInvocationResult(waitInvocation),
+            })
+
+            expect(result.scheduledAt).toEqual(DateTime.utc().plus({ minutes: 5 }))
         })
 
         it('marks the wait as re-parked when its condition does not match', async () => {

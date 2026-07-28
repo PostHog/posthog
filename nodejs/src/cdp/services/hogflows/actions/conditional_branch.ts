@@ -9,7 +9,15 @@ import { findContinueAction, findNextAction, isEvaluableCondition } from '../hog
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 import { calculatedScheduledAt } from './delay'
 
-const DEFAULT_WAIT_DURATION_SECONDS = 10 * 60
+// How long a parked wait_until_condition may sleep before the polling backstop re-checks its
+// condition. The matcher wakes these early on a matching signal, so this only bounds how late a
+// wake can be when no signal arrives — which for a clock-based condition is the whole story.
+//
+// Kept well under a day deliberately. A wait that fires a fixed period before a stored date has an
+// actionable window the width of that period; re-checking less often than the window means the
+// re-check can land after it closed, taking a branch whose guard has since flipped. An hour leaves
+// room on the windows we see in practice while cutting re-park churn six-fold.
+const DEFAULT_WAIT_DURATION_SECONDS = 60 * 60
 
 // Increments only when the 10-minute polling re-check advances a wait_until_condition that the
 // subscription matcher did NOT wake (and not an evaluate-on-entry match). This is the decisive
