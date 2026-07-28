@@ -33,8 +33,6 @@ impl Sweeper for ReconcileDrainSweeper {
         if !self.has_work() {
             return;
         }
-        // B6's live-lag pause belongs here, before fan-out, so admitted jobs keep their deferred
-        // offsets while maintenance reads are paused without waking every partition worker.
         self.dispatcher.route_reconcile_drain().await;
     }
 }
