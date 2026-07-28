@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientNonRetryableError,
+    RESTClientRetryableError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities import import_data_sync as module
@@ -186,6 +187,31 @@ async def test_rest_client_non_retryable_error_routes_through_handler_without_so
     handle_mock.assert_awaited_once()
     assert handle_mock.await_args is not None
     assert handle_mock.await_args.args[5] is error
+    logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_rest_client_retryable_error_logged_as_warning_without_source_opt_in():
+    # RESTClientRetryableError only escapes the shared REST engine's tenacity retry loop once its
+    # own attempts (rate limits, transient 5xx, connection resets/timeouts) are exhausted. It must
+    # be honored by type even when the source's get_retryable_errors doesn't list the message, so
+    # every REST-based source gets this benign, self-recovering failure logged as a warning instead
+    # of minting error-tracking noise.
+    error = RESTClientRetryableError("HTTP 429 for https://api.example.com/v3/orders/")
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
+        with pytest.raises(RESTClientRetryableError):
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    logger.awarning.assert_awaited_once()
     logger.aexception.assert_not_awaited()
 
 
