@@ -4,6 +4,7 @@ from typing import Any, Optional, cast
 
 from django.apps import apps
 from django.core.cache import cache
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import BigIntegerField, CharField, F, QuerySet, Value
 from django.db.models.functions import Cast
 
@@ -245,13 +246,24 @@ def denied_short_id_refs(user_access_control: UserAccessControl, project_id: int
     denied_refs: dict[str, list[str]] = {}
     for entry_type, pks in denied_pks.items():
         registration = get_file_system_registration(entry_type)
-        numeric_pks = [pk for pk in pks if pk.isdigit()]
-        if registration is None or not numeric_pks:
+        if registration is None:
             continue
         model = apps.get_model(registration.app_label, registration.model_name)
+        # Grants are stored as strings, so coerce through the model's own pk field rather than
+        # assuming a shape - these types include both integer and UUID primary keys, and a value
+        # the pk field rejects would make the query raise.
+        pk_field = model._meta.pk
+        valid_pks = []
+        for pk in pks:
+            try:
+                valid_pks.append(pk_field.to_python(pk))
+            except (DjangoValidationError, ValueError, TypeError):
+                continue
+        if not valid_pks:
+            continue
         manager = getattr(model, registration.manager_name, model._default_manager)
         refs = manager.filter(
-            **{f"{registration.team_field}__project_id": project_id, "pk__in": numeric_pks}
+            **{f"{registration.team_field}__project_id": project_id, "pk__in": valid_pks}
         ).values_list(registration.lookup_field, flat=True)
         if refs:
             denied_refs[entry_type] = [str(ref) for ref in refs]
