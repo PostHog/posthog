@@ -430,9 +430,9 @@ pub struct Config {
 
     // --- Ingestion warnings emitter (fire-and-forget, best-effort) ---
     // Warnings are emitted as `$$client_ingestion_warning` events onto the
-    // existing `client_ingestion_warning` topic on the main event cluster
-    // (see `KAFKA_CLIENT_INGESTION_WARNING_TOPIC`), so the producer reuses the
-    // main cluster's hosts/TLS — but it gets its OWN dedicated
+    // existing `client_ingestion_warning` topic, by default on the main event
+    // cluster: absent the warnings-cluster overrides below, the producer
+    // reuses the main cluster's hosts/TLS — but it gets its OWN dedicated
     // `common_kafka::config::KafkaConfig` (below) with fire-and-forget
     // acks/retries and a small queue, so a saturated or slow warnings topic
     // can never behave like — or contend with — the main event producer.
@@ -455,6 +455,18 @@ pub struct Config {
     // the main event producer allows.
     #[envconfig(default = "1048576")]
     pub capture_ingestion_warnings_kafka_message_max_bytes: u32,
+
+    // Warnings-cluster overrides. When unset, the emitter reuses the
+    // corresponding `kafka_*` value: `kafka_client_ingestion_warning_topic`
+    // and `kafka_hosts`.
+    //
+    // The emitter runs in the v1 analytics handler but its destination has
+    // always been read from the v0 `KAFKA_*` block. Retiring that block would
+    // silently fall the topic back to its envconfig default, which is wrong in
+    // every environment, so the emitter owns its own names here. Setting them
+    // in charts makes the fallback dead config.
+    pub capture_ingestion_warnings_kafka_topic: Option<String>,
+    pub capture_ingestion_warnings_kafka_hosts: Option<String>,
 }
 
 #[derive(Envconfig, Clone)]
