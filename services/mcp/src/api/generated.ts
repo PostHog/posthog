@@ -15068,6 +15068,14 @@ export namespace Schemas {
       color?: string | null;
     }
 
+    export interface CreateVersionFromSourceInput {
+      /**
+         * Full Python source for the Streamlit app's root app.py file, as free text (max 1 MB). Becomes a new version and is set as the active version.
+         * @maxLength 1048576
+         */
+      source: string;
+    }
+
     /**
      * * `user` - user
      * * `ai_generated` - ai_generated
