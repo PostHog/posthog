@@ -255,7 +255,7 @@ export function AttributionTable({
                     later in the journey, like signing up or paying, show how the models differ.
                 </LemonBanner>
             )}
-            {!responseLoading && <AttributionChart rows={rows} models={models} dimensionLabel={dimensionLabel} />}
+            <AttributionChart rows={rows} models={models} dimensionLabel={dimensionLabel} loading={responseLoading} />
             <LemonTable
                 className="AttributionTable"
                 columns={columns}
