@@ -1735,9 +1735,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
     @staticmethod
     def _can_write_schema(user_access_control, schema: ExternalDataSchema) -> bool:
-        # Same resolution the schema viewset's permission uses: the table's rules, or the source's
-        # when the table has none. A schema carries no rules of its own for the generic check to find.
-        level = user_access_control.warehouse_table_effective_level(schema.table, schema.source)
+        # Same resolution the schema viewset's permission uses: the synced table (which falls back to
+        # the source), or the source before first sync. A schema carries no rules of its own.
+        level = user_access_control.get_user_access_level(schema.table or schema.source)
         return level is not None and access_level_satisfied_for_resource("warehouse_table", level, "editor")
 
     def _assert_can_write_schemas(self, schemas: Iterable[ExternalDataSchema]) -> None:

@@ -484,12 +484,12 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         }
 
     def get_user_access_level(self, schema: ExternalDataSchema) -> str | None:  # type: ignore[override]  # narrows the mixin's Model — DRF always dispatches with this serializer's instance
-        # Most-specific rule wins: the synced table's own rules if any, else the parent source's
-        # access (table is null before first sync). Drives the row's sync/delete gating in the UI.
+        # The synced table's access (which itself falls back to the source, via RESOURCE_FALLBACK_MAP),
+        # or the source's before first sync. Drives the row's sync/delete gating in the UI.
         uac = self.user_access_control
         if uac is None:
             return None
-        return uac.warehouse_table_effective_level(schema.table, schema.source)
+        return uac.get_user_access_level(schema.table or schema.source)
 
     @extend_schema_field(ExternalDataSourceApiVersionDeprecationSerializer(allow_null=True))
     def get_api_version_deprecation(self, schema: ExternalDataSchema) -> dict[str, Any] | None:
@@ -1334,9 +1334,10 @@ class WarehouseTableAccessPermission(AccessControlPermission):
     """Resolves a schema's access through the table it syncs.
 
     No access control rules are written against a schema, so the base class - which looks for rules
-    keyed to the object's own id - finds none and lets everything through. Resolve through the
-    table's rules instead, falling back to the source's when the table has none of its own.
-    The required level still comes from the base class: viewer to read, editor to write."""
+    keyed to the object's own id - finds none and lets everything through. Resolve through the table
+    instead (whose access falls back to the source via RESOURCE_FALLBACK_MAP), or the source directly
+    before the first sync. The required level still comes from the base class: viewer to read, editor
+    to write."""
 
     def has_object_permission(self, request: Request, view, obj: ExternalDataSchema) -> bool:
         # Service credentials (PSAK/TST) are synthetic users UserAccessControl can't evaluate; they're
@@ -1346,7 +1347,7 @@ class WarehouseTableAccessPermission(AccessControlPermission):
         required_level = self._get_required_access_level(request, view)
         if not required_level:
             return True
-        level = view.user_access_control.warehouse_table_effective_level(obj.table, obj.source)
+        level = view.user_access_control.get_user_access_level(obj.table or obj.source)
         if level is None or not access_level_satisfied_for_resource("warehouse_table", level, required_level):
             self.message = f"You do not have {required_level} access to this table."
             return False
