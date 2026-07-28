@@ -69,8 +69,14 @@ def provision_gate_sandbox_activity(input: ProvisionGateSandboxInput) -> Provisi
             sandbox_id=sandbox.id, checkout_error=f"git clone failed: {clone.stderr[:300]}"
         )
 
+    # `git checkout {ref}` DWIMs a remote-only branch into a local tracking one; `git diff`
+    # doesn't get the same treatment, so a base_ref that only exists as `origin/<base_ref>`
+    # (the common case — a fresh clone only auto-creates a local branch for the one it
+    # checks out) fails as "ambiguous argument" without this. `git branch` a local ref for
+    # it first; harmlessly ignored if base_ref is already local or is a raw SHA.
     diff = sandbox.execute(
         f"cd {shlex.quote(GATE_WORKDIR)} && git checkout {shlex.quote(input.ref)} "
+        f"&& (git branch {shlex.quote(input.base_ref)} {shlex.quote('origin/' + input.base_ref)} 2>/dev/null || true) "
         f"&& git diff {shlex.quote(input.base_ref)} {shlex.quote(input.ref)}",
         timeout_seconds=60,
     )

@@ -9,6 +9,7 @@ in a sandbox, gathers their output, and calls straight into these functions.
 from __future__ import annotations
 
 import re
+import json
 import shlex
 from dataclasses import dataclass
 
@@ -169,47 +170,41 @@ def coverage_check_outcome(
     return CheckOutcome(passed=pct >= min_changed_line_pct, detail=detail)
 
 
-# ---- mutation command resolution + report parsing (mutmut's ``mutmut junitxml`` output) ----
+# ---- mutation command resolution + report parsing (mutmut's ``export-cicd-stats`` output) ----
 
-MUTATION_REPORT_PATH = "mutmut-report.xml"
-_DEFAULT_MUTATION_COMMAND_TEMPLATE = (
-    "mutmut run --paths-to-mutate {files} --no-progress; mutmut junitxml > " + MUTATION_REPORT_PATH
-)
+# mutmut 3.x's CLI dropped the old `--paths-to-mutate` flag and `junitxml` command entirely —
+# path scoping is now config-only (`[tool.mutmut] source_paths` in the artifact's own
+# pyproject.toml/setup.cfg, which a test-writer node is expected to declare alongside its
+# acceptance tests), and the machine-readable report comes from `mutmut export-cicd-stats`,
+# a small JSON summary written to `mutants/mutmut-cicd-stats.json`. The built-in default below
+# reflects that: it does NOT filter to changed files itself (there's no CLI hook left to do it
+# with), trusting the repo's own mutmut config instead.
+MUTATION_REPORT_PATH = "mutants/mutmut-cicd-stats.json"
+_DEFAULT_MUTATION_COMMAND = "mutmut run; mutmut export-cicd-stats"
 
 
 def resolve_mutation_command(command_template: str, changed_files: list[str]) -> str:
-    """Fill '{files}' in a mutation command template with the shell-quoted changed files.
-
-    A configured template is trusted as-is (it may target any language/tool); the built-in
-    fallback is mutmut-specific, so it additionally restricts itself to changed ``.py`` files
-    (mutmut has nothing to mutate in anything else). Falls back to mutating the whole tree
-    (``.``) only if the diff touched no files of the relevant kind — better an over-broad
-    mutation run than a `mutmut` invocation with an empty --paths-to-mutate.
+    """Fill '{files}' in a configured mutation command template with the shell-quoted changed
+    files — kept for tools (or older mutmut versions) that still take a paths argument. The
+    built-in default ignores `changed_files` entirely; see the module-level comment above.
     """
     if command_template:
         files_arg = shlex.join(changed_files) if changed_files else "."
         return command_template.format(files=files_arg)
-    python_files = [f for f in changed_files if f.endswith(".py")]
-    files_arg = shlex.join(python_files) if python_files else "."
-    return _DEFAULT_MUTATION_COMMAND_TEMPLATE.format(files=files_arg)
+    return _DEFAULT_MUTATION_COMMAND
 
 
-# ---- mutation report parsing (mutmut's ``mutmut junitxml`` output) ----
-
-
-def parse_mutation_junitxml(content: str) -> tuple[float, int, int]:
-    """A testcase with no failure/error child is a killed mutant; one with a failure or
-    error child survived (or errored/timed out). Score is killed / total."""
-    root = ET.fromstring(content)
-    testcases = list(root.iter("testcase"))
-    total = len(testcases)
-    killed = sum(1 for tc in testcases if tc.find("failure") is None and tc.find("error") is None)
+def parse_mutation_cicd_stats(content: str) -> tuple[float, int, int]:
+    """Parse `mutmut export-cicd-stats`'s JSON summary: `{killed, survived, total, ...}`.
+    Score is killed / total."""
+    stats = json.loads(content)
+    killed, total = int(stats.get("killed", 0)), int(stats.get("total", 0))
     pct = (killed / total * 100) if total else 0.0
     return pct, killed, total
 
 
 def mutation_check_outcome(*, report_content: str, min_score_pct: float) -> CheckOutcome:
-    pct, killed, total = parse_mutation_junitxml(report_content)
+    pct, killed, total = parse_mutation_cicd_stats(report_content)
     if total == 0:
         return CheckOutcome(passed=False, detail="no mutants were generated for the changed files")
     detail = f"{killed}/{total} mutants killed ({pct:.1f}%, min {min_score_pct:.1f}%)"

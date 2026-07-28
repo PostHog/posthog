@@ -1,3 +1,5 @@
+import json
+
 from parameterized import parameterized
 
 from products.foundry.backend.logic import gauntlet
@@ -33,12 +35,8 @@ _COBERTURA_REPORT = """<coverage>
 """
 
 
-def _mutation_junitxml(killed: int, survived: int) -> str:
-    cases = "".join(f'<testcase classname="m" name="killed_{i}"></testcase>' for i in range(killed))
-    cases += "".join(
-        f'<testcase classname="m" name="survived_{i}"><failure message="survived"/></testcase>' for i in range(survived)
-    )
-    return f"<testsuite>{cases}</testsuite>"
+def _mutation_cicd_stats(killed: int, survived: int) -> str:
+    return json.dumps({"killed": killed, "survived": survived, "total": killed + survived})
 
 
 class TestDiffParsing:
@@ -102,8 +100,8 @@ class TestCoverageReportParsing:
 
 
 class TestMutationReportParsing:
-    def test_parse_mutation_junitxml(self) -> None:
-        pct, killed, total = gauntlet.parse_mutation_junitxml(_mutation_junitxml(killed=2, survived=1))
+    def test_parse_mutation_cicd_stats(self) -> None:
+        pct, killed, total = gauntlet.parse_mutation_cicd_stats(_mutation_cicd_stats(killed=2, survived=1))
         assert (killed, total) == (2, 3)
         assert round(pct, 2) == 66.67
 
@@ -116,7 +114,7 @@ class TestMutationReportParsing:
     def test_mutation_check_outcome_boundary(self, min_score_pct: float, expected_pass: bool) -> None:
         """2/3 killed = 66.67% — passes at a lower bar, fails just above the actual score."""
         outcome = gauntlet.mutation_check_outcome(
-            report_content=_mutation_junitxml(killed=2, survived=1), min_score_pct=min_score_pct
+            report_content=_mutation_cicd_stats(killed=2, survived=1), min_score_pct=min_score_pct
         )
         assert outcome.passed is expected_pass
 
@@ -124,27 +122,22 @@ class TestMutationReportParsing:
         """An empty mutation report (mutmut found nothing to mutate) must not silently pass —
         that would let a required mutation check rubber-stamp a change nothing was tested."""
         outcome = gauntlet.mutation_check_outcome(
-            report_content=_mutation_junitxml(killed=0, survived=0), min_score_pct=0
+            report_content=_mutation_cicd_stats(killed=0, survived=0), min_score_pct=0
         )
         assert outcome.passed is False
         assert "no mutants" in outcome.detail
 
-    def test_resolve_mutation_command_with_custom_template_trusts_it_as_is(self) -> None:
-        """A configured template isn't mutmut-specific — it must not silently drop non-.py
-        files the way the built-in default deliberately does."""
-        command = gauntlet.resolve_mutation_command("mutmut run --paths-to-mutate {files}", ["app.py", "README.md"])
+    def test_resolve_mutation_command_with_custom_template_fills_files_placeholder(self) -> None:
+        """A configured template is trusted as-is, including any {files} placeholder — unlike
+        the built-in default, which mutmut 3.x's CLI no longer lets us restrict by path."""
+        command = gauntlet.resolve_mutation_command("some-tool --paths {files}", ["app.py", "README.md"])
         assert "app.py" in command and "README.md" in command
 
-    def test_resolve_mutation_command_default_restricts_to_python_files(self) -> None:
+    def test_resolve_mutation_command_default_ignores_changed_files(self) -> None:
+        """mutmut 3.x dropped --paths-to-mutate; the built-in default relies on the artifact
+        repo's own [tool.mutmut] source_paths config instead of any per-run file list."""
         command = gauntlet.resolve_mutation_command("", ["app.py", "README.md"])
-        assert "app.py" in command
-        assert "README.md" not in command
-
-    def test_resolve_mutation_command_falls_back_to_whole_tree_when_no_python_files_changed(self) -> None:
-        """The built-in mutmut default has nothing to restrict to when a diff touches no .py
-        files — it must mutate the whole tree rather than pass mutmut an empty path list."""
-        command = gauntlet.resolve_mutation_command("", ["README.md"])
-        assert "--paths-to-mutate ." in command
+        assert command == "mutmut run; mutmut export-cicd-stats"
 
 
 class TestProtectedPaths:

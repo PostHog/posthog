@@ -277,7 +277,7 @@ async def test_mutation_check_threads_max_minutes_through_as_the_sandbox_timeout
     that can't actually enforce wall-clock time."""
     bet = await sync_to_async(_bet_in_building)(team, user)
     sandbox_class, execute_calls = make_fake_gate_sandbox_class(
-        file_contents={"mutmut-report.xml": "<testsuite><testcase/></testsuite>"}
+        file_contents={"mutants/mutmut-cicd-stats.json": '{"killed": 1, "survived": 0, "total": 1}'}
     )
     gate_config = {
         "checks": [{"name": "mutation", "check_type": "mutation", "params": {"min_score_pct": 50, "max_minutes": 3}}]
