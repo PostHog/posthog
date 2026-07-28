@@ -125,6 +125,7 @@ the row lists both.
 | canny                            | HTTP                        | requests                                                        | ✅                          |
 | capsule_crm                      | HTTP                        | requests                                                        | ✅                          |
 | care_quality_commission          | HTTP                        | requests                                                        | ✅                          |
+| cast_ai                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | census                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | chameleon                        | HTTP                        | requests                                                        | ✅                          |
 | chargebee                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -203,6 +204,7 @@ the row lists both.
 | dixa                             | HTTP                        | requests                                                        | ✅                          |
 | dockerhub                        | HTTP                        | requests                                                        | ✅                          |
 | docuseal                         | HTTP                        | requests                                                        | ✅                          |
+| docusign                         | HTTP                        | requests                                                        | ✅                          |
 | doit                             | HTTP                        | requests                                                        | ✅                          |
 | doppler                          | HTTP                        | requests                                                        | ✅                          |
 | dovetail                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -217,6 +219,7 @@ the row lists both.
 | easypromos                       | HTTP                        | requests                                                        | ✅                          |
 | elevenlabs                       | HTTP                        | requests                                                        | ✅                          |
 | eppo                             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| etsy                             | HTTP                        | requests                                                        | ✅                          |
 | excel                            | Own object storage          | openpyxl (reads an uploaded workbook from our bucket)           | ➖ N/A                      |
 | freshcaller                      | HTTP                        | requests                                                        | ✅                          |
 | freshchat                        | HTTP                        | requests                                                        | ✅                          |
@@ -283,6 +286,7 @@ the row lists both.
 | groq                             | HTTP                        | requests                                                        | ✅                          |
 | guardian                         | HTTP                        | requests                                                        | ✅                          |
 | guru                             | HTTP                        | requests                                                        | ✅                          |
+| gusto                            | HTTP                        | requests                                                        | ✅                          |
 | harvey                           | HTTP                        | requests                                                        | ✅                          |
 | hatchet                          | HTTP                        | requests                                                        | ✅                          |
 | healthchecks                     | HTTP                        | requests                                                        | ✅                          |
@@ -826,7 +830,6 @@ doesn't conflict with concurrent PRs.
 - captivate
 - cart_com
 - cashfree
-- cast_ai
 - castor_edc
 - catchpoint
 - cdc_open_data
@@ -879,7 +882,6 @@ doesn't conflict with concurrent PRs.
 - dialpad
 - discord
 - display_video_360
-- docusign
 - dodopayments
 - dolibarr
 - donorbox
@@ -905,7 +907,6 @@ doesn't conflict with concurrent PRs.
 - employment_hero
 - encharge
 - entsoe
-- etsy
 - eurostat
 - expensify
 - facebook_pages
@@ -1000,7 +1001,6 @@ doesn't conflict with concurrent PRs.
 - guesty
 - gumloop
 - gumroad
-- gusto
 - harness
 - harness_ccm
 - harness_sei

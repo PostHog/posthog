@@ -22,8 +22,6 @@ from posthog.api.team import TeamSerializer, TeamViewSet
 PROJECT_ONLY_SERIALIZER_FIELDS = {"product_description", "is_pending_deletion"}
 
 # Actions that legitimately exist only on the project surface (operate on the Project, not the Team).
-# default_release_conditions and default_evaluation_contexts were moved project-side on master (#73294),
-# so they're project-only by design.
 PROJECT_ONLY_ACTIONS = {"change_organization", "default_release_conditions", "default_evaluation_contexts"}
 
 

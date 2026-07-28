@@ -3520,6 +3520,8 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     resourceFingerprint?: string
     /** Omit the per-log `attributes` and `resource_attributes` maps from results to keep payloads compact */
     excludeAttributes?: boolean
+    /** Show logs for a given person */
+    personId?: string
     /**
      * Custom column expressions evaluated per log row. Each entry is either a source-prefixed
      * shorthand (`attributes.<key>`, `resource_attributes.<key>`, `body.<json.path>`) or a scalar
