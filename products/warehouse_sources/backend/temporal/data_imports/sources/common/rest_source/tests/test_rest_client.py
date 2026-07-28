@@ -6,7 +6,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from requests import Response
-from requests.exceptions import ChunkedEncodingError, ProxyError, ReadTimeout
+from requests.exceptions import ChunkedEncodingError, InvalidHeader, ProxyError, ReadTimeout
 
 from posthog.temporal.common.errors import NonReportableError
 
@@ -534,6 +534,28 @@ class TestRESTClient:
         mock_session.send.side_effect = [ReadTimeout("Read timed out."), ok]
 
         client = RESTClient(base_url="https://api.example.com", request_timeout=(3.05, 30))
+        pages = list(client.paginate(path="/items", data_selector="results", paginator=SinglePagePaginator()))
+
+        assert pages == [[{"id": 1}]]
+        assert mock_session.send.call_count == 2
+
+    @patch("tenacity.nap.time.sleep")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+    )
+    def test_send_request_retries_invalid_header_then_succeeds(self, MockSession, mock_sleep) -> None:
+        # A fractional `Retry-After` (e.g. `0.129`) trips urllib3's integer/HTTP-date-only parser
+        # mid-retry-sleep and surfaces from `send` as requests.exceptions.InvalidHeader — not a
+        # Connection/Chunked/Timeout error, so without a dedicated branch it escaped the retry loop
+        # and failed the whole sync. Reissue it instead of crashing the import.
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.return_value = MagicMock(url="https://api.example.com/items")
+
+        ok = _make_response({"results": [{"id": 1}]})
+        mock_session.send.side_effect = [InvalidHeader("Invalid Retry-After header: 0.129"), ok]
+
+        client = RESTClient(base_url="https://api.example.com")
         pages = list(client.paginate(path="/items", data_selector="results", paginator=SinglePagePaginator()))
 
         assert pages == [[{"id": 1}]]

@@ -31,6 +31,12 @@ DEFAULT_RETRY = Retry(
     status_forcelist=(429, 500, 502, 503, 504),
     allowed_methods=frozenset(["GET", "HEAD", "OPTIONS"]),
     raise_on_status=False,
+    # Don't let urllib3 parse `Retry-After` for us: its `parse_retry_after` only accepts integer
+    # seconds or an HTTP-date, so a fractional value like `0.129` raises `InvalidHeader` mid-sleep —
+    # which surfaces as `requests.exceptions.InvalidHeader` and would fail the whole sync instead of
+    # retrying. We back off on `backoff_factor` here; callers that need to honor the server's own
+    # `Retry-After` do it at a higher layer (e.g. `RESTClient`) with a tolerant parser.
+    respect_retry_after_header=False,
 )
 
 

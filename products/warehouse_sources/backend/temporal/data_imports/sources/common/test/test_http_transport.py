@@ -4,6 +4,7 @@ from unittest.mock import patch
 import requests
 from requests import Response
 from requests.adapters import HTTPAdapter
+from urllib3.response import HTTPResponse
 from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import (
@@ -59,6 +60,17 @@ def test_make_tracked_session_uses_default_retry():
     assert adapter.max_retries.total == DEFAULT_RETRY.total
     assert adapter.max_retries.backoff_factor == DEFAULT_RETRY.backoff_factor
     assert set(adapter.max_retries.status_forcelist or ()) == set(DEFAULT_RETRY.status_forcelist or ())
+
+
+def test_default_retry_does_not_crash_on_fractional_retry_after():
+    # urllib3's `parse_retry_after` only accepts integer seconds or an HTTP-date, so a fractional
+    # `Retry-After` like `0.129` raises InvalidHeader from inside its retry sleep — which would fail
+    # the whole sync instead of retrying. DEFAULT_RETRY must not respect the header (it backs off on
+    # `backoff_factor`), so sleeping between retries never parses the header at all.
+    assert DEFAULT_RETRY.respect_retry_after_header is False
+    response = HTTPResponse(headers={"Retry-After": "0.129"})
+    # Empty history → `_sleep_backoff` returns immediately; this must not raise.
+    DEFAULT_RETRY.sleep(response)
 
 
 def test_make_tracked_session_honors_custom_retry():

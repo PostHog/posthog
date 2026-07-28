@@ -12,6 +12,7 @@ from requests.exceptions import (
     ChunkedEncodingError,
     ConnectionError as RequestsConnectionError,
     HTTPError,
+    InvalidHeader as RequestsInvalidHeader,
     JSONDecodeError as RequestsJSONDecodeError,
     Timeout as RequestsTimeout,
 )
@@ -383,6 +384,15 @@ class RESTClient:
             # credential-in-query-string reason as the ConnectionError branch.
             raise RESTClientRetryableError(
                 self._redact(f"Request timed out ({type(e).__name__}) for {_safe_url(prepared.url or '')}")
+            ) from e
+        except RequestsInvalidHeader as e:
+            # A malformed response header the underlying urllib3 retry couldn't parse — most often a
+            # fractional `Retry-After` (e.g. `0.129`), which urllib3's integer/HTTP-date-only parser
+            # rejects mid-retry-sleep and re-raises here. It's not a Connection/Chunked/Timeout error,
+            # so without this branch it would escape the retry loop and fail the whole sync. Reissue
+            # it: our own `_parse_retry_after` below tolerates fractional values on the reissued 429.
+            raise RESTClientRetryableError(
+                self._redact(f"Invalid response header ({type(e).__name__}) for {_safe_url(prepared.url or '')}")
             ) from e
 
         # With redirects disabled, a 3xx is not an error to `raise_for_status` and would fall
