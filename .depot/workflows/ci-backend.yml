@@ -551,6 +551,7 @@ jobs:
     # trusted on a draft (legacy graph impact, turbo-discover or selector failure,
     # a selector full-run signal), the draft skips the heavy matrices entirely —
     # the pre-selection draft behavior — and defers to the ready full run.
+    # hogli-lint: not-a-required-gate - selects draft coverage and emits no required check.
     #
     # Depot shadow note: canonical uploads /tmp/selection.json for its
     # test-selection-verdict job. The depot shadow strips that job (and all
@@ -2079,17 +2080,10 @@ jobs:
                     local label="$1"
                     local result="$2"
 
-                    if [[ "$result" == "success" || "$result" == "skipped" ]]; then
-                      return
+                    if [[ "$result" != "success" && "$result" != "skipped" ]]; then
+                      echo "::error::$label did not succeed (result: '$result')."
+                      exit 1
                     fi
-
-                    if [[ "$result" == "cancelled" ]]; then
-                      echo "::error::$label was cancelled or timed out."
-                    else
-                      echo "::error::$label failed with result '$result'."
-                    fi
-
-                    exit 1
                   }
 
                   # Upstream jobs whose failure would otherwise only cascade into django
