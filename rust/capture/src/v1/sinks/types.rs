@@ -2,7 +2,8 @@
 //! processing and bridges onto the shared [`Address`] via [`Destination::as_address`];
 //! everything downstream of that bridge is the shared outputs machinery.
 
-use crate::pipeline::{Address, AnalyticsLane, BasicLane, Pipeline};
+use crate::event_restrictions::Pipeline as RestrictionPipeline;
+use crate::pipeline::{Address, AiLane, AnalyticsLane, BasicLane, Pipeline};
 
 /// Kafka topic routing for a processed event.
 /// `Drop` means the event should not be produced at all.
@@ -18,12 +19,20 @@ pub enum Destination {
     ExceptionErrorTracking,
     HeatmapMain,
     ClientIngestionWarning,
+    AiEvents,
+    /// Overflow lane for `AiEvents`. Only produced when the AI overflow
+    /// valve (`CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`) is armed; overflow on the AI lane
+    /// lands here, never on the analytics `Overflow` destination.
+    AiEventsOverflow,
 }
 
 impl Destination {
     /// Returns true for destinations that flow through the analytics ingestion
     /// pipeline (and are therefore subject to analytics-scoped restrictions,
     /// overflow routing, etc). Mirrors legacy `DataType::is_analytics_pipeline`.
+    ///
+    /// `AiEvents` is false: `$ai_*` events are diverted out of the analytics
+    /// pipeline into a dedicated AI lane, just like heatmaps/exceptions.
     pub fn is_analytics_pipeline(&self) -> bool {
         matches!(self, Self::AnalyticsMain | Self::AnalyticsHistorical)
     }
@@ -42,12 +51,32 @@ impl Destination {
             Self::ExceptionErrorTracking => Address::ErrorTracking(BasicLane::Main),
             Self::HeatmapMain => Address::Heatmaps(BasicLane::Main),
             Self::ClientIngestionWarning => Address::Warnings(BasicLane::Main),
+            Self::AiEvents => Address::Ai(AiLane::Main),
+            Self::AiEventsOverflow => Address::Ai(AiLane::Overflow),
             Self::Custom(topic) => Address::Custom {
                 pipeline: Pipeline::Analytics,
                 topic: topic.clone(),
             },
             Self::Drop => return None,
         })
+    }
+
+    /// Restriction pipeline this destination is governed by, if any. Mirrors
+    /// legacy `DataType::pipeline`: the AI lane (including its overflow arm)
+    /// consults ai-scoped restrictions, the analytics lanes consult analytics
+    /// ones. `None` destinations flow through unrestricted — either they have
+    /// no shared restriction config (heatmaps, ingestion warnings) or they are
+    /// themselves restriction/terminal outcomes (Dlq, Custom, Drop).
+    pub fn pipeline(&self) -> Option<RestrictionPipeline> {
+        match self {
+            Self::AnalyticsMain | Self::AnalyticsHistorical | Self::Overflow => {
+                Some(RestrictionPipeline::Analytics)
+            }
+            Self::AiEvents | Self::AiEventsOverflow => Some(RestrictionPipeline::Ai),
+            Self::ExceptionErrorTracking => Some(RestrictionPipeline::ErrorTracking),
+            Self::HeatmapMain | Self::ClientIngestionWarning | Self::Dlq | Self::Custom(_) => None,
+            Self::Drop => None,
+        }
     }
 
     /// Stable, low-cardinality metric tag. `Custom(_)` collapses to "custom"
@@ -63,6 +92,8 @@ impl Destination {
             Self::ExceptionErrorTracking => "exception_error_tracking",
             Self::HeatmapMain => "heatmap_main",
             Self::ClientIngestionWarning => "client_ingestion_warning",
+            Self::AiEvents => "ai_events",
+            Self::AiEventsOverflow => "ai_events_overflow",
         }
     }
 }
@@ -70,7 +101,7 @@ impl Destination {
 #[cfg(test)]
 mod destination_tests {
     use super::Destination;
-    use crate::pipeline::{Address, AnalyticsLane, BasicLane, Pipeline};
+    use crate::pipeline::{Address, AiLane, AnalyticsLane, BasicLane, Pipeline};
 
     /// Every non-`Drop` destination bridges to a shared `Address`, and `Drop`
     /// maps to `None`. This is the seam that lets the v1 stack resolve topics
@@ -106,6 +137,14 @@ mod destination_tests {
             Some(Address::Warnings(BasicLane::Main))
         );
         assert_eq!(
+            Destination::AiEvents.as_address(),
+            Some(Address::Ai(AiLane::Main))
+        );
+        assert_eq!(
+            Destination::AiEventsOverflow.as_address(),
+            Some(Address::Ai(AiLane::Overflow))
+        );
+        assert_eq!(
             Destination::Custom("t".to_string()).as_address(),
             Some(Address::Custom {
                 pipeline: Pipeline::Analytics,
@@ -126,6 +165,8 @@ mod destination_tests {
         assert!(!Destination::ExceptionErrorTracking.is_analytics_pipeline());
         assert!(!Destination::HeatmapMain.is_analytics_pipeline());
         assert!(!Destination::ClientIngestionWarning.is_analytics_pipeline());
+        assert!(!Destination::AiEvents.is_analytics_pipeline());
+        assert!(!Destination::AiEventsOverflow.is_analytics_pipeline());
         assert!(!Destination::Overflow.is_analytics_pipeline());
         assert!(!Destination::Dlq.is_analytics_pipeline());
         assert!(!Destination::Drop.is_analytics_pipeline());
@@ -156,6 +197,8 @@ mod destination_tests {
                 Destination::ClientIngestionWarning,
                 "client_ingestion_warning",
             ),
+            (Destination::AiEvents, "ai_events"),
+            (Destination::AiEventsOverflow, "ai_events_overflow"),
         ];
 
         let mut seen = std::collections::HashSet::new();

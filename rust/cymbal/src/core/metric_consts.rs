@@ -65,6 +65,14 @@ pub const BYTE_HISTOGRAM_BUCKETS: &[f64] = &[
     1_073_741_824.0, // 1 GiB
 ];
 pub const ISSUE_CREATED: &str = "cymbal_issue_created";
+pub const ISSUE_CREATED_EVENT_PROPERTIES_STORED: &str =
+    "cymbal_issue_created_event_properties_stored";
+pub const ISSUE_CREATED_EVENT_PROPERTIES_STORE_FAILED: &str =
+    "cymbal_issue_created_event_properties_store_failed";
+pub const ISSUE_CREATED_EVENT_PROPERTIES_STORE_SKIPPED: &str =
+    "cymbal_issue_created_event_properties_store_skipped";
+pub const ISSUE_CREATED_EVENT_PROPERTIES_BYTES: &str =
+    "cymbal_issue_created_event_properties_bytes";
 pub const ISSUE_REOPENED: &str = "cymbal_issue_reopened";
 pub const FRAME_RESOLUTION_RESULTS_DELETED: &str = "cymbal_frame_resolution_results_deleted";
 pub const CHUNK_ID_NOT_FOUND: &str = "cymbal_chunk_id_not_found";

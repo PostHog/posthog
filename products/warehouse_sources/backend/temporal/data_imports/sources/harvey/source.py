@@ -116,6 +116,7 @@ Each token carries a per-endpoint permissions list — grant access for the endp
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Audit logs are immutable, so append-only is the only incremental mode we offer.
         append_only_endpoints = {"audit_logs"}
@@ -145,7 +146,11 @@ Each token carries a per-endpoint permissions list — grant access for the endp
         return schemas
 
     def validate_credentials(
-        self, config: HarveySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: HarveySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if not validate_harvey_credentials(config.api_key, config.region):
             return False, "Invalid Harvey API token"
@@ -160,7 +165,7 @@ Each token carries a per-endpoint permissions list — grant access for the endp
         return True, None
 
     def get_endpoint_permissions(
-        self, config: HarveySourceConfig, team_id: int, endpoints: list[str]
+        self, config: HarveySourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
     ) -> dict[str, str | None]:
         return {
             endpoint: check_endpoint_access(config.api_key, config.region, endpoint)

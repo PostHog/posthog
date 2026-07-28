@@ -89,6 +89,7 @@ Create an API token in the [Cloudflare dashboard](https://dash.cloudflare.com/pr
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # v4 REST lists are small configuration tables with no updated-since
         # filters; the analytics datasets live in the GraphQL API (follow-up).
@@ -109,12 +110,25 @@ Create an API token in the [Cloudflare dashboard](https://dash.cloudflare.com/pr
         return schemas
 
     def validate_credentials(
-        self, config: CloudflareSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: CloudflareSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_cloudflare_credentials(config.api_token):
+        is_valid, status = validate_cloudflare_credentials(config.api_token)
+        if is_valid:
             return True, None
 
-        return False, "Invalid Cloudflare API token"
+        if status is None or status == 429 or status >= 500:
+            return (
+                False,
+                "Couldn't reach Cloudflare to verify your API token. Please try again in a moment.",
+            )
+        return (
+            False,
+            "Invalid Cloudflare API token. Please check the token has read permissions and hasn't been revoked.",
+        )
 
     def source_for_pipeline(self, config: CloudflareSourceConfig, inputs: SourceInputs) -> SourceResponse:
         return cloudflare_source(

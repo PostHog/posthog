@@ -62,10 +62,11 @@ Domains without a logo return 404 and the UI falls back to a generic server glyp
 
 ### Self-hosted instances
 
-Icon resolution requires the `LOGO_DEV_TOKEN` environment variable and outbound network access to `img.logo.dev`.
-Without the token, which is the default on self-hosted and air-gapped deployments, the icon endpoint returns 404 and the UI falls back to the generic glyph.
+Icon resolution requires a logo.dev publishable key in the `LOGO_DEV_PUBLISHABLE_KEY` environment variable and outbound network access to `img.logo.dev`.
+Without the key, which is the default on self-hosted and air-gapped deployments, the icon endpoint returns 503 and the UI falls back to the generic glyph.
 This is cosmetic only: installing and using MCP servers works the same without icons.
-To show brand icons on a self-hosted instance, create a logo.dev account, generate an API token, and set `LOGO_DEV_TOKEN` in the web service environment.
+To show brand icons on a self-hosted instance, create a logo.dev account, generate a publishable key with the `pk_` prefix, and set `LOGO_DEV_PUBLISHABLE_KEY` in the web service environment.
+`LOGO_DEV_TOKEN` remains a deprecated compatibility fallback for the image CDN only.
 
 ## Auth models
 

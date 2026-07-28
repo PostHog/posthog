@@ -86,6 +86,7 @@ You can create an API key on the **Settings → API** page in [Height](https://h
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — Height's list endpoints expose no server-side
         # timestamp filter without search params, so there is no incremental cursor to advance.
@@ -104,7 +105,11 @@ You can create an API key on the **Settings → API** page in [Height](https://h
         return schemas
 
     def validate_credentials(
-        self, config: HeightSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: HeightSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The API key is workspace-wide, so a single probe validates access to every schema.
         return _height_validate_credentials(config.api_key)

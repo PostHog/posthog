@@ -407,7 +407,7 @@ mod tests {
         let manager = KafkaManagerService::new();
         let (producers, factory) = producer_registry();
         let output = DynamicKafkaOutputs::subscribed(
-            PrepSpec::new(EnvelopeCompression::None),
+            PrepSpec::new(EnvelopeCompression::None, false),
             &manager,
             factory,
         );
@@ -469,7 +469,7 @@ mod tests {
         let manager = KafkaManagerService::new();
         let (producers, factory) = producer_registry();
         let output = DynamicKafkaOutputs::subscribed(
-            PrepSpec::new(EnvelopeCompression::None),
+            PrepSpec::new(EnvelopeCompression::None, false),
             &manager,
             factory,
         );

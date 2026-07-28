@@ -438,6 +438,12 @@ impl WrappedEvent {
                 Destination::ExceptionErrorTracking => DataType::ExceptionErrorTracking,
                 Destination::HeatmapMain => DataType::HeatmapMain,
                 Destination::ClientIngestionWarning => DataType::ClientIngestionWarning,
+                // The AI overflow arm keeps the AiEvents data type; the
+                // force_overflow flag below carries the lane. `resolve`
+                // reproduces v1's key rule exactly: overflow nulls the key
+                // iff person processing is force-disabled, the main AI lane
+                // always keeps it.
+                Destination::AiEvents | Destination::AiEventsOverflow => DataType::AiEvents,
                 // Overflow / Dlq / Custom are analytics-main intents; the
                 // flags below carry the redirect.
                 _ => DataType::AnalyticsMain,
@@ -445,7 +451,10 @@ impl WrappedEvent {
             session_id: self.event.session_id.clone(),
             computed_timestamp: Some(timestamp),
             event_name: self.event.event.clone(),
-            force_overflow: self.destination == Destination::Overflow,
+            force_overflow: matches!(
+                self.destination,
+                Destination::Overflow | Destination::AiEventsOverflow
+            ),
             skip_person_processing: self.force_disable_person_processing,
             redirect_to_dlq: self.destination == Destination::Dlq,
             redirect_to_topic: match &self.destination {
@@ -2197,7 +2206,7 @@ mod tests {
             ctx: &RequestContext,
         ) -> crate::outputs::AddressedPayload {
             let processed = ev.to_processed(ctx).expect("mapping must succeed");
-            prepare_payload(&PrepSpec::new(EnvelopeCompression::None), processed)
+            prepare_payload(&PrepSpec::new(EnvelopeCompression::None, false), processed)
                 .expect("prep must succeed")
         }
 

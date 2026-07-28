@@ -28,7 +28,7 @@ use limiters::overflow::OverflowLimiter;
 use limiters::redis::RedisLimiter;
 use limiters::token_dropper::TokenDropper;
 
-use crate::config::CaptureMode;
+use crate::config::{AiRouting, CaptureMode};
 use crate::metrics_middleware::track_metrics;
 use crate::prometheus::setup_metrics_recorder;
 use crate::quota_limiters::CaptureQuotaLimiter;
@@ -77,6 +77,14 @@ pub struct State<T> {
     /// pipeline alongside every other routing decision, and so the sink stays
     /// a pure mechanism layer with cheap Arc-based clones.
     pub overflow_limiter: Option<Arc<OverflowLimiter>>,
+    /// Dedicated overflow limiter for the AI lane (`DataType::AiEvents` /
+    /// `Destination::AiEvents`). Same knobs as `overflow_limiter` but a
+    /// separate governor instance, so per-key budgets are isolated: analytics
+    /// volume never pushes a key's AI events into AI overflow and AI volume
+    /// never burns the analytics budget. Only built when both
+    /// `OVERFLOW_ENABLED` and the AI overflow valve are set; `None` leaves
+    /// the AI lane subject to restriction-driven `force_overflow` only.
+    pub ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
     /// Redis-backed replay overflow limiter for session recording sessions.
     /// When present, the recordings pipeline calls `is_limited(session_id)`
     /// and stamps `ProcessedEventMetadata::overflow_reason = ReplayLimited` so
@@ -86,6 +94,19 @@ pub struct State<T> {
     /// V1 sink router for the new capture analytics pipeline.
     /// When present, the v1 analytics handler publishes events through this.
     pub v1_sink_router: Option<Arc<crate::v1::sinks::OutputsRouter>>,
+    /// Routing policy for diverting `$ai_*` events to the dedicated AI topic
+    /// (`CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`), derived from `CAPTURE_ANALYTICS_AI_EVENTS_MODE` and
+    /// `CAPTURE_ANALYTICS_AI_EVENTS_ALLOWLIST_TOKENS`. `Primary` keeps everything on the
+    /// analytics main topic; the other modes divert per batch token, in both
+    /// the v0 pipeline (via `DataType::AiEvents`, resolved to the AI pipeline's
+    /// main lane by the outputs layer) and the v1 pipeline (via
+    /// `Destination::AiEvents`, bridged onto the same metadata by the boundary
+    /// mapping).
+    pub ai_routing: AiRouting,
+    /// Whether the AI overflow valve is armed (`CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC` is
+    /// set). Gates overflow stamping for the AI lane in both pipelines: when
+    /// false, AI events never overflow (pre-overflow behavior).
+    pub ai_events_overflow_enabled: bool,
     pub capture_v1_scatter_gather_min_batch: usize,
     pub ai_gateway_signing_secret: Option<String>,
     /// Best-effort v2 ingestion warnings emitter (fire-and-forget Kafka
@@ -94,6 +115,10 @@ pub struct State<T> {
     /// `overflow_limiter` / `event_restriction_service`. Never awaited and
     /// never allowed to fail a request.
     pub ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
+    /// Deployment capture mode. Threaded into the analytics processing paths
+    /// (legacy and v1) so mode-specific policy — Import skips the global rate
+    /// limiter and drops non-historical batches — lives with the pipeline.
+    pub capture_mode: CaptureMode,
 }
 
 impl<T> Clone for State<T> {
@@ -117,11 +142,15 @@ impl<T> Clone for State<T> {
             capture_v1_max_compressed_body_bytes: self.capture_v1_max_compressed_body_bytes,
             capture_v1_max_decompressed_body_bytes: self.capture_v1_max_decompressed_body_bytes,
             overflow_limiter: self.overflow_limiter.clone(),
+            ai_events_overflow_limiter: self.ai_events_overflow_limiter.clone(),
             replay_overflow_limiter: self.replay_overflow_limiter.clone(),
             v1_sink_router: self.v1_sink_router.clone(),
             capture_v1_scatter_gather_min_batch: self.capture_v1_scatter_gather_min_batch,
             ai_gateway_signing_secret: self.ai_gateway_signing_secret.clone(),
+            ai_routing: self.ai_routing.clone(),
+            ai_events_overflow_enabled: self.ai_events_overflow_enabled,
             ingestion_warning_emitter: self.ingestion_warning_emitter.clone(),
+            capture_mode: self.capture_mode,
         }
     }
 }
@@ -162,13 +191,36 @@ async fn index() -> &'static str {
     "capture"
 }
 
-/// Router for an Events deployment: mounts the analytics-family ingress
-/// (`/capture`, `/batch`, `/e`). AI ingress is not mounted here — the
+/// `$ai_*` batch ingress: the generic batch handler on a dedicated path so
+/// the ingress layer can route it independently of `/batch`. Mounted by
+/// [`ai_router`] (capture-ai) and, for Import deployments only, by [`router`]
+/// so AI historical backfills reach the gated batch handler.
+fn ai_batch_router<T: PublishesAnalyticsFamily>() -> Router<State<T>> {
+    Router::new()
+        .route(
+            "/i/v0/ai/batch",
+            post(v0_endpoint::event)
+                .get(v0_endpoint::event)
+                .options(v0_endpoint::options),
+        )
+        .route(
+            "/i/v0/ai/batch/",
+            post(v0_endpoint::event)
+                .get(v0_endpoint::event)
+                .options(v0_endpoint::options),
+        )
+        .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE))
+}
+
+/// Router for an Events or Import deployment: mounts the analytics-family
+/// ingress (`/capture`, `/batch`, `/e`). AI ingress is not mounted here — the
 /// ingress layer routes all `/i/v0/ai*` paths exclusively to capture-ai
-/// deployments (see charts contour routing), which use [`ai_router`]. The
-/// outputs table type must prove it publishes the analytics family (which
-/// includes the ai row: `$ai_*` events still arrive via `/capture` from
-/// SDKs) — mounting these routes on a replay table is a compile error.
+/// deployments (see charts contour routing), which use [`ai_router`] — except
+/// `/i/v0/ai/batch` on Import, which rides the gated batch handler for AI
+/// historical backfills. The outputs table type must prove it publishes the
+/// analytics family (which includes the ai row: `$ai_*` events still arrive
+/// via `/capture` from SDKs) — mounting these routes on a replay table is a
+/// compile error.
 #[allow(clippy::too_many_arguments)]
 pub fn router<
     TZ: TimeSource + Send + Sync + 'static,
@@ -200,10 +252,13 @@ pub fn router<
     capture_v1_max_compressed_body_bytes: usize,
     capture_v1_max_decompressed_body_bytes: usize,
     overflow_limiter: Option<Arc<OverflowLimiter>>,
+    ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
     replay_overflow_limiter: Option<Arc<RedisLimiter>>,
     v1_sink_router: Option<Arc<crate::v1::sinks::OutputsRouter>>,
     capture_v1_scatter_gather_min_batch: usize,
     ai_gateway_signing_secret: Option<String>,
+    ai_routing: AiRouting,
+    ai_events_overflow_enabled: bool,
     ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
 ) -> Router {
     let state = State {
@@ -228,11 +283,15 @@ pub fn router<
         capture_v1_max_compressed_body_bytes,
         capture_v1_max_decompressed_body_bytes,
         overflow_limiter,
+        ai_events_overflow_limiter,
         replay_overflow_limiter,
         v1_sink_router,
         capture_v1_scatter_gather_min_batch,
         ai_gateway_signing_secret,
+        ai_routing,
+        ai_events_overflow_enabled,
         ingestion_warning_emitter,
+        capture_mode,
     };
 
     // Very permissive CORS policy, as old SDK versions
@@ -353,10 +412,20 @@ pub fn router<
             }),
         );
 
-    let router = Router::new()
+    let mut router = Router::new()
         .merge(batch_router)
         .merge(event_router)
         .merge(test_router);
+
+    // Import ingests AI historical backfills through the gated batch handler:
+    // /i/v0/ai/batch dispatches to v0_endpoint::event, which applies the
+    // Import gates (historical-only drop, GRL bypass). The ai/otel handlers
+    // hardcode `historical_migration: false`, so they would sidestep both
+    // gates and stay unmounted — live AI ingress belongs exclusively to the
+    // capture-ai deployment's [`ai_router`].
+    if capture_mode == CaptureMode::Import {
+        router = router.merge(ai_batch_router());
+    }
 
     // The v1 analytics endpoint is only routable when a v1 sink is
     // configured. Without a sink the handler can't publish, so we keep
@@ -424,10 +493,13 @@ pub fn ai_router<
     capture_v1_max_compressed_body_bytes: usize,
     capture_v1_max_decompressed_body_bytes: usize,
     overflow_limiter: Option<Arc<OverflowLimiter>>,
+    ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
     replay_overflow_limiter: Option<Arc<RedisLimiter>>,
     v1_sink_router: Option<Arc<crate::v1::sinks::OutputsRouter>>,
     capture_v1_scatter_gather_min_batch: usize,
     ai_gateway_signing_secret: Option<String>,
+    ai_routing: AiRouting,
+    ai_events_overflow_enabled: bool,
     ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
 ) -> Router {
     let state = State {
@@ -452,11 +524,15 @@ pub fn ai_router<
         capture_v1_max_compressed_body_bytes,
         capture_v1_max_decompressed_body_bytes,
         overflow_limiter,
+        ai_events_overflow_limiter,
         replay_overflow_limiter,
         v1_sink_router,
         capture_v1_scatter_gather_min_batch,
         ai_gateway_signing_secret,
+        ai_routing,
+        ai_events_overflow_enabled,
         ingestion_warning_emitter,
+        capture_mode,
     };
 
     let cors = CorsLayer::new()
@@ -481,23 +557,6 @@ pub fn ai_router<
                 async move { l.check() }
             }),
         );
-
-    let ai_batch_router = Router::new()
-        // `$ai_*` events: same batch handler, dedicated path so the ingress can route
-        // them to the capture-ai deployment and keep AI/analytics workloads isolated.
-        .route(
-            "/i/v0/ai/batch",
-            post(v0_endpoint::event)
-                .get(v0_endpoint::event)
-                .options(v0_endpoint::options),
-        )
-        .route(
-            "/i/v0/ai/batch/",
-            post(v0_endpoint::event)
-                .get(v0_endpoint::event)
-                .options(v0_endpoint::options),
-        )
-        .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE));
 
     // AI endpoint body limit is 110% of max sum of parts to account for multipart overhead
     let ai_body_limit = (state.ai_max_sum_of_parts_bytes as f64 * 1.1) as usize;
@@ -525,7 +584,7 @@ pub fn ai_router<
         .layer(DefaultBodyLimit::max(otel::OTEL_BODY_SIZE));
 
     let router = Router::new()
-        .merge(ai_batch_router)
+        .merge(ai_batch_router())
         .merge(ai_router)
         .merge(otel_router);
 
@@ -583,10 +642,13 @@ pub fn session_replay_router<
     capture_v1_max_compressed_body_bytes: usize,
     capture_v1_max_decompressed_body_bytes: usize,
     overflow_limiter: Option<Arc<OverflowLimiter>>,
+    ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
     replay_overflow_limiter: Option<Arc<RedisLimiter>>,
     v1_sink_router: Option<Arc<crate::v1::sinks::OutputsRouter>>,
     capture_v1_scatter_gather_min_batch: usize,
     ai_gateway_signing_secret: Option<String>,
+    ai_routing: AiRouting,
+    ai_events_overflow_enabled: bool,
     ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
 ) -> Router {
     let state = State {
@@ -611,11 +673,15 @@ pub fn session_replay_router<
         capture_v1_max_compressed_body_bytes,
         capture_v1_max_decompressed_body_bytes,
         overflow_limiter,
+        ai_events_overflow_limiter,
         replay_overflow_limiter,
         v1_sink_router,
         capture_v1_scatter_gather_min_batch,
         ai_gateway_signing_secret,
+        ai_routing,
+        ai_events_overflow_enabled,
         ingestion_warning_emitter,
+        capture_mode,
     };
 
     let cors = CorsLayer::new()

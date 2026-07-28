@@ -376,6 +376,44 @@ class TestTaskCreatorScoping(BaseTaskAPITest):
         ids = {r["id"] for r in response.json()["results"]}
         self.assertEqual(ids, {str(run.id)})
 
+    def test_retrieve_experiments_task_owned_by_another_user_is_visible(self):
+        # Flag-cleanup tasks are surfaced on the (team-visible) experiment, so any
+        # team member must be able to open them, not just whoever ended the experiment.
+        other_user = self.create_organization_user("experiment-ender")
+        task = Task.objects.create(
+            team=self.team,
+            created_by=other_user,
+            title="Clean up feature flag my-experiment-flag",
+            description="Opened on experiment end",
+            origin_product=Task.OriginProduct.EXPERIMENTS,
+        )
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], str(task.id))
+
+    def test_update_experiments_task_owned_by_another_user_returns_404(self):
+        # Experiments tasks are team-readable but stay creator-driven: runs execute
+        # with the creator's credentials, so teammates must not be able to edit,
+        # run, or command them.
+        other_user = self.create_organization_user("experiment-ender")
+        task = Task.objects.create(
+            team=self.team,
+            created_by=other_user,
+            title="Clean up feature flag my-experiment-flag",
+            description="Opened on experiment end",
+            origin_product=Task.OriginProduct.EXPERIMENTS,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/",
+            {"title": "Hijacked"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        task.refresh_from_db()
+        self.assertEqual(task.title, "Clean up feature flag my-experiment-flag")
+
     def test_retrieve_other_user_non_signal_internal_task_returns_404(self):
         # Non-signal internal tasks created by another user remain private.
         other_user = self.create_organization_user("victim")
@@ -1225,13 +1263,19 @@ class TestTaskAPI(BaseTaskAPITest):
         task = Task.objects.get(id=data["id"])
         self.assertEqual(task.origin_product, Task.OriginProduct.HOGDESK)
 
-    def test_create_task_rejects_internal_image_builder_origin(self):
+    @parameterized.expand(
+        [
+            ("image_builder",),
+            ("experiments",),
+        ]
+    )
+    def test_create_task_rejects_internal_origin(self, origin: str):
         response = self.client.post(
             "/api/projects/@current/tasks/",
             {
                 "title": "New Task",
                 "description": "New Description",
-                "origin_product": "image_builder",
+                "origin_product": origin,
                 "repository": "posthog/posthog",
             },
             format="json",
@@ -2513,6 +2557,52 @@ class TestTaskAPI(BaseTaskAPITest):
         assert latest_run["reasoning_effort"] == reasoning_effort
         mock_workflow.assert_called_once()
 
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoint_persists_context_window_and_fast_mode(self, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "runtime_adapter": "claude",
+                "model": "claude-sonnet-5",
+                "context_window": "200k",
+                "fast_mode": False,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        latest_run = response.json()["latest_run"]
+        task_run = TaskRun.objects.get(id=latest_run["id"])
+        assert task_run.state["context_window"] == "200k"
+        assert task_run.state["fast_mode"] is False
+        mock_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoint_rejects_unsupported_context_window(self, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "runtime_adapter": "claude",
+                "model": "claude-sonnet-5",
+                "context_window": "500k",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_choice",
+            "detail": '"500k" is not a valid choice.',
+            "attr": "context_window",
+        }
+        mock_workflow.assert_not_called()
+
     @parameterized.expand([("plan",), ("auto",), ("read-only",), ("full-access",)])
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_preserves_codex_initial_permission_mode(self, initial_permission_mode, mock_workflow):
@@ -2830,6 +2920,7 @@ class TestTaskAPI(BaseTaskAPITest):
             ("high",),
             # xhigh is load-bearing: ReviewHog pins it for its one-shot and review runs.
             ("xhigh",),
+            ("ultracode",),
         ]
     )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
@@ -2855,13 +2946,21 @@ class TestTaskAPI(BaseTaskAPITest):
         assert task_run.state["reasoning_effort"] == reasoning_effort
         mock_workflow.assert_called_once()
 
+    @parameterized.expand(
+        [
+            ("xhigh",),
+            ("ultracode",),
+        ]
+    )
     @patch("products.tasks.backend.presentation.serializers.posthoganalytics.capture")
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_run_endpoint_rejects_unsupported_claude_sonnet_4_6_reasoning_effort(self, mock_workflow, mock_capture):
-        # claude-sonnet-4-6 supports low/medium/high but not xhigh (claude-sonnet-5 accepts the
-        # full set, ReviewHog pins its xhigh) - this pins the "Supported values: <non-empty list>"
-        # message and confirms the rejection capture also fires for a model with some supported
-        # efforts.
+    def test_run_endpoint_rejects_unsupported_claude_sonnet_4_6_reasoning_effort(
+        self, reasoning_effort, mock_workflow, mock_capture
+    ):
+        # claude-sonnet-4-6 supports low/medium/high but not xhigh/ultracode (claude-sonnet-5
+        # accepts the full set, ReviewHog pins its xhigh) - this pins the "Supported values:
+        # <non-empty list>" message and confirms the rejection capture also fires for a model
+        # with some supported efforts.
         task = self.create_task()
 
         response = self.client.post(
@@ -2869,7 +2968,7 @@ class TestTaskAPI(BaseTaskAPITest):
             {
                 "runtime_adapter": "claude",
                 "model": "claude-sonnet-4-6",
-                "reasoning_effort": "xhigh",
+                "reasoning_effort": reasoning_effort,
             },
             format="json",
         )
@@ -2879,7 +2978,7 @@ class TestTaskAPI(BaseTaskAPITest):
             "type": "validation_error",
             "code": "invalid_input",
             "detail": (
-                "Reasoning effort 'xhigh' is not supported for runtime_adapter 'claude' "
+                f"Reasoning effort '{reasoning_effort}' is not supported for runtime_adapter 'claude' "
                 "and model 'claude-sonnet-4-6'. Supported values: low, medium, high."
             ),
             "attr": "reasoning_effort",
@@ -2893,9 +2992,9 @@ class TestTaskAPI(BaseTaskAPITest):
             properties={
                 "runtime_adapter": "claude",
                 "model": "claude-sonnet-4-6",
-                "reasoning_effort": "xhigh",
+                "reasoning_effort": reasoning_effort,
                 "error": (
-                    "Reasoning effort 'xhigh' is not supported for runtime_adapter 'claude' "
+                    f"Reasoning effort '{reasoning_effort}' is not supported for runtime_adapter 'claude' "
                     "and model 'claude-sonnet-4-6'. Supported values: low, medium, high."
                 ),
             },
@@ -2999,6 +3098,8 @@ class TestTaskAPI(BaseTaskAPITest):
                 "runtime_adapter": "codex",
                 "model": "gpt-5.3-codex",
                 "reasoning_effort": "medium",
+                "context_window": "1m",
+                "fast_mode": True,
                 "snapshot_external_id": "snap-1",
             },
         )
@@ -3025,6 +3126,8 @@ class TestTaskAPI(BaseTaskAPITest):
         assert task_run.state["provider"] == "openai"
         assert task_run.state["model"] == "gpt-5.3-codex"
         assert task_run.state["reasoning_effort"] == "medium"
+        assert task_run.state["context_window"] == "1m"
+        assert task_run.state["fast_mode"] is True
         # Token passed on a BOT resume must not be cached — only USER mode runs use it.
         assert get_cached_github_user_token(str(task_run.id)) is None
 
@@ -4273,6 +4376,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "inactivity_timeout_seconds": 600,
                 "use_modal_directory_resume_snapshots": True,
                 "use_modal_vm_sandbox": False,
+                "agent_otel_telemetry_enabled": False,
+                "sandbox_event_ingest_enabled": False,
                 "snapshot_external_id": "im-real",
                 "snapshot_kind": "directory",
                 "snapshot_mount_path": "/tmp",
@@ -4304,6 +4409,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "wizard_config": {},
                     "use_modal_directory_resume_snapshots": False,
                     "use_modal_vm_sandbox": True,
+                    "agent_otel_telemetry_enabled": True,
+                    "sandbox_event_ingest_enabled": True,
                     "snapshot_external_id": "im-attacker",
                     "snapshot_kind": "directory",
                     "snapshot_mount_path": "/tmp/workspace",
@@ -4334,6 +4441,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert "wizard_config" not in run.state  # caller cannot mark a run as a wizard run
         assert run.state["use_modal_directory_resume_snapshots"] is True
         assert run.state["use_modal_vm_sandbox"] is False
+        assert run.state["agent_otel_telemetry_enabled"] is False
+        assert run.state["sandbox_event_ingest_enabled"] is False
         assert run.state["snapshot_external_id"] == "im-real"
         assert run.state["snapshot_kind"] == "directory"
         assert run.state["snapshot_mount_path"] == "/tmp"
@@ -4350,6 +4459,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "state": {},
                 "state_remove_keys": [
                     "github_credential_source",
+                    "agent_otel_telemetry_enabled",
                     "sandbox_id",
                     "use_modal_directory_resume_snapshots",
                     "use_modal_vm_sandbox",
@@ -4368,6 +4478,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         run.refresh_from_db()
         assert run.state["github_credential_source"] == "caller_token"  # protected key survives removal
+        assert run.state["agent_otel_telemetry_enabled"] is False  # protected key survives removal
         assert run.state["sandbox_id"] == "sb-real"  # protected key survives removal
         assert run.state["use_modal_directory_resume_snapshots"] is True  # protected key survives removal
         assert run.state["use_modal_vm_sandbox"] is False  # protected key survives removal
@@ -8308,7 +8419,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     def test_command_no_control_verb_telemetry_for_non_posthog_ai(self, mock_post, mock_capture):
         reset_sandbox_jwt_key_cache()
         self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "id": "req-2", "result": {"cancelled": True}})
-        # USER_CREATED task (e.g. PostHog Code) — the generic relay must not emit PostHog AI funnels.
+        # USER_CREATED task (e.g. PostHog Desktop) — the generic relay must not emit PostHog AI funnels.
         task = self.create_task()
         run = self._create_run_with_sandbox(task)
 
@@ -9383,6 +9494,48 @@ class TestCloudUsageGate(BaseTaskAPITest):
         self.assertTrue(TaskRun.objects.filter(task=task).exists())
         mock_workflow.assert_called_once()
 
+    def _signal_report_task(self):
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team)
+        return Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Act on report",
+            description="Act on report",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            signal_report=report,
+        )
+
+    @parameterized.expand(
+        [
+            ("under_limit_runs", CodeUsageStatus(False, None, None, False), status.HTTP_200_OK),
+            ("over_limit_still_blocked", OVER_LIMIT, status.HTTP_429_TOO_MANY_REQUESTS),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
+    def test_run_signal_report_task_bypasses_code_access_but_keeps_usage_backstop(
+        self, _name, gate_return, expected_status, mock_gate, _mock_workflow
+    ):
+        # Self-driving is entitled through the Inbox (`product-autonomy`), not PostHog Code, so a
+        # signal-report task runs with the `tasks` flag off — where a plain task 403s (see
+        # test_run_without_code_access_returns_403_before_usage_check). The usage cost-backstop must
+        # still fire, so an over-limit team is blocked even on the entitlement-bypassed path.
+        self.set_tasks_feature_flag(False)
+        mock_gate.return_value = gate_return
+        task = self._signal_report_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"mode": "background"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, expected_status)
+        mock_gate.assert_called_once()
+        self.assertEqual(TaskRun.objects.filter(task=task).exists(), expected_status == status.HTTP_200_OK)
+
 
 class TestGetPosthogCodeUsage(TestCase):
     @override_settings(CLOUD_DEPLOYMENT="US")
@@ -9527,6 +9680,9 @@ class TestSandboxCustomImageAPI(BaseTaskAPITest):
         state = run.state or {}
         self.assertEqual(state["custom_image_builder_id"], data["id"])
         self.assertIs(state["use_modal_vm_sandbox"], True)
+        self.assertEqual(state["runtime_adapter"], "claude")
+        self.assertEqual(state["model"], "@cf/zai-org/glm-5.2")
+        self.assertEqual(state["reasoning_effort"], "high")
         self.assertIn("image-spec.yaml", state["pending_user_message"])
         self.assertIn("install pytorch and flox", state["pending_user_message"])
 
@@ -9944,3 +10100,66 @@ class TestSandboxCustomImageAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["status"], "scanning")
         mock_workflow.assert_called_once()
+
+
+class TestTaskRunSlackTaskTeamControl(BaseTaskAPITest):
+    """Slack-originated tasks are multiplayer: any same-team user may drive their runs.
+
+    Guards the incident where a non-creator's thread follow-up resumed a run whose sandbox
+    then 404'd on every callback (status PATCH, log append, Slack relay), so the workflow
+    starved of heartbeats and the thread died silently.
+    """
+
+    def _create_run(self, *, origin_product: Task.OriginProduct) -> tuple[Task, TaskRun]:
+        creator = self.create_organization_user("thread-starter")
+        task = Task.objects.create(
+            team=self.team,
+            created_by=creator,
+            title="Thread task",
+            description="Test Description",
+            origin_product=origin_product,
+        )
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            environment=TaskRun.Environment.CLOUD,
+        )
+        return task, run
+
+    @parameterized.expand(
+        [
+            ("teammate_can_patch_slack_run", Task.OriginProduct.SLACK, "patch", status.HTTP_200_OK),
+            ("teammate_can_retrieve_slack_run", Task.OriginProduct.SLACK, "get", status.HTTP_200_OK),
+            (
+                "teammate_cannot_patch_user_created_run",
+                Task.OriginProduct.USER_CREATED,
+                "patch",
+                status.HTTP_404_NOT_FOUND,
+            ),
+            (
+                "teammate_cannot_retrieve_user_created_run",
+                Task.OriginProduct.USER_CREATED,
+                "get",
+                status.HTTP_404_NOT_FOUND,
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    def test_non_creator_run_access_by_origin(
+        self,
+        _case_name: str,
+        origin_product: Task.OriginProduct,
+        method: str,
+        expected_status: int,
+        _mock_publish_stream_state_event: MagicMock,
+    ) -> None:
+        task, run = self._create_run(origin_product=origin_product)
+
+        url = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/"
+        if method == "patch":
+            response = self.client.patch(url, {"output": {"marker": "from-teammate"}}, format="json")
+        else:
+            response = self.client.get(url)
+
+        self.assertEqual(response.status_code, expected_status)

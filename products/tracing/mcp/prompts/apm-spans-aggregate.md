@@ -26,6 +26,8 @@ Set `query.compareFilter.compare: true` to also fetch a comparison window. The r
 - Omit `compare_to` (or set null) to compare against the immediately previous period of equal length (e.g. `dateRange: -1d` → compares vs the day before).
 - Set `compare_to: "-7d"` to compare against the window 7 days earlier (same length as the primary window).
 
+When `compare` is true, `compare` is always an array — empty (`[]`) if the comparison window matched no spans (for example an operation that didn't exist yet), not null. `compare` is `null` only when no comparison was requested. So an empty array is a real answer ("nothing in the prior window"), not a failure.
+
 # Data narrowing
 
 ## Property filters

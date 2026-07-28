@@ -15,6 +15,7 @@ from typing import Any
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Count, Q
 from django.db.models.fields.json import KeyTextTransform
 from django.utils import timezone
 
@@ -45,10 +46,10 @@ from products.replay_vision.backend.proposers import get_proposer
 
 logger = structlog.get_logger(__name__)
 
-_SUGGESTION_MODEL = "gemini-3.1-flash-lite-preview"
+_SUGGESTION_MODEL = "gemini-3.5-flash-lite"
 _MODEL_CALL_TIMEOUT_MS = 90_000
 # The agentic path digs through sessions before rewriting, so give it the stronger model.
-_AGENT_MODEL = "gemini-3-flash-preview"
+_AGENT_MODEL = "gemini-3.6-flash"
 _MAX_RATED_SESSIONS = 20
 _MAX_REASONING_CHARS = 280
 _MAX_DISMISSED_EXAMPLES = 3
@@ -227,11 +228,16 @@ def _build_user_content(
 
 def _gemini_client() -> GeminiClient:
     # The generate endpoint runs inline in a web worker, so a hung provider call must time out.
-    return genai.Client(
-        api_key=settings.REPLAY_VISION_GEMINI_API_KEY or settings.GEMINI_API_KEY,
-        posthog_client=posthoganalytics.default_client,
-        http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
-    )
+    try:
+        return genai.Client(
+            api_key=settings.REPLAY_VISION_GEMINI_API_KEY or settings.GEMINI_API_KEY,
+            posthog_client=posthoganalytics.default_client,
+            http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
+        )
+    except Exception as e:
+        # A missing or malformed API key raises at construction. Wrap it so the API returns
+        # the friendly 400 instead of a 500.
+        raise PromptSuggestionError("model client unavailable") from e
 
 
 def _parse_llm_output(text: str) -> dict[str, Any]:
@@ -615,7 +621,16 @@ def generate_prompt_suggestion(
     # The change list is the source of truth for "did anything meaningful change": dict equality trips on
     # keys a proposer always injects (e.g. a defaulted allow_inconclusive) that the stored config never had.
     status = SuggestionStatus.NO_CHANGE if not changes else SuggestionStatus.PENDING
-    up = len([o for o in observations if _label(o).is_correct])
+    # Count the full rated set, not the capped briefing slice: the agent can page through every rated
+    # session via its tools, and the UI shows these next to chart totals computed over all ratings.
+    label_counts = ReplayObservation.objects.filter(
+        team_id=scanner.team_id,
+        scanner_id=scanner.id,
+        status=ObservationStatus.SUCCEEDED,
+        label__isnull=False,
+    ).aggregate(up=Count("id", filter=Q(label__is_correct=True)), total=Count("id"))
+    up = label_counts["up"] or 0
+    down = (label_counts["total"] or 0) - up
     with transaction.atomic():
         # Serialize per scanner: a manual generate racing the sweep refresh must not leave two pending rows.
         ReplayScanner.objects.select_for_update().filter(team_id=scanner.team_id, pk=scanner.pk).first()
@@ -634,7 +649,7 @@ def generate_prompt_suggestion(
             rationale=str(llm_output.get("rationale", "")).strip(),
             status=status,
             based_on_up=up,
-            based_on_down=len(observations) - up,
+            based_on_down=down,
             labels_fingerprint=labels_fingerprint(scanner),
             scanner_version=scanner.scanner_version,
             created_by=user,

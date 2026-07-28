@@ -9,6 +9,7 @@ categories.
 """
 
 import uuid
+from dataclasses import dataclass
 from typing import Literal
 
 from django.conf import settings
@@ -34,7 +35,7 @@ from ee.hogai.utils.untrusted import neutralize_markup
 logger = structlog.get_logger(__name__)
 
 # Cheap, fast model — this is an interactive form helper, not a recording scan.
-_SUGGESTION_MODEL = "gemini-3.1-flash-lite-preview"
+_SUGGESTION_MODEL = "gemini-3.5-flash-lite"
 _MODEL_CALL_TIMEOUT_MS = 90_000
 _MAX_SUGGESTIONS = 8
 # Bounds on assembled context so a large team/scanner can't blow up the prompt.
@@ -97,7 +98,13 @@ def _observation_signal(scanner: ReplayScanner) -> tuple[list[tuple[str, int]], 
     return freeform, samples
 
 
-def _product_taxonomy(team: Team) -> tuple[list[str], list[str]]:
+@dataclass(frozen=True)
+class _ProductTaxonomy:
+    events: list[str]
+    screens: list[str]
+
+
+def _product_taxonomy(team: Team) -> _ProductTaxonomy:
     """Custom product events and the screens sessions cover — grounds suggestions in how THIS product works."""
     events: list[str] = []
     try:
@@ -117,7 +124,7 @@ def _product_taxonomy(team: Team) -> tuple[list[str], list[str]]:
         screens = [str(row[0]) for row in rows if row and row[0]][:_MAX_TOP_SCREENS]
     except Exception:
         logger.warning("replay_vision.suggest_tags.screens_failed", team_id=team.id, exc_info=True)
-    return events, screens
+    return _ProductTaxonomy(events=events, screens=screens)
 
 
 def _sibling_vocabularies(
@@ -232,7 +239,7 @@ def _assemble_grounding_evidence(
                 "replay_vision.suggest_tags.observation_signal_failed", scanner_id=str(scanner.id), exc_info=True
             )
 
-    events, screens = _product_taxonomy(team)
+    taxonomy = _product_taxonomy(team)
     sibling_tags: list[str] = []
     if user_access_control is not None:
         sibling_tags = _sibling_vocabularies(team, scanner.id if scanner is not None else None, user_access_control)
@@ -244,8 +251,8 @@ def _assemble_grounding_evidence(
         allow_freeform_tags=allow_freeform_tags,
         freeform=freeform,
         reasoning_samples=reasoning_samples,
-        events=events,
-        screens=screens,
+        events=taxonomy.events,
+        screens=taxonomy.screens,
         sibling_tags=sibling_tags,
     )
 
@@ -301,11 +308,16 @@ def _generate(*, user_content: str, team_id: int, distinct_id: str) -> _LlmSugge
     # Inline the key resolution (rather than importing the temporal helper) to keep this off the temporal import path.
     api_key = settings.REPLAY_VISION_GEMINI_API_KEY or settings.GEMINI_API_KEY
     # Runs inline on the interactive request path, so a hung provider call must time out.
-    client = genai.Client(
-        api_key=api_key,
-        posthog_client=posthoganalytics.default_client,
-        http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
-    )
+    try:
+        client = genai.Client(
+            api_key=api_key,
+            posthog_client=posthoganalytics.default_client,
+            http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
+        )
+    except Exception as e:
+        # A missing or malformed API key raises at construction. Wrap it so the API returns
+        # the friendly 503 instead of a 500.
+        raise SuggestionError("model client unavailable") from e
     config = GenerateContentConfig(
         system_instruction=_SYSTEM_PROMPT,
         response_mime_type="application/json",

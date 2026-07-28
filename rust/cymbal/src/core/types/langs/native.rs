@@ -306,6 +306,32 @@ impl RawNativeFrame {
         self.meta.in_app && !source_path.is_some_and(is_library_source_path)
     }
 
+    /// Go's toolchain suffixes dual-ABI wrapper symbols in the debug info
+    /// (`runtime.goexit.abi0`), while the Go runtime — and therefore the
+    /// client's own frames — reports the plain name. Strip the suffix so kept
+    /// and replaced groups agree on the name vocabulary: resolved names feed
+    /// fingerprints, so a mismatch splits the same crash across issues when
+    /// symbols get uploaded.
+    ///
+    /// `abi0`/`abiinternal` are also valid Go identifiers (`pkg.abi0` can be
+    /// a real function), so the suffix is only dropped when the client
+    /// reported exactly the un-suffixed name for this frame — evidence it is
+    /// toolchain metadata rather than part of the name. Wrappers are physical
+    /// assembly functions, so the client name is present for them.
+    fn display_name_for(&self, symbol_info: &SymbolInfo) -> String {
+        let name = &symbol_info.display_name;
+        if self.lang.as_deref() == Some("go") {
+            for suffix in [".abi0", ".abiinternal"] {
+                if let Some(stripped) = name.strip_suffix(suffix) {
+                    if self.function.as_deref() == Some(stripped) {
+                        return stripped.to_string();
+                    }
+                }
+            }
+        }
+        name.clone()
+    }
+
     fn build_resolved_frame(&self, symbol_info: &SymbolInfo) -> Frame {
         let mut f = Frame {
             frame_id: FrameId::placeholder(),
@@ -318,7 +344,7 @@ impl RawNativeFrame {
             column: None,
             source: symbol_info.filename.clone(),
             in_app: self.in_app_for(symbol_info.full_path.as_deref()),
-            resolved_name: Some(symbol_info.display_name.clone()),
+            resolved_name: Some(self.display_name_for(symbol_info)),
             lang: self.lang_for(symbol_info.filename.as_deref()),
             resolved: true,
             resolve_failure: None,
@@ -771,6 +797,84 @@ mod test {
     fn test_calculate_relative_addr_below_image_base() {
         let result = calculate_relative_addr(0x100, &image_at("test-uuid", 0x100000000));
         assert!(matches!(result, Err(NativeError::InvalidAddress(_))));
+    }
+
+    // Go frames drop the toolchain's ABI-wrapper suffix so server-resolved
+    // names match what the Go runtime (and so the client's kept frames)
+    // reports — but only when the client's own name confirms the suffix is
+    // toolchain metadata; `pkg.abi0` can be a real function. Other languages
+    // keep the symbol verbatim.
+    #[test]
+    fn go_resolved_names_drop_abi_wrapper_suffixes() {
+        let cases = [
+            (
+                Some("go"),
+                Some("runtime.goexit"),
+                "runtime.goexit.abi0",
+                "runtime.goexit",
+            ),
+            (
+                Some("go"),
+                Some("runtime.main"),
+                "runtime.main.abiinternal",
+                "runtime.main",
+            ),
+            (Some("go"), Some("main.main"), "main.main", "main.main"),
+            // A genuine function named abi0: client and debug info agree, so
+            // nothing is stripped.
+            (Some("go"), Some("pkg.abi0"), "pkg.abi0", "pkg.abi0"),
+            // No client name means no evidence the suffix is a wrapper.
+            (
+                Some("go"),
+                None,
+                "runtime.goexit.abi0",
+                "runtime.goexit.abi0",
+            ),
+            (
+                Some("rust"),
+                Some("alloc::alloc"),
+                "alloc::alloc.abi0",
+                "alloc::alloc.abi0",
+            ),
+            (
+                None,
+                Some("runtime.goexit"),
+                "runtime.goexit.abi0",
+                "runtime.goexit.abi0",
+            ),
+        ];
+
+        for (lang, client_function, symbol, expected) in cases {
+            let frame = RawNativeFrame {
+                instruction_addr: Some("0x1000".to_string()),
+                symbol_addr: None,
+                image_addr: Some("0x1000".to_string()),
+                lang: lang.map(String::from),
+                module: None,
+                function: client_function.map(String::from),
+                filename: None,
+                lineno: None,
+                colno: None,
+                client_resolved: true,
+                inline: false,
+                meta: CommonFrameMetadata::default(),
+            };
+            let symbol_info = SymbolInfo {
+                display_name: symbol.to_string(),
+                full_name: symbol.to_string(),
+                filename: None,
+                full_path: None,
+                line: 42,
+            };
+
+            let resolved = frame.build_resolved_frame(&symbol_info);
+            assert_eq!(
+                resolved.resolved_name.as_deref(),
+                Some(expected),
+                "lang={lang:?} symbol={symbol}"
+            );
+            assert_eq!(resolved.mangled_name, symbol, "full name stays verbatim");
+        }
     }
 
     #[test]

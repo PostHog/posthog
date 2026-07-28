@@ -587,3 +587,30 @@ All steps are complete. The five strata are landed:
 | 20a · v1 boundary mapping + parity oracle | done | `feat(capture): v1 boundary mapping onto the shared produce interchange` |
 | 20b · v1 publishes through shared outputs | done | `feat(capture): v1 endpoints publish through the shared outputs machinery` |
 | 20c · Legacy v1 sink stack deleted | done | `refactor(capture): delete the legacy v1 sink stack` |
+
+## Master reconciliation (2026-07-28 merge)
+
+Master landed three capture features mid-flight
+(`CaptureMode::Import` #71800, the dedicated `$ai_*` topic #68719,
+`secondary_percentage` #73845) implemented against the pre-refactor sink.
+The merge re-expresses them in the outputs model, superseding parts of Step 13:
+
+- **AI pipeline membership is stamp-based, not name-based.**
+  The per-batch-token `AiRouting` divert decision
+  (`CAPTURE_ANALYTICS_AI_EVENTS_MODE` + allowlist/percentage)
+  stamps `DataType::AiEvents` during processing (mirroring v1's
+  `Destination::AiEvents`); `Pipeline::from_metadata` maps the stamp.
+  An undiverted `$ai_*` event is a plain analytics event on the analytics
+  lanes — the multipart/OTEL AI ingress stamps `AnalyticsMain` and publishes
+  to the analytics rows. `AI_EVENT_PREFIX` remains only for the quota
+  predicate and the stamping decision.
+- **The AI lanes own dedicated topics.** `TopicTable` grows optional
+  `ai_events` / `ai_events_overflow` rows
+  (`CAPTURE_ANALYTICS_AI_EVENTS_TOPIC` / `..._OVERFLOW_TOPIC`);
+  `AiLane::Historical` is gone — the divert decision wins over historical,
+  matching v1. The AI overflow valve (overflow topic set) rides `PrepSpec`
+  into `resolve`, so an unarmed deployment never routes the AI lane to
+  overflow, force_overflow included.
+- **Import mode** is an analytics-family deployment on `router::router`;
+  it mounts `/i/v0/ai/batch` (gated batch handler) but not the ai/otel
+  handlers, and shares the Events topic requirements.

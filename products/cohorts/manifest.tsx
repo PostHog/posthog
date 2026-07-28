@@ -14,13 +14,14 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
-        '/cohorts/staff': ['CohortsStaffTools', 'cohortsStaffTools'],
+        '/feature_flags/staff/cohorts': ['CohortsStaffTools', 'cohortsStaffTools'],
     },
     urls: {
         cohort: (id: string | number): string => `/cohorts/${id}`,
         cohorts: (): string => '/cohorts',
         cohortCalculationHistory: (id: string | number): string => `/cohorts/${id}/calculation-history`,
-        cohortsStaffTools: (cohortId?: number): string => `/cohorts/staff${cohortId ? `?cohort_id=${cohortId}` : ''}`,
+        cohortsStaffTools: (cohortId?: number): string =>
+            `/feature_flags/staff/cohorts${cohortId ? `?cohort_id=${cohortId}` : ''}`,
     },
     fileSystemTypes: {
         cohort: {

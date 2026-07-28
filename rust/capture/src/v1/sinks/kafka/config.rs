@@ -104,6 +104,16 @@ pub struct Config {
     pub topic_exception: String,
     pub topic_heatmap: String,
     pub topic_client_ingestion_warning: String,
+
+    /// Optional dedicated topic for `$ai_*` events. Not meant to be set via
+    /// per-sink env: setup injects the deployment-level `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC` into
+    /// every sink config, overwriting whatever the env parse produced.
+    pub topic_ai: Option<String>,
+
+    /// Optional overflow topic for the AI lane. Like `topic_ai`, injected at
+    /// setup from the deployment-level `CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`; unset
+    /// means the pipeline never produces `Destination::AiEventsOverflow`.
+    pub topic_ai_overflow: Option<String>,
 }
 
 const VALID_ACKS: &[&str] = &["0", "1", "-1", "all"];
@@ -154,7 +164,9 @@ impl Config {
 /// per-sink (loaded from `CAPTURE_V1_SINK_*` env), but resolution runs through
 /// [`TopicTable::topic_for`] via [`Destination::as_address`], not a parallel
 /// match. v1 is analytics-only, so `session_replay_overflow` is left unset — an
-/// `Events`/`Ai` deployment never produces to it.
+/// `Events`/`Ai` deployment never produces to it. The AI topics are
+/// deployment-level policy injected by setup (`CAPTURE_ANALYTICS_AI_EVENTS_*`),
+/// not per-sink wiring.
 impl From<&Config> for TopicTable {
     fn from(config: &Config) -> Self {
         TopicTable {
@@ -166,6 +178,8 @@ impl From<&Config> for TopicTable {
             session_replay_overflow: String::new(),
             dlq: config.topic_dlq.clone(),
             error_tracking: config.topic_exception.clone(),
+            ai_events: config.topic_ai.clone(),
+            ai_events_overflow: config.topic_ai_overflow.clone(),
         }
     }
 }
@@ -264,8 +278,14 @@ impl Config {
         .into_iter()
         .map(|(k, v)| (k.to_string(), v))
         .collect();
-        crate::config::KafkaConfig::init_from_hashmap(&entries)
-            .map_err(|e| anyhow::anyhow!("mapping v1 sink config onto KafkaConfig: {e}"))
+        let mut config = crate::config::KafkaConfig::init_from_hashmap(&entries)
+            .map_err(|e| anyhow::anyhow!("mapping v1 sink config onto KafkaConfig: {e}"))?;
+        // The injected AI topics ride along so everything derived from the
+        // shared config — the prep spec's AI overflow valve, a topic table —
+        // agrees with this sink's wiring.
+        config.capture_analytics_ai_events_topic = self.topic_ai.clone();
+        config.capture_analytics_ai_events_overflow_topic = self.topic_ai_overflow.clone();
+        Ok(config)
     }
 }
 
@@ -503,5 +523,37 @@ mod tests {
             .map(|addr| registry.topic_for(&addr).to_string());
         let expected = expected.map(str::to_string);
         assert_eq!(resolved, expected);
+    }
+
+    /// Absent AI topics carry through as `None` on the table; a (misconfig
+    /// only) reachable AI address then falls back to the main topic rather
+    /// than failing the batch.
+    #[test]
+    fn topic_ai_absent_falls_back_to_main() {
+        let cfg = Config::init_from_hashmap(&required_kafka_env()).unwrap();
+        assert_eq!(cfg.topic_ai, None);
+        assert_eq!(cfg.topic_ai_overflow, None);
+        let registry = TopicTable::from(&cfg);
+        let resolve =
+            |dest: &Destination| registry.topic_for(&dest.as_address().unwrap()).to_string();
+        assert_eq!(resolve(&Destination::AiEvents), "events_main");
+        assert_eq!(resolve(&Destination::AiEventsOverflow), "events_main");
+    }
+
+    /// AI topics injected by setup (mirroring the deployment-level
+    /// `CAPTURE_ANALYTICS_AI_EVENTS_*` env) resolve the AI destinations.
+    #[test]
+    fn topic_ai_present_resolves_destinations() {
+        let mut cfg = Config::init_from_hashmap(&required_kafka_env()).unwrap();
+        cfg.topic_ai = Some("ai_events".to_string());
+        cfg.topic_ai_overflow = Some("ai_events_overflow".to_string());
+        let registry = TopicTable::from(&cfg);
+        let resolve =
+            |dest: &Destination| registry.topic_for(&dest.as_address().unwrap()).to_string();
+        assert_eq!(resolve(&Destination::AiEvents), "ai_events");
+        assert_eq!(
+            resolve(&Destination::AiEventsOverflow),
+            "ai_events_overflow"
+        );
     }
 }

@@ -2,7 +2,7 @@ from typing import Any
 
 import pytest
 
-from products.replay_vision.backend.models.replay_scanner import ScannerType
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.proposers import get_proposer
 from products.replay_vision.backend.proposers.base import ConfigChange
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
@@ -190,6 +190,26 @@ def test_summarizer_patch_defends_against_missing_or_invalid_length() -> None:
         proposer.to_config_patch({"suggested_prompt": "p2", "length": "epic", "rationale": "r"}, base)["length"]
         == "long"
     )
+
+
+@pytest.mark.parametrize(
+    "scanner_type,config,expected",
+    [
+        ("monitor", {"prompt": "p"}, "allow_inconclusive: false"),
+        ("monitor", {"prompt": "p", "allow_inconclusive": True}, "allow_inconclusive: true"),
+        ("scorer", {"prompt": "p", "scale": {"min": 1, "max": 5, "label": "frustration"}}, "1 to 5 (frustration)"),
+        ("scorer", {"prompt": "p", "scale": {"min": 0, "max": 10}}, "0 to 10."),
+        ("summarizer", {"prompt": "p"}, "length: medium"),
+        ("summarizer", {"prompt": "p", "length": "long"}, "length: long"),
+    ],
+)
+def test_grounding_states_current_type_specific_config(
+    scanner_type: str, config: dict[str, Any], expected: str
+) -> None:
+    # The output schemas force the model to echo these fields, so the briefing must state their
+    # current values. Without them the model guesses and writes rationales claiming no-op changes.
+    scanner = ReplayScanner(scanner_config=config)
+    assert expected in get_proposer(scanner_type).grounding(scanner)
 
 
 class TestClassifierGrounding(_VisionAPITestCase):

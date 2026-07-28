@@ -444,6 +444,7 @@ async fn ai_handler_inner<T: PublishesAi>(
     stamp_overflow_reason(
         std::slice::from_mut(&mut processed_event),
         state.overflow_limiter.as_ref(),
+        state.ai_events_overflow_limiter.as_ref(),
     );
 
     // Step 9: Publish through the outputs layer

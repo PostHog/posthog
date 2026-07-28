@@ -30,10 +30,11 @@ pub const AI_EVENT_PREFIX: &str = "$ai_";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Pipeline {
     Analytics,
-    /// LLM analytics: `$ai_*` events. They ride the analytics data types and
-    /// (today) the analytics topics, but are their own product stream — with
-    /// their own ingress, quota resource, and cluster-migration story — so
-    /// they are addressable as their own pipeline.
+    /// LLM analytics: `$ai_*` events diverted by the deployment's `AiRouting`
+    /// policy (stamped as `DataType::AiEvents` during processing). Their own
+    /// product stream — with their own ingress, quota resource, topic
+    /// (`CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`), and cluster-migration story —
+    /// addressable as their own pipeline.
     Ai,
     Heatmaps,
     Warnings,
@@ -44,20 +45,16 @@ pub enum Pipeline {
 impl Pipeline {
     /// Classify an event's pipeline from its metadata. `DataType` conflates
     /// the pipeline with the historical lane (`AnalyticsMain` vs
-    /// `AnalyticsHistorical`) and does not distinguish the AI stream at all
-    /// (`$ai_*` events are analytics data types); this extracts the pipeline,
-    /// [`resolve`] extracts the lane. Classification is by event name, not
-    /// ingress, so `$ai_*` events reaching plain `/capture` land in the AI
-    /// pipeline too — consistent with the LLM quota predicate.
+    /// `AnalyticsHistorical`); this extracts the pipeline, [`resolve`]
+    /// extracts the lane. AI membership follows the **stamped**
+    /// `DataType::AiEvents`, not the event name: the per-batch-token
+    /// `AiRouting` divert decision happens during processing (mirroring v1's
+    /// `Destination::AiEvents`), so an undiverted `$ai_*` event stays a plain
+    /// analytics event on the analytics lanes.
     pub fn from_metadata(metadata: &ProcessedEventMetadata) -> Self {
         match metadata.data_type {
-            DataType::AnalyticsMain | DataType::AnalyticsHistorical => {
-                if metadata.event_name.starts_with(AI_EVENT_PREFIX) {
-                    Pipeline::Ai
-                } else {
-                    Pipeline::Analytics
-                }
-            }
+            DataType::AnalyticsMain | DataType::AnalyticsHistorical => Pipeline::Analytics,
+            DataType::AiEvents => Pipeline::Ai,
             DataType::HeatmapMain => Pipeline::Heatmaps,
             DataType::ClientIngestionWarning => Pipeline::Warnings,
             DataType::ExceptionErrorTracking => Pipeline::ErrorTracking,
@@ -75,15 +72,16 @@ pub enum AnalyticsLane {
     Dlq,
 }
 
-/// The AI pipeline's lanes: a mirror of [`AnalyticsLane`] because AI events
-/// ride the analytics data types (and, today, the analytics topics) —
-/// including historical batch migrations. Distinct type so the streams stay
-/// independently addressable as their routing diverges.
+/// The AI pipeline's lanes. No historical lane: the AI divert decision wins
+/// over historical migration (matching v1, where the historical reroute only
+/// applies to the analytics-main destination), so a diverted `$ai_*` event in
+/// a historical batch still lands on the AI main lane. The overflow lane is
+/// reachable only when the AI overflow valve
+/// (`CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`) is armed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AiLane {
     Main,
     Overflow,
-    Historical,
     Dlq,
 }
 
@@ -207,24 +205,16 @@ fn dlq_address(pipeline: Pipeline) -> Address {
     }
 }
 
-/// The analytics data types carry two pipelines (analytics and AI); route a
-/// lane to whichever the event classified into.
-fn analytics_family(pipeline: Pipeline, lane: AnalyticsLane) -> Address {
-    match pipeline {
-        Pipeline::Ai => Address::Ai(match lane {
-            AnalyticsLane::Main => AiLane::Main,
-            AnalyticsLane::Overflow => AiLane::Overflow,
-            AnalyticsLane::Historical => AiLane::Historical,
-            AnalyticsLane::Dlq => AiLane::Dlq,
-        }),
-        _ => Address::Analytics(lane),
-    }
-}
-
 /// The lane decision: one precedence chain over the intent flags stamped
 /// upstream. DLQ and custom-topic redirects take priority over per-pipeline
 /// and overflow routing.
-pub fn resolve(metadata: &ProcessedEventMetadata) -> LaneDecision {
+///
+/// `ai_events_overflow_armed` is the AI overflow valve
+/// (`CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC` set): when off, AI events
+/// never overflow — `force_overflow` and stamped reasons are deliberately
+/// ignored on the AI lane (and the pipeline never stamps a reason there
+/// anyway, since the AI limiter is only built when the valve is armed).
+pub fn resolve(metadata: &ProcessedEventMetadata, ai_events_overflow_armed: bool) -> LaneDecision {
     let pipeline = Pipeline::from_metadata(metadata);
 
     // redirect_to_dlq takes priority over all other routing.
@@ -251,7 +241,7 @@ pub fn resolve(metadata: &ProcessedEventMetadata) -> LaneDecision {
         DataType::AnalyticsHistorical => LaneDecision {
             // Historical events never overflow — force_overflow and
             // overflow_reason are deliberately ignored here.
-            address: analytics_family(pipeline, AnalyticsLane::Historical),
+            address: Address::Analytics(AnalyticsLane::Historical),
             key_policy: KeyPolicy::EventKey,
             effect: LaneEffect::Standard,
         },
@@ -260,37 +250,84 @@ pub fn resolve(metadata: &ProcessedEventMetadata) -> LaneDecision {
             // (pipeline-stamped) -> default main-lane routing.
             if metadata.force_overflow {
                 LaneDecision {
-                    address: analytics_family(pipeline, AnalyticsLane::Overflow),
+                    address: Address::Analytics(AnalyticsLane::Overflow),
                     key_policy: person_key_policy(metadata.skip_person_processing),
                     effect: LaneEffect::Standard,
                 }
             } else {
                 match &metadata.overflow_reason {
                     Some(OverflowReason::ForceLimited) => LaneDecision {
-                        address: analytics_family(pipeline, AnalyticsLane::Overflow),
+                        address: Address::Analytics(AnalyticsLane::Overflow),
                         key_policy: KeyPolicy::Null,
                         effect: LaneEffect::ForceDisablePersonProcessing,
                     },
                     Some(OverflowReason::RateLimited {
                         preserve_locality: true,
                     }) => LaneDecision {
-                        address: analytics_family(pipeline, AnalyticsLane::Overflow),
+                        address: Address::Analytics(AnalyticsLane::Overflow),
                         key_policy: KeyPolicy::EventKey,
                         effect: LaneEffect::Standard,
                     },
                     Some(OverflowReason::RateLimited {
                         preserve_locality: false,
                     }) => LaneDecision {
-                        address: analytics_family(pipeline, AnalyticsLane::Overflow),
+                        address: Address::Analytics(AnalyticsLane::Overflow),
                         key_policy: KeyPolicy::Null,
                         effect: LaneEffect::Standard,
                     },
                     // ReplayLimited never applies to AnalyticsMain; fall through to main.
                     Some(OverflowReason::ReplayLimited) | None => LaneDecision {
-                        address: analytics_family(pipeline, AnalyticsLane::Main),
+                        address: Address::Analytics(AnalyticsLane::Main),
                         key_policy: person_key_policy(metadata.skip_person_processing),
                         effect: LaneEffect::Standard,
                     },
+                }
+            }
+        }
+        DataType::AiEvents => {
+            // Valve armed: mirror the analytics main lane's overflow handling
+            // onto the AI lanes. Valve unarmed: AI events never overflow. The
+            // default route keeps the event key regardless of
+            // skip_person_processing (matching v1, which only nulls keys for
+            // Main/Overflow-shaped destinations).
+            if ai_events_overflow_armed && metadata.force_overflow {
+                LaneDecision {
+                    address: Address::Ai(AiLane::Overflow),
+                    key_policy: person_key_policy(metadata.skip_person_processing),
+                    effect: LaneEffect::Standard,
+                }
+            } else if ai_events_overflow_armed {
+                match &metadata.overflow_reason {
+                    Some(OverflowReason::ForceLimited) => LaneDecision {
+                        address: Address::Ai(AiLane::Overflow),
+                        key_policy: KeyPolicy::Null,
+                        effect: LaneEffect::ForceDisablePersonProcessing,
+                    },
+                    Some(OverflowReason::RateLimited {
+                        preserve_locality: true,
+                    }) => LaneDecision {
+                        address: Address::Ai(AiLane::Overflow),
+                        key_policy: KeyPolicy::EventKey,
+                        effect: LaneEffect::Standard,
+                    },
+                    Some(OverflowReason::RateLimited {
+                        preserve_locality: false,
+                    }) => LaneDecision {
+                        address: Address::Ai(AiLane::Overflow),
+                        key_policy: KeyPolicy::Null,
+                        effect: LaneEffect::Standard,
+                    },
+                    Some(OverflowReason::ReplayLimited) | None => LaneDecision {
+                        address: Address::Ai(AiLane::Main),
+                        key_policy: KeyPolicy::EventKey,
+                        effect: LaneEffect::Standard,
+                    },
+                }
+            } else {
+                LaneDecision {
+                    address: Address::Ai(AiLane::Main),
+                    key_policy: KeyPolicy::EventKey,
+                    effect: LaneEffect::Standard,
                 }
             }
         }
@@ -356,6 +393,7 @@ mod tests {
         for (dt, pipeline) in [
             (DataType::AnalyticsMain, Pipeline::Analytics),
             (DataType::AnalyticsHistorical, Pipeline::Analytics),
+            (DataType::AiEvents, Pipeline::Ai),
             (DataType::ClientIngestionWarning, Pipeline::Warnings),
             (DataType::HeatmapMain, Pipeline::Heatmaps),
             (DataType::ExceptionErrorTracking, Pipeline::ErrorTracking),
@@ -370,34 +408,110 @@ mod tests {
     }
 
     #[test]
-    fn ai_events_classify_as_ai_pipeline_by_name() {
-        // `$ai_*` events ride the analytics data types but classify as the AI
-        // pipeline — through any ingress, and on the historical lane too.
+    fn ai_membership_follows_the_stamp_not_the_name() {
+        // An undiverted `$ai_*` event (AiRouting said no) keeps its analytics
+        // data type and stays a plain analytics event.
         let mut m = meta(DataType::AnalyticsMain);
         m.event_name = "$ai_generation".to_string();
-        assert_eq!(Pipeline::from_metadata(&m), Pipeline::Ai);
-        assert_eq!(resolve(&m).address, Address::Ai(AiLane::Main));
+        assert_eq!(Pipeline::from_metadata(&m), Pipeline::Analytics);
+        assert_eq!(
+            resolve(&m, false).address,
+            Address::Analytics(AnalyticsLane::Main)
+        );
 
-        m.overflow_reason = Some(OverflowReason::ForceLimited);
-        assert_eq!(resolve(&m).address, Address::Ai(AiLane::Overflow));
-        m.overflow_reason = None;
+        // A diverted event carries the stamp and lands on the AI lanes.
+        let mut m = meta(DataType::AiEvents);
+        m.event_name = "$ai_generation".to_string();
+        assert_eq!(Pipeline::from_metadata(&m), Pipeline::Ai);
+        assert_eq!(resolve(&m, false).address, Address::Ai(AiLane::Main));
 
         m.redirect_to_dlq = true;
-        assert_eq!(resolve(&m).address, Address::Ai(AiLane::Dlq));
+        assert_eq!(resolve(&m, false).address, Address::Ai(AiLane::Dlq));
         m.redirect_to_dlq = false;
 
         m.redirect_to_topic = Some("warpstream_topic".to_string());
         assert_eq!(
-            resolve(&m).address,
+            resolve(&m, false).address,
             Address::Custom {
                 pipeline: Pipeline::Ai,
                 topic: "warpstream_topic".to_string(),
             }
         );
-        m.redirect_to_topic = None;
+    }
 
-        m.data_type = DataType::AnalyticsHistorical;
-        assert_eq!(resolve(&m).address, Address::Ai(AiLane::Historical));
+    #[test]
+    fn ai_overflow_valve_gates_the_overflow_lane() {
+        // Valve unarmed: force_overflow and stamped reasons are ignored — the
+        // AI lane never overflows, and the event keeps its key.
+        let mut m = meta(DataType::AiEvents);
+        m.force_overflow = true;
+        assert_eq!(
+            resolve(&m, false),
+            LaneDecision {
+                address: Address::Ai(AiLane::Main),
+                key_policy: KeyPolicy::EventKey,
+                effect: LaneEffect::Standard,
+            }
+        );
+        m.force_overflow = false;
+        m.overflow_reason = Some(OverflowReason::RateLimited {
+            preserve_locality: false,
+        });
+        assert_eq!(resolve(&m, false).address, Address::Ai(AiLane::Main));
+        assert_eq!(resolve(&m, false).key_policy, KeyPolicy::EventKey);
+
+        // Valve armed: mirrors the analytics main lane's overflow handling.
+        let base = meta(DataType::AiEvents);
+
+        let mut forced = base.clone();
+        forced.force_overflow = true;
+        assert_eq!(
+            resolve(&forced, true).address,
+            Address::Ai(AiLane::Overflow)
+        );
+        assert_eq!(resolve(&forced, true).key_policy, KeyPolicy::EventKey);
+        forced.skip_person_processing = true;
+        assert_eq!(resolve(&forced, true).key_policy, KeyPolicy::Null);
+
+        let mut force_limited = base.clone();
+        force_limited.overflow_reason = Some(OverflowReason::ForceLimited);
+        assert_eq!(
+            resolve(&force_limited, true),
+            LaneDecision {
+                address: Address::Ai(AiLane::Overflow),
+                key_policy: KeyPolicy::Null,
+                effect: LaneEffect::ForceDisablePersonProcessing,
+            }
+        );
+
+        let mut preserve = base.clone();
+        preserve.overflow_reason = Some(OverflowReason::RateLimited {
+            preserve_locality: true,
+        });
+        assert_eq!(
+            resolve(&preserve, true).address,
+            Address::Ai(AiLane::Overflow)
+        );
+        assert_eq!(resolve(&preserve, true).key_policy, KeyPolicy::EventKey);
+
+        let mut no_preserve = base.clone();
+        no_preserve.overflow_reason = Some(OverflowReason::RateLimited {
+            preserve_locality: false,
+        });
+        assert_eq!(resolve(&no_preserve, true).key_policy, KeyPolicy::Null);
+
+        // The armed default route keeps the event key even with skip_person
+        // set (v1 parity: only Main/Overflow-shaped destinations null keys).
+        let mut skip_person = base;
+        skip_person.skip_person_processing = true;
+        assert_eq!(
+            resolve(&skip_person, true),
+            LaneDecision {
+                address: Address::Ai(AiLane::Main),
+                key_policy: KeyPolicy::EventKey,
+                effect: LaneEffect::Standard,
+            }
+        );
     }
 
     #[test]
@@ -438,7 +552,7 @@ mod tests {
         m.redirect_to_topic = Some("custom".to_string());
         m.force_overflow = true;
         assert_eq!(
-            resolve(&m),
+            resolve(&m, false),
             LaneDecision {
                 address: Address::Analytics(AnalyticsLane::Dlq),
                 key_policy: KeyPolicy::EventKey,
@@ -475,7 +589,7 @@ mod tests {
             let mut m = meta(dt);
             m.redirect_to_dlq = true;
             assert_eq!(
-                resolve(&m).address,
+                resolve(&m, false).address,
                 expected,
                 "wrong dlq address for {dt:?}"
             );
@@ -490,7 +604,7 @@ mod tests {
         m.redirect_to_topic = Some("my_topic".to_string());
         m.force_overflow = true;
         assert_eq!(
-            resolve(&m),
+            resolve(&m, false),
             LaneDecision {
                 address: Address::Custom {
                     pipeline: Pipeline::Analytics,
@@ -528,7 +642,7 @@ mod tests {
             ),
         ] {
             let m = meta(dt);
-            let d = resolve(&m);
+            let d = resolve(&m, false);
             assert_eq!(d.address, address, "wrong address for {dt:?}");
             assert_eq!(d.effect, LaneEffect::Standard, "wrong effect for {dt:?}");
         }
@@ -539,11 +653,11 @@ mod tests {
         // force_overflow -> overflow lane; key policy follows skip_person.
         let mut m = meta(DataType::AnalyticsMain);
         m.force_overflow = true;
-        assert_eq!(resolve(&m).key_policy, KeyPolicy::EventKey);
+        assert_eq!(resolve(&m, false).key_policy, KeyPolicy::EventKey);
         m.skip_person_processing = true;
-        assert_eq!(resolve(&m).key_policy, KeyPolicy::Null);
+        assert_eq!(resolve(&m, false).key_policy, KeyPolicy::Null);
         assert_eq!(
-            resolve(&m).address,
+            resolve(&m, false).address,
             Address::Analytics(AnalyticsLane::Overflow)
         );
     }
@@ -555,7 +669,7 @@ mod tests {
         let mut force_limited = base.clone();
         force_limited.overflow_reason = Some(OverflowReason::ForceLimited);
         assert_eq!(
-            resolve(&force_limited),
+            resolve(&force_limited, false),
             LaneDecision {
                 address: Address::Analytics(AnalyticsLane::Overflow),
                 key_policy: KeyPolicy::Null,
@@ -567,9 +681,9 @@ mod tests {
         preserve.overflow_reason = Some(OverflowReason::RateLimited {
             preserve_locality: true,
         });
-        assert_eq!(resolve(&preserve).key_policy, KeyPolicy::EventKey);
+        assert_eq!(resolve(&preserve, false).key_policy, KeyPolicy::EventKey);
         assert_eq!(
-            resolve(&preserve).address,
+            resolve(&preserve, false).address,
             Address::Analytics(AnalyticsLane::Overflow)
         );
 
@@ -577,9 +691,9 @@ mod tests {
         no_preserve.overflow_reason = Some(OverflowReason::RateLimited {
             preserve_locality: false,
         });
-        assert_eq!(resolve(&no_preserve).key_policy, KeyPolicy::Null);
+        assert_eq!(resolve(&no_preserve, false).key_policy, KeyPolicy::Null);
         assert_eq!(
-            resolve(&no_preserve).address,
+            resolve(&no_preserve, false).address,
             Address::Analytics(AnalyticsLane::Overflow)
         );
 
@@ -587,7 +701,7 @@ mod tests {
         let mut replay = base;
         replay.overflow_reason = Some(OverflowReason::ReplayLimited);
         assert_eq!(
-            resolve(&replay).address,
+            resolve(&replay, false).address,
             Address::Analytics(AnalyticsLane::Main)
         );
     }
@@ -596,7 +710,7 @@ mod tests {
     fn snapshot_routing_uses_session_id_key() {
         let mut m = meta(DataType::SnapshotMain);
         assert_eq!(
-            resolve(&m),
+            resolve(&m, false),
             LaneDecision {
                 address: Address::SessionReplay(SessionReplayLane::Main),
                 key_policy: KeyPolicy::SessionId,
@@ -606,15 +720,15 @@ mod tests {
 
         m.force_overflow = true;
         assert_eq!(
-            resolve(&m).address,
+            resolve(&m, false).address,
             Address::SessionReplay(SessionReplayLane::Overflow)
         );
-        assert_eq!(resolve(&m).key_policy, KeyPolicy::SessionId);
+        assert_eq!(resolve(&m, false).key_policy, KeyPolicy::SessionId);
 
         m.force_overflow = false;
         m.overflow_reason = Some(OverflowReason::ReplayLimited);
         assert_eq!(
-            resolve(&m).address,
+            resolve(&m, false).address,
             Address::SessionReplay(SessionReplayLane::Overflow)
         );
     }

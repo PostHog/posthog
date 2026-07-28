@@ -51,7 +51,15 @@ import { IngestionOverflowMode } from '~/ingestion/config'
 import { TopHogWrapper, sum, sumOk, sumResult } from '~/ingestion/framework/extensions/tophog'
 import { isDropResult } from '~/ingestion/framework/results'
 
+import { BlobStore } from './blob-offload/blob-store'
 import { AiEventOutput, EVENTS_OUTPUT, EventOutput } from './outputs'
+import {
+    OffloadAiBlobsConfig,
+    createExtractAiBlobsStep,
+    createUploadAiBlobStep,
+    extractAiBlobsFanOut,
+    mergeAiBlobPointersFanIn,
+} from './pipelines/steps/offload-ai-blobs-step'
 import { createProcessAiEventStep } from './pipelines/steps/process-ai-event-step'
 
 export interface AiIngestionPipelineConfig {
@@ -76,6 +84,8 @@ export interface AiIngestionPipelineConfig {
     eventSchemaEnforcementEnabled: boolean
     eventSchemaEnforcementManager: EventSchemaEnforcementManager
     topHog: TopHogWrapper
+    aiBlobStore: BlobStore | null
+    aiBlobOffloadConfig: OffloadAiBlobsConfig
 }
 
 interface AiIngestionPipelineInput {
@@ -123,6 +133,8 @@ export function createAiIngestionPipeline<
         eventSchemaEnforcementEnabled,
         eventSchemaEnforcementManager,
         topHog,
+        aiBlobStore,
+        aiBlobOffloadConfig,
     } = config
 
     return (
@@ -207,6 +219,22 @@ export function createAiIngestionPipeline<
             )
             .pipe(createNormalizeEventStep())
             .pipe(createProcessAiEventStep())
+            // Blob offload: extract blobs sequentially (cheap, no I/O), then
+            // upload them through a fan-out/fan-in stage so per-blob uploads
+            // share one concurrency cap across the whole chunk and reuse the
+            // pipeline's retry machinery instead of hand-rolled concurrency.
+            .pipe(createExtractAiBlobsStep(aiBlobStore, aiBlobOffloadConfig))
+            .fanOut(extractAiBlobsFanOut)
+            .via((sub) =>
+                sub.concurrently(
+                    (blob) =>
+                        blob.pipe(createUploadAiBlobStep(aiBlobStore), {
+                            retry: { tries: 5, sleepMs: 100, name: 'offload_ai_blobs' },
+                        }),
+                    { maxConcurrency: aiBlobOffloadConfig.uploadMaxConcurrency }
+                )
+            )
+            .fanIn(mergeAiBlobPointersFanIn)
             // Read-only: drop person-update props so they don't
             // leak into person_properties (person is never written).
             .pipe(createStripPersonUpdatePropertiesStep())

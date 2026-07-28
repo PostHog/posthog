@@ -1,9 +1,9 @@
 from posthog.api.routing import RouterRegistry
 
 import products.tasks.backend.presentation.views.api as tasks
+import products.tasks.backend.presentation.views.loops as loops
 import products.tasks.backend.presentation.views.seat_api as seats
 import products.tasks.backend.presentation.views.channels_api as channels
-import products.tasks.backend.presentation.views.code_home_api as code_home
 
 
 def register_routes(routers: RouterRegistry) -> None:
@@ -30,14 +30,14 @@ def register_routes(routers: RouterRegistry) -> None:
         ["team_id", "channel_id"],
     )
     routers.projects.register(r"task_mentions", channels.TaskMentionViewSet, "project_task_mentions", ["team_id"])
+    routers.projects.register(r"task_activity", channels.TaskActivityViewSet, "project_task_activity", ["team_id"])
     routers.projects.register(r"task_automations", tasks.TaskAutomationViewSet, "project_task_automations", ["team_id"])
+    routers.projects.register(r"loops", loops.LoopViewSet, "project_loops", ["team_id"])
     routers.projects.register(
         r"sandbox_environments", tasks.SandboxEnvironmentViewSet, "project_sandbox_environments", ["team_id"]
     )
     routers.projects.register(
         r"sandbox_custom_images", tasks.SandboxCustomImageViewSet, "project_sandbox_custom_images", ["team_id"]
     )
-    routers.projects.register(r"code_workflow", code_home.CodeWorkflowViewSet, "project_code_workflow", ["team_id"])
-    routers.projects.register(r"code_home", code_home.CodeHomeViewSet, "project_code_home", ["team_id"])
     routers.root.register(r"code/invites", tasks.CodeInviteViewSet, "code_invites")
     routers.root.register(r"seats", seats.SeatViewSet, "seats")

@@ -19,6 +19,7 @@
 
 use crate::config::{CaptureMode, KafkaConfig, OutputOverrides};
 use crate::pipeline::{Address, AiLane, AnalyticsLane, BasicLane, Pipeline, SessionReplayLane};
+use tracing::warn;
 
 /// A named topic accessor the completeness check walks: `(label, getter)`.
 type TopicEntry = (&'static str, fn(&TopicTable) -> &str);
@@ -40,6 +41,16 @@ pub struct TopicTable {
     pub(crate) session_replay_overflow: String,
     pub(crate) dlq: String,
     pub(crate) error_tracking: String,
+    /// Dedicated topic for the AI pipeline's main lane
+    /// (`CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`). Optional because the AI lane is
+    /// opt-in: startup validation guarantees it is set whenever the routing
+    /// policy can produce `AiEvents` records.
+    pub(crate) ai_events: Option<String>,
+    /// Overflow topic for the AI lane
+    /// (`CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`). Unset means AI events
+    /// never overflow — [`crate::pipeline::resolve`] only emits
+    /// `Ai(Overflow)` when the valve is armed.
+    pub(crate) ai_events_overflow: Option<String>,
 }
 
 /// The topics an `Events`/`Ai` deployment can produce to, as
@@ -68,10 +79,14 @@ const RECORDINGS_TOPICS: [TopicEntry; 3] = [
 
 impl TopicTable {
     /// Realize an address in this cluster's namespace. Total — lanes are
-    /// typed per pipeline, so there is no invalid pair to reject. The AI
-    /// pipeline maps onto the analytics topics today; giving it its own
-    /// topics is a table change, not a routing change. `Custom` returns its
-    /// inline admin-supplied topic.
+    /// typed per pipeline, so there is no invalid pair to reject. `Custom`
+    /// returns its inline admin-supplied topic.
+    ///
+    /// The AI lanes resolve to their dedicated topics
+    /// (`CAPTURE_ANALYTICS_AI_EVENTS_*`). An unset AI topic should be
+    /// impossible for a reachable AI address (startup validation requires the
+    /// topic whenever the routing policy can produce `AiEvents`), so it falls
+    /// back to the main topic rather than failing the batch.
     pub fn topic_for<'a>(&'a self, address: &'a Address) -> &'a str {
         match address {
             Address::Custom { topic, .. } => topic,
@@ -79,9 +94,21 @@ impl TopicTable {
             Address::Analytics(AnalyticsLane::Overflow) => &self.overflow,
             Address::Analytics(AnalyticsLane::Historical) => &self.historical,
             Address::Analytics(AnalyticsLane::Dlq) => &self.dlq,
-            Address::Ai(AiLane::Main) => &self.main,
-            Address::Ai(AiLane::Overflow) => &self.overflow,
-            Address::Ai(AiLane::Historical) => &self.historical,
+            Address::Ai(AiLane::Main) | Address::Ai(AiLane::Overflow) => {
+                let configured = match address {
+                    Address::Ai(AiLane::Overflow) => &self.ai_events_overflow,
+                    _ => &self.ai_events,
+                };
+                match configured.as_deref() {
+                    Some(topic) if !topic.is_empty() => topic,
+                    _ => {
+                        warn!(
+                            "AI topic not configured for {address:?}; falling back to main topic"
+                        );
+                        &self.main
+                    }
+                }
+            }
             Address::Ai(AiLane::Dlq) => &self.dlq,
             Address::Heatmaps(BasicLane::Main) => &self.heatmaps,
             Address::Heatmaps(BasicLane::Dlq) => &self.dlq,
@@ -101,9 +128,17 @@ impl TopicTable {
     /// topics (and an `Events`/`Ai` pod from demanding replay-overflow).
     fn required_for(mode: CaptureMode) -> &'static [TopicEntry] {
         match mode {
-            CaptureMode::Events | CaptureMode::Ai => &ANALYTICS_FAMILY_TOPICS,
+            CaptureMode::Events | CaptureMode::Ai | CaptureMode::Import => &ANALYTICS_FAMILY_TOPICS,
             CaptureMode::Recordings => &RECORDINGS_TOPICS,
         }
+    }
+
+    /// Whether this table arms the AI overflow valve: the AI overflow topic
+    /// is wired, so the AI lane may resolve to its overflow lane.
+    pub fn ai_events_overflow_armed(&self) -> bool {
+        self.ai_events_overflow
+            .as_deref()
+            .is_some_and(|t| !t.is_empty())
     }
 
     /// Startup completeness check, scoped to `mode`: every topic the mode's
@@ -144,9 +179,13 @@ impl TopicTable {
                 set(&mut self.dlq, &overrides.analytics_topic_dlq);
             }
             Pipeline::Ai => {
-                set(&mut self.main, &overrides.ai_topic_main);
-                set(&mut self.overflow, &overrides.ai_topic_overflow);
-                set(&mut self.historical, &overrides.ai_topic_historical);
+                fn set_opt(field: &mut Option<String>, value: &Option<String>) {
+                    if value.is_some() {
+                        field.clone_from(value);
+                    }
+                }
+                set_opt(&mut self.ai_events, &overrides.ai_topic_main);
+                set_opt(&mut self.ai_events_overflow, &overrides.ai_topic_overflow);
                 set(&mut self.dlq, &overrides.ai_topic_dlq);
             }
             Pipeline::Heatmaps => {
@@ -194,7 +233,6 @@ impl TopicTable {
             Pipeline::Ai => vec![
                 Address::Ai(AiLane::Main),
                 Address::Ai(AiLane::Overflow),
-                Address::Ai(AiLane::Historical),
                 Address::Ai(AiLane::Dlq),
             ],
             Pipeline::Heatmaps => vec![
@@ -243,6 +281,8 @@ impl From<&KafkaConfig> for TopicTable {
             session_replay_overflow: config.kafka_replay_overflow_topic.clone(),
             dlq: config.kafka_dlq_topic.clone(),
             error_tracking: config.kafka_error_tracking_topic.clone(),
+            ai_events: config.capture_analytics_ai_events_topic.clone(),
+            ai_events_overflow: config.capture_analytics_ai_events_overflow_topic.clone(),
         }
     }
 }
@@ -261,6 +301,8 @@ pub(crate) fn test_topics() -> TopicTable {
         session_replay_overflow: "session_replay_overflow".to_string(),
         dlq: "events_plugin_ingestion_dlq".to_string(),
         error_tracking: "error_tracking_events".to_string(),
+        ai_events: Some("ai_events".to_string()),
+        ai_events_overflow: Some("ai_events_overflow".to_string()),
     }
 }
 
@@ -281,8 +323,9 @@ mod tests {
         "events_plugin_ingestion_historical"
     )]
     #[case(Address::Analytics(AnalyticsLane::Dlq), "events_plugin_ingestion_dlq")]
-    #[case(Address::Ai(AiLane::Main), "events_plugin_ingestion")]
-    #[case(Address::Ai(AiLane::Overflow), "events_plugin_ingestion_overflow")]
+    #[case(Address::Ai(AiLane::Main), "ai_events")]
+    #[case(Address::Ai(AiLane::Overflow), "ai_events_overflow")]
+    #[case(Address::Ai(AiLane::Dlq), "events_plugin_ingestion_dlq")]
     #[case(Address::Heatmaps(BasicLane::Main), "heatmaps")]
     #[case(Address::Warnings(BasicLane::Main), "client_ingestion_warning")]
     #[case(Address::ErrorTracking(BasicLane::Main), "error_tracking_events")]
@@ -385,7 +428,6 @@ mod tests {
     #[case(Pipeline::Analytics, Address::Analytics(AnalyticsLane::Dlq))]
     #[case(Pipeline::Ai, Address::Ai(AiLane::Main))]
     #[case(Pipeline::Ai, Address::Ai(AiLane::Overflow))]
-    #[case(Pipeline::Ai, Address::Ai(AiLane::Historical))]
     #[case(Pipeline::Ai, Address::Ai(AiLane::Dlq))]
     #[case(Pipeline::Heatmaps, Address::Heatmaps(BasicLane::Main))]
     #[case(Pipeline::Heatmaps, Address::Heatmaps(BasicLane::Dlq))]
@@ -443,7 +485,6 @@ mod tests {
             analytics_topic_dlq: over.clone(),
             ai_topic_main: over.clone(),
             ai_topic_overflow: over.clone(),
-            ai_topic_historical: over.clone(),
             ai_topic_dlq: over.clone(),
             heatmaps_topic_main: over.clone(),
             heatmaps_topic_dlq: over.clone(),

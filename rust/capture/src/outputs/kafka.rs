@@ -116,10 +116,15 @@ impl<P: KafkaProducer + 'static> Outputs for KafkaOutputsBase<P> {
 impl<P: KafkaProducer + 'static> KafkaOutputsBase<P> {
     /// Test support: a surface over an injected producer (json, no envelope
     /// compression). Public so integration-level test harnesses drive the
-    /// exact production path against a mock producer.
+    /// exact production path against a mock producer. The AI overflow valve
+    /// follows the table — armed exactly when the table wires the AI
+    /// overflow topic, as in production.
     pub fn with_producer(producer: P, topics: TopicTable) -> Self {
         Self {
-            prep: PrepSpec::new(crate::config::EnvelopeCompression::None),
+            prep: PrepSpec::new(
+                crate::config::EnvelopeCompression::None,
+                topics.ai_events_overflow_armed(),
+            ),
             topics: Arc::new(topics),
             sink: KafkaSinkBase::with_producer(producer),
         }
@@ -129,7 +134,7 @@ impl<P: KafkaProducer + 'static> KafkaOutputsBase<P> {
 #[cfg(test)]
 impl<P: KafkaProducer + 'static> KafkaOutputsBase<P> {
     pub(crate) fn test_prep_spec() -> PrepSpec {
-        PrepSpec::new(crate::config::EnvelopeCompression::None)
+        PrepSpec::new(crate::config::EnvelopeCompression::None, false)
     }
 
     pub(crate) async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
@@ -211,6 +216,8 @@ mod tests {
             kafka_dlq_topic: "events_plugin_ingestion_dlq".to_string(),
             kafka_traces_topic: "traces_ingestion".to_string(),
             kafka_metrics_topic: "metrics_ingestion".to_string(),
+            capture_analytics_ai_events_topic: None,
+            capture_analytics_ai_events_overflow_topic: None,
             kafka_tls: false,
             kafka_client_id: "".to_string(),
             kafka_metadata_max_age_ms: 60000,
@@ -675,7 +682,7 @@ mod tests {
 
             let producer = MockKafkaProducer::new();
             let sink = KafkaOutputsBase::with_producer(producer.clone(), test_topics());
-            let spec = PrepSpec::new(input.compression);
+            let spec = PrepSpec::new(input.compression, false);
 
             let event = create_test_event(&input);
             sink.send_with(&spec, event).await.unwrap();
@@ -2044,7 +2051,7 @@ mod tests {
         async fn snapshot_payload_lz4_compressed_when_enabled() {
             let producer = MockKafkaProducer::new();
             let sink = KafkaOutputsBase::with_producer(producer.clone(), test_topics());
-            let spec = PrepSpec::new(EnvelopeCompression::Lz4);
+            let spec = PrepSpec::new(EnvelopeCompression::Lz4, false);
 
             let event = create_test_event(&EventInput {
                 data_type: DataType::SnapshotMain,
@@ -2074,7 +2081,7 @@ mod tests {
         async fn non_snapshot_payload_not_compressed_when_lz4_enabled() {
             let producer = MockKafkaProducer::new();
             let sink = KafkaOutputsBase::with_producer(producer.clone(), test_topics());
-            let spec = PrepSpec::new(EnvelopeCompression::Lz4);
+            let spec = PrepSpec::new(EnvelopeCompression::Lz4, false);
 
             let event = create_test_event(&EventInput {
                 data_type: DataType::AnalyticsMain,

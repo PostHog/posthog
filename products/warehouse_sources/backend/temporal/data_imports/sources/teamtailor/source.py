@@ -99,6 +99,7 @@ You can create an API key under **Settings → API keys** in Teamtailor. The key
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — Teamtailor's created-at/updated-at filter syntax is
         # under-documented, so there is no incremental cursor we can advance safely. INCREMENTAL_FIELDS
@@ -106,7 +107,11 @@ You can create an API key under **Settings → API keys** in Teamtailor. The key
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: TeamtailorSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: TeamtailorSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The API key is account-wide, so a single probe validates access to every schema.
         return _validate_credentials(config.api_key)

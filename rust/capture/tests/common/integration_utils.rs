@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use capture::{
     api::{CaptureResponse, CaptureResponseCode},
-    config::CaptureMode,
+    config::{AiRouting, CaptureMode},
     outputs::testing::MockOutputs,
     outputs::{AddressedPayload, AnalyticsFamilyOutputs, SessionReplayOutputs},
     pipeline::{Address, AnalyticsLane, BasicLane, SessionReplayLane},
@@ -1051,17 +1051,27 @@ pub fn test_lifecycle_handlers() -> (
 }
 
 fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
+    build_router_for_mode_at(unit.mode, unit.fixed_time)
+}
+
+// Builds a capture router for a given mode with test defaults, so route-registration
+// tests can assert which paths a mode serves without constructing a full TestCase.
+pub fn build_router_for_mode(mode: CaptureMode) -> Router {
+    build_router_for_mode_at(mode, DEFAULT_TEST_TIME).0
+}
+
+fn build_router_for_mode_at(mode: CaptureMode, fixed_time: &str) -> (Router, MemorySink) {
     let (readiness, liveness, _monitor) = test_lifecycle_handlers();
     let sink = MemorySink::default();
     let timesource = FixedTime {
-        time: DateTime::parse_from_rfc3339(unit.fixed_time)
+        time: DateTime::parse_from_rfc3339(fixed_time)
             .expect("Invalid fixed time format in test case")
             .with_timezone(&Utc),
     };
     let redis = Arc::new(MockRedisClient::new());
 
     let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = unit.mode;
+    cfg.capture_mode = mode;
 
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
@@ -1087,7 +1097,7 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
                 TokenDropper::default(),
                 None, // event_restriction_service
                 false,
-                unit.mode,
+                mode,
                 String::from("capture"),
                 None,
                 25 * 1024 * 1024,
@@ -1095,25 +1105,38 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
                 historical_rerouting_threshold_days,
                 is_mirror_deploy,
                 verbose_sample_percent,
-                26_214_400,       // 25MB default for AI endpoint
-                None,             // ai_blob_storage
-                None,             // body_chunk_read_timeout_ms
-                256,              // body_read_chunk_size_kb
-                10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
-                50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
-                None,             // overflow_limiter
-                None,             // replay_overflow_limiter
-                None,             // v1_sink_router
-                8,                // capture_v1_scatter_gather_min_batch
-                None,             // ai_gateway_signing_secret
-                None,             // ingestion_warning_emitter
+                26_214_400,         // 25MB default for AI endpoint
+                None,               // ai_blob_storage
+                None,               // body_chunk_read_timeout_ms
+                256,                // body_read_chunk_size_kb
+                10 * 1024 * 1024,   // capture_v1_max_compressed_body_bytes
+                50 * 1024 * 1024,   // capture_v1_max_decompressed_body_bytes
+                None,               // overflow_limiter
+                None,               // ai_events_overflow_limiter
+                None,               // replay_overflow_limiter
+                None,               // v1_sink_router
+                8,                  // capture_v1_scatter_gather_min_batch
+                None,               // ai_gateway_signing_secret
+                AiRouting::Primary, // ai_routing
+                false,              // ai_events_overflow_enabled
+                None,               // ingestion_warning_emitter
             )
         };
     }
 
-    let app = match unit.mode {
-        CaptureMode::Events | CaptureMode::Ai => build_app!(
+    let app = match mode {
+        CaptureMode::Events | CaptureMode::Import => build_app!(
             capture::router::router,
+            Arc::new(AnalyticsFamilyOutputs {
+                analytics: row(),
+                ai: row(),
+                heatmaps: row(),
+                warnings: row(),
+                error_tracking: row(),
+            })
+        ),
+        CaptureMode::Ai => build_app!(
+            capture::router::ai_router,
             Arc::new(AnalyticsFamilyOutputs {
                 analytics: row(),
                 ai: row(),

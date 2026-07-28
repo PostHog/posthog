@@ -210,7 +210,11 @@ pub async fn otel_handler<T: PublishesAi>(
     // `OVERFLOW_ENABLED=true`). Per-span key evaluation matches the analytics
     // batch path: spans with different `token:distinct_id` keys can land
     // with different `overflow_reason` stamps in the same batch.
-    stamp_overflow_reason(&mut processed_events, state.overflow_limiter.as_ref());
+    stamp_overflow_reason(
+        &mut processed_events,
+        state.overflow_limiter.as_ref(),
+        state.ai_events_overflow_limiter.as_ref(),
+    );
 
     metrics::histogram!("capture_event_batch_size").record(processed_events.len() as f64);
     state

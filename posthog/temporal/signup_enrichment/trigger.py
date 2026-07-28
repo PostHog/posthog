@@ -21,6 +21,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError
 
 from posthog.exceptions_capture import capture_exception
+from posthog.geoip import get_geoip_properties
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.signup_enrichment.workflow import SignupEnrichmentInputs
 from posthog.utils import GenericEmails, get_instance_region
@@ -50,7 +51,14 @@ def domain_from_email(email: str) -> str | None:
     return domain or None
 
 
-def start_signup_enrichment_workflow(*, organization_id: str, distinct_id: str | None, email: str) -> None:
+def start_signup_enrichment_workflow(
+    *,
+    organization_id: str,
+    distinct_id: str | None,
+    email: str,
+    role_at_organization: str = "",
+    ip_address: str | None = None,
+) -> None:
     """Dispatch enrichment for a freshly signed-up org, once the request transaction commits."""
     # The flag alone gates dispatch. Deliberately no provider-key check here: the key lives
     # only on the workers, and a keyless worker fails loudly into the launch alert instead of
@@ -70,7 +78,13 @@ def start_signup_enrichment_workflow(*, organization_id: str, distinct_id: str |
     if not work_email or not distinct_id:
         return
 
-    inputs = SignupEnrichmentInputs(organization_id=str(organization_id), distinct_id=distinct_id, domain=domain)
+    inputs = SignupEnrichmentInputs(
+        organization_id=str(organization_id),
+        distinct_id=distinct_id,
+        domain=domain,
+        role_at_organization=role_at_organization or None,
+        geoip_country_code=_geoip_country_code(ip_address),
+    )
     # on_commit so the worker never reads the org/enrichment rows before they are committed. The
     # callback fires inline on the signup request thread (it runs after that transaction commits),
     # so dispatch goes to the bounded pool: building the Temporal client must not add latency to
@@ -110,6 +124,16 @@ def _dispatch_and_release(inputs: SignupEnrichmentInputs) -> None:
         _dispatch(inputs)
     finally:
         _dispatch_slots.release()
+
+
+def _geoip_country_code(ip_address: str | None) -> str | None:
+    # get_geoip_properties already swallows lookup failures, but nothing geoip-related may ever
+    # surface to signup — so guard the whole call anyway.
+    try:
+        return get_geoip_properties(ip_address).get("$geoip_country_code")
+    except Exception as e:
+        capture_exception(e)
+        return None
 
 
 def _record_work_email(*, organization_id: str, work_email: bool) -> None:

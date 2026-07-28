@@ -1,12 +1,15 @@
-from collections.abc import Callable
-
-from posthog.temporal.common.base import PostHogWorkflow
-
 from products.error_tracking.backend.temporal.fingerprint_embedding_result import (
     ACTIVITIES as FINGERPRINT_EMBEDDING_RESULT_ACTIVITIES,
     WORKFLOWS as FINGERPRINT_EMBEDDING_RESULT_WORKFLOWS,
     ErrorTrackingFingerprintEmbeddingResultWorkflow,
     merge_similar_fingerprints_activity,
+)
+from products.error_tracking.backend.temporal.lifecycle import (
+    ACTIVITIES as LIFECYCLE_ACTIVITIES,
+    WORKFLOWS as LIFECYCLE_WORKFLOWS,
+    ErrorTrackingIssueCreatedWorkflow,
+    ErrorTrackingIssueReopenedWorkflow,
+    ErrorTrackingIssueSpikingWorkflow,
 )
 from products.error_tracking.backend.temporal.recommendations_refresh import (
     ACTIVITIES as RECOMMENDATIONS_REFRESH_ACTIVITIES,
@@ -41,15 +44,15 @@ ACTIVITIES = (
     + FINGERPRINT_EMBEDDING_RESULT_ACTIVITIES
 )
 
-LIFECYCLE_WORKFLOWS: list[type[PostHogWorkflow]] = []
-LIFECYCLE_ACTIVITIES: list[Callable[..., object]] = []
-
 __all__ = [
     "ACTIVITIES",
     "LIFECYCLE_ACTIVITIES",
     "LIFECYCLE_WORKFLOWS",
     "WORKFLOWS",
     "ErrorTrackingFingerprintEmbeddingResultWorkflow",
+    "ErrorTrackingIssueCreatedWorkflow",
+    "ErrorTrackingIssueReopenedWorkflow",
+    "ErrorTrackingIssueSpikingWorkflow",
     "ErrorTrackingRecommendationsRefreshWorkflow",
     "ErrorTrackingSpikeEventCleanupWorkflow",
     "ErrorTrackingSymbolSetCleanupWorkflow",

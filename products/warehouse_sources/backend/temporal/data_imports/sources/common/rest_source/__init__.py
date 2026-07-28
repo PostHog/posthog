@@ -270,6 +270,7 @@ def create_resources(
             max_retry_attempts=client_config.get("max_retries", DEFAULT_RETRY_ATTEMPTS),
             allowed_hosts=client_config.get("allowed_hosts"),
             allow_redirects=client_config.get("allow_redirects", True),
+            request_timeout=client_config.get("request_timeout"),
         )
 
         hooks = create_response_hooks(endpoint_config.get("response_actions"))

@@ -27,7 +27,7 @@ pub struct MockOutputs {
 impl Default for MockOutputs {
     fn default() -> Self {
         Self {
-            prep: PrepSpec::new(EnvelopeCompression::None),
+            prep: PrepSpec::new(EnvelopeCompression::None, false),
             payloads: Arc::default(),
         }
     }

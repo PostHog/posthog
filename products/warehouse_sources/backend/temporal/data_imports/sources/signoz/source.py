@@ -104,6 +104,7 @@ Create the API key in SigNoz under **Settings > Service Accounts**: create a ser
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -125,7 +126,11 @@ Create the API key in SigNoz under **Settings > Service Accounts**: create a ser
         return schemas
 
     def validate_credentials(
-        self, config: SigNozSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: SigNozSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_signoz_credentials(config.host, config.api_key, schema_name=schema_name, team_id=team_id)
 

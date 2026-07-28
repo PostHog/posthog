@@ -32,6 +32,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.s
 )
 
 INTERCOM_API_BASE = "https://api.intercom.io"
+# Version used for credential validation at source-create time, where no row pin exists yet.
+# Sync requests send the version resolved from the source pin (threaded into `intercom_source`).
 INTERCOM_API_VERSION = "2.13"
 
 logger = structlog.get_logger(__name__)
@@ -82,16 +84,16 @@ def _is_scroll_expired(exc: HTTPError) -> bool:
     return resp is not None and resp.status_code == 404
 
 
-def _default_headers() -> dict[str, str]:
+def _default_headers(api_version: str) -> dict[str, str]:
     return {
         "Accept": "application/json",
         "Content-Type": "application/json",
-        "Intercom-Version": INTERCOM_API_VERSION,
+        "Intercom-Version": api_version,
     }
 
 
-def _auth_headers(access_token: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {access_token}", **_default_headers()}
+def _auth_headers(access_token: str, api_version: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {access_token}", **_default_headers(api_version)}
 
 
 # The substream walk reaches `/conversations/search` via POST (the companies
@@ -111,14 +113,14 @@ _INTERCOM_RETRY = Retry(
 )
 
 
-def _make_intercom_session(access_token: str) -> Session:
+def _make_intercom_session(access_token: str, api_version: str) -> Session:
     """Build a tracked session with Intercom auth + default headers baked in.
 
     Reusing one session across the many requests a sync makes lets urllib3
     keep the underlying TCP+TLS connection alive — the substream generators
     (one GET per parent row) are the main beneficiary.
     """
-    return make_tracked_session(headers=_auth_headers(access_token), retry=_INTERCOM_RETRY)
+    return make_tracked_session(headers=_auth_headers(access_token, api_version), retry=_INTERCOM_RETRY)
 
 
 class IntercomSearchPaginator(BasePaginator):
@@ -531,7 +533,9 @@ def _substream_items(
     raise ValueError(f"Unknown Intercom substream endpoint: {endpoint}")
 
 
-def validate_credentials(access_token: str, schema_name: str | None = None) -> tuple[bool, str | None]:
+def validate_credentials(
+    access_token: str, schema_name: str | None = None, api_version: str = INTERCOM_API_VERSION
+) -> tuple[bool, str | None]:
     """Validate an Intercom access token by hitting `/me`.
 
     Works identically with OAuth-issued access tokens and Personal Access
@@ -547,7 +551,7 @@ def validate_credentials(access_token: str, schema_name: str | None = None) -> t
         return False, "Missing Intercom access token"
 
     try:
-        response = _make_intercom_session(access_token).get(
+        response = _make_intercom_session(access_token, api_version).get(
             f"{INTERCOM_API_BASE}/me",
             timeout=10,
         )
@@ -570,6 +574,7 @@ def intercom_source(
     endpoint: str,
     team_id: int,
     job_id: str,
+    api_version: str,
     should_use_incremental_field: bool = False,
     incremental_field: str | None = None,
     db_incremental_field_last_value: Optional[Any] = None,
@@ -581,13 +586,13 @@ def intercom_source(
         # One session built here is reused across the parent walk and every
         # per-row child fetch, so urllib3 keeps the connection alive instead
         # of re-handshaking per request.
-        session = _make_intercom_session(access_token)
+        session = _make_intercom_session(access_token, api_version)
         items = lambda: _substream_items(session, endpoint, incremental_field, db_incremental_field_last_value)
     elif cfg.paginator_kind == "scroll":
         # The Scroll API doesn't fit the framework paginators (the cursor is a
         # `scroll_param`, not a request mutation), so `companies` walks it with a
         # custom iterator. One session is reused across the whole scroll walk.
-        session = _make_intercom_session(access_token)
+        session = _make_intercom_session(access_token, api_version)
         items = lambda: _iter_companies(session)
     else:
         config: RESTAPIConfig = {
@@ -597,7 +602,7 @@ def intercom_source(
                     "type": "bearer",
                     "token": access_token,
                 },
-                "headers": _default_headers(),
+                "headers": _default_headers(api_version),
             },
             "resource_defaults": {},
             "resources": [

@@ -3,14 +3,14 @@ mod integration_utils;
 
 use axum_test_helper::TestClient;
 use capture::ai_s3::MockBlobStorage;
-use capture::config::CaptureMode;
+use capture::config::{AiRouting, CaptureMode};
 use capture::event_restrictions::{
     EventRestrictionService, Pipeline, Restriction, RestrictionFilters, RestrictionManager,
     RestrictionScope, RestrictionType,
 };
 use capture::outputs::testing::MockOutputs;
 use capture::outputs::AddressedPayload;
-use capture::pipeline::{Address, AiLane};
+use capture::pipeline::{Address, AnalyticsLane};
 use capture::quota_limiters::{is_llm_event, CaptureQuotaLimiter, EventInfo};
 use capture::router::ai_router;
 use capture::time::TimeSource;
@@ -181,10 +181,13 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
         50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
         options.overflow_limiter, // overflow_limiter
+        None,             // ai_events_overflow_limiter
         None,             // replay_overflow_limiter
         None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
         None,             // ai_gateway_signing_secret
+        AiRouting::Primary, // ai_routing
+        false,            // ai_events_overflow_enabled
         None,             // ingestion_warning_emitter
     );
 
@@ -327,7 +330,7 @@ async fn test_single_span_produces_one_event() {
     assert_eq!(cap.token, TOKEN);
     assert_eq!(cap.event, "$ai_generation");
     assert_eq!(cap.distinct_id, "user-1");
-    assert_eq!(event.address, Address::Ai(AiLane::Main));
+    assert_eq!(event.address, Address::Analytics(AnalyticsLane::Main));
 
     let data = parse_event_data(event);
     assert_eq!(
@@ -976,7 +979,10 @@ async fn test_restriction_types() {
             restriction_type: RestrictionType::ForceOverflow,
             args: None,
             expected_status: 200,
-            check: |events| events.len() == 1 && events[0].address == Address::Ai(AiLane::Overflow),
+            check: |events| {
+                events.len() == 1
+                    && events[0].address == Address::Analytics(AnalyticsLane::Overflow)
+            },
         },
         Case {
             name: "skip_person_processing",
@@ -992,7 +998,9 @@ async fn test_restriction_types() {
             restriction_type: RestrictionType::RedirectToDlq,
             args: None,
             expected_status: 200,
-            check: |events| events.len() == 1 && events[0].address == Address::Ai(AiLane::Dlq),
+            check: |events| {
+                events.len() == 1 && events[0].address == Address::Analytics(AnalyticsLane::Dlq)
+            },
         },
         Case {
             name: "redirect_to_topic",
@@ -1003,7 +1011,7 @@ async fn test_restriction_types() {
                 events.len() == 1
                     && events[0].address
                         == Address::Custom {
-                            pipeline: capture::pipeline::Pipeline::Ai,
+                            pipeline: capture::pipeline::Pipeline::Analytics,
                             topic: "custom_topic".to_string(),
                         }
             },
@@ -1169,7 +1177,7 @@ async fn test_otel_batch_with_hot_token_stamps_force_limited_on_every_span() {
     for (i, event) in events.iter().enumerate() {
         assert_eq!(
             event.address,
-            Address::Ai(AiLane::Overflow),
+            Address::Analytics(AnalyticsLane::Overflow),
             "span[{i}] must be rerouted to overflow (ForceLimited)"
         );
         assert!(
@@ -1215,13 +1223,13 @@ async fn test_otel_batch_rate_limited_key_stamps_overbudget_spans() {
 
     assert_eq!(
         events[0].address,
-        Address::Ai(AiLane::Main),
+        Address::Analytics(AnalyticsLane::Main),
         "first span fits within the burst"
     );
     for (i, event) in events.iter().enumerate().skip(1) {
         assert_eq!(
             event.address,
-            Address::Ai(AiLane::Overflow),
+            Address::Analytics(AnalyticsLane::Overflow),
             "span[{i}] must be rerouted to overflow (RateLimited)"
         );
         assert!(
@@ -1249,7 +1257,7 @@ async fn test_otel_batch_without_overflow_limiter_leaves_reason_none() {
     let events = sink.get_events().await;
     assert_eq!(events.len(), 3);
     for event in &events {
-        assert_eq!(event.address, Address::Ai(AiLane::Main));
+        assert_eq!(event.address, Address::Analytics(AnalyticsLane::Main));
         assert_eq!(event.headers.force_disable_person_processing, None);
     }
 }

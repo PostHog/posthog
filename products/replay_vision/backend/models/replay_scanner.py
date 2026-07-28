@@ -1,3 +1,4 @@
+import datetime as dt
 from typing import TYPE_CHECKING
 
 from django.core.validators import MaxValueValidator, MinValueValidator
@@ -12,6 +13,12 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from posthog.schema import RecordingsQuery
+
+# Lives here, not in queries/scanner_candidate_query (which imports SamplingMode from this
+# module), so `initial_watermark`'s default callable never needs to import back up into the
+# query layer — models must stay a dependency leaf for the query layer, never the reverse.
+# 30-min inactivity timeout + 5-min merge-lag buffer.
+SETTLE_INTERVAL = dt.timedelta(minutes=35)
 
 
 class ScannerType(models.TextChoices):
@@ -32,21 +39,18 @@ class ScannerProvider(models.TextChoices):
 
 
 class ScannerModel(models.TextChoices):
-    """Priced per observation in `billing.OBSERVATION_CREDITS_BY_MODEL`; new members need a price there."""
+    """Selectable models, cheapest first. Members must mirror `billing.GEMINI_MODELS`; when
+    Google supersedes a model, swap the member and remap existing scanners in a migration (see 0052)."""
 
-    GEMINI_2_5_FLASH = "gemini-2.5-flash", "Gemini 2.5 Flash"
-    GEMINI_3_FLASH = "gemini-3-flash-preview", "Gemini 3 Flash"
-    GEMINI_3_5_FLASH = "gemini-3.5-flash", "Gemini 3.5 Flash"
+    GEMINI_3_5_FLASH_LITE = "gemini-3.5-flash-lite", "Gemini 3.5 Flash Lite"
+    GEMINI_3_FLASH_PREVIEW = "gemini-3-flash-preview", "Gemini 3 Flash (preview)"
+    GEMINI_3_6_FLASH = "gemini-3.6-flash", "Gemini 3.6 Flash"
 
 
 def initial_watermark() -> "datetime":
     """A new scanner's sweep watermark, started one settle-interval back so its first sweep immediately picks up
     recordings that have just cleared the settle window instead of a ~settle-interval cold start; it advances
     forward normally from there, so there's no re-scan."""
-    from products.replay_vision.backend.queries.scanner_candidate_query import (  # noqa: PLC0415 — keep the heavy hogql query module off the model import path
-        SETTLE_INTERVAL,
-    )
-
     return timezone.now() - SETTLE_INTERVAL
 
 

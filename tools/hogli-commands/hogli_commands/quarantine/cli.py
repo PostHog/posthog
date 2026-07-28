@@ -86,7 +86,7 @@ def add(path: Path, selector_id: str, reason: str, owner: str, issue: str, days:
     )
     entries = [e for e in result.entries if (e.id, e.runner) != (entry.id, entry.runner)] + [entry]
     path.write_text(core.render(entries, result.extras))
-    click.echo(f"Quarantined '{selector_id}' (mode: {mode}) until {entry.expires.isoformat()}.")
+    click.echo(f"Quarantined '{selector_id}' ({runner}/{mode}) until {entry.expires.isoformat()}.")
 
 
 @quarantine.command(name="remove", help="Remove a quarantine entry for every runner (succeeds even if absent).")

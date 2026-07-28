@@ -99,13 +99,18 @@ You can create a token under [Developer Settings](https://savvycal.com/developer
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Only events expose a server-side cursor (`from` bound on start date); every other stream
         # has no updated-after filter, so it's full refresh only.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: SavvyCalSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: SavvyCalSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # Personal access tokens carry the account's full read access, so a single probe validates
         # access to every schema.

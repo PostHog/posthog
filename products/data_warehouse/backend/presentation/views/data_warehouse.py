@@ -1013,6 +1013,10 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if resp.status_code == 200 and isinstance(resp.data, dict):
             resp.data.update(managed_warehouse.team_backfill_state(self.team_id))
             resp.data.update(managed_warehouse.team_onboarding_state(self.team.organization_id, self.team_id))
+            # Once the warehouse is reachable, surface its tables as a queryable direct
+            # connection. Best-effort scheduling coalesces repeated scene loads.
+            if resp.data.get("state") == "ready":
+                managed_warehouse.ensure_direct_connection_tables(self.team_id, self.team.organization_id)
         return resp
 
     @extend_schema(responses={200: ManagedWarehouseDataStatusResponseSerializer})

@@ -73,7 +73,7 @@ from posthog.hogql_queries.insights.utils.breakdowns import (
     has_breakdown_filter,
 )
 from posthog.hogql_queries.insights.utils.utils import get_response_hogql
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, resolve_series_custom_name
 from posthog.hogql_queries.utils.formula_ast import FormulaAST
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -608,7 +608,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                         "type": "events",
                         "order": series.series_order,
                         "name": series_label or "All events",
-                        "custom_name": series.series.custom_name,
+                        "custom_name": resolve_series_custom_name(series.series, series_label),
                         "math": series.series.math,
                         "math_property": series.series.math_property,
                         "math_hogql": series.series.math_hogql,
@@ -645,7 +645,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                         "type": "events",
                         "order": series.series_order,
                         "name": series_label or "All events",
-                        "custom_name": series.series.custom_name,
+                        "custom_name": resolve_series_custom_name(series.series, series_label),
                         "math": series.series.math,
                         "math_property": series.series.math_property,
                         "math_hogql": series.series.math_hogql,

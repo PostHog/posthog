@@ -580,7 +580,7 @@ mod tests {
     }
 
     fn test_spec() -> PrepSpec {
-        PrepSpec::new(crate::config::EnvelopeCompression::None)
+        PrepSpec::new(crate::config::EnvelopeCompression::None, false)
     }
 
     fn create_test_context() -> crate::v0_request::ProcessingContext {
@@ -595,6 +595,7 @@ mod tests {
             chatty_debug_enabled: false,
             user_agent: None,
             path: "/s/".to_string(),
+            capture_mode: crate::config::CaptureMode::Recordings,
         }
     }
 

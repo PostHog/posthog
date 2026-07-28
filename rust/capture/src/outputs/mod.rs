@@ -77,16 +77,24 @@ pub struct AddressedPayload {
 pub struct PrepSpec {
     default_serializer: Serializer,
     session_replay_serializer: Serializer,
+    /// The AI overflow valve (`CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`
+    /// set): threaded into [`resolve`] so the AI lane only overflows on
+    /// deployments that armed it.
+    ai_events_overflow_armed: bool,
 }
 
 impl PrepSpec {
-    pub fn new(replay_envelope_compression: EnvelopeCompression) -> Self {
+    pub fn new(
+        replay_envelope_compression: EnvelopeCompression,
+        ai_events_overflow_armed: bool,
+    ) -> Self {
         Self {
             default_serializer: Serializer::json(),
             session_replay_serializer: Serializer::new(
                 Format::Json,
                 replay_envelope_compression.into(),
             ),
+            ai_events_overflow_armed,
         }
     }
 
@@ -103,7 +111,13 @@ impl PrepSpec {
 
 impl From<&KafkaConfig> for PrepSpec {
     fn from(config: &KafkaConfig) -> Self {
-        Self::new(config.kafka_replay_envelope_compression)
+        Self::new(
+            config.kafka_replay_envelope_compression,
+            config
+                .capture_analytics_ai_events_overflow_topic
+                .as_deref()
+                .is_some_and(|t| !t.is_empty()),
+        )
     }
 }
 
@@ -122,7 +136,7 @@ pub(crate) fn prepare_payload(
 ) -> Result<AddressedPayload, CaptureError> {
     let (event, metadata) = (event.event, event.metadata);
 
-    let decision = resolve(&metadata);
+    let decision = resolve(&metadata, spec.ai_events_overflow_armed);
     let serializer = spec.serializer_for(decision.address.pipeline());
     let payload = serializer.serialize(&event)?;
 
