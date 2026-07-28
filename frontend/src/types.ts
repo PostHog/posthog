@@ -5781,6 +5781,7 @@ export const API_SCOPE_OBJECTS = [
     'query',
     'query_performance',
     'replay_scanner',
+    'review_hog',
     'revenue_analytics',
     'session_recording',
     'session_recording_playlist',
@@ -6112,6 +6113,8 @@ export interface DataModelingDAG {
     name: string
     description: string
     sync_frequency: DataModelingSyncInterval | null
+    /** True when per-model freshness targets drive scheduling, making the DAG-level frequency read-only */
+    frequency_managed_by_nodes?: boolean
     node_count: number
     created_at: string
     updated_at: string
