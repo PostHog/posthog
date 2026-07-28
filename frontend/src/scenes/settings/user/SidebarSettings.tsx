@@ -2,7 +2,9 @@ import { useActions, useValues } from 'kea'
 
 import { LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
 
+import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { PRODUCT_BRANDING } from 'scenes/welcome/productBranding'
 
 import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
 import { getDefaultTreeProducts, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -13,6 +15,7 @@ import {
 } from '~/layout/panel-layout/sidebarCustomization'
 import { HomepageConfiguration } from '~/layout/scenes/ConfigureHomeModal'
 import { uiCustomizationLogic } from '~/layout/uiCustomizationLogic'
+import { productConfiguration } from '~/products'
 import { FileSystemImport } from '~/queries/schema/schema-general'
 
 export function HomepageSetting(): JSX.Element {
@@ -23,11 +26,36 @@ export function HomepageSetting(): JSX.Element {
     )
 }
 
-function ItemLabel({ icon, label }: { icon: JSX.Element; label: string }): JSX.Element {
+function ItemLabel({
+    icon,
+    label,
+    description,
+    docsHref,
+}: {
+    icon: JSX.Element
+    label: string
+    description?: string
+    docsHref?: string
+}): JSX.Element {
     return (
         <span className="flex items-center gap-2">
             <span className="text-lg text-secondary flex items-center">{icon}</span>
-            {label}
+            <span className="flex flex-col">
+                <span className="flex items-center gap-2">
+                    {label}
+                    {docsHref && (
+                        <Link
+                            to={docsHref}
+                            target="_blank"
+                            className="text-xs font-normal"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            Docs
+                        </Link>
+                    )}
+                </span>
+                {description && <span className="text-xs font-normal text-secondary">{description}</span>}
+            </span>
         </span>
     )
 }
@@ -46,7 +74,7 @@ export function SidebarItemsSetting(): JSX.Element {
                     key={item.label}
                     checked={true}
                     disabledReason={`${item.label} always stays visible`}
-                    label={<ItemLabel icon={item.icon} label={item.label} />}
+                    label={<ItemLabel icon={item.icon} label={item.label} description={item.description} />}
                     bordered
                     fullWidth
                     data-attr={`sidebar-customization-item-${item.label.toLowerCase()}`}
@@ -60,7 +88,7 @@ export function SidebarItemsSetting(): JSX.Element {
                 onChange={(checked) => setSidebarItemShown(key, checked)}
                 loading={userLoading}
                 disabledReason={sectionHiddenReason || undefined}
-                label={<ItemLabel icon={item.icon} label={item.label} />}
+                label={<ItemLabel icon={item.icon} label={item.label} description={item.description} />}
                 bordered
                 fullWidth
                 data-attr={`sidebar-customization-item-${key}`}
@@ -81,7 +109,13 @@ export function SidebarItemsSetting(): JSX.Element {
                             checked={sectionShown}
                             onChange={(checked) => setSidebarSectionShown(section.key, checked)}
                             loading={userLoading}
-                            label={<ItemLabel icon={section.icon} label={section.label} />}
+                            label={
+                                <ItemLabel
+                                    icon={section.icon}
+                                    label={section.label}
+                                    description={section.description}
+                                />
+                            }
                             bordered
                             fullWidth
                             data-attr={`sidebar-customization-section-${section.key}`}
@@ -127,29 +161,40 @@ export function SidebarMyToolsSetting(): JSX.Element {
     }
 
     return (
-        <div className="flex flex-col gap-4 max-w-160">
+        // The colorful-product-icons group class turns on each tool's brand color, as in the navbar.
+        <div className="flex flex-col gap-4 max-w-160 group/colorful-product-icons colorful-product-icons-true">
             {[...productsByCategory.entries()]
                 .sort((a, b) => a[0].localeCompare(b[0]))
                 .map(([category, categoryProducts]) => (
                     <div key={category} className="flex flex-col gap-2">
                         <LemonLabel>{category}</LemonLabel>
-                        {categoryProducts.map((product) => (
-                            <LemonSwitch
-                                key={product.path}
-                                checked={enabledToolPaths.has(product.path)}
-                                onChange={(checked) => setToolEnabled(product.path, checked)}
-                                loading={customProductsLoading}
-                                label={
-                                    <ItemLabel
-                                        icon={iconForType(product.iconType, product.iconColor)}
-                                        label={product.displayLabel ?? product.path}
-                                    />
-                                }
-                                bordered
-                                fullWidth
-                                data-attr={`sidebar-customization-tool-${product.path}`}
-                            />
-                        ))}
+                        {categoryProducts.map((product) => {
+                            const description: string | undefined = product.sceneKey
+                                ? productConfiguration[product.sceneKey]?.description
+                                : undefined
+                            const docsHref: string | undefined = product.intents?.length
+                                ? PRODUCT_BRANDING[product.intents[0]]?.docsHref
+                                : undefined
+                            return (
+                                <LemonSwitch
+                                    key={product.path}
+                                    checked={enabledToolPaths.has(product.path)}
+                                    onChange={(checked) => setToolEnabled(product.path, checked)}
+                                    loading={customProductsLoading}
+                                    label={
+                                        <ItemLabel
+                                            icon={iconForType(product.iconType, product.iconColor)}
+                                            label={product.displayLabel ?? product.path}
+                                            description={description}
+                                            docsHref={docsHref}
+                                        />
+                                    }
+                                    bordered
+                                    fullWidth
+                                    data-attr={`sidebar-customization-tool-${product.path}`}
+                                />
+                            )
+                        })}
                     </div>
                 ))}
         </div>

@@ -192,18 +192,10 @@ export function NavTabBrowse(): JSX.Element {
         }
     }
 
-    // Rendered inside the Project section, or standalone when that section is hidden:
-    // Activity always stays visible, like Settings in the footer.
-    const activityNavLink = (
-        <NavLink
-            to={urls.activity(ActivityTab.ExploreEvents)}
-            label="Activity"
-            icon={<IconClock />}
-            isCollapsed={isLayoutNavCollapsed}
-            data-attr="nav-item-activity"
-            onClick={() => posthog.capture('nav item clicked', { item: 'activity' })}
-        />
-    )
+    // Hiding the Project section hides its hideable items, but the section header itself stays:
+    // Activity always stays visible (like Settings in the footer) and must remain under its
+    // section header rather than floating uncategorized.
+    const projectSectionShown = isSidebarSectionShown('project')
 
     return (
         <ScrollableShadows
@@ -212,140 +204,141 @@ export function NavTabBrowse(): JSX.Element {
             direction="vertical"
             styledScrollbars
         >
-            {isSidebarSectionShown('project') ? (
-                <Collapsible
-                    open={expandedNavSections.project || isLayoutNavCollapsed ? true : false}
-                    onOpenChange={() => {
-                        posthog.capture('nav section toggled', {
-                            section: 'project',
-                            is_open: !expandedNavSections.project,
-                        })
-                        toggleNavSection('project')
-                    }}
-                    data-attr="nav-section-project"
-                >
-                    {!isLayoutNavCollapsed && (
-                        <SectionTrigger icon={<IconFolder />} label="Project" isCollapsed={isLayoutNavCollapsed} />
+            <Collapsible
+                open={expandedNavSections.project || isLayoutNavCollapsed ? true : false}
+                onOpenChange={() => {
+                    posthog.capture('nav section toggled', {
+                        section: 'project',
+                        is_open: !expandedNavSections.project,
+                    })
+                    toggleNavSection('project')
+                }}
+                data-attr="nav-section-project"
+            >
+                {!isLayoutNavCollapsed && (
+                    <SectionTrigger icon={<IconFolder />} label="Project" isCollapsed={isLayoutNavCollapsed} />
+                )}
+                <Collapsible.Panel className={cn('pl-2 pt-1', isLayoutNavCollapsed && 'items-center pl-0')}>
+                    {projectSectionShown && isSidebarItemShown('home') && (
+                        <NavLink
+                            to={urls.projectRoot()}
+                            label="Home"
+                            icon={<IconHome />}
+                            isCollapsed={isLayoutNavCollapsed}
+                            data-attr="nav-item-home"
+                            onClick={() => posthog.capture('nav item clicked', { item: 'home' })}
+                            sideAction={{
+                                onClick: () => showConfigureHomeModal(),
+                                tooltip: 'Configure home',
+                                'data-attr': 'nav-configure-home',
+                            }}
+                        />
                     )}
-                    <Collapsible.Panel className={cn('pl-2 pt-1', isLayoutNavCollapsed && 'items-center pl-0')}>
-                        {isSidebarItemShown('home') && (
-                            <NavLink
-                                to={urls.projectRoot()}
-                                label="Home"
-                                icon={<IconHome />}
-                                isCollapsed={isLayoutNavCollapsed}
-                                data-attr="nav-item-home"
-                                onClick={() => posthog.capture('nav item clicked', { item: 'home' })}
-                                sideAction={{
-                                    onClick: () => showConfigureHomeModal(),
-                                    tooltip: 'Configure home',
-                                    'data-attr': 'nav-configure-home',
-                                }}
-                            />
-                        )}
 
-                        {isProductAutonomyEnabled && isSidebarItemShown('inbox') && (
-                            <NavLink
-                                to={urls.inbox()}
-                                label="Inbox"
-                                icon={<IconNotification />}
-                                isCollapsed={isLayoutNavCollapsed}
-                                data-attr="nav-item-inbox"
-                                tag="beta"
-                                onClick={() => posthog.capture('nav item clicked', { item: 'inbox' })}
-                            />
-                        )}
+                    {projectSectionShown && isProductAutonomyEnabled && isSidebarItemShown('inbox') && (
+                        <NavLink
+                            to={urls.inbox()}
+                            label="Inbox"
+                            icon={<IconNotification />}
+                            isCollapsed={isLayoutNavCollapsed}
+                            data-attr="nav-item-inbox"
+                            tag="beta"
+                            onClick={() => posthog.capture('nav item clicked', { item: 'inbox' })}
+                        />
+                    )}
 
-                        {activityNavLink}
+                    <NavLink
+                        to={urls.activity(ActivityTab.ExploreEvents)}
+                        label="Activity"
+                        icon={<IconClock />}
+                        isCollapsed={isLayoutNavCollapsed}
+                        data-attr="nav-item-activity"
+                        onClick={() => posthog.capture('nav item clicked', { item: 'activity' })}
+                    />
 
-                        <div className={cn('flex flex-col gap-px', isLayoutNavCollapsed && 'items-center')}>
-                            {panelTriggerItems
-                                .filter((item) => isSidebarItemShown(item.configKey))
-                                .map((item) => {
-                                    const isActive =
-                                        activePanelIdentifier === item.identifier ||
-                                        activePanelIdentifierFromUrlAiFirst === item.identifier
-                                    const tooltip = isLayoutNavCollapsed
-                                        ? isLayoutPanelVisible && activePanelIdentifier === item.identifier
-                                            ? `Close ${item.label.toLowerCase()}`
-                                            : `Open ${item.label.toLowerCase()}`
-                                        : undefined
+                    <div className={cn('flex flex-col gap-px', isLayoutNavCollapsed && 'items-center')}>
+                        {panelTriggerItems
+                            .filter((item) => projectSectionShown && isSidebarItemShown(item.configKey))
+                            .map((item) => {
+                                const isActive =
+                                    activePanelIdentifier === item.identifier ||
+                                    activePanelIdentifierFromUrlAiFirst === item.identifier
+                                const tooltip = isLayoutNavCollapsed
+                                    ? isLayoutPanelVisible && activePanelIdentifier === item.identifier
+                                        ? `Close ${item.label.toLowerCase()}`
+                                        : `Open ${item.label.toLowerCase()}`
+                                    : undefined
 
-                                    return (
-                                        <Fragment key={item.identifier}>
-                                            <ButtonPrimitive
-                                                active={isActive}
-                                                className="group -outline-offset-2"
-                                                menuItem={!isLayoutNavCollapsed}
-                                                iconOnly={isLayoutNavCollapsed}
-                                                tooltip={tooltip}
-                                                tooltipPlacement="right"
-                                                onClick={() => handlePanelTriggerClick(item.identifier)}
-                                                data-attr={`menu-item-${item.identifier.toLowerCase()}`}
-                                            >
-                                                <span
-                                                    className={cn(
-                                                        'relative size-4 text-secondary group-hover:text-primary opacity-50 group-hover:opacity-100 transition-all duration-50',
-                                                        isActive && 'text-primary opacity-100'
-                                                    )}
-                                                >
-                                                    {item.icon}
-
-                                                    <PanelIndicatorIcon />
-                                                </span>
-                                                {!isLayoutNavCollapsed && (
-                                                    <>
-                                                        <span
-                                                            className={cn(
-                                                                'truncate text-secondary group-hover:text-primary',
-                                                                isActive && 'text-primary'
-                                                            )}
-                                                        >
-                                                            {item.label}
-                                                        </span>
-                                                        <span className="ml-auto pr-1">
-                                                            <IconChevronRight
-                                                                className={cn(
-                                                                    'size-3 text-secondary opacity-50 group-hover:opacity-100 transition-all duration-50',
-                                                                    isActive && 'opacity-100'
-                                                                )}
-                                                            />
-                                                        </span>
-                                                    </>
+                                return (
+                                    <Fragment key={item.identifier}>
+                                        <ButtonPrimitive
+                                            active={isActive}
+                                            className="group -outline-offset-2"
+                                            menuItem={!isLayoutNavCollapsed}
+                                            iconOnly={isLayoutNavCollapsed}
+                                            tooltip={tooltip}
+                                            tooltipPlacement="right"
+                                            onClick={() => handlePanelTriggerClick(item.identifier)}
+                                            data-attr={`menu-item-${item.identifier.toLowerCase()}`}
+                                        >
+                                            <span
+                                                className={cn(
+                                                    'relative size-4 text-secondary group-hover:text-primary opacity-50 group-hover:opacity-100 transition-all duration-50',
+                                                    isActive && 'text-primary opacity-100'
                                                 )}
-                                            </ButtonPrimitive>
-                                            {item.identifier === 'Products' && showToolsSearchRow && (
-                                                <ButtonPrimitive
-                                                    menuItem
-                                                    className="group -outline-offset-2"
-                                                    data-attr="nav-tools-search-row"
-                                                    onClick={() => {
-                                                        posthog.capture('nav search clicked')
-                                                        toggleCommand('nav-tools-row')
-                                                    }}
-                                                >
-                                                    <span className="relative size-4 text-secondary group-hover:text-primary opacity-50 group-hover:opacity-100 transition-all duration-50">
-                                                        <IconSearch />
-                                                    </span>
-                                                    <span className="truncate text-secondary group-hover:text-primary">
-                                                        Search
+                                            >
+                                                {item.icon}
+
+                                                <PanelIndicatorIcon />
+                                            </span>
+                                            {!isLayoutNavCollapsed && (
+                                                <>
+                                                    <span
+                                                        className={cn(
+                                                            'truncate text-secondary group-hover:text-primary',
+                                                            isActive && 'text-primary'
+                                                        )}
+                                                    >
+                                                        {item.label}
                                                     </span>
                                                     <span className="ml-auto pr-1">
-                                                        <RenderKeybind keybind={[keyBinds.search]} minimal />
+                                                        <IconChevronRight
+                                                            className={cn(
+                                                                'size-3 text-secondary opacity-50 group-hover:opacity-100 transition-all duration-50',
+                                                                isActive && 'opacity-100'
+                                                            )}
+                                                        />
                                                     </span>
-                                                </ButtonPrimitive>
+                                                </>
                                             )}
-                                        </Fragment>
-                                    )
-                                })}
-                        </div>
-                    </Collapsible.Panel>
-                </Collapsible>
-            ) : (
-                <div className={cn('flex flex-col pt-1', isLayoutNavCollapsed && 'items-center')}>
-                    {activityNavLink}
-                </div>
-            )}
+                                        </ButtonPrimitive>
+                                        {item.identifier === 'Products' && showToolsSearchRow && (
+                                            <ButtonPrimitive
+                                                menuItem
+                                                className="group -outline-offset-2"
+                                                data-attr="nav-tools-search-row"
+                                                onClick={() => {
+                                                    posthog.capture('nav search clicked')
+                                                    toggleCommand('nav-tools-row')
+                                                }}
+                                            >
+                                                <span className="relative size-4 text-secondary group-hover:text-primary opacity-50 group-hover:opacity-100 transition-all duration-50">
+                                                    <IconSearch />
+                                                </span>
+                                                <span className="truncate text-secondary group-hover:text-primary">
+                                                    Search
+                                                </span>
+                                                <span className="ml-auto pr-1">
+                                                    <RenderKeybind keybind={[keyBinds.search]} minimal />
+                                                </span>
+                                            </ButtonPrimitive>
+                                        )}
+                                    </Fragment>
+                                )
+                            })}
+                    </div>
+                </Collapsible.Panel>
+            </Collapsible>
 
             {!isLayoutNavCollapsed && isSidebarSectionShown('recents') && (
                 <Collapsible
