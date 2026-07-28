@@ -80,8 +80,9 @@ Tracked when `TaskRun.mark_completed()` is called. Additional properties:
 
 ### `task_run_failed`
 
-Captured exactly once per failed run, by whichever component performs the DB transition to `FAILED`:
+Captured once per DB transition to `FAILED`, by whichever component performs it:
 `TaskRun.mark_failed()` (janitor sweeps via the facade), the `update_task_run_status` Temporal activity (workflow failures), the facade run PATCH path (agent-reported failures), or `_terminalize_unstarted_task_run` (workflow dispatch failures).
+Known gap: the zombie-run reap in `loop_runs.py::fire_loop` bulk-updates stale runs to `FAILED` without capturing, so the documented `stale_run_reaped` value below never actually appears.
 Additional properties:
 
 | Property           | Type    | Description                                                                                                                                                                                                    |
@@ -92,15 +93,24 @@ Additional properties:
 
 ### `task_run_cancelled_terminal`
 
-Captured exactly once per cancelled run, by whichever component performs the DB transition to `CANCELLED`: the `update_task_run_status` Temporal activity (workflow cancellations) or the facade run PATCH path (API, webhook and fallback cancellations).
+Captured once per DB transition to `CANCELLED`, by whichever component performs that transition. Every writer of the status is covered:
 
-Distinct from [`task_run_cancelled`](#task_run_cancelled-no-longer-emitted-by-the-process_task-workflow), which is PostHog AI only and means "the agent's current turn was cancelled" rather than "the run reached a terminal state". Additional properties:
+| Writer                                                     | Cancellations it owns                                                | `cancel_source`                                          |
+| ---------------------------------------------------------- | -------------------------------------------------------------------- | -------------------------------------------------------- |
+| `update_task_run_status` Temporal activity                 | Workflow-driven cancellations                                        | Read off `TaskRun.state`, `unspecified` when absent      |
+| Facade run PATCH (`facade/api.py::update_task_run`)        | API, webhook and workflow-gone fallback cancellations                | Read off `TaskRun.state`, `unspecified` when absent      |
+| `loop_runs.py::fire_loop` (`CANCEL_PREVIOUS` overlap)      | A run displaced by a newer fire of the same loop                     | `loop_overlap_cancel_previous`                           |
+| `loop_lifecycle.py` (loop pause, runs authored by the user) | In-flight loop runs cancelled on owner deactivation or org removal   | `owner_deactivated` / `owner_removed_from_org`           |
 
-| Property           | Type    | Description                                                                                           |
-| ------------------ | ------- | ----------------------------------------------------------------------------------------------------- |
-| `cancel_reason`    | `str`   | Cancellation message (truncated to the **last** 500 chars)                                            |
-| `cancel_source`    | `str`   | `cancel_source` recorded on `TaskRun.state` by `facade/cancellation.py`; `unspecified` when never set |
-| `duration_seconds` | `float` | Time from creation to cancellation                                                                    |
+The loop paths bulk-update the rows and then signal `complete_task`, so the status activity that follows finds no transition left and skips its capture. They call `loop_service.capture_loop_runs_cancelled_terminal` instead, which is also why their property values are per-site literals rather than reads off `TaskRun.state`.
+
+Not to be confused with [`task_run_cancelled`](#task_run_cancelled-no-longer-emitted-by-the-process_task-workflow), a different event with a different shape: the `execute_sandbox` workflow emits it (for any origin product) when the workflow itself is cancelled, and `capture_relay_command_telemetry` emits it for PostHog AI relay turn-cancels, meaning "the agent's current turn was cancelled". Neither is keyed on the run reaching a terminal state. Additional properties:
+
+| Property           | Type    | Description                                                |
+| ------------------ | ------- | ---------------------------------------------------------- |
+| `cancel_reason`    | `str`   | Cancellation message. The activity and PATCH paths pass the run's message through (truncated to the **last** 500 chars), the loop paths use a fixed per-site sentence |
+| `cancel_source`    | `str`   | Cancellation origin, per the table above                                                                                                                             |
+| `duration_seconds` | `float` | Time from creation to cancellation                                                                                                                                   |
 
 ## Loop Fire Metrics
 

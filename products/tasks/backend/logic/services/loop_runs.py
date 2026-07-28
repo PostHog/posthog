@@ -23,7 +23,11 @@ from posthog.user_permissions import UserPermissions
 
 from products.tasks.backend.logic.services.code_usage_gate import cloud_usage_limit_response
 from products.tasks.backend.loop_notifications import dispatch_loop_event
-from products.tasks.backend.loop_service import pause_loop_schedules, signal_loop_run_cancelled
+from products.tasks.backend.loop_service import (
+    capture_loop_runs_cancelled_terminal,
+    pause_loop_schedules,
+    signal_loop_run_cancelled,
+)
 from products.tasks.backend.metrics import observe_loop_auto_paused, observe_loop_fire
 from products.tasks.backend.models import Channel, Loop, LoopFire, LoopTrigger, Task, TaskRun
 from products.tasks.backend.temporal.constants import LOOP_RUN_IDLE_TIMEOUT_SECONDS, LOOP_RUN_STALE_SECONDS
@@ -47,6 +51,11 @@ TRIGGER_CONTEXT_MAX_BYTES = 64 * 1024
 # the field in facade/loops.py::update_loop either way.
 DISABLED_REASON_USAGE_LIMITED = "usage_limited"
 DISABLED_REASON_REPEATED_FAILURES = "repeated_failures"
+
+# `cancel_source` / `cancel_reason` on the terminal analytics event for runs the CANCEL_PREVIOUS
+# overlap policy displaces, so they stay separable from user- and lifecycle-driven cancellations.
+CANCEL_SOURCE_LOOP_OVERLAP = "loop_overlap_cancel_previous"
+_OVERLAP_CANCEL_MESSAGE = "Superseded by a newer loop run"
 
 _NON_TERMINAL_TASK_RUN_STATUSES = (TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS)
 _TERMINAL_TASK_RUN_STATUSES = (TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED)
@@ -249,7 +258,9 @@ class _FireDecision:
     is_replay: bool
     task_id: UUID | None = None
     task_run_id: UUID | None = None
-    cancelled_workflow_ids: list[str] = field(default_factory=list)
+    # Runs the overlap policy displaced, carried out of the transaction so their post-commit side
+    # effects (workflow signal, terminal analytics) each get both the workflow id and the run id.
+    cancelled_runs: list[TaskRun] = field(default_factory=list)
 
 
 def _owner_eligible_to_run(loop: Loop) -> bool:
@@ -330,8 +341,13 @@ def fire_loop(
                     "actor_id": actor.id if actor is not None else None,
                 },
             )
-    for workflow_id in decision.cancelled_workflow_ids:
-        signal_loop_run_cancelled(workflow_id)
+    for cancelled_run in decision.cancelled_runs:
+        signal_loop_run_cancelled(cancelled_run.workflow_id)
+    capture_loop_runs_cancelled_terminal(
+        [cancelled_run.id for cancelled_run in decision.cancelled_runs],
+        cancel_source=CANCEL_SOURCE_LOOP_OVERLAP,
+        cancel_reason=_OVERLAP_CANCEL_MESSAGE,
+    )
 
     return LoopFireResult(
         created=decision.created,
@@ -434,15 +450,17 @@ def _fire_loop_committed(
                 updated_at=now,
             )
 
-        cancelled_workflow_ids: list[str] = []
+        cancelled_runs: list[TaskRun] = []
         if active_runs:
             if loop.overlap_policy == Loop.OverlapPolicy.SKIP:
                 return _record_fire_outcome(fire, "overlap_skipped")
             if loop.overlap_policy == Loop.OverlapPolicy.CANCEL_PREVIOUS:
                 # Cancel at the DB layer AND signal each workflow (after commit) so the sandbox
                 # actually winds down. The terminal-status guard in update_task_run_status keeps
-                # a late natural completion from resurrecting the cancelled status.
-                cancelled_workflow_ids = [run.workflow_id for run in active_runs]
+                # a late natural completion from resurrecting the cancelled status. Because this
+                # bulk update owns the transition, it also owns the terminal capture (also after
+                # commit): the status activity will find no transition left to report.
+                cancelled_runs = active_runs
                 TaskRun.objects.filter(id__in=[run.id for run in active_runs]).update(
                     status=TaskRun.Status.CANCELLED, completed_at=now, updated_at=now
                 )
@@ -459,7 +477,7 @@ def _fire_loop_committed(
             is_replay=False,
             task_id=task.id,
             task_run_id=task_run.id,
-            cancelled_workflow_ids=cancelled_workflow_ids,
+            cancelled_runs=cancelled_runs,
         )
 
 

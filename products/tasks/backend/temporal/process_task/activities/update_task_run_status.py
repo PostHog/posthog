@@ -120,20 +120,22 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
 def _capture_terminal_analytics(task_run: TaskRun, input: UpdateTaskRunStatusInput) -> None:
     """Emit the terminal analytics event and token-expenditure metrics.
 
-    This activity performs the DB status transition, so it is the single canonical
-    emitter of the terminal analytics events for workflow-driven runs — the workflow
-    itself only records metrics and logs for failures. Guarded on the actual
-    transition so activity retries and repeat updates don't double-count.
+    Whichever component performs the DB status transition owns the capture, and this
+    activity is that component for workflow-driven runs — the workflow itself only records
+    metrics and logs for failures. Guarded on the actual transition so activity retries and
+    repeat updates don't double-count, which also means a run already terminalized out of
+    band (the facade PATCH, a loop cancellation) is captured by that writer, not here.
     """
     try:
         state = task_run.state if isinstance(task_run.state, dict) else {}
         if input.status == TaskRun.Status.COMPLETED:
             task_run.capture_event("task_run_completed", {"duration_seconds": task_run._duration_seconds()})
         elif input.status == TaskRun.Status.CANCELLED:
-            # Not `task_run_cancelled`: that name belongs to the PostHog AI relay turn-cancel
-            # (facade.api.capture_relay_command_telemetry) and means "the agent's current turn was
-            # cancelled". This one means "the run reached terminal CANCELLED" and fires for every
-            # origin product, so it gets its own name next to `task_run_cancel_requested`.
+            # Not `task_run_cancelled`: that name is already taken twice, by the `execute_sandbox`
+            # workflow's `CancelledError` handler and by the PostHog AI relay turn-cancel
+            # (facade.api.capture_relay_command_telemetry), with two different property shapes and
+            # neither keyed on the DB transition. This one means "the run reached terminal
+            # CANCELLED", so it gets its own name next to `task_run_cancel_requested`.
             task_run.capture_event(
                 "task_run_cancelled_terminal",
                 {

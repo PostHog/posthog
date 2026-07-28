@@ -2126,8 +2126,8 @@ def update_task_run(
             # Same single-emitter contract as task_run_failed above: this PATCH performed
             # the transition, so the workflow's status-update activity sees the row already
             # CANCELLED and skips its own capture. Named `_terminal` to stay clear of
-            # `task_run_cancelled`, which capture_relay_command_telemetry owns for PostHog AI
-            # relay turn-cancels.
+            # `task_run_cancelled`, which already means two other things (the execute_sandbox
+            # workflow's cancellation handler, and relay turn-cancels for PostHog AI).
             run_state = run.state if isinstance(run.state, dict) else {}
             run.capture_event(
                 "task_run_cancelled_terminal",
@@ -2872,12 +2872,14 @@ def capture_relay_command_telemetry(
     semantics: a cancel is recorded only when it actually reached the agent, while a permission
     response is recorded with its forward ``success`` either way.
 
-    ``task_run_cancelled`` here means "the agent's current turn was cancelled" and is PostHog AI
-    only. The run reaching terminal ``CANCELLED`` is a different event for every origin product,
-    ``task_run_cancelled_terminal``, emitted by whichever path performs the DB transition
-    (``update_task_run`` below, or the ``update_task_run_status`` Temporal activity). Keep the two
-    names apart so a relay-cancelled PostHog AI run that then terminalizes does not land in this
-    funnel twice with two disjoint property shapes.
+    ``task_run_cancelled`` here means "the agent's current turn was cancelled". This emission is
+    PostHog AI only, though the name is not: the ``execute_sandbox`` workflow also emits it, for
+    any origin product, from its ``CancelledError`` handler with its own property shape. The run
+    reaching terminal ``CANCELLED`` is a third thing, ``task_run_cancelled_terminal``, emitted by
+    whichever path performs the DB transition (``update_task_run`` below, the
+    ``update_task_run_status`` Temporal activity, or a loop cancellation path). Keep the names
+    apart so a relay-cancelled PostHog AI run that then terminalizes does not land in this funnel
+    twice with two disjoint property shapes.
     """
     if method not in _POSTHOG_AI_RELAY_TELEMETRY_METHODS:
         return
