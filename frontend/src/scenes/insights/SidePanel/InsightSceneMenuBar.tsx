@@ -204,7 +204,7 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                                         Endpoint
                                     </SceneMenuBarItem>
                                 )}
-                                {showCreateMetric && <CreateMetricMenuBarItem />}
+                                {showCreateMetric && <CreateMetricMenuBarItem insightShortId={insight?.short_id} />}
                                 {showCohort && (
                                     <SceneMenuBarItem
                                         opensFloatingUi
@@ -426,8 +426,15 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
     )
 }
 
-function CreateMetricMenuBarItem(): JSX.Element {
+function CreateMetricMenuBarItem({ insightShortId }: { insightShortId?: string }): JSX.Element | null {
     const { openMetricFromInsightModal } = useActions(metricsLogic)
+    const { allMetrics } = useValues(metricsLogic)
+
+    // A metric already snapshots this insight, so don't offer to create a duplicate.
+    if (insightShortId && allMetrics.some((metric) => metric.source_insight_short_id === insightShortId)) {
+        return null
+    }
+
     return (
         <SceneMenuBarItem
             opensFloatingUi

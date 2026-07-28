@@ -193,7 +193,7 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
             ) : null}
 
             {featureFlags[FEATURE_FLAGS.PRODUCT_DATA_CATALOG] ? (
-                <CreateMetricFromInsightButton isSavedInsight={isSavedInsight} />
+                <CreateMetricFromInsightButton isSavedInsight={isSavedInsight} insightShortId={insight?.short_id} />
             ) : null}
 
             {canEditInSqlEditor && (
@@ -225,8 +225,21 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
     )
 }
 
-function CreateMetricFromInsightButton({ isSavedInsight }: { isSavedInsight: boolean }): JSX.Element {
+function CreateMetricFromInsightButton({
+    isSavedInsight,
+    insightShortId,
+}: {
+    isSavedInsight: boolean
+    insightShortId?: string
+}): JSX.Element | null {
     const { openMetricFromInsightModal } = useActions(metricsLogic)
+    const { allMetrics } = useValues(metricsLogic)
+
+    // A metric already snapshots this insight, so don't offer to create a duplicate.
+    if (insightShortId && allMetrics.some((metric) => metric.source_insight_short_id === insightShortId)) {
+        return null
+    }
+
     return (
         <ButtonPrimitive
             onClick={openMetricFromInsightModal}
