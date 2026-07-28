@@ -18,6 +18,7 @@ import { getDefaultMetricTitle } from '../MetricsView/shared/utils'
 import {
     applySessionLinkability,
     getExperimentVariants,
+    getExposureFallbackFilter,
     getMetricSessionFilters,
     getViewRecordingFiltersForVariant,
     isUnlinkableEventFilter,
@@ -55,6 +56,7 @@ export interface experimentReplayTabLogicValues {
     recordingsFilters: RecordingUniversalFilters
     selectedMetricUuids: string[]
     selectedVariantKey: string | null
+    usingExposureFallback: boolean
     variantKeys: string[]
 }
 
@@ -78,6 +80,7 @@ export interface experimentReplayTabLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         variantKeys: (arg: any) => string[]
         exposureUnlinkable: (linkabilityLoaded: boolean, unlinkableEventNames: Set<string>, arg: any) => boolean
+        usingExposureFallback: (linkabilityLoaded: boolean, unlinkableEventNames: Set<string>, arg: any) => boolean
         effectiveVariantKey: (selectedVariantKey: string | null, variantKeys: string[]) => string | null
         metricOptions: (
             linkabilityLoaded: boolean,
@@ -153,15 +156,33 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             () => [(_, props) => props.experiment],
             (experiment: Experiment): string[] => getExperimentVariants(experiment).map((variant) => variant.key),
         ],
-        // Exposure is the whole list here, so an unmatchable exposure event means there is nothing to
-        // show at all. Fails open while the check is in flight, matching the metric buttons.
+        // Exposure is the whole list here, so an unmatchable exposure event with no fallback means
+        // there is nothing to show at all. Only custom exposure criteria end up here: the default
+        // exposure branch always has the `$feature/<flag_key>` fallback. Fails open while the
+        // check is in flight, matching the metric buttons.
         exposureUnlinkable: [
             (s) => [s.linkabilityLoaded, s.unlinkableEventNames, (_, props) => props.experiment],
             (linkabilityLoaded: boolean, unlinkableEventNames: Set<string>, experiment: Experiment): boolean =>
                 // Fail open while the check is in flight, matching the metric buttons' posture.
                 linkabilityLoaded &&
-                applySessionLinkability(getViewRecordingFiltersForVariant(experiment), unlinkableEventNames)
-                    .exposureUnlinkable,
+                applySessionLinkability(
+                    getViewRecordingFiltersForVariant(experiment),
+                    unlinkableEventNames,
+                    getExposureFallbackFilter(experiment)
+                ).exposureUnlinkable,
+        ],
+        // True when the list is built from the `$feature/<flag_key>` fallback rather than the
+        // exposure event, so the tab can explain that sessions show the flag being active, not
+        // the exposure moment.
+        usingExposureFallback: [
+            (s) => [s.linkabilityLoaded, s.unlinkableEventNames, (_, props) => props.experiment],
+            (linkabilityLoaded: boolean, unlinkableEventNames: Set<string>, experiment: Experiment): boolean =>
+                linkabilityLoaded &&
+                applySessionLinkability(
+                    getViewRecordingFiltersForVariant(experiment),
+                    unlinkableEventNames,
+                    getExposureFallbackFilter(experiment)
+                ).usedExposureFallback,
         ],
         effectiveVariantKey: [
             (s) => [s.selectedVariantKey, s.variantKeys],
@@ -285,6 +306,15 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                               seenFilters.add(JSON.stringify(filter))
                               return true
                           })
+                // When the default exposure event can't match sessions, the fallback filter on
+                // `$feature/<flag_key>` takes its place (see `getExposureFallbackFilter`). While
+                // the check is in flight the unlinkable set is empty, so the exposure filter
+                // passes through untouched (fail open).
+                const exposureFilters = applySessionLinkability(
+                    getViewRecordingFiltersForVariant(experiment, effectiveVariantKey ?? undefined),
+                    unlinkableEventNames,
+                    getExposureFallbackFilter(experiment, effectiveVariantKey ?? undefined)
+                ).filters
                 return {
                     ...DEFAULT_RECORDING_FILTERS,
                     date_from: experiment.start_date ?? DEFAULT_RECORDING_FILTERS.date_from,
@@ -295,10 +325,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                         values: [
                             {
                                 type: FilterLogicalOperator.And,
-                                values: [
-                                    ...getViewRecordingFiltersForVariant(experiment, effectiveVariantKey ?? undefined),
-                                    ...metricFilters,
-                                ],
+                                values: [...exposureFilters, ...metricFilters],
                             },
                         ],
                     },

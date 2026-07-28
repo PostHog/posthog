@@ -623,9 +623,9 @@ Defined in `products/error_tracking/backend/embedding.py`:
 | --------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | `team_id`       | Int64                  | Team identifier                                                                                                                  |
 | `product`       | LowCardinality(String) | Product bucket — signals uses `'signals'`                                                                                        |
-| `document_type` | LowCardinality(String) | Document type — signals uses `'signal'`                                                                                          |
+| `document_type` | LowCardinality(String) | Document type — `'signal'` for signals, `'report'` for report documents (see below)                                              |
 | `model_name`    | LowCardinality(String) | Embedding model name (e.g., `text-embedding-3-small-1536`)                                                                       |
-| `rendering`     | LowCardinality(String) | How content was rendered — signals uses `'plain'`                                                                                |
+| `rendering`     | LowCardinality(String) | How content was rendered — signals use `'plain'`, report documents use `'title_summary_v1'`                                      |
 | `document_id`   | String                 | Unique signal ID (UUID)                                                                                                          |
 | `timestamp`     | DateTime64(3, 'UTC')   | Document creation time                                                                                                           |
 | `inserted_at`   | DateTime64(3, 'UTC')   | When the embedding was inserted (used for dedup)                                                                                 |
@@ -643,6 +643,54 @@ Defined in `products/error_tracking/backend/embedding.py`:
 emit_embedding_request() → Kafka (document_embeddings_input topic)
     → Kafka table → Materialized View → Writable Distributed table → Sharded ReplacingMergeTree
 ```
+
+### Report Documents
+
+Alongside the per-signal rows, each `SignalReport` gets one embedding of its own: `document_type = 'report'`, `document_id` = the report UUID, content rendered from the report's `title` and `summary`.
+This gives a report a single vector instead of only the cloud of constituent-signal vectors,
+and is the feature-side building block for the inbox ranking model,
+whose label stream is the `signal_report_status_changed` event emitted by `backend/receivers.py`.
+
+Emission lives in `backend/report_embeddings.py`,
+driven by a `post_save` receiver that fires whenever a report's `title` or `summary` actually changes.
+That covers the matcher writing text at creation, the summary workflow on `IN_PROGRESS -> READY`, re-research runs, and the scout channel's `update_authored_content`.
+Two properties are load-bearing:
+
+- The row's `timestamp` is pinned to the report's `created_at`, never the emission time.
+  The table partitions by `toMonday(timestamp)` and orders by `toDate(timestamp)`,
+  so a re-emission stamped "now" would land in a different partition and sit alongside the earlier row rather than superseding it.
+  The trade-off is that the 3-month TTL runs from report creation, so a report open longer than that loses its vector while still live.
+- `rendering` is versioned (`title_summary_v1`) rather than `'plain'`, because a report document is a composition of fields we expect to extend.
+  Bumping to a v2 lets both compositions coexist and be compared instead of silently replacing each other.
+
+Metadata is deliberately limited to `report_id` plus the `deleted` tombstone flag.
+It only refreshes when the report's text changes or the report is deleted, so mutable state (status, priority, `signal_count`) would go stale there.
+Join that from Postgres or the status-change event stream instead.
+
+#### Safety gating and retraction
+
+A report's title and summary are derived from its signals, so they inherit the same prompt-injection exposure.
+Emission is therefore gated on the durable `safety_judgment` artefact: when the latest verdict is `choice: false`, no vector is written.
+That read is pinned to the writer (`using("default")`), because it runs immediately after the transaction that wrote the verdict and `ReplicaRouter` documents replication lag on exactly that pattern.
+
+Withholding new emissions is not sufficient on its own, because a report can be embedded while safe and only later be judged unsafe.
+Three paths therefore **retract** an existing vector by re-emitting the row with `metadata.deleted = true`, preserving `created_at` so it replaces the live row in the same partition:
+
+- **Deletion**: the report-level counterpart to `soft_delete_report_signals`. Both the soft path, where `delete_report_activity` flips status to `DELETED`, and a hard `delete()` of the row, which is what `delete_team_reports_activity` and the `cleanup_signals` command issue. The hard path matters most: once the row is gone, no later write can retract the vector.
+- **A later unsafe verdict**: the summary workflow re-judges safety on every run, and a READY report re-researches whenever new signals join it.
+- **An unreviewed edit**: the `PATCH` endpoint and the scout `edit_report` channel supply text the judge has never seen, so the report is retracted and left unindexed until the pipeline writes judged text again.
+
+Tombstones carry fixed placeholder content (`TOMBSTONE_CONTENT`) rather than the report's own text.
+Content is not part of the `ReplacingMergeTree` key, so a placeholder supersedes a live row just as well, and it means a tombstone can be emitted without first knowing whether a live row exists, which is the question none of these paths can answer cheaply.
+It also guarantees a retraction can never introduce the very text the safety judge withheld.
+This is a deliberate divergence from `soft_delete_report_signals`, which re-emits signal text verbatim and so makes rows filterable rather than erased.
+
+Readers must filter with `NOT JSONExtractBool(metadata, 'deleted')`, as every existing signals query already does.
+
+A caller removing reports in bulk should delete the reports and let their artefacts cascade, rather than deleting artefacts first.
+Django reports the cascade as the artefact's deletion `origin`, which is what lets the verdict receiver skip reconciliation it does not need:
+the report is going away in the same operation and retracts its own embedding.
+Deleting artefacts directly costs two extra queries each, which `delete_team_reports_activity` cannot afford inside its five minute budget.
 
 ### Soft Deletion
 
