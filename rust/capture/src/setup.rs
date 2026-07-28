@@ -1028,6 +1028,7 @@ mod tests {
         .collect();
         let mut config: Config =
             envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config");
+        config.kafka.outputs_completeness_check_enabled = true;
         config.kafka.kafka_dlq_topic = String::new();
 
         let err = create_sink(&config, None, None)
@@ -1039,5 +1040,12 @@ mod tests {
             msg.contains("dlq"),
             "error should name the missing output: {msg}"
         );
+
+        // The default: with the check off, the same blank topic boots (and
+        // would fail at first produce instead).
+        config.kafka.outputs_completeness_check_enabled = false;
+        create_sink(&config, None, None)
+            .await
+            .expect("boot must proceed when the completeness check is disabled");
     }
 }

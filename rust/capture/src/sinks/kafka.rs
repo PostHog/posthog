@@ -31,7 +31,7 @@ use rdkafka::ClientConfig;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::task::JoinSet;
-use tracing::log::{debug, error, info};
+use tracing::log::{debug, error, info, warn};
 use tracing::{info_span, instrument, Instrument};
 
 use super::producer::RdKafkaProducer;
@@ -705,9 +705,14 @@ impl KafkaSink {
         };
 
         // Refuse to boot on incomplete output wiring: a blank topic fails
-        // here, at startup, instead of at first produce.
+        // here, at startup, instead of at first produce. Config-only — the
+        // broker is never probed.
         let registry = OutputRegistry::from(&config);
-        registry.check_complete()?;
+        if config.outputs_completeness_check_enabled {
+            registry.check_complete()?;
+        } else {
+            warn!("outputs completeness check disabled; a blank output topic will fail at first produce instead of at boot");
+        }
         let topics = Arc::new(registry);
         let rd_producer = RdKafkaProducer::new(producer);
 
@@ -1124,6 +1129,7 @@ mod tests {
             kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
             kafka_replay_overflow_topic: "session_recording_snapshot_item_overflow".to_string(),
             kafka_dlq_topic: "events_plugin_ingestion_dlq".to_string(),
+            outputs_completeness_check_enabled: true,
             capture_analytics_ai_events_topic: None,
             capture_analytics_ai_events_overflow_topic: None,
             kafka_traces_topic: "traces_ingestion".to_string(),
