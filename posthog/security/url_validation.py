@@ -31,6 +31,9 @@ DISALLOWED_SCHEMES = {"file", "ftp", "gopher", "ws", "wss", "data", "javascript"
 # Cloud metadata service hosts that should be blocked to prevent SSRF
 METADATA_HOSTS = {"169.254.169.254", "metadata.google.internal"}
 
+# Percent-encoded forms of the characters that end a URL authority ("/", "?", "#", "@")
+ENCODED_AUTHORITY_TERMINATORS = ("%2f", "%3f", "%23", "%40")
+
 # Internal domain patterns that should never be accessed
 # These are common internal TLDs and suffixes used in private networks
 INTERNAL_DOMAIN_PATTERNS = (
@@ -151,12 +154,19 @@ def _is_private_ip_literal(host: str) -> bool:
 
 def has_authority_bypass_chars(url: str) -> bool:
     """
-    Detect characters that produce a parser-vs-client disagreement on the URL authority.
+    Detect characters that make the URL authority ambiguous between parsers.
 
     ``urllib.parse.urlparse`` treats ``\\`` before ``@`` as part of the userinfo and
     returns the host after the ``@``, while ``requests``/``urllib3`` and browsers
     interpret ``\\`` as the end of the authority (a path separator) and connect to
     the host before it. ``%5c`` decodes to ``\\`` and produces the same divergence.
+
+    ``ENCODED_AUTHORITY_TERMINATORS`` inside the authority are ambiguous for a
+    different reason: any consumer that percent-decodes before splitting the
+    authority sees it end early, so ``https://good.example%2F@evil.example/``
+    resolves to ``good.example`` there but to ``evil.example`` elsewhere. Only the
+    authority is checked — the same sequences are ordinary data in a path, query, or
+    fragment — so pass a full URL: a bare host has no authority to inspect.
 
     URLs containing these characters cannot be safely validated by host, because
     the validated host differs from the host the client will actually connect to.
@@ -165,7 +175,11 @@ def has_authority_bypass_chars(url: str) -> bool:
         return True
     if "%5c" in url.lower():
         return True
-    return False
+    try:
+        authority = urlparse.urlparse(url).netloc.lower()
+    except ValueError:
+        return True
+    return any(terminator in authority for terminator in ENCODED_AUTHORITY_TERMINATORS)
 
 
 def _dev_bypass_enabled() -> bool:

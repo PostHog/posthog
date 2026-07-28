@@ -1677,6 +1677,24 @@ class TestUserAPI(APIBaseTest):
         assert_allowed_url("https://subdomain.otherexample.com")
         assert_allowed_url("https://sub.subdomain.otherexample.com")
 
+    @parameterized.expand(
+        [
+            ("encoded_slash", "%2F"),
+            ("encoded_question_mark", "%3F"),
+            ("encoded_hash", "%23"),
+            ("raw_backslash", "\\"),
+        ]
+    )
+    def test_redirect_to_site_rejects_encoded_authority_terminator(self, _name: str, terminator: str) -> None:
+        self.team.app_urls = ["https://www.example.com"]
+        self.team.save()
+
+        app_url = f"https://www.example.com{terminator}@evil.example.net/"
+        response = self.client.get(f"/api/user/redirect_to_site/?appUrl={quote(app_url, safe='')}")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.headers.get("location") is None
+
     @patch("posthog.api.user.secrets.token_urlsafe")
     @patch("posthog.api.user.get_flags_from_service")
     def test_prepare_toolbar_preloaded_flags_with_feature_flags(self, mock_get_flags, patched_token):

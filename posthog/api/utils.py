@@ -499,9 +499,24 @@ class PublicIPOnlyHttpAdapter(HTTPAdapter):
 def unparsed_hostname_in_allowed_url_list(allowed_url_list: Optional[list[str]], hostname: Optional[str]) -> bool:
     if hostname and has_authority_bypass_chars(hostname):
         return False
-    # if the browser url encodes the hostname, we need to decode it first
-    hostname = urlparse(urllib.parse.unquote(hostname)).hostname if hostname else hostname
+    # Parse the string as given: decoding first would validate an authority that no
+    # client resolves, letting an attacker-chosen host inherit the allowlist decision.
+    hostname = urlparse(hostname).hostname if hostname else hostname
     return hostname_in_allowed_url_list(allowed_url_list, hostname)
+
+
+def strip_url_userinfo(url: str) -> str:
+    """
+    Rebuild ``url`` so its authority holds only the host and port.
+
+    Redirect targets are approved on the strength of their host, so echoing the
+    caller's authority back keeps a ``user@`` prefix that the approval never looked at.
+    """
+    parsed = urlparse(url)
+    if "@" not in parsed.netloc:
+        return url
+    # urlparse derives the host the same way, by taking everything after the last "@".
+    return urllib.parse.urlunparse(parsed._replace(netloc=parsed.netloc.rpartition("@")[2]))
 
 
 def _strip_www(host: str) -> str:

@@ -317,7 +317,10 @@ class TestUtils(BaseTest):
             ("needle is whitespace", ["http://localhost"], "    ", False),
             ("needle is absent", ["http://localhost"], None, False),
             ("single element matches", ["http://localhost"], "http://localhost:8123", True),
-            ("single element matches but is url encoded", ["http://localhost"], "http%3A%2F%2Flocalhost:8123", True),
+            # Django decodes query params once, so a needle only looks like this on the wire
+            # when it was double-encoded. Judge it as the raw string a client would resolve.
+            ("url encoded needle has no host", ["http://localhost"], "http%3A%2F%2Flocalhost:8123", False),
+            ("url encoded dot in host", ["https://example.com"], "https://example%2Ecom/", False),
             ("multi element matches", ["http://localhost", "http://posthog.com"], "http://localhost:8123", True),
             ("scheme should be ignored", ["ftp://localhost"], "https://localhost:8123", True),
             ("needle is not in allowlist", ["http://localhost"], "http://posthog.com:8123", False),
@@ -331,6 +334,30 @@ class TestUtils(BaseTest):
                 ["https://example.com"],
                 "https://www.other.com",
                 False,
+            ),
+            (
+                "encoded slash terminates the authority early",
+                ["https://example.com"],
+                "https://example.com%2F@evil.test/",
+                False,
+            ),
+            (
+                "encoded question mark terminates the authority early",
+                ["https://example.com"],
+                "https://example.com%3F@evil.test/",
+                False,
+            ),
+            (
+                "encoded hash terminates the authority early",
+                ["https://example.com"],
+                "https://example.com%23@evil.test/",
+                False,
+            ),
+            (
+                "encoded characters outside the authority are ignored",
+                ["https://example.com"],
+                "https://example.com/inbox?to=someone%40evil.test",
+                True,
             ),
         ]
     )

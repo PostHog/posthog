@@ -284,6 +284,16 @@ class TestUrlValidation:
             ("http://example.com/path\\with-backslash", True),
             ("http://example.com%5Cpath", True),
             ("http://attacker.com\\@example.com", True),
+            # Encoded authority terminators: clients that decode before splitting the
+            # authority end up on a different host than the one we validated.
+            ("https://example.com%2F@attacker.com/", True),
+            ("https://example.com%3f@attacker.com/", True),
+            ("https://example.com%23@attacker.com/", True),
+            ("https://example.com%40@attacker.com/", True),
+            # The same sequences outside the authority are ordinary encoded data.
+            ("https://example.com/repos/group%2Fproject", False),
+            ("https://example.com/send?to=someone%40example.com", False),
+            ("https://example.com/search#q=a%23b", False),
         ],
     )
     def test_has_authority_bypass_chars(self, url, expected):

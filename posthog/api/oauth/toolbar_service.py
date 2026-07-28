@@ -24,7 +24,7 @@ from django.db import transaction
 import requests
 import structlog
 
-from posthog.api.utils import unparsed_hostname_in_allowed_url_list
+from posthog.api.utils import strip_url_userinfo, unparsed_hostname_in_allowed_url_list
 from posthog.models import Team, User
 from posthog.models.oauth import OAuthApplication, is_loopback_host
 from posthog.models.organization import Organization
@@ -123,6 +123,9 @@ def normalize_and_validate_app_url(team: Team, app_url: str) -> str:
             f"Can only redirect to a permitted domain. The hostname '{parsed.hostname}' is not in this project's authorized URLs.",
             403,
         )
+
+    app_url = strip_url_userinfo(app_url)
+    parsed = urlparse(app_url)
 
     # Strip __posthog and __posthog_toolbar hash params — posthog-js toolbar
     # launch params must not survive the OAuth round-trip or they cause a

@@ -58,7 +58,12 @@ from posthog.api.oauth.toolbar_service import (
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.services.flags_service import get_flags_from_service
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
-from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action, unparsed_hostname_in_allowed_url_list
+from posthog.api.utils import (
+    ClassicBehaviorBooleanFieldSerializer,
+    action,
+    strip_url_userinfo,
+    unparsed_hostname_in_allowed_url_list,
+)
 from posthog.auth import (
     IDJagAccessTokenAuthentication,
     OAuthAccessTokenAuthentication,
@@ -1823,6 +1828,9 @@ def redirect_to_site(request):
             },
             status_code=403,
         )
+
+    app_url = strip_url_userinfo(app_url)
+
     params = {
         "action": "ph_authorize",
         "token": team.api_token,
