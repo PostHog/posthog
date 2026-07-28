@@ -55,10 +55,19 @@ REVERSE_SQL = 'ALTER TABLE "posthog_oauthapplication" ' + ", ".join(
 class Migration(migrations.Migration):
     """Drop the provisioning columns Django stopped tracking in 1270 and 1276.
 
-    Deploy ordering matters and is not enforceable from here: 1276 has to be running in
-    production, through a full deploy cycle, before this lands. Until then a pod on the previous
-    release still lists these columns in its SELECTs, and dropping them makes every read of an
-    OAuthApplication fail.
+    Columns untracked in PostHog/posthog#74089 (provisioning_auth_method,
+    provisioning_signing_secret) and PostHog/posthog#74351 (the rest).
+
+    BEFORE MERGING, confirm both are deployed and have been through a full deploy cycle. Nothing
+    here can check that: a migration only sees the database, not which release the pods are
+    running, and on a fresh database 1276 and 1277 apply seconds apart, so a timing guard would
+    either break new installs or leave their schema permanently divergent. It is a release
+    ordering constraint, and the reviewer is the only thing enforcing it.
+
+    Merging early breaks reads, not writes, and breaks them everywhere: a pod on the previous
+    release still names every one of these columns in its SELECT, so each one errors on an
+    undefined column. That is the login path, the OAuth path and the whole provisioning
+    namespace, for as long as the old pods are up.
 
     One ALTER with every DROP clause rather than one statement per column: each drop is a
     catalog-only change needing an ACCESS EXCLUSIVE lock, so batching them takes that lock once
