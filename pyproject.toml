@@ -58,7 +58,7 @@ dependencies = [
     "drf-extensions~=0.8.0",
     "drf-spectacular~=0.29.0",
     "geoip2==4.6.0",
-    "google-ads==30.1.0",
+    "google-ads==31.2.0",
     "google-cloud-bigquery==3.26",
     "google-cloud-bigquery-storage==2.32.0",
     "google-cloud-iam==2.21",
@@ -293,7 +293,7 @@ hogql-parser-parity = [
 required-version = ">=0.10.2"
 add-bounds = "major"
 exclude-newer = "7 days"
-exclude-newer-package = { hogql-parser = false, hogql-parser-rs = false, posthoganalytics = false, pixelhog = false, django = false, modal = false, posthog-hogland = false }
+exclude-newer-package = { hogql-parser = false, hogql-parser-rs = false, posthoganalytics = false, pixelhog = false, django = false, modal = false, posthog-hogland = false, google-ads = false }
 
 [tool.uv.workspace]
 members = ["tools/hogli", "tools/owners"]

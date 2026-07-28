@@ -34,6 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
     FieldType,
     ResumableSource,
+    VersionDeprecation,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -82,9 +83,14 @@ def _oauth_accounts_cache_key(team_id: int, integration_id: int) -> str:
 class GoogleAdsSource(
     ResumableSource[GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig, GoogleAdsResumeConfig], OAuthMixin
 ):
-    supported_versions = ("v23", "v24")
-    default_version = "v24"
+    supported_versions = ("v23", "v24", "v25")
+    default_version = "v25"
     api_docs_url = "https://developers.google.com/google-ads/api/docs/release-notes"
+    # Google sunsets each major ~12 months after release; v24 (released 2026-04-22) is projected
+    # for ~May 2027 but has no firm date on the sunset page yet, so `sunset_at` stays None until
+    # Google publishes one. v25 reads the same resources/fields as v24 (its breaking changes only
+    # remove the lifecycle-goal resources this source never reads), so repinning needs no transform.
+    deprecated_versions = (VersionDeprecation(version="v24", sunset_at=None),)
 
     @property
     def source_type(self) -> ExternalDataSourceType:
