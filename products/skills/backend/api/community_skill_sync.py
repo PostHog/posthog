@@ -90,6 +90,14 @@ def _validate_entry_shape(entry: dict[str, Any]) -> None:
     if metadata is not None and not isinstance(metadata, dict):
         raise ValueError("metadata must be an object")
 
+    # A falsy non-list (`{}`, `false`, `0`, `""`) must not be normalized to "no files": the upsert
+    # deletes the skill's existing files before recreating them, so a mistyped `files` on an entry
+    # with a changed source_sha would strip every bundled file from a live catalog skill and still
+    # report the sync as successful. Absent/null legitimately mean "no files".
+    files = entry.get("files")
+    if files is not None and not isinstance(files, list):
+        raise ValueError("files must be a list")
+
     tags = entry.get("tags")
     if tags is not None and (not isinstance(tags, list) or not all(isinstance(t, str) for t in tags)):
         raise ValueError("tags must be a list of strings")
@@ -138,9 +146,13 @@ def _validate_entry_within_caps(entry: dict[str, Any]) -> None:
             raise ValueError(f"file path '{raw_path}' is invalid: {err.detail}") from err
         if path_max is not None and len(path) > path_max:
             raise ValueError(f"file path '{path}' exceeds the {path_max} character limit")
-        if path in seen_paths:
+        # Case-insensitive, matching `_skill_files_are_tree_safe`: two paths differing only by case
+        # collide on a case-insensitive filesystem, and that check silently drops the whole skill
+        # from a team's marketplace clone. Cheaper to reject the entry than to ship a skill that
+        # installs fine and then vanishes from the generated tree.
+        if path.lower() in seen_paths:
             raise ValueError(f"duplicate file path '{path}'")
-        seen_paths.add(path)
+        seen_paths.add(path.lower())
         content_type = _text(f, "content_type", f"file '{path}' content_type", DEFAULT_FILE_CONTENT_TYPE)
         ct_max = _field_max_length(CommunitySkillFile, "content_type")
         if ct_max is not None and len(content_type) > ct_max:

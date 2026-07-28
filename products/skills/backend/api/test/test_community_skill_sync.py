@@ -169,6 +169,20 @@ class TestCommunitySkillSync(APIBaseTest):
             ("non_string_content_type", {"files": [{"path": "a.md", "content": "x", "content_type": ["text/md"]}]}),
             ("falsy_non_string_content_type", {"files": [{"path": "a.md", "content": "x", "content_type": 0}]}),
             ("falsy_non_string_file_content", {"files": [{"path": "a.md", "content": False}]}),
+            # A falsy non-list `files` normalized to [] would count as "no files" — the upsert
+            # deletes the existing files first, so a live skill would lose its whole bundle.
+            ("falsy_non_list_files", {"files": {}}),
+            # Case-only collisions break a case-insensitive filesystem, and the marketplace
+            # tree-safety check drops the entire skill from the generated clone.
+            (
+                "case_only_duplicate_file_paths",
+                {
+                    "files": [
+                        {"path": "references/Guide.md", "content": "a"},
+                        {"path": "references/guide.md", "content": "b"},
+                    ]
+                },
+            ),
             # `$` matches before a trailing newline, so a match-only check would let the newline
             # into the slug — the URL segment and the default installed-skill name.
             ("trailing_newline_slug", {"slug": "bad-skill\n"}),
