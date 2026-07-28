@@ -433,11 +433,12 @@ def _register_provisioning_team(organization_id: UUID | str, team_id: int) -> No
 
 
 def _ensure_direct_source(team_id: int, organization_id: UUID | str) -> None:
-    """Best-effort: register the org's managed warehouse as the team's restricted query connection.
+    """Best-effort: register the org's managed warehouse as the team's scoped query connection.
 
     A managed warehouse speaks the Postgres wire protocol, so each member team gets an
     ExternalDataSource pointed at the org server. Duckgres scopes its credential to the
-    project and enforces read-only SQL. A failure here must never block onboarding.
+    project: read/write inside the project's own namespaces, and nothing outside them.
+    A failure here must never block onboarding.
     """
     try:
         # Keep the data_warehouse/warehouse_sources stack off this adapter's import path.
