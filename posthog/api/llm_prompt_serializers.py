@@ -40,11 +40,11 @@ def validate_prompt_name_value(value: str) -> str:
     return value
 
 
-def validate_prompt_payload_size(prompt_payload: Any) -> Any:
+def validate_prompt_payload_size(prompt_payload: Any, *, field_label: str = "Prompt payload") -> Any:
     prompt_payload_bytes = len(json.dumps(prompt_payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
     if prompt_payload_bytes > MAX_PROMPT_PAYLOAD_BYTES:
         raise serializers.ValidationError(
-            f"Prompt payload must be {MAX_PROMPT_PAYLOAD_BYTES} bytes or fewer.",
+            f"{field_label} must be {MAX_PROMPT_PAYLOAD_BYTES} bytes or fewer.",
             code="max_size",
         )
     return prompt_payload
@@ -58,7 +58,7 @@ def validate_prompt_config_value(value: Any) -> Any:
             'Config must be a JSON object, e.g. {"model": "gpt-4o", "temperature": 0}.',
             code="invalid_config",
         )
-    return validate_prompt_payload_size(value)
+    return validate_prompt_payload_size(value, field_label="Config")
 
 
 RESERVED_PROMPT_LABEL_NAMES = {"latest"}
@@ -119,7 +119,8 @@ CONTENT_MODE_CHOICES = ["full", "preview", "none"]
 CONTENT_MODE_HELP = (
     "Controls how much prompt content is included in the response. "
     "'full' includes the full prompt, 'preview' includes a short prompt_preview, "
-    "and 'none' omits prompt content entirely. The outline field is always included."
+    "and 'none' omits prompt content entirely. The config field is only included with 'full'. "
+    "The outline field is always included."
 )
 
 
@@ -241,7 +242,8 @@ class LLMPromptPublishSerializer(serializers.Serializer):
         help_text=(
             "JSON object with model parameters or any agent configuration to store with this version. "
             "If omitted, the current version's config is carried forward; pass null to clear it. "
-            "Can be combined with either prompt or edits."
+            "Can be combined with either prompt or edits. "
+            "Don't store secrets here: config is returned to anyone who can read the prompt."
         ),
     )
     base_version = serializers.IntegerField(
@@ -333,7 +335,8 @@ class LLMPromptSerializer(serializers.ModelSerializer):
             "config": {
                 "help_text": (
                     "Optional JSON object with model parameters or any agent configuration "
-                    "(e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it."
+                    "(e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. "
+                    "Don't store secrets here: config is returned to anyone who can read the prompt."
                 )
             },
             "version_description": {

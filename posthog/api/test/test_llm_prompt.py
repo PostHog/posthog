@@ -1177,7 +1177,8 @@ class TestLLMPromptConfigValidationNoDB(SimpleTestCase):
     def test_rejects_invalid_config(self, _name: str, bad_config: Any) -> None:
         serializer = LLMPromptPublishSerializer(data={"prompt": "v2", "config": bad_config, "base_version": 1})
         assert not serializer.is_valid()
-        assert "config" in serializer.errors
+        # The error must talk about config, not "Prompt payload" — the size check is shared.
+        assert str(serializer.errors["config"][0]).startswith("Config")
 
     @parameterized.expand(
         [
