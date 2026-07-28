@@ -8,8 +8,9 @@ table's own live parquet files bounded by bytes and file count.
 from __future__ import annotations
 
 import json
+import threading
+from collections import OrderedDict
 from dataclasses import dataclass
-from functools import lru_cache
 from typing import Any
 from urllib.parse import unquote
 
@@ -103,17 +104,23 @@ def resolve_snapshot_plan(schema: ExternalDataSchema, version: int | None = None
     return _resolve_pinned_snapshot_plan(uri, version)
 
 
-# A cached plan holds every live parquet path in the table, so its size scales
-# with table size, not with maxsize — this bounds entry *count*, not memory.
-# Keep it close to backfill.py's MAX_CONCURRENT_BACKFILLS_GLOBAL (5): that's
-# the real steady-state number of schemas actively BACKFILLING at once, so a
-# healthy fleet never evicts a live entry mid-backfill, while a much larger
-# maxsize would only pad how many large tables' path lists one pod can be
-# holding onto at once without bounding it in any way that tracks memory.
-_PINNED_SNAPSHOT_PLAN_CACHE_SIZE = 16
+# A cached plan holds every live parquet path and commit key for its table, so
+# entry *size* scales with table size — an entry-count cap alone doesn't bound
+# memory. Weigh entries by that count and cap the total instead: a plan over
+# budget on its own is simply never cached (recomputed every call, same as
+# before this cache existed), so one huge table can't make the cache retain an
+# unbounded amount indefinitely.
+_PINNED_SNAPSHOT_PLAN_CACHE_MAX_WEIGHT = 50_000
+
+_pinned_snapshot_plan_cache: OrderedDict[tuple[str, int], tuple[BackfillSnapshotPlan, int]] = OrderedDict()
+_pinned_snapshot_plan_cache_weight = 0
+_pinned_snapshot_plan_cache_lock = threading.Lock()
 
 
-@lru_cache(maxsize=_PINNED_SNAPSHOT_PLAN_CACHE_SIZE)
+def _plan_weight(plan: BackfillSnapshotPlan) -> int:
+    return sum(len(chunk.paths) for chunk in plan.chunks) + len(plan.covered_batches)
+
+
 def _resolve_pinned_snapshot_plan(uri: str, version: int) -> BackfillSnapshotPlan:
     """Cached for already-committed (pinned) versions only.
 
@@ -125,7 +132,29 @@ def _resolve_pinned_snapshot_plan(uri: str, version: int) -> BackfillSnapshotPla
     large table (tens of thousands of commits) gets its entire commit log
     re-read from S3 on every pass, which can trip S3 rate limiting.
     """
-    return _resolve_snapshot_plan(uri, version)
+    global _pinned_snapshot_plan_cache_weight
+
+    key = (uri, version)
+    with _pinned_snapshot_plan_cache_lock:
+        cached = _pinned_snapshot_plan_cache.get(key)
+        if cached is not None:
+            _pinned_snapshot_plan_cache.move_to_end(key)
+            return cached[0]
+
+    plan = _resolve_snapshot_plan(uri, version)
+    weight = _plan_weight(plan)
+
+    with _pinned_snapshot_plan_cache_lock:
+        while (
+            _pinned_snapshot_plan_cache
+            and _pinned_snapshot_plan_cache_weight + weight > _PINNED_SNAPSHOT_PLAN_CACHE_MAX_WEIGHT
+        ):
+            _, (_, evicted_weight) = _pinned_snapshot_plan_cache.popitem(last=False)
+            _pinned_snapshot_plan_cache_weight -= evicted_weight
+        if weight <= _PINNED_SNAPSHOT_PLAN_CACHE_MAX_WEIGHT:
+            _pinned_snapshot_plan_cache[key] = (plan, weight)
+            _pinned_snapshot_plan_cache_weight += weight
+    return plan
 
 
 def _resolve_snapshot_plan(uri: str, version: int | None) -> BackfillSnapshotPlan:

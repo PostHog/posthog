@@ -89,18 +89,24 @@ class _FakeColumn:
 
 
 class _FakeAddActions:
+    def __init__(self, file_count: int = 1) -> None:
+        self._file_count = file_count
+
     def column(self, name: str) -> _FakeColumn:
         return {
-            "path": _FakeColumn(["f.parquet"]),
-            "size_bytes": _FakeColumn([100]),
-            "num_records": _FakeColumn([10]),
+            "path": _FakeColumn([f"f{i}.parquet" for i in range(self._file_count)]),
+            "size_bytes": _FakeColumn([100] * self._file_count),
+            "num_records": _FakeColumn([10] * self._file_count),
         }[name]
 
 
 class _FakeDeltaTable:
     # Stands in for deltalake.DeltaTable: counts real constructions so the
     # cache test can assert a pinned version's Delta log is read only once.
+    # file_count controls how many add-actions (and thus cache weight) a
+    # constructed instance reports, letting tests drive the weight budget.
     instances = 0
+    file_count = 1
 
     def __init__(self, uri: str, version: int | None = None, storage_options: dict | None = None) -> None:
         _FakeDeltaTable.instances += 1
@@ -113,7 +119,7 @@ class _FakeDeltaTable:
         return SimpleNamespace(reader_features=[])
 
     def get_add_actions(self, flatten: bool = True) -> _FakeAddActions:
-        return _FakeAddActions()
+        return _FakeAddActions(_FakeDeltaTable.file_count)
 
     def history(self) -> list[dict]:
         return []
@@ -126,8 +132,10 @@ class TestResolveSnapshotPlanCaching(SimpleTestCase):
     # the whole Delta commit log from S3 (dt.history() has no checkpoint
     # shortcut), which for a large table can trip S3 rate limiting.
     def setUp(self) -> None:
-        backfill_snapshot._resolve_pinned_snapshot_plan.cache_clear()
+        backfill_snapshot._pinned_snapshot_plan_cache.clear()
+        backfill_snapshot._pinned_snapshot_plan_cache_weight = 0
         _FakeDeltaTable.instances = 0
+        _FakeDeltaTable.file_count = 1
 
     def _schema(self) -> ExternalDataSchema:
         schema = ExternalDataSchema(id=_SCHEMA_ID, team_id=1, name="orders")
@@ -162,3 +170,32 @@ class TestResolveSnapshotPlanCaching(SimpleTestCase):
             backfill_snapshot.resolve_snapshot_plan(schema)
 
         assert _FakeDeltaTable.instances == 2
+
+    def test_plan_exceeding_weight_budget_is_never_cached(self) -> None:
+        # A single table's plan can carry an unbounded number of files/commit
+        # keys — a table big enough to exceed the whole cache's budget on its
+        # own must not be retained at all, or one tenant's giant table could
+        # make the cache hold an unbounded amount indefinitely.
+        with patch.object(backfill_snapshot, "_PINNED_SNAPSHOT_PLAN_CACHE_MAX_WEIGHT", 10):
+            _FakeDeltaTable.file_count = 11
+            schema = self._schema()
+
+            with patch("deltalake.DeltaTable", _FakeDeltaTable):
+                backfill_snapshot.resolve_snapshot_plan(schema, version=5)
+                backfill_snapshot.resolve_snapshot_plan(schema, version=5)
+
+            assert _FakeDeltaTable.instances == 2
+            assert len(backfill_snapshot._pinned_snapshot_plan_cache) == 0
+
+    def test_cache_evicts_oldest_entry_once_weight_budget_exceeded(self) -> None:
+        with patch.object(backfill_snapshot, "_PINNED_SNAPSHOT_PLAN_CACHE_MAX_WEIGHT", 10):
+            _FakeDeltaTable.file_count = 6
+            schema = self._schema()
+
+            with patch("deltalake.DeltaTable", _FakeDeltaTable):
+                backfill_snapshot.resolve_snapshot_plan(schema, version=1)  # weight 6, fits
+                backfill_snapshot.resolve_snapshot_plan(schema, version=2)  # weight 6: evicts v1 (6+6 > 10)
+                assert _FakeDeltaTable.instances == 2
+
+                backfill_snapshot.resolve_snapshot_plan(schema, version=1)  # re-reads: was evicted
+                assert _FakeDeltaTable.instances == 3
