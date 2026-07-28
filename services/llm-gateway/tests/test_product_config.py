@@ -16,6 +16,7 @@ from llm_gateway.products.config import (
     PRODUCTS,
     TWIG_EU_APP_ID,
     TWIG_US_APP_ID,
+    UNCONDITIONAL_SERVER_CREDENTIAL_PRODUCTS,
     WIZARD_EU_APP_ID,
     WIZARD_US_APP_ID,
     check_free_tier_model_access,
@@ -613,6 +614,33 @@ class TestServerCredentialRequirement:
         assert allowed is True
         assert error is None
 
+    # The rest of this class runs with the gate forced on, which is the state in which the
+    # requirement was already known to hold. These cover the default state, where the products that
+    # never shipped without the check have to enforce it anyway. Spelled out rather than derived
+    # from UNCONDITIONAL_SERVER_CREDENTIAL_PRODUCTS: parameterizing over the set under test would
+    # make dropping a product from it delete its own coverage instead of failing.
+    @pytest.mark.parametrize("product", ["custom_image_scans", "onboarding"])
+    def test_gate_disabled_still_refuses_unconditional_products(self, product: str, monkeypatch: pytest.MonkeyPatch):
+        from llm_gateway.config import get_settings
+
+        monkeypatch.delenv("LLM_GATEWAY_POSTHOG_CODE_MODEL_GATE_ENABLED", raising=False)
+        get_settings.cache_clear()
+        allowed, error = check_product_access(product, "oauth_access_token", POSTHOG_CODE_US_APP_ID, None, scopes=["*"])
+        assert allowed is False
+        assert error is not None and "server-minted" in error
+
+    @pytest.mark.parametrize("product", ["custom_image_scans", "onboarding"])
+    def test_gate_disabled_still_admits_server_minted_tokens(self, product: str, monkeypatch: pytest.MonkeyPatch):
+        from llm_gateway.config import get_settings
+
+        monkeypatch.delenv("LLM_GATEWAY_POSTHOG_CODE_MODEL_GATE_ENABLED", raising=False)
+        get_settings.cache_clear()
+        allowed, error = check_product_access(
+            product, "oauth_access_token", POSTHOG_CODE_US_APP_ID, None, scopes=self._MARKER_SCOPES
+        )
+        assert allowed is True
+        assert error is None
+
 
 _CODE_APP_IDS = frozenset({POSTHOG_CODE_DEV_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_US_APP_ID})
 _CODE_APP_PRODUCTS = [
@@ -634,6 +662,12 @@ class TestServerCredentialConfigInvariant:
             "credential, so a user's own Desktop OAuth token could reach it and route around the "
             "posthog_code free-tier model gate"
         )
+
+    def test_unconditional_products_are_the_ones_enforcing_without_the_flag(self):
+        # Pairs with the two flag-off tests above, which name their products literally. If a
+        # product is added here without flag-off coverage, or removed from here while still
+        # expected to enforce, exactly one of the two sides fails.
+        assert UNCONDITIONAL_SERVER_CREDENTIAL_PRODUCTS == frozenset({"custom_image_scans", "onboarding"})
 
     def test_posthog_code_is_the_only_code_app_product_open_to_user_tokens(self):
         # desktop users hold marker-less Code tokens; requiring the marker on the

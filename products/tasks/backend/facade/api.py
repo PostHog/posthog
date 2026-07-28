@@ -1783,6 +1783,16 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "loop_trigger_id",
         "trigger_context",
         "config_snapshot",
+        # The run's model posture, chosen at creation by the server-owned caller and read back out
+        # of state when the run dispatches. It decides what the run costs, and for a run routed to
+        # an unbilled gateway product (create_wizard_cloud_run pins claude-sonnet-5 for the
+        # `onboarding` product) it is the only thing keeping the run off the more expensive models
+        # that product still allowlists. Every writer is server-side, so nothing legitimate PATCHes
+        # these.
+        "runtime_adapter",
+        "provider",
+        "model",
+        "reasoning_effort",
     }
 )
 

@@ -4386,6 +4386,10 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "pending_dispatch": {"workflow_id_prefix": "review-real", "create_pr": True},
                 "pending_external_followups": pending_external_followups,
                 "pending_external_followups_generation": 7,
+                "runtime_adapter": "claude",
+                "provider": "anthropic",
+                "model": "claude-sonnet-5",
+                "reasoning_effort": "low",
             },
         )
 
@@ -4395,7 +4399,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         # (which would mint a write-scoped wizard token into the sandbox), change rollout
         # decisions, change Modal resume snapshot metadata, repoint the run at another
         # team's Temporal workflow, or steer an orphan re-dispatch (workflow ID prefix / MCP
-        # scopes) via pending_dispatch. Non-protected keys still merge.
+        # scopes) via pending_dispatch, or repoint the run at a costlier model (which for a run
+        # routed to an unbilled gateway product is free spend). Non-protected keys still merge.
         response = self.client.patch(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
             {
@@ -4425,6 +4430,10 @@ class TestTaskRunAPI(BaseTaskAPITest):
                         }
                     ],
                     "pending_external_followups_generation": 999,
+                    "runtime_adapter": "codex",
+                    "provider": "openai",
+                    "model": "claude-opus-4-8",
+                    "reasoning_effort": "high",
                     "scratch": "ok",
                 }
             },
@@ -4451,6 +4460,10 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["pending_dispatch"] == {"workflow_id_prefix": "review-real", "create_pr": True}
         assert run.state["pending_external_followups"] == pending_external_followups
         assert run.state["pending_external_followups_generation"] == 7
+        assert run.state["runtime_adapter"] == "claude"
+        assert run.state["provider"] == "anthropic"
+        assert run.state["model"] == "claude-sonnet-5"
+        assert run.state["reasoning_effort"] == "low"
         assert run.state["scratch"] == "ok"  # non-protected keys still merge
 
         # Nor can a caller remove a protected key to force a fallback or unguarded path.

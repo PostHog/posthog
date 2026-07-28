@@ -88,6 +88,18 @@ _POSTHOG_CODE_AGENT_MODELS: Final[frozenset[str]] = frozenset(
     }
 )
 
+# Products whose requires_server_credential applies right away rather than waiting for
+# posthog_code_model_gate_enabled. The flag exists so products that already shipped accepting plain
+# Code OAuth tokens keep working until the Code billing cutover. A product that never had such a
+# permissive period has nothing to stay compatible with, and leaving it flag-gated would ship an
+# unbilled route open to any Code OAuth token for as long as the flag is off.
+UNCONDITIONAL_SERVER_CREDENTIAL_PRODUCTS: Final[frozenset[str]] = frozenset(
+    {
+        "custom_image_scans",
+        "onboarding",
+    }
+)
+
 PRODUCTS: Final[dict[str, ProductConfig]] = {
     "llm_gateway": ProductConfig(
         allowed_application_ids=None,
@@ -431,13 +443,14 @@ def check_product_access(
     # and route around the posthog_code free-tier model gate. Require the internal marker that
     # only server-minted tokens carry. OAuth-only: personal API keys reach the gateway with an
     # explicit, feature-gated llm_gateway:read scope (a `*` PAK is rejected at auth), so the
-    # shared server-side gateway key still works here. Gated behind the same flag as the
-    # free-tier gate so it stays inert until the Code billing cutover.
+    # shared server-side gateway key still works here. Products that shipped before this check
+    # existed stay behind the free-tier flag so they keep working until the Code billing cutover;
+    # the rest enforce it now, per UNCONDITIONAL_SERVER_CREDENTIAL_PRODUCTS.
     if (
         config.requires_server_credential
         and is_oauth
         and INTERNAL_RUN_SCOPE not in (scopes or [])
-        and (settings.posthog_code_model_gate_enabled or resolved_product == "custom_image_scans")
+        and (settings.posthog_code_model_gate_enabled or resolved_product in UNCONDITIONAL_SERVER_CREDENTIAL_PRODUCTS)
     ):
         return False, f"Product '{product}' requires a server-minted credential"
 
