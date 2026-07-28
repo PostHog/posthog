@@ -26,7 +26,7 @@ use crate::{
     team::team_models::Team,
 };
 use std::collections::HashMap;
-use tracing::{instrument, warn};
+use tracing::{debug, instrument};
 
 #[cfg(test)]
 use crate::handler::test_metrics::{histogram, inc};
@@ -218,7 +218,7 @@ async fn process_request_inner(
             };
 
             if let Some(quota_limited_response) = billing_limited {
-                warn!("Request quota limited");
+                debug!("Request quota limited");
                 with_canonical_log(|log| log.quota_limited = true);
                 quota_limited_response
             } else {
