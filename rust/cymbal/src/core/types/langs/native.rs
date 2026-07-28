@@ -1101,10 +1101,10 @@ mod test {
     //   test_rust_binary:   debug_id d1dea836-4ad3-daad-dd96-0e8626f766e1,
     //                       charge at 0x10640, lookup(0x10644) ->
     //                       core::hint::black_box inlined into charge
-    //   libtest_android.so: debug_id 06cc4a52-afc9-d0e7-8c56-651f8bbd4a59,
-    //                       preferred base 0, JNI entry at 0x10448,
-    //                       lookup(0x103d7) -> engine::inlined_leaf inlined
-    //                       into engine::process_frame (entry 0x103cc)
+    //   libtest_android.so: debug_id c393685c-6edc-d276-cbd6-37e4c8b4e2aa,
+    //                       preferred base 0, JNI entry at 0x4448,
+    //                       lookup(0x43d7) -> engine::inlined_leaf inlined
+    //                       into engine::process_frame (entry 0x43cc)
 
     /// Non-PIE ELF: the binary links at a fixed base (0x1000000) and loads
     /// there unchanged, so image_addr equals the link-time base.
@@ -1406,20 +1406,20 @@ mod test {
         // fields byte-swapped). Both must land on symbolic's derivation.
         let object = symbolic::debuginfo::Object::parse(ELF).unwrap();
         let chunk_id = object.debug_id().to_string();
-        assert_eq!(chunk_id, "06cc4a52-afc9-d0e7-8c56-651f8bbd4a59");
+        assert_eq!(chunk_id, "c393685c-6edc-d276-cbd6-37e4c8b4e2aa");
 
         let catalog = catalog_for_chunk(&db, &chunk_id, zip_fixture(ELF, None)).await;
 
         // Android-typical load base. The fixture's rel_pc values are ELF
         // vaddrs (preferred base 0), including the exec segment's nonzero
-        // load bias (p_vaddr 0x103cc vs p_offset 0x3cc from 16KB max-page
-        // alignment — the APK-embedded mapping shape).
+        // load bias (p_vaddr 0x43cc vs p_offset 0x3cc from the NDK's 16 KiB
+        // max-page-size — the APK-embedded mapping shape).
         let base = 0x7a12_3450_0000u64;
         let debug_images = vec![debug_image_at(&chunk_id, base)];
 
-        // Crash leaf: 0x103d8 is inside inlined_leaf as inlined into
-        // engine::process_frame; the -1 adjustment lands on 0x103d7.
-        let frame = RawFrame::Native(native_frame_at(base + 0x103d8, base));
+        // Crash leaf: 0x43d8 is inside inlined_leaf as inlined into
+        // engine::process_frame; the -1 adjustment lands on 0x43d7.
+        let frame = RawFrame::Native(native_frame_at(base + 0x43d8, base));
         let frames = frame.resolve(1, &catalog, &debug_images, 15).await.unwrap();
 
         assert_eq!(
@@ -1441,7 +1441,7 @@ mod test {
 
         // Caller: a return address inside the JNI entry point (extern "C",
         // so the name survives undecorated).
-        let frame = RawFrame::Native(native_frame_at(base + 0x10458, base));
+        let frame = RawFrame::Native(native_frame_at(base + 0x4458, base));
         let resolved = frame
             .resolve(1, &catalog, &debug_images, 15)
             .await

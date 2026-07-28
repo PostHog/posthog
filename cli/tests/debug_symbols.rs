@@ -84,10 +84,10 @@ fn discovers_and_packages_elf_files() {
     assert_eq!(
         debug_ids,
         vec![
-            "06cc4a52-afc9-d0e7-8c56-651f8bbd4a59",
             "140ab543-c098-09dc-22b6-11f72e46d6fe",
             "7561847b-1054-7eb3-7763-4415adfaa134",
             "850c70a2-6592-a70c-3e49-c0e443794d23",
+            "c393685c-6edc-d276-cbd6-37e4c8b4e2aa",
         ]
     );
     // The classification fixtures in the same directory triage instead
