@@ -13,6 +13,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.tasks.backend.logic.services.loop_runs import (
+    CANCEL_SOURCE_LOOP_OVERLAP,
     DISABLED_REASON_REPEATED_FAILURES,
     DISABLED_REASON_USAGE_LIMITED,
     LOOP_AUTO_PAUSE_THRESHOLD,
@@ -382,6 +383,36 @@ class TestFireLoopGuardrails(LoopRunsTestCase):
             self.assertEqual(self.active_run_count(loop), 1)
             # The displaced run's workflow is signalled so its sandbox actually stops.
             self.mock_signal_cancel.assert_called_once_with(active_run.workflow_id)
+
+    def test_cancel_previous_captures_the_terminal_cancellation_event_for_the_displaced_run(self):
+        # The overlap policy transitions the row with a bulk update, so the status activity that
+        # follows the signal finds nothing left to report: this path owns the terminal analytics.
+        loop = self.create_loop(overlap_policy=Loop.OverlapPolicy.CANCEL_PREVIOUS)
+        active_task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Active run",
+            description="d",
+            origin_product=Task.OriginProduct.LOOP,
+            internal=True,
+        )
+        active_run = active_task.create_run(mode="background", extra_state={"loop_id": str(loop.id)})
+        active_run.status = TaskRun.Status.IN_PROGRESS
+        active_run.save(update_fields=["status", "updated_at"])
+        # Backdate creation so `duration_seconds` proves the capture reads the post-transition
+        # `completed_at` rather than the pre-update snapshot, which would report 0.0.
+        TaskRun.objects.filter(id=active_run.id).update(created_at=django_timezone.now() - timedelta(minutes=5))
+
+        with patch("products.tasks.backend.models.posthoganalytics.capture") as mock_capture:
+            fire_loop(loop, None, "k1", "ctx")
+
+        captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_cancelled_terminal"]
+        self.assertEqual(len(captured), 1)
+        props = captured[0].kwargs["properties"]
+        self.assertEqual(props["run_id"], str(active_run.id))
+        self.assertEqual(props["cancel_source"], CANCEL_SOURCE_LOOP_OVERLAP)
+        self.assertEqual(props["cancel_reason"], "Superseded by a newer loop run")
+        self.assertGreaterEqual(props["duration_seconds"], 300)
 
     def test_a_stale_in_progress_run_is_reaped_so_the_loop_can_fire_again(self):
         # A run whose workflow died (sandbox killed) stays in_progress forever; under SKIP that
