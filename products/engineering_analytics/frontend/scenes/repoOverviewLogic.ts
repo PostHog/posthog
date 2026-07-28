@@ -32,6 +32,11 @@ const MASTER_FAILURES_WINDOW = '-24h'
 
 const TOP_COST_WORKFLOWS = 5
 
+/** A series' bucket width as one of the three the backend picks; anything unexpected reads as a day. */
+export function bucketGranularity(granularity: string | undefined): 'hour' | 'day' | 'week' {
+    return granularity === 'hour' || granularity === 'week' ? granularity : 'day'
+}
+
 export interface CostShareRow {
     workflowName: string | null
     costUsd: number
@@ -76,6 +81,10 @@ export interface repoOverviewLogicValues {
     jobsAvailable: boolean
     masterFailures: MasterFailureGroupApi[]
     masterFailuresLoading: boolean
+    mergedPrSeries: {
+        labels: string[]
+        values: number[]
+    } | null
     openToMergeSeries: {
         labels: string[]
         values: number[]
@@ -220,6 +229,10 @@ export interface repoOverviewLogicMeta {
             values: number[]
         } | null
         passRateSeries: (overview: RepoOverviewApi | null) => {
+            labels: string[]
+            values: number[]
+        } | null
+        mergedPrSeries: (overview: RepoOverviewApi | null) => {
             labels: string[]
             values: number[]
         } | null
@@ -485,11 +498,10 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
                 if (firstData === -1) {
                     return null
                 }
-                const granularity = overview?.cost_series_granularity
                 return {
                     values: series.map((bucket) => bucket.cost_per_merge_usd ?? 0),
                     labels: series.map((bucket) => bucket.bucket_start),
-                    interval: granularity === 'hour' ? 'hour' : granularity === 'week' ? 'week' : 'day',
+                    interval: bucketGranularity(overview?.cost_series_granularity),
                 }
             },
         ],
@@ -545,7 +557,7 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
         // carry-forward or trimming. Null when the series is absent (include_series=false).
         mergedPrSeries: [
             (s) => [s.overview],
-            (overview): { values: number[]; labels: string[] } | null => {
+            (overview: RepoOverviewApi | null): { values: number[]; labels: string[] } | null => {
                 const series = overview?.merged_pr_series ?? []
                 if (!series.length) {
                     return null

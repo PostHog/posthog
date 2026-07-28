@@ -33,7 +33,7 @@ import { githubCommitUrl } from '../lib/github'
 import { HUB_PREVIEW_MAX } from '../lib/preview'
 import { withCurrentScope, withScope } from '../lib/scope'
 import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
-import { repoOverviewLogic } from './repoOverviewLogic'
+import { bucketGranularity, repoOverviewLogic } from './repoOverviewLogic'
 
 function withSource(url: string, sourceId: string | null): string {
     return withCurrentScope(url, sourceId)
@@ -433,8 +433,6 @@ export function RepoOverviewScene(): JSX.Element {
                                     type="bar"
                                     maximumIndicator={false}
                                     className="h-16 w-full"
-                                    renderLabel={(label) => label}
-                                    renderTooltipValue={(value) => humanFriendlyNumber(value)}
                                 />
                             </>
                         ) : (
@@ -443,13 +441,8 @@ export function RepoOverviewScene(): JSX.Element {
                             </div>
                         )}
                         <div className="mt-2 border-t border-primary pt-2 text-[11px] text-tertiary">
-                            Pull requests merged per{' '}
-                            {overview?.merged_pr_series_granularity === 'hour'
-                                ? 'hour'
-                                : overview?.merged_pr_series_granularity === 'week'
-                                  ? 'week'
-                                  : 'day'}
-                            , bots included. Total for the window vs the one before it.
+                            Pull requests merged per {bucketGranularity(overview?.merged_pr_series_granularity)}, bots
+                            included. Total for the window vs the one before it.
                         </div>
                     </LemonCard>
 

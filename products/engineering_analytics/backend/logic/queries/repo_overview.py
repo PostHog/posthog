@@ -142,35 +142,6 @@ _MERGED_PR_SERIES_SELECT = """
 """
 
 
-def query_merged_pr_series(
-    *,
-    curated: CuratedGitHubSource,
-    date_from: datetime,
-    date_to: datetime | None,
-    granularity: Granularity,
-) -> list[MergedPRBucket]:
-    """PRs merged per bucket across the window, oldest first, all authors and bots included (the
-    headline merged_pr_count population). Zero-filled: no merges in a bucket is honestly 0."""
-    placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from)}
-    date_to_clause = "AND merged_at <= {date_to}" if date_to is not None else ""
-    if date_to is not None:
-        placeholders["date_to"] = ast.Constant(value=date_to)
-    sql = (
-        _MERGED_PR_SERIES_SELECT.replace("__PR_SOURCE__", curated.pr_source())
-        .replace("__DATE_TO_MERGED__", date_to_clause)
-        .replace("__BUCKET_FN__", bucket_expr(granularity, "merged_at"))
-    )
-    response = curated.run(sql, query_type="engineering_analytics.merged_pr_series", placeholders=placeholders)
-    count_by_bucket = {
-        normalize_bucket(bucket_start, granularity): int(merged_count or 0)
-        for bucket_start, merged_count in response.results or []
-    }
-    return [
-        MergedPRBucket(bucket_start=bucket, merged_count=count_by_bucket.get(bucket, 0))
-        for bucket in window_buckets(date_from, date_to, granularity)
-    ]
-
-
 def query_success_rate_series(
     *,
     curated: CuratedGitHubSource,
@@ -228,6 +199,35 @@ def query_open_to_merge_series(
     }
     return [
         OpenToMergeBucket(bucket_start=bucket, p50_seconds=p50_by_bucket.get(bucket))
+        for bucket in window_buckets(date_from, date_to, granularity)
+    ]
+
+
+def query_merged_pr_series(
+    *,
+    curated: CuratedGitHubSource,
+    date_from: datetime,
+    date_to: datetime | None,
+    granularity: Granularity,
+) -> list[MergedPRBucket]:
+    """PRs merged per bucket across the window, oldest first, all authors and bots included (the
+    headline merged_pr_count population). Zero-filled: no merges in a bucket is honestly 0."""
+    placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from)}
+    date_to_clause = "AND merged_at <= {date_to}" if date_to is not None else ""
+    if date_to is not None:
+        placeholders["date_to"] = ast.Constant(value=date_to)
+    sql = (
+        _MERGED_PR_SERIES_SELECT.replace("__PR_SOURCE__", curated.pr_source())
+        .replace("__DATE_TO_MERGED__", date_to_clause)
+        .replace("__BUCKET_FN__", bucket_expr(granularity, "merged_at"))
+    )
+    response = curated.run(sql, query_type="engineering_analytics.merged_pr_series", placeholders=placeholders)
+    count_by_bucket = {
+        normalize_bucket(bucket_start, granularity): int(merged_count or 0)
+        for bucket_start, merged_count in response.results or []
+    }
+    return [
+        MergedPRBucket(bucket_start=bucket, merged_count=count_by_bucket.get(bucket, 0))
         for bucket in window_buckets(date_from, date_to, granularity)
     ]
 
