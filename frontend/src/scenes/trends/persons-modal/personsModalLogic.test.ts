@@ -136,6 +136,52 @@ describe('personsModalLogic', () => {
         })
     })
 
+    describe('totalActorsCount', () => {
+        it('counts only listed actors, not the merged/deleted ones, so the header matches the bar', () => {
+            logic = personsModalLogic({
+                query: {
+                    kind: NodeKind.FunnelsActorsQuery,
+                    source: { kind: NodeKind.FunnelsQuery, series: [] },
+                    funnelStep: 1,
+                } as any,
+                url: null,
+            })
+            logic.mount()
+
+            const people: PersonActorType[] = [
+                {
+                    type: 'person',
+                    id: 'person-1',
+                    distinct_ids: ['user-1'],
+                    is_identified: true,
+                    properties: {},
+                    created_at: '2024-01-01',
+                    matched_recordings: [],
+                    value_at_data_point: null,
+                },
+                {
+                    type: 'person',
+                    id: 'person-2',
+                    distinct_ids: ['user-2'],
+                    is_identified: true,
+                    properties: {},
+                    created_at: '2024-01-01',
+                    matched_recordings: [],
+                    value_at_data_point: null,
+                },
+            ]
+
+            // missing_persons is the count of rows merged into a listed actor or deleted — adding it
+            // back would double-count and inflate the header past the two persons actually shown.
+            logic.actions.loadActorsSuccess({
+                results: [{ count: 2, people }],
+                missing_persons: 40,
+            })
+
+            expectLogic(logic).toMatchValues({ totalActorsCount: 2 })
+        })
+    })
+
     describe('recordingFilters', () => {
         it('uses session IDs for InsightActorsQuery when available', () => {
             logic = personsModalLogic({

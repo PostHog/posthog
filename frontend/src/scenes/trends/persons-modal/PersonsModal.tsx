@@ -106,6 +106,7 @@ export function PersonsModal({
         isCohortModalOpen,
         isModalOpen,
         missingActorsCount,
+        totalActorsCount,
         propertiesTimelineFilterFromUrl,
         insightEventsQueryUrl,
         exploreUrl,
@@ -123,7 +124,6 @@ export function PersonsModal({
         AccessControlLevel.Editor
     )
 
-    const totalActorsCount = missingActorsCount + actors.length
     type ActorsQuery = NonNullable<typeof query>
 
     const asLemonSelectValue = (value: unknown): string | number | boolean | null =>

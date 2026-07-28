@@ -181,6 +181,7 @@ export interface personsModalLogicValues {
     searchTerm: string
     selectFields: string[]
     sessionIdsFromLoadedActors: string[]
+    totalActorsCount: number
     validationError: string | null
 }
 
@@ -282,6 +283,7 @@ export interface personsModalLogicMeta {
             actors: ActorType[],
             aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
         ) => Noun
+        totalActorsCount: (actors: ActorType[]) => number
         validationError: (errorObject: Record<string, any> | null) => string | null
         propertiesTimelineFilterFromUrl: (arg: any) => PropertiesTimelineFilterType
         selectFields: (arg: any) => string[]
@@ -587,6 +589,13 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 }
                 return aggregationLabel(isGroupType(firstResult) ? firstResult.group_type_index : undefined)
             },
+        ],
+        totalActorsCount: [
+            (s) => [s.actors],
+            // Count only the actors we actually resolved and list. missingActorsCount is the number of
+            // rows that merged into a listed actor or were deleted, so adding it back would double-count
+            // those duplicates and inflate the header past the funnel/trend bar the user clicked.
+            (actors: ActorType[]): number => actors.length,
         ],
         validationError: [
             (s) => [s.errorObject],

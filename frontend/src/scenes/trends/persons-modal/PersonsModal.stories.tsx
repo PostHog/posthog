@@ -78,6 +78,25 @@ export const WithResults: Story = {
     },
 }
 
+export const WithMissingActors: Story = {
+    render: () => {
+        // Some actors merged into the listed ones or were deleted (missing_persons). The header count
+        // must reflect only the actors we actually show, with the banner explaining the rest — it must
+        // not add missing_persons back, which would inflate the count past the bar the user clicked.
+        useStorybookMocks({
+            get: {
+                [EXAMPLE_PERSONS_RESPONSE.initial]: { ...EXAMPLE_PERSONS_RESPONSE, missing_persons: 40 },
+            },
+        })
+
+        return (
+            <div className="flex max-h-200">
+                <PersonsModalComponent title="Hello!" url={EXAMPLE_PERSONS_RESPONSE.initial} inline />
+            </div>
+        )
+    },
+}
+
 export const SessionActorsWithResults: Story = {
     render: () => {
         useStorybookMocks({
