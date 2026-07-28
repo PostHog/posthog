@@ -750,9 +750,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 connection_metadata=self.external_data_source.connection_metadata,
             )
 
-        # Engine-keyed rather than an `is_direct_clickhouse` sibling because two source types (ClickHouse and
-        # ClickHouse Cloud) share the engine. Still gated on the source being direct: ClickHouse is a synced
-        # connector too, and a synced source's rows are S3 copies, not the upstream table.
+        # Engine-keyed (no is_direct_clickhouse) to satisfy the source-agnostic guard. The
+        # is_direct_query check is load-bearing: direct_engine ignores access_method, and a synced
+        # source's tables must stay S3-backed — as a direct table, every ordinary query against
+        # them fails (the printer's team_id guard doesn't skip DirectSQLTable).
         if (
             self.external_data_source
             and self.external_data_source.is_direct_query

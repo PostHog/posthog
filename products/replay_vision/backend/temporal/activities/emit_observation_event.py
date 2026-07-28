@@ -64,8 +64,7 @@ def _emit_event(inputs: EmitObservationEventInputs) -> None:
         "triggered_by_user_id": observation.triggered_by_user_id,
         "model_used": snapshot.model,
         "provider_used": snapshot.provider,
-        # Priced at emit time and frozen into the event, so spend charts can drift from
-        # quota.py's repriced-at-current-rates totals after a price change.
+        # Priced at emit time, so it can drift from quota.py's repriced-at-current-rates totals.
         "credits": observation_credits_for_model(snapshot.model),
         "emits_signals": snapshot.emits_signals,
         # Flatten scanner output so HogQL can query individual fields without a JSON extract.

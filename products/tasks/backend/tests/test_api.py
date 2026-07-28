@@ -1267,6 +1267,7 @@ class TestTaskAPI(BaseTaskAPITest):
         [
             ("image_builder",),
             ("experiments",),
+            ("onboarding",),
         ]
     )
     def test_create_task_rejects_internal_origin(self, origin: str):
@@ -4385,6 +4386,10 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "pending_dispatch": {"workflow_id_prefix": "review-real", "create_pr": True},
                 "pending_external_followups": pending_external_followups,
                 "pending_external_followups_generation": 7,
+                "runtime_adapter": "claude",
+                "provider": "anthropic",
+                "model": "claude-sonnet-5",
+                "reasoning_effort": "low",
             },
         )
 
@@ -4394,7 +4399,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         # (which would mint a write-scoped wizard token into the sandbox), change rollout
         # decisions, change Modal resume snapshot metadata, repoint the run at another
         # team's Temporal workflow, or steer an orphan re-dispatch (workflow ID prefix / MCP
-        # scopes) via pending_dispatch. Non-protected keys still merge.
+        # scopes) via pending_dispatch, or repoint the run at a costlier model (which for a run
+        # routed to an unbilled gateway product is free spend). Non-protected keys still merge.
         response = self.client.patch(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
             {
@@ -4424,6 +4430,10 @@ class TestTaskRunAPI(BaseTaskAPITest):
                         }
                     ],
                     "pending_external_followups_generation": 999,
+                    "runtime_adapter": "codex",
+                    "provider": "openai",
+                    "model": "claude-opus-4-8",
+                    "reasoning_effort": "high",
                     "scratch": "ok",
                 }
             },
@@ -4450,6 +4460,10 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["pending_dispatch"] == {"workflow_id_prefix": "review-real", "create_pr": True}
         assert run.state["pending_external_followups"] == pending_external_followups
         assert run.state["pending_external_followups_generation"] == 7
+        assert run.state["runtime_adapter"] == "claude"
+        assert run.state["provider"] == "anthropic"
+        assert run.state["model"] == "claude-sonnet-5"
+        assert run.state["reasoning_effort"] == "low"
         assert run.state["scratch"] == "ok"  # non-protected keys still merge
 
         # Nor can a caller remove a protected key to force a fallback or unguarded path.
@@ -4470,6 +4484,10 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "pending_dispatch",
                     "pending_external_followups",
                     "pending_external_followups_generation",
+                    "runtime_adapter",
+                    "provider",
+                    "model",
+                    "reasoning_effort",
                     "scratch",
                 ],
             },
@@ -4489,6 +4507,13 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["pending_dispatch"] == {"workflow_id_prefix": "review-real", "create_pr": True}
         assert run.state["pending_external_followups"] == pending_external_followups
         assert run.state["pending_external_followups_generation"] == 7
+        # Dropping the model posture is as good as repointing it: the processing context reads these
+        # back with .get(), so an absent key silently falls back to the runtime's default rather than
+        # the pin the server chose.
+        assert run.state["runtime_adapter"] == "claude"  # protected key survives removal
+        assert run.state["provider"] == "anthropic"  # protected key survives removal
+        assert run.state["model"] == "claude-sonnet-5"  # protected key survives removal
+        assert run.state["reasoning_effort"] == "low"  # protected key survives removal
         assert "scratch" not in run.state  # non-protected key removed
 
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")
@@ -5058,6 +5083,145 @@ class TestTaskRunAPI(BaseTaskAPITest):
             delete_progress=True,
             message_id=None,
         )
+
+    def _pr_run_with_slack_and_github(self):
+        from posthog.models.integration import Integration
+
+        from products.slack_app.backend.models import SlackThreadTaskMapping
+
+        github_integration = Integration.objects.create(team=self.team, kind="github", integration_id="gh-1", config={})
+        task = self.create_task()
+        task.github_integration = github_integration
+        task.repository = "posthog/posthog"
+        task.save(update_fields=["github_integration", "repository"])
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            output={"pr_url": "https://github.com/posthog/posthog/pull/1"},
+        )
+        slack_integration = Integration.objects.create(
+            team=self.team, kind="slack", integration_id="T_SLACK", config={}
+        )
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=slack_integration,
+            slack_workspace_id="T_SLACK",
+            channel="C123",
+            thread_ts="1234.5678",
+            task=task,
+            task_run=run,
+            mentioning_slack_user_id="U123",
+        )
+        return task, run
+
+    @patch("products.tasks.backend.facade.api.GitHubIntegration")
+    @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
+    def test_relay_message_autonomous_followup_after_pr_posts_github_comment(
+        self, mock_execute_relay, mock_github_class
+    ):
+        task, run = self._pr_run_with_slack_and_github()
+        mock_github = MagicMock()
+        mock_github.comment_on_pull_request_from_url.return_value = {"success": True}
+        mock_github_class.return_value = mock_github
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/",
+            {"text": "Fixed the failing lint check and pushed."},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"status": "skipped"})
+        mock_github.comment_on_pull_request_from_url.assert_called_once_with(
+            "https://github.com/posthog/posthog/pull/1", "Fixed the failing lint check and pushed."
+        )
+        mock_execute_relay.assert_not_called()
+
+    @patch("products.tasks.backend.facade.api.GitHubIntegration")
+    @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
+    def test_relay_message_reply_to_human_after_pr_stays_in_slack(self, mock_execute_relay, mock_github_class):
+        task, run = self._pr_run_with_slack_and_github()
+        mock_github = MagicMock()
+        mock_github_class.return_value = mock_github
+        mock_execute_relay.return_value = "relay-1"
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/",
+            {"text": "Sure, here's the answer to your question.", "message_id": "slack:C123:9999.0:1234.5678"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"status": "accepted", "relay_id": "relay-1"})
+        mock_github.comment_on_pull_request_from_url.assert_not_called()
+        mock_execute_relay.assert_called_once()
+
+    @patch("products.tasks.backend.facade.api.GitHubIntegration")
+    @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
+    def test_relay_message_ci_followup_not_posted_to_pr_outside_task_repository(
+        self, mock_execute_relay, mock_github_class
+    ):
+        # pr_url is caller-writable; a PR outside the task's own repository must never be commented on.
+        task, run = self._pr_run_with_slack_and_github()
+        run.output = {"pr_url": "https://github.com/posthog/other-repo/pull/1"}
+        run.save(update_fields=["output"])
+        mock_github = MagicMock()
+        mock_github_class.return_value = mock_github
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/",
+            {"text": "Fixed the failing lint check and pushed."},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"status": "skipped"})
+        mock_github.comment_on_pull_request_from_url.assert_not_called()
+        mock_execute_relay.assert_not_called()
+
+    @patch("products.tasks.backend.temporal.client.signal_agent_text_delta")
+    @patch("products.tasks.backend.facade.api.GitHubIntegration")
+    @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
+    def test_relay_message_agent_design_streams_inline_even_after_pr(
+        self, mock_execute_relay, mock_github_class, mock_signal_delta
+    ):
+        from products.tasks.backend.temporal.process_task.activities.feature_flags import AGENT_DESIGN_STATE_KEY
+
+        task, run = self._pr_run_with_slack_and_github()
+        run.state = {AGENT_DESIGN_STATE_KEY: True}
+        run.save(update_fields=["state"])
+        mock_github = MagicMock()
+        mock_github_class.return_value = mock_github
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/",
+            {"text": "Here's the updated plan."},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"status": "skipped"})
+        mock_signal_delta.assert_called_once()
+        mock_github.comment_on_pull_request_from_url.assert_not_called()
+
+    @patch("products.tasks.backend.facade.api.GitHubIntegration")
+    @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
+    def test_relay_message_ci_followup_dropped_when_github_comment_fails(self, mock_execute_relay, mock_github_class):
+        task, run = self._pr_run_with_slack_and_github()
+        mock_github = MagicMock()
+        mock_github.comment_on_pull_request_from_url.return_value = {"success": False, "error": "boom"}
+        mock_github_class.return_value = mock_github
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/",
+            {"text": "Fixed the failing lint check and pushed."},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"status": "skipped"})
+        mock_execute_relay.assert_not_called()
 
     @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
     def test_relay_message_skips_when_no_slack_mapping(self, mock_execute_relay):
