@@ -13,6 +13,7 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.api.capture import CaptureInternalError
 from posthog.models import Organization, Team
 from posthog.temporal.ai_observability.sentiment.extraction import truncate_to_head_tail
 from posthog.temporal.ai_observability.sentiment.schema import SentimentResult
@@ -374,6 +375,52 @@ class TestRunEvaluationWorkflow:
                 assert props["$ai_input_tokens"] == 42
                 assert props["$ai_output_tokens"] == 18
                 assert props["$ai_evaluation_type"] == "online"
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "status_code,should_raise",
+        [
+            pytest.param(402, False, id="billing_limit_is_swallowed"),
+            pytest.param(500, True, id="server_error_still_raises"),
+        ],
+    )
+    async def test_emit_evaluation_event_activity_billing_limit(self, setup_data, status_code: int, should_raise: bool):
+        team = setup_data["team"]
+        evaluation = {"id": str(setup_data["evaluation"].id), "name": "Test Evaluation"}
+        event_data = create_mock_event_data(team.id, properties={})
+        result: EvaluationActivityResult = {
+            "result_type": "boolean",
+            "verdict": True,
+            "reasoning": "Test passed",
+            "allows_na": False,
+            "model": "gpt-5-mini",
+            "provider": "openai",
+        }
+
+        capture_result = MagicMock(
+            raise_for_status=MagicMock(side_effect=CaptureInternalError("boom", status_code=status_code))
+        )
+        inputs = EmitEvaluationEventInputs(
+            evaluation=evaluation,
+            event_data=event_data,
+            result=result,
+            start_time=datetime(2024, 1, 1, 12, 0, 0),
+        )
+
+        with patch(
+            "posthog.temporal.ai_observability.evaluation_workflow_activities.Team.objects.get",
+            return_value=team,
+        ):
+            with patch(
+                "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_internal",
+                return_value=capture_result,
+            ):
+                if should_raise:
+                    with pytest.raises(CaptureInternalError):
+                        await emit_evaluation_event_activity(inputs)
+                else:
+                    await emit_evaluation_event_activity(inputs)
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
