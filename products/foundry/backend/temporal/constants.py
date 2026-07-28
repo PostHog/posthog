@@ -34,7 +34,15 @@ FOUNDRY_EVENT_PREFIX = "##FOUNDRY_EVENT## "
 # as a JSON string value inside an outer command however many levels deep — raw JSON wrapped in
 # shell quotes does not, since quoting rules don't compose across nesting levels.
 FOUNDRY_EVENT_HELPER_PATH = "/usr/local/bin/foundry-event"
-FOUNDRY_EVENT_HELPER_SCRIPT = f'#!/bin/sh\necho "{FOUNDRY_EVENT_PREFIX}$(echo "$1" | base64 -d)"\n'
+# `printf '%s'`, not `echo`, for the decoded payload: on a `/bin/sh` that's dash (as in the
+# slim sandbox image), the builtin `echo` interprets backslash escapes by default — so a
+# payload whose JSON contains an escaped newline (`\n`, two characters, from any multi-line
+# `command` value, e.g. a real shell script) gets its `\n` turned into an ACTUAL newline on
+# output. That splits one JSON line into many, and only the first (an incomplete fragment)
+# starts with the sentinel prefix, so the event silently fails to parse. `printf '%s'` never
+# interprets escapes in its arguments (only in its own format string), so the decoded bytes
+# come out exactly as encoded.
+FOUNDRY_EVENT_HELPER_SCRIPT = "#!/bin/sh\nprintf '%s%s\\n' '" + FOUNDRY_EVENT_PREFIX + '\' "$(echo "$1" | base64 -d)"\n'
 
 # Where a bet's memory_repo_url (if set) is cloned into a managed node's sandbox.
 FOUNDRY_MEMORY_MOUNT_PATH = "/memory"

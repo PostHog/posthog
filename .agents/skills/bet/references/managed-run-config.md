@@ -32,8 +32,8 @@ characters at any depth, so it survives being embedded as a JSON string value
 inside an outer command however many levels deep.
 
 **The payload must be compact, single-line JSON before encoding.**
-`foundry-event`'s installed script does `echo "##FOUNDRY_EVENT## $(base64 -d
-...)"`, and the activity that parses a node's stdout
+`foundry-event`'s installed script does `printf '%s%s\n' '##FOUNDRY_EVENT## '
+"$(echo "$1" | base64 -d)"`, and the activity that parses a node's stdout
 (`_parse_foundry_events` in `products/foundry/backend/temporal/activities.py`)
 only recognizes lines that _start_ with the `##FOUNDRY_EVENT##` prefix. If
 the JSON you encode is pretty-printed (e.g. `jq -n` without `-c`, or
@@ -43,6 +43,20 @@ the first line carries the prefix, and it's an incomplete JSON fragment (like
 a real bug hit while building this skill's test harness. Always encode with
 compact JSON: `jq -nc '...'` (bash) or `json.dumps(..., separators=(",",
 ":"))` (python), never the pretty-printed default.
+
+Compact JSON still contains an escaped `\n` (two characters, backslash then
+`n`) for every real newline inside a multi-line `command` value — e.g. a
+`spawn_child` payload whose child runs an actual multi-step shell script,
+like the test-writer → builder pattern below. The helper script uses
+`printf '%s'` rather than `echo` specifically so those two-character escapes
+survive unmolested to the parser: a `/bin/sh` that's dash (the sandbox
+image's shell) has an `echo` builtin that interprets backslash escapes by
+default, so `echo`-ing the decoded payload would turn every `\n` back into a
+_real_ newline and reintroduce the exact same multi-line-JSON breakage —
+this was a second, deeper variant of the same bug class, latent since
+iteration 2 because every prior demo's `command` value happened to be a
+single line. If you ever need to reinstall or hand-roll this helper, keep
+`printf`, not `echo`.
 
 Payload types (`type` field):
 
