@@ -6667,8 +6667,14 @@ const api = {
         },
     },
     hogFlows: {
-        async getHogFlows(): Promise<PaginatedResponse<HogFlow>> {
-            return await new ApiRequest().hogFlows().get()
+        async getHogFlows(params?: {
+            search?: string
+            status?: HogFlow['status']
+            created_by?: string
+            limit?: number
+            offset?: number
+        }): Promise<CountedPaginatedResponse<HogFlow>> {
+            return await new ApiRequest().hogFlows().withQueryString(params).get()
         },
         async getHogFlow(hogFlowId: HogFlow['id']): Promise<HogFlow> {
             return await new ApiRequest().hogFlow(hogFlowId).get()

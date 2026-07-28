@@ -1625,7 +1625,14 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 config, self.team_id, names=[instance.name], api_version=effective_api_version
             )
         except Exception as e:
-            capture_exception(e)
+            # `validate_credentials` above just probed the same connection successfully, so a
+            # failure here that the source itself classifies as non-retryable (e.g. a connect-time
+            # timeout, which usually means an unreachable host or unconfigured firewall) is an
+            # expected customer/upstream condition, not a bug — don't flood error tracking with it.
+            # Mirrors `refresh_schemas`'s `_classify_refresh_schemas_error`.
+            error_text = str(e)
+            if not any(pattern and pattern in error_text for pattern in new_source.get_non_retryable_errors()):
+                capture_exception(e)
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": str(e)},

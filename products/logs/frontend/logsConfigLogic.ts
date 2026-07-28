@@ -6,8 +6,8 @@ import { teamLogic } from 'scenes/teamLogic'
 
 // Mirrors the backend default in products/logs/backend/models.py — the convention
 // documented at https://posthog.com/docs/logs/link-session-replay. Used as the
-// pre-load fallback in `PersonLogsTab` so the initial pinned filter matches the
-// SDK convention before `logs_config` resolves.
+// pre-load fallback for the attribute-key caption in `PersonLogsTab` before
+// `logs_config` resolves.
 export const DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY = 'posthogDistinctId'
 
 export const DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS = [DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY]
