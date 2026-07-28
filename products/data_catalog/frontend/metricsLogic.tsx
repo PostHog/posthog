@@ -313,8 +313,13 @@ export const metricsLogic = kea<metricsLogicType>([
             if (values.isCreatingMetric) {
                 return
             }
-            actions.setCreatingMetric(true)
             const form = values.newMetricForm
+            if (form.definitionType === 'sql') {
+                // SQL metrics are defined from the SQL editor, so the else branch below only handles markdown.
+                lemonToast.error('Create SQL metrics from the SQL editor.')
+                return
+            }
+            actions.setCreatingMetric(true)
             try {
                 const created = await dataCatalogMetricsCreate(projectId(), {
                     name: form.name,
