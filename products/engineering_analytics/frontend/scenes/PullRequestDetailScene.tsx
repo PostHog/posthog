@@ -684,7 +684,7 @@ export function PullRequestDetailScene(): JSX.Element {
 
     if (loadFailed) {
         return (
-            <SceneContent>
+            <SceneContent className="pb-16">
                 <SceneTitleSection name="Pull request" resourceType={{ type: 'health' }} />
                 <div className="flex items-center gap-3">
                     <span className="text-secondary">
@@ -699,7 +699,7 @@ export function PullRequestDetailScene(): JSX.Element {
     }
 
     return (
-        <SceneContent>
+        <SceneContent className="pb-16">
             <SceneTitleSection
                 name="Pull request"
                 resourceType={{ type: 'health' }}
