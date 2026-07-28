@@ -781,6 +781,166 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
         })
     })
 
+    describe('wait_until_condition: wake plan parks to the computed instant', () => {
+        // Verbatim output of the save-time analyzer for team 84676's live condition
+        // (`now() >= trial_expiration_at - coalesce(trial_reminder_days, 1) days`) — the flow that
+        // depends on the 10-minute poll in production today.
+        const trialTimer = [
+            '_H',
+            1,
+            33,
+            86400,
+            32,
+            'trial_reminder_days',
+            32,
+            'properties',
+            32,
+            'person',
+            1,
+            3,
+            2,
+            'toInt',
+            1,
+            33,
+            1,
+            2,
+            'coalesce',
+            2,
+            8,
+            32,
+            'trial_expiration_at',
+            32,
+            'properties',
+            32,
+            'person',
+            1,
+            3,
+            2,
+            'toDateTime',
+            1,
+            2,
+            'toUnixTimestamp',
+            1,
+            7,
+            2,
+            'fromUnixTimestamp',
+            1,
+        ]
+
+        const personWith = (properties: Record<string, string>): any => ({
+            id: '1',
+            uuid: 'uuid',
+            team_id: team.id,
+            properties,
+            properties_last_updated_at: {},
+            properties_last_operation: null,
+            created_at: DateTime.utc(),
+            version: 1,
+            is_identified: true,
+            is_user_id: null,
+            last_seen_at: null,
+            distinct_id: 'distinct_id',
+        })
+
+        const createTrialWorkflow = (wakePlan: Record<string, any>): Promise<string> =>
+            createWorkflow({
+                actions: {
+                    trigger: trigger(),
+                    wait_condition: {
+                        type: 'wait_until_condition',
+                        config: {
+                            // Never matches on entry, so the wait parks and we can inspect its schedule.
+                            condition: { filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters },
+                            max_wait_duration: '20d',
+                            wake_plan: wakePlan,
+                        },
+                    },
+                    function_1: fetchAction('https://example.com/after-wait'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'wait_condition', type: 'continue' },
+                    { from: 'wait_condition', to: 'exit', type: 'branch', index: 0 },
+                    { from: 'wait_condition', to: 'function_1', type: 'continue' },
+                    { from: 'function_1', to: 'exit', type: 'continue' },
+                ],
+            })
+
+        // Seconds from now until the single parked job's scheduled time.
+        const parkedInSeconds = async (): Promise<number> => {
+            let seconds = 0
+            await waitForExpect(async () => {
+                const parked = (await queryCyclotronJobs()).filter(
+                    (j: any) => j.status === 'available' && new Date(j.scheduled) > new Date()
+                )
+                expect(parked.length).toBe(1)
+                seconds = (new Date(parked[0].scheduled).getTime() - Date.now()) / 1000
+            }, 5000)
+            return seconds
+        }
+
+        it('parks a resolvable clock wait to its own instant, not the polling cap', async () => {
+            // The headline claim behind removing the poll: this run sleeps ~6 days in one go. Today the
+            // same wait re-parks ~860 times on the 10-minute cap to reach the same moment.
+            await createTrialWorkflow({ streams: ['person'], timers: [trialTimer] })
+            mockPersonRepo.fetchPersonsByDistinctIds.mockResolvedValue([
+                personWith({ trial_expiration_at: DateTime.utc().plus({ days: 7 }).toISO()! }),
+            ])
+
+            await triggerWorkflow(createGlobals())
+
+            // 7 days out minus the default 1 day of notice — so ~6 days, and emphatically not 600s.
+            const seconds = await parkedInSeconds()
+            expect(seconds).toBeGreaterThan(5.9 * 86400)
+            expect(seconds).toBeLessThan(6.1 * 86400)
+            expect(mockFetch).not.toHaveBeenCalled()
+        })
+
+        it('honors a per-person offset when scheduling', async () => {
+            // trial_reminder_days is a second person property, so the same flow parks to a different
+            // instant per person. A regression that ignored it would still park "plausibly" at 6 days.
+            await createTrialWorkflow({ streams: ['person'], timers: [trialTimer] })
+            mockPersonRepo.fetchPersonsByDistinctIds.mockResolvedValue([
+                personWith({
+                    trial_expiration_at: DateTime.utc().plus({ days: 7 }).toISO()!,
+                    trial_reminder_days: '3',
+                }),
+            ])
+
+            await triggerWorkflow(createGlobals())
+
+            const seconds = await parkedInSeconds()
+            expect(seconds).toBeGreaterThan(3.9 * 86400)
+            expect(seconds).toBeLessThan(4.1 * 86400)
+        })
+
+        it('retries soon when the referenced data has not landed yet', async () => {
+            // Production writes trial_expiration_at in the step before this one, via async capture, so
+            // the timer is unresolvable on first park. It must retry in minutes — sleeping to the 20d
+            // deadline here would silently lose the wake for every run.
+            await createTrialWorkflow({ streams: ['person'], timers: [trialTimer] })
+            mockPersonRepo.fetchPersonsByDistinctIds.mockResolvedValue([personWith({})])
+
+            await triggerWorkflow(createGlobals())
+
+            const seconds = await parkedInSeconds()
+            expect(seconds).toBeGreaterThan(4 * 60)
+            expect(seconds).toBeLessThan(6 * 60)
+        })
+
+        it('keeps the 10-minute cap for a wait with no derivable plan', async () => {
+            // Fail-closed path: flows saved before wake plans existed must behave exactly as today.
+            await createTrialWorkflow({ streams: [], timers: [], unsupported_reason: 'not invertible' })
+            mockPersonRepo.fetchPersonsByDistinctIds.mockResolvedValue([personWith({})])
+
+            await triggerWorkflow(createGlobals())
+
+            const seconds = await parkedInSeconds()
+            expect(seconds).toBeGreaterThan(9 * 60)
+            expect(seconds).toBeLessThan(11 * 60)
+        })
+    })
+
     describe('wait_until_condition: condition matches immediately', () => {
         beforeEach(async () => {
             await createWorkflow({
