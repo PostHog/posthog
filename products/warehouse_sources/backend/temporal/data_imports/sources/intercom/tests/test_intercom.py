@@ -30,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.i
     _iter_companies,
     _make_intercom_session,
     _rate_limit_backoff_seconds,
+    _substream_items,
     get_resource,
     intercom_source,
     validate_credentials,
@@ -257,6 +258,72 @@ class TestGetResource:
         assert resource["name"] == name
         assert resource["table_name"] == name
         assert resource["table_format"] == "delta"
+
+
+class TestCoerceStringFields:
+    def test_contacts_data_map_coerces_owner_id(self):
+        # REST-path wiring: contacts declares owner_id in coerce_string_fields, so
+        # get_resource must attach a data_map that stringifies it before rows hit Arrow.
+        resource = get_resource(
+            "contacts", should_use_incremental_field=False, incremental_field=None, db_incremental_field_last_value=None
+        )
+        data_map = resource.get("data_map")
+        assert data_map is not None
+        assert data_map({"owner_id": 7, "id": "c1"}) == {"owner_id": "7", "id": "c1"}
+
+    def test_endpoint_without_coerce_fields_has_no_data_map(self):
+        # Only endpoints declaring coerce_string_fields get a data_map — others stay untouched.
+        resource = get_resource(
+            "admins", should_use_incremental_field=False, incremental_field=None, db_incremental_field_last_value=None
+        )
+        assert "data_map" not in resource
+
+    def test_conversation_parts_substream_coerces_waiting_since(self):
+        # Substream-path wiring: conversation_parts bypasses the framework's data_map,
+        # so _substream_items must coerce waiting_since itself. Mixed int/str/None across
+        # parts previously produced int64-vs-string Arrow batches that failed to merge.
+        mock_session = mock.MagicMock()
+        mock_session.post.side_effect = [
+            _make_response({"conversations": [{"id": "c1"}], "pages": {}}),
+        ]
+        mock_session.get.side_effect = [
+            _make_response(
+                {
+                    "conversation_parts": {
+                        "conversation_parts": [
+                            {"id": "p1", "waiting_since": 1700000000},
+                            {"id": "p2", "waiting_since": "1700000001"},
+                            {"id": "p3", "waiting_since": None},
+                        ]
+                    }
+                }
+            ),
+        ]
+
+        parts = list(_substream_items(mock_session, "conversation_parts", "updated_at", None))
+
+        assert [p["waiting_since"] for p in parts] == ["1700000000", "1700000001", None]
+
+    def test_substream_without_coerce_fields_passes_rows_through_untouched(self):
+        # company_segments declares no coerce_string_fields, so _substream_items must
+        # return its rows unchanged — a numeric field stays an int, not stringified.
+        # Guards the refactor against coercing endpoints that opted out.
+        mock_session = mock.MagicMock()
+        mock_session.get.side_effect = [
+            _make_response({"data": [{"id": "co1"}], "scroll_param": "s1"}),
+            _make_response({"data": []}),
+            _make_response({"data": [{"id": "seg1", "count": 5}]}),
+        ]
+
+        segments = list(_substream_items(mock_session, "company_segments", None, None))
+
+        assert segments == [{"id": "seg1", "count": 5, "company_id": "co1"}]
+
+    def test_unknown_substream_endpoint_raises(self):
+        # Adding a substream endpoint config without wiring it into _substream_items
+        # must fail loud, not silently yield nothing.
+        with pytest.raises(ValueError):
+            list(_substream_items(mock.MagicMock(), "not_a_real_endpoint", None, None))
 
 
 class TestSubstreamGenerators:

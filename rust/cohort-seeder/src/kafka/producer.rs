@@ -4,8 +4,7 @@
 //! (pacing, in-flight bound, mark-produced, delivery acks) lives above, in the orchestrator, so this
 //! module carries no PostgreSQL dependency.
 
-use std::fmt;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use common_kafka::config::KafkaConfig;
 use common_kafka::kafka_producer::{create_kafka_producer, KafkaContext};
@@ -13,79 +12,9 @@ use common_liveness::SyncLivenessReporter;
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use rdkafka::producer::{DeliveryFuture, FutureProducer, FutureRecord, Producer};
 
-use crate::domain::{ReconcileTile, SeedTile};
+use crate::domain::{MembershipPartition, NextOffset, ReconcileTile, SeedTile, WatchPositions};
 
-const MAX_SEED_PARTITION_COUNT: u32 = 65_536;
-
-/// A seed-topic partition proven to fit both Kafka's signed partition field and this service's
-/// compact partition representation. Values can only be minted by [`SeedPartition::all`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct SeedPartition(u16);
-
-impl SeedPartition {
-    pub fn all(count: u32) -> Result<SeedPartitions, SeedPartitionCountError> {
-        if count == 0 {
-            return Err(SeedPartitionCountError::Zero);
-        }
-        if count > MAX_SEED_PARTITION_COUNT {
-            return Err(SeedPartitionCountError::TooLarge(count));
-        }
-        Ok(SeedPartitions { next: 0, count })
-    }
-
-    pub const fn as_u16(self) -> u16 {
-        self.0
-    }
-
-    const fn as_i32(self) -> i32 {
-        self.0 as i32
-    }
-}
-
-impl fmt::Display for SeedPartition {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(formatter)
-    }
-}
-
-/// The exact sequence `0..count` returned after [`SeedPartition::all`] proves every index fits.
-#[derive(Debug, Clone)]
-pub struct SeedPartitions {
-    next: u32,
-    count: u32,
-}
-
-impl Iterator for SeedPartitions {
-    type Item = SeedPartition;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.next == self.count {
-            return None;
-        }
-        let partition = u16::try_from(self.next)
-            .expect("partition count validation proves every partition index fits u16");
-        self.next += 1;
-        Some(SeedPartition(partition))
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let remaining = usize::try_from(self.count - self.next)
-            .expect("a u32 partition count fits usize on supported targets");
-        (remaining, Some(remaining))
-    }
-}
-
-impl ExactSizeIterator for SeedPartitions {}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum SeedPartitionCountError {
-    #[error("seed partition count must be greater than zero")]
-    Zero,
-    #[error(
-        "seed partition count {0} exceeds the largest u16-indexed partition set ({MAX_SEED_PARTITION_COUNT})"
-    )]
-    TooLarge(u32),
-}
+pub use crate::domain::partition::{SeedPartition, SeedPartitionCountError, SeedPartitions};
 
 #[derive(Debug, thiserror::Error)]
 pub enum EnqueueError {
@@ -184,6 +113,100 @@ impl SeedTileProducer {
     pub fn flush(&self, timeout: Duration) -> Result<(), KafkaError> {
         self.producer.flush(timeout)
     }
+
+    /// Capture the membership topic's per-partition high watermarks as the marker watcher's start
+    /// positions. The high watermark is the offset the next record *will* receive, so it is exactly
+    /// the first offset the watcher must read — no clock or "latest committed" assumption. Callers
+    /// capture these BEFORE producing reconcile tiles: markers acked after this point sit at or above
+    /// these positions, so the watcher started here cannot miss a marker of this dispatch. A manual
+    /// disaster-recovery fallback could instead resolve positions via `offsets_for_times`; that is
+    /// intentionally not implemented here. Blocking — call via `spawn_blocking` from async contexts.
+    ///
+    /// `budget` bounds the whole capture, not each call: watermarks come one partition at a time, so
+    /// a per-call timeout would let a degraded broker hold the thread for `partitions × timeout`.
+    pub fn capture_topic_offsets(
+        &self,
+        topic: &str,
+        budget: Duration,
+    ) -> Result<WatchPositions, CaptureOffsetsError> {
+        let deadline = Instant::now() + budget;
+        let remaining = |deadline: Instant| {
+            deadline
+                .checked_duration_since(Instant::now())
+                .filter(|left| !left.is_zero())
+                .ok_or_else(|| CaptureOffsetsError::BudgetExhausted {
+                    topic: topic.to_string(),
+                    budget,
+                })
+        };
+        let client = self.producer.client();
+        let metadata = client
+            .fetch_metadata(Some(topic), remaining(deadline)?)
+            .map_err(CaptureOffsetsError::Metadata)?;
+        let topic_metadata = metadata
+            .topics()
+            .iter()
+            .find(|entry| entry.name() == topic)
+            .ok_or_else(|| CaptureOffsetsError::Missing {
+                topic: topic.to_string(),
+            })?;
+        if let Some(error) = topic_metadata.error() {
+            return Err(CaptureOffsetsError::Topic {
+                topic: topic.to_string(),
+                code: error.into(),
+            });
+        }
+        if topic_metadata.partitions().is_empty() {
+            // An empty position set would be vacuously "caught up", minting a settlement proof over
+            // nothing. Refuse it at the source, the way `verify_partition_count` refuses a
+            // mis-provisioned seed topic.
+            return Err(CaptureOffsetsError::NoPartitions {
+                topic: topic.to_string(),
+            });
+        }
+        let mut positions = WatchPositions::new();
+        for partition in topic_metadata.partitions() {
+            let (_low, high) = client
+                .fetch_watermarks(topic, partition.id(), remaining(deadline)?)
+                .map_err(|source| CaptureOffsetsError::Watermarks {
+                    topic: topic.to_string(),
+                    partition: partition.id(),
+                    source,
+                })?;
+            positions.insert(
+                MembershipPartition::new(partition.id()),
+                NextOffset::from_high_watermark(high),
+            );
+        }
+        Ok(positions)
+    }
+}
+
+/// Why capturing the membership topic's start positions failed. The dispatch cannot record a
+/// resumable watch state without them, so every variant aborts the dispatch (it re-converges on the
+/// next tick).
+#[derive(Debug, thiserror::Error)]
+pub enum CaptureOffsetsError {
+    #[error("fetching membership topic metadata")]
+    Metadata(#[source] KafkaError),
+    #[error("membership topic {topic:?} is not present in broker metadata")]
+    Missing { topic: String },
+    #[error("membership topic {topic:?} metadata reports {code}")]
+    Topic {
+        topic: String,
+        code: RDKafkaErrorCode,
+    },
+    #[error("membership topic {topic:?} reports no partitions")]
+    NoPartitions { topic: String },
+    #[error("capturing membership topic {topic:?} offsets exceeded its {budget:?} budget")]
+    BudgetExhausted { topic: String, budget: Duration },
+    #[error("fetching watermarks for membership topic {topic:?} partition {partition}")]
+    Watermarks {
+        topic: String,
+        partition: i32,
+        #[source]
+        source: KafkaError,
+    },
 }
 
 /// Why the seed topic failed its startup partition-count verification. Every variant is fatal:
@@ -234,32 +257,6 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
-
-    #[test]
-    fn seed_partitions_cover_exactly_the_valid_partition_domain() {
-        let partitions = SeedPartition::all(64).unwrap().collect::<Vec<_>>();
-        assert_eq!(partitions.len(), 64);
-        assert_eq!(partitions.first().unwrap().as_u16(), 0);
-        assert_eq!(partitions.last().unwrap().as_u16(), 63);
-
-        assert_eq!(
-            SeedPartition::all(MAX_SEED_PARTITION_COUNT)
-                .unwrap()
-                .last()
-                .unwrap()
-                .as_u16(),
-            u16::MAX,
-        );
-        assert!(matches!(
-            SeedPartition::all(0),
-            Err(SeedPartitionCountError::Zero)
-        ));
-        assert!(matches!(
-            SeedPartition::all(MAX_SEED_PARTITION_COUNT + 1),
-            Err(SeedPartitionCountError::TooLarge(count))
-                if count == MAX_SEED_PARTITION_COUNT + 1
-        ));
-    }
 
     #[test]
     fn reconcile_key_identifies_the_run_and_cohort() {

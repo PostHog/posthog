@@ -159,7 +159,7 @@ PRODUCT_DB_WRITER_URLS: dict[str, str] = {}
 # through PgBouncer (in-cluster, plaintext, no SSL); only the direct migration
 # connection reaches Aurora, whose pg_hba requires SSL (hostssl). dj_database_url
 # sets only connect_timeout, so set sslmode here. Scoped per product (e.g.
-# PRODUCT_DB_AGENT_PLATFORM_SSL_MODE); unset for local dev/test (plain Postgres).
+# PRODUCT_DB_<PRODUCT>_SSL_MODE); unset for local dev/test (plain Postgres).
 def _apply_product_db_ssl_options(db: str, options: dict) -> None:
     ssl_mode = os.getenv(f"PRODUCT_DB_{db.upper()}_SSL_MODE")
     ssl_root_cert = os.getenv(f"PRODUCT_DB_{db.upper()}_SSL_ROOT_CERT")
@@ -559,7 +559,7 @@ FLAGS_REDIS_URL = os.getenv("FLAGS_REDIS_URL", None)
 
 # Dedicated Redis for ai-gateway HyperCache reads. In local dev defaults to the
 # sibling ai-gateway's valkey (host port 6381) so the gateway-credential blob is
-# published where the gateway reads it — zero config for the agent-platform e2e
+# published where the gateway reads it — zero config for the gateway e2e
 # (see bin/setup-gateway-e2e). Prod sets it explicitly; tests leave it unset.
 AI_GATEWAY_REDIS_URL = os.getenv("AI_GATEWAY_REDIS_URL", "redis://localhost:6381" if DEBUG and not TEST else None)
 
