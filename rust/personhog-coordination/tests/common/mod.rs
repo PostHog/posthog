@@ -88,6 +88,24 @@ pub fn start_coordinator_named(
     strategy: Arc<dyn AssignmentStrategy>,
     cancel: CancellationToken,
 ) -> JoinHandle<Result<()>> {
+    start_coordinator_with_deadline(
+        store,
+        name,
+        leader_lease_ttl,
+        Duration::from_secs(86_400),
+        strategy,
+        cancel,
+    )
+}
+
+pub fn start_coordinator_with_deadline(
+    store: Arc<PersonhogStore>,
+    name: &str,
+    leader_lease_ttl: i64,
+    handoff_deadline: Duration,
+    strategy: Arc<dyn AssignmentStrategy>,
+    cancel: CancellationToken,
+) -> JoinHandle<Result<()>> {
     let keepalive_secs = (leader_lease_ttl as u64 / 3).max(1);
     let coordinator = Coordinator::new(
         store,
@@ -98,6 +116,11 @@ pub fn start_coordinator_named(
             election_retry_interval: Duration::from_secs(1),
             rebalance_debounce_interval: Duration::from_millis(100),
             reconcile_interval: Duration::from_millis(500),
+            // Callers default this to a day: these tests deliberately
+            // park handoffs mid-phase to assert what the protocol does
+            // with them, and a live deadline would delete the state under
+            // test. The cancellation test passes a short one explicitly.
+            handoff_deadline,
         },
         strategy,
         None,

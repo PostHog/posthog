@@ -106,6 +106,10 @@ class ArtifactInfo:
     # Which workflow run attempt uploaded the artifact (from the `-attempt<N>` name suffix); 1
     # when unsuffixed, i.e. every artifact predating re-run-aware uploads.
     attempt: int = 1
+    # True when the JUnit files sat directly in the download root (download-artifact extracts a
+    # single matching artifact without a per-artifact subdirectory), so suite/segment/group came
+    # from the meaningless download dir name and should be recovered from the JUnit filename.
+    flat: bool = False
 
 
 @dataclass(frozen=True)
@@ -166,7 +170,10 @@ def derive_suite_segment_and_group(artifact_dir_name: str) -> tuple[str, str, in
 
 
 def collect_artifact_infos(artifacts_root: Path) -> list[ArtifactInfo]:
-    artifact_dirs = sorted(d for d in artifacts_root.iterdir() if d.is_dir()) or [artifacts_root]
+    artifact_dirs = sorted(d for d in artifacts_root.iterdir() if d.is_dir())
+    flat = not artifact_dirs
+    if flat:
+        artifact_dirs = [artifacts_root]
     parsed: list[tuple[Path, str, str, int | None, int]] = []
     for d in artifact_dirs:
         base_name, attempt = split_attempt_suffix(d.name)
@@ -184,7 +191,13 @@ def collect_artifact_infos(artifacts_root: Path) -> list[ArtifactInfo]:
 
     return [
         ArtifactInfo(
-            path=d, suite=suite, segment=segment, group=group, total=shard_totals.get((suite, segment)), attempt=attempt
+            path=d,
+            suite=suite,
+            segment=segment,
+            group=group,
+            total=shard_totals.get((suite, segment)),
+            attempt=attempt,
+            flat=flat,
         )
         for d, suite, segment, group, attempt in parsed
     ]
@@ -298,6 +311,32 @@ def product_shard_info(info: ArtifactInfo, junit_filename: str) -> ArtifactInfo:
     if not product:
         return info
     return replace(info, suite="product", segment=product, total=None)
+
+
+_FLAT_JEST_JUNIT_NAME = re.compile(r"^junit-(?P<segment>.+)-(?P<chunk>\d+)\.xml$")
+
+
+def flat_shard_info(info: ArtifactInfo, junit_filename: str, runner: Runner) -> ArtifactInfo:
+    """Recover Jest shard identity from the JUnit filename when the download landed flat.
+
+    download-artifact extracts a single matching artifact directly into the download path on any
+    workflow attempt, so the artifact name cannot provide its job identity or attempt. The JUnit
+    filename supplies the Jest job identity, and the workflow context supplies the attempt. Recover
+    both so re-run filtering and recovery joins use the same identity as subdirectory downloads.
+    """
+    if not info.flat or runner != "jest":
+        return info
+    match = _FLAT_JEST_JUNIT_NAME.match(junit_filename)
+    if match is None:
+        return info
+    return replace(
+        info,
+        suite="frontend",
+        segment=match.group("segment"),
+        group=int(match.group("chunk")),
+        total=None,
+        attempt=current_run_attempt(),
+    )
 
 
 def parse_iso_utc(value: str) -> datetime | None:
@@ -433,7 +472,7 @@ def parse_shard(
     wall_seconds = (end - start).total_seconds()
     testcase_seconds = sum(t.duration_seconds for t in tests)
     return Shard(
-        info=product_shard_info(info, xml_path.name),
+        info=flat_shard_info(product_shard_info(info, xml_path.name), xml_path.name, runner),
         junit_filename=xml_path.name,
         start=start,
         end=end,
