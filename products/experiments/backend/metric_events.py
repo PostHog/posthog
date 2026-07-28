@@ -162,6 +162,16 @@ class MetricHit:
     sources: tuple[MetricSourceHit, ...]
 
 
+@dataclass(frozen=True)
+class MetricScanResult:
+    # session_id -> hits sorted by first occurrence; sessions with no matching events are omitted.
+    hits_by_session: dict[str, list[MetricHit]]
+    # Metric uuids refused at MAX_SCANNED_METRICS. Hits for these metrics are silently absent
+    # from every session's list, so callers that cache per-session results need this set to
+    # tell an incomplete result from a genuinely hitless one.
+    dropped_metric_uuids: set[str]
+
+
 def _node_signature(node: MetricSourceNode | ExperimentDataWarehouseNode) -> str:
     """A stable identity for a source node. Two nodes with the same signature match the same events
     and share one aggregate in the scan, so they can only ever render identical hits."""
@@ -289,9 +299,9 @@ def scan_sessions_for_metric_events(
     window_start: datetime,
     window_end: datetime,
     shared_hogql: SharedHogQLDatabase | None = None,
-) -> dict[str, list[MetricHit]]:
+) -> MetricScanResult:
     """Per session, the metrics with >=1 matching event, sorted by first occurrence — as
-    session_id -> hits. Sessions with no matching events are omitted.
+    MetricScanResult.hits_by_session. Sessions with no matching events are omitted.
 
     One scan computes every metric via conditional aggregation (countIf/minIf/groupArrayIf)
     grouped by session: a per-metric UNION ALL re-reads the sessions' event range once per
@@ -307,7 +317,9 @@ def scan_sessions_for_metric_events(
     Metrics with no hits are omitted. Duplicate metric uuids (a saved metric shared by several
     experiments) and metrics with identical source nodes (several experiments measuring the
     same event) are aggregated once, and at most MAX_SCANNED_METRICS metrics are accepted per
-    call (the overflow is logged, not an error). The cap counts metrics, not distinct sources:
+    call (the overflow is not an error: it is logged and returned as dropped_metric_uuids so
+    callers can treat the affected sessions' results as incomplete). The cap counts metrics,
+    not distinct sources:
     source dedupe only narrows the query, it must not let a metric-heavy experiment emit an
     unbounded hit list by piling metrics onto one source. `user` threads through to HogQL for
     property-level access control — metric source nodes can carry property filters.
@@ -325,7 +337,7 @@ def scan_sessions_for_metric_events(
     # Aggregate groups, keyed by the sorted distinct source nodes they cover: one per metric (all
     # its sources) plus one per individual source. A single-source metric's two keys coincide.
     group_indexes: dict[tuple[str, ...], int] = {}
-    skipped_over_cap = 0
+    dropped_metric_uuids: set[str] = set()
     skipped_breakdown_sources = 0
 
     def node_key(source: MetricSource) -> str:
@@ -349,7 +361,7 @@ def scan_sessions_for_metric_events(
         if not metric_source.session_linkable or metric_source.metric_uuid in seen_uuids:
             continue
         if len(seen_uuids) >= MAX_SCANNED_METRICS:
-            skipped_over_cap += 1
+            dropped_metric_uuids.add(metric_source.metric_uuid)
             continue
         seen_uuids.add(metric_source.metric_uuid)
         accepted.append(metric_source)
@@ -366,12 +378,15 @@ def scan_sessions_for_metric_events(
             if not register_group((node_key(source),), capped=True):
                 skipped_breakdown_sources += 1
 
-    if skipped_over_cap:
-        logger.warning(
+    if dropped_metric_uuids:
+        # Info, not warning: metric-heavy teams hit this cap in steady state, and the batch
+        # caller already declines to cache the affected sessions, so an on-demand recompute
+        # restores the full set.
+        logger.info(
             "Metric scan for sessions %s capped at %s metrics; %s metrics not scanned",
             session_ids,
             MAX_SCANNED_METRICS,
-            skipped_over_cap,
+            len(dropped_metric_uuids),
         )
     if skipped_breakdown_sources:
         logger.warning(
@@ -382,7 +397,7 @@ def scan_sessions_for_metric_events(
         )
 
     if not group_indexes:
-        return {}
+        return MetricScanResult(hits_by_session={}, dropped_metric_uuids=dropped_metric_uuids)
 
     # Condition asts are deep-copied per use site (three aggregates + the WHERE): the HogQL
     # resolver annotates nodes in place, so sharing one instance across positions is unsafe.
@@ -530,4 +545,4 @@ def scan_sessions_for_metric_events(
         if hits:
             hits.sort(key=lambda hit: hit.first_timestamp)
             hits_by_session[str(row[0])] = hits
-    return hits_by_session
+    return MetricScanResult(hits_by_session=hits_by_session, dropped_metric_uuids=dropped_metric_uuids)

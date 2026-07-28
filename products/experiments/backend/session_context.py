@@ -178,7 +178,10 @@ def get_session_experiment_context(
     )
     # fail_open=False: unlike the best-effort batch prefetch, the player's request must surface
     # a scan failure as an error, never as a false "recording not found".
-    items = _compute_session_experiment_contexts(team, [window], experiments, user, fail_open=False)[session_id]
+    computed, _ = _compute_session_experiment_contexts(team, [window], experiments, user, fail_open=False)
+    items = computed[session_id]
+    # A capped single session is still cached: with one session there is no batch union, so a
+    # recompute would drop the same metrics again and caching the capped result loses nothing.
     cache.set(cache_key, items, timeout=SESSION_CONTEXT_CACHE_TTL)
     return items
 
@@ -193,7 +196,9 @@ def get_session_experiment_contexts(
     written back so a later single-session request hits cache. Sessions whose recording
     metadata doesn't exist (yet) are omitted and never cached, mirroring the single endpoint's
     not-found rule. The batch is best-effort: a day-chunk whose scans fail is logged and
-    omitted rather than failing the whole request.
+    omitted rather than failing the whole request, and a session whose metric enrichment was
+    truncated by the shared scan's metric cap is returned but not cached, so the cache never
+    holds less than a single-session request would compute.
     """
     unique_ids = list(dict.fromkeys(session_ids))
     results: dict[str, list[ExperimentSessionContextItem]] = {}
@@ -222,9 +227,15 @@ def get_session_experiment_contexts(
             for session_id, metadata in metadata_by_id.items()
             if metadata is not None
         ]
-        computed = _compute_session_experiment_contexts(team, windows, experiments, user, fail_open=True)
+        computed, capped_session_ids = _compute_session_experiment_contexts(
+            team, windows, experiments, user, fail_open=True
+        )
         for session_id, items in computed.items():
-            cache.set(_cache_key(team, user, session_id), items, timeout=SESSION_CONTEXT_CACHE_TTL)
+            # A session whose metric enrichment was truncated by the batch-wide scan cap is
+            # returned best-effort but never cached: the single-session endpoint scans only that
+            # session's own experiments, so its recompute restores the full set the batch dropped.
+            if session_id not in capped_session_ids:
+                cache.set(_cache_key(team, user, session_id), items, timeout=SESSION_CONTEXT_CACHE_TTL)
         results.update(computed)
 
     return {session_id: results[session_id] for session_id in unique_ids if session_id in results}
@@ -260,9 +271,12 @@ def _compute_session_experiment_contexts(
     user: User,
     *,
     fail_open: bool,
-) -> dict[str, list[ExperimentSessionContextItem]]:
+) -> tuple[dict[str, list[ExperimentSessionContextItem]], set[str]]:
+    """Returns (session_id -> items, capped session ids). Capped sessions had metric enrichment
+    truncated by the batch-wide scan cap; their items are still returned, but the batch caller
+    must not cache them, because a single-session recompute would return more."""
     if not windows:
-        return {}
+        return {}, set()
 
     union_start = min(window.recording_start for window in windows)
     union_end = max(window.recording_end for window in windows)
@@ -288,7 +302,7 @@ def _compute_session_experiment_contexts(
         )
     )
     if not flag_meta:
-        return {window.session_id: [] for window in windows}
+        return {window.session_id: [] for window in windows}, set()
     # Each experiment's exposure criteria resolve (through the shared helpers) to what counts
     # as its exposure event and which property carries the variant. Experiments with the plain
     # default shape take their exposure moment straight from the shared flag-evaluations query;
@@ -313,7 +327,7 @@ def _compute_session_experiment_contexts(
             branch_meta.append((experiment_id, resolution, variant_keys))
     if not flag_key_by_id:
         # No overlapping experiment defines variants, so nothing could surface a variant seen.
-        return {window.session_id: [] for window in windows}
+        return {window.session_id: [] for window in windows}, set()
 
     chunks = _chunk_windows_by_recording_day(windows)
     if len(chunks) > MAX_SESSION_CONTEXT_BATCH_DAYS:
@@ -346,7 +360,7 @@ def _compute_session_experiment_contexts(
         )
     all_candidate_ids = {experiment_id for chunk_ids in candidate_ids_by_chunk for experiment_id in chunk_ids}
     if not all_candidate_ids:
-        return {window.session_id: [] for chunk in chunks for window in chunk}
+        return {window.session_id: [] for chunk in chunks for window in chunk}, set()
     experiments_by_id = {experiment.pk: experiment for experiment in overlapping.filter(id__in=all_candidate_ids)}
 
     # Every scan below goes through HogQL, and constructing the virtual database dominates this
@@ -381,6 +395,7 @@ def _compute_session_experiment_contexts(
     )
 
     results: dict[str, list[ExperimentSessionContextItem]] = {}
+    capped_session_ids: set[str] = set()
     for chunk, candidate_ids in zip(chunks, candidate_ids_by_chunk):
         candidates = [
             experiments_by_id[experiment_id] for experiment_id in candidate_ids if experiment_id in experiments_by_id
@@ -391,7 +406,9 @@ def _compute_session_experiment_contexts(
             results.update({window.session_id: [] for window in chunk})
             continue
         try:
-            results.update(_compute_chunk_contexts(team, user, shared_hogql, resolved, chunk, candidates))
+            chunk_results, chunk_capped = _compute_chunk_contexts(team, user, shared_hogql, resolved, chunk, candidates)
+            results.update(chunk_results)
+            capped_session_ids |= chunk_capped
         except Exception:
             if not fail_open:
                 raise
@@ -401,7 +418,7 @@ def _compute_session_experiment_contexts(
                 "Session-context scan failed for sessions %s; omitting them from the batch",
                 [window.session_id for window in chunk],
             )
-    return results
+    return results, capped_session_ids
 
 
 def _compute_chunk_contexts(
@@ -411,7 +428,7 @@ def _compute_chunk_contexts(
     resolved: _ResolvedCandidates,
     windows: list[_SessionWindow],
     candidates: list[Experiment],
-) -> dict[str, list[ExperimentSessionContextItem]]:
+) -> tuple[dict[str, list[ExperimentSessionContextItem]], set[str]]:
     session_ids = [window.session_id for window in windows]
     window_start = min(window.recording_start for window in windows) - EVENT_WINDOW_SLACK
     window_end = max(window.recording_end for window in windows) + EVENT_WINDOW_SLACK
@@ -550,13 +567,19 @@ def _compute_chunk_contexts(
     # Only the experiments that actually surfaced (typically 1–3 per session, not the candidate
     # cap) get their metrics scanned — one scan covers the union across the chunk's sessions,
     # shared saved metrics dedupe by uuid inside the scan, and each session's experiments claim
-    # their own metrics' hits back by uuid. MAX_SCANNED_METRICS now caps that union (fine on
-    # the experiment tab, where every session shares one experiment). Metric hits are
+    # their own metrics' hits back by uuid. MAX_SCANNED_METRICS caps that union in surfacing
+    # order, so a batch can drop metrics of a co-occurring experiment that a single request for
+    # the same session (whose own surfaced experiments rarely approach the cap) would return.
+    # On the experiment tab every session surfaces the target experiment, which therefore
+    # registers within the first session's block and in practice survives; the sessions whose
+    # experiments lost metrics are reported as capped below so the batch never caches them —
+    # any caller wanting their full set recomputes per session on demand. Metric hits are
     # enrichment on top of the exposure context: an unexpected failure here (one experiment's
     # malformed stored metric, say) must degrade to "no metric hits", never take down the
     # exposure context that already resolved above.
     sources_by_experiment: dict[int, list[MetricEventSource]] = {}
     hits_by_session: dict[str, dict[str, MetricHit]] = {}
+    dropped_metric_uuids: set[str] = set()
     try:
         for session_surfaced in surfaced_by_session.values():
             for experiment, *_ in session_surfaced:
@@ -564,22 +587,36 @@ def _compute_chunk_contexts(
                     sources_by_experiment[experiment.pk] = resolve_metric_events(experiment)
         all_sources = [source for sources in sources_by_experiment.values() for source in sources]
         if all_sources:
+            scan = scan_sessions_for_metric_events(
+                team,
+                user,
+                metric_sources=all_sources,
+                session_ids=session_ids,
+                window_start=window_start,
+                window_end=window_end,
+                shared_hogql=shared_hogql,
+            )
+            dropped_metric_uuids = scan.dropped_metric_uuids
             hits_by_session = {
-                session_id: {hit.metric_uuid: hit for hit in hits}
-                for session_id, hits in scan_sessions_for_metric_events(
-                    team,
-                    user,
-                    metric_sources=all_sources,
-                    session_ids=session_ids,
-                    window_start=window_start,
-                    window_end=window_end,
-                    shared_hogql=shared_hogql,
-                ).items()
+                session_id: {hit.metric_uuid: hit for hit in hits} for session_id, hits in scan.hits_by_session.items()
             }
     except Exception:
         logger.exception("Metric-event scan failed for sessions %s; returning context without metric hits", session_ids)
         sources_by_experiment = {}
         hits_by_session = {}
+        dropped_metric_uuids = set()
+
+    capped_session_ids: set[str] = set()
+    if dropped_metric_uuids:
+        capped_session_ids = {
+            session_id
+            for session_id, session_surfaced in surfaced_by_session.items()
+            if any(
+                source.metric_uuid in dropped_metric_uuids
+                for experiment, *_ in session_surfaced
+                for source in sources_by_experiment.get(experiment.pk, [])
+            )
+        }
 
     results: dict[str, list[ExperimentSessionContextItem]] = {}
     for session_id, session_surfaced in surfaced_by_session.items():
@@ -609,7 +646,7 @@ def _compute_chunk_contexts(
                 )
             )
         results[session_id] = sorted(items, key=lambda item: item.experiment_name.lower())
-    return results
+    return results, capped_session_ids
 
 
 def _resolve_exposure(flag_key: str, exposure_criteria: Optional[dict]) -> _ResolvedExposure:

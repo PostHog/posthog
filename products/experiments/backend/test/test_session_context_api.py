@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
 from freezegun import freeze_time
@@ -982,6 +982,90 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         response = self._post_session_contexts([SESSION_ID, DAY_TWO_SESSION_ID])
         by_id = {entry["session_id"]: entry["results"] for entry in response.json()["results"]}
         assert [result["variant"] for result in by_id[DAY_TWO_SESSION_ID]] == ["control"]
+
+    def test_batch_never_caches_sessions_whose_metrics_were_capped(self) -> None:
+        # The chunk-wide scan caps the metric union across a batch's sessions, so it can drop a
+        # co-occurring experiment's metrics for a session whose own single request (scanning
+        # only that session's experiments) would return them. Caching that truncated result
+        # would serve it as truth for the TTL; the capped session must be returned best-effort
+        # but left uncached, while unaffected sessions stay cacheable.
+        shared_metric = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "uuid": "22222222-2222-2222-2222-222222222222",
+            "name": "Purchases",
+            "source": {"kind": "EventsNode", "event": "purchase"},
+        }
+        extra_metric = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "uuid": "33333333-3333-3333-3333-333333333333",
+            "name": "Signups",
+            "source": {"kind": "EventsNode", "event": "signup"},
+        }
+        # The shared experiment is newer, and candidates iterate newest-first, so its metric
+        # takes the only patched slot whichever session the scan registers first.
+        self._create_experiment(
+            key="shared-exp",
+            name="Shared experiment",
+            start_date=datetime(2025, 12, 15, tzinfo=UTC),
+            metrics=[shared_metric],
+        )
+        self._create_experiment(key="extra-exp", name="Extra experiment", metrics=[extra_metric])
+
+        self._create_recording()
+        self._create_session_event(properties={"$feature_flag": "shared-exp", "$feature_flag_response": "test"})
+        self._create_session_event(event="purchase", timestamp="2026-01-01T10:09:00Z")
+
+        # A second same-day recording, so both sessions share one chunk (and one metric scan).
+        second_session_id = str(uuid7(unix_ms_time=int((RECORDING_START + timedelta(minutes=40)).timestamp() * 1000)))
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id=second_session_id,
+            distinct_id="user1",
+            first_timestamp=RECORDING_START + timedelta(minutes=40),
+            last_timestamp=RECORDING_END + timedelta(minutes=40),
+        )
+        for event, timestamp, properties in (
+            (
+                "$feature_flag_called",
+                "2026-01-01T10:41:00Z",
+                {"$feature_flag": "shared-exp", "$feature_flag_response": "test"},
+            ),
+            (
+                "$feature_flag_called",
+                "2026-01-01T10:42:00Z",
+                {"$feature_flag": "extra-exp", "$feature_flag_response": "control"},
+            ),
+            ("signup", "2026-01-01T10:43:00Z", {}),
+        ):
+            self._create_session_event(
+                event=event, timestamp=timestamp, properties=properties, session_id=second_session_id
+            )
+        flush_persons_and_events()
+
+        with patch("products.experiments.backend.metric_events.MAX_SCANNED_METRICS", 1):
+            response = self._post_session_contexts([SESSION_ID, second_session_id])
+
+        assert response.status_code == status.HTTP_200_OK
+        by_id = {entry["session_id"]: entry["results"] for entry in response.json()["results"]}
+        assert [hit["metric_uuid"] for hit in by_id[SESSION_ID][0]["metrics_in_session"]] == [shared_metric["uuid"]]
+        second_by_flag = {result["flag_key"]: result for result in by_id[second_session_id]}
+        assert second_by_flag["extra-exp"]["metrics_in_session"] == []
+
+        # The unaffected session was cached: the single endpoint serves it without recomputing.
+        with patch("products.experiments.backend.session_context._compute_session_experiment_contexts") as compute:
+            single_first = self._get_session_context()
+        compute.assert_not_called()
+        assert single_first.json()["results"] == by_id[SESSION_ID]
+
+        # The capped session was not cached: the single endpoint recomputes it with only its
+        # own experiments' metrics (under the real cap) and restores the dropped hit.
+        single_second = self._get_session_context(second_session_id)
+        second_results = {result["flag_key"]: result for result in single_second.json()["results"]}
+        assert [hit["metric_uuid"] for hit in second_results["extra-exp"]["metrics_in_session"]] == [
+            extra_metric["uuid"]
+        ]
 
     def test_batch_caps_candidates_per_day_chunk(self) -> None:
         # A newest-first candidate cap applied once over the whole batch's window can displace

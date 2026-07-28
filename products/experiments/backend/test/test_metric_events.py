@@ -264,7 +264,7 @@ class TestScanSessionForMetricEvents(ClickhouseTestMixin, MetricEventsTestMixin)
             session_ids=[session_id],
             window_start=WINDOW_START,
             window_end=WINDOW_END,
-        ).get(session_id, [])
+        ).hits_by_session.get(session_id, [])
 
     def test_reports_hits_only_for_metrics_with_in_window_events(self) -> None:
         # Two metrics with different sources prove the combined query aggregates each source
@@ -375,7 +375,7 @@ class TestScanSessionForMetricEvents(ClickhouseTestMixin, MetricEventsTestMixin)
             session_ids=["s1", "s2", "s3"],
             window_start=WINDOW_START,
             window_end=WINDOW_END,
-        )
+        ).hits_by_session
 
         assert set(hits_by_session) == {"s1", "s2"}
         assert hits_by_session["s1"][0].event_count == 1
@@ -573,7 +573,18 @@ class TestScanSessionForMetricEvents(ClickhouseTestMixin, MetricEventsTestMixin)
         self._create_session_event("signup", "s1")
         flush_persons_and_events()
 
+        experiment = self._experiment(metrics=[first, second, shared])
         with patch("products.experiments.backend.metric_events.MAX_SCANNED_METRICS", 1):
-            hits = self._scan([first, second, shared], "s1")
+            result = scan_sessions_for_metric_events(
+                self.team,
+                self.user,
+                metric_sources=resolve_metric_events(experiment),
+                session_ids=["s1"],
+                window_start=WINDOW_START,
+                window_end=WINDOW_END,
+            )
 
-        assert [hit.metric_uuid for hit in hits] == [first["uuid"]]
+        assert [hit.metric_uuid for hit in result.hits_by_session["s1"]] == [first["uuid"]]
+        # The overflow must be reported, not just logged: session_context relies on it to keep
+        # capped batch results out of the cache.
+        assert result.dropped_metric_uuids == {second["uuid"], shared["uuid"]}
