@@ -33,11 +33,16 @@ _SLACK_ANGLE_TOKEN_RE = re.compile(r"<([^<>|]*)(\|[^<>]*)?>")
 # and the result is prose that reads oddly rather than prose that misleads.
 # The destination also has CommonMark's angle-bracket form (`[label](<chart:id>)`), which mdast
 # unwraps to the same `chart:id` the inbox resolves, so Slack has to reduce it too.
-# Every class excludes `[`, which keeps the scan linear. Without it, a summary of `[a](chart:` over
-# and over makes every start position scan the whole remaining suffix before failing, and a summary
-# is long enough for that to cost seconds of a Celery worker.
+# A label may itself hold brackets, either balanced (`[Daily [EU]](chart:daily)`) or escaped
+# (`[Daily \[EU\]](…)`), and CommonMark resolves both — so the label run takes an escape or one
+# nested pair as well as ordinary text. The three branches start on different characters, so the
+# engine never has a choice between them and each start position still scans forward once.
+# Every destination class excludes `[`, which keeps that scan linear. Without it, a summary of
+# `[a](chart:` over and over makes every start position scan the whole remaining suffix before
+# failing, and a summary is long enough for that to cost seconds of a Celery worker.
 _CHART_REF_LINK_RE = re.compile(
-    r"""(?<![!\\])\[([^\[\]\n]*)\]\((?:chart:[^\s)\[]*|<chart:[^<>\n\[]*>)"""
+    r"""(?<![!\\])\[((?:[^\[\]\n\\]|\\.|\[[^\[\]\n]*\])*)\]"""
+    r"""\((?:chart:[^\s)\[]*|<chart:[^<>\n\[]*>)"""
     r"""(?:\s+"[^"\n]*"|\s+'[^'\n]*'|\s+\([^()\n]*\))?\s*\)"""
 )
 

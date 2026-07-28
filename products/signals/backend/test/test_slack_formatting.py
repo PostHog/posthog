@@ -27,6 +27,10 @@ class TestStripChartReferences(SimpleTestCase):
             # CommonMark's angle-bracket destination. mdast unwraps it to the same `chart:daily`, so
             # the inbox draws the chart and Slack must not keep the raw syntax.
             ("angle_bracket_destination", "[Daily](<chart:daily>)", "Daily"),
+            # CommonMark allows balanced brackets in a label, and an escaped one either way, so both
+            # of these resolve in the inbox and both have to reduce to the label here.
+            ("label_holding_balanced_brackets", "[Daily [EU]](chart:daily)", "Daily [EU]"),
+            ("label_holding_escaped_brackets", r"[Daily \[EU\]](chart:daily)", r"Daily \[EU\]"),
             ("angle_bracket_destination_with_a_title", '[Daily](<chart:daily> "Daily signups")', "Daily"),
             # Neither is a reference the inbox resolves, so Slack should read what the author wrote.
             ("image_is_left_alone", "![Daily](chart:daily)", "![Daily](chart:daily)"),
@@ -54,6 +58,9 @@ class TestStripChartReferences(SimpleTestCase):
             ("unclosed_references", "[a](chart:" * 2_000),
             ("unterminated_titles", '[a](chart:x "' * 2_000),
             ("unterminated_angle_destinations", "[a](<chart:x" * 2_000),
+            # The nested-pair branch is the one that can make a start position consume before it
+            # fails, so drive it with labels that never reach a destination.
+            ("nested_labels_that_never_close", "[a[b]" * 4_000),
         ]
     )
     def test_a_summary_that_never_closes_a_reference_stays_cheap(self, _name: str, summary: str) -> None:
