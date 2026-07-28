@@ -8,6 +8,7 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
+import { validateMetricName } from './common'
 import {
     dataCatalogMetricsApproveCreate,
     dataCatalogMetricsDestroy,
@@ -28,6 +29,13 @@ export interface DataCatalogMetricSceneLogicProps {
 
 function projectId(): string {
     return String(ApiConfig.getCurrentTeamId())
+}
+
+// props.name comes from the route and is interpolated unencoded into the generated API
+// paths. Reject anything the metric-name regex won't accept (it forbids slashes and dots)
+// before issuing a request, so a traversal-shaped name can't resolve to another project.
+function isInvalidMetricName(name: string): boolean {
+    return validateMetricName(name) !== undefined
 }
 
 function apiErrorDetail(error: unknown): string | null {
@@ -166,14 +174,24 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
         metric: [
             null as DataCatalogMetricApi | null,
             {
-                loadMetric: async () => await dataCatalogMetricsRetrieve(projectId(), props.name),
+                loadMetric: async () => {
+                    if (isInvalidMetricName(props.name)) {
+                        throw new Error('Invalid metric name')
+                    }
+                    return await dataCatalogMetricsRetrieve(projectId(), props.name)
+                },
                 setMetric: ({ metric }) => metric,
             },
         ],
         runResult: [
             null as DataCatalogMetricRunApi | null,
             {
-                loadRunResult: async () => await dataCatalogMetricsRunCreate(projectId(), props.name, {}),
+                loadRunResult: async () => {
+                    if (isInvalidMetricName(props.name)) {
+                        throw new Error('Invalid metric name')
+                    }
+                    return await dataCatalogMetricsRunCreate(projectId(), props.name, {})
+                },
             },
         ],
     })),
@@ -223,7 +241,7 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
             actions.setDraftMarkdown(definitionField(metric, 'markdown'))
         },
         approveMetric: async () => {
-            if (values.mutating) {
+            if (values.mutating || isInvalidMetricName(props.name)) {
                 return
             }
             actions.setMutating(true)
@@ -243,7 +261,7 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
             }
         },
         refreshMetricFromInsight: async () => {
-            if (values.mutating) {
+            if (values.mutating || isInvalidMetricName(props.name)) {
                 return
             }
             actions.setMutating(true)
@@ -259,7 +277,7 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
             }
         },
         updateMetric: async ({ patch }) => {
-            if (values.mutating) {
+            if (values.mutating || isInvalidMetricName(props.name)) {
                 return
             }
             actions.setMutating(true)
@@ -273,7 +291,7 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
             }
         },
         deleteMetric: async () => {
-            if (values.mutating) {
+            if (values.mutating || isInvalidMetricName(props.name)) {
                 return
             }
             actions.setMutating(true)

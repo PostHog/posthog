@@ -107,4 +107,27 @@ describe('dataCatalogMetricSceneLogic', () => {
 
         expect(logic.values.runResult?.compiled_query).toEqual('SELECT count()')
     })
+
+    it('issues no requests for a traversal-shaped metric name', async () => {
+        // props.name is interpolated unencoded into the request path, so a "../"-shaped route
+        // value must never reach retrieve/run/approve/refresh/update/delete.
+        jest.clearAllMocks()
+        const traversalLogic = dataCatalogMetricSceneLogic({ name: '../../../1/data_catalog/metrics/other' })
+        traversalLogic.mount()
+        await expectLogic(traversalLogic).toDispatchActions(['loadMetricFailure'])
+
+        traversalLogic.actions.approveMetric()
+        traversalLogic.actions.refreshMetricFromInsight()
+        traversalLogic.actions.updateMetric({ definition: { kind: 'HogQLQuery', query: 'SELECT 2' } })
+        traversalLogic.actions.deleteMetric()
+        traversalLogic.actions.loadRunResult()
+        await expectLogic(traversalLogic).toFinishAllListeners()
+
+        expect(dataCatalogMetricsRetrieve).not.toHaveBeenCalled()
+        expect(dataCatalogMetricsRunCreate).not.toHaveBeenCalled()
+        expect(dataCatalogMetricsApproveCreate).not.toHaveBeenCalled()
+        expect(dataCatalogMetricsPartialUpdate).not.toHaveBeenCalled()
+
+        traversalLogic.unmount()
+    })
 })
