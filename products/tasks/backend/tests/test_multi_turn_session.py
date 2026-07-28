@@ -76,29 +76,25 @@ class TestPollForTurnEmptyEndTurn:
         assert exc_info.value.printed_lines >= 0
 
     @pytest.mark.asyncio
-    async def test_text_before_end_turn_across_polls_is_not_empty(self):
-        """When agent_message arrives in one poll and end_turn in the next, poll_for_turn
-        must recognize the turn as complete — not raise EmptyAgentTurnError and cause a
-        spurious retry."""
+    async def test_reassembles_chunked_response_across_polls(self):
         turn_1 = [_agent_message_line("prev"), _end_turn_line()]
-        # Current turn: prompt, then text (poll 1 sees this), then end_turn (poll 2 sees this).
-        turn_2_with_text = [_user_message_line("next"), _agent_message_line("current-turn-text")]
-        turn_2_end_turn = [_end_turn_line()]
+        turn_2_first_poll = [
+            _user_message_line("next"),
+            _agent_message_line("intermediate narration"),
+            _tool_call_line("search"),
+            _agent_message_chunk_line("final-"),
+        ]
+        turn_2_completion = [_agent_message_chunk_line("response"), _end_turn_line()]
         skip = len(turn_1)
-        # Log grows monotonically across polls — first poll has no end_turn yet,
-        # second poll appends it after the agent_message of poll 1 has already advanced
-        # the cursor past it.
         logs = [
-            "\n".join(turn_1 + turn_2_with_text),
-            "\n".join(turn_1 + turn_2_with_text + turn_2_end_turn),
+            "\n".join(turn_1 + turn_2_first_poll),
+            "\n".join(turn_1 + turn_2_first_poll + turn_2_completion),
         ]
         poll_iter = iter(logs)
 
         def next_log(*_args, **_kwargs):
             return next(poll_iter)
 
-        # Poll 1 returns (False, text, ...) — falls through to the TaskRun refresh
-        # to check for terminal status. Patch it to a running status so the loop continues.
         fake_task_run = FakeTaskRun()
         with (
             patch("posthog.storage.object_storage.read", side_effect=next_log),
@@ -107,8 +103,8 @@ class TestPollForTurnEmptyEndTurn:
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
         ):
             last_message, _, total_lines, _ = await poll_for_turn(fake_task_run, skip_lines=skip)
-        assert last_message == "current-turn-text"
-        assert total_lines == len(turn_1) + len(turn_2_with_text) + len(turn_2_end_turn)
+        assert last_message == "final-response"
+        assert total_lines == len(turn_1) + len(turn_2_first_poll) + len(turn_2_completion)
 
     @pytest.mark.asyncio
     async def test_poll_handles_s3_shrink_then_recovery_without_duplicates(self):

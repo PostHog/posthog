@@ -296,6 +296,12 @@ async def poll_for_turn(
             latest_assistant_text = last_message
         # If success
         if finished and last_message:
+            if skip_lines > original_skip_lines:
+                # The final response can span poll slices. Reparse this snapshot from the
+                # turn boundary so completion returns the whole message, not its last slice.
+                _, complete_message, _, _, _ = _parse_log_content(full_log or "", original_skip_lines)
+                if complete_message is not None:
+                    last_message = complete_message
             return last_message, full_log, total_lines, printed_lines
         # Surface empty end_turn to the multi-turn session, so it can retry
         # the prompt instead of us polling until MAX_POLL_SECONDS.
@@ -303,7 +309,10 @@ async def poll_for_turn(
             # If the agent emitted text in an earlier poll of this same turn, the turn
             # is genuinely complete — end_turn just landed in a later slice.
             if latest_assistant_text is not None:
-                return latest_assistant_text, full_log, total_lines, printed_lines
+                # Reparse from the turn boundary to recover chunks that landed in earlier
+                # poll slices while still respecting tool-call message boundaries.
+                _, complete_message, _, _, _ = _parse_log_content(full_log or "", original_skip_lines)
+                return complete_message or latest_assistant_text, full_log, total_lines, printed_lines
             logger.warning(
                 "custom_prompt - poll_for_turn: empty end_turn detected (no agent_message), run=%s total_lines=%d",
                 task_run.id,
@@ -625,6 +634,10 @@ def _check_logs(task_run, skip_lines: int = 0) -> tuple[bool, str | None, str | 
     and agent messages. This avoids re-parsing the entire log on every poll cycle.
     """
     log_content = object_storage.read(task_run.log_url, missing_ok=True) or ""
+    return _parse_log_content(log_content, skip_lines)
+
+
+def _parse_log_content(log_content: str, skip_lines: int = 0) -> tuple[bool, str | None, str | None, int, bool]:
     if not log_content.strip():
         return False, None, None, 0, False
     all_lines = log_content.strip().split("\n")
@@ -657,27 +670,27 @@ def _check_logs(task_run, skip_lines: int = 0) -> tuple[bool, str | None, str | 
         if not isinstance(update, dict):
             continue
         parsed_updates.append(update)
-    # Walk backwards from the end to find the final agent response.
-    # First, skip non-agent entries (e.g. usage_update) to find the last
-    # agent message. Then collect consecutive agent messages until we hit
-    # something else — the agent sometimes splits its response across entries.
-    _AGENT_MSG_TYPES = {"agent_message", "agent_message_chunk"}
-    trailing_parts: list[str] = []
-    found_agent_msg = False
-    for update in reversed(parsed_updates):
-        is_agent_msg = update.get("sessionUpdate") in _AGENT_MSG_TYPES
-        if not found_agent_msg:
-            if is_agent_msg:
-                found_agent_msg = True
-            else:
-                continue
-        if found_agent_msg and not is_agent_msg:
+    # Ignore trailing accounting updates, then use a complete agent_message as authoritative.
+    # If the response was only streamed as chunks, join its trailing contiguous chunk block.
+    latest_text: str | None = None
+    for index in range(len(parsed_updates) - 1, -1, -1):
+        update = parsed_updates[index]
+        update_type = update.get("sessionUpdate")
+        if update_type == "agent_message":
+            latest_text = _extract_text(update)
             break
-        text = _extract_text(update)
-        if text:
-            trailing_parts.append(text)
-    trailing_parts.reverse()
-    latest_text = "".join(trailing_parts) if trailing_parts else None
+        if update_type != "agent_message_chunk":
+            continue
+        trailing_parts: list[str] = []
+        for chunk in reversed(parsed_updates[: index + 1]):
+            if chunk.get("sessionUpdate") != "agent_message_chunk":
+                break
+            text = _extract_text(chunk)
+            if text:
+                trailing_parts.append(text)
+        trailing_parts.reverse()
+        latest_text = "".join(trailing_parts) if trailing_parts else None
+        break
     # If we found end_turn but no agent message in the new lines, flag it as an empty turn.
     if agent_finished and latest_text is None:
         return False, None, log_content, total_lines, True
