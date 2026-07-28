@@ -55,6 +55,16 @@ describe('notebook cell tags', () => {
         expect(upsertProp(tag, prop, value)).toMatch(expected)
     })
 
+    it('parses arbitrary component tags so delete/anchor works on every dropdown cell', () => {
+        const doc = '<FeatureFlag nodeId="ff-1" id={42} />\n\n<Image nodeId="img-1" src="https://x/y.png" />'
+        const cells = parseCellTags(doc)
+        expect(cells.map((cell) => [cell.tagName, cell.nodeId])).toEqual([
+            ['FeatureFlag', 'ff-1'],
+            ['Image', 'img-1'],
+        ])
+        expect(removeCellTag(doc, findCellTag(doc, 'ff-1')!)).toBe('<Image nodeId="img-1" src="https://x/y.png" />')
+    })
+
     it('upsertProp leaves every other prop byte-identical', () => {
         const tag =
             '<SQLV2 nodeId="a" code="select 1" vizQuery={{"kind":"DataVisualizationNode"}} returnVariable="x" />'

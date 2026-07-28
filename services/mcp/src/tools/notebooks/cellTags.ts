@@ -11,11 +11,10 @@
  *   change whenever any prop changes, e.g. when a run writes runId/result back).
  */
 
-export const CELL_TAG_NAMES = ['SQLV2', 'PythonV2', 'Query'] as const
-export type CellTagName = (typeof CELL_TAG_NAMES)[number]
+export const COMPONENT_TAG_REGEX = /^[A-Z][A-Za-z0-9]*$/
 
 export interface CellTagBlock {
-    tagName: CellTagName
+    tagName: string
     /** Character offsets of the tag block within the markdown, end exclusive. */
     start: number
     end: number
@@ -27,7 +26,7 @@ export interface CellTagBlock {
 
 export const DATAFRAME_NAME_REGEX = /^[A-Za-z_][A-Za-z0-9_]*$/
 
-const TAG_START_REGEX = /^<(SQLV2|PythonV2|Query)(?=[\s/>])/
+const TAG_START_REGEX = /^<([A-Z][A-Za-z0-9]*)(?=[\s/>])/
 
 // A JSON string literal: quote-delimited with backslash escapes.
 const JSON_STRING = '"(?:[^"\\\\]|\\\\.)*"'
@@ -108,7 +107,7 @@ export function upsertProp(tagSource: string, name: string, value: unknown): str
     return `${tagSource.slice(0, closing)}${needsSpace ? ' ' : ''}${serialized} ${tagSource.slice(closing)}`
 }
 
-export function buildCellTag(tagName: CellTagName, props: Record<string, unknown>): string {
+export function buildCellTag(tagName: string, props: Record<string, unknown>): string {
     const serialized = Object.entries(props)
         .filter(([, value]) => value !== undefined)
         .map(([name, value]) => `${name}=${serializePropValue(value)}`)
@@ -134,7 +133,7 @@ export function parseCellTags(markdown: string): CellTagBlock[] {
             index += 1
             continue
         }
-        const tagName = startMatch[1] as CellTagName
+        const tagName = startMatch[1]!
         const blockLines: string[] = []
         let cursor = index
         let terminated = false

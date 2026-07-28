@@ -170,6 +170,38 @@ describe('notebook cell tools', () => {
         expect(state.runBodies).toHaveLength(0)
     })
 
+    it('add component cell inserts the tag with a minted nodeId and no run', async () => {
+        const state = makeState('# Doc\n')
+        const context = createMockContext(state)
+
+        const result = await addCellHandler(context, {
+            notebook_id: 'aBcD1234',
+            cell_type: 'component',
+            tag_name: 'Query',
+            props: { query: { kind: 'InsightVizNode', source: { kind: 'TrendsQuery', series: [] } } },
+        })
+
+        const inserted = state.saveBodies[0].content.content[0].attrs.markdown
+        expect(inserted).toContain(`<Query query={{"kind":"InsightVizNode"`)
+        expect(inserted).toContain(`nodeId="${result.node_id}"`)
+        expect(state.runBodies).toHaveLength(0)
+    })
+
+    it('component cell rejects executable tags', async () => {
+        const state = makeState('# Doc\n')
+        const context = createMockContext(state)
+
+        await expect(
+            addCellHandler(context, {
+                notebook_id: 'aBcD1234',
+                cell_type: 'component',
+                tag_name: 'SQLV2',
+                props: { code: 'select 1' },
+            })
+        ).rejects.toThrow(/cell_type 'sql' or 'python'/)
+        expect(state.saveBodies).toHaveLength(0)
+    })
+
     it('rejects legacy rich-text notebooks', async () => {
         const state = makeState('unused')
         const context = createMockContext(state)

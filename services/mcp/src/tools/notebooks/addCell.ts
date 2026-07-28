@@ -7,6 +7,7 @@ import { awaitRun, buildResultProp, dispatchRun, shapeRunForModel, type ShapedRu
 import {
     buildCellTag,
     collectRunRefs,
+    COMPONENT_TAG_REGEX,
     DATAFRAME_NAME_REGEX,
     findCellTag,
     parseCellTags,
@@ -21,9 +22,9 @@ export const NotebooksAddCellSchema = z
     .object({
         notebook_id: z.string().describe('The notebook short_id (the public id in the URL, e.g. `aBcD1234`).'),
         cell_type: z
-            .enum(['sql', 'python', 'markdown', 'saved_insight'])
+            .enum(['sql', 'python', 'markdown', 'saved_insight', 'component'])
             .describe(
-                "Cell kind: 'sql' (HogQL against PostHog data) and 'python' run immediately; 'markdown' inserts prose; 'saved_insight' embeds an existing insight."
+                "Cell kind: 'sql' (HogQL against PostHog data) and 'python' run immediately; 'markdown' inserts prose (headings, tables, code/mermaid fences); 'saved_insight' embeds an existing insight; 'component' inserts any other notebook component tag (charts, media, PostHog entities)."
             ),
         code: z.string().optional().describe('The SQL or Python source. Required for sql/python cells.'),
         markdown: z.string().optional().describe('Prose to insert. Required for markdown cells.'),
@@ -31,6 +32,19 @@ export const NotebooksAddCellSchema = z
             .string()
             .optional()
             .describe('Short id of the saved insight to embed. Required for saved_insight cells.'),
+        tag_name: z
+            .string()
+            .regex(COMPONENT_TAG_REGEX)
+            .optional()
+            .describe(
+                "Component cells: the notebook component to insert, e.g. 'Query' (charts and event tables via its query prop), 'Image', 'Embed', 'Latex', 'FeatureFlag', 'Survey', 'Experiment', 'Person', 'Cohort', 'Recording', 'RecordingPlaylist'. Executable cells are not allowed here — use cell_type sql/python."
+            ),
+        props: z
+            .record(z.string(), z.unknown())
+            .optional()
+            .describe(
+                'Component cells: the props for the tag, matching what the notebook UI stores for that component. For Query: {"query": {"kind": "InsightVizNode", "source": <TrendsQuery|FunnelsQuery|RetentionQuery|PathsQuery|StickinessQuery|LifecycleQuery>}} for insights, {"query": {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "SELECT …"}}} for SQL charts, or {"query": {"kind": "DataTableNode", "source": {"kind": "EventsQuery", …}}} for event tables.'
+            ),
         dataframe_name: z
             .string()
             .regex(DATAFRAME_NAME_REGEX)
@@ -113,6 +127,18 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
     if (params.cell_type === 'saved_insight' && !params.insight_short_id?.trim()) {
         throw new Error('A saved_insight cell requires insight_short_id.')
     }
+    if (params.cell_type === 'component') {
+        if (!params.tag_name) {
+            throw new Error('A component cell requires tag_name.')
+        }
+        // Executable and deprecated tags must go through their owning cell types so runs,
+        // identity, and result write-back stay consistent.
+        if (['SQLV2', 'PythonV2', 'Python', 'DuckSQL', 'HogQLSQL'].includes(params.tag_name)) {
+            throw new Error(
+                `Use cell_type 'sql' or 'python' for executable cells instead of tag_name ${params.tag_name}.`
+            )
+        }
+    }
 
     if (params.cell_type === 'markdown') {
         await applyMarkdownEdit(context, params.notebook_id, (markdown) =>
@@ -129,6 +155,14 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
             query: { kind: 'SavedInsightNode', shortId: params.insight_short_id },
             hideFilters: true,
         })
+        await applyMarkdownEdit(context, params.notebook_id, (markdown) =>
+            insertBlock(markdown, tag, params.after_node_id)
+        )
+        return { node_id: nodeId }
+    }
+
+    if (params.cell_type === 'component') {
+        const tag = buildCellTag(params.tag_name!, { ...params.props, nodeId })
         await applyMarkdownEdit(context, params.notebook_id, (markdown) =>
             insertBlock(markdown, tag, params.after_node_id)
         )
