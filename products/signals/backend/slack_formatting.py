@@ -13,33 +13,19 @@ SLACK_SECTION_TEXT_MAX_LEN = 2900
 # are escaped before conversion, so any literal angle bracket here was produced by the converter.
 _SLACK_ANGLE_TOKEN_RE = re.compile(r"<([^<>|]*)(\|[^<>]*)?>")
 
-# A report summary places a chart inline with a markdown link whose target is `chart:<chart_id>`.
-# Slack has no chart to render, and the two Slack paths degrade it differently badly: the mrkdwn
-# converter turns it into a `<chart:id|label>` token that `_defang_unsafe_slack_tokens` escapes into
-# visible `&lt;…&gt;`, while the excerpt path escapes it and leaves the raw `[label](chart:id)` syntax
-# on screen. Any target is matched, not just the id charset `ReportChart` enforces: a typo'd
-# reference is just as unrenderable here, and pinning the charset would leave it showing as markup.
-# A markdown link title (`[label](chart:id "a note")`) is a form the inbox renders — mdast parses the
-# title off the destination and resolves the reference — so the title is matched as its own delimited
-# run rather than by scanning to the first `)`. A quoted title is allowed to contain parens
-# (`"signups (UTC)"`), and scanning to the first one would end the match inside it and leave the tail
-# (`")`) in the prose, which reads worse than the raw link it replaced. All three CommonMark
-# delimiters are matched: the parenthesized form (`(UTC)`) resolves the same way, and a title in that
-# form cannot itself hold an unescaped paren.
-# `![…]` is an image and `\[…]` is an escaped bracket, neither of which the inbox resolves as a
-# reference, so a fixed-width lookbehind leaves both as the author wrote them. A reference inside a
-# code span is the one literal form still rewritten: the renderer shows it verbatim while Slack gets
-# the label. Telling them apart needs a markdown parse, which this module deliberately doesn't have,
-# and the result is prose that reads oddly rather than prose that misleads.
-# The destination also has CommonMark's angle-bracket form (`[label](<chart:id>)`), which mdast
-# unwraps to the same `chart:id` the inbox resolves, so Slack has to reduce it too.
-# A label may itself hold brackets, either balanced (`[Daily [EU]](chart:daily)`) or escaped
-# (`[Daily \[EU\]](…)`), and CommonMark resolves both — so the label run takes an escape or one
-# nested pair as well as ordinary text. The three branches start on different characters, so the
-# engine never has a choice between them and each start position still scans forward once.
-# Every destination class excludes `[`, which keeps that scan linear. Without it, a summary of
-# `[a](chart:` over and over makes every start position scan the whole remaining suffix before
-# failing, and a summary is long enough for that to cost seconds of a Celery worker.
+# A summary places a chart inline with a markdown link targeting `chart:<chart_id>`. Slack has no
+# chart to render and degrades it badly either way: the mrkdwn converter emits a `<chart:id|label>`
+# token that `_defang_unsafe_slack_tokens` escapes into visible `&lt;…&gt;`, and the excerpt path
+# shows the raw `[label](chart:id)` syntax. So the link is reduced to its label first.
+#
+# The shapes matched are the ones the inbox's markdown parse resolves and therefore draws a chart
+# for: any target rather than the id charset (a typo is just as unrenderable), all three CommonMark
+# title delimiters, the angle-bracket destination form, and a label holding balanced or escaped
+# brackets. `![…]` and `\[…]` are neither, so the lookbehind leaves them alone.
+#
+# Load-bearing: every destination class excludes `[`. Without it a summary of `[a](chart:` repeated
+# to the 20,000-character bound makes each start position rescan the whole suffix, costing seconds
+# inside the Celery worker that sends the notification. Covered by a timing test.
 _CHART_REF_LINK_RE = re.compile(
     r"""(?<![!\\])\[((?:[^\[\]\n\\]|\\.|\[[^\[\]\n]*\])*)\]"""
     r"""\((?:chart:[^\s)\[]*|<chart:[^<>\n\[]*>)"""
@@ -48,15 +34,10 @@ _CHART_REF_LINK_RE = re.compile(
 
 
 # The reference form the inbox also resolves: `[Daily][daily]` with `[daily]: chart:signups-drop`
-# somewhere in the summary. Both halves have to go — the reference, or Slack shows brackets around
-# a label that points nowhere, and the definition line, or it shows the raw `chart:` target.
-#
-# A definition is a line of its own, so it anchors; CommonMark allows up to three leading spaces, an
-# angle-bracketed destination, and a title, and this takes the newline with it so the line doesn't
-# survive as a blank one. The reference itself covers all three shapes — full (`[label][daily]`),
-# collapsed (`[label][]`), and shortcut (`[label]`) — which is what the inbox's `linkReference`
-# handling resolves. A match followed by `(` is an inline link whose destination isn't a chart, so
-# it keeps its brackets and its target.
+# somewhere in the summary. Both halves have to go — the reference, or Slack shows brackets around a
+# label that points nowhere, and the definition line, or it shows the raw `chart:` target. The
+# reference covers all three shapes (full, collapsed, shortcut); a match followed by `(` is an
+# inline link whose destination isn't a chart, so it keeps its brackets.
 _CHART_REF_DEFINITION_RE = re.compile(
     r"""^[ ]{0,3}\[([^\[\]\n]+)\]:[ \t]*<?chart:[^\s>]*>?"""
     r"""[ \t]*(?:"[^"\n]*"|'[^'\n]*'|\([^()\n]*\))?[ \t]*\n?""",
