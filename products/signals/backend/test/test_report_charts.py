@@ -137,6 +137,16 @@ class TestReportCharts(SimpleTestCase):
                     "query": {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "cap": float("inf")}},
                 },
             ),
+            # An unpaired surrogate parses out of JSON fine and serializes back out fine, but it has
+            # no UTF-8 encoding, so the write to `charts` raises on the way to Postgres.
+            (
+                "an_unpaired_surrogate_anywhere_in_the_query",
+                {
+                    "chart_id": "ok",
+                    "title": "t",
+                    "query": {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "note": "a\ud800b"}},
+                },
+            ),
             # `SuggestedQuestionsQueryRunner` calls `hit_openai`, so a chart carrying one buys an LLM
             # completion every time a reader opens the report, up to the chart cap.
             (

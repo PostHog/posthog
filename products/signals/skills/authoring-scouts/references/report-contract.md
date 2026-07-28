@@ -106,6 +106,7 @@ So a scout should attach a query it has already run in the same session, or poin
 This is the single most useful thing to reinforce in a scout body that leans on charts.
 
 **A chart query must not carry anything executable.** HogVM `bytecode` (what conditional formatting compiles to), a nested `HogQuery`, and `sendRawQuery` are each refused with a 400 wherever they sit in the node, because a chart renders data rather than running code in the reader's session.
+A nested `SuggestedQuestionsQuery` is refused the same way, for cost rather than execution: its runner calls an LLM, so a chart carrying one buys a completion every time a reader opens the report.
 A query over a warehouse connection is fine as long as it goes through HogQL: keep `connectionId`, drop `sendRawQuery`.
 So a direct-warehouse query you ran with the raw-SQL bypass has to be rewritten before it can be attached.
 

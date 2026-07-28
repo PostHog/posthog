@@ -85,8 +85,13 @@ def _nests_too_deeply(value: Any) -> bool:
     return False
 
 
-def _contains_null_character(value: Any) -> bool:
-    """Whether any string anywhere in a query holds a null character.
+def _unstorable_text(value: Any) -> str | None:
+    """What a query holds that cannot reach the `charts` column, or None if it can all be stored.
+
+    Two characters survive JSON parsing but not the trip to Postgres, and both arrive as ordinary
+    caller input: a null character, which `jsonb` cannot hold, and an unpaired UTF-16 surrogate
+    (`"\\ud800"`), which Python decodes happily but cannot encode back to UTF-8 for the wire. Either
+    one fails at the write, past every handler that turns bad input into a 400.
 
     Walked over the decoded structure rather than the serialized JSON: `json.dumps` writes a real
     null as the six characters `\\u0000`, but it writes the *literal* text `\\u0000` as `\\\\u0000`,
@@ -99,13 +104,15 @@ def _contains_null_character(value: Any) -> bool:
         item = pending.pop()
         if isinstance(item, str):
             if "\x00" in item:
-                return True
+                return "a null character"
+            if any("\ud800" <= char <= "\udfff" for char in item):
+                return "an unpaired surrogate"
         elif isinstance(item, dict):
             pending.extend(item.keys())
             pending.extend(item.values())
         elif isinstance(item, list):
             pending.extend(item)
-    return False
+    return None
 
 
 def _executable_payload(value: Any) -> str | None:
@@ -256,10 +263,9 @@ class ReportChart(BaseModel):
             raise ValueError("query must not contain a non-finite number") from None
         if len(serialized) > _MAX_CHART_QUERY_CHARS:
             raise ValueError(f"query must not exceed {_MAX_CHART_QUERY_CHARS} characters when serialized")
-        # Postgres `jsonb` cannot store a null character, so one anywhere in the query fails at the
-        # INSERT rather than here — past every handler that turns bad input into a 400.
-        if _contains_null_character(v):
-            raise ValueError("query must not contain a null character")
+        unstorable = _unstorable_text(v)
+        if unstorable:
+            raise ValueError(f"query must not contain {unstorable}")
         executable = _executable_payload(v)
         if executable:
             raise ValueError(f"query must not carry {executable} — a chart renders data, it does not run code")

@@ -31,11 +31,14 @@ _SLACK_ANGLE_TOKEN_RE = re.compile(r"<([^<>|]*)(\|[^<>]*)?>")
 # code span is the one literal form still rewritten: the renderer shows it verbatim while Slack gets
 # the label. Telling them apart needs a markdown parse, which this module deliberately doesn't have,
 # and the result is prose that reads oddly rather than prose that misleads.
+# The destination also has CommonMark's angle-bracket form (`[label](<chart:id>)`), which mdast
+# unwraps to the same `chart:id` the inbox resolves, so Slack has to reduce it too.
 # Every class excludes `[`, which keeps the scan linear. Without it, a summary of `[a](chart:` over
 # and over makes every start position scan the whole remaining suffix before failing, and a summary
 # is long enough for that to cost seconds of a Celery worker.
 _CHART_REF_LINK_RE = re.compile(
-    r"""(?<![!\\])\[([^\[\]\n]*)\]\(chart:[^\s)\[]*(?:\s+"[^"\n]*"|\s+'[^'\n]*'|\s+\([^()\n]*\))?\s*\)"""
+    r"""(?<![!\\])\[([^\[\]\n]*)\]\((?:chart:[^\s)\[]*|<chart:[^<>\n\[]*>)"""
+    r"""(?:\s+"[^"\n]*"|\s+'[^'\n]*'|\s+\([^()\n]*\))?\s*\)"""
 )
 
 
