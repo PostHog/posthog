@@ -16,7 +16,7 @@ export const ReviewHogReviewsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -38,7 +38,7 @@ export const ReviewHogReviewsListQueryParams = /* @__PURE__ */ zod.object({
         .enum(['mine', 'everyone'])
         .default(reviewHogReviewsListQueryScopeDefault)
         .describe(
-            "Whose reviews to list: `mine` for reviews of the requesting user's pull requests (the default), `everyone` for every review on this project.\n\n* `mine` - mine\n* `everyone` - everyone"
+            "Whose reviews to list: `mine` for reviews of the requesting user's pull requests (the default), `everyone` for every review on this project.\n\n\* `mine` - mine\n\* `everyone` - everyone"
         ),
 })
 
@@ -51,7 +51,7 @@ export const ReviewHogReviewsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -63,7 +63,7 @@ export const ReviewHogReviewsTriggerCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -71,6 +71,6 @@ export const ReviewHogReviewsTriggerCreateBody = /* @__PURE__ */ zod.object({
     pr_url: zod
         .string()
         .describe(
-            "GitHub pull request URL to review, e.g. 'https:/\/github.com/PostHog/posthog.com/pull/123'. The repository must be accessible to the project's GitHub App installation."
+            "GitHub pull request URL to review, e.g. 'https:\/\/github.com\/PostHog\/posthog.com\/pull\/123'. The repository must be accessible to the project's GitHub App installation."
         ),
 })
