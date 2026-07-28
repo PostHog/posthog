@@ -3,8 +3,11 @@ import posthog from 'posthog-js'
 import { useEffect, useRef, useState } from 'react'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isMobile } from 'lib/utils/dom'
+import { resolveForceWizardArm } from 'scenes/onboarding/onboardingEventUsageLogic'
 import { availableOnboardingProducts } from 'scenes/onboarding/shared/utils'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -33,6 +36,20 @@ interface OnboardingInstallStepProps {
     hideInstallationCheck?: boolean
     header?: React.ReactNode
 }
+
+// Products whose SDK lineup the setup agent can actually install (app frameworks). AI
+// observability is provider-wrapper SDKs and Logs is OTel-only, so forcing the wizard there
+// would gate users onto a tool that can't help them.
+const FORCE_WIZARD_PRODUCT_KEYS = new Set<ProductKey>([
+    ProductKey.PRODUCT_ANALYTICS,
+    ProductKey.WEB_ANALYTICS,
+    ProductKey.SESSION_REPLAY,
+    ProductKey.FEATURE_FLAGS,
+    ProductKey.EXPERIMENTS,
+    ProductKey.SURVEYS,
+    ProductKey.ERROR_TRACKING,
+    ProductKey.WORKFLOWS,
+])
 
 /**
  * Onboarding install step — wizard-centered layout for non-Logs products, bare
@@ -79,6 +96,20 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
     // isMobile() is the hard guarantee the mobile UI never appears on desktop.
     const isMobileHandoffTest = useFeatureFlag('ONBOARDING_MOBILE_INSTALL_HELPER', 'test')
     const showMobileHandoff = isMobileHandoffTest && isMobile() && !mobileHandoffDismissed
+
+    const { isCloudOrDev } = useValues(preflightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    // Guards precede the flag read: `featureFlags` is the tracking proxy (reading a key fires
+    // `$feature_flag_called`), so ineligible surfaces — mobile, self-hosted, products the setup
+    // agent can't install — must never touch the flag, or their orgs pollute the experiment's
+    // exposure. Don't swap this for useFeatureFlag, which reads unconditionally.
+    const forceWizardEligible =
+        !isLogsProduct &&
+        !isMobile() &&
+        !!isCloudOrDev &&
+        !!currentStepProductKey &&
+        FORCE_WIZARD_PRODUCT_KEYS.has(currentStepProductKey)
+    const forceWizardArm = forceWizardEligible ? resolveForceWizardArm(featureFlags) : null
 
     useEffect(() => {
         setSDKDocsLinkOverrides(sdkDocsLinkOverrides ?? {})
@@ -147,6 +178,7 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
         teamPropertyToVerify,
         selectedSDK,
         header,
+        forceWizardArm,
     }
 
     const instructionsModal = selectedSDK && (

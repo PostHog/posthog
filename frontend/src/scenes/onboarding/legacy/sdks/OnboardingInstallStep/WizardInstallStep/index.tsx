@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
@@ -124,8 +125,10 @@ function WizardInstallShell({
     showSkip: boolean
     props: VariantProps
 }): JSX.Element {
-    const { manualModalOpen, sdkInstructionsOpen } = useValues(wizardInstallStepLogic)
-    const { setManualModalOpen, setSdkInstructionsOpen } = useActions(wizardInstallStepLogic)
+    const { manualModalOpen, sdkInstructionsOpen, escapeHatchRevealed } = useValues(wizardInstallStepLogic)
+    const { setManualModalOpen, setSdkInstructionsOpen, armEscapeHatch, disarmEscapeHatch, clickEscapeHatch } =
+        useActions(wizardInstallStepLogic)
+    const { reportOnboardingManualSetupOpened } = useActions(onboardingEventUsageLogic)
     const {
         sdkGridProps,
         sdkInstructionMap,
@@ -135,7 +138,24 @@ function WizardInstallShell({
         teamPropertyToVerify,
         selectedSDK,
         header,
+        forceWizardArm,
     } = props
+
+    // Test arm of the force-wizard experiment: manual setup and Skip stay hidden until the escape
+    // hatch reveals (wizard failure or timeout — wizardInstallStepLogic owns the triggers). The
+    // Continue gate is untouched: a started wizard run unblocks it exactly as before.
+    const forceGated = forceWizardArm === 'test'
+
+    useEffect(() => {
+        if (!forceGated) {
+            return
+        }
+        if (installationComplete) {
+            disarmEscapeHatch()
+        } else {
+            armEscapeHatch()
+        }
+    }, [forceGated, installationComplete, armEscapeHatch, disarmEscapeHatch])
 
     const handleManualSDKClick = (sdk: SDK): void => {
         sdkGridProps.onSDKClick(sdk)
@@ -148,7 +168,7 @@ function WizardInstallShell({
             title="Install"
             stepKey={OnboardingStepKey.INSTALL}
             continueDisabledReason={continueDisabledReason}
-            showSkip={showSkip}
+            showSkip={showSkip && (!forceGated || escapeHatchRevealed)}
             actions={
                 <div className="pr-2">
                     <RealtimeCheckIndicator
@@ -163,14 +183,28 @@ function WizardInstallShell({
             <div className="mt-6 space-y-8">
                 {children}
                 <div className="text-center">
-                    <LemonButton
-                        type="tertiary"
-                        size="small"
-                        data-attr="sdk-continue"
-                        onClick={() => setManualModalOpen(true)}
-                    >
-                        Need to set up manually?
-                    </LemonButton>
+                    {!forceGated ? (
+                        <LemonButton
+                            type="tertiary"
+                            size="small"
+                            data-attr="sdk-continue"
+                            onClick={() => {
+                                reportOnboardingManualSetupOpened('default')
+                                setManualModalOpen(true)
+                            }}
+                        >
+                            Need to set up manually?
+                        </LemonButton>
+                    ) : escapeHatchRevealed && !installationComplete ? (
+                        <LemonButton
+                            type="tertiary"
+                            size="small"
+                            data-attr="install-escape-hatch"
+                            onClick={clickEscapeHatch}
+                        >
+                            Can't use the wizard? Set up manually
+                        </LemonButton>
+                    ) : null}
                 </div>
             </div>
 

@@ -1,5 +1,6 @@
 import { type SDK, SDKInstructionsMap, SDKTag } from '~/types'
 
+import type { ForceWizardExperimentArm } from '../../../onboardingEventUsageLogic'
 import { type AdblockDetectionResult } from '../hooks/useAdblockDetection'
 
 export interface SDKGridProps {
@@ -25,4 +26,6 @@ export interface VariantProps {
     teamPropertyToVerify: string
     selectedSDK: SDK | null
     header?: React.ReactNode
+    /** Force-wizard experiment arm; null = not enrolled, so gating never applies. */
+    forceWizardArm: ForceWizardExperimentArm | null
 }

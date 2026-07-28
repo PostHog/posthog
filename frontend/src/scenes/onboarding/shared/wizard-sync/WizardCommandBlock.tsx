@@ -1,12 +1,15 @@
+import { useActions } from 'kea'
 import { useState } from 'react'
 
 import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
 import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
 
+import { onboardingEventUsageLogic } from '../../onboardingEventUsageLogic'
 import { WizardModeShell } from './WizardModeShell'
 
 export function WizardCommandBlock({ hideHog = false }: { hideHog?: boolean } = {}): JSX.Element {
     const { wizardCommand, isCloudOrDev } = useWizardCommand()
+    const { reportOnboardingWizardCommandCopied } = useActions(onboardingEventUsageLogic)
     const [castKey, setCastKey] = useState(0)
 
     // The `npx @posthog/wizard` CLI only targets cloud (US/EU) and dev instances —
@@ -25,7 +28,10 @@ export function WizardCommandBlock({ hideHog = false }: { hideHog?: boolean } = 
                 size="md"
                 decoration="rainbow"
                 className="bg-bg-light border border-border hover:border-primary"
-                onCopy={(key) => setCastKey(key)}
+                onCopy={(key) => {
+                    setCastKey(key)
+                    reportOnboardingWizardCommandCopied()
+                }}
             />
             <p className="text-xs text-muted mb-0">
                 Auto-detects your framework, installs the SDK, and sets up event capture. Commit the changes and open a
