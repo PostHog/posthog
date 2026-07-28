@@ -41,6 +41,19 @@ describe('chartOpenTarget', () => {
         expect(chartOpenTarget(query)?.label).toBe(label)
     })
 
+    it("leaves an embedding surface's presentation flags out of the new insight", () => {
+        // A scout can copy a query from a surface that embeds it, and the insight scene honors these,
+        // so carrying them over opens an editor with its result body or its chrome hidden.
+        const copiedFromAnEmbed = {
+            ...(trendsChart as Record<string, unknown>),
+            showResults: false,
+            embedded: true,
+            showFilters: false,
+        } as unknown as Node
+
+        expect(chartOpenTarget(copiedFromAnEmbed)?.url).toEqual(chartOpenTarget(trendsChart)?.url)
+    })
+
     it('sends a SQL chart to the SQL editor, where its query is editable', () => {
         expect(chartOpenTarget(sqlChart)?.url).toContain('/sql')
     })

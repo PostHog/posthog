@@ -48,6 +48,7 @@ from products.signals.backend.scout_harness.tools.report import (
     ReportChartInput,
     _build_charts,
     _chart_event_key,
+    _forwarded_summary,
     _report_event_uuid,
 )
 from products.signals.backend.scout_harness.tools.runs import MAX_FAILURE_REASON_LENGTH, MAX_RUN_SEARCH_LIMIT
@@ -1285,6 +1286,20 @@ class TestChartSafetyJudgeInput:
     def test_no_charts_adds_nothing_to_the_judge_input(self) -> None:
         # A chartless report's judge prompt must stay exactly what it was before charts existed.
         assert _chart_signal([]) is None
+
+
+class TestForwardedSummary:
+    """What a consumer of the customer-facing lifecycle events reads — pure text, no DB."""
+
+    def test_a_chart_reference_reaches_a_destination_as_its_label(self) -> None:
+        # The events carry `chart_count` rather than the charts, and `chart:` resolves only in the
+        # inbox, so a CDP destination posting the summary would show link syntax pointing at nothing.
+        assert _forwarded_summary("Signups fell. [Daily](chart:signups-drop)") == "Signups fell. Daily"
+
+    def test_a_summary_without_a_reference_is_unchanged(self) -> None:
+        # Every report written before charts existed takes this path, so the events they produce
+        # must read exactly as they did.
+        assert _forwarded_summary("Signups fell 60% on the 6th.") == "Signups fell 60% on the 6th."
 
 
 class TestReportEventUuid:

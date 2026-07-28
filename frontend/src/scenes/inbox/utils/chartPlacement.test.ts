@@ -25,6 +25,18 @@ describe('resolveChartPlacements', () => {
         expect(placedIn('[Daily signups](chart:signups-drop "worth a look")')).toEqual(['signups-drop'])
     })
 
+    it('places a reference link resolved through its definition', () => {
+        // The renderer resolves `[label][id]` into the same anchor as an inline link, so a parse that
+        // only reads `node.url` leaves the label here and draws the chart after the prose instead.
+        expect(placedIn('[Daily signups][daily]\n\n[daily]: chart:signups-drop')).toEqual(['signups-drop'])
+    })
+
+    it('places a collapsed reference link', () => {
+        // `[signups-drop][]` and the shortcut form carry the label as the identifier, which is the
+        // shape a scout writing the id as the link text produces.
+        expect(placedIn('[signups-drop][]\n\n[signups-drop]: chart:signups-drop')).toEqual(['signups-drop'])
+    })
+
     it.each([
         ['inside a code span', 'Reference it as `[Daily signups](chart:signups-drop)` in the summary.'],
         ['inside a fenced block', '```\n[Daily signups](chart:signups-drop)\n```'],

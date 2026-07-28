@@ -12,6 +12,26 @@ export interface ChartOpenTarget {
 // refuse an over-long one. Sized against that rather than the browser's own much higher ceiling.
 const MAX_OPEN_URL_LENGTH = 8000
 
+// What an embedding surface sets to strip an insight down to its graph. A new insight wants the
+// scene's own defaults for all of them, so they never travel in the URL.
+const EMBED_PRESENTATION_KEYS = [
+    'full',
+    'embedded',
+    'showFilters',
+    'showHeader',
+    'showTable',
+    'showCorrelationTable',
+    'showResults',
+] as const
+
+function withoutEmbedFlags(query: Node): Node {
+    const node = { ...(query as Record<string, unknown>) }
+    for (const key of EMBED_PRESENTATION_KEYS) {
+        delete node[key]
+    }
+    return node as Node
+}
+
 /**
  * Where a report chart's open control points, and what to call it. `null` when there is nowhere to
  * send the reader, which is the caller's cue to drop the control rather than offer a dead link.
@@ -20,9 +40,11 @@ const MAX_OPEN_URL_LENGTH = 8000
  * node to the SQL editor, so a single fixed label would describe the wrong destination for the SQL
  * charts a scout can attach.
  *
- * Pass the authored query, never the node `asEmbeddedChart` derives from it: that one carries
- * `embedded` and `showFilters: false`, which the insight scene honors, so the reader would land on
- * an insight with no filter bar and nothing to iterate with.
+ * Pass the authored query, never the node `asEmbeddedChart` derives from it. Either way the
+ * presentation flags are dropped before the query becomes a URL: the insight scene honors them, so
+ * one that survived would land the reader on an insight with no filter bar, or no result body, and
+ * nothing to iterate with. The derived node always carries them, and an authored one can too, since
+ * a scout can copy a query from a surface that embeds it.
  */
 export function chartOpenTarget(query: Node): ChartOpenTarget | null {
     // A `SavedInsightNode` holds a short id and no query of its own, so seeding a new insight from it
@@ -39,7 +61,7 @@ export function chartOpenTarget(query: Node): ChartOpenTarget | null {
     // URL goes out as a real request line. A chart near the 20,000-character query bound encodes to
     // several times that, past what a proxy in front of the app will accept, and the reader gets a
     // 414 from a chart that drew fine. Nothing here can shorten it, so the control is dropped.
-    const url = urls.insightNew({ query })
+    const url = urls.insightNew({ query: withoutEmbedFlags(query) })
     if (url.length > MAX_OPEN_URL_LENGTH) {
         return null
     }

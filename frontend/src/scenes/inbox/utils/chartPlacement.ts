@@ -72,9 +72,33 @@ export function resolveChartPlacements(
     // an element that can't hold it — under the `<strong>`/`<em>` of a reference the author
     // formatted, in a heading's line of text, or in a table cell a few dozen pixels wide. Those still
     // read as their label, and their charts fall to the end of the report rather than being dropped.
+    // A reference link (`[Daily][daily]` with `[daily]: chart:signups-drop` elsewhere) parses to a
+    // `linkReference` holding an identifier instead of a destination, and its definition can sit
+    // anywhere in the summary — so the definitions are collected before placement is decided. The
+    // renderer resolves those references into ordinary anchors, so missing them here would leave the
+    // label where the author put it and draw its chart after the prose instead.
+    const definitions = new Map<string, string>()
+    const collectDefinitions = (node: any): void => {
+        // First definition wins, as it does in CommonMark when an identifier is defined twice.
+        if (node?.type === 'definition' && typeof node.identifier === 'string' && !definitions.has(node.identifier)) {
+            definitions.set(node.identifier, typeof node.url === 'string' ? node.url : '')
+        }
+        for (const child of node?.children ?? []) {
+            collectDefinitions(child)
+        }
+    }
+    collectDefinitions(tree)
+
+    const destinationOf = (node: any): string => {
+        if (node?.type === 'link') {
+            return typeof node.url === 'string' ? node.url : ''
+        }
+        return (typeof node?.identifier === 'string' && definitions.get(node.identifier)) || ''
+    }
+
     const visit = (node: any, inParagraph: boolean): void => {
-        if (inParagraph && node?.type === 'link') {
-            const chartId = CHART_REF_TARGET.exec(typeof node.url === 'string' ? node.url : '')?.[1]
+        if (inParagraph && (node?.type === 'link' || node?.type === 'linkReference')) {
+            const chartId = CHART_REF_TARGET.exec(destinationOf(node))?.[1]
             const offset = node.position?.start?.offset
             if (chartId && available.has(chartId) && !inlineIds.has(chartId) && typeof offset === 'number') {
                 inlineByOffset.set(offset, chartId)

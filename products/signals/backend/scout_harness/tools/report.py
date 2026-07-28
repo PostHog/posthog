@@ -82,6 +82,7 @@ from products.signals.backend.scout_report import (
     update_scout_report,
 )
 from products.signals.backend.scout_report.judge import ScoutReportJudgement, judge_scout_report
+from products.signals.backend.slack_formatting import strip_chart_references
 
 logger = logging.getLogger(__name__)
 
@@ -547,6 +548,16 @@ def _clip(value: str | None, limit: int) -> str | None:
     return value[:limit] if value is not None else None
 
 
+def _forwarded_summary(summary: str | None) -> str | None:
+    """A report summary as a consumer of the lifecycle events should read it.
+
+    The `chart:` references in it resolve only in the inbox, and these events carry `chart_count`
+    rather than the charts, so a CDP destination posting the summary shows a reader link syntax
+    pointing at nothing. Reduced to the labels, as both Slack paths already do. Reports written
+    before charts existed hold no such reference, so nothing about them changes."""
+    return _clip(strip_chart_references(summary) if summary else summary, _MAX_TELEMETRY_SUMMARY_LEN)
+
+
 # Values of the `report_kind` classification property on the report-channel lifecycle events.
 REPORT_KIND_SELF_IMPROVEMENT = "self_improvement"
 REPORT_KIND_FINDING = "finding"
@@ -741,7 +752,7 @@ def _capture_report_emitted(
         "evidence_count": evidence_count,
         "chart_count": chart_count,
         "title": title,
-        "summary": _clip(summary, _MAX_TELEMETRY_SUMMARY_LEN),
+        "summary": _forwarded_summary(summary),
         "actionability": actionability,
         "already_addressed": already_addressed,
         "priority": priority,
@@ -800,7 +811,7 @@ def _capture_report_edited(
         "reviewers_set": result.reviewers_set,
         "charts_set": result.charts_set,
         "title": _clip(title, MAX_REPORT_TITLE_LENGTH),
-        "summary": _clip(summary, _MAX_TELEMETRY_SUMMARY_LEN),
+        "summary": _forwarded_summary(summary),
         "note": _clip(note, _MAX_TELEMETRY_TEXT_LEN),
         "report_url": _report_url(team.id, result.report_id),
     }
