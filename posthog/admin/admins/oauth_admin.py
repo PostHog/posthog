@@ -148,6 +148,7 @@ class ProvisioningCapabilityFilter(admin.SimpleListFilter):
         capability = self.value()
         if not capability or capability not in ProvisioningConfig.model_fields:
             return queryset
+        # nosemgrep: orm-field-injection -- capability is allowlisted above, and the JSONField prefix keeps any __ as a JSON key lookup
         return queryset.filter(**{f"_provisioning_config__{capability}": True})
 
 
