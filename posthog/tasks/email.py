@@ -378,12 +378,6 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
         fallback="",
         context={"task": "send_member_join", "field": "invitee_last_name", **log_context},
     )
-    organization_name = sanitize_display_name(
-        organization.name,
-        fallback="your organization",
-        context={"task": "send_member_join", "field": "organization_name", **log_context},
-    )
-
     campaign_key: str = f"member_join_email_org_{organization_id}_user_{invitee_uuid}"
     message = EmailMessage(
         use_http=True,
@@ -391,13 +385,11 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
         subject=f"{invitee_first_name} joined you on PostHog",
         template_name="member_join",
         template_context={
-            # Footer context first so the sanitized organization_name below wins over the raw value.
-            **get_email_footer_context(organization=organization),
             "invitee": invitee,
             "organization": organization,
             "invitee_first_name": invitee_first_name,
             "invitee_last_name": invitee_last_name,
-            "organization_name": organization_name,
+            **get_email_footer_context(organization=organization),
         },
     )
     for user in members_to_email:
@@ -975,7 +967,6 @@ def send_wizard_pr_ready_email(run_id: str) -> None:
         "pr_url": context.pr_url,
         "repository": context.repository or "",
         "first_name": user.first_name or "",
-        "organization_name": team.organization.name,
         "project_name": team.name,
         "branch_name": context.branch or "",
         "task_id": str(context.task_id),
@@ -2306,12 +2297,6 @@ def send_posthog_ai_access_request(organization_id: str, requesting_user_id: int
         fallback="A teammate",
         context={"task": "send_posthog_ai_access_request", "field": "requester_first_name", **log_context},
     )
-    org_name = sanitize_display_name(
-        organization.name,
-        fallback="your organization",
-        context={"task": "send_posthog_ai_access_request", "field": "organization_name", **log_context},
-    )
-
     # AI consent is an org-level setting reachable from any project; prefer the requester's
     # current project so the link feels familiar, falling back to any project in the org.
     current_team = requester.current_team
@@ -2345,12 +2330,10 @@ def send_posthog_ai_access_request(organization_id: str, requesting_user_id: int
         subject=f"{requester_name} requested access to PostHog AI",
         template_name="posthog_ai_access_requested",
         template_context={
-            # Footer context first so the sanitized organization_name below wins over the raw value.
-            **get_email_footer_context(organization=organization),
             "requester_name": requester_name,
             "requester_email": requester.email or "",
-            "organization_name": org_name,
             "posthog_ai_url": posthog_ai_url,
+            **get_email_footer_context(organization=organization),
         },
         reply_to=requester.email or "",
     )

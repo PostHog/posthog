@@ -247,7 +247,6 @@ def _send_baa_signed_ai_disabled_email(organization: Organization, document: Leg
             template_name=BAA_SIGNED_AI_DISABLED_TEMPLATE,
             subject=f"AI features have been disabled for {organization.name}",
             template_context={
-                "organization_name": organization.name,
                 "ai_settings_url": f"{settings.SITE_URL}/settings/organization-details#organization-ai-consent",
                 **get_email_footer_context(organization=organization),
             },

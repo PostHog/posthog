@@ -56,6 +56,11 @@ class TestEmailFooterContext(BaseTest):
             "customer_id": "cus_123",
         }
 
+    def test_url_organization_name_falls_back_to_a_placeholder(self):
+        self.organization.name = "https://acme.example.com"
+        self.organization.save()
+        assert get_email_footer_context(organization=self.organization)["organization_name"] == "your organization"
+
     def test_blank_values_are_omitted_so_footer_renders_only_whats_present(self):
         self.organization.customer_id = None
         self.organization.save()

@@ -27,7 +27,7 @@ from prometheus_client import Counter
 
 from posthog.celery_queues import CeleryQueue
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers.email_utils import sanitize_email_string
+from posthog.helpers.email_utils import sanitize_display_name, sanitize_email_string
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.messaging import MessagingRecord
 
@@ -162,6 +162,10 @@ def get_email_footer_context(
     Context for the Customer.io transactional email footer: team_name, organization_name,
     and customer_id (the billing customer). Absent values are omitted, so the footer
     renders only what's present.
+
+    organization_name goes through `sanitize_display_name` so this is the only org name a
+    sender needs: legacy org names that are URLs degrade to a placeholder rather than
+    rendering as a link target in the email body.
     """
     if organization is None and team is not None:
         organization = team.organization
@@ -170,7 +174,11 @@ def get_email_footer_context(
         context["team_name"] = team.name
     if organization is not None:
         if organization.name:
-            context["organization_name"] = organization.name
+            context["organization_name"] = sanitize_display_name(
+                organization.name,
+                fallback="your organization",
+                context={"helper": "get_email_footer_context", "field": "organization_name"},
+            )
         if organization.customer_id:
             context["customer_id"] = organization.customer_id
     return context
