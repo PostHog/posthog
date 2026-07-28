@@ -158,7 +158,7 @@ class TestValidateCredentials:
 
 class TestApiVersionDispatch:
     # EmailOctopus serves every version from the one REST host, so both supported labels — and any
-    # undeclared pin honored verbatim by resolve_api_version — must resolve to it.
+    # label the base-URL lookup is handed without going through resolve_api_version — must resolve to it.
     @parameterized.expand([("v1",), ("v2",), ("some-undeclared-label",)])
     def test_base_url_resolves_to_rest_host(self, api_version: str) -> None:
         assert _base_url_for_version(api_version) == BASE

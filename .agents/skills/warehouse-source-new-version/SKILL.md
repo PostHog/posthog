@@ -58,6 +58,22 @@ Add it when any of these hold:
 5. **Tests**: extend the source's tests so both the old and new versions are exercised — at minimum that the version label reaches the client/request layer for each supported version (mock the boundary; parameterize over versions). The registry invariant test picks up declaration mistakes automatically. Don't re-test the base-class `resolve_api_version` contract (`test_source_versions.py` covers every source). When versions diverge, shape fixtures per version from the vendor docs — a v1-shaped mock under a v2 pin proves nothing.
 6. **One PR per source.** Conventional title: `feat(warehouse_sources): support <vendor> API version <label>` — the scope is always `warehouse_sources` (the product), never the source dir/vendor name.
 
+## Deploy ordering when the version needs a vendor SDK bump
+
+Web pods and the data-imports Temporal workers do not roll at the same time, so for a stretch of every deploy the new image is stamping rows the old image has to serve.
+The API create path stamps `default_version` onto new sources at creation time, so a default flip is visible in Postgres the moment the first web pod rolls — while workers can still be minutes away from running that code.
+
+That only bites when the new version needs a **new vendor SDK package** — a pinned dependency that ships per-version modules, like `google-ads` — because the old workers then have no module for the stamped label and fail on a local import instead of at the vendor.
+When the version is just a header or URL segment, a pinned label the old code doesn't declare resolves back to the old `default_version` and the skew is invisible.
+
+So when the version bump comes with an SDK bump, split it across two deploys:
+
+1. **Ship the SDK bump first** — the dependency change, plus `supported_versions` gaining the new label, with `default_version` left alone. Nothing is stamped with the new version yet, and both old and new images can serve every pin in the database.
+2. **Flip `default_version` in a follow-up deploy**, once the first one has fully rolled out.
+
+Do not put the dependency bump and the `default_version` flip in one PR.
+`resolve_api_version` falls back to `default_version` for a pin the running build doesn't declare, which stops this from becoming a hard failure, but the fallback means those sources sync and discover under the *old* version until the workers catch up — correct, and still not what you asked for.
+
 ## Deprecating a version
 
 1. Implement the newer version first (steps above) if not already supported.
@@ -69,7 +85,7 @@ Add it when any of these hold:
 
 ## Pinning semantics (do not break these)
 
-- `source.resolve_api_version(pinned)` honors a present pin verbatim — even one no longer declared — because silently moving a customer to another version is the failure mode this framework prevents. Empty string / NULL fall back to the source class's own `default_version`.
+- `source.resolve_api_version(pinned)` honors a pin that appears in the running build's `supported_versions` verbatim, because silently moving a customer to another version is the failure mode this framework prevents. Empty string / NULL fall back to the source class's own `default_version` — and so does a label this build doesn't declare, since there is no request path for it here and handing it to a vendor SDK fails locally rather than at the vendor. Don't "fix" that fallback back into honor-verbatim: it is what keeps a not-yet-rolled worker serving a version it actually has (see the deploy ordering section).
 - The API create path (`_create_external_data_source` in `products/warehouse_sources/backend/presentation/views/external_data_source.py`) stamps `default_version`, and migration `0075_backfill_externaldatasource_api_version` backfilled pre-existing rows — so most rows carry a concrete pin. But `api_version` is nullable and direct-ORM creation paths that bypass the stamping (e.g. `seed_engineering_analytics.py`, and any future seeder/backfill/script) can leave it NULL, and a NULL pin resolves to `default_version` — so it follows a flip. Don't blanket-claim "every row is pinned, so a flip is safe"; verify the actual pin state for the source, and if a NULL cohort can exist, either back it out (written-not-run migration) or confirm the versions are request-identical.
 - Repinning a customer = updating `ExternalDataSource.api_version` (support runbook: "Updating a warehouse source to a new vendor API version" in the PostHog/runbooks repo).
 

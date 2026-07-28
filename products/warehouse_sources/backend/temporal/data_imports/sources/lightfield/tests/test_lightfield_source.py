@@ -138,7 +138,10 @@ class TestLightfieldSource:
     @parameterized.expand(
         [
             ("no_pin_uses_default", None, "2026-03-01"),
-            ("pin_honored_verbatim", "2027-01-01", "2027-01-01"),
+            ("supported_pin_honored", "2026-03-01", "2026-03-01"),
+            # A pin this build doesn't declare has no request path here, so it resolves to the
+            # default rather than being handed to Lightfield as-is.
+            ("undeclared_pin_falls_back", "2027-01-01", "2026-03-01"),
         ]
     )
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.lightfield.source.lightfield_source")

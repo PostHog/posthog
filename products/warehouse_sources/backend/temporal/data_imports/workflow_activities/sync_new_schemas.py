@@ -87,6 +87,14 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
             if any(pattern in error_msg for pattern in non_retryable_errors):
                 logger.warning(f"Skipping schema discovery due to non-retryable source error: {error_msg}")
                 return
+            # Source-classified retryable errors (exhausted internal rate-limit backoff, a version
+            # the running build can't serve mid-rollout) are transient and self-recovering, so an
+            # activity retry storm buys nothing a best-effort path with a ~6h cadence needs — the
+            # next run picks the schemas up. Skip quietly here too rather than reporting a failure
+            # per source per attempt for the length of a deploy.
+            if any(pattern in error_msg for pattern in new_source.get_retryable_errors()):
+                logger.warning(f"Skipping schema discovery due to transient source error: {error_msg}")
+                return
             raise
 
         schemas_to_sync = {s.name: s.label for s in schemas}

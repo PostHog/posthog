@@ -54,4 +54,9 @@ def test_resolve_api_version_honors_pin_and_falls_back_to_default():
     source = ALL_SOURCES[SOURCE_TYPES[0]]
     assert source.resolve_api_version(None) == source.default_version
     assert source.resolve_api_version("") == source.default_version
-    assert source.resolve_api_version("some-undeclared-label") == "some-undeclared-label"
+    assert source.resolve_api_version(source.default_version) == source.default_version
+    # A label this build doesn't declare has no request path here, so it must never be handed
+    # back for a source to send: mid-deploy, already-rolled web pods stamp new sources with a
+    # `default_version` the not-yet-rolled workers have no code (or vendor SDK) for, and honoring
+    # it verbatim there fails locally on an import instead of falling back to a version that works.
+    assert source.resolve_api_version("some-undeclared-label") == source.default_version

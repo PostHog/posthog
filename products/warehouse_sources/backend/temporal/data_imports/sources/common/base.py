@@ -176,12 +176,28 @@ class _BaseSource(ABC, Generic[ConfigType]):
     def resolve_api_version(self, pinned: str | None) -> str:
         """Effective vendor API version for a source instance's stored pin.
 
-        A present pin is honored verbatim — even one no longer declared — because silently
+        A pin this code declares in `supported_versions` is honored verbatim, because silently
         moving a customer to another version is the failure mode this framework exists to
-        prevent; the vendor API is the real validator of the label. A missing/empty pin
-        falls back to `default_version`.
+        prevent. A missing/empty pin falls back to `default_version`, and so does a pin the
+        running code doesn't declare: an undeclared label has no request path here, so honoring
+        it hands a version this build cannot serve to a vendor SDK that may not even have the
+        module. That state is routine mid-deploy — already-rolled web pods stamp new sources with
+        a `default_version` the not-yet-rolled workers have no code (or SDK package) for — and
+        falling back keeps those workers on a version they can actually serve until they roll.
         """
-        return pinned or self.default_version
+        if not pinned:
+            return self.default_version
+
+        if pinned not in self.supported_versions:
+            logger.warning(
+                "Pinned vendor API version is not supported by this build, falling back to the default",
+                source_type=str(self.source_type),
+                pinned_api_version=pinned,
+                default_api_version=self.default_version,
+            )
+            return self.default_version
+
+        return pinned
 
     def get_version_deprecation(self, version: str | None) -> VersionDeprecation | None:
         """Deprecation metadata for the given pin (resolved through the default), if any."""

@@ -1,6 +1,7 @@
 import re
 import typing
 import datetime as dt
+import importlib
 import collections.abc
 from types import SimpleNamespace
 
@@ -1354,12 +1355,23 @@ class TestVersionDeclaration:
 
     @pytest.mark.parametrize(
         "pin, expected",
-        [("v23", "v23"), ("v24", "v24"), ("v25", "v25"), (None, "v25"), ("", "v25")],
+        [("v23", "v23"), ("v24", "v24"), ("v25", "v25"), (None, "v25"), ("", "v25"), ("v22", "v25")],
     )
     def test_resolve_api_version_honors_pin_and_defaults_to_v25(self, pin, expected):
-        # A present pin is honored verbatim so an existing v23/v24 source is never silently moved; an
-        # empty/missing pin falls back to the new v25 default that new sources are stamped with.
+        # A supported pin is honored so an existing v23/v24 source is never silently moved; an
+        # empty/missing pin falls back to the v25 default new sources are stamped with. A version
+        # this build doesn't support (v22) falls back too — the installed SDK has no modules for it,
+        # so sending it would fail on an import rather than reach Google.
         assert GoogleAdsSource().resolve_api_version(pin) == expected
+
+    @pytest.mark.parametrize("version", GoogleAdsSource.supported_versions)
+    def test_every_supported_version_is_installed_in_the_sdk(self, version):
+        # `resolve_api_version` guarantees only that the label it returns is declared here — the
+        # `google-ads` package still has to ship modules for it, or `get_service` raises
+        # ValueError('... does not exist in Google Ads API vNN.') for every sync and discovery run.
+        # Declaring a version ahead of the dependency bump (or reverting the bump on its own) is the
+        # way that happens, so keep the two in lockstep.
+        importlib.import_module(f"google.ads.googleads.{version}")
 
 
 class TestApiVersionDispatch:

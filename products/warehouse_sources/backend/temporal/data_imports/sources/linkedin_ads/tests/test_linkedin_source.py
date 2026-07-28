@@ -90,8 +90,9 @@ class TestLinkedInAdsSource:
             (LINKEDIN_ADS_VERSION_202607, "202607"),
             # No pin resolves to the new default.
             (None, "202607"),
-            # An undeclared pin is honored verbatim and passed straight through for LinkedIn to validate.
-            ("209901", "209901"),
+            # An undeclared pin has no header mapping in this build, so it resolves to the default
+            # rather than being passed straight through for LinkedIn to reject.
+            ("209901", "202607"),
         ],
     )
     @mock.patch(

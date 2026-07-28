@@ -135,6 +135,20 @@ class GoogleAdsSource(
             "Request had invalid authentication credentials": "Your Google Ads connection could not be authenticated. Please reconnect your Google Ads account.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # Raised when the running build is asked for an API version its installed `google-ads`
+        # package has no modules for: `GoogleAdsClient.get_service` turns the underlying
+        # ModuleNotFoundError into `ValueError('Specified service X" does not exist in Google Ads
+        # API vNN.')`. `resolve_api_version` now keeps a pin this build doesn't declare from
+        # reaching the SDK, so what's left is a workers-behind-web deploy skew — a new
+        # `default_version` is stamped onto sources before every worker is running the image that
+        # ships the matching SDK. That resolves itself the moment the rollout finishes, so let
+        # Temporal retry rather than paging it as a bug or disabling the customer's schema.
+        return {
+            "does not exist in Google Ads API",
+            "No module named 'google.ads.googleads",
+        }
+
     # TODO: clean up google ads source to not have two auth config options
     def parse_config(self, job_inputs: dict) -> GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig:
         if "google_ads_integration_id" in job_inputs.keys():

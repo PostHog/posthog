@@ -118,7 +118,7 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
 def resolve_endpoint_version(config: ChartHopEndpointConfig, api_version: str) -> tuple[str, Optional[str]]:
     """Effective ``(path template, incremental query param)`` for a resolved ``api_version`` pin.
 
-    A version without an override — including an unknown or legacy label honored verbatim by
+    A version without an override — including any label reaching here without going through
     ``resolve_api_version`` — falls back to the base (v1) request rather than being dropped.
     """
     override = config.version_overrides.get(api_version)

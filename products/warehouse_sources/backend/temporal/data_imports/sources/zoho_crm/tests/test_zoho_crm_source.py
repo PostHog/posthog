@@ -219,7 +219,11 @@ class TestZohoCRMSource:
         assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
 
     @mock.patch(f"{_SOURCE_MODULE}.zoho_crm_source")
-    def test_source_for_pipeline_honors_a_stored_version_pin(self, mock_source: mock.MagicMock) -> None:
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), _inputs("Leads", api_version="v7"))
+    def test_source_for_pipeline_resolves_the_stored_version_pin(self, mock_source: mock.MagicMock) -> None:
+        # v8 is the only version this build declares, so it is threaded through as-is while an
+        # undeclared pin (a version ahead of or behind the running code) resolves back to it.
+        self.source.source_for_pipeline(self.config, mock.MagicMock(), _inputs("Leads", api_version="v8"))
+        assert mock_source.call_args.kwargs["api_version"] == "v8"
 
-        assert mock_source.call_args.kwargs["api_version"] == "v7"
+        self.source.source_for_pipeline(self.config, mock.MagicMock(), _inputs("Leads", api_version="v7"))
+        assert mock_source.call_args.kwargs["api_version"] == "v8"

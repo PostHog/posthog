@@ -104,9 +104,12 @@ class TestZendeskSunshineSource:
     def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
         assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
 
-    def test_get_schemas_rejects_unsupported_version(self) -> None:
-        with pytest.raises(ValueError, match="Unsupported Zendesk Sunshine API version"):
-            self.source.get_schemas(self.config, self.team_id, api_version="v9")
+    def test_get_schemas_falls_back_to_default_on_unsupported_version(self) -> None:
+        # `resolve_api_version` keeps a pin this build doesn't declare from reaching the catalog
+        # lookup, so discovery runs under the default rather than failing the source outright — a
+        # pin ahead of the running code is a deploy in progress, not a broken source.
+        schemas = self.source.get_schemas(self.config, self.team_id, api_version="v9")
+        assert {s.name for s in schemas} == set(ENDPOINTS_BY_VERSION[ZENDESK_SUNSHINE_V2])
 
     def test_versions_declare_deprecated_v1_with_sunset(self) -> None:
         assert self.source.supported_versions == (ZENDESK_SUNSHINE_V1, ZENDESK_SUNSHINE_V2)
