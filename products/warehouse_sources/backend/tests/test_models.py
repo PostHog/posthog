@@ -748,6 +748,18 @@ def test_process_incremental_value_xid_returns_value_as_is() -> None:
             IncrementalFieldType.Date,
             date(2026, 1, 5),
         ),
+        # A bare digit-string cursor on a date/time-typed field (e.g. a ClickHouse column Arrow
+        # casts to String) crashed here: dateutil misreads it as a calendar year and overflows
+        # past datetime's year-9999 ceiling. Fall back to the raw integer instead of crashing.
+        ("20662", IncrementalFieldType.Timestamp, 20662),
+        ("20662", IncrementalFieldType.DateTime, 20662),
+        ("20662", IncrementalFieldType.Date, 20662),
+        # Longer digit runs overflow C's int range and raise `OverflowError` instead of
+        # `ParserError` - same fallback must catch both.
+        ("20662123456", IncrementalFieldType.DateTime, 20662123456),
+        # A genuine compact date string (YYYYMMDD) must still parse as a real date, not fall
+        # back to the raw-integer path.
+        ("20240115", IncrementalFieldType.Date, date(2024, 1, 15)),
     ],
 )
 def test_process_incremental_value_datetime_handles_epoch_numbers(value, field_type, expected) -> None:
