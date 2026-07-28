@@ -63,8 +63,8 @@ tools:
             or Owner. Change only the supplied trigger fields, alert copy, enabled state, snooze, or cooldown. Match
             threshold_percentage with relative_increase and threshold_value with absolute_value or absolute_increase.
             Optional destination_changes applies destination creation or complete-group deletion in the same backend
-            transaction as the configuration update. Repeating a request that creates a destination of the same type
-            is rejected, because an alert allows one destination group per type.
+            transaction as the configuration update. Repeating a request that creates a destination of the same type is
+            rejected, because an alert allows one destination group per type.
         feature_flag: billing-alerts
     billing-alerts-list:
         operation: billing_alerts_list
