@@ -11,8 +11,9 @@ use sqlx::types::Json;
 use sqlx::{FromRow, PgPool};
 
 use crate::domain::{
-    PinnedError, PinnedParticipation, PinnedParticipationState, PinnedRun, PinnedRunSnapshot,
-    RunId, TriggerKind, UtcMillis, ValidatedPinnedRun,
+    BehavioralShapeHash, BehavioralShapeHashError, PinnedError, PinnedParticipation,
+    PinnedParticipationState, PinnedRun, PinnedRunSnapshot, ReconcileTile, RunId, TriggerKind,
+    UtcMillis, ValidatedPinnedRun,
 };
 
 use super::{RenderedError, PERSISTED_ERROR_LIMIT};
@@ -51,6 +52,13 @@ const READ_RUN: &str = concat!(
     "\n    FROM cohort_backfill_runs",
     "\n    WHERE id = $1 AND backfill_kind = 'behavioral'\n"
 );
+
+const READ_ACTIVE_RECONCILE_PARTICIPATIONS: &str = r#"
+    SELECT team_id, cohort_id, behavioral_filters_shape_hash
+    FROM cohort_backfill_run_cohorts
+    WHERE run_id = $1 AND superseded_at IS NULL
+    ORDER BY cohort_id
+"#;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RunWarningNote {
@@ -180,9 +188,9 @@ impl SeedableRun {
     }
 
     pub async fn load_pinned(&self, pool: &PgPool) -> Result<ValidatedPinnedRun, RunError> {
-        let rows = sqlx::query_as::<_, ParticipationRow>(
+        let rows = sqlx::query_as::<_, PinnedParticipationRow>(
             r#"
-            SELECT team_id, cohort_id, filters_shape_hash, pinned_filters, superseded_at
+            SELECT team_id, cohort_id, pinned_filters, superseded_at
             FROM cohort_backfill_run_cohorts
             WHERE run_id = $1
             ORDER BY cohort_id
@@ -223,6 +231,75 @@ impl SeedableRun {
         };
         Ok(PinnedRun::validate(snapshot)?)
     }
+}
+
+/// A behavioral run proven safe to expand into reconcile control tiles. Construction validates
+/// the run state, tenant boundary, active participation set, and every persisted behavioral hash.
+#[derive(Debug, Clone)]
+pub struct ReconcileRun {
+    run_id: RunId,
+    status: RunStatus,
+    team_id: TeamId,
+    participations: Vec<ReconcileParticipation>,
+}
+
+impl ReconcileRun {
+    pub const fn run_id(&self) -> RunId {
+        self.run_id
+    }
+
+    pub const fn status(&self) -> RunStatus {
+        self.status
+    }
+
+    pub fn cohort_count(&self) -> usize {
+        self.participations.len()
+    }
+
+    pub fn tiles(&self) -> impl ExactSizeIterator<Item = ReconcileTile> + '_ {
+        self.participations.iter().map(|participation| {
+            ReconcileTile::new(
+                self.team_id,
+                participation.cohort_id,
+                participation.behavioral_filters_shape_hash.clone(),
+                self.run_id,
+            )
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ReconcileParticipation {
+    cohort_id: CohortId,
+    behavioral_filters_shape_hash: BehavioralShapeHash,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ReconcileRunError {
+    #[error(transparent)]
+    Run(#[from] RunError),
+    #[error(
+        "run {run_id:?} has status {status:?}; reconcile dispatch requires seeding or reconciling"
+    )]
+    Status { run_id: RunId, status: RunStatus },
+    #[error("run {0:?} has no active cohort participations to reconcile")]
+    NoActiveParticipations(RunId),
+    #[error("run {run_id:?} cohort {cohort_id:?} has an invalid behavioral shape hash")]
+    InvalidBehavioralShapeHash {
+        run_id: RunId,
+        cohort_id: CohortId,
+        #[source]
+        source: BehavioralShapeHashError,
+    },
+    #[error(
+        "run {run_id:?} team {expected_team_id} has cohort {cohort_id:?} stored under team {actual_team_id}"
+    )]
+    CrossTeamParticipation {
+        run_id: RunId,
+        cohort_id: CohortId,
+        expected_team_id: i32,
+        actual_team_id: i32,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -361,16 +438,18 @@ mod tests {
 }
 
 #[derive(Debug, FromRow)]
-struct ParticipationRow {
+struct PinnedParticipationRow {
     team_id: i32,
     cohort_id: i32,
-    /// B5 CAS-readiness / reconcile seam: the filters shape hash read from
-    /// `cohort_backfill_run_cohorts` for a future reconcile slice. Populated by Q1 (whose SQL stays
-    /// frozen) but not yet read, so the attr suppresses the dead-field lint until that slice lands.
-    #[allow(dead_code)]
-    filters_shape_hash: String,
     pinned_filters: Json<Value>,
     superseded_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, FromRow)]
+struct ReconcileParticipationRow {
+    team_id: i32,
+    cohort_id: i32,
+    behavioral_filters_shape_hash: String,
 }
 
 #[derive(Debug, FromRow)]
@@ -398,6 +477,60 @@ pub async fn discover_runs(
         }
     };
     rows.into_iter().map(DiscoveredRun::try_from).collect()
+}
+
+pub async fn load_reconcile_run(
+    pool: &PgPool,
+    run_id: RunId,
+) -> Result<ReconcileRun, ReconcileRunError> {
+    let run = read_run(pool, run_id).await?;
+    if !matches!(run.status, RunStatus::Seeding | RunStatus::Reconciling) {
+        return Err(ReconcileRunError::Status {
+            run_id,
+            status: run.status,
+        });
+    }
+
+    let rows = sqlx::query_as::<_, ReconcileParticipationRow>(READ_ACTIVE_RECONCILE_PARTICIPATIONS)
+        .bind(run_id)
+        .fetch_all(pool)
+        .await
+        .map_err(RunError::from)?;
+    if rows.is_empty() {
+        return Err(ReconcileRunError::NoActiveParticipations(run_id));
+    }
+
+    let mut participations = Vec::with_capacity(rows.len());
+    for row in rows {
+        let cohort_id = CohortId(row.cohort_id);
+        if row.team_id != run.team_id.0 {
+            return Err(ReconcileRunError::CrossTeamParticipation {
+                run_id,
+                cohort_id,
+                expected_team_id: run.team_id.0,
+                actual_team_id: row.team_id,
+            });
+        }
+        let behavioral_filters_shape_hash =
+            BehavioralShapeHash::parse(&row.behavioral_filters_shape_hash).map_err(|source| {
+                ReconcileRunError::InvalidBehavioralShapeHash {
+                    run_id,
+                    cohort_id,
+                    source,
+                }
+            })?;
+        participations.push(ReconcileParticipation {
+            cohort_id,
+            behavioral_filters_shape_hash,
+        });
+    }
+
+    Ok(ReconcileRun {
+        run_id,
+        status: run.status,
+        team_id: run.team_id,
+        participations,
+    })
 }
 
 pub async fn establish_boundary(

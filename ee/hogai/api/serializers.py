@@ -2,7 +2,7 @@ from typing import Any
 
 import pydantic
 from asgiref.sync import async_to_sync, sync_to_async
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from langgraph.graph.state import CompiledStateGraph
 from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
@@ -221,6 +221,9 @@ class TaskSerializer(DataclassSerializer):
         ]
 
 
+# Named explicitly: the inherited ``Meta.dataclass`` would otherwise emit this as a second
+# ``TaskDetailDTO`` component, colliding with (and clobbering) the tasks product's nested-run shape.
+@extend_schema_serializer(component_name="ConversationTask")
 class ConversationTaskSerializer(TaskSerializer):
     """Conversation envelope variant: ``latest_run`` is just the latest run's id, not the nested
     run detail. The frontend only needs the id to reconnect to sandbox logs, and emitting the id

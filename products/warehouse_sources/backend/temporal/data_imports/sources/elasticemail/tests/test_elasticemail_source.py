@@ -125,13 +125,17 @@ class TestResumableAndCanonical:
     def test_source_for_pipeline_plumbs_arguments(self) -> None:
         inputs = SimpleNamespace(
             schema_name="events",
+            team_id=1,
+            job_id="job",
             logger=MagicMock(),
             should_use_incremental_field=True,
             db_incremental_field_last_value="2026-01-01T00:00:00",
         )
+        manager = MagicMock()
+        manager.can_resume.return_value = False
         response = ElasticemailSource().source_for_pipeline(
             SimpleNamespace(api_key="key"),  # type: ignore[arg-type]
-            MagicMock(),
+            manager,
             inputs,  # type: ignore[arg-type]
         )
         assert response.name == "events"

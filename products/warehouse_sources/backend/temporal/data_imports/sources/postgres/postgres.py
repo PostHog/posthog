@@ -76,7 +76,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     and_join,
     render_psycopg_row_filter_conditions,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
+    PostgresSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import XminUnsupportedError
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.partitioned_tables import (
     build_partition_query,

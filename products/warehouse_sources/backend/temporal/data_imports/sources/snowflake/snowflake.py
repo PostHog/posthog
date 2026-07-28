@@ -50,7 +50,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     normalize_namespace,
     resolve_source_location,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SnowflakeSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.snowflake import (
+    SnowflakeSourceConfig,
+)
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 __all__ = [
@@ -537,7 +539,12 @@ class SnowflakeImplementation(
                 table_name=table_name,
                 exc_info=e,
             )
-            capture_exception(e)
+            # The table/schema was dropped, renamed, or its grant revoked after discovery —
+            # `SnowflakeSource.get_non_retryable_errors` already treats this exact phrase as
+            # user/upstream and non-actionable. Reporting it here would just be noise, since the
+            # pipeline already recovers via the None fallback above.
+            if "does not exist or not authorized" not in str(e):
+                capture_exception(e)
             return None
 
         column_index = next((i for i, row in enumerate(cursor.description) if row.name == "column_name"), -1)

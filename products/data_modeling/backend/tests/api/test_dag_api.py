@@ -1,5 +1,6 @@
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
 from rest_framework import status
 
 from products.data_modeling.backend.models import DAG, Node, NodeType
@@ -118,6 +119,50 @@ class TestDAGViewSet(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertFalse(DAG.objects.filter(team=self.team, name="PostHog Revenue Analytics").exists())
+
+    @parameterized.expand(
+        [
+            ("escape", "evil\x1b[2Kreplaced"),
+            ("carriage_return", "evil\rreplaced"),
+            ("newline", "evil\nreplaced"),
+            ("null", "evil\x00replaced"),
+            ("delete", "evil\x7freplaced"),
+        ]
+    )
+    def test_cannot_create_dag_with_control_characters_in_name(self, _name, dag_name):
+        # DAG names are echoed into management-command output and the confirmation prompt of
+        # destructive fleet tooling; a control character there rewrites what an operator reads
+        # before typing "y". NUL additionally reaches Postgres as a driver-level DataError (a 500)
+        # without this guard — the name is never queried back here for that reason.
+        before = DAG.objects.filter(team=self.team).count()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/data_modeling_dags/",
+            {"name": dag_name},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(DAG.objects.filter(team=self.team).count(), before)
+
+    def test_cannot_rename_dag_to_a_name_with_control_characters(self):
+        dag = DAG.objects.create(team=self.team, name="my_dag")
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/data_modeling_dags/{dag.id}/",
+            {"name": "my_dag\x1b[2Kevil"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        dag.refresh_from_db()
+        self.assertEqual(dag.name, "my_dag")
+
+    def test_ordinary_punctuation_in_a_name_is_still_allowed(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/data_modeling_dags/",
+            {"name": "Ünïcode — dbt/staging (v2)"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     def test_cannot_rename_dag_to_reserved_name(self):
         dag = DAG.objects.create(team=self.team, name="my_dag")

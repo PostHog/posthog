@@ -7,7 +7,9 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import { toPaginatedResponse } from '~/mocks/handlers'
-import { LLMPrompt, UserBasicType } from '~/types'
+import { UserBasicType } from '~/types'
+
+import { LLMPrompt } from './types'
 
 const MOCK_SECOND_USER: UserBasicType = {
     id: 179,
@@ -30,6 +32,9 @@ function createMockPrompt(overrides: Partial<LLMPrompt> & { name: string }): LLM
         latest_version: 1,
         version_count: 1,
         first_version_created_at: '2025-01-15T10:00:00Z',
+        activity_item_id: overrides.name,
+        version_description: null,
+        outline: [],
         ...overrides,
     }
 }
@@ -85,7 +90,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/environments/:team_id/llm_prompts/': toPaginatedResponse(MOCK_PROMPTS),
+                '/api/projects/:team_id/llm_prompts/': toPaginatedResponse(MOCK_PROMPTS),
             },
         }),
     ],
@@ -99,7 +104,7 @@ export const EmptyState: Story = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/environments/:team_id/llm_prompts/': toPaginatedResponse([]),
+                '/api/projects/:team_id/llm_prompts/': toPaginatedResponse([]),
             },
         }),
     ],

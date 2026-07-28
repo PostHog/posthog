@@ -28,6 +28,10 @@ from .enums import AttributeScope, FilterOp, MetricAggregation, MetricType
 # the clause count per request is hard-capped.
 MAX_CLAUSES_PER_QUERY = 10
 
+# Private-alpha gate. Every read surface (viewset, query runner, MCP tools)
+# must check the same flag, or one of them becomes a bypass.
+METRICS_FEATURE_FLAG = "metrics"
+
 
 @dataclass(frozen=True, slots=True)
 class MetricFilter:
@@ -238,8 +242,8 @@ class InvestigationChartSpec:
 @dataclass(frozen=True, slots=True)
 class TraceExemplar:
     """A pointer from a metric sample into a concrete trace at the anomaly, for
-    the metric->trace pivot. Populated by the trace-pivot primitive once the
-    `metric_samples` table is live; empty until then.
+    the metric->trace pivot. Trace/span ids are hex, matching the tracing
+    product's contract, so they can be passed straight to a trace URL.
     """
 
     trace_id: str

@@ -65,6 +65,7 @@ import {
 } from '~/types'
 
 import { SurveyBranchingFlowModal } from './branching-flow/SurveyBranchingFlowModal'
+import { SurveyUrlAudienceEstimate } from './components/SurveyUrlAudienceEstimate'
 import { SURVEY_TYPE_LABEL_MAP, SurveyMatchTypeLabels, defaultSurveyFieldValues } from './constants'
 import { COMMON_LANGUAGES, getBaseLanguage, getSurveyLanguageName } from './language'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
@@ -1581,6 +1582,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                       fullWidth
                                                                                   />
                                                                               </div>
+                                                                              <SurveyUrlAudienceEstimate />
                                                                           </LemonField.Pure>
                                                                           <LemonField.Pure
                                                                               label="Device types"
@@ -1752,7 +1754,10 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                       </>
                                                                   )}
                                                               </LemonField>
-                                                              <LemonField.Pure label="Audience filters">
+                                                              <LemonField.Pure
+                                                                  label="Audience filters"
+                                                                  info="User counts shown here estimate how many people match these filters across your project. The survey's actual reach is usually smaller, because display conditions like URL and device targeting still control where it appears."
+                                                              >
                                                                   <BindLogic
                                                                       logic={featureFlagLogic}
                                                                       props={{

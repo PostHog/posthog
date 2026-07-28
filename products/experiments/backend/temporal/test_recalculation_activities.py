@@ -27,6 +27,7 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.temporal.models import (
     CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS,
+    MAX_METRIC_ATTEMPTS,
     RecalculationProgressUpdate,
 )
 from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
@@ -61,9 +62,12 @@ def _calculate(
     query_to: str,
     metric_type: str = "primary",
     is_final_attempt: bool = True,
+    attempt: int = 1,
 ):
     with patch("products.experiments.backend.temporal.recalculation_logic.close_old_connections"):
-        return _calculate_raw(experiment_id, metric_uuid, recalculation_id, query_to, metric_type, is_final_attempt)
+        return _calculate_raw(
+            experiment_id, metric_uuid, recalculation_id, query_to, metric_type, is_final_attempt, attempt
+        )
 
 
 @pytest.mark.django_db(transaction=True)
@@ -266,6 +270,9 @@ class TestRecalculationActivities(BaseTest):
     def test_mark_completed_is_first_write_wins_on_retry(self):
         # Symmetric to mark_started: a retried finish activity must not re-stamp completed_at.
         recalc = self._recalc(self._experiment(flag_key="progress-retry-finish"))
+        # A hard-killed final attempt can orphan a retry entry; finishing the run must sweep it.
+        recalc.metric_retries = {"m1": {"attempt": 7, "max_attempts": 8}}
+        recalc.save(update_fields=["metric_retries"])
 
         def _finish() -> str | None:
             return _update(
@@ -278,6 +285,7 @@ class TestRecalculationActivities(BaseTest):
 
         _finish()
         recalc.refresh_from_db()
+        assert recalc.metric_retries == {}
         first_completed_at = recalc.completed_at
         first_status = recalc.status
 
@@ -454,6 +462,80 @@ class TestCalculateActivity(BaseTest):
 
     @parameterized.expand(
         [
+            # (name, exc, expected_error_type, expected_delay_seconds, expected_message) — backpressure uses
+            # the explicit next_retry_delay; a generic transient on attempt 2 follows the policy backoff
+            # (5 * 2^1). The generic exception carries a fake credential to lock in that raw exception text
+            # (which can embed the executed query, warehouse secrets included) never reaches the API field.
+            (
+                "backpressure",
+                ConcurrencyLimitExceeded("quota"),
+                "rate_limited",
+                60,
+                "The query was deferred because the cluster is at capacity.",
+            ),
+            (
+                "generic_transient",
+                RuntimeError("blip aws_access_key_id=AKIAFAKESECRET"),
+                "server_error",
+                10,
+                "The query failed with a server error.",
+            ),
+        ]
+    )
+    @freeze_time("2026-05-29T13:00:00Z")
+    def test_transient_attempt_records_retry_state_and_success_clears_it(
+        self, name: str, exc: Exception, expected_error_type: str, expected_delay_seconds: int, expected_message: str
+    ):
+        # The retry entry is what the UI shows between attempts; without it the metric looks stuck. It must
+        # carry the attempt counters and a next_retry_at estimate, and vanish once the metric resolves.
+        exp = self._experiment(flag_key=f"calc-retry-{name}", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+
+        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+            mock_runner.return_value.run.side_effect = exc
+            with pytest.raises((type(exc), ApplicationError)):
+                _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False, attempt=2)
+
+        recalc.refresh_from_db()
+        entry = recalc.metric_retries["m1"]
+        assert entry["attempt"] == 2
+        assert entry["max_attempts"] == MAX_METRIC_ATTEMPTS
+        assert entry["error_type"] == expected_error_type
+        assert entry["message"] == expected_message
+        assert "AKIAFAKESECRET" not in entry["message"]
+        next_retry_at = datetime.fromisoformat(entry["next_retry_at"])
+        assert (next_retry_at - timezone.now()).total_seconds() == expected_delay_seconds
+
+        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+            mock_runner.return_value.run.return_value.model_dump.return_value = {}
+            result = _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, attempt=3)
+
+        assert result.success is True
+        recalc.refresh_from_db()
+        assert recalc.metric_retries == {}
+
+    def test_terminal_failure_clears_retry_state(self):
+        # A metric that retried and then failed for good must not keep a stale "retrying" entry alongside
+        # its terminal error.
+        exp = self._experiment(flag_key="calc-retry-terminal", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+
+        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+            mock_runner.return_value.run.side_effect = RuntimeError("transient blip")
+            with pytest.raises(RuntimeError):
+                _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False, attempt=2)
+            recalc.refresh_from_db()
+            assert "m1" in recalc.metric_retries
+
+            with pytest.raises(RuntimeError):
+                _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=True, attempt=8)
+
+        recalc.refresh_from_db()
+        assert recalc.metric_retries == {}
+        assert "m1" in recalc.metric_errors
+
+    @parameterized.expand(
+        [
             ("org_quota", ConcurrencyLimitExceeded("org quota saturated")),
             ("cluster_at_capacity", ClickHouseAtCapacity()),
         ]
@@ -613,12 +695,18 @@ class TestCalculateActivity(BaseTest):
             result={"already": "computed"},
         )
         recalc = self._recalc(exp, metric_uuids=["m1"])
+        # A crash between a prior attempt's result write and retry cleanup lands on this path; the skip
+        # must still clear the entry so a completed metric can't keep reporting as retrying.
+        recalc.metric_retries = {"m1": {"attempt": 3, "max_attempts": 8}}
+        recalc.save(update_fields=["metric_retries"])
 
         with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
             result = _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
 
         mock_runner.assert_not_called()
         assert result.success is True
+        recalc.refresh_from_db()
+        assert recalc.metric_retries == {}
         # The existing row is left untouched: same id, same result.
         rows = ExperimentMetricResult.objects.filter(experiment=exp, metric_uuid="m1", query_to=query_to)
         assert rows.count() == 1

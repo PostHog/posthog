@@ -14,6 +14,7 @@ from products.cohorts.backend.parity.classifier import (
     AggregateSummary,
     CohortComparison,
 )
+from products.cohorts.backend.parity.fold import ReconcileRunCompleteness
 
 _VERDICT_ORDER = {VERDICT_FAIL: 0, VERDICT_WARMUP: 1, VERDICT_PASS: 2, VERDICT_SKIP: 3}
 
@@ -47,6 +48,18 @@ def format_notes(rows: Sequence[CohortComparison]) -> str:
         for note in r.notes:
             lines.append(f"  cohort {r.cohort_id}: {note}")
     return "\n".join(lines)
+
+
+def format_reconcile_notes(completeness: Sequence[ReconcileRunCompleteness]) -> tuple[str, ...]:
+    notes: list[str] = []
+    for run in sorted(completeness, key=lambda item: (item.run_id, item.cohort_id)):
+        partition_summary = (
+            f"{run.partitions_seen}/{run.expected_partitions}"
+            if run.complete
+            else f"partial {run.partitions_seen}/{run.expected_partitions}"
+        )
+        notes.append(f"reconcile run {run.run_id}: {partition_summary}")
+    return tuple(notes)
 
 
 def format_summary(summary: AggregateSummary) -> str:

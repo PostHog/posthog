@@ -20,6 +20,7 @@ import type { Breakdown, EventsNode, ExperimentMetric } from '~/queries/schema/s
 import { NodeKind } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
 
+import { MetricRetryDetails } from './MetricRetryState'
 import { MetricTitle } from './MetricTitle'
 import { getMetricTag } from './utils'
 
@@ -200,8 +201,9 @@ export const MetricHeader = ({
     const canAddBreakdown = (metric.breakdownFilter?.breakdowns || []).length < MAX_BREAKDOWNS
 
     const recalculationEnabled = useFeatureFlag('EXPERIMENTS_METRICS_RECALCULATION')
-    const { isMetricRecalculating } = useValues(experimentMetricsLogic({ experiment }))
+    const { isMetricRecalculating, metricRetries } = useValues(experimentMetricsLogic({ experiment }))
     const showRecalculatingTag = recalculationEnabled && isMetricRecalculating(metric.uuid)
+    const metricRetry = recalculationEnabled && metric.uuid ? metricRetries[metric.uuid] : undefined
 
     return (
         <div className="text-xs font-semibold flex flex-col justify-between h-full">
@@ -282,11 +284,24 @@ export const MetricHeader = ({
                     )}
                 </div>
                 <div className="flex flex-wrap items-center gap-1">
-                    {showRecalculatingTag && (
-                        <LemonTag type="highlight" size="medium" icon={<Spinner textColored />}>
-                            Recalculating
-                        </LemonTag>
-                    )}
+                    {(showRecalculatingTag || metricRetry) &&
+                        (metricRetry ? (
+                            <LemonDropdown
+                                placement="bottom-start"
+                                showArrow
+                                trigger="hover"
+                                closeOnClickInside={false}
+                                overlay={<MetricRetryDetails retry={metricRetry} className="max-w-100 p-2" />}
+                            >
+                                <LemonTag type="warning" size="medium" icon={<Spinner textColored />}>
+                                    Retry {metricRetry.attempt} of {metricRetry.max_attempts}
+                                </LemonTag>
+                            </LemonDropdown>
+                        ) : (
+                            <LemonTag type="highlight" size="medium" icon={<Spinner textColored />}>
+                                Recalculating
+                            </LemonTag>
+                        ))}
                     <LemonTag type="muted" size="small">
                         {getMetricTag(metric)}
                     </LemonTag>

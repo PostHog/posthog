@@ -21,7 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import KandjiSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kandji import KandjiSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.kandji.kandji import (
     kandji_source,
     validate_credentials as validate_kandji_credentials,
@@ -70,6 +70,7 @@ class KandjiSource(SimpleSource[KandjiSourceConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -88,7 +89,11 @@ class KandjiSource(SimpleSource[KandjiSourceConfig]):
         return schemas
 
     def validate_credentials(
-        self, config: KandjiSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: KandjiSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_kandji_credentials(
             api_token=config.api_token,

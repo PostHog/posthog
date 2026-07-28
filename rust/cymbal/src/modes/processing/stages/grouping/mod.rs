@@ -10,7 +10,10 @@ use crate::{
     app_context::AppContext,
     error::UnhandledError,
     metric_consts::GROUPING_STAGE,
-    stages::{grouping::fingerprint::FingerprintGenerator, pipeline::ExceptionEventPipelineItem},
+    stages::{
+        grouping::fingerprint::FingerprintGenerator,
+        pipeline::{FingerprintedPipelineItem, ResolvedPipelineItem},
+    },
     teams::TeamManager,
     types::{batch::Batch, operator::TeamId, stage::Stage},
 };
@@ -33,8 +36,8 @@ impl From<&Arc<AppContext>> for GroupingStage {
 }
 
 impl Stage for GroupingStage {
-    type Input = ExceptionEventPipelineItem;
-    type Output = ExceptionEventPipelineItem;
+    type Input = ResolvedPipelineItem;
+    type Output = FingerprintedPipelineItem;
 
     fn name(&self) -> &'static str {
         GROUPING_STAGE
@@ -44,6 +47,18 @@ impl Stage for GroupingStage {
         self,
         batch: Batch<Self::Input>,
     ) -> Result<Batch<Self::Output>, UnhandledError> {
-        batch.apply_operator(FingerprintGenerator, self).await
+        let operator = FingerprintGenerator;
+        let timing = common_metrics::timing_guard(operator.name(), &[]);
+        let output = batch
+            .apply_func(
+                move |item, context| {
+                    let operator = operator.clone();
+                    async move { operator.execute(item, context).await }
+                },
+                self,
+            )
+            .await?;
+        timing.label("outcome", "success");
+        Ok(output)
     }
 }

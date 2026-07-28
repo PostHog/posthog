@@ -15,6 +15,7 @@ from products.review_hog.backend.reviewer.tools.github_client import (
     GitHubAPIError,
     github_api_get_paginated,
     github_api_request,
+    is_app_bot_author,
 )
 
 logger = logging.getLogger(__name__)
@@ -209,8 +210,10 @@ def _format_issue_comment(finding: ReviewIssueFinding, verdict: ValidationVerdic
     """Format a finding + its verdict as an inline comment body.
 
     Leads with the title, then a line of colored severity/category badges (replacing the old
-    `Priority | Category | Lines` text meta); the four collapsed sections below are unchanged. Line
-    refs are omitted from the top — the comment is anchored inline and the lines live in the AI prompt.
+    `Priority | Category | Lines` text meta); four collapsed sections follow, the validator's verdict
+    first — it is the human-facing evidence, so the reading order is claim (title) → why it's real
+    (validation) → description / fix / AI prompt for whoever wants more. Line refs are omitted from
+    the top — the comment is anchored inline and the lines live in the AI prompt.
     """
     priority = effective_priority(finding.priority, verdict.adjusted_priority)
 
@@ -218,6 +221,14 @@ def _format_issue_comment(finding: ReviewIssueFinding, verdict: ValidationVerdic
         f"### {finding.title}",
         "",
         _finding_badge_line(priority, verdict.category),
+        "",
+        "<details>",
+        "<summary><strong>Why we think it's a valid issue</strong></summary>",
+        "<br>",
+        "",
+        verdict.argumentation,
+        "",
+        "</details>",
         "",
         "<details>",
         "<summary><strong>Issue description</strong></summary>",
@@ -232,14 +243,6 @@ def _format_issue_comment(finding: ReviewIssueFinding, verdict: ValidationVerdic
         "<br>",
         "",
         finding.suggestion,
-        "",
-        "</details>",
-        "",
-        "<details>",
-        "<summary><strong>Why we think it's a valid issue</strong></summary>",
-        "<br>",
-        "",
-        verdict.argumentation,
         "",
         "</details>",
         "",
@@ -327,11 +330,14 @@ def _review_already_posted(
     """True if a review carrying this run's `marker` is already on the PR (we posted, then crashed).
 
     Best-effort idempotency backstop: if the readback fails we proceed to post rather than silently
-    drop the review — the `published_head_sha` watermark still guards the common retry path.
+    drop the review — the `published_head_sha` watermark still guards the common retry path. Only
+    our own app-bot's reviews count (`is_app_bot_author`, shared with the status comment's marker
+    scan): on a public repo anyone can paste the marker, and a spoofed match would silently
+    suppress the publish.
     """
     try:
         return any(
-            marker in (review.get("body") or "")
+            is_app_bot_author(review.get("user")) and marker in (review.get("body") or "")
             for review in github_api_get_paginated(
                 f"/repos/{owner}/{repo}/pulls/{pr_number}/reviews",
                 token=token,

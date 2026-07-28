@@ -56,6 +56,8 @@ export interface dashboardSubscribeNudgeLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
     flagVariant: boolean | string | undefined
+    freeTierSubscriptionCount: number | null
+    freeTierSubscriptionCountLoading: boolean
     hasExistingSubscription: boolean | null
     hasExistingSubscriptionLoading: boolean
     hasSubscriptionsFeature: boolean
@@ -69,8 +71,6 @@ export interface dashboardSubscribeNudgeLogicValues {
     nudgeNotification: DashboardSubscribeNudgeResponseApi | null
     nudgeNotificationLoading: boolean
     showNudge: boolean
-    teamSubscriptionCount: number | null
-    teamSubscriptionCountLoading: boolean
     viewCount7d: number
 }
 
@@ -103,19 +103,19 @@ export interface dashboardSubscribeNudgeLogicActions {
         hasExistingSubscription: boolean
         payload?: unknown
     }
-    loadTeamSubscriptionCount: (_?: unknown) => unknown
-    loadTeamSubscriptionCountFailure: (
+    loadFreeTierSubscriptionCount: (_?: unknown) => unknown
+    loadFreeTierSubscriptionCountFailure: (
         error: string,
         errorObject?: any
     ) => {
         error: string
         errorObject?: any
     }
-    loadTeamSubscriptionCountSuccess: (
-        teamSubscriptionCount: number,
+    loadFreeTierSubscriptionCountSuccess: (
+        freeTierSubscriptionCount: number,
         payload?: unknown
     ) => {
-        teamSubscriptionCount: number
+        freeTierSubscriptionCount: number
         payload?: unknown
     }
     sendNudgeNotification: (_?: unknown) => unknown
@@ -151,7 +151,7 @@ export interface dashboardSubscribeNudgeLogicMeta {
             placement: DashboardPlacement
         ) => boolean
         hasSubscriptionsFeature: (
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
         ) => boolean
         isCandidate: (
             isPastViewThreshold: boolean,
@@ -159,7 +159,10 @@ export interface dashboardSubscribeNudgeLogicMeta {
             isNotified: boolean,
             isDashboardEligible: boolean
         ) => boolean
-        isWithinSubscriptionLimit: (hasSubscriptionsFeature: boolean, teamSubscriptionCount: number | null) => boolean
+        isWithinSubscriptionLimit: (
+            hasSubscriptionsFeature: boolean,
+            freeTierSubscriptionCount: number | null
+        ) => boolean
         isEligible: (
             isCandidate: boolean,
             hasExistingSubscription: boolean | null,
@@ -225,22 +228,17 @@ export const dashboardSubscribeNudgeLogic = kea<dashboardSubscribeNudgeLogicType
                 },
             },
         ],
-        // Team-wide subscription count, fetched only for free-tier candidates: those orgs can
-        // create subscriptions until SubscriptionFreeTierLimit.COUNT, and nudging someone already
-        // at the limit would push them straight into the create-form paywall.
-        teamSubscriptionCount: [
+        // This team-wide count is separate from the dashboard-specific subscription check above.
+        freeTierSubscriptionCount: [
             null as number | null,
             {
-                loadTeamSubscriptionCount: async (_?: unknown, breakpoint?: BreakPointFunction) => {
-                    // limit=1 keeps the payload tiny; `count` reflects the team's full total.
+                loadFreeTierSubscriptionCount: async (_?: unknown, breakpoint?: BreakPointFunction) => {
                     const response = await subscriptionsList(String(getCurrentTeamId()), { limit: 1 })
                     breakpoint?.()
                     return response.count ?? 0
                 },
             },
         ],
-        // Asks the backend to deliver the in-app nudge notification. The server dedupes per
-        // (user, dashboard) and reports whether a notification was actually created.
         nudgeNotification: [
             null as DashboardSubscribeNudgeResponseApi | null,
             {
@@ -305,10 +303,10 @@ export const dashboardSubscribeNudgeLogic = kea<dashboardSubscribeNudgeLogicType
         // asked and the backend is the hard gate), a proactive nudge fails closed on an unknown
         // count: don't advertise an action we can't confirm they can complete.
         isWithinSubscriptionLimit: [
-            (s) => [s.hasSubscriptionsFeature, s.teamSubscriptionCount],
-            (hasSubscriptionsFeature: boolean, teamSubscriptionCount: number | null): boolean =>
+            (s) => [s.hasSubscriptionsFeature, s.freeTierSubscriptionCount],
+            (hasSubscriptionsFeature: boolean, freeTierSubscriptionCount: number | null): boolean =>
                 hasSubscriptionsFeature ||
-                (teamSubscriptionCount !== null && !isFreeTierCreateAtLimit(teamSubscriptionCount)),
+                (freeTierSubscriptionCount !== null && !isFreeTierCreateAtLimit(freeTierSubscriptionCount)),
         ],
         isEligible: [
             (s) => [s.isCandidate, s.hasExistingSubscription, s.isWithinSubscriptionLimit],
@@ -344,10 +342,10 @@ export const dashboardSubscribeNudgeLogic = kea<dashboardSubscribeNudgeLogicType
             }
             if (
                 !values.hasSubscriptionsFeature &&
-                values.teamSubscriptionCount === null &&
-                !values.teamSubscriptionCountLoading
+                values.freeTierSubscriptionCount === null &&
+                !values.freeTierSubscriptionCountLoading
             ) {
-                actions.loadTeamSubscriptionCount()
+                actions.loadFreeTierSubscriptionCount()
             }
         },
         loadExistingSubscriptionSuccess: ({ hasExistingSubscription }) => {
@@ -367,7 +365,7 @@ export const dashboardSubscribeNudgeLogic = kea<dashboardSubscribeNudgeLogicType
                 error_message: error,
             })
         },
-        loadTeamSubscriptionCountFailure: ({ error, errorObject }) => {
+        loadFreeTierSubscriptionCountFailure: ({ error, errorObject }) => {
             // A failed count check silently excludes a free-tier user (fail closed) — capture it so
             // the readout can tell that apart from genuinely being at the limit.
             posthog.capture('dashboard subscribe nudge check failed', {
@@ -423,8 +421,8 @@ export const dashboardSubscribeNudgeLogic = kea<dashboardSubscribeNudgeLogicType
         if (values.hasExistingSubscription === null) {
             actions.loadExistingSubscription()
         }
-        if (!values.hasSubscriptionsFeature && values.teamSubscriptionCount === null) {
-            actions.loadTeamSubscriptionCount()
+        if (!values.hasSubscriptionsFeature && values.freeTierSubscriptionCount === null) {
+            actions.loadFreeTierSubscriptionCount()
         }
     }),
 ])

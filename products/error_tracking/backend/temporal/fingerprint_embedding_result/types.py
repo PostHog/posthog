@@ -9,6 +9,7 @@ class FingerprintEmbeddingResultInputs:
     timestamp: str
     model_name: str
     embedding: list[float]
+    source_issue_id: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)

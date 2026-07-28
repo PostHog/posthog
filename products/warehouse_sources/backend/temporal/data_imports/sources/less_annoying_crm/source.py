@@ -20,7 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lessannoyingcrm import (
     LessAnnoyingCRMSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.less_annoying_crm.less_annoying_crm import (
@@ -100,6 +100,7 @@ API keys can't be retrieved after creation, so store the key somewhere safe when
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -121,7 +122,11 @@ API keys can't be retrieved after creation, so store the key somewhere safe when
         return schemas
 
     def validate_credentials(
-        self, config: LessAnnoyingCRMSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: LessAnnoyingCRMSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_less_annoying_crm_credentials(config.api_key):
             return True, None
@@ -140,6 +145,8 @@ API keys can't be retrieved after creation, so store the key somewhere safe when
         return less_annoying_crm_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every LACRM endpoint is full refresh
         )

@@ -48,11 +48,15 @@ async fn put_handoff(
         phase,
         started_at: 0,
         handoff_id: format!("test-handoff-{partition}"),
+        freeze_quorum: None,
+        created_at_ms: 0,
+        phase_entered_at_ms: 0,
+        new_owner_address: None,
     };
-    store
-        .create_assignments_and_handoffs(&[], &[handoff])
-        .await
-        .expect("write handoff");
+    // Raw put on purpose: fixtures force arbitrary handoff states,
+    // including overwriting an existing one, which the guarded
+    // plan-application path rightly refuses.
+    store.put_handoff(&handoff).await.expect("write handoff");
 }
 
 /// Wait until the pod's recorded events contain `expected`.
@@ -384,11 +388,13 @@ async fn restarted_pod_rewarms_assigned_partitions() {
                 partition: 0,
                 owner: "phoenix-pod".to_string(),
                 status: AssignmentStatus::Active,
+                advertise_address: None,
             },
             PartitionAssignment {
                 partition: 1,
                 owner: "phoenix-pod".to_string(),
                 status: AssignmentStatus::Active,
+                advertise_address: None,
             },
         ])
         .await
@@ -427,6 +433,7 @@ async fn restarted_old_owner_serves_again_after_handoff_cancelled() {
             partition: 0,
             owner: "victim-pod".to_string(),
             status: AssignmentStatus::Active,
+            advertise_address: None,
         }])
         .await
         .expect("write assignment");
@@ -476,6 +483,7 @@ async fn restarted_old_owner_refences_when_handoff_in_warming() {
             partition: 0,
             owner: "frozen-pod".to_string(),
             status: AssignmentStatus::Active,
+            advertise_address: None,
         }])
         .await
         .expect("write assignment");
@@ -797,6 +805,7 @@ async fn dead_old_owner_handoff_advances_in_place_not_cleaned_up() {
                 registered_at: 0,
                 last_heartbeat: 0,
                 controller: None,
+                advertise_address: None,
             },
             lease,
         )
@@ -848,6 +857,7 @@ async fn dead_old_owner_handoff_advances_in_place_not_cleaned_up() {
                 registered_at: 0,
                 last_heartbeat: 0,
                 controller: None,
+                advertise_address: None,
             },
             bystander_lease,
         )
@@ -1314,17 +1324,19 @@ async fn late_joining_router_stashes_before_populating_table() {
 
     // Pre-existing state: an assignment for partition 0 and an in-flight
     // Freezing handoff moving it.
-    store
+    assert!(store
         .create_assignments_and_handoffs(
             &[PartitionAssignment {
                 partition: 0,
                 owner: "pod-old".to_string(),
                 status: AssignmentStatus::Active,
+                advertise_address: None,
             }],
+            &[],
             &[],
         )
         .await
-        .expect("write assignment");
+        .expect("write assignment"));
     put_handoff(
         &store,
         0,

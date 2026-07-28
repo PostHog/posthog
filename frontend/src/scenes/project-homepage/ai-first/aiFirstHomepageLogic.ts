@@ -12,10 +12,11 @@ import {
     capabilitiesForGrouping,
     capabilityGroupingFromVariant,
 } from 'scenes/max/maxCapabilities'
-import { maxLogic } from 'scenes/max/maxLogic'
+import { maxLogic, parseCommandString } from 'scenes/max/maxLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -24,7 +25,7 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { sceneLogic } from '~/scenes/sceneLogic'
 import { emptySceneParams } from '~/scenes/scenes'
 import { Scene, SceneTab } from '~/scenes/sceneTypes'
-import { DashboardBasicType } from '~/types'
+import { DashboardBasicType, SidePanelTab } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { Node } from '../../../queries/schema/schema-general'
@@ -473,7 +474,27 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
     })),
 
     urlToAction(({ actions, values }) => ({
-        [urls.projectHomepage()]: (_, searchParams) => {
+        [urls.projectHomepage()]: (_, searchParams, hashParams) => {
+            // A `#panel=max:<prompt>` link (e.g. app.posthog.com/#panel=max:...) means "open PostHog
+            // AI prefilled". Here the homepage already IS the full-scene PostHog AI, so consume the
+            // prompt into this scene instead of stacking a redundant Max side panel on top of it.
+            const panelHash = typeof hashParams.panel === 'string' ? hashParams.panel : undefined
+            if (panelHash) {
+                const [panel, ...rest] = panelHash.split(':')
+                if (panel === SidePanelTab.Max) {
+                    const { question } = parseCommandString(rest.join(':'))
+                    if (question) {
+                        actions.setQuestion(question)
+                    }
+                    // enterAiMode rewrites the URL to ?mode=ai (dropping the hash), and closeSidePanel
+                    // clears the panel hash too — so both undo the side panel that already opened and
+                    // stop it replaying on refresh.
+                    actions.enterAiMode('')
+                    sidePanelStateLogic.actions.closeSidePanel(SidePanelTab.Max)
+                    return
+                }
+            }
+
             const urlMode = (searchParams.mode as HomepageMode) || 'idle'
             const urlQuery = searchParams.q != null ? String(searchParams.q) : ''
             const urlChat = (searchParams.chat as string) || ''

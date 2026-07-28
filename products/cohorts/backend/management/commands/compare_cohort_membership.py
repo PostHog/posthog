@@ -24,9 +24,15 @@ from django.core.management.base import BaseCommand, CommandError, CommandParser
 
 from products.cohorts.backend.parity.classifier import ClassifierConfig, CohortComparison, classify_cohort, summarize
 from products.cohorts.backend.parity.eligibility import EMITTING_CLASSES, screen_team
-from products.cohorts.backend.parity.fold import fold_membership_changes
+from products.cohorts.backend.parity.fold import fold_membership_changes, reconcile_completeness_by_cohort
 from products.cohorts.backend.parity.kafka_io import DEFAULT_SHADOW_TOPIC, DrainStats, consumer_config, drain_topic
-from products.cohorts.backend.parity.report import format_notes, format_summary, format_table, to_json
+from products.cohorts.backend.parity.report import (
+    format_notes,
+    format_reconcile_notes,
+    format_summary,
+    format_table,
+    to_json,
+)
 from products.cohorts.backend.parity.snapshots import load_old_membership, load_realtime_cohorts, make_activity_probe
 
 SHADOW_TOPIC_RETENTION_DAYS = 7
@@ -172,8 +178,10 @@ class Command(BaseCommand):
         log(
             f"drained {drain_stats.consumed} messages from {drain_stats.partitions_read}/{drain_stats.partitions} "
             f"partitions; folded {fold_stats.folded} for team {team_id} across {len(fold_stats.cohorts_seen)} cohorts "
-            f"(dropped: {fold_stats.dropped_wrong_team} wrong-team, {fold_stats.dropped_before_since} pre-since, "
-            f"{fold_stats.dropped_malformed} malformed, {drain_stats.undecodable} undecodable)"
+            f"({fold_stats.reconcile_markers_recorded} reconcile markers; "
+            f"dropped: {fold_stats.dropped_wrong_team} wrong-team, {fold_stats.dropped_before_since} pre-since, "
+            f"{fold_stats.dropped_malformed} malformed, {drain_stats.undecodable} undecodable; "
+            f"by origin: {dict(sorted(fold_stats.folded_by_origin.items()))})"
         )
 
         warnings, infos = _collect_warnings(drain_stats, fold_stats.cohorts_seen - set(screened), since, now)
@@ -189,6 +197,7 @@ class Command(BaseCommand):
             classify=not options["no_classify"],
             activity_probe=make_activity_probe(team_id),
         )
+        completeness_by_cohort = reconcile_completeness_by_cohort(fold_stats)
         rows: list[CohortComparison] = []
         for cid in sorted(selected_ids):
             s = screened[cid]
@@ -201,6 +210,7 @@ class Command(BaseCommand):
                     new_state=new_state.get(cid, {}),
                     last_realtime_calculation_at=last_calc[cid],
                     config=classifier_config,
+                    notes=format_reconcile_notes(completeness_by_cohort.get(cid, ())),
                 )
             )
 

@@ -18,6 +18,16 @@ from uuid import UUID
 from pydantic.dataclasses import dataclass
 
 
+class AppRuntimeError(Exception):
+    pass
+
+
+class AppRuntimeConcurrencyError(AppRuntimeError):
+    """Raised when a lifecycle action collides with one already in flight."""
+
+    pass
+
+
 @dataclass(frozen=True)
 class StreamlitAppUserInfo:
     """Lightweight user info for display purposes. Mirrors core UserBasicSerializer."""

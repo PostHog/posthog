@@ -1,17 +1,19 @@
 from typing import Optional, cast
 
+import requests
+
 from posthog.schema import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
+    SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
     SuggestedTable,
 )
 
 from posthog.exceptions_capture import capture_exception
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, OauthIntegration
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
     SourceInputs,
@@ -25,16 +27,23 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccount,
+    IntegrationAccountListingError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import OAuthMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SnapchatAdsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.snapchatads import (
+    SnapchatAdsSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.settings import SNAPCHAT_ADS_CONFIG
 from products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.snapchat_ads import (
     SnapchatResumeConfig,
     snapchat_ads_source,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.utils import list_ad_accounts
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -80,19 +89,18 @@ class SnapchatAdsSource(ResumableSource[SnapchatAdsSourceConfig, SnapchatResumeC
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldInputConfig(
-                        name="ad_account_id",
-                        label="Snapchat Ads Ad Account ID",
-                        type=SourceFieldInputConfigType.TEXT,
-                        required=True,
-                        placeholder="Your Snapchat Ads ad account ID",
-                        secret=False,
-                    ),
                     SourceFieldOauthConfig(
                         name="snapchat_integration_id",
                         label="Snapchat Ads account",
                         required=True,
                         kind="snapchat",
+                    ),
+                    SourceFieldOauthAccountSelectConfig(
+                        name="ad_account_id",
+                        label="Snapchat Ads Ad Account ID",
+                        integrationField="snapchat_integration_id",
+                        integrationKind="snapchat",
+                        required=True,
                     ),
                 ],
             ),
@@ -108,8 +116,54 @@ class SnapchatAdsSource(ResumableSource[SnapchatAdsSourceConfig, SnapchatResumeC
             ],
         )
 
+    def get_oauth_accounts(
+        self, integration_id: int, team_id: int, search: str | None = None
+    ) -> list[IntegrationAccount]:
+        # Snapchat ad accounts are few, so `search` is ignored here and the endpoint filters the list.
+        try:
+            integration = self.get_oauth_integration(integration_id, team_id)
+        except ValueError as e:
+            raise IntegrationAccountListingError(
+                "The linked Snapchat Ads integration could not be found. "
+                "Please reconnect your Snapchat Ads integration."
+            ) from e
+
+        oauth = OauthIntegration(integration)
+        if integration.errors != ERROR_TOKEN_REFRESH_FAILED and oauth.access_token_expired():
+            oauth.refresh_access_token()
+        if integration.errors == ERROR_TOKEN_REFRESH_FAILED or not integration.access_token:
+            raise IntegrationAccountListingError(
+                "Could not refresh the Snapchat Ads credentials. Please reconnect your Snapchat Ads integration."
+            )
+
+        try:
+            accounts = list_ad_accounts(integration.access_token)
+        except requests.HTTPError as e:
+            status_code = e.response.status_code if e.response is not None else None
+            if status_code not in (401, 403):
+                # Not a credential problem the user can fix — surface it.
+                raise
+            raise IntegrationAccountListingError(
+                "Snapchat rejected the credentials for this integration. Please reconnect your Snapchat Ads "
+                "integration and make sure the connected account can access your ad accounts."
+            ) from e
+
+        return [
+            IntegrationAccount(
+                value=account["id"],
+                display_name=account.get("name") or "Unnamed account",
+                badges=(account["status"].capitalize(),) if account.get("status") else (),
+                group=organization_name,
+            )
+            for account, organization_name in accounts
+        ]
+
     def validate_credentials(
-        self, config: SnapchatAdsSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: SnapchatAdsSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if not config.ad_account_id or not config.snapchat_integration_id:
             return False, "Ad Account ID and Snapchat Ads integration are required"
@@ -128,6 +182,7 @@ class SnapchatAdsSource(ResumableSource[SnapchatAdsSourceConfig, SnapchatResumeC
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(

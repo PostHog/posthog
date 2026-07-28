@@ -1,10 +1,8 @@
 import dataclasses
-from collections.abc import Iterator
-from typing import Any
+from collections.abc import Callable
+from typing import Any, Optional
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.baseten.settings import (
@@ -12,254 +10,288 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.baseten.se
     BasetenEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+    rest_api_resources,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
+    SinglePagePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    Endpoint,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 
 BASETEN_BASE_URL = "https://api.baseten.co"
 # Cursor-paginated endpoints (users, model_apis) accept a `limit`; the entity endpoints ignore it.
 PAGE_SIZE = 100
-REQUEST_TIMEOUT = 60
-
-
-class BasetenRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
 class BasetenResumeConfig:
     # Cursor for the current page of a cursor-paginated endpoint (users, model_apis).
     cursor: str | None = None
-    # For fan-out endpoints: the next parent id to process. A stable id (not a positional index) so
-    # parents added/removed between a crash and the retry can't resume us into the wrong parent.
+    # Legacy fan-out bookmark (next parent id) from the pre-rest_source implementation. Kept so
+    # previously saved states still parse; no longer written. A legacy bookmark can't be translated
+    # into `fanout_state`, so such a resume restarts the fan-out from the top — these are
+    # full-refresh tables, so at worst rows are re-appended once.
     parent_id: str | None = None
+    # Framework fan-out checkpoint: {"completed": [child_path, ...], "current": ..., "child_state": ...}.
+    fanout_state: dict[str, Any] | None = None
 
 
-def _headers(api_key: str) -> dict[str, str]:
+class BasetenCursorPaginator(BasePaginator):
+    """Cursor+limit pagination: {"items": [...], "pagination": {"has_more": bool, "cursor": str}}.
+
+    `has_more` is authoritative — the API may still echo a cursor on the terminal page, so a plain
+    cursor-path paginator could loop; only follow the cursor while `has_more` is true.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._cursor: Optional[str] = None
+
+    def _inject(self, request: Request) -> None:
+        if request.params is None:
+            request.params = {}
+        request.params["cursor"] = self._cursor
+
+    def init_request(self, request: Request) -> None:
+        # Apply a seeded resume cursor to the first request.
+        if self._cursor is not None:
+            self._inject(request)
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        try:
+            pagination = response.json().get("pagination") or {}
+        except Exception:
+            pagination = {}
+        next_cursor = pagination.get("cursor") if pagination.get("has_more") else None
+        if next_cursor:
+            self._cursor = next_cursor
+            self._has_next_page = True
+        else:
+            self._has_next_page = False
+
+    def update_request(self, request: Request) -> None:
+        if self._cursor is not None:
+            self._inject(request)
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        return {"cursor": self._cursor} if self._has_next_page and self._cursor is not None else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        cursor = state.get("cursor")
+        if cursor is not None:
+            self._cursor = cursor
+            self._has_next_page = True
+
+
+def _client_config(api_key: str) -> ClientConfig:
+    # Auth (Bearer) goes through the framework auth config so the key is redacted from logs and
+    # captured samples; only the non-secret Accept header is set here.
     return {
-        "Authorization": f"Bearer {api_key}",
-        "Accept": "application/json",
+        "base_url": BASETEN_BASE_URL,
+        "headers": {"Accept": "application/json"},
+        "auth": {"type": "bearer", "token": api_key},
     }
 
 
-def _get_session(api_key: str) -> requests.Session:
-    # Redact the key everywhere the tracked transport might surface it (logged URLs, captured
-    # samples). The `Authorization` header is already dropped wholesale by the sampler, but masking
-    # the literal value is cheap defense-in-depth in case it ever lands in an error body or URL.
-    return make_tracked_session(redact_values=(api_key,))
+def _flatten_map(flatten_key: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    """Lift a nested object (e.g. instance_type_prices' `instance_type`) up into the root."""
+
+    def _map(row: dict[str, Any]) -> dict[str, Any]:
+        if isinstance(row.get(flatten_key), dict):
+            nested = row.pop(flatten_key)
+            # Root-level siblings (e.g. `price`) take precedence over nested keys on collision.
+            return {**nested, **row}
+        return row
+
+    return _map
 
 
-@retry(
-    retry=retry_if_exception_type(
-        (
-            BasetenRetryableError,
-            requests.ReadTimeout,
-            requests.ConnectionError,
-            requests.exceptions.ChunkedEncodingError,
-        )
-    ),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch(
-    session: requests.Session,
-    url: str,
-    headers: dict[str, str],
-    params: dict[str, Any] | None,
-    logger: FilteringBoundLogger,
-) -> dict[str, Any]:
-    response = session.get(url, headers=headers, params=params, timeout=REQUEST_TIMEOUT)
+def _rename_parent_fields_map(
+    parent_name: str, include_from_parent_fields: dict[str, str]
+) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    """Rename the framework's `_<parent>_<field>` injected columns to the original child columns."""
+    key_map = {f"_{parent_name}_{src}": dst for src, dst in include_from_parent_fields.items()}
 
-    # 429 responses carry a `retry_after` seconds hint; exponential backoff subsumes it without us
-    # having to sleep here. 5xx are transient too.
-    if response.status_code == 429 or response.status_code >= 500:
-        raise BasetenRetryableError(f"Baseten API error (retryable): status={response.status_code}, url={url}")
+    def _map(row: dict[str, Any]) -> dict[str, Any]:
+        for prefixed_key, target_key in key_map.items():
+            if prefixed_key in row:
+                row[target_key] = row.pop(prefixed_key)
+        return row
 
-    if not response.ok:
-        # 404 is expected during fan-out when a parent resource is deleted mid-sync; caller handles it.
-        # Log only status + url — upstream error bodies can echo workspace metadata or secret-adjacent
-        # data, so we never persist `response.text`.
-        log = logger.warning if response.status_code == 404 else logger.error
-        log(f"Baseten API error: status={response.status_code}, url={url}")
-        response.raise_for_status()
+    return _map
 
-    return response.json()
+
+def _build_flat_resource(
+    api_key: str,
+    config: BasetenEndpointConfig,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[BasetenResumeConfig],
+) -> Resource:
+    """Top-level endpoint: either a single unpaginated request or cursor+limit pagination."""
+    endpoint: Endpoint = {
+        "path": config.path,
+        # Missing data key yields 0 rows (matching the API contract that the key is always present
+        # on success); an empty array is a legit zero-row response either way.
+        "data_selector": config.data_key,
+    }
+
+    resume_hook: Optional[Callable[[Optional[dict[str, Any]]], None]] = None
+    initial_paginator_state: Optional[dict[str, Any]] = None
+
+    if config.paginated:
+        endpoint["params"] = {"limit": PAGE_SIZE}
+        endpoint["paginator"] = BasetenCursorPaginator()
+
+        if resumable_source_manager.can_resume():
+            resume = resumable_source_manager.load_state()
+            if resume is not None and resume.cursor is not None:
+                initial_paginator_state = {"cursor": resume.cursor}
+
+        def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            # Persist only when a next page remains; saved AFTER a page is yielded so a crash
+            # re-yields the last page rather than skipping it. These are full-refresh tables
+            # (append writes, no primary-key merge), so a resumed run can re-append at most the
+            # one in-flight page — bounded, and cleared by the next clean full refresh.
+            if state and state.get("cursor"):
+                resumable_source_manager.save_state(BasetenResumeConfig(cursor=state["cursor"]))
+
+        resume_hook = save_checkpoint
+    else:
+        endpoint["paginator"] = SinglePagePaginator()
+
+    resource_config: EndpointResource = {"name": config.name, "endpoint": endpoint}
+    if config.flatten_key:
+        resource_config["data_map"] = _flatten_map(config.flatten_key)
+
+    rest_config: RESTAPIConfig = {"client": _client_config(api_key), "resources": [resource_config]}
+    return rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=resume_hook,
+        initial_paginator_state=initial_paginator_state,
+    )
+
+
+def _build_fan_out_resource(
+    api_key: str,
+    config: BasetenEndpointConfig,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[BasetenResumeConfig],
+) -> Resource:
+    """Iterate an unpaginated parent list and fetch this child endpoint once per parent row."""
+    assert config.fan_out_parent is not None
+    parent_config = BASETEN_ENDPOINTS[config.fan_out_parent]
+    include_from_parent_fields = config.fan_out_include_parent_fields or {}
+
+    parent_resource: EndpointResource = {
+        "name": parent_config.name,
+        "endpoint": {
+            "path": parent_config.path,
+            "data_selector": parent_config.data_key,
+            "paginator": SinglePagePaginator(),
+        },
+    }
+    child_resource: EndpointResource = {
+        "name": config.name,
+        "endpoint": {
+            "path": config.path,
+            "data_selector": config.data_key,
+            "paginator": SinglePagePaginator(),
+            "params": {
+                config.fan_out_path_param: {
+                    "type": "resolve",
+                    "resource": parent_config.name,
+                    "field": config.fan_out_parent_field,
+                },
+            },
+            # A parent deleted between enumeration and the child fetch 404s — skip it rather than
+            # fail the whole sync. 429/5xx are retried by the client before hooks run, and any
+            # other 4xx still raises.
+            "response_actions": [{"status_code": 404, "action": "ignore"}],
+        },
+        # Copies parent context onto each child row so the linkage column is always present (and
+        # the composite primary key stays unique table-wide).
+        "include_from_parent": list(include_from_parent_fields),
+        "data_map": _rename_parent_fields_map(parent_config.name, include_from_parent_fields),
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.fanout_state is not None:
+            initial_paginator_state = resume.fanout_state
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # The framework checkpoints after each parent completes; a resumed run re-fetches the
+        # (small) parent list and skips parents already fully synced. Full-refresh tables, so a
+        # crash mid-parent can at most re-append that parent's children — bounded, and cleared by
+        # the next clean full refresh.
+        if state:
+            resumable_source_manager.save_state(BasetenResumeConfig(fanout_state=state))
+
+    rest_config: RESTAPIConfig = {
+        "client": _client_config(api_key),
+        "resources": [parent_resource, child_resource],
+    }
+    resources = rest_api_resources(
+        rest_config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+    parent = next(r for r in resources if r.name == parent_config.name)
+    child = next(r for r in resources if r.name == config.name)
+
+    # Drop parents missing the fan-out id. Stringifying a missing id would build a bogus child path
+    # (e.g. `/v1/models/None/deployments`) and could sync child rows keyed to a literal "None".
+    parent.add_filter(lambda item: item.get(config.fan_out_parent_field) not in (None, ""))
+
+    return child
 
 
 def validate_credentials(api_key: str) -> bool:
     # /v1/users/me is the cheapest workspace-scoped probe and doesn't depend on any resource existing.
-    url = f"{BASETEN_BASE_URL}/v1/users/me"
-    try:
-        response = _get_session(api_key).get(url, headers=_headers(api_key), timeout=10)
-        return response.status_code == 200
-    except Exception:
-        return False
-
-
-def _flatten_row(item: dict[str, Any], flatten_key: str | None) -> dict[str, Any]:
-    """Lift a nested object (e.g. instance_type_prices' `instance_type`) up into the root."""
-    if flatten_key and isinstance(item.get(flatten_key), dict):
-        nested = item.pop(flatten_key)
-        # Root-level siblings (e.g. `price`) take precedence over nested keys on collision.
-        return {**nested, **item}
-    return item
-
-
-def _top_level_rows(
-    session: requests.Session,
-    headers: dict[str, str],
-    config: BasetenEndpointConfig,
-    logger: FilteringBoundLogger,
-) -> Iterator[list[dict[str, Any]]]:
-    """Single unpaginated request returning a full array under `config.data_key`."""
-    data = _fetch(session, f"{BASETEN_BASE_URL}{config.path}", headers, None, logger)
-    rows = [_flatten_row(item, config.flatten_key) for item in data.get(config.data_key, [])]
-    if rows:
-        yield rows
-
-
-def _paginated_rows(
-    session: requests.Session,
-    headers: dict[str, str],
-    config: BasetenEndpointConfig,
-    manager: ResumableSourceManager[BasetenResumeConfig],
-    logger: FilteringBoundLogger,
-) -> Iterator[list[dict[str, Any]]]:
-    """Cursor+limit pagination: {"items": [...], "pagination": {"has_more": bool, "cursor": str}}."""
-    resume = manager.load_state() if manager.can_resume() else None
-    cursor = resume.cursor if resume else None
-
-    url = f"{BASETEN_BASE_URL}{config.path}"
-    while True:
-        params: dict[str, Any] = {"limit": PAGE_SIZE}
-        if cursor:
-            params["cursor"] = cursor
-
-        data = _fetch(session, url, headers, params, logger)
-        rows = data.get(config.data_key, [])
-        if rows:
-            yield rows
-
-        pagination = data.get("pagination") or {}
-        next_cursor = pagination.get("cursor") if pagination.get("has_more") else None
-        if not next_cursor:
-            break
-
-        # Save AFTER yielding so a crash re-yields the last page rather than skipping it. These are
-        # full-refresh tables (append writes, no primary-key merge), so a resumed run can re-append
-        # at most the one in-flight page — bounded, and cleared by the next clean full refresh. We
-        # prefer that transient duplicate over the alternative (save-before-yield), which would drop
-        # a page entirely on a crash in the same window.
-        manager.save_state(BasetenResumeConfig(cursor=next_cursor))
-        cursor = next_cursor
-
-
-def _iter_parents(
-    session: requests.Session,
-    headers: dict[str, str],
-    parent_config: BasetenEndpointConfig,
-    logger: FilteringBoundLogger,
-) -> list[dict[str, Any]]:
-    """Fetch the (unpaginated) parent list for a fan-out."""
-    data = _fetch(session, f"{BASETEN_BASE_URL}{parent_config.path}", headers, None, logger)
-    return list(data.get(parent_config.data_key, []))
-
-
-def _fan_out_rows(
-    session: requests.Session,
-    headers: dict[str, str],
-    config: BasetenEndpointConfig,
-    manager: ResumableSourceManager[BasetenResumeConfig],
-    logger: FilteringBoundLogger,
-) -> Iterator[list[dict[str, Any]]]:
-    """Iterate a parent resource and fetch this child endpoint once per parent row."""
-    assert config.fan_out_parent is not None
-    parent_config = BASETEN_ENDPOINTS[config.fan_out_parent]
-    parents = _iter_parents(session, headers, parent_config, logger)
-
-    # Drop parents missing the fan-out id. Stringifying a missing id would build a bogus child path
-    # (e.g. `/v1/models/None/deployments`) and could sync child rows keyed to a literal "None".
-    parented: list[tuple[str, dict[str, Any]]] = []
-    for parent in parents:
-        raw_id = parent.get(config.fan_out_parent_field)
-        if raw_id is None or raw_id == "":
-            logger.warning(f"Baseten: skipping {config.fan_out_parent} without {config.fan_out_parent_field}")
-            continue
-        parented.append((str(raw_id), parent))
-    parent_ids = [pid for pid, _ in parented]
-
-    # Resolve the saved parent bookmark to the slice still to process. If the bookmarked parent no
-    # longer exists (deleted between runs), start over. These are full-refresh tables, so re-pulling
-    # a parent's children can at most re-append them (bounded, cleared by the next clean full refresh).
-    resume = manager.load_state() if manager.can_resume() else None
-    remaining = parented
-    if resume is not None and resume.parent_id is not None and resume.parent_id in parent_ids:
-        start = parent_ids.index(resume.parent_id)
-        remaining = remaining[start:]
-        logger.debug(f"Baseten: resuming {config.name} from parent_id={resume.parent_id}")
-
-    for index, (parent_id, parent) in enumerate(remaining):
-        child_path = config.path.replace(f"{{{config.fan_out_path_param}}}", parent_id)
-        try:
-            data = _fetch(session, f"{BASETEN_BASE_URL}{child_path}", headers, None, logger)
-        except requests.HTTPError as exc:
-            # A parent deleted between enumeration and this fetch 404s. Skip it rather than failing
-            # the whole sync. Any other HTTP error is re-raised.
-            if exc.response is not None and exc.response.status_code == 404:
-                logger.warning(f"Baseten: {config.fan_out_parent} {parent_id} not found for {config.name}, skipping")
-                continue
-            raise
-
-        rows = []
-        for item in data.get(config.data_key, []):
-            row = _flatten_row(item, config.flatten_key)
-            if config.fan_out_include_parent_fields:
-                for parent_field, child_column in config.fan_out_include_parent_fields.items():
-                    row[child_column] = parent.get(parent_field)
-            rows.append(row)
-
-        if rows:
-            yield rows
-
-        # Advance the bookmark to the next parent so a crash between parents resumes correctly.
-        if index + 1 < len(remaining):
-            manager.save_state(BasetenResumeConfig(parent_id=remaining[index + 1][0]))
-
-
-def get_rows(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[BasetenResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
-    config = BASETEN_ENDPOINTS[endpoint]
-    headers = _headers(api_key)
-    # One session reused across every page/parent so urllib3 keeps the connection alive.
-    session = _get_session(api_key)
-
-    if config.paginated:
-        yield from _paginated_rows(session, headers, config, resumable_source_manager, logger)
-    elif config.fan_out_parent:
-        yield from _fan_out_rows(session, headers, config, resumable_source_manager, logger)
-    else:
-        yield from _top_level_rows(session, headers, config, logger)
+    ok, _status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        f"{BASETEN_BASE_URL}/v1/users/me",
+        headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+    )
+    return ok
 
 
 def baseten_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[BasetenResumeConfig],
 ) -> SourceResponse:
     config = BASETEN_ENDPOINTS[endpoint]
 
+    if config.fan_out_parent:
+        resource = _build_fan_out_resource(api_key, config, team_id, job_id, resumable_source_manager)
+    else:
+        resource = _build_flat_resource(api_key, config, team_id, job_id, resumable_source_manager)
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         sort_mode="asc",
         partition_count=1,
