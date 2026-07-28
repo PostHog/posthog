@@ -162,6 +162,7 @@ describe('buildEmailMetricRows', () => {
                 email_bounced: 6,
                 email_bounce_prevented: 2,
                 email_blocked: 4,
+                email_untracked: 7,
             },
         })
         expect(rows).toEqual([
@@ -175,8 +176,17 @@ describe('buildEmailMetricRows', () => {
                 bounced: 6,
                 bouncePrevented: 2,
                 blocked: 4,
+                untracked: 7,
+                trackedSends: 93,
             },
         ])
+    })
+
+    it('keeps tracked sends positive when untracked sends outnumber deliveries', () => {
+        const [row] = buildEmailMetricRows([{ id: 'a1', name: 'E' }], {
+            a1: { email_sent: 100, email_delivered: 60, email_untracked: 90, email_bounced: 40 },
+        })
+        expect(row.trackedSends).toBe(10)
     })
 
     // delivered falls back to sent - bounced - blocked (clamped at 0) when it wasn't collected.

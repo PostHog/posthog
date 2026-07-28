@@ -67,7 +67,7 @@ class BrevoSource(ResumableSource[BrevoSourceConfig, BrevoResumeConfig]):
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             keywords=["sendinblue"],
             label="Brevo",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Brevo API key to automatically pull your Brevo (formerly Sendinblue) data into the PostHog Data warehouse.
 
 You can create an API key in your [Brevo account settings](https://app.brevo.com/settings/keys/api).""",

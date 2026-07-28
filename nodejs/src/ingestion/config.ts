@@ -162,9 +162,19 @@ export type IngestionConsumerConfig = {
     // Defaults to team 2 only. Unlike the Rust REALTIME_COHORT_TEAM_ALLOWLIST, an empty value here
     // means "no teams", not "all teams"; use '*' to open the gate.
     PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: string
+    // Fold consecutive runs of $identify merges for the same distinct_id in a batch into a single
+    // merge operation (merge-storm mitigation). Master switch; when off, the planning step passes
+    // every event through unplanned and merges stay sequential.
+    PERSON_MERGE_FOLD_ENABLED: boolean
+    // Teams eligible for merge folding: comma-separated team IDs, or '*' for all teams.
+    PERSON_MERGE_FOLD_TEAM_ALLOWLIST: string
 
     // Group batch writing config
     GROUP_BATCH_WRITING_USE_BATCH_UPDATES: boolean
+    // Defer creation of new groups to flush time and insert them in a single
+    // batched statement, instead of an inline single-row insert per new group
+    // during event processing. When off, behavior is unchanged.
+    GROUP_BATCH_WRITING_USE_BATCH_CREATES: boolean
     GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number
     GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number
     GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number
@@ -298,9 +308,12 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_MERGE_EVENTS_ENABLED: false,
         PERSON_MERGE_EVENTS_PARTITION_COUNT: 64,
         PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: '2',
+        PERSON_MERGE_FOLD_ENABLED: false,
+        PERSON_MERGE_FOLD_TEAM_ALLOWLIST: '*',
 
         // Group batch writing config
-        GROUP_BATCH_WRITING_USE_BATCH_UPDATES: false,
+        GROUP_BATCH_WRITING_USE_BATCH_UPDATES: true,
+        GROUP_BATCH_WRITING_USE_BATCH_CREATES: false,
         GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
         GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
         GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,

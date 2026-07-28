@@ -81,6 +81,7 @@ class ReasoningEffort(StrEnum):
     HIGH = "high"
     XHIGH = "xhigh"
     MAX = "max"
+    ULTRACODE = "ultracode"
 
 
 PUBLIC_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
@@ -89,7 +90,11 @@ PUBLIC_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
     ReasoningEffort.HIGH,
     ReasoningEffort.XHIGH,
     ReasoningEffort.MAX,
+    ReasoningEffort.ULTRACODE,
 )
+
+
+CONTEXT_WINDOW_CHOICES: tuple[str, ...] = ("200k", "1m")
 
 
 RUNTIME_PROVIDER_BY_ADAPTER: dict[RuntimeAdapter, LLMProvider] = {
@@ -124,6 +129,7 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.HIGH,
         ReasoningEffort.XHIGH,
         ReasoningEffort.MAX,
+        ReasoningEffort.ULTRACODE,
     ),
     "claude-opus-4-8": (
         ReasoningEffort.LOW,
@@ -131,6 +137,7 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.HIGH,
         ReasoningEffort.XHIGH,
         ReasoningEffort.MAX,
+        ReasoningEffort.ULTRACODE,
     ),
     "claude-opus-5": (
         ReasoningEffort.LOW,
@@ -138,6 +145,7 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.HIGH,
         ReasoningEffort.XHIGH,
         ReasoningEffort.MAX,
+        ReasoningEffort.ULTRACODE,
     ),
     "claude-fable-5": (
         ReasoningEffort.LOW,
@@ -145,6 +153,7 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.HIGH,
         ReasoningEffort.XHIGH,
         ReasoningEffort.MAX,
+        ReasoningEffort.ULTRACODE,
     ),
     "claude-sonnet-5": (
         ReasoningEffort.LOW,
@@ -152,6 +161,7 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.HIGH,
         ReasoningEffort.XHIGH,
         ReasoningEffort.MAX,
+        ReasoningEffort.ULTRACODE,
     ),
     "claude-sonnet-4-6": (
         ReasoningEffort.LOW,
@@ -308,6 +318,8 @@ class RunState(BaseModel, extra="allow"):
     provider: LLMProvider | None = None
     model: str | None = None
     reasoning_effort: ReasoningEffort | None = None
+    context_window: str | None = None
+    fast_mode: bool | None = None
     resume_from_run_id: str | None = None
     handoff_resumed: bool = False
     snapshot_external_id: str | None = None
@@ -402,8 +414,16 @@ def sandbox_identity_scope(run_id: str, state: dict[str, Any] | None) -> str:
     return (state or {}).get("sandbox_id") or run_id
 
 
-def _sandbox_mcp_session_cache_key(scope: str) -> str:
-    return f"tasks:sandbox-mcp-session:{scope}"
+def _sandbox_identity_cache_key(kind: str, scope: str) -> str:
+    return f"tasks:sandbox-{kind}:{scope}"
+
+
+def _mark_sandbox_identity(kind: str, scope: str, user_id: int) -> None:
+    get_tasks_cache().set(_sandbox_identity_cache_key(kind, scope), user_id, timeout=MCP_TOKEN_REFRESH_INTERVAL_SECONDS)
+
+
+def _get_sandbox_identity_user(kind: str, scope: str) -> int | None:
+    return get_tasks_cache().get(_sandbox_identity_cache_key(kind, scope))
 
 
 def mark_sandbox_mcp_session(scope: str, user_id: int) -> None:
@@ -412,13 +432,31 @@ def mark_sandbox_mcp_session(scope: str, user_id: int) -> None:
     Self-expires after MCP_TOKEN_REFRESH_INTERVAL_SECONDS, so an absent
     entry always reads as "must refresh".
     """
-    get_tasks_cache().set(_sandbox_mcp_session_cache_key(scope), user_id, timeout=MCP_TOKEN_REFRESH_INTERVAL_SECONDS)
+    _mark_sandbox_identity("mcp-session", scope, user_id)
 
 
 def get_sandbox_mcp_session_user(scope: str) -> int | None:
     """User id the sandbox's MCP session was last bound to within the
     freshness window, or None when unknown."""
-    return get_tasks_cache().get(_sandbox_mcp_session_cache_key(scope))
+    return _get_sandbox_identity_user("mcp-session", scope)
+
+
+def mark_sandbox_github_identity(scope: str, user_id: int) -> None:
+    """Record which actor the sandbox's in-place GitHub credentials reflect.
+
+    The value is the actor whose token was applied, or who was logged out (no
+    usable access) — either way the sandbox no longer carries a *different*
+    actor's identity. Self-expires after MCP_TOKEN_REFRESH_INTERVAL_SECONDS; an
+    absent entry reads as "must re-establish", which is always safe because
+    re-establishing re-applies or clears rather than trusting stale creds.
+    """
+    _mark_sandbox_identity("github-identity", scope, user_id)
+
+
+def get_sandbox_github_identity_user(scope: str) -> int | None:
+    """Actor id the sandbox's GitHub credentials were last bound to (or logged
+    out for) within the freshness window, or None when unknown."""
+    return _get_sandbox_identity_user("github-identity", scope)
 
 
 @dataclass(frozen=True)

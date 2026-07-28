@@ -14,7 +14,7 @@ import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { themeLogic } from 'lib/logic/themeLogic'
 import { accessLevelSatisfied, getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
-import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
+import { BreakdownColorConfig } from 'scenes/dashboard/dashboardBreakdownColors'
 import {
     InsightErrorState,
     InsightLoadingState,

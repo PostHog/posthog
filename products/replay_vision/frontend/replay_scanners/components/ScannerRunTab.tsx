@@ -2,13 +2,16 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconEye, IconPlay } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { humanFriendlyDuration } from 'lib/utils/durations'
+import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+import { recordingsQueryToUniversalFilters } from 'scenes/session-recordings/filters/recordingsQueryConversions'
 import { ReplayFiltersTab } from 'scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed'
 import {
+    getDefaultFilters,
     SessionRecordingPlaylistLogicProps,
     sessionRecordingsPlaylistLogic,
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
@@ -108,6 +111,11 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
             ),
         },
         {
+            title: 'Person',
+            key: 'person',
+            render: (_, recording) => <PersonDisplay person={recording.person} withIcon />,
+        },
+        {
             title: 'When',
             dataIndex: 'start_time',
             render: (start_time) => (start_time ? <TZLabel time={String(start_time)} /> : <span>—</span>),
@@ -125,10 +133,10 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
             render: (_, recording) => {
                 const observation = observationBySession[recording.id]
                 if (observation) {
-                    return <ObservationStatusTag status={observation.status} />
+                    return <ObservationStatusTag status={observation.status} errorReason={observation.errorReason} />
                 }
                 if (pendingId === recording.id) {
-                    return <ObservationStatusTag status="running" />
+                    return <ObservationStatusTag status="running" errorReason={null} />
                 }
                 return <span className="text-muted italic">Not scanned</span>
             },
@@ -251,22 +259,39 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
 
 /** Browse and filter recordings, then fire this scanner against any of them. */
 function ScanFromRecordings({ scannerId }: { scannerId: string }): JSX.Element {
-    const logicProps: SessionRecordingPlaylistLogicProps = {
-        logicKey: `vision-run-${scannerId}`,
-        updateSearchParams: false,
-    }
+    // Seed the picker from the scanner's saved triggers so it opens scoped to the sessions this scanner cares about.
+    // originalScanner is null until loaded, and the playlist logic reads filters only at mount, so gate on it.
+    const { originalScanner } = useValues(replayScannerLogic({ id: scannerId }))
+
+    // Date range and sort come from the recordings defaults (the scanner query stores no date window); the filter
+    // group, duration, and test-account setting come from the scanner's triggers.
+    const logicProps: SessionRecordingPlaylistLogicProps | null = originalScanner
+        ? {
+              logicKey: `vision-run-${scannerId}`,
+              updateSearchParams: false,
+              filters: { ...getDefaultFilters(), ...recordingsQueryToUniversalFilters(originalScanner.query) },
+          }
+        : null
+
     return (
         <div className="border rounded p-4 bg-surface-primary space-y-3">
             <div>
                 <h3 className="text-sm font-medium mb-1">Pick from your recordings</h3>
                 <p className="text-muted text-sm m-0">
-                    Filter your session recordings and run this scanner against any of them. Scan one at a time, or
-                    select several and scan them together. Each scan produces one observation.
+                    Filter your session recordings and run this scanner against any of them. Filters start from this
+                    scanner's triggers, so adjust them to backfill or scan un-sampled sessions. Each scan produces one
+                    observation.
                 </p>
             </div>
-            <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
-                <RecordingsList scannerId={scannerId} />
-            </BindLogic>
+            {logicProps ? (
+                <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
+                    <RecordingsList scannerId={scannerId} />
+                </BindLogic>
+            ) : (
+                <div className="flex items-center text-muted text-sm">
+                    <Spinner className="mr-1" /> Loading recordings…
+                </div>
+            )}
         </div>
     )
 }
