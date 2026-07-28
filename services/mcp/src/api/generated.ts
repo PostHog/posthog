@@ -33599,6 +33599,7 @@ export namespace Schemas {
      * * `warehouse_source_webhook` - Warehouse Source Webhook
      * * `site_app` - Site App
      * * `transformation` - Transformation
+     * * `transformation_log` - Transformation Log
      */
     export type HogFunctionTypeEnum = typeof HogFunctionTypeEnum[keyof typeof HogFunctionTypeEnum];
 
@@ -33611,6 +33612,7 @@ export namespace Schemas {
       WarehouseSourceWebhook: 'warehouse_source_webhook',
       SiteApp: 'site_app',
       Transformation: 'transformation',
+      TransformationLog: 'transformation_log',
     } as const;
 
     /**
@@ -33803,7 +33805,7 @@ export namespace Schemas {
 
     export interface HogFunction {
       readonly id: string;
-      /** Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.
+      /** Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.
        *
        * * `destination` - Destination
        * * `site_destination` - Site Destination
@@ -33811,7 +33813,8 @@ export namespace Schemas {
        * * `source_webhook` - Source Webhook
        * * `warehouse_source_webhook` - Warehouse Source Webhook
        * * `site_app` - Site App
-       * * `transformation` - Transformation */
+       * * `transformation` - Transformation
+       * * `transformation_log` - Transformation Log */
       type?: HogFunctionTypeEnum | null;
       /**
          * Display name for the function.
@@ -49570,7 +49573,7 @@ export namespace Schemas {
 
     export interface PatchedHogFunction {
       readonly id?: string;
-      /** Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.
+      /** Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.
        *
        * * `destination` - Destination
        * * `site_destination` - Site Destination
@@ -49578,7 +49581,8 @@ export namespace Schemas {
        * * `source_webhook` - Source Webhook
        * * `warehouse_source_webhook` - Warehouse Source Webhook
        * * `site_app` - Site App
-       * * `transformation` - Transformation */
+       * * `transformation` - Transformation
+       * * `transformation_log` - Transformation Log */
       type?: HogFunctionTypeEnum | null;
       /**
          * Display name for the function.
