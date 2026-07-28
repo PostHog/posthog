@@ -261,7 +261,18 @@ describe('vercel-ai middleware', () => {
             expect(event.properties![`ai.telemetry.metadata.${key}`]).toBeUndefined()
         })
 
-        it('uses posthog_distinct_id as the event distinct_id', () => {
+        it('promotes posthog_-prefixed telemetry metadata as a custom property', () => {
+            const event = createEvent('$ai_generation', {
+                'ai.operationId': 'ai.generateText.doGenerate',
+                'ai.telemetry.metadata.posthog_tags': ['beta'],
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['tags']).toEqual(['beta'])
+            expect(event.properties!['ai.telemetry.metadata.posthog_tags']).toBeUndefined()
+        })
+
+        it('uses posthog_distinct_id as the event distinct_id without creating a bare distinct_id property', () => {
             const event = createEvent('$ai_generation', {
                 'ai.operationId': 'ai.generateText.doGenerate',
                 'ai.telemetry.metadata.posthog_distinct_id': 'user-1',
@@ -269,6 +280,7 @@ describe('vercel-ai middleware', () => {
             convertOtelEvent(event)
 
             expect(event.distinct_id).toBe('user-1')
+            expect(event.properties!['distinct_id']).toBeUndefined()
         })
 
         it('ignores empty posthog_distinct_id metadata', () => {

@@ -17,8 +17,10 @@ class CustomerAnalyticsConfig(AppConfig):
         """
         from products.warehouse_sources.backend.facade.hooks import (
             PersonPropertySourceProjection,
+            PersonPropertySyncRunRecord,
             PersonPropertySyncSource,
             register_person_property_projection,
+            register_person_property_sync_recorder,
             register_person_property_sync_sources,
         )
 
@@ -36,5 +38,11 @@ class CustomerAnalyticsConfig(AppConfig):
 
             return person_property_sync_sources(team_id, schema_id)
 
+        def _run_recorder(record: PersonPropertySyncRunRecord) -> None:
+            from products.customer_analytics.backend.logic.person_property_runs import record_sync_run  # noqa: PLC0415
+
+            record_sync_run(record)
+
         register_person_property_projection(_projection_resolver)
         register_person_property_sync_sources(_sync_sources_resolver)
+        register_person_property_sync_recorder(_run_recorder)

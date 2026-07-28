@@ -372,6 +372,13 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "could not translate host name": None,
             "timeout expired connection to server at": None,
             "password authentication failed for user": None,
+            # Some providers (observed on a Neon-style pooler) report the same auth rejection without
+            # libpq's "for user" wording, putting the role on its own line instead: "password
+            # authentication failed\nuser \"<role>\"". The key above requires "for user" right after
+            # "failed", so it doesn't substring-match this variant and Temporal keeps retrying a
+            # credential mismatch only the customer can fix. Match the stable, wording-independent
+            # fragment shared by both forms.
+            "password authentication failed": None,
             # AWS RDS Proxy reports bad credentials with its own wording instead of PostgreSQL's
             # "password authentication failed for user" — it validates against Secrets Manager and
             # returns "The password that was provided for the role <role> is wrong." None of the
@@ -410,7 +417,25 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # Marking it non-retryable would permanently disable syncs on a transient blip. A
             # genuinely unsupported-SSL source fails at connect time with a different message and is
             # caught via "SSLRequiredError" / "SSL/TLS connection is required".
-            "Address not in tenant allow_list": None,
+            # A Neon-style proxy rejects the connection because PostHog's egress IP isn't on the
+            # project's configured IP allow list (EADDRNOTALLOWED). Deterministic until the customer
+            # updates the allow list, so retrying just re-hits the same rejection. NB: the raw message
+            # lowercases "address" ("... FATAL:  (EADDRNOTALLOWED) address not in tenant allow_list:
+            # ..."), unlike the capitalized key this replaced, which never matched production traffic.
+            "address not in tenant allow_list": (
+                "Your database provider rejected the connection because PostHog's IP address is not on "
+                'its configured allow list ("address not in tenant allow_list"). Add PostHog\'s egress IP '
+                "addresses to your database provider's IP allow list, then re-enable the sync."
+            ),
+            # A Neon-style proxy rejects the connection for a specific branch/compute endpoint —
+            # observed when the branch is archived, suspended, or otherwise restricted from external
+            # connections. Deterministic until the customer changes the branch's connection settings.
+            "connection not allowed for branch": (
+                "Your database provider rejected the connection for this branch or compute endpoint "
+                '("connection not allowed for branch"). This usually means the branch is archived, '
+                "suspended, or restricted from external connections. Check your database provider's "
+                "dashboard for this branch's connection settings, then re-enable the sync."
+            ),
             "FATAL: no such database": None,
             "does not exist": None,
             "timestamp too small": None,
@@ -675,7 +700,33 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "connecting role on that foreign server (CREATE USER MAPPING ...), or remove the "
                 "foreign table from the sync, then re-enable the sync."
             ),
+            # A selected relation is a postgres_fdw foreign table whose locally-declared enum column
+            # doesn't match the data actually stored on the remote server — the remote row holds a
+            # label the local enum type doesn't define (SQLSTATE 22P02, "invalid input value for enum
+            # <type>: <value>"). Postgres enforces enum labels at write time on ordinary tables, so
+            # this can only surface when reading through a foreign table's separately-declared type.
+            # The schema drift lives on the customer's side and is deterministic, so retrying re-reads
+            # into the same row every time. Match the stable message and exclude the volatile enum
+            # type name and offending value.
+            "invalid input value for enum": (
+                "One of the tables you selected to sync is a foreign table (postgres_fdw) whose "
+                "locally-declared enum column doesn't match the data on the remote server "
+                '(PostgreSQL reported "invalid input value for enum"). Update the local enum type to '
+                "include the value used on the remote server, or remove the foreign table from the "
+                "sync, then re-enable the sync."
+            ),
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `get_rows` already retries a mid-stream drop in-process (reconnect, or fall back to
+        # offset chunking) — see `_CONNECTION_DROPPED_ERROR_SUBSTRINGS` in postgres.py. It only
+        # reaches here once that in-process handling gives up (e.g. a full-table scan can't safely
+        # resume once rows have been yielded, since OFFSET has no stable ORDER BY to resume from).
+        # Temporal then retries the whole activity and the failure is transient and
+        # self-recovering, so classify it here too — otherwise `_handle_import_error` logs it at
+        # `exception` on every occurrence, flooding error tracking with a self-recovering failure
+        # (e.g. a cloud provider terminating a backend for maintenance or failover).
+        return {"terminating connection due to"}
 
     def reconcile_schema_metadata(
         self,
@@ -726,6 +777,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = []
 
@@ -939,7 +991,11 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         return schemas
 
     def validate_credentials(
-        self, config: PostgresSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: PostgresSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         is_ssh_valid, ssh_valid_errors = self.ssh_tunnel_is_valid(config, team_id)
         if not is_ssh_valid:
@@ -958,7 +1014,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             return valid_host, host_errors
 
         try:
-            self.get_schemas(config, team_id, names=[schema_name] if schema_name else None)
+            self.get_schemas(config, team_id, names=[schema_name] if schema_name else None, api_version=api_version)
         except SSLRequiredError as e:
             return False, str(e)
         except OperationalError as e:
@@ -990,8 +1046,9 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         team_id: int,
         access_method: str,
         schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return self.validate_credentials(config, team_id, schema_name=schema_name)
+        return self.validate_credentials(config, team_id, schema_name=schema_name, api_version=api_version)
 
     def get_connection_metadata(
         self, config: PostgresSourceConfig, team_id: int, require_ssl: bool = False

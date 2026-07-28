@@ -309,8 +309,7 @@ export interface accessControlsLogicActions {
             | 'account'
             | 'action'
             | 'activity_log'
-            | 'agent_approvals'
-            | 'agents'
+            | 'ai_observability_clusters'
             | 'alert'
             | 'annotation'
             | 'approvals'
@@ -363,10 +362,12 @@ export interface accessControlsLogicActions {
             | 'live_debugger'
             | 'llm_analytics'
             | 'llm_gateway'
+            | 'llm_playground'
             | 'llm_prompt'
             | 'llm_provider_key'
             | 'llm_skill'
             | 'logs'
+            | 'loop'
             | 'marketing_analytics'
             | 'mcp_analytics'
             | 'metrics'
@@ -384,6 +385,7 @@ export interface accessControlsLogicActions {
             | 'query_performance'
             | 'replay_scanner'
             | 'revenue_analytics'
+            | 'review_hog'
             | 'session_recording'
             | 'session_recording_playlist'
             | 'sharing_configuration'
@@ -445,8 +447,7 @@ export interface accessControlsLogicMeta {
                 | 'account'
                 | 'action'
                 | 'activity_log'
-                | 'agent_approvals'
-                | 'agents'
+                | 'ai_observability_clusters'
                 | 'alert'
                 | 'annotation'
                 | 'approvals'
@@ -499,10 +500,12 @@ export interface accessControlsLogicMeta {
                 | 'live_debugger'
                 | 'llm_analytics'
                 | 'llm_gateway'
+                | 'llm_playground'
                 | 'llm_prompt'
                 | 'llm_provider_key'
                 | 'llm_skill'
                 | 'logs'
+                | 'loop'
                 | 'marketing_analytics'
                 | 'mcp_analytics'
                 | 'metrics'
@@ -520,6 +523,7 @@ export interface accessControlsLogicMeta {
                 | 'query_performance'
                 | 'replay_scanner'
                 | 'revenue_analytics'
+                | 'review_hog'
                 | 'session_recording'
                 | 'session_recording_playlist'
                 | 'sharing_configuration'
@@ -585,8 +589,7 @@ export interface accessControlsLogicMeta {
                 | 'account'
                 | 'action'
                 | 'activity_log'
-                | 'agent_approvals'
-                | 'agents'
+                | 'ai_observability_clusters'
                 | 'alert'
                 | 'annotation'
                 | 'approvals'
@@ -639,10 +642,12 @@ export interface accessControlsLogicMeta {
                 | 'live_debugger'
                 | 'llm_analytics'
                 | 'llm_gateway'
+                | 'llm_playground'
                 | 'llm_prompt'
                 | 'llm_provider_key'
                 | 'llm_skill'
                 | 'logs'
+                | 'loop'
                 | 'marketing_analytics'
                 | 'mcp_analytics'
                 | 'metrics'
@@ -660,6 +665,7 @@ export interface accessControlsLogicMeta {
                 | 'query_performance'
                 | 'replay_scanner'
                 | 'revenue_analytics'
+                | 'review_hog'
                 | 'session_recording'
                 | 'session_recording_playlist'
                 | 'sharing_configuration'
@@ -698,8 +704,7 @@ export interface accessControlsLogicMeta {
                 | 'account'
                 | 'action'
                 | 'activity_log'
-                | 'agent_approvals'
-                | 'agents'
+                | 'ai_observability_clusters'
                 | 'alert'
                 | 'annotation'
                 | 'approvals'
@@ -752,10 +757,12 @@ export interface accessControlsLogicMeta {
                 | 'live_debugger'
                 | 'llm_analytics'
                 | 'llm_gateway'
+                | 'llm_playground'
                 | 'llm_prompt'
                 | 'llm_provider_key'
                 | 'llm_skill'
                 | 'logs'
+                | 'loop'
                 | 'marketing_analytics'
                 | 'mcp_analytics'
                 | 'metrics'
@@ -773,6 +780,7 @@ export interface accessControlsLogicMeta {
                 | 'query_performance'
                 | 'replay_scanner'
                 | 'revenue_analytics'
+                | 'review_hog'
                 | 'session_recording'
                 | 'session_recording_playlist'
                 | 'sharing_configuration'
@@ -963,19 +971,21 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 resources: APIScopeObject[],
                 featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
             ): { key: APIScopeObject; label: string }[] => {
-                if (defaults) {
-                    return Object.keys(defaults.resource_access_levels)
-                        .filter((resource) => isResourceRolledOut(resource as AccessControlResourceType, featureFlags))
-                        .map((resource) => ({
-                            key: resource as APIScopeObject,
-                            label: toSentenceCase(pluralizeResource(resource as APIScopeObject)),
-                        }))
-                }
-                // Fallback to list of all resources while loading
-                return resources.map((resource) => ({
-                    key: resource,
-                    label: toSentenceCase(pluralizeResource(resource)),
-                }))
+                const rows = defaults
+                    ? Object.keys(defaults.resource_access_levels)
+                          .filter((resource) =>
+                              isResourceRolledOut(resource as AccessControlResourceType, featureFlags)
+                          )
+                          .map((resource) => ({
+                              key: resource as APIScopeObject,
+                              label: toSentenceCase(pluralizeResource(resource as APIScopeObject)),
+                          }))
+                    : // Fallback to list of all resources while loading
+                      resources.map((resource) => ({
+                          key: resource,
+                          label: toSentenceCase(pluralizeResource(resource)),
+                      }))
+                return rows.sort((a, b) => a.label.localeCompare(b.label))
             },
         ],
 

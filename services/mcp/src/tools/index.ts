@@ -1,8 +1,6 @@
 import { hasScopes } from '@/lib/api'
 import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 
-// Agent platform (hand-written — CRUD is codegen in generated/agent_platform.ts)
-import resolveResource from './agentPlatform/resolveResource'
 // AI observability
 import getLLMCosts from './aiObservability/getLLMCosts'
 // Debug
@@ -18,6 +16,8 @@ import submitFeedback from './feedback/submit'
 import { GENERATED_TOOL_MAP } from './generated'
 // Insights
 import queryInsight from './insights/query'
+
+import loopsReview from './loops/loopsReview'
 // Links (utility — builds canonical app URLs from the frontend's route table)
 import generateAppUrl from './links/generate-app-url'
 // Notebooks (edit is hand-written — generated CRUD lives in generated/notebooks.ts)
@@ -40,6 +40,7 @@ import getProjects from './projects/getProjects'
 import setActiveProject from './projects/setActive'
 import updateEventDefinition from './projects/updateEventDefinition'
 import updatePathCleaning from './projects/updatePathCleaning'
+import updatePropertyDefinition from './projects/updatePropertyDefinition'
 // Replay
 import sessionRecordingSummarize from './replay/sessionRecordingSummarize'
 // Skills (deprecation aliases for the llma-skill-* → skill-* rename)
@@ -68,6 +69,7 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'projects-get': getProjects,
     'switch-project': setActiveProject,
     'event-definition-update': updateEventDefinition,
+    'property-definition-update': updatePropertyDefinition,
 
     // Feature flags (get-definition-by-key is hand-written; get-definition by numeric id is codegen)
     'feature-flag-get-definition-by-key': featureFlagGetDefinitionByKey,
@@ -93,12 +95,10 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Debug
     'debug-mcp-ui-apps': debugMcpUiApps,
+    'loops-review': loopsReview,
 
     // Feedback
     'agent-feedback': submitFeedback,
-
-    // Agent platform (read-only playbook resolver — CRUD lives in generated/agent_platform.ts)
-    'agent-resolve-resource': resolveResource,
 
     // PostHog AI tools
     [EXECUTE_SQL_TOOL_NAME]: executeSql,

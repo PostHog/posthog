@@ -48,6 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     build_scd2_table,
     deduplicate_table,
     enrich_delete_rows,
+    enrich_toast_omitted_rows,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import mark_cdc_broken
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import (
@@ -609,7 +610,10 @@ class CDCExtractActivity:
             key_columns = self.pk_columns_by_table.get(table_name, [])
             cdc_table_mode = schema.cdc_table_mode
 
-            enriched_table = enrich_delete_rows(raw_table, key_columns)
+            # TOAST fill first so DELETE enrichment copies resolved values, not the
+            # nulls standing in for omitted columns.
+            enriched_table = enrich_toast_omitted_rows(raw_table, key_columns)
+            enriched_table = enrich_delete_rows(enriched_table, key_columns)
 
             # Consolidated shares the snapshot's canonical folder; the `_cdc` companion is
             # CDC-only and stays self-consistent with its `name`-keyed snapshot seed.
@@ -953,7 +957,10 @@ class CDCExtractActivity:
         if retained is None:
             return event
         filtered = {name: value for name, value in event.columns.items() if name in retained}
-        if filtered.keys() == event.columns.keys():
+        # Omitted (unchanged-TOAST) markers for disabled columns must go too, or the
+        # batcher would materialize a disabled column just to carry the marker.
+        filtered_omitted = frozenset(name for name in event.omitted_columns if name in retained)
+        if filtered.keys() == event.columns.keys() and filtered_omitted == event.omitted_columns:
             return event
         return ChangeEvent(
             operation=event.operation,
@@ -962,6 +969,7 @@ class CDCExtractActivity:
             timestamp=event.timestamp,
             columns=filtered,
             column_types=event.column_types,
+            omitted_columns=filtered_omitted,
         )
 
     def _qualified_table_name(self, schema: ExternalDataSchema) -> str:
@@ -1377,6 +1385,12 @@ class CDCExtractActivity:
     def _handle_failure(self, exc: Exception) -> CDCErrorInfo:
         """Classify the failure, store the friendly message on the jobs/schemas, return the info."""
         self.log.exception("cdc_extract_failed")
+        # `exc` itself may be a dropped/killed DB connection (e.g. the source read or a write
+        # earlier in this run hit "server closed the connection unexpectedly"). Django leaves that
+        # connection in the pool until the next query touches it, so without this the job/schema
+        # writes below immediately re-fail with "the connection is closed", masking the real error
+        # and leaving jobs stuck RUNNING instead of recording the friendly failure message.
+        close_old_connections()
         info = classify_cdc_error(exc, self.adapter)
         friendly = info.friendly_message[:MAX_FRIENDLY_MESSAGE_LENGTH]
         self._fail_created_jobs(friendly)

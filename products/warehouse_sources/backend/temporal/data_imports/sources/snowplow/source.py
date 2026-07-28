@@ -119,6 +119,7 @@ This connector talks to the standard BDP Console host (`console.snowplowanalytic
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _description(endpoint: str) -> str | None:
             if endpoint in ("job_runs", "job_run_steps"):
@@ -155,7 +156,11 @@ This connector talks to the standard BDP Console host (`console.snowplowanalytic
         return schemas
 
     def validate_credentials(
-        self, config: SnowplowSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: SnowplowSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_snowplow_credentials(
             config.organization_id, config.api_key_id, config.api_key, structlog.get_logger(__name__)

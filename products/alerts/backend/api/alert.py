@@ -356,7 +356,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
     investigation_inconclusive_action = serializers.ChoiceField(
         choices=[("notify", "Notify"), ("suppress", "Suppress")],
         required=False,
-        help_text="How to handle an 'inconclusive' verdict when notifications are gated. 'notify' is the safe default — an agent that can't be sure is itself useful signal.",
+        help_text="How to handle an 'inconclusive' verdict: whether gated notifications fire and whether the investigation surfaces in the Signals inbox. 'notify' is the safe default — an agent that can't be sure is itself useful signal. False positives never reach the inbox regardless of this setting.",
     )
     state = serializers.CharField(
         read_only=True,
@@ -470,23 +470,21 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             if snoozed_until_param is None:
                 instance.state = AlertState.NOT_FIRING
                 instance.snoozed_until = None
+                AlertCheck.objects.create(
+                    alert_configuration=instance,
+                    calculated_value=None,
+                    condition=instance.condition,
+                    targets_notified={},
+                    state=instance.state,
+                    error=None,
+                )
             else:
                 # always store snoozed_until as UTC time
                 # as we look at current UTC time to check when to run alerts
                 snoozed_until = relative_date_parse(
                     snoozed_until_param, ZoneInfo("UTC"), increase=True, always_truncate=True
                 )
-                instance.state = AlertState.SNOOZED
-                instance.snoozed_until = snoozed_until
-
-            AlertCheck.objects.create(
-                alert_configuration=instance,
-                calculated_value=None,
-                condition=instance.condition,
-                targets_notified={},
-                state=instance.state,
-                error=None,
-            )
+                instance.snooze(until=snoozed_until)
 
         conditions_or_threshold_changed = False
 

@@ -34,6 +34,8 @@ pub mod bytewalk;
 #[doc(hidden)]
 pub mod canvas;
 #[doc(hidden)]
+pub mod collect;
+#[doc(hidden)]
 pub mod compression;
 pub mod context;
 #[doc(hidden)]
@@ -43,6 +45,7 @@ pub mod cv;
 #[doc(hidden)]
 pub mod dom;
 pub mod event;
+pub mod images;
 #[doc(hidden)]
 pub mod json;
 #[doc(hidden)]
@@ -50,6 +53,7 @@ pub mod scan;
 pub mod snapshot;
 #[doc(hidden)]
 pub mod text;
+pub mod timings;
 #[cfg(feature = "typed-parse")]
 pub mod typed;
 mod unwind;
@@ -59,15 +63,18 @@ pub mod url;
 pub mod value;
 
 pub use allow_lists::AllowLists;
+pub use collect::ImageCollection;
 pub use context::Ctx;
 pub use event::{
     anonymize_event, anonymize_event_str, anonymize_line, anonymize_line_with_ctx,
     anonymize_message,
 };
+pub use images::ImagePolicy;
 pub use snapshot::{
-    anonymize_kafka_payload, anonymize_kafka_payload_opts, AnonymizeOpts, AnonymizedMessage,
-    FailKind, Failure, Route,
+    anonymize_kafka_payload, anonymize_kafka_payload_opts, anonymize_kafka_payload_timed,
+    AnonymizeOpts, AnonymizedMessage, FailKind, Failure, Route,
 };
+pub use timings::{PhaseTimings, PhaseTimingsSnapshot};
 #[cfg(feature = "typed-parse")]
 pub use typed::{parse_scrubbed_event, parse_scrubbed_event_with_ctx};
 

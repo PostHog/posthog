@@ -96,6 +96,7 @@ Generate a **Read Only** API key in Hub Planner under **Settings → API** (admi
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Only bookings and time_entries carry a searchable `updatedDate`, so they're the only
         # endpoints with incremental fields — build_endpoint_schemas derives incremental/append
@@ -103,7 +104,11 @@ Generate a **Read Only** API key in Hub Planner under **Settings → API** (admi
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: HubplannerSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: HubplannerSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_hubplanner_credentials(config.api_key):
             return True, None

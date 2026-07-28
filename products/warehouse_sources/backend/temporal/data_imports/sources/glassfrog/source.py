@@ -98,13 +98,18 @@ You can create a v3 API key in GlassFrog under [Profile & Settings > API](https:
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every GlassFrog endpoint is full refresh: the v3 API exposes no server-side timestamp or
         # cursor filters, so nothing can be synced incrementally (see settings.py).
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: GlassfrogSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: GlassfrogSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_glassfrog_credentials(config.api_key):
             return True, None

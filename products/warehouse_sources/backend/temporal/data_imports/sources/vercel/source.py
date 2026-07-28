@@ -104,6 +104,18 @@ To sync resources owned by a team, also enter the team's ID (found under **Team 
             "404 Client Error: Not Found for url: https://api.vercel.com/v1/billing/charges": "Vercel couldn't find billing data for the configured team. Check that the Team ID is correct and that your access token's user still belongs to that team, then reconnect.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `_fetch_page`/`_open_billing_stream` already retry these in-process (a 429/5xx surfaces as
+        # the "Vercel API error (retryable)" sentinel; connection failures and read timeouts surface
+        # as the urllib3 pool error). Once those retries exhaust, Temporal retries the whole activity
+        # and the failure is transient and self-recovering, so don't surface it as tracked exception
+        # noise. The host is a constant, not user input, so matching on it doesn't risk swallowing an
+        # unrelated failure.
+        return {
+            "Vercel API error (retryable)",
+            "HTTPSConnectionPool(host='api.vercel.com', port=443)",
+        }
+
     def get_schemas(
         self,
         config: VercelSourceConfig,
@@ -111,6 +123,7 @@ To sync resources owned by a team, also enter the team's ID (found under **Team 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -128,7 +141,11 @@ To sync resources owned by a team, also enter the team's ID (found under **Team 
         return schemas
 
     def validate_credentials(
-        self, config: VercelSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: VercelSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_vercel_credentials(config.access_token)
 

@@ -7,6 +7,7 @@ from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
 
+from products.ai_observability.backend.activity_logging import prompt_activity_item_id
 from products.ai_observability.backend.models.llm_prompt import (
     LLMPrompt,
     LLMPromptLabel,
@@ -82,6 +83,27 @@ def validate_prompt_label_name_value(value: str) -> str:
     return value
 
 
+# Maps accepted order_by values to queryset ordering fields. Lives here so the list
+# query serializer can declare the choices; the viewset imports it for the lookup.
+ALLOWED_LIST_ORDERINGS = {
+    "name": "name",
+    "-name": "-name",
+    "created_at": "created_at",
+    "-created_at": "-created_at",
+    "updated_at": "updated_at",
+    "-updated_at": "-updated_at",
+    "version": "version",
+    "-version": "-version",
+    "latest_version": "latest_version",
+    "-latest_version": "-latest_version",
+    "version_count": "version_count",
+    "-version_count": "-version_count",
+    "first_version_created_at": "first_version_created_at",
+    "-first_version_created_at": "-first_version_created_at",
+    "prompt_size_bytes": "prompt_size_bytes",
+    "-prompt_size_bytes": "-prompt_size_bytes",
+}
+
 CONTENT_MODE_CHOICES = ["full", "preview", "none"]
 CONTENT_MODE_HELP = (
     "Controls how much prompt content is included in the response. "
@@ -135,6 +157,12 @@ class LLMPromptListQuerySerializer(serializers.Serializer):
     created_by_id = serializers.IntegerField(
         required=False,
         help_text="Filter prompts by the ID of the user who created them.",
+    )
+    order_by = serializers.ChoiceField(
+        choices=list(ALLOWED_LIST_ORDERINGS),
+        required=False,
+        default="-created_at",
+        help_text="Field to sort the prompt list by. Prefix with '-' for descending order.",
     )
     content = serializers.ChoiceField(
         choices=CONTENT_MODE_CHOICES,
@@ -238,6 +266,7 @@ class LLMPromptSerializer(serializers.ModelSerializer):
     first_version_created_at = serializers.SerializerMethodField()
     outline = serializers.SerializerMethodField()
     labels = serializers.SerializerMethodField()
+    activity_item_id = serializers.SerializerMethodField()
 
     class Meta:
         model = LLMPrompt
@@ -257,6 +286,7 @@ class LLMPromptSerializer(serializers.ModelSerializer):
             "first_version_created_at",
             "outline",
             "labels",
+            "activity_item_id",
         ]
         read_only_fields = [
             "id",
@@ -271,6 +301,7 @@ class LLMPromptSerializer(serializers.ModelSerializer):
             "first_version_created_at",
             "outline",
             "labels",
+            "activity_item_id",
         ]
         extra_kwargs = {
             "name": {"help_text": "Unique prompt name using letters, numbers, hyphens, and underscores only."},
@@ -283,6 +314,14 @@ class LLMPromptSerializer(serializers.ModelSerializer):
     @extend_schema_field(LLMPromptOutlineEntrySerializer(many=True))
     def get_outline(self, instance: LLMPrompt) -> list[dict[str, Any]]:
         return get_prompt_outline(instance.prompt)
+
+    @extend_schema_field(
+        serializers.CharField(
+            help_text="Key for this prompt's rows in the activity log, e.g. for the History tab. Derived from the name, at most 72 characters."
+        )
+    )
+    def get_activity_item_id(self, instance: LLMPrompt) -> str:
+        return prompt_activity_item_id(instance.name)
 
     @extend_schema_field(
         serializers.ListField(

@@ -64,8 +64,6 @@ export interface accessControlLogicValues {
         | 'account'
         | 'action'
         | 'activity_log'
-        | 'agent_approvals'
-        | 'agents'
         | 'alert'
         | 'annotation'
         | 'approvals'
@@ -138,6 +136,7 @@ export interface accessControlLogicValues {
         | 'query_performance'
         | 'replay_scanner'
         | 'revenue_analytics'
+        | 'review_hog'
         | 'session_recording'
         | 'session_recording_playlist'
         | 'sharing_configuration'
@@ -306,8 +305,7 @@ export interface accessControlLogicMeta {
                 | 'account'
                 | 'action'
                 | 'activity_log'
-                | 'agent_approvals'
-                | 'agents'
+                | 'ai_observability_clusters'
                 | 'alert'
                 | 'annotation'
                 | 'approvals'
@@ -360,10 +358,12 @@ export interface accessControlLogicMeta {
                 | 'live_debugger'
                 | 'llm_analytics'
                 | 'llm_gateway'
+                | 'llm_playground'
                 | 'llm_prompt'
                 | 'llm_provider_key'
                 | 'llm_skill'
                 | 'logs'
+                | 'loop'
                 | 'marketing_analytics'
                 | 'mcp_analytics'
                 | 'metrics'
@@ -381,6 +381,7 @@ export interface accessControlLogicMeta {
                 | 'query_performance'
                 | 'replay_scanner'
                 | 'revenue_analytics'
+                | 'review_hog'
                 | 'session_recording'
                 | 'session_recording_playlist'
                 | 'sharing_configuration'
@@ -413,8 +414,6 @@ export interface accessControlLogicMeta {
             | 'account'
             | 'action'
             | 'activity_log'
-            | 'agent_approvals'
-            | 'agents'
             | 'alert'
             | 'annotation'
             | 'approvals'
@@ -487,6 +486,7 @@ export interface accessControlLogicMeta {
             | 'query_performance'
             | 'replay_scanner'
             | 'revenue_analytics'
+            | 'review_hog'
             | 'session_recording'
             | 'session_recording_playlist'
             | 'sharing_configuration'
@@ -519,8 +519,7 @@ export interface accessControlLogicMeta {
                 | 'account'
                 | 'action'
                 | 'activity_log'
-                | 'agent_approvals'
-                | 'agents'
+                | 'ai_observability_clusters'
                 | 'alert'
                 | 'annotation'
                 | 'approvals'
@@ -573,10 +572,12 @@ export interface accessControlLogicMeta {
                 | 'live_debugger'
                 | 'llm_analytics'
                 | 'llm_gateway'
+                | 'llm_playground'
                 | 'llm_prompt'
                 | 'llm_provider_key'
                 | 'llm_skill'
                 | 'logs'
+                | 'loop'
                 | 'marketing_analytics'
                 | 'mcp_analytics'
                 | 'metrics'
@@ -594,6 +595,7 @@ export interface accessControlLogicMeta {
                 | 'query_performance'
                 | 'replay_scanner'
                 | 'revenue_analytics'
+                | 'review_hog'
                 | 'session_recording'
                 | 'session_recording_playlist'
                 | 'sharing_configuration'
@@ -629,8 +631,7 @@ export interface accessControlLogicMeta {
                 | 'account'
                 | 'action'
                 | 'activity_log'
-                | 'agent_approvals'
-                | 'agents'
+                | 'ai_observability_clusters'
                 | 'alert'
                 | 'annotation'
                 | 'approvals'
@@ -683,10 +684,12 @@ export interface accessControlLogicMeta {
                 | 'live_debugger'
                 | 'llm_analytics'
                 | 'llm_gateway'
+                | 'llm_playground'
                 | 'llm_prompt'
                 | 'llm_provider_key'
                 | 'llm_skill'
                 | 'logs'
+                | 'loop'
                 | 'marketing_analytics'
                 | 'mcp_analytics'
                 | 'metrics'
@@ -704,6 +707,7 @@ export interface accessControlLogicMeta {
                 | 'query_performance'
                 | 'replay_scanner'
                 | 'revenue_analytics'
+                | 'review_hog'
                 | 'session_recording'
                 | 'session_recording_playlist'
                 | 'sharing_configuration'
@@ -913,8 +917,6 @@ export const accessControlLogic = kea<accessControlLogicType>([
                     | 'account'
                     | 'action'
                     | 'activity_log'
-                    | 'agent_approvals'
-                    | 'agents'
                     | 'alert'
                     | 'annotation'
                     | 'approvals'
@@ -987,6 +989,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
                     | 'query_performance'
                     | 'replay_scanner'
                     | 'revenue_analytics'
+                    | 'review_hog'
                     | 'session_recording'
                     | 'session_recording_playlist'
                     | 'sharing_configuration'
@@ -1024,8 +1027,6 @@ export const accessControlLogic = kea<accessControlLogicType>([
                     | 'account'
                     | 'action'
                     | 'activity_log'
-                    | 'agent_approvals'
-                    | 'agents'
                     | 'alert'
                     | 'annotation'
                     | 'approvals'
@@ -1098,6 +1099,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
                     | 'query_performance'
                     | 'replay_scanner'
                     | 'revenue_analytics'
+                    | 'review_hog'
                     | 'session_recording'
                     | 'session_recording_playlist'
                     | 'sharing_configuration'
@@ -1133,6 +1135,8 @@ export const accessControlLogic = kea<accessControlLogicType>([
                 const resourceToRoute: Partial<Record<APIScopeObject, string>> = {
                     warehouse_view: 'warehouse_saved_queries',
                     early_access_feature: 'early_access_feature',
+                    heatmap: 'saved',
+                    replay_scanner: 'vision/scanners',
                 }
                 const route = resourceToRoute[resource] ?? `${resource}s`
                 return `api/projects/${currentProjectId}/${route}/${resource_id}/access_controls`
@@ -1147,8 +1151,6 @@ export const accessControlLogic = kea<accessControlLogicType>([
                     | 'account'
                     | 'action'
                     | 'activity_log'
-                    | 'agent_approvals'
-                    | 'agents'
                     | 'alert'
                     | 'annotation'
                     | 'approvals'
@@ -1221,6 +1223,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
                     | 'query_performance'
                     | 'replay_scanner'
                     | 'revenue_analytics'
+                    | 'review_hog'
                     | 'session_recording'
                     | 'session_recording_playlist'
                     | 'sharing_configuration'
@@ -1358,7 +1361,10 @@ export const accessControlLogic = kea<accessControlLogicType>([
                                 (member) => member === accessControl.organization_member
                             )
                     ) as (AccessControlTypeMember | AccessControlTypeOrganizationAdmins)[]
-                return members.concat(organizationAdminsAsAccessControlMember)
+                // No row when no admins are visible (org may hide them from restricted members)
+                return organizationAdminsAsAccessControlMember.organization_admin_members.length > 0
+                    ? members.concat(organizationAdminsAsAccessControlMember)
+                    : members
             },
         ],
 

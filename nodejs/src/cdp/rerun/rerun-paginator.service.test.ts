@@ -10,7 +10,8 @@ import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { waitForExpect } from '~/tests/helpers/expectations'
-import { ensureKafkaTopics, resetKafka } from '~/tests/helpers/kafka'
+import { waitForHogInvocationResultsMvReady } from '~/tests/helpers/hog-invocation-results'
+import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../types'
@@ -118,6 +119,7 @@ describe('RerunPaginatorService integration', () => {
             seedingService.queueLifecycleRow(invocation, r.status, { error: r.error, errorKind: r.errorKind })
         }
         await seedingService.flush()
+        await kafkaProducer.flush()
 
         // Track cumulative seeded rows so calling seedRows twice in the same
         // test waits for *all* rows (rather than trivially passing on the
@@ -187,9 +189,12 @@ describe('RerunPaginatorService integration', () => {
 
     beforeAll(async () => {
         MockKafkaProducerWrapper.create = jest.fn((...args: any[]) => ActualKafkaProducerWrapper.create(...args))
-        await resetKafka()
-        await ensureKafkaTopics([KAFKA_HOG_INVOCATION_RESULTS])
+        // Ensure all topics exist (idempotently, without deleting) so the ClickHouse Kafka engine
+        // consumers keep their connections. Includes KAFKA_HOG_INVOCATION_RESULTS, which this test's
+        // MV needs but the shared set does not cover.
+        await ensureKafkaTopics([...TEST_KAFKA_TOPICS, KAFKA_HOG_INVOCATION_RESULTS])
         await clickhouse.truncate('hog_invocation_results_data')
+        await waitForHogInvocationResultsMvReady(clickhouse)
     })
 
     beforeEach(async () => {

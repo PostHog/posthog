@@ -61,6 +61,16 @@ def _make_rate_limited_response(headers: dict[str, str] | None = None) -> MagicM
     return response
 
 
+def _make_graphql_error_response(message: str) -> MagicMock:
+    """Mimic Linear's GraphQL-level failure: HTTP 200/ok, but the body carries an `errors` array."""
+    response = MagicMock()
+    response.status_code = 200
+    response.ok = True
+    response.reason = "OK"
+    response.json.return_value = {"errors": [{"message": message}]}
+    return response
+
+
 def _make_truncated_response(body: str) -> MagicMock:
     """Mimic a large 2xx page cut mid-stream: status is OK but the body fails to JSON-decode."""
     response = MagicMock()
@@ -375,6 +385,62 @@ class TestMakePaginatedRequest:
 
         assert session.post.call_count == LINEAR_MAX_RETRY_ATTEMPTS
         assert "secret customer issue" not in str(exc_info.value)
+
+    @patch("time.sleep", return_value=None)
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.linear.linear.make_tracked_session")
+    def test_graphql_internal_server_error_is_retried_then_succeeds(
+        self, mock_session_cls: MagicMock, _mock_sleep: MagicMock
+    ) -> None:
+        # Linear's GraphQL layer can wrap a resolver-side blip as a 200 with a generic
+        # "Internal server error" message instead of an HTTP 5xx. It must be retried with
+        # backoff like the status-code 5xx case, not surfaced as a non-retryable Exception.
+        session = MagicMock()
+        session.post.side_effect = [
+            _make_graphql_error_response("Internal server error"),
+            _make_response([{"id": "a"}], False, None),
+        ]
+        mock_session_cls.return_value = session
+
+        manager = _make_resumable_manager()
+        logger = MagicMock()
+
+        pages = list(
+            _make_paginated_request(
+                access_token="tok",
+                endpoint_name="issues",
+                logger=logger,
+                resumable_source_manager=manager,
+            )
+        )
+
+        assert pages == [[{"id": "a"}]]
+        assert session.post.call_count == 2
+
+    @patch("time.sleep", return_value=None)
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.linear.linear.make_tracked_session")
+    def test_persistent_graphql_internal_server_error_raises_retryable_error(
+        self, mock_session_cls: MagicMock, _mock_sleep: MagicMock
+    ) -> None:
+        session = MagicMock()
+        session.post.side_effect = [
+            _make_graphql_error_response("Internal server error") for _ in range(LINEAR_MAX_RETRY_ATTEMPTS)
+        ]
+        mock_session_cls.return_value = session
+
+        manager = _make_resumable_manager()
+        logger = MagicMock()
+
+        with pytest.raises(LinearRetryableError):
+            list(
+                _make_paginated_request(
+                    access_token="tok",
+                    endpoint_name="issues",
+                    logger=logger,
+                    resumable_source_manager=manager,
+                )
+            )
+
+        assert session.post.call_count == LINEAR_MAX_RETRY_ATTEMPTS
 
 
 class TestFloatFieldCoercion:

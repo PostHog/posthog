@@ -133,6 +133,11 @@ The API key (or user) needs read access to the data you want to sync.""",
             "403 Client Error": "Your Metabase credentials lack the permissions needed to sync this data. Grant read access and reconnect.",
             HOST_NOT_ALLOWED_ERROR: "The Metabase host is not allowed. Please use your instance's public URL.",
             SESSION_RESPONSE_NOT_JSON_ERROR: "Metabase didn't return a valid session response. Check that the Instance URL points to your Metabase instance, then reconnect.",
+            # `_is_host_safe` raises this when the Instance URL doesn't resolve via DNS — a
+            # hostname the customer typed wrong or one that's no longer publicly reachable.
+            # Deterministic and permanent until the Instance URL is corrected, so stop
+            # retrying. Match the stable prefix, not the customer's hostname that follows it.
+            "Couldn't resolve the host": "The Metabase Instance URL could not be resolved via DNS. Check that it's spelled correctly and reachable from the public internet, then reconnect.",
         }
 
     def _build_auth(self, config: MetabaseSourceConfig) -> MetabaseAuth:
@@ -150,6 +155,7 @@ The API key (or user) needs read access to the data you want to sync.""",
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Metabase exposes no server-side timestamp filter or pagination cursor, so every endpoint
         # is full refresh only.
@@ -168,7 +174,11 @@ The API key (or user) needs read access to the data you want to sync.""",
         return schemas
 
     def validate_credentials(
-        self, config: MetabaseSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: MetabaseSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_metabase_credentials(config.host, self._build_auth(config), team_id, schema_name)
 

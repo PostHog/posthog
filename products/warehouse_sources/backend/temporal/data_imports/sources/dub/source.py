@@ -67,11 +67,12 @@ class DubSource(ResumableSource[DubSourceConfig, DubResumeConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: DubSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: DubSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         # Per-schema check (from the incremental_fields action): confirm the key's plan
         # actually reaches that endpoint. At source-create, only probe the token itself.
@@ -84,7 +85,7 @@ class DubSource(ResumableSource[DubSourceConfig, DubResumeConfig]):
         return validate_dub_credentials(config.api_key)
 
     def get_endpoint_permissions(
-        self, config: DubSourceConfig, team_id: int, endpoints: list[str]
+        self, config: DubSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
     ) -> dict[str, str | None]:
         # Only probe the plan/program-gated endpoints; the rest are reachable with any
         # workspace key, and /events access is shared by all three event tables.

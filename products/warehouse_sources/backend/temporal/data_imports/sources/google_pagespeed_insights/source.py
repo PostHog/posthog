@@ -109,6 +109,13 @@ Each analysis is a full Lighthouse run and can take several seconds. Each URL is
             "403 Client Error: Forbidden for url: https://pagespeedonline.googleapis.com": "Your API key does not have access to the PageSpeed Insights API. Enable the API for your Google Cloud project and check any key restrictions, then reconnect.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # 429/5xx are already retried internally with backoff (see google_pagespeed_insights.py's
+        # tenacity-wrapped `_fetch`); if those retries still exhaust, the failure is transient and
+        # self-recovering, so let Temporal retry the activity without surfacing it as tracked
+        # exception noise.
+        return {"PageSpeed Insights API error (retryable)"}
+
     def get_schemas(
         self,
         config: GooglePageSpeedInsightsSourceConfig,
@@ -116,6 +123,7 @@ Each analysis is a full Lighthouse run and can take several seconds. Each URL is
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -137,7 +145,11 @@ Each analysis is a full Lighthouse run and can take several seconds. Each URL is
         return schemas
 
     def validate_credentials(
-        self, config: GooglePageSpeedInsightsSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: GooglePageSpeedInsightsSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_google_pagespeed_insights_credentials(config.api_key, config.urls)
 

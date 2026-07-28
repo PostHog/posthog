@@ -107,6 +107,7 @@ Attribution to Pexels and to the photographer/videographer is required when you 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         has_search_query = bool((config.search_query or "").strip())
 
@@ -134,7 +135,11 @@ Attribution to Pexels and to the photographer/videographer is required when you 
         return schemas
 
     def validate_credentials(
-        self, config: PexelsSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: PexelsSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_pexels_credentials(config.api_key):
             return True, None
