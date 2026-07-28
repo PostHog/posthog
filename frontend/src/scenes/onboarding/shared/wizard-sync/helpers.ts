@@ -87,6 +87,9 @@ export function syncHeadline(progress: InstallationProgress): string {
     if (progress.prUrl) {
         return 'Pull request ready'
     }
+    if (progress.pendingInput) {
+        return 'Waiting for your answer'
+    }
     if (progress.phase === 'connecting') {
         return 'Getting ready'
     }
@@ -111,6 +114,10 @@ export function currentTaskLabel(progress: InstallationProgress): string | null 
     }
     if (progress.phase === 'completed') {
         return progress.prUrl ? 'Pull request is ready to review' : 'Everything is wired up'
+    }
+    if (progress.pendingInput) {
+        // Sensitive asks (secrets) publish no prompt text, so fall back to pointing at the terminal.
+        return progress.pendingInput.prompts[0] ?? 'The agent has a question in your terminal'
     }
     const step = activeStep(progress.steps)
     if (step) {
@@ -148,6 +155,9 @@ export function toneTextClass(progress: InstallationProgress): string {
     }
     if (progress.phase === 'error') {
         return 'text-danger'
+    }
+    if (progress.pendingInput) {
+        return 'text-warning'
     }
     return 'text-accent'
 }

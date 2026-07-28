@@ -64,5 +64,11 @@ export const WizardSessionsCreateBody = /* @__PURE__ */ zod
             .record(zod.string(), zod.unknown())
             .nullish()
             .describe("Populated when run_phase='error'. Shape: { type: string, message: string }."),
+        pending_input: zod
+            .record(zod.string(), zod.unknown())
+            .nullish()
+            .describe(
+                'Populated while the wizard is blocked on a question in the terminal. Shape: { id: string, asked_at: ISO timestamp, question_count: int, sensitive: bool, prompts?: string[] }. prompts is omitted for sensitive questions. Null\/absent means no input is pending; a push without it clears the previous prompt.'
+            ),
     })
     .describe('Input: validates the JSON the wizard CLI posts. team_id is derived from URL.')

@@ -45,7 +45,16 @@ function steps(
 }
 
 function progress(overrides: Partial<InstallationProgress>): InstallationProgress {
-    return { phase: 'running', steps: [], error: null, prUrl: null, prMerged: false, isCurrent: true, ...overrides }
+    return {
+        phase: 'running',
+        steps: [],
+        error: null,
+        prUrl: null,
+        prMerged: false,
+        isCurrent: true,
+        pendingInput: null,
+        ...overrides,
+    }
 }
 
 export const Connecting: Story = {

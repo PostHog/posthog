@@ -56,6 +56,11 @@ export type WizardSessionDTOApiEventPlan = { [key: string]: unknown } | null
 export type WizardSessionDTOApiError = { [key: string]: unknown } | null
 
 /**
+ * @nullable
+ */
+export type WizardSessionDTOApiPendingInput = { [key: string]: unknown } | null
+
+/**
  * Output: serialises a WizardSessionDTO returned by the facade.
  */
 export interface WizardSessionDTOApi {
@@ -70,6 +75,8 @@ export interface WizardSessionDTOApi {
     event_plan: WizardSessionDTOApiEventPlan
     /** @nullable */
     error: WizardSessionDTOApiError
+    /** @nullable */
+    pending_input: WizardSessionDTOApiPendingInput
     created_at: string
     updated_at: string
     is_stale: boolean
@@ -95,6 +102,12 @@ export type UpsertWizardSessionRequestApiEventPlan = { [key: string]: unknown } 
  * @nullable
  */
 export type UpsertWizardSessionRequestApiError = { [key: string]: unknown } | null
+
+/**
+ * Populated while the wizard is blocked on a question in the terminal. Shape: { id: string, asked_at: ISO timestamp, question_count: int, sensitive: bool, prompts?: string[] }. prompts is omitted for sensitive questions. Null/absent means no input is pending; a push without it clears the previous prompt.
+ * @nullable
+ */
+export type UpsertWizardSessionRequestApiPendingInput = { [key: string]: unknown } | null
 
 /**
  * Input: validates the JSON the wizard CLI posts. team_id is derived from URL.
@@ -135,6 +148,11 @@ export interface UpsertWizardSessionRequestApi {
      * @nullable
      */
     error?: UpsertWizardSessionRequestApiError
+    /**
+     * Populated while the wizard is blocked on a question in the terminal. Shape: { id: string, asked_at: ISO timestamp, question_count: int, sensitive: bool, prompts?: string[] }. prompts is omitted for sensitive questions. Null/absent means no input is pending; a push without it clears the previous prompt.
+     * @nullable
+     */
+    pending_input?: UpsertWizardSessionRequestApiPendingInput
 }
 
 export type WizardSessionsListParams = {

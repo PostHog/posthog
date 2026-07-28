@@ -46820,6 +46820,11 @@ export namespace Schemas {
     export type WizardSessionDTOError = { [key: string]: unknown } | null;
 
     /**
+     * @nullable
+     */
+    export type WizardSessionDTOPendingInput = { [key: string]: unknown } | null;
+
+    /**
      * Output: serialises a WizardSessionDTO returned by the facade.
      */
     export interface WizardSessionDTO {
@@ -46834,6 +46839,8 @@ export namespace Schemas {
       event_plan: WizardSessionDTOEventPlan;
       /** @nullable */
       error: WizardSessionDTOError;
+      /** @nullable */
+      pending_input: WizardSessionDTOPendingInput;
       created_at: string;
       updated_at: string;
       is_stale: boolean;
@@ -69446,6 +69453,12 @@ export namespace Schemas {
     export type UpsertWizardSessionRequestError = { [key: string]: unknown } | null;
 
     /**
+     * Populated while the wizard is blocked on a question in the terminal. Shape: { id: string, asked_at: ISO timestamp, question_count: int, sensitive: bool, prompts?: string[] }. prompts is omitted for sensitive questions. Null/absent means no input is pending; a push without it clears the previous prompt.
+     * @nullable
+     */
+    export type UpsertWizardSessionRequestPendingInput = { [key: string]: unknown } | null;
+
+    /**
      * Input: validates the JSON the wizard CLI posts. team_id is derived from URL.
      */
     export interface UpsertWizardSessionRequest {
@@ -69484,6 +69497,11 @@ export namespace Schemas {
          * @nullable
          */
       error?: UpsertWizardSessionRequestError;
+      /**
+         * Populated while the wizard is blocked on a question in the terminal. Shape: { id: string, asked_at: ISO timestamp, question_count: int, sensitive: bool, prompts?: string[] }. prompts is omitted for sensitive questions. Null/absent means no input is pending; a push without it clears the previous prompt.
+         * @nullable
+         */
+      pending_input?: UpsertWizardSessionRequestPendingInput;
     }
 
     /**

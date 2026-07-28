@@ -5,6 +5,7 @@ import {
     IconExpand45,
     IconLaptop,
     IconPullRequest,
+    IconQuestion,
     IconWarning,
     IconX,
 } from '@posthog/icons'
@@ -39,6 +40,9 @@ export function StatusGlyph({ progress }: { progress: InstallationProgress }): J
     }
     if (progress.prMerged) {
         return <IconPullRequest className="text-purple text-xl shrink-0" />
+    }
+    if (progress.pendingInput) {
+        return <IconQuestion className="text-warning text-xl shrink-0" />
     }
     return <Spinner className="text-xl shrink-0 text-accent" textColored />
 }
