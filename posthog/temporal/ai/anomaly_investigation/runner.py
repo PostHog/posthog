@@ -222,9 +222,9 @@ async def run_investigation(
                     # than bouncing off Temporal retries — MaxChatAnthropic already exhausted
                     # its built-in retry budget, so another activity attempt is unlikely to help.
                     logger.warning("anomaly_investigation.llm_finalize_error", extra={"error": str(err)})
-                    report = salvage_report(last_report_args) or _fallback_report(f"LLM finalize call failed: {err}")
-                    report.tool_calls_used = tool_calls_used
-                    return InvestigationRunResult(report=report, tool_calls_used=tool_calls_used, model=AGENT_MODEL)
+                    salvaged = salvage_report(last_report_args) or _fallback_report(f"LLM finalize call failed: {err}")
+                    salvaged.tool_calls_used = tool_calls_used
+                    return InvestigationRunResult(report=salvaged, tool_calls_used=tool_calls_used, model=AGENT_MODEL)
                 messages.append(final)
                 final_tool_calls = getattr(final, "tool_calls", None) or []
                 report_args = _final_report_args(final_tool_calls)
@@ -324,7 +324,7 @@ async def run_investigation(
 
     final_message = messages[-1]
     content = getattr(final_message, "content", "")
-    report = _parse_report_text(content)
+    report: InvestigationReport | None = _parse_report_text(content)
     if report is None and last_report_args is not None:
         report = salvage_report(last_report_args)
         if report is not None:
