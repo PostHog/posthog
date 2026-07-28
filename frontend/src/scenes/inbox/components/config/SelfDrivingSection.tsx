@@ -1,7 +1,19 @@
 import { useActions, useValues } from 'kea'
 
-import { IconRocket } from '@posthog/icons'
-import { LemonSegmentedButton, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
+import { IconPlus, IconRocket } from '@posthog/icons'
+import { LemonSegmentedButton, LemonSkeleton, LemonSnack, LemonSwitch } from '@posthog/lemon-ui'
+import {
+    Button,
+    ButtonGroup,
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from '@posthog/quill'
+
+import { GitHubBranchCombobox } from 'lib/integrations/GitHubBranchCombobox'
+import { GitHubRepositoryCombobox } from 'lib/integrations/GitHubRepositoryCombobox'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
 import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 import { PRIORITY_THRESHOLD_OPTIONS, SignalReportPriority } from '../../types'
@@ -19,6 +31,114 @@ const THRESHOLD_SEGMENTS = PRIORITY_THRESHOLD_OPTIONS.map(({ value }) => ({
     value,
     label: THRESHOLD_SEGMENT_LABELS[value],
 }))
+
+function BaseBranchOverrideChips(): JSX.Element | null {
+    const { baseBranchOverrides } = useValues(signalTeamConfigLogic)
+    const { removeBaseBranchOverride } = useActions(signalTeamConfigLogic)
+
+    if (baseBranchOverrides.length === 0) {
+        return null
+    }
+
+    return (
+        <div className="flex flex-wrap gap-1">
+            {baseBranchOverrides.map(({ repo, branch }) => (
+                <LemonSnack key={repo} title={`${repo} → ${branch}`} onClose={() => removeBaseBranchOverride(repo)}>
+                    <span className="text-default">{repo}</span>
+                    <span className="text-muted"> → {branch}</span>
+                </LemonSnack>
+            ))}
+        </div>
+    )
+}
+
+function BaseBranchOverridePicker({ integrationIds }: { integrationIds: number[] }): JSX.Element {
+    const { draftBaseBranchIntegrationId, draftBaseBranchRepo, draftBaseBranchBranch, canAddBaseBranchOverride } =
+        useValues(signalTeamConfigLogic)
+    const { setDraftBaseBranchIntegrationId, setDraftBaseBranchRepo, setDraftBaseBranchBranch, addBaseBranchOverride } =
+        useActions(signalTeamConfigLogic)
+    const { getIntegrationsByKind } = useValues(integrationsLogic)
+
+    const integrationId = draftBaseBranchIntegrationId ?? integrationIds[0]
+    const githubIntegrations = getIntegrationsByKind(['github'])
+
+    return (
+        <div className="flex flex-wrap items-center gap-1">
+            {integrationIds.length > 1 && (
+                <DropdownMenu>
+                    <DropdownMenuTrigger
+                        render={
+                            <Button variant="outline" size="sm" aria-label="GitHub organization">
+                                <span className="min-w-0 truncate">
+                                    {githubIntegrations.find((integration) => integration.id === integrationId)
+                                        ?.display_name ?? 'GitHub'}
+                                </span>
+                            </Button>
+                        }
+                    />
+                    <DropdownMenuContent>
+                        {githubIntegrations.map((integration) => (
+                            <DropdownMenuItem
+                                key={integration.id}
+                                onClick={() => setDraftBaseBranchIntegrationId(integration.id)}
+                            >
+                                {integration.display_name}
+                            </DropdownMenuItem>
+                        ))}
+                    </DropdownMenuContent>
+                </DropdownMenu>
+            )}
+            <ButtonGroup>
+                <GitHubRepositoryCombobox
+                    integrationId={integrationId}
+                    value={draftBaseBranchRepo}
+                    onChange={(repo) => setDraftBaseBranchRepo(repo ?? '')}
+                    placeholder="Repository"
+                />
+                {draftBaseBranchRepo ? (
+                    <GitHubBranchCombobox
+                        integrationId={integrationId}
+                        repo={draftBaseBranchRepo}
+                        value={draftBaseBranchBranch}
+                        onChange={(branch) => setDraftBaseBranchBranch(branch ?? '')}
+                    />
+                ) : null}
+            </ButtonGroup>
+            <Button
+                variant="outline"
+                size="sm"
+                disabled={!canAddBaseBranchOverride}
+                aria-label="Add base branch override"
+                onClick={() => addBaseBranchOverride()}
+            >
+                <IconPlus />
+            </Button>
+        </div>
+    )
+}
+
+function BaseBranchOverrides(): JSX.Element {
+    const { getIntegrationsByKind } = useValues(integrationsLogic)
+    const integrationIds = getIntegrationsByKind(['github']).map((integration) => integration.id)
+
+    return (
+        <div className="flex flex-col gap-1.5">
+            <span className="text-xs text-secondary">Base branches</span>
+            <p className="text-[11px] text-tertiary leading-snug mb-0">
+                PRs open against each repository's default branch. Add an override to target a different branch, like
+                develop.
+            </p>
+            <BaseBranchOverrideChips />
+            {integrationIds.length > 0 ? (
+                <BaseBranchOverridePicker integrationIds={integrationIds} />
+            ) : (
+                <p className="text-[11px] text-tertiary leading-snug mb-0">
+                    Connect GitHub above to choose a base branch.
+                </p>
+            )}
+        </div>
+    )
+}
 
 /**
  * Team-wide PR-generation control, backed by `autostart_enabled` and `default_autostart_priority`
@@ -59,14 +179,17 @@ export function SelfDrivingSection(): JSX.Element {
 
             <div className="border-t border-primary bg-surface-secondary px-2.5 py-1.5">
                 {autostartEnabled ? (
-                    <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs text-secondary shrink-0">Threshold</span>
-                        <LemonSegmentedButton
-                            size="xsmall"
-                            value={defaultAutostartPriority}
-                            options={THRESHOLD_SEGMENTS}
-                            onChange={(next) => patchTeamConfig({ default_autostart_priority: next })}
-                        />
+                    <div className="flex flex-col gap-2">
+                        <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs text-secondary shrink-0">Threshold</span>
+                            <LemonSegmentedButton
+                                size="xsmall"
+                                value={defaultAutostartPriority}
+                                options={THRESHOLD_SEGMENTS}
+                                onChange={(next) => patchTeamConfig({ default_autostart_priority: next })}
+                            />
+                        </div>
+                        <BaseBranchOverrides />
                     </div>
                 ) : (
                     <p className="text-xs text-secondary mb-0">Reports still arrive and notify your team.</p>
