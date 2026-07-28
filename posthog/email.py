@@ -159,14 +159,10 @@ def get_email_team_and_org_context(
     organization: Optional["Organization"] = None,
 ) -> dict[str, str]:
     """
-    The team_name, organization_name, and customer_id (the billing customer) for a
-    transactional email. Spread this into template_context instead of setting those keys
-    directly: the Customer.io footer and several body templates read them, and this is the
-    only place they get sanitized, so a hand-set duplicate reintroduces the raw value.
-
-    Absent values are omitted so templates render only what's present. Both names go through
-    `sanitize_display_name`, so a legacy name that is a URL degrades to a placeholder rather
-    than rendering as a link target where templates interpolate it mid-sentence.
+    team_name, organization_name, and customer_id (the billing customer) for a transactional
+    email. Spread it into template_context whenever a team or organization is in scope. Absent
+    values are omitted so templates render only what's present, and both names are sanitized,
+    so one that happens to be a URL degrades to a placeholder instead of rendering as a link.
     """
     if organization is None and team is not None:
         organization = team.organization
