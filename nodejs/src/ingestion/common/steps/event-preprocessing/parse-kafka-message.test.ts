@@ -1,9 +1,11 @@
 import { Message } from 'node-rdkafka'
 
 import { logger } from '~/common/utils/logger'
+import { TopHogRegistry, createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
 import { PipelineResultType, dlq, ok } from '~/ingestion/framework/results'
+import { EventHeaders } from '~/types'
 
-import { createParseKafkaMessageStep } from './parse-kafka-message'
+import { createParseKafkaMessageStep, parseMessageTopHogMetrics } from './parse-kafka-message'
 
 // Mock dependencies
 jest.mock('~/common/utils/logger')
@@ -459,6 +461,62 @@ describe('createParseKafkaMessageStep', () => {
                 const result = await step({ message: msg })
                 expect(result).toEqual(dlq('failed_parse_message', expect.any(Error)))
             })
+        })
+    })
+
+    describe('parseMessageTopHogMetrics', () => {
+        function createMockTopHog(): TopHogRegistry & { record: jest.Mock } {
+            const record = jest.fn()
+            const tracker = { record }
+            return {
+                record,
+                registerSum: jest.fn().mockReturnValue(tracker),
+                registerMax: jest.fn().mockReturnValue(tracker),
+                registerAverage: jest.fn().mockReturnValue(tracker),
+            }
+        }
+
+        const baseHeaders = {
+            force_disable_person_processing: false,
+            historical_migration: false,
+            skip_heatmap_processing: false,
+        }
+
+        it('records sizes and timing keyed by token, including for messages that fail to parse', async () => {
+            const registry = createMockTopHog()
+            const topHog = createTopHogWrapper(registry)
+            const wrapped = topHog(
+                createParseKafkaMessageStep<{ message: Message; headers: EventHeaders }>(),
+                parseMessageTopHogMetrics()
+            )
+
+            const malformed = Buffer.from('not json')
+            await wrapped({
+                message: { value: malformed, partition: 7 } as Message,
+                headers: { ...baseHeaders, token: 'token-a' },
+            })
+
+            expect(registry.registerSum).toHaveBeenCalledWith('parse_time_ms_by_token', undefined)
+            expect(registry.registerSum).toHaveBeenCalledWith('message_size_by_token', undefined)
+            expect(registry.registerSum).toHaveBeenCalledWith('message_size_by_token_per_partition', undefined)
+            expect(registry.registerMax).toHaveBeenCalledWith('max_message_size_by_token', undefined)
+            // Sizes are recorded from the raw message even though parsing DLQ'd.
+            expect(registry.record).toHaveBeenCalledWith({ token: 'token-a' }, malformed.length)
+            expect(registry.record).toHaveBeenCalledWith({ token: 'token-a', partition: '7' }, malformed.length)
+        })
+
+        it('falls back to an unknown token key when headers carry none', async () => {
+            const registry = createMockTopHog()
+            const topHog = createTopHogWrapper(registry)
+            const wrapped = topHog(
+                createParseKafkaMessageStep<{ message: Message; headers: EventHeaders }>(),
+                parseMessageTopHogMetrics()
+            )
+
+            const value = Buffer.from('{}')
+            await wrapped({ message: { value, partition: 0 } as Message, headers: baseHeaders })
+
+            expect(registry.record).toHaveBeenCalledWith({ token: 'unknown' }, value.length)
         })
     })
 
