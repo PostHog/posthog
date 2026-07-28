@@ -6476,6 +6476,43 @@ class TestCohortTypeIntegration(APIBaseTest):
         self.assertIs(cohort.filters.get("filterTestAccounts"), True)
         self.assertNotEqual(cohort.cohort_type, CohortType.REALTIME)
 
+    def test_filter_test_accounts_patch_toggles_realtime_routing(self):
+        """Editing an existing realtime cohort to turn the flag on must flip it to the batch path,
+        and turning it back off must restore realtime eligibility. Covers the update path, which is
+        separate from create."""
+
+        person_property_filters = {
+            "type": "AND",
+            "values": [{"type": "person", "key": "email", "operator": "icontains", "value": "@posthog.com"}],
+        }
+        create = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "Real users only", "filters": {"properties": person_property_filters}},
+            format="json",
+        )
+        self.assertEqual(create.status_code, 201, create.data)
+        cohort_id = create.data["id"]
+        self.assertEqual(Cohort.objects.get(id=cohort_id).cohort_type, CohortType.REALTIME)
+
+        turn_on = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}/",
+            {"filters": {"properties": person_property_filters, "filterTestAccounts": True}},
+            format="json",
+        )
+        self.assertEqual(turn_on.status_code, 200, turn_on.data)
+        cohort = Cohort.objects.get(id=cohort_id)
+        assert cohort.filters is not None
+        self.assertIs(cohort.filters.get("filterTestAccounts"), True)
+        self.assertNotEqual(cohort.cohort_type, CohortType.REALTIME)
+
+        turn_off = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}/",
+            {"filters": {"properties": person_property_filters, "filterTestAccounts": False}},
+            format="json",
+        )
+        self.assertEqual(turn_off.status_code, 200, turn_off.data)
+        self.assertEqual(Cohort.objects.get(id=cohort_id).cohort_type, CohortType.REALTIME)
+
     def test_person_metadata_cohort_not_classified_realtime(self):
         """person_metadata cohorts must route to the non-realtime path: the realtime
         precalculated_person_properties table only carries JSON-blob values, not top-level
