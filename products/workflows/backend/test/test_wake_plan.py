@@ -1,10 +1,13 @@
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.hogql.parser import parse_expr
+
+from posthog.cdp.filters import compile_filters_expr
 
 from products.workflows.backend.services.wake_plan import analyze_wait_condition
 
@@ -51,6 +54,28 @@ class TestWakePlan(SimpleTestCase):
 
         # A trial expiring Aug 1 12:00Z must wake the wait Jul 31 12:00Z, one day earlier.
         # fromUnixTimestamp yields a HogDateTime, which is the shape the executor parks on.
+        assert result.result["dt"] == datetime(2026, 7, 31, 12, 0, tzinfo=UTC).timestamp()
+
+    def test_analyzes_the_expression_the_serializer_actually_compiles(self):
+        # The analyzer runs on compile_filters_expr output in production, not on a hand-parsed
+        # string. That path wraps and rewrites the hogql property (property_to_expr), so a plan
+        # derived from parse_expr proves nothing about the real one. Regression this catches: a
+        # wrapping change that hides the clock call, silently reclassifying a timed wait as
+        # stream-only and dropping its wake once the poll is gone.
+        team = SimpleNamespace(id=1, project_id=1, test_account_filters=[], timezone="UTC")
+        filters = {
+            "source": "events",
+            "properties": [{"key": PRODUCTION_TRIAL_CONDITION, "type": "hogql", "value": None}],
+        }
+
+        plan = analyze_wait_condition(compile_filters_expr(filters, team, actions={}), team_id=team.id)
+
+        assert plan.unsupported_reason is None
+        assert len(plan.timers) == 1
+        result = execute_bytecode(
+            plan.timers[0],
+            globals={"person": {"properties": {"trial_expiration_at": "2026-08-01T12:00:00Z"}}},
+        )
         assert result.result["dt"] == datetime(2026, 7, 31, 12, 0, tzinfo=UTC).timestamp()
 
     def test_days_since_condition_executes_to_the_offset_instant(self):
