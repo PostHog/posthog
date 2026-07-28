@@ -137,6 +137,7 @@ export enum NodeKind {
     WebOverviewQuery = 'WebOverviewQuery',
     WebStatsTableQuery = 'WebStatsTableQuery',
     WebExternalClicksTableQuery = 'WebExternalClicksTableQuery',
+    WebBotsTableQuery = 'WebBotsTableQuery',
     WebGoalsQuery = 'WebGoalsQuery',
     WebVitalsQuery = 'WebVitalsQuery',
     WebVitalsPathBreakdownQuery = 'WebVitalsPathBreakdownQuery',
@@ -228,6 +229,7 @@ export type AnyDataNode =
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
+    | WebBotsTableQuery
     | WebGoalsQuery
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
@@ -312,6 +314,7 @@ export type QuerySchema =
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
+    | WebBotsTableQuery
     | WebGoalsQuery
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
@@ -1098,6 +1101,7 @@ export type DataTableNodeSourceUnion =
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
+    | WebBotsTableQuery
     | WebGoalsQuery
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
@@ -1132,6 +1136,7 @@ export interface DataTableNode
                     | WebOverviewQuery
                     | WebStatsTableQuery
                     | WebExternalClicksTableQuery
+                    | WebBotsTableQuery
                     | WebGoalsQuery
                     | WebVitalsQuery
                     | WebVitalsPathBreakdownQuery
@@ -3066,6 +3071,28 @@ export interface WebExternalClicksTableQueryResponse extends AnalyticsQueryRespo
     offset?: integer
 }
 export type CachedWebExternalClicksTableQueryResponse = CachedQueryResponse<WebExternalClicksTableQueryResponse>
+
+export enum WebBotsBreakdown {
+    Crawler = 'Crawler',
+    Path = 'Path',
+}
+
+/** Bot analytics tables: crawler activity broken down by crawler or by most-crawled path. */
+export interface WebBotsTableQuery extends WebAnalyticsQueryBase<WebBotsTableQueryResponse> {
+    kind: NodeKind.WebBotsTableQuery
+    breakdownBy: WebBotsBreakdown
+    limit?: integer
+}
+export interface WebBotsTableQueryResponse extends AnalyticsQueryResponseBase {
+    results: unknown[]
+    types?: unknown[]
+    columns?: unknown[]
+    hogql?: string
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+}
+export type CachedWebBotsTableQueryResponse = CachedQueryResponse<WebBotsTableQueryResponse>
 
 export interface WebGoalsQuery extends WebAnalyticsQueryBase<WebGoalsQueryResponse> {
     kind: NodeKind.WebGoalsQuery
