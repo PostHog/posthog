@@ -177,6 +177,9 @@ class TestExternalDataSchemaAccessControl(APIBaseTest):
         )
         self.assertEqual(bulk.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(self.client.post(f"{source_base}/reload/").status_code, status.HTTP_403_FORBIDDEN)
+        # Deleting the source deletes every table it synced, so the same lock blocks it.
+        self.assertEqual(self.client.delete(f"{source_base}/").status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(ExternalDataSource.objects.get(id=self.source.id).deleted)
 
     def test_source_wide_sync_allowed_without_locked_tables(self):
         # The guard above must not break the ordinary case.

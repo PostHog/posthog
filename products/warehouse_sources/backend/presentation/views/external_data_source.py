@@ -2722,6 +2722,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             .all()
         )
 
+        # Deleting the source deletes every table it synced, so it needs editor on each of them.
+        self._assert_can_write_schemas(schemas)
+
         # Soft-delete source, schemas, tables, and companion _cdc tables atomically
         # first so DB state is consistent even if the external cleanup below fails
         with transaction.atomic():
