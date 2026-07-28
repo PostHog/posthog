@@ -18,18 +18,18 @@ import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { AxisSeries, dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import {
     type BuildBarConfigArgs,
-    type ChartSeriesMeta,
+    MAX_SERIES,
+    type SqlLineSeriesMeta,
     buildBarChartConfig,
-    buildChartSeries,
     buildComboChartConfig,
     buildLineChartConfig,
-    canRenderTimeSeriesBarChart,
-    canRenderTimeSeriesComboChart,
-    capYSeriesData,
-} from '~/queries/nodes/DataVisualization/timeSeriesChartAdapter'
+    buildSeries,
+    canRenderSqlBarGraph,
+    canRenderSqlComboGraph,
+} from '~/queries/nodes/DataVisualization/Components/Charts/sqlLineGraphAdapter'
+import { AxisSeries, dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import {
     ChartSettings,
     DataVisualizationNode,
@@ -79,11 +79,11 @@ function chipItemsFromChartOwnSeries(
     visualizationType: ChartDisplayType,
     theme: ChartTheme
 ): LegendItem[] {
-    return yData?.length ? legendItemsFromSeries(buildChartSeries(yData, visualizationType), theme) : []
+    return yData?.length ? legendItemsFromSeries(buildSeries(yData, visualizationType), theme) : []
 }
 
 interface BillingChartModel<TConfig> {
-    series: Series<ChartSeriesMeta>[]
+    series: Series<SqlLineSeriesMeta>[]
     labels: string[]
     theme: ChartTheme
     config: TConfig
@@ -98,7 +98,7 @@ function useBillingChartModel<TConfig extends object>(
     const { timezone } = useValues(teamLogic)
     const theme = useChartTheme()
 
-    const series = useMemo(() => buildChartSeries(yData, visualizationType), [yData, visualizationType])
+    const series = useMemo(() => buildSeries(yData, visualizationType), [yData, visualizationType])
     const config = useChartConfig(
         () =>
             xData
@@ -120,10 +120,10 @@ function BillingChartByKind({
     chartProps: BillingChartProps
     hiddenKeys: string[]
 }): JSX.Element | null {
-    if (canRenderTimeSeriesComboChart(chartProps)) {
+    if (canRenderSqlComboGraph(chartProps)) {
         return <BillingComboChart chartProps={chartProps} hiddenKeys={hiddenKeys} />
     }
-    if (canRenderTimeSeriesBarChart(chartProps)) {
+    if (canRenderSqlBarGraph(chartProps)) {
         return <BillingBarChart chartProps={chartProps} hiddenKeys={hiddenKeys} />
     }
     return <BillingLineChart chartProps={chartProps} hiddenKeys={hiddenKeys} />
@@ -142,7 +142,7 @@ function BillingLineChart({
         return null
     }
     return (
-        <TimeSeriesLineChart<ChartSeriesMeta>
+        <TimeSeriesLineChart<SqlLineSeriesMeta>
             series={model.series}
             labels={model.labels}
             theme={model.theme}
@@ -164,7 +164,7 @@ function BillingBarChart({
         return null
     }
     return (
-        <TimeSeriesBarChart<ChartSeriesMeta>
+        <TimeSeriesBarChart<SqlLineSeriesMeta>
             series={model.series}
             labels={model.labels}
             theme={model.theme}
@@ -186,7 +186,7 @@ function BillingComboChart({
         return null
     }
     return (
-        <TimeSeriesComboChart<ChartSeriesMeta>
+        <TimeSeriesComboChart<SqlLineSeriesMeta>
             series={model.series}
             labels={model.labels}
             theme={model.theme}
@@ -200,11 +200,10 @@ function BillingComboChart({
  * Renders a saved billing insight's chart directly via @posthog/quill-charts instead of the
  * embedded DataVisualization, so Customer analytics owns the per-series show/hide chips without
  * touching shared data-viz code. `dataVisualizationLogic` is still reused read-only for fetch +
- * SQL-results→series parsing; the series and chart config come from the shared
- * `DataVisualization/timeSeriesChartAdapter`, so the SQL insight chart module stays scoped to SQL
- * insights without duplicating its rendering semantics here. Hidden
- * series go into quill's controlled `legend.hiddenKeys`: excluded from drawing and scales, the
- * rest rescale into the freed space.
+ * SQL-results→series parsing, and the series/config builders come from `sqlLineGraphAdapter`'s
+ * pure functions — but not the SQL chart's React layer (`LineGraph`, `useSqlChartModel`), so this
+ * stays clear of the legacy paths being cleaned up there. Hidden series go into quill's controlled
+ * `legend.hiddenKeys`: excluded from drawing and scales, the rest rescale into the freed space.
  */
 export function AccountBillingChart({
     logicProps,
@@ -237,7 +236,8 @@ export function AccountBillingChart({
 
     const hiddenKeys = ephemeralHiddenSeriesKeysByShortId[shortId] ?? []
     // Capped here, once, so renderer dispatch, chart config, and legend chips all see the same series.
-    const cappedYData = useMemo(() => capYSeriesData(yData) ?? [], [yData])
+    // (The SQL path caps inside useSqlChartModel; this path builds its model itself, so cap at the source.)
+    const cappedYData = useMemo(() => (yData.length > MAX_SERIES ? yData.slice(0, MAX_SERIES) : yData), [yData])
     const chartProps: BillingChartProps = {
         xData,
         yData: cappedYData,
