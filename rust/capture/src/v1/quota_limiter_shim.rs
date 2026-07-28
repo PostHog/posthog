@@ -246,6 +246,7 @@ mod tests {
             ai_secondary_kafka_client_id: String::new(),
             capture_analytics_ai_events_mode: crate::config::AiSinkMode::Primary,
             capture_analytics_ai_events_allowlist_tokens: None,
+            capture_analytics_ai_events_percentage: None,
             http1_header_read_timeout_ms: Some(5000),
             body_chunk_read_timeout_ms: None,
             body_read_chunk_size_kb: 256,

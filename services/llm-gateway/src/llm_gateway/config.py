@@ -153,6 +153,7 @@ class Settings(BaseSettings):
     # Modal-hosted GLM inference (OpenAI-compatible vLLM endpoint); auth is a proxy-token pair
     # sent as Modal-Key/Modal-Secret headers. All three must be set for Modal routing.
     modal_api_base: str | None = None
+    modal_kimi_api_base: str | None = None
     modal_key: str | None = None
     modal_secret: str | None = None
 
