@@ -227,3 +227,21 @@ describe('settingsSceneLogic', () => {
         expect(router.values.location.pathname).toMatch(/\/settings\/project$/)
     })
 })
+
+describe('settingsSceneLogic on a cold page load', () => {
+    // The tests above navigate after mounting, which only covers clicks inside the app. A URL that
+    // arrives from outside (pasted, opened in a new tab, followed from an old bookmark) is already
+    // set before the logic mounts, and that is the path a broken settings link actually takes.
+    it('applies a section alias when the URL is set before the logic mounts', async () => {
+        initKeaTests()
+        router.actions.push('/settings/project-members')
+
+        const logic = settingsSceneLogic()
+        logic.mount()
+
+        await expectLogic(logic).toMatchValues({
+            selectedSectionId: 'organization-members',
+        })
+        expect(router.values.location.pathname).toContain('/settings/organization-members')
+    })
+})
