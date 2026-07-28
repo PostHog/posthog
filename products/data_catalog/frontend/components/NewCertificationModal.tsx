@@ -26,17 +26,29 @@ export function NewCertificationModal(): JSX.Element {
     const { setNewCertificationForm, createCertification, closeNewCertificationModal } = useActions(certificationsLogic)
     const { allTables, databaseLoading } = useValues(databaseTableListLogic)
 
-    const options = allTables
+    // Certification targets are keyed by (type, name), so a warehouse table and a view sharing a
+    // name are distinct targets. Encode the type into the option value so they don't collapse.
+    const optionEntries = allTables
         .map((table) => ({ table, targetType: targetTypeForTable(table.type) }))
         .filter(
             (option): option is { table: (typeof allTables)[number]; targetType: CertificationTargetType } =>
                 option.targetType !== null
         )
         .map(({ table, targetType }) => ({
-            value: table.name,
-            label: table.name,
-            labelInMenu: `${table.name} (${targetType})`,
+            value: `${targetType}:${table.name}`,
+            name: table.name,
+            targetType,
         }))
+
+    const options = optionEntries.map(({ value, name, targetType }) => ({
+        value,
+        label: name,
+        labelInMenu: `${name} (${targetType})`,
+    }))
+
+    const selectedValue = newCertificationForm.targetName
+        ? `${newCertificationForm.targetType}:${newCertificationForm.targetName}`
+        : null
 
     const submitDisabledReason = !newCertificationForm.targetName ? 'Choose a table or view' : undefined
 
@@ -51,12 +63,12 @@ export function NewCertificationModal(): JSX.Element {
                 <div className="flex flex-col gap-4">
                     <LemonField.Pure label="Table or view">
                         <LemonSelect
-                            value={newCertificationForm.targetName || null}
-                            onChange={(targetName) => {
-                                const selected = allTables.find((table) => table.name === targetName)
+                            value={selectedValue}
+                            onChange={(value) => {
+                                const selected = optionEntries.find((entry) => entry.value === value)
                                 setNewCertificationForm({
-                                    targetName: targetName || '',
-                                    targetType: selected ? targetTypeForTable(selected.type) || 'table' : 'table',
+                                    targetName: selected?.name ?? '',
+                                    targetType: selected?.targetType ?? 'table',
                                 })
                             }}
                             options={options}

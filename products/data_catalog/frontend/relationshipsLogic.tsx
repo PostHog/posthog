@@ -175,6 +175,8 @@ export const relationshipsLogic = kea<relationshipsLogicType>([
                     .filter((proposal) => proposal.status === 'accepted' && proposal.created_join)
                     .forEach((proposal) => acceptedByJoinId.set(proposal.created_join as string, proposal))
 
+                const joinIds = new Set(joins.map((join) => join.id))
+
                 const joinRows: RelationshipRow[] = joins.map((join) => {
                     const proposal = acceptedByJoinId.get(join.id)
                     return {
@@ -195,6 +197,31 @@ export const relationshipsLogic = kea<relationshipsLogicType>([
                     }
                 })
 
+                // Accepted proposals whose created join isn't in the loaded joins (null, soft-deleted,
+                // or beyond the paginated response) would otherwise vanish — surface them as active rows.
+                const orphanedAcceptedRows: RelationshipRow[] = proposals
+                    .filter(
+                        (proposal) =>
+                            proposal.status === 'accepted' &&
+                            !(proposal.created_join && joinIds.has(proposal.created_join))
+                    )
+                    .map((proposal) => ({
+                        key: `proposal-${proposal.id}`,
+                        sourceTableName: proposal.source_table_name,
+                        sourceTableKey: proposal.source_table_key,
+                        joiningTableName: proposal.joining_table_name,
+                        joiningTableKey: proposal.joining_table_key,
+                        fieldName: proposal.field_name,
+                        rowStatus: 'active',
+                        confidence: proposal.confidence ?? null,
+                        reasoning: proposal.reasoning ?? '',
+                        evidence: proposal.evidence,
+                        rejectionReason: '',
+                        reviewedBy: proposal.reviewed_by?.email ?? null,
+                        viaCatalog: true,
+                        proposalId: proposal.id,
+                    }))
+
                 const proposalRows: RelationshipRow[] = proposals
                     .filter((proposal) => proposal.status !== 'accepted')
                     .map((proposal) => ({
@@ -214,7 +241,7 @@ export const relationshipsLogic = kea<relationshipsLogicType>([
                         proposalId: proposal.id,
                     }))
 
-                return [...joinRows, ...proposalRows]
+                return [...joinRows, ...orphanedAcceptedRows, ...proposalRows]
             },
         ],
         filteredRows: [
