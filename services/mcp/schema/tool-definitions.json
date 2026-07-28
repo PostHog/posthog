@@ -339,7 +339,7 @@
         }
     },
     "notebooks-create-markdown": {
-        "description": "Create a markdown notebook — the flavor that holds executable SQL and Python cells. Provide a title (it becomes the document's leading heading) and optionally an initial markdown body. Returns the notebook_id to use with notebooks-add-cell. Use this instead of notebooks-create when the notebook will contain executable cells or data analysis.",
+        "description": "Create a notebook for deep, step-by-step data analysis: query PostHog and connected data warehouse data with SQL (HogQL), or analyze with Python code. SQL cells can also query dataframes fetched or created by upstream cells in the notebook. Run a cell, read its result, decide the next step; add markdown cells to explain and summarize findings, and embed saved insights. Give it a title and optionally an initial markdown body. Returns the notebook_id to use with notebooks-add-cell.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Create a markdown notebook for executable cells.",
@@ -354,7 +354,7 @@
         }
     },
     "notebooks-add-cell": {
-        "description": "Add a cell to a markdown notebook. SQL (HogQL) and Python cells run immediately: the call waits up to ~45s and returns the result — columns, a capped row preview, stdout/stderr (a Python cell's logs and tracebacks), and error — so you can look at the output and decide the next step (fix, or proceed). If the status comes back 'running', poll notebooks-run-cell-result with the run_id. A cell that reads other cells' dataframes references them by dataframe_name; those cells must have completed a run first, so add cells in dependency order. The first Python cell can take noticeably longer while the notebook's sandbox kernel starts. Markdown cells insert prose; saved_insight cells embed an existing insight — neither runs.",
+        "description": "Add a cell to a markdown notebook. SQL and Python cells run immediately: the call waits up to ~45s and returns the result — columns, a capped row preview, stdout/stderr (a Python cell's logs and tracebacks), and error — so you can look at the output and decide the next step (fix, or proceed). If the status comes back 'running', poll notebooks-run-cell-result with the run_id. A cell that reads other cells' dataframes references them by dataframe_name; those cells must have completed a run first, so add cells in dependency order. SQL cells querying PostHog or data warehouse tables are HogQL; a SQL cell that references a Python-created dataframe runs on the notebook's local engine instead — write standard SQL (DuckDB dialect) there, and any local dataframe is queryable by name. The first Python cell can take noticeably longer while the notebook's sandbox kernel starts. Markdown cells insert prose; saved_insight cells embed an existing insight — neither runs.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Add a cell to a notebook; SQL/Python cells run immediately.",
