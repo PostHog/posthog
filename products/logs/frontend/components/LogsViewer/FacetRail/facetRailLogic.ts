@@ -5,7 +5,7 @@ import { LogSeverityLevel } from '~/queries/schema/schema-general'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
 import type { UniversalFiltersGroup } from '../../../../../../frontend/src/types'
-import { FacetSource, cycleResourceAttributeFilter } from './facets'
+import { FacetSource, cycleResourceAttributeFilter, logFilterExclusions, setLogFilterExclusions } from './facets'
 
 export interface FacetRailLogicProps {
     id: string
@@ -110,7 +110,38 @@ export const facetRailLogic = kea<facetRailLogicType>([
                 // cycles the value included → excluded → cleared.
                 actions.setFilterGroup(cycleResourceAttributeFilter(filterGroup, source.key, value), false)
             } else if (source.filterKey === 'severityLevels') {
-                actions.setSeverityLevels(toggleMembership(severityLevels, value as LogSeverityLevel))
+                // Split representation: includes live in the dedicated severityLevels field,
+                // exclusions in an is_not log filter inside the group. A click cycles
+                // included → excluded → cleared across the two stores.
+                const { exclusionKey } = source
+                if (!exclusionKey) {
+                    actions.setSeverityLevels(toggleMembership(severityLevels, value as LogSeverityLevel))
+                    return
+                }
+                const included = severityLevels ?? []
+                const excluded = logFilterExclusions(filterGroup, exclusionKey)
+                if (included.includes(value as LogSeverityLevel)) {
+                    actions.setSeverityLevels(included.filter((v) => v !== value))
+                    actions.setFilterGroup(
+                        setLogFilterExclusions(
+                            filterGroup,
+                            exclusionKey,
+                            excluded.includes(value) ? excluded : [...excluded, value]
+                        ),
+                        false
+                    )
+                } else if (excluded.includes(value)) {
+                    actions.setFilterGroup(
+                        setLogFilterExclusions(
+                            filterGroup,
+                            exclusionKey,
+                            excluded.filter((v) => v !== value)
+                        ),
+                        false
+                    )
+                } else {
+                    actions.setSeverityLevels([...included, value as LogSeverityLevel])
+                }
             } else if (source.filterKey === 'serviceNames') {
                 actions.setServiceNames(toggleMembership(serviceNames, value))
             } else {
