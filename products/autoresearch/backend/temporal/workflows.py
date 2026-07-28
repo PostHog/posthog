@@ -24,10 +24,10 @@ with workflow.unsafe.imports_passed_through():
     from django.db import transaction
     from django.db.models import F
 
-    from products.autoresearch.backend.inference import run_inference_for_pipeline
+    from products.autoresearch.backend.evaluation.online_validation import run_online_validation_for_pipeline
+    from products.autoresearch.backend.inference.scoring import run_inference_for_pipeline
     from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline, AutoresearchTrainingRun
-    from products.autoresearch.backend.online_validation import run_online_validation_for_pipeline
-    from products.autoresearch.backend.training import run_training
+    from products.autoresearch.backend.training.runner import run_training
 
 from posthog.temporal.common.base import PostHogWorkflow
 
@@ -125,7 +125,7 @@ class AutoresearchInferenceWorkflow(PostHogWorkflow):
     1. Load the champion model for the pipeline.
     2. Score the inference population and emit autoresearch_prediction events.
 
-    Both steps delegate to products.autoresearch.backend.inference so the same
+    Both steps delegate to products.autoresearch.backend.inference.scoring so the same
     code is exercised by both the Temporal workflow and the local management
     command (autoresearch_score).
     """

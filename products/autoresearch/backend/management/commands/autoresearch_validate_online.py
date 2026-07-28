@@ -17,12 +17,12 @@ Requires:
 
 from django.core.management.base import BaseCommand, CommandError
 
-from products.autoresearch.backend.models import AutoresearchPipeline
-from products.autoresearch.backend.online_validation import (
+from products.autoresearch.backend.evaluation.online_validation import (
     _fetch_matured_prediction_dates,
     _find_mature_unvalidated_dates,
     run_online_validation_for_pipeline,
 )
+from products.autoresearch.backend.models import AutoresearchPipeline
 
 
 class Command(BaseCommand):

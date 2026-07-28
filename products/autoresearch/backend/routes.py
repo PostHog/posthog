@@ -1,6 +1,6 @@
 from posthog.api.routing import RouterRegistry
 
-import products.autoresearch.backend.api as autoresearch
+import products.autoresearch.backend.api.views as autoresearch
 
 
 def register_routes(routers: RouterRegistry) -> None:

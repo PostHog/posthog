@@ -14,7 +14,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 from posthog.models.team.team import Team
 
-from products.autoresearch.backend.validation import validate_pipeline_definition
+from products.autoresearch.backend.dataset.validation import validate_pipeline_definition
 
 
 class Command(BaseCommand):

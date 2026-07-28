@@ -117,8 +117,8 @@ export const autoresearchCreate = async (
     projectId: string,
     autoresearchPipelineCreateApi: AutoresearchPipelineCreateApi,
     options?: RequestInit
-): Promise<AutoresearchPipelineCreateApi> => {
-    return apiMutator<AutoresearchPipelineCreateApi>(getAutoresearchCreateUrl(projectId), {
+): Promise<AutoresearchPipelineApi> => {
+    return apiMutator<AutoresearchPipelineApi>(getAutoresearchCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

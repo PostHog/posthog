@@ -120,7 +120,7 @@ const AutoresearchCreateSchema = AutoresearchCreateBody
 
 const autoresearchCreate = (): ToolBase<
     typeof AutoresearchCreateSchema,
-    WithPostHogUrl<Schemas.AutoresearchPipelineCreate>
+    WithPostHogUrl<Schemas.AutoresearchPipeline>
 > => ({
     name: 'autoresearch-create',
     schema: AutoresearchCreateSchema,
@@ -166,7 +166,7 @@ const autoresearchCreate = (): ToolBase<
         if (params.output_person_property !== undefined) {
             body['output_person_property'] = params.output_person_property
         }
-        const result = await context.api.request<Schemas.AutoresearchPipelineCreate>({
+        const result = await context.api.request<Schemas.AutoresearchPipeline>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/`,
             body,

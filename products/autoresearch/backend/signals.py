@@ -36,7 +36,7 @@ def on_task_run_saved(sender: Any, instance: Any, created: bool, **kwargs: Any) 
         return
 
     try:
-        from products.autoresearch.backend.training_ingestion import handle_task_run_completed
+        from products.autoresearch.backend.training.ingestion import handle_task_run_completed
 
         handle_task_run_completed(instance)
     except Exception:

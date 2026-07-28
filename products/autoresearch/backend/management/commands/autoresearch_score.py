@@ -19,9 +19,9 @@ from pathlib import Path
 
 from django.core.management.base import BaseCommand, CommandError
 
-from products.autoresearch.backend.artifacts import ArtifactBundle, bundle_prefix, write_bundle
-from products.autoresearch.backend.inference import _fetch_feature_rows, _score_rows, run_inference_for_pipeline
+from products.autoresearch.backend.inference.scoring import _fetch_feature_rows, _score_rows, run_inference_for_pipeline
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline
+from products.autoresearch.backend.training.artifacts import ArtifactBundle, bundle_prefix, write_bundle
 
 _FIXTURE_BUNDLE_DIR = Path(__file__).resolve().parents[2] / "test_fixtures" / "bundle"
 

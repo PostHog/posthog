@@ -26,8 +26,8 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline
-from products.autoresearch.backend.stub_training import run_stub_training
-from products.autoresearch.backend.training import run_training
+from products.autoresearch.backend.training.runner import run_training
+from products.autoresearch.backend.training.stub import run_stub_training
 
 
 class Command(BaseCommand):
