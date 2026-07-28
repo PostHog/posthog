@@ -72,7 +72,7 @@ So when the version bump comes with an SDK bump, split it across two deploys:
 2. **Flip `default_version` in a follow-up deploy**, once the first one has fully rolled out.
 
 Do not put the dependency bump and the `default_version` flip in one PR.
-`resolve_api_version` falls back to `default_version` for a pin the running build doesn't declare, which stops this from becoming a hard failure, but the fallback means those sources sync and discover under the *old* version until the workers catch up — correct, and still not what you asked for.
+`resolve_api_version` falls back to `default_version` for a pin the running build doesn't declare, which stops this from becoming a hard failure, but the fallback means those sources sync and discover under the _old_ version until the workers catch up — correct, and still not what you asked for.
 
 ## Deprecating a version
 
