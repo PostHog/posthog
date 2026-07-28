@@ -14,6 +14,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_su
     ZENDESK_SUNSHINE_ENDPOINTS,
     ZENDESK_SUNSHINE_V1,
     ZENDESK_SUNSHINE_V2,
+    ZENDESK_SUNSHINE_V2_ENDPOINTS,
+    endpoints_for_version,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sunshine.zendesk_sunshine import (
     SunshineLinksPaginator,
@@ -102,6 +104,14 @@ class TestZendeskSunshineTransport:
     def test_get_base_url_rejects_unknown_version(self) -> None:
         with pytest.raises(ValueError, match="Unsupported Zendesk Sunshine API version"):
             get_base_url("nibbles", "v9")
+
+    def test_endpoints_for_version_selects_catalog_and_rejects_unknown(self) -> None:
+        assert endpoints_for_version(ZENDESK_SUNSHINE_V1) is ZENDESK_SUNSHINE_ENDPOINTS
+        assert endpoints_for_version(ZENDESK_SUNSHINE_V2) is ZENDESK_SUNSHINE_V2_ENDPOINTS
+        # The message is matched verbatim by `get_non_retryable_errors`; a bad sync-time pin must
+        # fail non-retryably rather than loop the discovery retry.
+        with pytest.raises(ValueError, match="Unsupported Zendesk Sunshine API version"):
+            endpoints_for_version("v9")
 
     @parameterized.expand(
         [
