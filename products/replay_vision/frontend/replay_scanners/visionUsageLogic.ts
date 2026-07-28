@@ -8,7 +8,7 @@ import { IntervalType } from '~/types'
 import { visionScannersList } from '../generated/api'
 import type { ReplayScanner } from './types'
 
-export type SpendChartInterval = Extract<IntervalType, 'day' | 'week' | 'month' | 'year'>
+export type SpendChartInterval = Extract<IntervalType, 'day' | 'week' | 'month'>
 
 interface visionUsageLogicValues {
     usageScanners: ReplayScanner[]

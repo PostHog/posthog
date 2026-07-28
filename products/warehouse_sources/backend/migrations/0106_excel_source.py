@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("warehouse_sources", "0104_easybill_source"),
+        ("warehouse_sources", "0105_repin_harvey_api_version_v2"),
     ]
 
     operations = [

@@ -16,8 +16,9 @@ use chrono::DateTime;
 use common_types::{CapturedEvent, HasEventName};
 use limiters::redis::RedisLimiter;
 use metrics::{counter, histogram};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{json, Value};
+use time::{format_description::well_known::Iso8601, OffsetDateTime};
 use tokio::time::Instant;
 use tracing::{error, instrument, Span};
 use uuid::Uuid;
@@ -36,6 +37,16 @@ use crate::{
         DataType, OverflowReason, ProcessedEvent, ProcessedEventMetadata, ProcessingContext,
     },
 };
+
+fn deserialize_sent_at<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Ok(match Option::<Value>::deserialize(deserializer)? {
+        Some(Value::String(value)) => Some(value),
+        _ => None,
+    })
+}
 
 /// A recording event optimized for minimal deserialization overhead.
 /// Instead of fully parsing all properties into a HashMap, we only extract
@@ -65,6 +76,14 @@ pub struct RawRecording {
     /// Event timestamp
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timestamp: Option<String>,
+
+    /// ISO 8601 request dispatch timestamp.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_sent_at",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub sent_at: Option<String>,
 
     /// Timezone offset
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -122,6 +141,12 @@ pub enum RecordingRequest {
 }
 
 impl RawRecording {
+    pub fn sent_at(&self) -> Option<OffsetDateTime> {
+        self.sent_at
+            .as_deref()
+            .and_then(|value| OffsetDateTime::parse(value, &Iso8601::DEFAULT).ok())
+    }
+
     /// Extract the distinct_id, checking both root field and properties
     pub fn extract_distinct_id(&self) -> Option<String> {
         let value = match &self.distinct_id {
@@ -491,6 +516,7 @@ mod tests {
         let json = json!({
             "event": "$snapshot",
             "distinct_id": "user123",
+            "sent_at": "2024-01-02T03:04:05.678Z",
             "properties": {
                 "$session_id": "session-abc",
                 "$window_id": "window-xyz",
@@ -501,11 +527,23 @@ mod tests {
 
         let recording: RawRecording = serde_json::from_value(json).unwrap();
         assert_eq!(recording.event, "$snapshot");
+        assert_eq!(
+            recording.sent_at(),
+            Some(OffsetDateTime::from_unix_timestamp_nanos(1_704_164_645_678_000_000).unwrap())
+        );
         assert_eq!(recording.extract_distinct_id(), Some("user123".to_string()));
         assert_eq!(
             recording.properties.session_id,
             Some(Value::String("session-abc".to_string()))
         );
+
+        let recording: RawRecording = serde_json::from_value(json!({
+            "event": "$snapshot",
+            "sent_at": 1_704_164_645_678_i64,
+            "properties": {}
+        }))
+        .unwrap();
+        assert_eq!(recording.sent_at(), None);
     }
 
     #[test]

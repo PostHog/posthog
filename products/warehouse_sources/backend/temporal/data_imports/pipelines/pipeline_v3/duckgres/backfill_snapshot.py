@@ -8,6 +8,8 @@ table's own live parquet files bounded by bytes and file count.
 from __future__ import annotations
 
 import json
+import threading
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import unquote
@@ -94,9 +96,70 @@ def resolve_snapshot_chunks(schema: ExternalDataSchema, version: int | None = No
 
 
 def resolve_snapshot_plan(schema: ExternalDataSchema, version: int | None = None) -> BackfillSnapshotPlan:
+    uri = delta_table_uri(schema)
+    if version is None:
+        # No pinned version to cache against — this is the initial plan, reading
+        # whatever HEAD currently is, which is not a stable cache key.
+        return _resolve_snapshot_plan(uri, version)
+    return _resolve_pinned_snapshot_plan(uri, version)
+
+
+# A cached plan holds every live parquet path and commit key for its table, so
+# entry *size* scales with table size — an entry-count cap alone doesn't bound
+# memory. Weigh entries by that count and cap the total instead: a plan over
+# budget on its own is simply never cached (recomputed every call, same as
+# before this cache existed), so one huge table can't make the cache retain an
+# unbounded amount indefinitely.
+_PINNED_SNAPSHOT_PLAN_CACHE_MAX_WEIGHT = 50_000
+
+_pinned_snapshot_plan_cache: OrderedDict[tuple[str, int], tuple[BackfillSnapshotPlan, int]] = OrderedDict()
+_pinned_snapshot_plan_cache_weight = 0
+_pinned_snapshot_plan_cache_lock = threading.Lock()
+
+
+def _plan_weight(plan: BackfillSnapshotPlan) -> int:
+    return sum(len(chunk.paths) for chunk in plan.chunks) + len(plan.covered_batches)
+
+
+def _resolve_pinned_snapshot_plan(uri: str, version: int) -> BackfillSnapshotPlan:
+    """Cached for already-committed (pinned) versions only.
+
+    A commit at or before an already-resolved version never changes, but
+    deltalake's history() has no checkpoint shortcut — it walks the
+    _delta_log from genesis one commit at a time. The reconciler calls
+    resolve_snapshot_plan with the same pinned version on every ~30s tick
+    until a backfill finishes draining its queue, so without this cache a
+    large table (tens of thousands of commits) gets its entire commit log
+    re-read from S3 on every pass, which can trip S3 rate limiting.
+    """
+    global _pinned_snapshot_plan_cache_weight
+
+    key = (uri, version)
+    with _pinned_snapshot_plan_cache_lock:
+        cached = _pinned_snapshot_plan_cache.get(key)
+        if cached is not None:
+            _pinned_snapshot_plan_cache.move_to_end(key)
+            return cached[0]
+
+    plan = _resolve_snapshot_plan(uri, version)
+    weight = _plan_weight(plan)
+
+    with _pinned_snapshot_plan_cache_lock:
+        while (
+            _pinned_snapshot_plan_cache
+            and _pinned_snapshot_plan_cache_weight + weight > _PINNED_SNAPSHOT_PLAN_CACHE_MAX_WEIGHT
+        ):
+            _, (_, evicted_weight) = _pinned_snapshot_plan_cache.popitem(last=False)
+            _pinned_snapshot_plan_cache_weight -= evicted_weight
+        if weight <= _PINNED_SNAPSHOT_PLAN_CACHE_MAX_WEIGHT:
+            _pinned_snapshot_plan_cache[key] = (plan, weight)
+            _pinned_snapshot_plan_cache_weight += weight
+    return plan
+
+
+def _resolve_snapshot_plan(uri: str, version: int | None) -> BackfillSnapshotPlan:
     from deltalake import DeltaTable
 
-    uri = delta_table_uri(schema)
     dt = DeltaTable(uri, version=version, storage_options=_delta_storage_options())
     resolved_version = dt.version()
 
