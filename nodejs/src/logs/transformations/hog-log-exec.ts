@@ -21,7 +21,8 @@ export const LOG_TRANSFORMATION_MEMORY_LIMIT_BYTES = 8 * 1024 * 1024
 export const MAX_LOG_TRANSFORMATION_PRINT_LOGS = 5
 
 /** Capture bounds whole ingest requests at 2MB; a transformation must not inflate a
- * single stored field past that boundary. Oversize output is an invalid result. */
+ * stored record past that boundary. The cap applies to the complete transformed
+ * output (body + severity + attribute map totals); oversize output is invalid. */
 export const MAX_TRANSFORMED_FIELD_BYTES = 1024 * 1024
 
 export interface LogTransformationGlobals {
@@ -239,9 +240,6 @@ export function applyTransformResult(record: LogRecord, execResult: unknown): 'm
         if (result.body !== null && typeof result.body !== 'string') {
             return 'invalid'
         }
-        if (typeof result.body === 'string' && Buffer.byteLength(result.body) > MAX_TRANSFORMED_FIELD_BYTES) {
-            return 'invalid'
-        }
         body = result.body
     }
 
@@ -276,6 +274,26 @@ export function applyTransformResult(record: LogRecord, execResult: unknown): 'm
                 return 'invalid'
             }
         }
+    }
+
+    // Cap the complete transformed output — body, severity, and attribute map
+    // totals together — so no combination of writable fields can inflate a
+    // stored record past the boundary.
+    let totalBytes = 0
+    for (const text of [body, severityText]) {
+        if (typeof text === 'string') {
+            totalBytes += Buffer.byteLength(text)
+        }
+    }
+    for (const map of [attributes, resourceAttributes]) {
+        if (map) {
+            for (const [key, value] of Object.entries(map)) {
+                totalBytes += Buffer.byteLength(key) + Buffer.byteLength(value)
+            }
+        }
+    }
+    if (totalBytes > MAX_TRANSFORMED_FIELD_BYTES) {
+        return 'invalid'
     }
 
     if (body !== undefined) {
