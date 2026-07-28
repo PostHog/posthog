@@ -10,7 +10,7 @@ from typing import Any, Optional, cast
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 from django.http import Http404, HttpResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -19,7 +19,7 @@ import structlog
 from django_filters import BaseInFilter, CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import LimitOffsetPagination
@@ -622,10 +622,13 @@ class HogFlowActionSerializer(serializers.Serializer):
     config = HogFlowActionConfigField(
         help_text=(
             "Type-specific config keyed by action type. "
-            "trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. "
+            "trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. webhook and "
+            "manual triggers also require template_id: 'template-source-webhook', and tracking_pixel "
+            "requires template_id: 'template-source-webhook-pixel'. "
             "filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], "
             "actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, "
-            "type: event|person|group}. "
+            "type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} "
+            "to reference a cohort. "
             "function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable "
             "hog templating ({person.x}, {event.x}); flat strings won't interpolate. "
             "function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open "
@@ -1755,8 +1758,8 @@ class HogFlowInvocationSerializer(serializers.Serializer):
         default=False,
         write_only=True,
         help_text=(
-            "Test the workflow's staged draft instead of its live config. Requires an open draft; "
-            "can't be combined with an explicit configuration override."
+            "Test the workflow's staged draft instead of its live config. Set this only when workflows-get "
+            "returns a non-null 'draft'; it can't be combined with an explicit configuration override."
         ),
     )
 
@@ -1900,13 +1903,13 @@ class CommaSeparatedListFilter(BaseInFilter, CharFilter):
 class HogFlowFilterSet(FilterSet):
     class Meta:
         model = HogFlow
-        fields = ["id", "created_by", "created_at", "updated_at", "status"]
+        # `created_by` is filtered by uuid in safely_get_queryset (the list UI's member picker keys on
+        # uuid, not pk), so it's deliberately not an exact-match field here.
+        fields = ["id", "created_at", "updated_at", "status"]
 
 
 class HogFlowPagination(LimitOffsetPagination):
-    # Bumped from the global default of 100 so the workflows list page loads all flows in one
-    # request — the frontend list/search runs client-side over a single page (no pagination UI yet).
-    default_limit = 200
+    default_limit = 100
     max_limit = 500
 
 
@@ -1979,6 +1982,22 @@ def mint_audience_confirm_token(
 
 
 @extend_schema(extensions={"x-product": "workflows"})
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "search",
+                OpenApiTypes.STR,
+                description="Case-insensitive search across workflow name and description.",
+            ),
+            OpenApiParameter(
+                "created_by",
+                OpenApiTypes.UUID,
+                description="Filter to workflows created by the user with this uuid.",
+            ),
+        ]
+    )
+)
 class HogFlowViewSet(
     TeamAndOrgViewSetMixin, AccessControlViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet
 ):
@@ -2085,7 +2104,28 @@ class HogFlowViewSet(
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         if self.action == "list":
-            queryset = queryset.order_by("-updated_at")
+            # `id` breaks ties so LIMIT/OFFSET paging stays stable: rows sharing an updated_at can
+            # otherwise repeat on one page and never appear on another.
+            queryset = queryset.order_by("-updated_at", "-id")
+
+            search = self.request.GET.get("search")
+            if search is not None:
+                search = search.strip()
+                if search:
+                    if len(search) > 200:
+                        raise exceptions.ValidationError({"search": "Search term cannot exceed 200 characters"})
+                    # Escape regex metacharacters, then let spaces match any run of space/dash/underscore
+                    # so "welcome email" also matches "welcome-email" — same approach as feature flag search.
+                    regex_pattern = re.escape(search).replace(r"\ ", r"[\s\-_]*")
+                    queryset = queryset.filter(Q(name__iregex=regex_pattern) | Q(description__iregex=regex_pattern))
+
+            created_by = self.request.GET.get("created_by")
+            if created_by:
+                try:
+                    uuid_mod.UUID(created_by)
+                except ValueError:
+                    raise exceptions.ValidationError({"created_by": "Must be a valid user uuid"})
+                queryset = queryset.filter(created_by__uuid=created_by)
 
         if self.request.GET.get("trigger"):
             try:
@@ -3162,7 +3202,20 @@ class HogFlowViewSet(
     # this fans out the payload for every workflow listed.
     WORKFLOW_REPUTATION_HISTORY_DAYS = 7
 
-    @extend_schema(responses={200: TeamEmailReputationResponseSerializer})
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "search",
+                str,
+                OpenApiParameter.QUERY,
+                description=(
+                    "Case-insensitive workflow name filter. Applied before the worst-50 cap, so it "
+                    "finds workflows the unfiltered response cuts off."
+                ),
+            )
+        ],
+        responses={200: TeamEmailReputationResponseSerializer},
+    )
     @action(detail=False, methods=["GET"], pagination_class=None, filter_backends=[], url_path="reputation")
     def team_reputation(self, request: Request, **kwargs) -> Response:
         """
@@ -3198,6 +3251,11 @@ class HogFlowViewSet(
             .order_by("hog_flow_id", "evaluated_at")
             .select_related("hog_flow")
         )
+        # Server-side by necessity: the response is capped to the worst 50 workflows, so filtering
+        # client-side could never find a healthy workflow beyond the cap.
+        search = (request.query_params.get("search") or "").strip()
+        if search:
+            workflow_rows = workflow_rows.filter(hog_flow__name__icontains=search)
         history_by_flow: dict[uuid_mod.UUID, list[EmailReputationSnapshot]] = {}
         for row in workflow_rows:
             if row.hog_flow_id is None:  # can't happen (hog_flow__isnull=False); narrows the nullable FK for mypy
