@@ -177,11 +177,13 @@ async def _summarize(input: ChannelSummaryInput) -> ChannelSummaryOutput:
     period_end = datetime.fromisoformat(input.period_end)
 
     # Org AI-processing approval and bot configuration were gated by the coordinator;
-    # this activity only re-derives what it needs to do the work.
-    team = await database_sync_to_async(
-        lambda: Team.objects.select_related("organization").get(id=input.team_id), thread_sensitive=False
-    )()
-    client = get_slack_client(team)
+    # this activity only re-derives what it needs to do the work. The client build reads
+    # the team's Slack config through the ORM, so it must stay inside the sync wrapper.
+    def load_team_and_client() -> tuple[Team, WebClient]:
+        team = Team.objects.select_related("organization").get(id=input.team_id)
+        return team, get_slack_client(team)
+
+    team, client = await database_sync_to_async(load_team_and_client, thread_sensitive=False)()
 
     def fetch() -> list[tuple[dict, list[dict]]]:
         try:
