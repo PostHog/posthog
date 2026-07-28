@@ -4,7 +4,6 @@ import { IconArrowLeft, IconBug } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { WizardSyncInlinePanel } from 'scenes/onboarding/shared/wizard-sync/WizardSyncInlinePanel'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -94,11 +93,6 @@ function InboxListView(): JSX.Element {
     return (
         <div ref={widthRef} className="flex min-h-0 flex-1">
             <div className="flex flex-col min-h-0 flex-1 min-w-0">
-                {/* A run in flight belongs here, not in the corner: this is the page it is filling.
-                    Renders nothing when nothing is running. */}
-                <div className="empty:hidden px-6 pt-4 shrink-0">
-                    <WizardSyncInlinePanel continueHint="Sources and scouts show up here as the run configures them." />
-                </div>
                 {/* pl-5 (20px) aligns the first tab label with the SceneTitleSection description above;
                     pr-6 matches the report list's px-6 so the scope select shares the list's right edge. */}
                 <div className="flex items-end justify-between gap-2 border-b border-primary pl-5 pr-6 shrink-0">

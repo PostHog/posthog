@@ -23,6 +23,7 @@ import { SignalSourcesPanel } from '../config/SignalSourcesPanel'
 import { SlackNotificationsSection } from '../config/SlackNotificationsSection'
 import { AgentSetupModalKey, agentSetupModalLogic } from './agentSetupModalLogic'
 import { InboxUsageWidget } from './InboxUsageWidget'
+import { InstallationSetupSection } from './InstallationWidget'
 
 type WidgetTone = 'todo' | 'done' | 'neutral'
 /** Visual weight reflecting how important / frequently edited a part of the setup is. */
@@ -350,6 +351,7 @@ export function AgentSetupColumn({ layout }: { layout: 'rail' | 'stacked' }): JS
                 layout === 'stacked' ? 'mx-auto w-full max-w-2xl px-6 py-6' : 'px-4 py-3'
             )}
         >
+            <InstallationSetupSection />
             <SetupSection title="Agents">
                 <SignalSourcesWidget />
                 <ScoutTroopWidget />
