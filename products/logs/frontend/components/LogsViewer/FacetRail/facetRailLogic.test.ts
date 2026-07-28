@@ -5,9 +5,14 @@ import { UniversalFiltersGroup } from '~/types'
 
 import { logsViewerFiltersLogic } from '../Filters/logsViewerFiltersLogic'
 import { facetRailLogic } from './facetRailLogic'
-import { FacetSource, resourceAttributeValues } from './facets'
+import { FacetSelection, FacetSource, logFilterExclusions, resourceAttributeSelection } from './facets'
 
-const LEVEL_SOURCE: FacetSource = { type: 'column', column: 'severity_text', filterKey: 'severityLevels' }
+const LEVEL_SOURCE: FacetSource = {
+    type: 'column',
+    column: 'severity_text',
+    filterKey: 'severityLevels',
+    exclusionKey: 'severity_level',
+}
 const SERVICE_SOURCE: FacetSource = { type: 'column', column: 'service_name', filterKey: 'serviceNames' }
 const NAMESPACE_SOURCE: FacetSource = { type: 'resourceAttribute', key: 'k8s.namespace.name' }
 
@@ -28,32 +33,37 @@ describe('facetRailLogic', () => {
         filtersLogic.unmount()
     })
 
-    describe('severity level toggling', () => {
-        it('adds, accumulates (OR), and removes levels on the shared filters logic', async () => {
-            await expectLogic(logic, () => logic.actions.toggleFacetValue(LEVEL_SOURCE, 'error')).toFinishAllListeners()
+    describe('severity level cycling', () => {
+        const readExcluded = (): string[] => logFilterExclusions(filtersLogic.values.filterGroup, 'severity_level')
+        const click = async (value: string): Promise<void> => {
+            await expectLogic(logic, () => logic.actions.toggleFacetValue(LEVEL_SOURCE, value)).toFinishAllListeners()
+        }
+
+        it('cycles a level across the two stores: dedicated field, then is_not log filter, then cleared', async () => {
+            await click('error')
             expect(filtersLogic.values.severityLevels).toEqual(['error'])
+            expect(readExcluded()).toEqual([])
 
-            await expectLogic(logic, () => logic.actions.toggleFacetValue(LEVEL_SOURCE, 'warn')).toFinishAllListeners()
-            expect(filtersLogic.values.severityLevels).toEqual(['error', 'warn'])
+            await click('error')
+            expect(filtersLogic.values.severityLevels).toEqual([])
+            expect(readExcluded()).toEqual(['error'])
 
-            await expectLogic(logic, () => logic.actions.toggleFacetValue(LEVEL_SOURCE, 'error')).toFinishAllListeners()
-            expect(filtersLogic.values.severityLevels).toEqual(['warn'])
+            await click('error')
+            expect(filtersLogic.values.severityLevels).toEqual([])
+            expect(readExcluded()).toEqual([])
+            // the is_not filter is dropped from the group entirely, not left empty
+            expect((filtersLogic.values.filterGroup.values[0] as UniversalFiltersGroup).values).toEqual([])
         })
 
-        it.each(['trace', 'info', 'error', 'fatal'] as const)(
-            'toggling %s on then off round-trips to empty',
-            async (level) => {
-                await expectLogic(logic, () =>
-                    logic.actions.toggleFacetValue(LEVEL_SOURCE, level)
-                ).toFinishAllListeners()
-                expect(filtersLogic.values.severityLevels).toEqual([level])
+        it('holds one level included while another is excluded', async () => {
+            await click('error')
+            await click('warn')
+            expect(filtersLogic.values.severityLevels).toEqual(['error', 'warn'])
 
-                await expectLogic(logic, () =>
-                    logic.actions.toggleFacetValue(LEVEL_SOURCE, level)
-                ).toFinishAllListeners()
-                expect(filtersLogic.values.severityLevels).toEqual([])
-            }
-        )
+            await click('error')
+            expect(filtersLogic.values.severityLevels).toEqual(['warn'])
+            expect(readExcluded()).toEqual(['error'])
+        })
     })
 
     describe('facet collapse', () => {
@@ -90,38 +100,35 @@ describe('facetRailLogic', () => {
         })
     })
 
-    describe('resource attribute toggling', () => {
-        const read = (): string[] => resourceAttributeValues(filtersLogic.values.filterGroup, 'k8s.namespace.name')
-
-        it('adds, accumulates (OR), and removes values as a log_resource_attribute filter in the group', async () => {
+    describe('resource attribute cycling', () => {
+        const read = (): FacetSelection =>
+            resourceAttributeSelection(filtersLogic.values.filterGroup, 'k8s.namespace.name')
+        const click = async (value: string): Promise<void> => {
             await expectLogic(logic, () =>
-                logic.actions.toggleFacetValue(NAMESPACE_SOURCE, 'argocd')
+                logic.actions.toggleFacetValue(NAMESPACE_SOURCE, value)
             ).toFinishAllListeners()
-            expect(read()).toEqual(['argocd'])
+        }
 
-            await expectLogic(logic, () =>
-                logic.actions.toggleFacetValue(NAMESPACE_SOURCE, 'kube-system')
-            ).toFinishAllListeners()
-            expect(read()).toEqual(['argocd', 'kube-system'])
+        it('cycles a value included → excluded → cleared through the shared filters logic', async () => {
+            await click('argocd')
+            expect(read()).toEqual({ included: ['argocd'], excluded: [] })
 
-            await expectLogic(logic, () =>
-                logic.actions.toggleFacetValue(NAMESPACE_SOURCE, 'argocd')
-            ).toFinishAllListeners()
-            expect(read()).toEqual(['kube-system'])
+            await click('argocd')
+            expect(read()).toEqual({ included: [], excluded: ['argocd'] })
+
+            await click('argocd')
+            expect(read()).toEqual({ included: [], excluded: [] })
+            // the single inner group holds no filters once the cycle completes
+            expect((filtersLogic.values.filterGroup.values[0] as UniversalFiltersGroup).values).toEqual([])
         })
 
-        it('removing the last value drops the filter from the group entirely', async () => {
-            await expectLogic(logic, () =>
-                logic.actions.toggleFacetValue(NAMESPACE_SOURCE, 'argocd')
-            ).toFinishAllListeners()
-            expect(read()).toEqual(['argocd'])
+        it('holds one value included while another is excluded (OR within includes, AND with excludes)', async () => {
+            await click('argocd')
+            await click('kube-system')
+            expect(read()).toEqual({ included: ['argocd', 'kube-system'], excluded: [] })
 
-            await expectLogic(logic, () =>
-                logic.actions.toggleFacetValue(NAMESPACE_SOURCE, 'argocd')
-            ).toFinishAllListeners()
-            expect(read()).toEqual([])
-            // the single inner group holds no filters once the last value is removed
-            expect((filtersLogic.values.filterGroup.values[0] as UniversalFiltersGroup).values).toEqual([])
+            await click('argocd')
+            expect(read()).toEqual({ included: ['kube-system'], excluded: ['argocd'] })
         })
     })
 })

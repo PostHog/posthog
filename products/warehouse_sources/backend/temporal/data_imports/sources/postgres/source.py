@@ -700,7 +700,33 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "connecting role on that foreign server (CREATE USER MAPPING ...), or remove the "
                 "foreign table from the sync, then re-enable the sync."
             ),
+            # A selected relation is a postgres_fdw foreign table whose locally-declared enum column
+            # doesn't match the data actually stored on the remote server — the remote row holds a
+            # label the local enum type doesn't define (SQLSTATE 22P02, "invalid input value for enum
+            # <type>: <value>"). Postgres enforces enum labels at write time on ordinary tables, so
+            # this can only surface when reading through a foreign table's separately-declared type.
+            # The schema drift lives on the customer's side and is deterministic, so retrying re-reads
+            # into the same row every time. Match the stable message and exclude the volatile enum
+            # type name and offending value.
+            "invalid input value for enum": (
+                "One of the tables you selected to sync is a foreign table (postgres_fdw) whose "
+                "locally-declared enum column doesn't match the data on the remote server "
+                '(PostgreSQL reported "invalid input value for enum"). Update the local enum type to '
+                "include the value used on the remote server, or remove the foreign table from the "
+                "sync, then re-enable the sync."
+            ),
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `get_rows` already retries a mid-stream drop in-process (reconnect, or fall back to
+        # offset chunking) — see `_CONNECTION_DROPPED_ERROR_SUBSTRINGS` in postgres.py. It only
+        # reaches here once that in-process handling gives up (e.g. a full-table scan can't safely
+        # resume once rows have been yielded, since OFFSET has no stable ORDER BY to resume from).
+        # Temporal then retries the whole activity and the failure is transient and
+        # self-recovering, so classify it here too — otherwise `_handle_import_error` logs it at
+        # `exception` on every occurrence, flooding error tracking with a self-recovering failure
+        # (e.g. a cloud provider terminating a backend for maintenance or failover).
+        return {"terminating connection due to"}
 
     def reconcile_schema_metadata(
         self,
