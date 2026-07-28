@@ -38,6 +38,7 @@ import { ExperimentReplayTab } from './ExperimentReplayTab'
 import { ExperimentWarningBanner } from './ExperimentWarningBanners'
 import { ExposureCriteriaModal } from './ExposureCriteria'
 import { Exposures } from './Exposures'
+import { Hypothesis } from './Hypothesis'
 import { Info } from './Info'
 import { LoadingState } from './LoadingState'
 import { MultiVariantBiasWarning } from './MultiVariantBiasWarning'
@@ -86,9 +87,12 @@ const MetricsTab = (): JSX.Element => {
         <>
             <ResultsNotificationBanner />
 
-            <div className="w-full mb-4">
-                <Exposures />
-                <MultiVariantBiasWarning />
+            <div className="w-full mb-4 flex flex-col gap-4">
+                <Hypothesis />
+                <div>
+                    <Exposures />
+                    <MultiVariantBiasWarning />
+                </div>
             </div>
 
             {showRecalculationStatus && <RecalculationStatus experiment={experiment} />}
