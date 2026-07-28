@@ -38,6 +38,21 @@ class TestReportCharts(SimpleTestCase):
                     },
                 },
             ),
+            # The null character is refused because `jsonb` can't hold one — but a query that merely
+            # spells the escape out holds no such character and stores fine. `json.dumps` writes both
+            # forms with the same six characters in them, so a check on the serialized JSON rejects
+            # this one too.
+            (
+                "a_query_spelling_out_the_null_escape",
+                {
+                    "chart_id": "escaped-null",
+                    "title": "Rows mentioning the escape",
+                    "query": {
+                        "kind": "DataVisualizationNode",
+                        "source": {"kind": "HogQLQuery", "query": "SELECT 1 WHERE note LIKE '%\\u0000%'"},
+                    },
+                },
+            ),
         ]
     )
     def test_accepts_a_renderable_chart(self, _name: str, content: dict) -> None:

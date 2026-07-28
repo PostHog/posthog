@@ -85,6 +85,29 @@ def _nests_too_deeply(value: Any) -> bool:
     return False
 
 
+def _contains_null_character(value: Any) -> bool:
+    """Whether any string anywhere in a query holds a null character.
+
+    Walked over the decoded structure rather than the serialized JSON: `json.dumps` writes a real
+    null as the six characters `\\u0000`, but it writes the *literal* text `\\u0000` as `\\\\u0000`,
+    which contains that same sequence — so a substring test on the serialized form also rejects a
+    query that merely spells the escape out (HogQL searching for it, say). Keys as well as values,
+    since a key reaches the same `jsonb` column.
+    """
+    pending: list[Any] = [value]
+    while pending:
+        item = pending.pop()
+        if isinstance(item, str):
+            if "\x00" in item:
+                return True
+        elif isinstance(item, dict):
+            pending.extend(item.keys())
+            pending.extend(item.values())
+        elif isinstance(item, list):
+            pending.extend(item)
+    return False
+
+
 def _executable_payload(value: Any) -> str | None:
     """What a query node carries that something downstream would *run*, or None if nothing does.
 
@@ -223,13 +246,11 @@ class ReportChart(BaseModel):
             raise ValueError(f"query.kind must be one of {allowed} (got {kind!r})")
         if _nests_too_deeply(v):
             raise ValueError(f"query must not nest deeper than {_MAX_CHART_QUERY_DEPTH} levels")
-        serialized = json.dumps(v)
-        if len(serialized) > _MAX_CHART_QUERY_CHARS:
+        if len(json.dumps(v)) > _MAX_CHART_QUERY_CHARS:
             raise ValueError(f"query must not exceed {_MAX_CHART_QUERY_CHARS} characters when serialized")
         # Postgres `jsonb` cannot store a null character, so one anywhere in the query fails at the
-        # INSERT rather than here — past every handler that turns bad input into a 400. Checked on the
-        # serialized form because `json.dumps` escapes it to a fixed sequence wherever it is nested.
-        if "\\u0000" in serialized:
+        # INSERT rather than here — past every handler that turns bad input into a 400.
+        if _contains_null_character(v):
             raise ValueError("query must not contain a null character")
         executable = _executable_payload(v)
         if executable:

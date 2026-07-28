@@ -278,10 +278,12 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
     // `a` override ever sees it — and an emptied href is what `Link` turns into a focusable
     // target-blank stub that goes nowhere. Let the scheme through whether or not this caller can
     // draw charts, so the `a` override can recognize the reference and render its label as text.
+    // Only on `href`: the same transform runs for an image `src`, where nothing downstream reads a
+    // chart reference, so `![x](chart:y)` would carry an unsanitized scheme into a broken image.
     const urlTransform = useMemo(
         () =>
-            (url: string): string =>
-                chartRefId(url) !== null ? url : defaultUrlTransform(url),
+            (url: string, key: string): string =>
+                key === 'href' && chartRefId(url) !== null ? url : defaultUrlTransform(url),
         []
     )
 
