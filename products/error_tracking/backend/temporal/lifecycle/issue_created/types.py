@@ -1,16 +1,12 @@
 import dataclasses
 
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.types import FingerprintEmbeddingResultInputs
+from products.error_tracking.backend.temporal.lifecycle.types import LifecycleIssueSnapshot
 
 EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE = "EmbeddingServiceUnavailable"
 
 
-@dataclasses.dataclass(frozen=True)
-class IssueCreatedSnapshot:
-    name: str | None
-    description: str | None
-    status: str
-    created_at: str
+IssueCreatedSnapshot = LifecycleIssueSnapshot
 
 
 @dataclasses.dataclass(frozen=True)
@@ -18,7 +14,7 @@ class IssueCreatedWorkflowInputs:
     notification_id: str
     team_id: int
     issue_id: str
-    issue: IssueCreatedSnapshot
+    issue: LifecycleIssueSnapshot
     fingerprint: str
     event_uuid: str
     event_timestamp: str

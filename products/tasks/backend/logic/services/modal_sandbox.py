@@ -56,6 +56,7 @@ from products.tasks.backend.logic.services.agentsh import (
     AGENTSH_DAEMON_PORT,
     BASH_ENV_SCRIPT,
     ENV_WRAPPER_SCRIPT,
+    GH_GUARD_INSTALL_PATH,
     SESSION_ID_FILE,
     _hostname_from_url,
     build_exec_prefix,
@@ -64,6 +65,7 @@ from products.tasks.backend.logic.services.agentsh import (
     generate_config_yaml,
     generate_env_wrapper,
     generate_policy_yaml,
+    read_gh_guard_script,
 )
 from products.tasks.backend.logic.services.local_packages import (
     get_local_package_runtime_dependencies,
@@ -185,6 +187,7 @@ LOCAL_MODAL_DOCKERFILES = {
 }
 LOCAL_MODAL_INSTALL_SKILLS_SCRIPT = Path("products/tasks/backend/sandbox/images/install-skills.sh")
 LOCAL_MODAL_GIT_GUARD_SCRIPT = Path("products/tasks/backend/sandbox/images/git-guard.sh")
+LOCAL_MODAL_GH_GUARD_SCRIPT = Path("products/tasks/backend/sandbox/images/gh-guard.sh")
 
 
 _image_ref_cache: TTLCache = TTLCache(maxsize=3, ttl=300)
@@ -445,11 +448,14 @@ def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, 
     destination_dockerfile_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source_dockerfile_path, destination_dockerfile_path)
 
-    # Both base and notebook Dockerfiles COPY the git guard, so include it in
-    # every local build context.
+    # Both base and notebook Dockerfiles COPY the git and gh guards, so include
+    # them in every local build context.
     destination_git_guard_path = context_dir / LOCAL_MODAL_GIT_GUARD_SCRIPT
     destination_git_guard_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(base_dir / LOCAL_MODAL_GIT_GUARD_SCRIPT, destination_git_guard_path)
+    destination_gh_guard_path = context_dir / LOCAL_MODAL_GH_GUARD_SCRIPT
+    destination_gh_guard_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(base_dir / LOCAL_MODAL_GH_GUARD_SCRIPT, destination_gh_guard_path)
 
     if template == SandboxTemplate.DEFAULT_BASE:
         source_install_script_path = base_dir / LOCAL_MODAL_INSTALL_SKILLS_SCRIPT
@@ -943,6 +949,8 @@ class ModalSandbox(SandboxBase):
         provider: str | None = None,
         model: str | None = None,
         reasoning_effort: str | None = None,
+        context_window: str | None = None,
+        fast_mode: bool | None = None,
         initial_permission_mode: str | None = None,
         mcp_servers_arg: str = "",
         relay_mcp_servers_arg: str = "",
@@ -960,6 +968,8 @@ class ModalSandbox(SandboxBase):
             provider=provider,
             model=model,
             reasoning_effort=reasoning_effort,
+            context_window=context_window,
+            fast_mode=fast_mode,
             initial_permission_mode=initial_permission_mode,
             event_ingest_token=event_ingest_token,
             event_ingest_url=event_ingest_url,
@@ -1070,6 +1080,8 @@ class ModalSandbox(SandboxBase):
         provider: str | None = None,
         model: str | None = None,
         reasoning_effort: str | None = None,
+        context_window: str | None = None,
+        fast_mode: bool | None = None,
         initial_permission_mode: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
         relayed_mcp_servers: list[str] | None = None,
@@ -1101,6 +1113,11 @@ class ModalSandbox(SandboxBase):
             repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
         self.write_file(BASH_ENV_SCRIPT, generate_bash_env_script().encode())
+        # Install the gh shim at runtime too (see agentsh.GH_GUARD_INSTALL_PATH): a resume from a
+        # pre-shim filesystem snapshot — or any window where the base image lags this backend —
+        # would otherwise leave gh with no token once the frozen launch-env token is unset.
+        self.write_file(GH_GUARD_INSTALL_PATH, read_gh_guard_script())
+        self.execute(f"chmod +x {shlex.quote(GH_GUARD_INSTALL_PATH)}", timeout_seconds=30)
 
         if allowed_domains is not None:
             self._setup_agentsh(WORKING_DIR, allowed_domains)
@@ -1139,9 +1156,11 @@ class ModalSandbox(SandboxBase):
             provider,
             model,
             reasoning_effort,
-            initial_permission_mode,
-            mcp_servers_arg,
-            relay_mcp_servers_arg,
+            context_window=context_window,
+            fast_mode=fast_mode,
+            initial_permission_mode=initial_permission_mode,
+            mcp_servers_arg=mcp_servers_arg,
+            relay_mcp_servers_arg=relay_mcp_servers_arg,
             allowed_domains=allowed_domains,
             event_ingest_token=event_ingest_token,
             event_ingest_url=event_ingest_url,

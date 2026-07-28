@@ -410,6 +410,12 @@ fn start_coordinator_k8s(
         store,
         CoordinatorConfig {
             rebalance_debounce_interval: Duration::from_millis(100),
+            // These tests bring up a k3s container and deliberately park
+            // handoffs to assert what the rollout paths do with them, so
+            // they run far longer than the production deadline is sized
+            // for. Leaving it at the default would delete the state under
+            // test partway through.
+            handoff_deadline: Duration::from_secs(86_400),
             ..Default::default()
         },
         Arc::new(StickyBalancedStrategy),
