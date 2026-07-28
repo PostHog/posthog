@@ -7,6 +7,7 @@ import {
     IconCopy,
     IconDownload,
     IconEndpoints,
+    IconGraph,
     IconPencil,
     IconPeople,
     IconPlusSmall,
@@ -60,6 +61,7 @@ import {
     SidePanelTab,
 } from '~/types'
 
+import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
 import { endpointLogic } from 'products/endpoints/frontend/endpointLogic'
 import { urlForSubscriptions } from 'products/subscriptions/frontend/components/Subscriptions/utils'
 
@@ -148,9 +150,11 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
         featureFlags[FEATURE_FLAGS.ENDPOINTS] &&
         isSavedInsight &&
         !getAccessControlDisabledReason(AccessControlResourceType.Endpoint, AccessControlLevel.Editor)
+    const showCreateMetric = !!featureFlags[FEATURE_FLAGS.PRODUCT_DATA_CATALOG] && isSavedInsight
     const showAddToNotebook = isSavedInsight
     const showCreateMenu =
         showCreateEndpoint ||
+        showCreateMetric ||
         showCohort ||
         isSavedInsight /* add-to-dashboard, add-to-notebook, subscribe, alerts, share */
     const showMetadataMenu = true // tags + activity always shown
@@ -200,6 +204,7 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                                         Endpoint
                                     </SceneMenuBarItem>
                                 )}
+                                {showCreateMetric && <CreateMetricMenuBarItem />}
                                 {showCohort && (
                                     <SceneMenuBarItem
                                         opensFloatingUi
@@ -418,5 +423,19 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                 </SceneMenuBarMenu>
             )}
         </SceneMenuBar>
+    )
+}
+
+function CreateMetricMenuBarItem(): JSX.Element {
+    const { openMetricFromInsightModal } = useActions(metricsLogic)
+    return (
+        <SceneMenuBarItem
+            opensFloatingUi
+            onClick={openMetricFromInsightModal}
+            data-attr={`${RESOURCE_TYPE}-menubar-create-metric`}
+        >
+            <IconGraph />
+            Metric
+        </SceneMenuBarItem>
     )
 }

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconCode2, IconCopy, IconEndpoints, IconPencil, IconPeople } from '@posthog/icons'
+import { IconCode2, IconCopy, IconEndpoints, IconGraph, IconPencil, IconPeople } from '@posthog/icons'
 
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { SceneAddToDashboardButton } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToDashboardButton'
@@ -34,6 +34,7 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
+import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
 import { endpointLogic } from 'products/endpoints/frontend/endpointLogic'
 
 import { insightModalsLogic } from '../insightModalsLogic'
@@ -191,6 +192,10 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
                 </ButtonPrimitive>
             ) : null}
 
+            {featureFlags[FEATURE_FLAGS.PRODUCT_DATA_CATALOG] ? (
+                <CreateMetricFromInsightButton isSavedInsight={isSavedInsight} />
+            ) : null}
+
             {canEditInSqlEditor && (
                 <Link
                     to={urls.sqlEditor({ query: hogQL ?? undefined })}
@@ -217,5 +222,21 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
 
             {isSavedInsight && <SceneMetalyticsSummaryButton dataAttrKey={RESOURCE_TYPE} />}
         </ScenePanelActionsSection>
+    )
+}
+
+function CreateMetricFromInsightButton({ isSavedInsight }: { isSavedInsight: boolean }): JSX.Element {
+    const { openMetricFromInsightModal } = useActions(metricsLogic)
+    return (
+        <ButtonPrimitive
+            onClick={openMetricFromInsightModal}
+            menuItem
+            disabledReasons={{
+                'You must save the insight first before creating a metric from it': !isSavedInsight,
+            }}
+        >
+            <IconGraph />
+            Create metric
+        </ButtonPrimitive>
     )
 }
