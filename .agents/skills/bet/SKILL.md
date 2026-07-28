@@ -46,11 +46,30 @@ still gets enforced by a human (you). Get:
 - **Sources** — what signal/report motivated this bet (label + URL).
 - **`execution_mode`**: `external` (default — the user's own orchestrator
   posts events; you only print it the contract) or `managed` (Foundry runs a
-  Temporal workflow itself). For `managed`, also get `run_config`
-  (`{command, env, caps: {max_depth, max_children, max_cost}}` — `command` is
-  a shell command, not agent reasoning; see
-  [references/managed-run-config.md](references/managed-run-config.md) for
-  the recursive-spawn protocol) and, if they want memory, which repo.
+  Temporal workflow itself). For `managed`, also decide which of two shapes
+  `run_config` takes:
+  - A plain scripted command (`{command, env, caps: {max_depth, max_children,
+max_cost}}` — `command` is a shell command, not agent reasoning; see
+    [references/managed-run-config.md](references/managed-run-config.md) for
+    the recursive-spawn protocol). Good for a demo/fixture run or when the
+    user already has their own orchestrator script.
+  - **A real coding-agent build loop** (`{build_loop: {target_repo, test_writer?,
+builder, max_gate_iterations?}}`) — Foundry runs an actual headless
+    coding agent (Claude Code, reference implementation) against the bet's
+    target repo, gated by `gate_config` on every attempt, retrying with the
+    gate's own violations as feedback. This is the option to reach for when
+    the user wants Foundry to actually _build_ the change, not just run a
+    script. Ask for: the target repo (tokened https URL + base ref — same
+    "get it before create-bet.sh" rule as `memory_repo_url` below), whether
+    they want test-writer/builder separation (recommend yes whenever
+    `gate_config.protected_paths` is non-empty — see the gauntlet section
+    below), the agent credentials (an `ANTHROPIC_API_KEY` or equivalent —
+    from the user's own environment, never typed into this conversation),
+    and `max_gate_iterations` (defaults to `budget.iterations`, or 3). Full
+    schema, the `FOUNDRY_*` env var contract, the branch convention, and the
+    two reference prompt templates to embed verbatim as `command`: see
+    [references/build-loop.md](references/build-loop.md).
+    Either way, if they want memory, also get which repo.
 - Optional **rollout KPIs** — see step (c). Ask, but don't push: most bets
   are simple and skip this.
 - **The gauntlet** (`gate_config`) — the constraint battery a builder can't

@@ -62,6 +62,13 @@ else
 fi
 echo
 
+GATE_ATTEMPT_NOTE="$(echo "$EVENTS" | jq -r '[.[] | select(.kind == "note" and (.payload.message // "" | test("^builder: gate attempt")))] | last | .payload.message // empty')"
+if [ -n "$GATE_ATTEMPT_NOTE" ]; then
+    echo "-- Build loop --"
+    echo "  ${GATE_ATTEMPT_NOTE}"
+    echo
+fi
+
 GATE_EVENT="$(echo "$EVENTS" | jq '[.[] | select(.kind == "gate.result")] | last')"
 echo "-- Gate --"
 if [ "$GATE_EVENT" = "null" ]; then
