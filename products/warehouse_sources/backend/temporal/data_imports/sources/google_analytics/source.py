@@ -13,6 +13,8 @@ from posthog.schema import (
     SourceFieldOauthConfig,
 )
 
+from posthog.models.integration import Integration
+
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
     SourceInputs,
     SourceResponse,
@@ -67,6 +69,13 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
             "403 Client Error": "PostHog is not authorized to read this Google Analytics property. Please make sure the connected Google account has access to the property.",
             "ACCESS_TOKEN_SCOPE_INSUFFICIENT": "Insufficient permissions. Please reconnect your Google Analytics account with the required scopes.",
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `_run_report` already retries Data API quota exhaustion in-line with backoff; if it's
+        # still exhausted once those retries run out, the property's token quota refills over
+        # time and the resumable source picks up from the last saved chunk, so let Temporal
+        # retry the activity without paging it as a bug.
+        return {"(retryable)"}
 
     def get_schemas(
         self,
@@ -149,6 +158,13 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
 
         try:
             session = google_analytics_session(config.google_analytics_integration_id, team_id)
+        except Integration.DoesNotExist:
+            # The stored OAuth integration row has been deleted/disconnected before validation runs.
+            # Caught explicitly so an unrelated model's DoesNotExist still surfaces as a real bug below.
+            return (
+                False,
+                "The Google Analytics connection for this source no longer exists. Please reconnect your Google account.",
+            )
         except Exception as e:
             return False, f"Could not load Google Analytics credentials: {e}"
 

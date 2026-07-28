@@ -2557,6 +2557,52 @@ class TestTaskAPI(BaseTaskAPITest):
         assert latest_run["reasoning_effort"] == reasoning_effort
         mock_workflow.assert_called_once()
 
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoint_persists_context_window_and_fast_mode(self, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "runtime_adapter": "claude",
+                "model": "claude-sonnet-5",
+                "context_window": "200k",
+                "fast_mode": False,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        latest_run = response.json()["latest_run"]
+        task_run = TaskRun.objects.get(id=latest_run["id"])
+        assert task_run.state["context_window"] == "200k"
+        assert task_run.state["fast_mode"] is False
+        mock_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoint_rejects_unsupported_context_window(self, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "runtime_adapter": "claude",
+                "model": "claude-sonnet-5",
+                "context_window": "500k",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_choice",
+            "detail": '"500k" is not a valid choice.',
+            "attr": "context_window",
+        }
+        mock_workflow.assert_not_called()
+
     @parameterized.expand([("plan",), ("auto",), ("read-only",), ("full-access",)])
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_preserves_codex_initial_permission_mode(self, initial_permission_mode, mock_workflow):
@@ -2874,6 +2920,7 @@ class TestTaskAPI(BaseTaskAPITest):
             ("high",),
             # xhigh is load-bearing: ReviewHog pins it for its one-shot and review runs.
             ("xhigh",),
+            ("ultracode",),
         ]
     )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
@@ -2899,13 +2946,21 @@ class TestTaskAPI(BaseTaskAPITest):
         assert task_run.state["reasoning_effort"] == reasoning_effort
         mock_workflow.assert_called_once()
 
+    @parameterized.expand(
+        [
+            ("xhigh",),
+            ("ultracode",),
+        ]
+    )
     @patch("products.tasks.backend.presentation.serializers.posthoganalytics.capture")
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_run_endpoint_rejects_unsupported_claude_sonnet_4_6_reasoning_effort(self, mock_workflow, mock_capture):
-        # claude-sonnet-4-6 supports low/medium/high but not xhigh (claude-sonnet-5 accepts the
-        # full set, ReviewHog pins its xhigh) - this pins the "Supported values: <non-empty list>"
-        # message and confirms the rejection capture also fires for a model with some supported
-        # efforts.
+    def test_run_endpoint_rejects_unsupported_claude_sonnet_4_6_reasoning_effort(
+        self, reasoning_effort, mock_workflow, mock_capture
+    ):
+        # claude-sonnet-4-6 supports low/medium/high but not xhigh/ultracode (claude-sonnet-5
+        # accepts the full set, ReviewHog pins its xhigh) - this pins the "Supported values:
+        # <non-empty list>" message and confirms the rejection capture also fires for a model
+        # with some supported efforts.
         task = self.create_task()
 
         response = self.client.post(
@@ -2913,7 +2968,7 @@ class TestTaskAPI(BaseTaskAPITest):
             {
                 "runtime_adapter": "claude",
                 "model": "claude-sonnet-4-6",
-                "reasoning_effort": "xhigh",
+                "reasoning_effort": reasoning_effort,
             },
             format="json",
         )
@@ -2923,7 +2978,7 @@ class TestTaskAPI(BaseTaskAPITest):
             "type": "validation_error",
             "code": "invalid_input",
             "detail": (
-                "Reasoning effort 'xhigh' is not supported for runtime_adapter 'claude' "
+                f"Reasoning effort '{reasoning_effort}' is not supported for runtime_adapter 'claude' "
                 "and model 'claude-sonnet-4-6'. Supported values: low, medium, high."
             ),
             "attr": "reasoning_effort",
@@ -2937,9 +2992,9 @@ class TestTaskAPI(BaseTaskAPITest):
             properties={
                 "runtime_adapter": "claude",
                 "model": "claude-sonnet-4-6",
-                "reasoning_effort": "xhigh",
+                "reasoning_effort": reasoning_effort,
                 "error": (
-                    "Reasoning effort 'xhigh' is not supported for runtime_adapter 'claude' "
+                    f"Reasoning effort '{reasoning_effort}' is not supported for runtime_adapter 'claude' "
                     "and model 'claude-sonnet-4-6'. Supported values: low, medium, high."
                 ),
             },
@@ -3043,6 +3098,8 @@ class TestTaskAPI(BaseTaskAPITest):
                 "runtime_adapter": "codex",
                 "model": "gpt-5.3-codex",
                 "reasoning_effort": "medium",
+                "context_window": "1m",
+                "fast_mode": True,
                 "snapshot_external_id": "snap-1",
             },
         )
@@ -3069,6 +3126,8 @@ class TestTaskAPI(BaseTaskAPITest):
         assert task_run.state["provider"] == "openai"
         assert task_run.state["model"] == "gpt-5.3-codex"
         assert task_run.state["reasoning_effort"] == "medium"
+        assert task_run.state["context_window"] == "1m"
+        assert task_run.state["fast_mode"] is True
         # Token passed on a BOT resume must not be cached — only USER mode runs use it.
         assert get_cached_github_user_token(str(task_run.id)) is None
 

@@ -48,6 +48,16 @@ fn production_handoff(p: Partition, h: &Handoff) -> HandoffState {
         phase: h.phase,
         started_at: 0,
         handoff_id: h.id.to_string(),
+        // The model always captures a snapshot (its Rebalance mirrors
+        // the production coordinator, which always writes one). The
+        // production `None` legacy fallback is a serialization concern
+        // pinned by unit tests, not a reachable state here. With
+        // `RouterJoin` in the action space the snapshot diverges from
+        // the live registry, and the production quorum predicate below
+        // is exercised on exactly that divergence.
+        freeze_quorum: Some(h.quorum.iter().map(|r| router_name(*r)).collect()),
+        created_at_ms: 0,
+        phase_entered_at_ms: 0,
     }
 }
 
@@ -69,6 +79,9 @@ pub enum Variant {
 pub struct HandoffModel {
     pub pods: u8,
     pub routers: u8,
+    /// Additional router slots that start unregistered and not running;
+    /// they exist only to `RouterJoin` mid-run.
+    pub late_routers: u8,
     pub partitions: u8,
     pub variant: Variant,
     /// Total client writes the checker may inject.
@@ -79,6 +92,9 @@ pub struct HandoffModel {
     pub crashes: u8,
     /// Times a dead pod may rejoin under its old name.
     pub rejoins: u8,
+    /// Times a router may (re)join: late slots coming up, or dead
+    /// routers returning as fresh processes.
+    pub router_joins: u8,
     /// Writes a lease-expired pod may still accept before its keepalive
     /// self-fences it. Zero disables the zombie window entirely.
     pub zombie_window: u8,
@@ -114,7 +130,7 @@ impl HandoffModel {
         0..self.pods
     }
     fn router_ids(&self) -> impl Iterator<Item = RouterId> {
-        0..self.routers
+        0..(self.routers + self.late_routers)
     }
     fn partition_ids(&self) -> impl Iterator<Item = Partition> {
         0..self.partitions
@@ -280,11 +296,14 @@ impl Model for HandoffModel {
         let routers: BTreeMap<RouterId, Router> = self
             .router_ids()
             .map(|id| {
+                // Slots at or past `routers` start dark and only come up
+                // via `RouterJoin`.
+                let active = id < self.routers;
                 (
                     id,
                     Router {
-                        registered: true,
-                        running: true,
+                        registered: active,
+                        running: active,
                         table: BTreeMap::new(),
                         stashing: BTreeSet::new(),
                         stash: BTreeMap::new(),
@@ -311,6 +330,7 @@ impl Model for HandoffModel {
             reads_left: self.reads,
             crashes_left: self.crashes,
             rejoins_left: self.rejoins,
+            router_joins_left: self.router_joins,
             next_write_id: 0,
             reads_served: 0,
             lost_acked_write: false,
@@ -355,6 +375,9 @@ impl Model for HandoffModel {
         }
         for r in self.router_ids() {
             actions.push(Action::RouterSelfFence(r));
+            if state.router_joins_left > 0 {
+                actions.push(Action::RouterJoin(r));
+            }
         }
     }
 
@@ -431,6 +454,13 @@ impl Model for HandoffModel {
                 // sequential handoff-id assignment is deterministic
                 // (next_state must be a pure function of its inputs).
                 plan.handoffs.sort_by_key(|h| h.partition);
+                // Mirror of the coordinator's snapshot read: the routers
+                // registered when the plan is applied become the freeze
+                // requirement for every handoff it creates.
+                let quorum: BTreeSet<RouterId> = self
+                    .router_ids()
+                    .filter(|r| state.routers[r].registered)
+                    .collect();
                 for planned in plan.handoffs {
                     let id = state.next_handoff_id;
                     state.next_handoff_id += 1;
@@ -443,6 +473,7 @@ impl Model for HandoffModel {
                                 old_owner: planned.old_owner.as_deref().map(pod_id),
                                 new_owner: pod_id(&planned.new_owner),
                                 phase: Phase::Freezing,
+                                quorum: quorum.clone(),
                             },
                         )
                         .is_some();
@@ -879,6 +910,24 @@ impl Model for HandoffModel {
                 router.stashing.clear();
                 router.stash.clear();
             }
+            Action::RouterJoin(r) => {
+                let router = &state.routers[&r];
+                if state.router_joins_left == 0 || router.registered || router.running {
+                    return None;
+                }
+                state.router_joins_left -= 1;
+                // A fresh process: registration written, table empty
+                // (fail-closed until Observe converges it — the model's
+                // bootstrap). Handoffs created before this point do not
+                // carry it in their quorum; the live-set legacy rule
+                // would have counted it from here on.
+                let router = state.routers.get_mut(&r).unwrap();
+                router.registered = true;
+                router.running = true;
+                router.table.clear();
+                router.stashing.clear();
+                router.stash.clear();
+            }
         }
 
         if state == *last {
@@ -990,6 +1039,41 @@ impl Model for HandoffModel {
             }),
         ];
         if self.probes {
+            // The freeze-quorum snapshot doing its job: a handoff
+            // advanced past Freezing while some registered router — a
+            // late joiner outside the snapshot — never wrote a freeze
+            // ack for it. Under the pre-snapshot live-set rule this
+            // state is unreachable; its reachability is the machine
+            // statement that the wedge is fixed, and the safety
+            // properties judge every interleaving that reaches it.
+            // Two in-flight handoffs carrying different snapshots —
+            // one created before a join, one after, coexisting because
+            // the first is pinned while a crash forces a second
+            // rebalance. This is the shape that would expose a refactor
+            // computing "the" requirement once from live state and
+            // sharing it across handoffs: correct-looking, wrong only
+            // here, invisible to every single-partition config.
+            props.push(Property::<Self>::sometimes(
+                "handoffs_with_divergent_quorums",
+                |_, s| {
+                    s.handoffs
+                        .values()
+                        .any(|h1| s.handoffs.values().any(|h2| h1.quorum != h2.quorum))
+                },
+            ));
+            props.push(Property::<Self>::sometimes(
+                "advances_past_silent_late_joiner",
+                |m, s| {
+                    s.handoffs.iter().any(|(p, h)| {
+                        h.phase != Phase::Freezing
+                            && m.router_ids().any(|r| {
+                                s.routers[&r].registered
+                                    && !h.quorum.contains(&r)
+                                    && s.freeze_acks.get(&(*p, r)) != Some(&h.id)
+                            })
+                    })
+                },
+            ));
             // Two or more handoffs in flight at once (one rebalance txn
             // creates them all; concurrent rebalances only add handoffs
             // for unpinned partitions).

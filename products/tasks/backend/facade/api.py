@@ -3086,6 +3086,8 @@ def bootstrap_task_run(
     runtime_adapter = validated_data.get("runtime_adapter")
     model = validated_data.get("model")
     reasoning_effort = validated_data.get("reasoning_effort")
+    context_window = validated_data.get("context_window")
+    fast_mode = validated_data.get("fast_mode")
     github_user_token = validated_data.get("github_user_token")
     initial_permission_mode = validated_data.get("initial_permission_mode")
     imported_mcp_servers = validated_data.get("imported_mcp_servers")
@@ -3108,6 +3110,8 @@ def bootstrap_task_run(
         "provider": provider,
         "model": model,
         "reasoning_effort": reasoning_effort,
+        "context_window": context_window,
+        "fast_mode": fast_mode,
         "rtk_enabled": validated_data.get("rtk_enabled"),
     }.items():
         if value is not None:
@@ -4399,12 +4403,16 @@ def run_task(
                 warm_state.get("runtime_adapter") or None,
                 warm_state.get("model") or None,
                 warm_state.get("reasoning_effort") or None,
+                warm_state.get("context_window") or None,
+                warm_state.get("fast_mode") or None,
                 warm_state.get("sandbox_environment_id") or None,
                 warm_state.get("custom_image_id") or None,
             ) == (
                 validated_data.get("runtime_adapter") or None,
                 validated_data.get("model") or None,
                 validated_data.get("reasoning_effort") or None,
+                validated_data.get("context_window") or None,
+                validated_data.get("fast_mode") or None,
                 str(validated_data["sandbox_environment_id"]) if validated_data.get("sandbox_environment_id") else None,
                 str(validated_data["custom_image_id"]) if validated_data.get("custom_image_id") else None,
             )
@@ -4448,6 +4456,8 @@ def run_task(
     runtime_adapter = validated_data.get("runtime_adapter")
     model = validated_data.get("model")
     reasoning_effort = validated_data.get("reasoning_effort")
+    context_window = validated_data.get("context_window")
+    fast_mode = validated_data.get("fast_mode")
     github_user_token = validated_data.get("github_user_token")
     initial_permission_mode = validated_data.get("initial_permission_mode")
     imported_mcp_servers = validated_data.get("imported_mcp_servers")
@@ -4463,6 +4473,8 @@ def run_task(
         "runtime_adapter": runtime_adapter,
         "model": model,
         "reasoning_effort": reasoning_effort,
+        "context_window": context_window,
+        "fast_mode": fast_mode,
     }
 
     extra_state: dict | None = None
@@ -4521,6 +4533,8 @@ def run_task(
         runtime_adapter = runtime_state_fields["runtime_adapter"]
         model = runtime_state_fields["model"]
         reasoning_effort = runtime_state_fields["reasoning_effort"]
+        context_window = runtime_state_fields["context_window"]
+        fast_mode = runtime_state_fields["fast_mode"]
         if branch is None and prev_state.pr_base_branch is not None:
             branch = prev_state.pr_base_branch
 
@@ -4536,6 +4550,8 @@ def run_task(
         "provider": provider,
         "model": model,
         "reasoning_effort": reasoning_effort,
+        "context_window": context_window,
+        "fast_mode": fast_mode,
     }.items():
         if value is not None:
             extra_state = extra_state or {}
