@@ -1,6 +1,7 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, RwLock as StdRwLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use etcd_client::{EventType, WatchStream};
@@ -136,6 +137,16 @@ pub struct RoutingTableConfig {
     pub router_name: String,
     pub lease_ttl: i64,
     pub heartbeat_interval: Duration,
+    /// Fail the run when the handoff watch loop makes no progress for
+    /// this long. Registration is lease-backed and the lease keepalive is
+    /// its own task, so a router whose watch loop has stalled stays
+    /// registered — counted in every freeze quorum — while never acking:
+    /// one such router wedges every handoff in the cluster. The watchdog
+    /// closes that divergence by tying the registration's fate to loop
+    /// progress: on a stall the run errors out, deregisters on the way
+    /// down, and the process supervisor restarts a healthy participant.
+    /// `None` disables the watchdog.
+    pub participant_stall_threshold: Option<Duration>,
 }
 
 impl Default for RoutingTableConfig {
@@ -148,6 +159,7 @@ impl Default for RoutingTableConfig {
             // immediately on the way out).
             lease_ttl: 10,
             heartbeat_interval: Duration::from_secs(3),
+            participant_stall_threshold: Some(Duration::from_secs(60)),
         }
     }
 }
@@ -261,12 +273,53 @@ impl RoutingTable {
         // Run heartbeat and handoff watch concurrently
         let mut tasks = tokio::task::JoinSet::new();
 
+        // Loop progress is measured against a process-local monotonic
+        // epoch, immune to wall-clock steps. The watch loop stamps it
+        // from a ticker arm inside its own select, so the stamp only
+        // advances while the loop is actually free to iterate; the
+        // watchdog task fails the run when the stamp goes stale.
+        let progress_epoch = Instant::now();
+        let last_progress = Arc::new(AtomicU64::new(0));
+        let stamp_interval = self
+            .config
+            .participant_stall_threshold
+            .map(|t| (t / 4).clamp(Duration::from_millis(250), Duration::from_secs(5)))
+            .unwrap_or(Duration::from_secs(5));
+
         {
             let store = Arc::clone(&self.store);
             let interval = self.config.heartbeat_interval;
             let token = cancel.child_token();
             tasks.spawn(async move {
                 util::run_lease_keepalive(store, lease_id, interval, token).await
+            });
+        }
+
+        if let Some(threshold) = self.config.participant_stall_threshold {
+            let last_progress = Arc::clone(&last_progress);
+            let router_name = self.config.router_name.clone();
+            let token = cancel.child_token();
+            tasks.spawn(async move {
+                let mut check = tokio::time::interval(stamp_interval);
+                loop {
+                    tokio::select! {
+                        _ = token.cancelled() => return Ok(()),
+                        _ = check.tick() => {
+                            let stamped_ms = last_progress.load(Ordering::Relaxed);
+                            let now_ms = progress_epoch.elapsed().as_millis() as u64;
+                            let stale_ms = now_ms.saturating_sub(stamped_ms);
+                            if stale_ms > threshold.as_millis() as u64 {
+                                return Err(Error::invalid_state(format!(
+                                    "handoff watch loop of router {router_name} made no \
+                                     progress for {stale_ms}ms (threshold \
+                                     {}ms); failing the run so the router deregisters \
+                                     and restarts as a healthy participant",
+                                    threshold.as_millis()
+                                )));
+                            }
+                        }
+                    }
+                }
             });
         }
 
@@ -292,6 +345,7 @@ impl RoutingTable {
             let handler = Arc::clone(&handler);
             let router_name = self.config.router_name.clone();
             let lanes = Arc::new(DrainLanes::new(lanes_cancel.clone()));
+            let last_progress = Arc::clone(&last_progress);
             let token = cancel.child_token();
             tasks.spawn(async move {
                 Self::watch_handoffs_loop(
@@ -303,6 +357,9 @@ impl RoutingTable {
                     router_name,
                     token,
                     handoff_stream,
+                    last_progress,
+                    progress_epoch,
+                    stamp_interval,
                 )
                 .await
             });
@@ -473,10 +530,23 @@ impl RoutingTable {
         router_name: String,
         cancel: CancellationToken,
         mut stream: WatchStream,
+        last_progress: Arc<AtomicU64>,
+        progress_epoch: Instant,
+        stamp_interval: Duration,
     ) -> Result<()> {
+        // The stamp arm can only run while the loop is free to iterate —
+        // an event handler stuck in an inline await freezes the stamp,
+        // which is exactly what the watchdog listens for.
+        let mut stamp_tick = tokio::time::interval(stamp_interval);
         loop {
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
+                _ = stamp_tick.tick() => {
+                    last_progress.store(
+                        progress_epoch.elapsed().as_millis() as u64,
+                        Ordering::Relaxed,
+                    );
+                }
                 msg = stream.message() => {
                     let resp = msg?.ok_or_else(|| Error::invalid_state("handoff watch stream ended".to_string()))?;
                     for event in resp.events() {

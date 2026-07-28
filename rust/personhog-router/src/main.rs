@@ -278,6 +278,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             router_name: config.pod_name.clone(),
             lease_ttl: config.lease_ttl,
             heartbeat_interval: config.heartbeat_interval(),
+            participant_stall_threshold: config.participant_stall_threshold(),
         };
 
         let coordination_routing_table =

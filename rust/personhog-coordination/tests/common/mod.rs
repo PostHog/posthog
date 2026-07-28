@@ -277,6 +277,7 @@ pub fn start_router_with_lease_ttl(
             router_name: name.to_string(),
             lease_ttl,
             heartbeat_interval: Duration::from_secs(heartbeat_secs),
+            ..RoutingTableConfig::default()
         },
     );
     let table = router.table_handle();

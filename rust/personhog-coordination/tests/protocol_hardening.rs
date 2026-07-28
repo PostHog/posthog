@@ -1358,6 +1358,7 @@ async fn late_joining_router_stashes_before_populating_table() {
             router_name: "late-router".to_string(),
             lease_ttl: 10,
             heartbeat_interval: Duration::from_secs(3),
+            ..RoutingTableConfig::default()
         },
     );
     let observed = Arc::new(Mutex::new(Vec::new()));
@@ -1451,7 +1452,14 @@ async fn cancellation_with_dead_owner_leaves_stash_intact_until_successor() {
     // is the next stash event. Waiting for it (rather than a negative
     // wait) also proves no drain-back squeezed in before it: events are
     // recorded in order and asserted exactly below.
-    put_handoff(&store, 0, Some("pod-old"), "pod-new-2", HandoffPhase::Complete).await;
+    put_handoff(
+        &store,
+        0,
+        Some("pod-old"),
+        "pod-new-2",
+        HandoffPhase::Complete,
+    )
+    .await;
     wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
         let events = Arc::clone(&events);
         async move {
@@ -1551,7 +1559,14 @@ async fn a_blocked_drain_does_not_stall_freeze_acks_for_other_partitions() {
         )
         .await
         .expect("write assignment"));
-    put_handoff(&store, 0, Some("pod-old"), "pod-new", HandoffPhase::Freezing).await;
+    put_handoff(
+        &store,
+        0,
+        Some("pod-old"),
+        "pod-new",
+        HandoffPhase::Freezing,
+    )
+    .await;
 
     let router = RoutingTable::new(
         Arc::clone(&store),
@@ -1603,6 +1618,89 @@ async fn a_blocked_drain_does_not_stall_freeze_acks_for_other_partitions() {
         }
     })
     .await;
+
+    cancel.cancel();
+}
+
+/// Passes partition 0 through and parks forever on any other partition —
+/// pins the block inside the watch loop (partition 1 only ever arrives
+/// through it, never through startup catch-up, once partition 0's ack
+/// proves the initial snapshot has been taken).
+struct PartitionOneParker;
+
+#[async_trait]
+impl StashHandler for PartitionOneParker {
+    async fn begin_stash(&self, partition: u32, _new_owner: &str) -> Result<()> {
+        if partition == 0 {
+            return Ok(());
+        }
+        std::future::pending::<Result<()>>().await
+    }
+
+    async fn drain_stash(
+        &self,
+        _partition: u32,
+        _target: &str,
+        _cancel: CancellationToken,
+    ) -> Result<()> {
+        Ok(())
+    }
+}
+
+/// A router whose watch loop stalls stays registered — its lease
+/// keepalive is a separate, healthy task — and is counted in every
+/// freeze quorum while never acking. The watchdog must notice the
+/// missing progress stamps, fail the run, and deregister the router so
+/// quorums stop counting it.
+#[tokio::test]
+async fn a_stalled_watch_loop_trips_the_watchdog_and_deregisters() {
+    let store = test_store("stall-watchdog").await;
+
+    let router = RoutingTable::new(
+        Arc::clone(&store),
+        RoutingTableConfig {
+            router_name: "wd-router".to_string(),
+            participant_stall_threshold: Some(Duration::from_secs(1)),
+            ..RoutingTableConfig::default()
+        },
+    );
+    let cancel = CancellationToken::new();
+    let token = cancel.child_token();
+    let run = tokio::spawn(async move { router.run(token, Arc::new(PartitionOneParker)).await });
+
+    // Partition 0's ack proves the router is up and past its startup
+    // catch-up; partition 1's handoff then arrives via the watch loop
+    // and parks it.
+    put_handoff(&store, 0, None, "pod-new", HandoffPhase::Freezing).await;
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&store);
+        async move {
+            store
+                .list_freeze_acks(0)
+                .await
+                .expect("list acks")
+                .iter()
+                .any(|ack| ack.router_name == "wd-router")
+        }
+    })
+    .await;
+    put_handoff(&store, 1, None, "pod-new", HandoffPhase::Freezing).await;
+
+    let result = tokio::time::timeout(WAIT_TIMEOUT, run)
+        .await
+        .expect("watchdog should fail the run before the timeout")
+        .expect("run task must not panic");
+    assert!(
+        result.is_err(),
+        "a stalled watch loop must fail the run, not linger as a zombie participant"
+    );
+
+    // Deregistered on the way down: freeze quorums stop counting it.
+    let routers = store.list_routers().await.expect("list routers");
+    assert!(
+        !routers.iter().any(|r| r.router_name == "wd-router"),
+        "the failed router must deregister"
+    );
 
     cancel.cancel();
 }

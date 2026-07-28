@@ -171,6 +171,7 @@ pub fn start_router(
             router_name: name.to_string(),
             lease_ttl: 10,
             heartbeat_interval: Duration::from_secs(3),
+            ..RoutingTableConfig::default()
         },
     );
     let token = cancel.child_token();

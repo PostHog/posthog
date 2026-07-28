@@ -174,6 +174,13 @@ pub struct Config {
     #[envconfig(default = "3")]
     pub heartbeat_interval_secs: u64,
 
+    /// Fail the coordination run when the handoff watch loop makes no
+    /// progress for this long, so the router deregisters and restarts as
+    /// a healthy participant instead of wedging freeze quorums while its
+    /// lease stays alive. `0` disables the watchdog.
+    #[envconfig(default = "60")]
+    pub participant_stall_secs: u64,
+
     /// Maximum number of stashed write requests held per partition while
     /// a handoff is in progress. Excess requests return UNAVAILABLE and
     /// rely on caller-side retries.
@@ -452,6 +459,10 @@ impl Config {
 
     pub fn coordinator_handoff_deadline(&self) -> Duration {
         Duration::from_secs(self.coordinator_handoff_deadline_secs)
+    }
+
+    pub fn participant_stall_threshold(&self) -> Option<Duration> {
+        (self.participant_stall_secs > 0).then(|| Duration::from_secs(self.participant_stall_secs))
     }
 
     pub fn stash_max_wait(&self) -> Duration {
