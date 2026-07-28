@@ -173,11 +173,12 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # Append-only raw provider-payload archive written by the internal enrichment path;
         # no API endpoint, never looked up by user-supplied ID.
         "OrganizationEnrichmentFetch",
-        # Internal classifier config edited only via staff Django admin; no API endpoint,
-        # never looked up by user-supplied ID.
+        # Instance-global classifier config, not team data, so there is no team_id to scope on.
+        # Reachable only through the staff score lab API, which looks rows up by a user-supplied
+        # config_id but gates every action on IsStaffUser rather than a team or an API-key scope.
         "EnrichmentPromptConfig",
-        # Shadow classifier output written only by the batch runner, read-only in admin;
-        # no API endpoint, never looked up by user-supplied ID.
+        # Shadow classifier output, org-scoped rather than team-scoped. Written only by the batch
+        # runner, read-only in admin, and reachable from the same staff-only API as the config above.
         "EnrichmentLabelResult",
         # Model kept to avoid a deletion migration but has no API endpoint
         "ErrorTrackingAutoCaptureControls",
