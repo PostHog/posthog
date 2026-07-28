@@ -8,8 +8,12 @@ import { userLogic } from 'scenes/userLogic'
 
 import type { apiStatusLogicType } from './apiStatusLogicType'
 
-// How often to probe connectivity while the "trouble connecting" banner is showing.
-const CONNECTION_RECOVERY_POLL_MS = 5000
+// Fallback poll cadence while the "trouble connecting" banner is showing — only needed when the
+// app is idle and makes no requests of its own (any real request already clears the banner via
+// onApiResponse). Jittered so clients that dropped together (e.g. a brief backend blip) don't all
+// retry in lockstep and stampede the recovering server.
+const CONNECTION_RECOVERY_POLL_MS = 15000
+const CONNECTION_RECOVERY_POLL_JITTER_MS = 5000
 
 export const apiStatusLogic = kea<apiStatusLogicType>([
     path(['lib', 'apiStatusLogic']),
@@ -51,25 +55,34 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
     }),
     listeners(({ cache, actions, values }) => ({
         setInternetConnectionIssue: ({ issue }) => {
-            // Once the banner is up, don't wait for an incidental successful request to clear it —
-            // actively probe connectivity and heal as soon as it's back. Any successful api response
-            // (including this probe) flips internetConnectionIssue back to false via onApiResponse.
+            // Every api request already clears the banner on a successful response via onApiResponse
+            // below, so ordinary app traffic heals it on its own. This loop only covers the idle
+            // case — no requests in flight — by probing a cheap endpoint until connectivity returns.
             if (issue && !cache.connectionRecoveryActive) {
                 cache.connectionRecoveryActive = true
                 cache.disposables.add(() => {
-                    const probe = (): void => {
-                        // _preflight is cheap and unauthenticated; ignore the outcome — onApiResponse
-                        // observes the underlying fetch and clears the flag on any ok response.
-                        void api.get('_preflight/').catch(() => {})
+                    // _preflight is cheap and unauthenticated; ignore the outcome — onApiResponse
+                    // observes the underlying fetch and clears the flag on any ok response, exactly
+                    // as it does for every other request the app makes.
+                    const probe = (): void => void api.get('_preflight/').catch(() => {})
+                    let pollTimer: number | undefined
+                    const scheduleNextProbe = (): void => {
+                        const delay = CONNECTION_RECOVERY_POLL_MS + Math.random() * CONNECTION_RECOVERY_POLL_JITTER_MS
+                        pollTimer = window.setTimeout(() => {
+                            probe()
+                            scheduleNextProbe()
+                        }, delay)
                     }
-                    const pollTimer = window.setInterval(probe, CONNECTION_RECOVERY_POLL_MS)
-                    // The browser fires `online` the instant connectivity returns — probe immediately.
+                    // The browser fires `online` the instant this client's connectivity returns —
+                    // probe right away. These events are naturally staggered per client, so unlike
+                    // the poll they don't need jitter to avoid a stampede.
                     const onOnline = (): void => probe()
                     window.addEventListener('online', onOnline)
-                    // Probe once right away (also re-runs when a hidden tab is shown again).
-                    probe()
+                    scheduleNextProbe()
                     return () => {
-                        clearInterval(pollTimer)
+                        if (pollTimer !== undefined) {
+                            window.clearTimeout(pollTimer)
+                        }
                         window.removeEventListener('online', onOnline)
                     }
                 }, 'connectionRecovery')

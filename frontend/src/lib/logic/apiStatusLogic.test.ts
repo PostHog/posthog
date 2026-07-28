@@ -93,12 +93,15 @@ describe('apiStatusLogic', () => {
             logic = apiStatusLogic()
             logic.mount()
 
-            // A network-level failure raises the banner; the recovery probe then heals it
-            // without the user having to reload or make another request themselves.
+            // Raise the banner, which arms the recovery loop.
+            logic.actions.setInternetConnectionIssue(true)
+
+            // Simulate connectivity returning: the browser `online` event fires an immediate probe,
+            // whose successful response heals the banner without a reload or user action. (The
+            // fallback poll does the same thing on a jittered interval when the app is fully idle.)
             await expectLogic(logic, () => {
-                logic.actions.setInternetConnectionIssue(true)
+                window.dispatchEvent(new Event('online'))
             }).toDispatchActions([
-                'setInternetConnectionIssue',
                 (action) => action.type === logic.actionTypes.setInternetConnectionIssue && !action.payload.issue,
             ])
 
