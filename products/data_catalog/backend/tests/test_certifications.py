@@ -381,7 +381,7 @@ class TestSerializedSchemaCertification(APIBaseTest):
     def test_settled_certification_serialized_on_schema(
         self, target_type: str, table_key: str, action, expected_status: str
     ) -> None:
-        target_selector = (
+        target_selector: dict[str, Any] = (
             {"table_id": str(self.warehouse_table.id)}
             if target_type == "table"
             else {"saved_query_id": str(self.view.id)}
