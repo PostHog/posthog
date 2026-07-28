@@ -918,10 +918,9 @@ jobs:
                       posthog-test-durations-
 
             - name: Download the run's sharding plan snapshot
-              # Same pinning as the Django job: every shard of every attempt must plan
-              # from the same timing data, else a test that failed earlier can move to a
-              # shard that is not re-run and never be re-executed while the gate goes
-              # green. Falls back to the floating cache when the snapshot is missing.
+              # Same pinning as the Django job, for products sharded with pytest-split
+              # (full rationale on turbo-discover's "Snapshot the sharding plan" step).
+              # Falls back to the floating cache when the snapshot is missing.
               id: pinned-plan
               continue-on-error: true
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -2711,16 +2710,13 @@ jobs:
                       posthog-segment-durations-
 
             - name: Download the run's sharding plan snapshot
-              # The cache restores above float to the newest entry (refreshed every six
-              # hours), so shards restoring at different times, and re-run attempts days
-              # apart, can otherwise plan from different timing data. Under "re-run failed
-              # jobs" only the failed shards re-execute, so such a reshard can move a test
-              # that failed earlier onto a shard that is not re-run, and the failure is
-              # never re-executed yet the gate goes green. Applying the snapshot taken by
-              # turbo-discover makes every shard of every attempt plan from identical
-              # timing data, so a re-run shard re-collects the tests it failed with.
-              # continue-on-error because a missing snapshot (turbo-discover failed, or
-              # the artifact expired) falls back to the floating caches above.
+              # Apply the plan snapshotted by turbo-discover so every shard of every
+              # attempt plans from identical timing data; the floating restores above can
+              # otherwise diverge between jobs and attempts, letting a partial re-run
+              # skip a test that failed earlier (full rationale on the "Snapshot the
+              # sharding plan" step). continue-on-error because a missing snapshot
+              # (turbo-discover failed, or the artifact expired) falls back to the
+              # floating caches above.
               id: pinned-plan
               continue-on-error: true
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
