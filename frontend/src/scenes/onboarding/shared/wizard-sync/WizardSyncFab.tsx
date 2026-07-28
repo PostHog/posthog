@@ -405,15 +405,16 @@ function WizardSyncLocalGate(): JSX.Element | null {
 export function WizardSyncFab(): JSX.Element | null {
     const syncFlagEnabled = useFeatureFlag('ONBOARDING_WIZARD_SYNC', 'test')
     const { featureFlags } = useValues(featureFlagLogic)
-    const { activeCloudRun, panelMounted } = useValues(activeCloudRunLogic)
+    const { activeCloudRun } = useValues(activeCloudRunLogic)
+    const { inlinePanelMounted } = useValues(wizardSyncUiLogic)
     // The self-driving onboarding syncs unconditionally, so its users need the detached widget too
     // once they navigate away from the install step — the sync flag only gates the legacy arm.
     const syncEnabled = syncFlagEnabled || resolveOnboardingFlowVariant(featureFlags) === 'self-driving'
 
     // An inline install-step progress view is already showing this run, so stay out of its way. The FAB
     // is for after the user moves on from the install step. Both inline views (cloud and local) claim
-    // panelMounted, so the run is never shown in two places.
-    if (panelMounted) {
+    // the inline-panel claim, so the run is never shown in two places.
+    if (inlinePanelMounted) {
         return null
     }
     // Deliberately not gated on the cloud-run flag: a persisted handle is proof the run started
