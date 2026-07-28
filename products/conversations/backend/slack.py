@@ -55,6 +55,7 @@ from .services.attachments import (
 )
 from .support_slack import (
     SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES,
+    SUPPORT_SLACK_FILE_READ_SCOPE,
     get_support_slack_bot_token,
     supporthog_missing_file_scopes,
 )
@@ -293,9 +294,11 @@ def _download_slack_image_bytes(url: str, bot_token: str, expected_mimetype: str
                 logger.warning("🖼️ slack_file_download_non_200", url=next_url, status=status)
                 return None
 
-            # An unauthorized file request (typically an install without files:read) lands on a
-            # Slack sign-in page served as a 200. Storing that as the customer's attachment is
-            # worse than having none, and images alone can't be told apart by byte validation.
+            # A rejected file request (a revoked or downgraded token) lands on a Slack sign-in page
+            # served as a 200. Storing that as the customer's attachment is worse than having none,
+            # and only images get byte validation. Callers skip the request entirely when the
+            # install is known to lack files:read, which is the case this can't catch on its own:
+            # a sign-in page and a genuine text/html attachment look the same here.
             content_type = (response.headers.get("Content-Type") or "").split(";")[0].strip().lower()
             if content_type == "text/html" and expected_mimetype.lower() != "text/html":
                 logger.warning(
@@ -429,11 +432,16 @@ def extract_slack_files(files: list[dict] | None, team: Team, client: WebClient 
 
     team_id = _get_team_id(team)
     bot_token = getattr(client, "token", None) if client else None
+    # Slack answers an unauthorized download with a 200 sign-in page, which is indistinguishable
+    # from a genuine text/html attachment. So don't ask: we've requested files:read for as long as
+    # we've recorded granted scopes, meaning an install with none recorded definitively lacks it.
+    missing_file_scopes = supporthog_missing_file_scopes(team)
+    can_read_files = SUPPORT_SLACK_FILE_READ_SCOPE not in missing_file_scopes
     logger.info("🖼️ slack_file_extract_started", team_id=team_id, total_files=len(files), has_bot_token=bool(bot_token))
     attachments: list[dict] = []
     unavailable_count = 0
     for f in files[:MAX_ATTACHMENTS_PER_MESSAGE]:
-        attachment = _rehost_slack_file(f, team, bot_token)
+        attachment = _rehost_slack_file(f, team, bot_token) if can_read_files else None
         if attachment is None:
             attachment = _slack_hosted_fallback(f)
             unavailable_count += 1
@@ -445,7 +453,7 @@ def extract_slack_files(files: list[dict] | None, team: Team, client: WebClient 
             "🖼️ slack_file_extract_incomplete",
             team_id=team_id,
             unavailable_count=unavailable_count,
-            missing_file_scopes=supporthog_missing_file_scopes(team),
+            missing_file_scopes=missing_file_scopes,
         )
     return attachments
 

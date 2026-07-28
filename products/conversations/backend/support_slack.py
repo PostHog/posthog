@@ -24,7 +24,9 @@ SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES = ("slack.com", "slack-edge.com", "slack-fil
 
 # Attachment sync in both directions depends on these. Older installs were authorized without
 # them, so the settings page asks those teams to reconnect.
-SUPPORT_SLACK_FILE_SCOPES = frozenset({"files:read", "files:write"})
+SUPPORT_SLACK_FILE_READ_SCOPE = "files:read"
+SUPPORT_SLACK_FILE_WRITE_SCOPE = "files:write"
+SUPPORT_SLACK_FILE_SCOPES = frozenset({SUPPORT_SLACK_FILE_READ_SCOPE, SUPPORT_SLACK_FILE_WRITE_SCOPE})
 
 
 def get_support_slack_settings() -> dict:
