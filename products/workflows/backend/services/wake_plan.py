@@ -15,6 +15,7 @@ is set and the caller must keep the wait on the polling path (or reject it at sa
 than assume a stream will cover it.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -36,9 +37,8 @@ _INVERTIBLE_WRAPPERS: dict[str, Optional[str]] = {
     "toUnixTimestamp": "fromUnixTimestamp",
 }
 
-# Comparisons that flip from false to true as the clock side grows.
-_CLOCK_ON_LEFT_OPS = {ast.CompareOperationOp.Gt, ast.CompareOperationOp.GtEq}
-_CLOCK_ON_RIGHT_OPS = {ast.CompareOperationOp.Lt, ast.CompareOperationOp.LtEq}
+_GT_OPS = {ast.CompareOperationOp.Gt, ast.CompareOperationOp.GtEq}
+_LT_OPS = {ast.CompareOperationOp.Lt, ast.CompareOperationOp.LtEq}
 
 
 @dataclass
@@ -104,23 +104,65 @@ def _streams_for(node: ast.Expr) -> set[str]:
     return streams
 
 
-def _clock_wrapper(node: ast.Expr) -> tuple[bool, Optional[str]]:
+@dataclass(frozen=True)
+class _ClockExpr:
     """
-    Recognize a pure clock expression.
+    A sub-expression whose value moves monotonically with the clock.
 
-    Returns (is_clock, inverse_function), where `inverse_function` is the call to wrap the other
-    side of the comparison in so it becomes a datetime, or None when it already is one.
+    `increasing` says which way it moves; `invert` maps the other side of a comparison to the
+    instant at which the two sides meet, which is when the comparison flips.
     """
-    if isinstance(node, ast.Call):
-        if node.name in CLOCK_FUNCTIONS and not node.args:
-            return True, None
-        if node.name in _INVERTIBLE_WRAPPERS and len(node.args) == 1:
-            inner_is_clock, inner_inverse = _clock_wrapper(node.args[0])
-            # Only a directly-wrapped clock call inverts cleanly; nested wrappers would need the
-            # composed inverse, which isn't worth guessing.
-            if inner_is_clock and inner_inverse is None:
-                return True, _INVERTIBLE_WRAPPERS[node.name]
-    return False, None
+
+    increasing: bool
+    invert: Callable[[ast.Expr], ast.Expr]
+
+
+def _is_bare_clock(node: ast.Expr) -> bool:
+    return isinstance(node, ast.Call) and node.name in CLOCK_FUNCTIONS and not node.args
+
+
+def _negated(node: ast.Expr) -> ast.Expr:
+    # There is no dateSub in the HogVM stdlib, so subtracting an interval means adding a negative one.
+    if isinstance(node, ast.Constant) and isinstance(node.value, int | float):
+        return ast.Constant(value=-node.value)
+    return ast.ArithmeticOperation(op=ast.ArithmeticOperationOp.Sub, left=ast.Constant(value=0), right=node)
+
+
+def _clock_expr(node: ast.Expr) -> Optional[_ClockExpr]:
+    """Recognize the clock-dependent side of a comparison, or None if this isn't one."""
+    if _is_bare_clock(node):
+        return _ClockExpr(increasing=True, invert=lambda threshold: threshold)
+
+    if not isinstance(node, ast.Call):
+        return None
+
+    # A monotonic wrapper directly around a clock call, e.g. toUnixTimestamp(now()). Nested wrappers
+    # would need the composed inverse, which isn't worth guessing.
+    if node.name in _INVERTIBLE_WRAPPERS and len(node.args) == 1 and _is_bare_clock(node.args[0]):
+        inverse = _INVERTIBLE_WRAPPERS[node.name]
+        return _ClockExpr(
+            increasing=True,
+            invert=lambda threshold: ast.Call(name=inverse, args=[threshold]) if inverse else threshold,
+        )
+
+    # dateDiff(unit, start, end) with the clock at one end. "N units since X" grows with time and
+    # flips at X + N; "N units until Y" shrinks and flips at Y - N.
+    if node.name == "dateDiff" and len(node.args) == 3:
+        unit, start, end = node.args
+        if _clock_refs(unit):
+            return None
+        if _is_bare_clock(end) and not _clock_refs(start):
+            return _ClockExpr(
+                increasing=True,
+                invert=lambda amount: ast.Call(name="dateAdd", args=[unit, amount, start]),
+            )
+        if _is_bare_clock(start) and not _clock_refs(end):
+            return _ClockExpr(
+                increasing=False,
+                invert=lambda amount: ast.Call(name="dateAdd", args=[unit, _negated(amount), end]),
+            )
+
+    return None
 
 
 def _threshold_from_comparison(node: ast.CompareOperation) -> Optional[ast.Expr]:
@@ -129,23 +171,24 @@ def _threshold_from_comparison(node: ast.CompareOperation) -> Optional[ast.Expr]
 
     Returns None when the comparison isn't a clock threshold we can invert.
     """
-    left_is_clock, left_inverse = _clock_wrapper(node.left)
-    right_is_clock, right_inverse = _clock_wrapper(node.right)
+    left = _clock_expr(node.left)
+    right = _clock_expr(node.right)
 
-    if left_is_clock and not right_is_clock:
-        if node.op not in _CLOCK_ON_LEFT_OPS or _clock_refs(node.right):
+    if left is not None and right is None:
+        if _clock_refs(node.right):
             return None
-        threshold, inverse = node.right, left_inverse
-    elif right_is_clock and not left_is_clock:
-        if node.op not in _CLOCK_ON_RIGHT_OPS or _clock_refs(node.left):
-            return None
-        threshold, inverse = node.left, right_inverse
-    else:
-        return None
+        # On the left, an increasing side flips as it climbs past the threshold; a decreasing one as
+        # it falls below. On the right the roles swap.
+        wanted = _GT_OPS if left.increasing else _LT_OPS
+        return left.invert(node.right) if node.op in wanted else None
 
-    if inverse is None:
-        return threshold
-    return ast.Call(name=inverse, args=[threshold])
+    if right is not None and left is None:
+        if _clock_refs(node.left):
+            return None
+        wanted = _LT_OPS if right.increasing else _GT_OPS
+        return right.invert(node.left) if node.op in wanted else None
+
+    return None
 
 
 def _collect_thresholds(node: ast.Expr) -> tuple[list[ast.Expr], Optional[str]]:

@@ -53,6 +53,47 @@ class TestWakePlan(SimpleTestCase):
         # fromUnixTimestamp yields a HogDateTime, which is the shape the executor parks on.
         assert result.result["dt"] == datetime(2026, 7, 31, 12, 0, tzinfo=UTC).timestamp()
 
+    def test_days_since_condition_executes_to_the_offset_instant(self):
+        # Production shape from another flow: "14 days since last seen". dateDiff grows with the
+        # clock, so it flips at last_seen_at + 14 days.
+        plan = self._plan("dateDiff('day', toDateTime(person.properties.last_seen_at), now()) >= 14")
+
+        assert plan.unsupported_reason is None
+        result = execute_bytecode(
+            plan.timers[0],
+            globals={"person": {"properties": {"last_seen_at": "2026-07-01T09:00:00Z"}}},
+        )
+        assert result.result["dt"] == datetime(2026, 7, 15, 9, 0, tzinfo=UTC).timestamp()
+
+    def test_days_until_condition_executes_to_the_offset_instant(self):
+        # Production shape: "within 2 days of trial end". dateDiff shrinks as the clock advances, so
+        # it flips at trial_ends_at minus 2 days. Getting the direction wrong here would park the
+        # wait two days late, past the moment it was supposed to fire.
+        plan = self._plan("dateDiff('day', now(), toDateTime(person.properties.trial_ends_at)) <= 2")
+
+        assert plan.unsupported_reason is None
+        result = execute_bytecode(
+            plan.timers[0],
+            globals={"person": {"properties": {"trial_ends_at": "2026-08-10T00:00:00Z"}}},
+        )
+        assert result.result["dt"] == datetime(2026, 8, 8, 0, 0, tzinfo=UTC).timestamp()
+
+    @parameterized.expand(
+        [
+            # Reversed against the direction the expression moves: "days since" falling below a
+            # threshold, or "days until" climbing above one, never starts holding as time passes.
+            ("days_since_reversed", "dateDiff('day', person.properties.last_seen_at, now()) <= 14"),
+            ("days_until_reversed", "dateDiff('day', now(), person.properties.trial_ends_at) >= 2"),
+            # The clock in the unit argument, or at both ends, has no single flip instant.
+            ("clock_in_unit", "dateDiff(person.properties.unit, now(), now()) <= 2"),
+        ]
+    )
+    def test_uninvertible_datediff_shapes_fail_closed(self, _name: str, expr: str):
+        plan = self._plan(expr)
+
+        assert plan.unsupported_reason is not None
+        assert plan.timers == []
+
     @parameterized.expand(
         [
             ("clock_left_gte", "toUnixTimestamp(now()) >= toUnixTimestamp(person.properties.due_at)"),
