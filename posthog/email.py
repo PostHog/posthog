@@ -164,11 +164,15 @@ def get_customer_io_template_id(template_name: str) -> str:
 
 # Note: this http sender is only configure for customer.io right now and it's set up to send
 # via templates so all the configuration is done in the customer.io - i.e. no subject, body, etc.
+# `subject` is the exception: when set it overrides the template's subject line, for emails whose
+# subject interpolates user-controlled values (message_data is HTML-escaped by the sanitizer, so a
+# template-side subject would render entities like &quot; in plain text).
 def _send_via_http(
     to: list[dict[str, str]],
     campaign_key: str,
     template_name: str,
     properties: dict,
+    subject: Optional[str] = None,
 ) -> None:
     """Sends emails using Customer.io API"""
     customerio_api_key = settings.CUSTOMER_IO_API_KEY
@@ -205,6 +209,8 @@ def _send_via_http(
                     "identifiers": identifiers,
                     "message_data": properties,
                 }
+                if subject:
+                    payload["subject"] = subject
 
                 response = requests.post(
                     f"{settings.CUSTOMER_IO_API_URL}/v1/send/email", headers=headers, json=payload, timeout=30
@@ -436,6 +442,7 @@ def _send_email(
     reply_to: Optional[str] = None,
     use_http: Optional[bool] = False,
     properties: Optional[dict] = None,
+    http_subject_override: bool = False,
 ) -> None:
     """
     Sends built email message asynchronously, either through SMTP or HTTP
@@ -446,6 +453,7 @@ def _send_email(
             campaign_key=campaign_key,
             template_name=template_name,
             properties=properties or {},
+            subject=subject if http_subject_override else None,
         )
     elif is_smtp_email_service_available():
         _send_via_smtp(
@@ -471,6 +479,7 @@ class EmailMessage:
         headers: Optional[dict] = None,
         reply_to: Optional[str] = None,
         use_http: Optional[bool] = False,
+        use_http_subject_override: bool = False,
     ):
         if template_context is None:
             template_context = {}
@@ -482,6 +491,7 @@ class EmailMessage:
 
         self.campaign_key = campaign_key
         self.use_http = use_http
+        self.use_http_subject_override = use_http_subject_override
         self.to: list[dict[str, str]] = []
         self.subject = subject or ""
         self.reply_to = reply_to
@@ -527,6 +537,7 @@ class EmailMessage:
             "reply_to": self.reply_to,
             "use_http": self.use_http,
             "properties": self.properties,
+            "http_subject_override": self.use_http_subject_override,
         }
 
         if send_async:

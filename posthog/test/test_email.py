@@ -302,6 +302,28 @@ class TestEmail(BaseTest):
                 },
             )
 
+    @patch("posthoganalytics.capture")
+    @patch("posthog.email.requests.post")
+    def test_send_via_http_subject_override(self, mock_post, _mock_capture) -> None:
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"delivery_id": "test_delivery_id", "queued_at": 1604977406}
+        mock_post.return_value = mock_response
+
+        with override_instance_config("EMAIL_HOST", "localhost"), self.settings(CUSTOMER_IO_API_KEY="test-key"):
+            message = EmailMessage(
+                campaign_key="test_campaign",
+                subject='Loop "CI failure summary" finished',
+                template_name="2fa_enabled",
+                use_http=True,
+                use_http_subject_override=True,
+            )
+            message.add_recipient("test@posthog.com", "Test User")
+            message.send(send_async=False)
+
+            payload = mock_post.call_args.kwargs["json"]
+            self.assertEqual(payload["subject"], 'Loop "CI failure summary" finished')
+
     @patch("posthog.email.requests.post")
     def test_send_via_http_handles_decimal_values(self, mock_post) -> None:
         mock_response = MagicMock()

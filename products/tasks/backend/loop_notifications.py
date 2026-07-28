@@ -168,6 +168,9 @@ def _send_email(
             subject=title,
             template_context=template_context,
             use_http=True,
+            # The title embeds the loop's name, and message_data values are HTML-escaped
+            # by the sanitizer; a template-side subject would show literal &quot; entities.
+            use_http_subject_override=True,
         )
         message.add_user_recipient(loop.created_by)
         message.send(send_async=True)

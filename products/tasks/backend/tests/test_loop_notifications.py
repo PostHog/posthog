@@ -248,3 +248,19 @@ class TestDispatchLoopEventEmailReport(LoopNotificationsTestCase):
         mock_email_message_cls.assert_called_once()
         template_context = mock_email_message_cls.call_args.kwargs["template_context"]
         self.assertEqual(template_context["report"], expected_report)
+
+    @patch(f"{LOOP_NOTIFICATIONS_MODULE}.create_notification")
+    @patch(f"{LOOP_NOTIFICATIONS_MODULE}.is_email_available", return_value=True)
+    @patch(f"{LOOP_NOTIFICATIONS_MODULE}.EmailMessage")
+    def test_email_overrides_subject_with_plain_title(
+        self, mock_email_message_cls, _mock_email_available, _mock_create_notification
+    ):
+        loop = self.create_loop(
+            name='CI "nightly" digest', notifications={"email": {"enabled": True, "events": ["run_completed"]}}
+        )
+
+        dispatch_loop_event(loop, "run_completed", {})
+
+        kwargs = mock_email_message_cls.call_args.kwargs
+        self.assertTrue(kwargs["use_http_subject_override"])
+        self.assertEqual(kwargs["subject"], 'Loop "CI "nightly" digest" finished')
