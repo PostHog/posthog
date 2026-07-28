@@ -261,6 +261,15 @@ class DockerSandbox(SandboxBase):
         )
 
         with tempfile.TemporaryDirectory() as tmpdir:
+            monorepo_root = os.path.dirname(os.path.dirname(agent_path))
+            shutil.copy2(
+                os.path.join(monorepo_root, "pnpm-workspace.yaml"),
+                os.path.join(tmpdir, "pnpm-workspace.yaml"),
+            )
+            shutil.copytree(
+                os.path.join(monorepo_root, "patches"),
+                os.path.join(tmpdir, "patches"),
+            )
             shutil.copytree(
                 agent_path,
                 os.path.join(tmpdir, "local-agent"),
@@ -279,6 +288,11 @@ class DockerSandbox(SandboxBase):
             shutil.copytree(
                 enricher_path,
                 os.path.join(tmpdir, "local-enricher"),
+                ignore=shutil.ignore_patterns("node_modules"),
+            )
+            shutil.copytree(
+                os.path.join(monorepo_root, "packages", "harness"),
+                os.path.join(tmpdir, "local-harness"),
                 ignore=shutil.ignore_patterns("node_modules"),
             )
 

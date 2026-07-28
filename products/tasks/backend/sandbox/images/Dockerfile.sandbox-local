@@ -4,13 +4,16 @@
 
 FROM posthog-sandbox-base
 
+COPY pnpm-workspace.yaml /pnpm-workspace.yaml
+COPY patches /patches
 COPY local-shared /local-shared
 COPY local-git /local-git
 COPY local-enricher /local-enricher
+COPY local-harness /local-harness
 COPY local-agent /local-agent
 
-# Pack shared first (no workspace deps), then enricher and git (both depend on
-# shared), then agent (depends on shared, git, and enricher). Every package with
+# Pack shared first (no workspace deps), then enricher, git, and harness (all
+# depend on shared), then agent (depends on the rest). Every package with
 # a "workspace:*" dependency must have it rewritten to the packed tgz before
 # `pnpm pack`, otherwise pnpm fails with ERR_PNPM_CANNOT_RESOLVE_WORKSPACE_PROTOCOL.
 RUN cd /local-shared && pnpm pack && \
@@ -20,10 +23,15 @@ RUN cd /local-shared && pnpm pack && \
     cd /local-git && \
     sed -i 's/"@posthog\/shared": "workspace:\*"/"@posthog\/shared": "file:\/local-shared\/posthog-shared-1.0.0.tgz"/' package.json && \
     pnpm pack && \
+    cd /local-harness && \
+    sed -i 's/"@posthog\/shared": "workspace:\*"/"@posthog\/shared": "file:\/local-shared\/posthog-shared-1.0.0.tgz"/' package.json && \
+    pnpm pack && \
     cd /local-agent && \
     sed -i 's/"@posthog\/shared": "workspace:\*"/"@posthog\/shared": "file:\/local-shared\/posthog-shared-1.0.0.tgz"/' package.json && \
     sed -i 's/"@posthog\/git": "workspace:\*"/"@posthog\/git": "file:\/local-git\/posthog-git-1.0.0.tgz"/' package.json && \
     sed -i 's/"@posthog\/enricher": "workspace:\*"/"@posthog\/enricher": "file:\/local-enricher\/posthog-enricher-1.0.0.tgz"/' package.json && \
+    sed -i 's/"@posthog\/harness": "workspace:\*"/"@posthog\/harness": "file:\/local-harness\/posthog-harness-0.0.0-dev.tgz"/' package.json && \
     pnpm pack && \
+    rm /pnpm-workspace.yaml && \
     cd /scripts && pnpm install /local-agent/*.tgz --config.dangerouslyAllowAllBuilds=true && \
-    rm -rf /local-agent /local-shared /local-git /local-enricher
+    rm -rf /local-agent /local-shared /local-git /local-enricher /local-harness /patches
