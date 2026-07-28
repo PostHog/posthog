@@ -52,6 +52,7 @@ const STRIP_KEYS = [
 // Metadata properties to promote to event properties
 const STRING_AI_METADATA_KEYS = ['$ai_session_id', '$ai_prompt_name']
 const AI_PROMPT_VERSION_KEY = '$ai_prompt_version'
+const EVE_MARKER_KEYS = ['eve.version', 'eve.session.id']
 
 function isNonEmptyString(value: unknown): value is string {
     return typeof value === 'string' && value.length > 0
@@ -59,6 +60,10 @@ function isNonEmptyString(value: unknown): value is string {
 
 function isPromptVersion(value: unknown): value is string | number {
     return isNonEmptyString(value) || (typeof value === 'number' && Number.isInteger(value) && value > 0)
+}
+
+function isEveSpan(props: Record<string, unknown>): boolean {
+    return EVE_MARKER_KEYS.some((key) => props[key] !== undefined)
 }
 
 // Vercel AI SDK top-level spans (ai.generateText/ai.streamText/ai.*Object) record
@@ -105,6 +110,7 @@ function process(event: PluginEvent, next: () => void): void {
         return next()
     }
     const props = event.properties
+    const eveSpan = isEveSpan(props)
 
     // Capture opId before next() since STRIP_KEYS deletes it afterward
     const opId = props['ai.operationId']
@@ -284,8 +290,15 @@ function process(event: PluginEvent, next: () => void): void {
     delete props['ai.response.finishReason']
     delete props['gen_ai.response.finish_reasons']
 
+    if (eveSpan) {
+        const eveSessionId = props['eve.session.id']
+        if (props['$ai_session_id'] === undefined && isNonEmptyString(eveSessionId)) {
+            props['$ai_session_id'] = eveSessionId
+        }
+    }
+
     props['$ai_lib'] = 'opentelemetry/vercel-ai'
-    props['$ai_framework'] ??= 'vercel'
+    props['$ai_framework'] ??= eveSpan ? 'eve' : 'vercel'
 
     if (props['$ai_reasoning_tokens'] === undefined && aiSdkV7ReasoningTokens !== undefined) {
         props['$ai_reasoning_tokens'] = aiSdkV7ReasoningTokens
@@ -311,7 +324,7 @@ function process(event: PluginEvent, next: () => void): void {
     }
 }
 
-const MARKER_KEYS = ['ai.operationId', 'ai.telemetry.functionId']
+const MARKER_KEYS = ['ai.operationId', 'ai.telemetry.functionId', ...EVE_MARKER_KEYS]
 
 export const vercelAi: OtelLibraryMiddleware = {
     name: 'vercel-ai',

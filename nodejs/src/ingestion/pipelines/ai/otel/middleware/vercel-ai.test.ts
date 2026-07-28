@@ -595,4 +595,23 @@ describe('vercel-ai middleware', () => {
             expect(event.properties!['$ai_framework']).toBe('vercel')
         })
     })
+
+    describe('Eve', () => {
+        it('maps Eve root turns to session-grouped Eve traces', () => {
+            const event = createEvent('$ai_span', {
+                'eve.version': '0.4.0',
+                'eve.environment': 'production',
+                'eve.session.id': 'session-123',
+                'eve.turn.id': 'turn-1',
+                $ai_span_name: 'ai.eve.turn',
+            })
+            convertOtelEvent(event)
+
+            expect(event.event).toBe('$ai_trace')
+            expect(event.properties!['$ai_framework']).toBe('eve')
+            expect(event.properties!['$ai_session_id']).toBe('session-123')
+            expect(event.properties!['$ai_lib']).toBe('opentelemetry/vercel-ai')
+            expect(event.properties!['eve.turn.id']).toBe('turn-1')
+        })
+    })
 })

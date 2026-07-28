@@ -6901,6 +6901,7 @@ export enum SDKKey {
     DOTNET = 'dotnet',
     DSPY = 'dspy',
     ELIXIR = 'elixir',
+    EVE = 'eve',
     FRAMER = 'framer',
     FIREWORKS_AI = 'fireworks_ai',
     FLUTTER = 'flutter',
