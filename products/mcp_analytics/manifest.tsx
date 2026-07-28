@@ -59,8 +59,9 @@ export const manifest: ProductManifest = {
     },
     setupProbe: {
         productKey: ProductKey.MCP_ANALYTICS,
-        hasDataProperties: ['$mcp_tool_name'],
-        waitingProperties: ['$mcp_client_name'],
+        eventDefinitionSearch: '$mcp_',
+        hasDataEvents: ['$mcp_tool_call'],
+        waitingEvents: ['$mcp_initialize'],
         featureFlag: FEATURE_FLAGS.MCP_ANALYTICS,
     },
     fileSystemTypes: {},

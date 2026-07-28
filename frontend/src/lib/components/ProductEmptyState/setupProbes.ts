@@ -6,9 +6,9 @@ import type { ProductSetupStatus } from './types'
 
 /**
  * A cheap, declarative approximation of a product's setup status, resolvable at
- * app boot from property definitions. A product declares its probe as `setupProbe`
+ * app boot from event definitions. A product declares its probe as `setupProbe`
  * in its manifest; `build-products.mjs` aggregates them into `productSetupProbes`
- * (see `~/products`), and all of them are answered by one Postgres-backed API call
+ * (see `~/products`), and each one is answered by a Postgres-backed API call
  * (see `productSetupPreloadLogic`), so statuses are known before the
  * user first opens the product and the loading spinner rarely shows.
  *
@@ -18,20 +18,22 @@ import type { ProductSetupStatus } from './types'
  */
 export interface ProductSetupProbe {
     productKey: ProductKey
-    /** Any of these event property definitions existing means the product has real data. */
-    hasDataProperties: string[]
-    /** Any of these existing (without `hasDataProperties`) means instrumented but no traffic yet. */
-    waitingProperties?: string[]
+    /** Limits the event-definition lookup to this product's events. */
+    eventDefinitionSearch: string
+    /** Any of these event definitions existing means the product has real data. */
+    hasDataEvents: string[]
+    /** Any of these existing (without `hasDataEvents`) means instrumented but no traffic yet. */
+    waitingEvents?: string[]
     /** Only probe when this flag is enabled. */
     featureFlag?: FeatureFlagKey
 }
 
-export function statusFromProbeDefinitions(probe: ProductSetupProbe, propertyNames: Set<string>): ProductSetupStatus {
-    if (probe.hasDataProperties.some((property) => propertyNames.has(property))) {
+export function statusFromProbeDefinitions(probe: ProductSetupProbe, eventNames: Set<string>): ProductSetupStatus {
+    if (probe.hasDataEvents.some((event) => eventNames.has(event))) {
         return 'has-data'
     }
 
-    if (probe.waitingProperties?.some((property) => propertyNames.has(property))) {
+    if (probe.waitingEvents?.some((event) => eventNames.has(event))) {
         return 'waiting-for-data'
     }
 

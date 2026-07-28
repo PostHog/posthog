@@ -1,10 +1,11 @@
 import { MakeLogicType, actions, afterMount, connect, isBreakpoint, kea, listeners, path } from 'kea'
 
+import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { propertyDefinitionsList } from '~/generated/core/api'
 import { productSetupProbes } from '~/products'
+import { EventDefinitionType } from '~/types'
 
 import type { FeatureFlagsSet } from '../../logic/featureFlagLogic'
 import { productSetupStatusLogic } from './productSetupStatusLogic'
@@ -30,7 +31,7 @@ export type productSetupPreloadLogicType = MakeLogicType<
 
 /**
  * Resolves every registered product's setup status as early as possible with one
- * property-definition request after the team loads and seeds
+ * event-definition request after the team loads and seeds
  * `productSetupStatusLogic` with the results. By the time a user first opens a
  * gated product scene, the status is usually already known, so the gate renders
  * the empty state (or the scene) directly instead of a loading spinner.
@@ -69,18 +70,21 @@ export const productSetupPreloadLogic = kea<productSetupPreloadLogicType>([
                 return
             }
 
-            const properties = [
-                ...new Set(probes.flatMap((probe) => [...probe.hasDataProperties, ...(probe.waitingProperties ?? [])])),
-            ]
-
-            let propertyNames: Set<string>
+            let definitionsByProbe: Map<ProductSetupProbe, Set<string>>
             try {
-                const response = await propertyDefinitionsList(String(teamId), {
-                    type: 'event',
-                    properties: properties.join(','),
-                    limit: properties.length,
-                })
-                propertyNames = new Set(response.results.map(({ name }) => name))
+                definitionsByProbe = new Map(
+                    await Promise.all(
+                        probes.map(async (probe) => {
+                            const response = await api.eventDefinitions.list({
+                                teamId,
+                                event_type: EventDefinitionType.EventPostHog,
+                                search: probe.eventDefinitionSearch,
+                                limit: 100,
+                            })
+                            return [probe, new Set(response.results.map(({ name }) => name))] as const
+                        })
+                    )
+                )
             } catch (error) {
                 if (error instanceof Error && isBreakpoint(error)) {
                     throw error
@@ -96,7 +100,7 @@ export const productSetupPreloadLogic = kea<productSetupPreloadLogicType>([
 
             for (const probe of probes) {
                 seeded.add(`${teamId}:${probe.productKey}`)
-                seedProbeStatus(probe, propertyNames, cache)
+                seedProbeStatus(probe, definitionsByProbe.get(probe) ?? new Set(), cache)
             }
         },
         // Covers login and project switches that happen after mount.
@@ -126,7 +130,7 @@ export const productSetupPreloadLogic = kea<productSetupPreloadLogicType>([
     }),
 ])
 
-function seedProbeStatus(probe: ProductSetupProbe, propertyNames: Set<string>, cache: Record<string, any>): void {
+function seedProbeStatus(probe: ProductSetupProbe, eventNames: Set<string>, cache: Record<string, any>): void {
     const instance = productSetupStatusLogic.build({ productKey: probe.productKey })
     if (!instance.isMounted()) {
         // Keep the instance alive for the app's lifetime so the seeded status is
@@ -145,6 +149,6 @@ function seedProbeStatus(probe: ProductSetupProbe, propertyNames: Set<string>, c
     // Seed only unknown statuses - a product logic that already answered
     // (fresh, uncached) always beats this cached approximation.
     if (instance.values.status === 'loading') {
-        instance.actions.setDetectedStatus(statusFromProbeDefinitions(probe, propertyNames))
+        instance.actions.setDetectedStatus(statusFromProbeDefinitions(probe, eventNames))
     }
 }
