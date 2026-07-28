@@ -1,38 +1,16 @@
 import { useValues } from 'kea'
 
 import { IconCheckCircle } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonTable, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
-import { dayjs } from 'lib/dayjs'
-import { liveEventsLogic } from 'scenes/activity/live/liveEventsLogic'
 import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
 import { WizardHog } from 'scenes/onboarding/shared/wizardHog'
 import { teamLogic } from 'scenes/teamLogic'
 
-import type { LiveEvent } from '~/types'
-
 import { mcpAnalyticsOnboardingLogic } from '../mcpAnalyticsOnboardingLogic'
 
 export const MCP_ANALYTICS_DOCS_URL = 'https://posthog.com/docs/mcp-analytics'
-const MCP_ANALYTICS_EVENT_TYPES = ['$mcp_initialize', '$mcp_tool_call', '$mcp_missing_capability']
-
-export interface MCPAnalyticsLiveEventRow {
-    uuid: string
-    event: string
-    receivedAt: string
-}
-
-export function liveEventRows(events: LiveEvent[]): MCPAnalyticsLiveEventRow[] {
-    return events
-        .filter((event) => event.event.startsWith('$mcp_'))
-        .slice(0, 5)
-        .map((event) => ({
-            uuid: event.uuid,
-            event: event.event,
-            receivedAt: dayjs(event.created_at || event.timestamp).format('HH:mm:ss'),
-        }))
-}
 
 export function useMCPAnalyticsWizardCommand(): { command: string; isCloudOrDev: boolean } {
     // Pinning the project keeps this surface and the in-scene empty state (which
@@ -65,55 +43,6 @@ export function MCPListeningIndicator(): JSX.Element {
         <div className="flex items-center gap-2 text-secondary">
             <Spinner />
             <span>Listening for your first MCP event…</span>
-        </div>
-    )
-}
-
-export function MCPAnalyticsLiveEvents({ events }: { events: LiveEvent[] }): JSX.Element {
-    const rows = liveEventRows(events)
-
-    return (
-        <LemonCard className="w-full overflow-hidden p-0">
-            <div className="border-b px-3 py-2">
-                <div className="font-semibold">Events arriving now</div>
-                <div className="text-xs text-secondary">Latest events from the live stream.</div>
-            </div>
-            <LemonTable
-                embedded
-                showHeader={false}
-                size="small"
-                rowKey="uuid"
-                dataSource={rows}
-                emptyState="No events received yet. Trigger an event to check your connection."
-                columns={[
-                    {
-                        key: 'event',
-                        title: 'Event',
-                        render: (_, row) => <span className="font-mono text-xs">{row.event}</span>,
-                    },
-                    {
-                        key: 'receivedAt',
-                        title: 'Received',
-                        width: 80,
-                        align: 'right',
-                        render: (_, row) => <span className="text-xs text-secondary">{row.receivedAt}</span>,
-                    },
-                ]}
-            />
-        </LemonCard>
-    )
-}
-
-export function MCPOnboardingLiveStatus(): JSX.Element {
-    const { onboardingState } = useValues(mcpAnalyticsOnboardingLogic)
-    const { events } = useValues(
-        liveEventsLogic({ showLiveStreamErrorToast: false, eventTypes: MCP_ANALYTICS_EVENT_TYPES })
-    )
-
-    return (
-        <div className="flex w-full flex-col items-center gap-3">
-            <MCPListeningIndicator />
-            {onboardingState !== 'onboarded' ? <MCPAnalyticsLiveEvents events={events} /> : null}
         </div>
     )
 }
@@ -164,7 +93,7 @@ export function MCPAnalyticsInstallHero(): JSX.Element {
             )}
 
             <div className="flex flex-col items-center gap-2">
-                <MCPOnboardingLiveStatus />
+                <MCPListeningIndicator />
                 <LemonButton type="tertiary" size="small" to={MCP_ANALYTICS_DOCS_URL} targetBlank>
                     Prefer to set it up manually? Read the docs
                 </LemonButton>
