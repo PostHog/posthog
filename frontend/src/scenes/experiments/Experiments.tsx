@@ -6,13 +6,17 @@ import { useState } from 'react'
 import * as experimentPng from '@posthog/brand/hoggies/png/experiment'
 import { LemonInput, LemonSelect, LemonTag, Tooltip, lemonToast } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
 import { MemberMultiSelect } from 'lib/components/MemberMultiSelect'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { TagSelect } from 'lib/components/TagSelect'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -22,9 +26,11 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/Le
 import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { pluralize } from 'lib/utils/strings'
 import stringWithWBR from 'lib/utils/stringWithWBR'
+import { toParams } from 'lib/utils/url'
 import MaxTool from 'scenes/max/MaxTool'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -172,6 +178,31 @@ const ExperimentsTableFilters = ({
                         }}
                     />
                     <span className="ml-1">
+                        <b>Tags</b>
+                    </span>
+                    <TagSelect
+                        defaultLabel="Any tags"
+                        value={filters.tags || []}
+                        onChange={(tags) => {
+                            onFiltersChange({ tags: tags.length > 0 ? tags : undefined, page: 1 })
+                        }}
+                        data-attr="experiment-select-tags"
+                    />
+                    <span className="ml-1">
+                        <b>Exclude tags</b>
+                    </span>
+                    <TagSelect
+                        defaultLabel="No tags"
+                        value={filters.excluded_tags || []}
+                        onChange={(excludedTags) => {
+                            onFiltersChange({
+                                excluded_tags: excludedTags.length > 0 ? excludedTags : undefined,
+                                page: 1,
+                            })
+                        }}
+                        data-attr="experiment-select-excluded-tags"
+                    />
+                    <span className="ml-1">
                         <b>Archived</b>
                     </span>
                     <LemonSelect
@@ -203,12 +234,24 @@ const ExperimentsTable = ({
     openSurveyModal: (experiment: Experiment) => void
     openCopyToProjectModal: (experiment: Experiment) => void
 }): JSX.Element => {
-    const { currentProjectId, experiments, experimentsLoading, tab, shouldShowEmptyState, filters, count, pagination } =
-        useValues(experimentsLogic)
+    const {
+        currentProjectId,
+        experiments,
+        experimentsLoading,
+        tab,
+        shouldShowEmptyState,
+        filters,
+        count,
+        pagination,
+        paramsFromFilters,
+    } = useValues(experimentsLogic)
     const { loadExperiments, archiveExperiment, unarchiveExperiment, setExperimentsFilters } =
         useActions(experimentsLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const hasMultipleProjects = (currentOrganization?.projects?.length ?? 0) > 1
+
+    const [matchingExperimentIds, setMatchingExperimentIds] = useState<readonly number[] | null>(null)
+    const [matchingExperimentIdsLoading, setMatchingExperimentIdsLoading] = useState(false)
 
     const page = filters.page || 1
     const startCount = count === 0 ? 0 : (page - 1) * EXPERIMENTS_PER_PAGE + 1
@@ -259,6 +302,17 @@ const ExperimentsTable = ({
                 )
             },
         },
+        {
+            title: 'Tags',
+            dataIndex: 'tags' as keyof Experiment,
+            render: function Render(_, experiment: Experiment) {
+                const tags = experiment.tags
+                if (!tags || tags.length === 0) {
+                    return null
+                }
+                return <ObjectTags tags={tags} staticOnly />
+            },
+        } as LemonTableColumn<Experiment, keyof Experiment | undefined>,
         createdByColumn<Experiment>() as LemonTableColumn<Experiment, keyof Experiment | undefined>,
         createdAtColumn<Experiment>() as LemonTableColumn<Experiment, keyof Experiment | undefined>,
         atColumn('start_date', 'Started') as LemonTableColumn<Experiment, keyof Experiment | undefined>,
@@ -543,6 +597,75 @@ const ExperimentsTable = ({
                             page: 1,
                         })
                     }
+                    bulkSelection={{
+                        getKey: (experiment: Experiment): number =>
+                            typeof experiment.id === 'number' ? experiment.id : -1,
+                        isRowSelectable: (experiment: Experiment) =>
+                            typeof experiment.id !== 'number'
+                                ? false
+                                : !experiment.user_access_level ||
+                                    accessLevelSatisfied(
+                                        AccessControlResourceType.Experiment,
+                                        experiment.user_access_level,
+                                        AccessControlLevel.Editor
+                                    )
+                                  ? true
+                                  : { disabledReason: "You don't have permission to edit this experiment." },
+                        rowAriaLabel: (experiment: Experiment) => `Select experiment ${experiment.name}`,
+                        headerAriaLabel: 'Select all experiments on this page',
+                        noun: ['experiment', 'experiments'],
+                        renderActions: (ctx) => {
+                            const selectedKeysSet = new Set(ctx.selectedKeys)
+                            const isAllMatchingSelected =
+                                matchingExperimentIds !== null &&
+                                ctx.selectedCount === matchingExperimentIds.length &&
+                                matchingExperimentIds.every((id) => selectedKeysSet.has(id))
+                            const showSelectAllMatchingBanner =
+                                !isAllMatchingSelected &&
+                                ctx.selectedCount >= EXPERIMENTS_PER_PAGE &&
+                                count > ctx.selectedCount
+                            return (
+                                <>
+                                    {isAllMatchingSelected && (
+                                        <span className="text-muted text-sm">
+                                            All {ctx.selectedCount} matching experiments selected
+                                        </span>
+                                    )}
+                                    {showSelectAllMatchingBanner && (
+                                        <LemonButton
+                                            type="secondary"
+                                            size="small"
+                                            loading={matchingExperimentIdsLoading}
+                                            onClick={async () => {
+                                                setMatchingExperimentIdsLoading(true)
+                                                try {
+                                                    const { limit, offset, ...restFilters } = paramsFromFilters
+                                                    const response = (await api.get(
+                                                        `api/projects/${currentProjectId}/experiments/matching_ids/?${toParams(restFilters)}`
+                                                    )) as { ids: number[]; total: number }
+                                                    setMatchingExperimentIds(response.ids)
+                                                    ctx.setSelectedKeys(response.ids)
+                                                } finally {
+                                                    setMatchingExperimentIdsLoading(false)
+                                                }
+                                            }}
+                                        >
+                                            Select all {count} matching experiments
+                                        </LemonButton>
+                                    )}
+                                    <BulkUpdateTagsButton
+                                        resource="experiments"
+                                        selectedIds={ctx.selectedKeys}
+                                        onSuccess={() => {
+                                            ctx.clearSelection()
+                                            setMatchingExperimentIds(null)
+                                            loadExperiments()
+                                        }}
+                                    />
+                                </>
+                            )
+                        },
+                    }}
                 />
             </div>
         </SceneContent>

@@ -25897,6 +25897,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+      /** Organizational tags for this experiment. */
+      tags?: string[];
     }
 
     /**
@@ -25982,6 +25984,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+      /** Organizational tags for this experiment. */
+      tags?: string[];
     }
 
     export interface ExperimentExposureCriteria {
@@ -26186,6 +26190,13 @@ export namespace Schemas {
       pr_url: string | null;
       /** Whether the requesting user can open the task in PostHog Desktop. Cleanup tasks are visible to their creator only, so other viewers should not be shown a task link. */
       can_view_task: boolean;
+    }
+
+    export interface ExperimentMatchingIdsResponse {
+      /** IDs of all experiments matching the current list filters that the user can edit. */
+      ids: number[];
+      /** Number of matching editable experiments. */
+      total: number;
     }
 
     /**
@@ -26656,6 +26667,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+      /** Organizational tags for this experiment. */
+      tags?: string[];
     }
 
     export type ExperimentsListWidgetCatalogEntryOpenApiWidgetType = typeof ExperimentsListWidgetCatalogEntryOpenApiWidgetType[keyof typeof ExperimentsListWidgetCatalogEntryOpenApiWidgetType];
@@ -47527,6 +47540,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level?: string | null;
+      /** Organizational tags for this experiment. */
+      tags?: string[];
     }
 
     /**
@@ -74236,6 +74251,10 @@ export namespace Schemas {
      */
     event?: string;
     /**
+     * JSON-encoded list of tag names. Excludes experiments carrying any of the given tags, even when they also carry non-excluded tags.
+     */
+    excluded_tags?: string;
+    /**
      * Filter to experiments linked to the given feature flag ID.
      */
     feature_flag_id?: number;
@@ -74263,6 +74282,10 @@ export namespace Schemas {
      * Filter by experiment status. "running", "paused", and "exposure_frozen" are mutually exclusive: "running" returns launched experiments with an active feature flag, "paused" returns launched experiments whose feature flag is deactivated, and "exposure_frozen" returns launched experiments whose exposure was frozen to the already-enrolled cohort while metrics keep flowing. "complete" is an alias for "stopped". "all" disables status filtering.
      */
     status?: ExperimentsListStatus;
+    /**
+     * JSON-encoded list of tag names. Returns experiments carrying at least one of the given tags, e.g. `["growth", "checkout"]`.
+     */
+    tags?: string;
     };
 
     export type ExperimentsListStatus = typeof ExperimentsListStatus[keyof typeof ExperimentsListStatus];
@@ -74300,6 +74323,13 @@ export namespace Schemas {
      * UUID of the metric to fetch timeseries for. Available on each metric in the experiment's metrics array.
      */
     metric_uuid: string;
+    };
+
+    export type ExperimentsMatchingIdsRetrieveParams = {
+    /**
+     * JSON-encoded list of tag names, same semantics as on the list endpoint.
+     */
+    tags?: string;
     };
 
     export type ExperimentsPromptTemplatesRetrieve200Item = {

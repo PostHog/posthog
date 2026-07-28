@@ -4947,6 +4947,7 @@ export interface Experiment {
     /** Desktop task opened to remove the experiment's flag code, when requested on end/ship. */
     flag_cleanup_task_id?: string | null
     user_access_level: AccessControlLevel
+    tags?: string[]
 }
 
 export interface ExperimentVelocityStats {

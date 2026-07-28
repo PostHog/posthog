@@ -799,6 +799,8 @@ export interface ExperimentBasicApi {
      * @nullable
      */
     readonly user_access_level: string | null
+    /** Organizational tags for this experiment. */
+    tags?: string[]
 }
 
 export interface PaginatedExperimentBasicListApi {
@@ -1477,6 +1479,8 @@ export interface ExperimentWriteApi {
      * @nullable
      */
     readonly user_access_level: string | null
+    /** Organizational tags for this experiment. */
+    tags?: string[]
 }
 
 /**
@@ -1596,6 +1600,8 @@ export interface ExperimentApi {
      * @nullable
      */
     readonly user_access_level: string | null
+    /** Organizational tags for this experiment. */
+    tags?: string[]
 }
 
 /**
@@ -1711,6 +1717,8 @@ export interface PatchedExperimentWriteApi {
      * @nullable
      */
     readonly user_access_level?: string | null
+    /** Organizational tags for this experiment. */
+    tags?: string[]
 }
 
 export interface ChangeApi {
@@ -2076,6 +2084,50 @@ export interface ShipVariantApi {
 }
 
 /**
+ * * `add` - add
+ * * `remove` - remove
+ * * `set` - set
+ */
+export type BulkUpdateTagsActionEnumApi = (typeof BulkUpdateTagsActionEnumApi)[keyof typeof BulkUpdateTagsActionEnumApi]
+
+export const BulkUpdateTagsActionEnumApi = {
+    Add: 'add',
+    Remove: 'remove',
+    Set: 'set',
+} as const
+
+export interface BulkUpdateTagsRequestApi {
+    /**
+     * List of object IDs to update tags on.
+     * @maxItems 500
+     */
+    ids: number[]
+    /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
+     *
+     * * `add` - add
+     * * `remove` - remove
+     * * `set` - set */
+    action: BulkUpdateTagsActionEnumApi
+    /** Tag names to add, remove, or set. */
+    tags: string[]
+}
+
+export interface BulkUpdateTagsItemApi {
+    id: number
+    tags: string[]
+}
+
+export interface BulkUpdateTagsErrorApi {
+    id: number
+    reason: string
+}
+
+export interface BulkUpdateTagsResponseApi {
+    updated: BulkUpdateTagsItemApi[]
+    skipped: BulkUpdateTagsErrorApi[]
+}
+
+/**
  * * `funnel` - funnel
  * * `mean_count` - mean_count
  * * `mean_sum_or_avg` - mean_sum_or_avg
@@ -2232,6 +2284,13 @@ export interface CreateFromPromptInputApi {
     description?: string
 }
 
+export interface ExperimentMatchingIdsResponseApi {
+    /** IDs of all experiments matching the current list filters that the user can edit. */
+    ids: number[]
+    /** Number of matching editable experiments. */
+    total: number
+}
+
 /**
  * * `source` - source
  * * `step` - step
@@ -2385,6 +2444,10 @@ export type ExperimentsListParams = {
      */
     event?: string
     /**
+     * JSON-encoded list of tag names. Excludes experiments carrying any of the given tags, even when they also carry non-excluded tags.
+     */
+    excluded_tags?: string
+    /**
      * Filter to experiments linked to the given feature flag ID.
      */
     feature_flag_id?: number
@@ -2412,6 +2475,10 @@ export type ExperimentsListParams = {
      * Filter by experiment status. "running", "paused", and "exposure_frozen" are mutually exclusive: "running" returns launched experiments with an active feature flag, "paused" returns launched experiments whose feature flag is deactivated, and "exposure_frozen" returns launched experiments whose exposure was frozen to the already-enrolled cohort while metrics keep flowing. "complete" is an alias for "stopped". "all" disables status filtering.
      */
     status?: ExperimentsListStatus
+    /**
+     * JSON-encoded list of tag names. Returns experiments carrying at least one of the given tags, e.g. `["growth", "checkout"]`.
+     */
+    tags?: string
 }
 
 export type ExperimentsListStatus = (typeof ExperimentsListStatus)[keyof typeof ExperimentsListStatus]
@@ -2448,6 +2515,13 @@ export type ExperimentsTimeseriesResultsRetrieveParams = {
      * UUID of the metric to fetch timeseries for. Available on each metric in the experiment's metrics array.
      */
     metric_uuid: string
+}
+
+export type ExperimentsMatchingIdsRetrieveParams = {
+    /**
+     * JSON-encoded list of tag names, same semantics as on the list endpoint.
+     */
+    tags?: string
 }
 
 export type ExperimentsPromptTemplatesRetrieve200Item = {
