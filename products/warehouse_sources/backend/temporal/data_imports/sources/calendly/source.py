@@ -1,3 +1,4 @@
+import datetime
 from typing import Optional, cast
 
 from posthog.schema import (
@@ -14,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     SourceResponse,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.calendly.calendly import (
+    CALENDLY_API_VERSION_V1,
     CALENDLY_API_VERSION_V2,
     SUPPORTED_API_VERSIONS,
     CalendlyResumeConfig,
@@ -24,7 +26,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.calendly.s
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FieldType,
+    ResumableSource,
+    VersionDeprecation,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
@@ -47,6 +53,9 @@ class CalendlySource(ResumableSource[CalendlySourceConfig, CalendlyResumeConfig]
 
     supported_versions = SUPPORTED_API_VERSIONS
     default_version = CALENDLY_API_VERSION_V2
+    # Calendly retired the legacy v1 API; v1 pins keep resolving but the generic in-product
+    # warning fires from this metadata until customers repin to v2.
+    deprecated_versions = (VersionDeprecation(version=CALENDLY_API_VERSION_V1, sunset_at=datetime.date(2025, 8, 27)),)
 
     @property
     def source_type(self) -> ExternalDataSourceType:

@@ -1,3 +1,5 @@
+import datetime
+
 import pytest
 from unittest import mock
 
@@ -162,6 +164,14 @@ class TestCalendlySource:
         # New sources must start on v2; v1 stays supported so existing pins keep resolving.
         assert self.source.default_version == CALENDLY_API_VERSION_V2
         assert set(self.source.supported_versions) == {CALENDLY_API_VERSION_V1, CALENDLY_API_VERSION_V2}
+
+    def test_v1_is_deprecated_with_vendor_sunset_and_v2_is_not(self):
+        # v1 carries the vendor's sunset date so the generic in-product deprecation warning fires;
+        # the default (v2) must never be deprecated.
+        deprecation = self.source.get_version_deprecation(CALENDLY_API_VERSION_V1)
+        assert deprecation is not None
+        assert deprecation.sunset_at == datetime.date(2025, 8, 27)
+        assert self.source.get_version_deprecation(CALENDLY_API_VERSION_V2) is None
 
     @pytest.mark.parametrize(
         "pin, expected",
