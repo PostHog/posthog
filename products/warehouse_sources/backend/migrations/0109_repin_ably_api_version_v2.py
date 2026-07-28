@@ -26,7 +26,7 @@ def repin_ably_v1_to_v2(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    dependencies = [("warehouse_sources", "0107_repin_marketstack_api_version_v2")]
+    dependencies = [("warehouse_sources", "0108_pin_zendesk_sunshine_v1")]
 
     operations = [
         # Reverse is a no-op: once repinned, these rows are indistinguishable from natively-created
