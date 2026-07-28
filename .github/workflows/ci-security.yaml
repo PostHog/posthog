@@ -14,17 +14,11 @@ env:
     SEMGREP_IMAGE: semgrep/semgrep:1.167.0@sha256:06938c1f365d3f67b8cedd8bc117607ae64253f88a0e768e9da9408548927dd6
 
 jobs:
-    # Job to decide which semgrep scans need to run.
+    # Job to decide if we should run language-specific semgrep scans.
     # See .github/actions/paths-filter/README.md for filter semantics
     # NOTE: With token auth, paths-filter uses pulls.listFiles which caps at
     # 3000 changed files. PRs exceeding that will silently truncate, but the
     # outputs default to 'true' so scans run unconditionally (safe fallback).
-    # That default only covers an absent output (filter step skipped or failed).
-    # The include-only filters below also truncate toward 'true', since any
-    # returned page will contain a file matching them. `general` is the
-    # exception: it includes '**' and is decided purely by its excludes, so a
-    # truncated >3000-file PR whose returned page sits entirely inside those
-    # excluded trees resolves to 'false'.
     changes:
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -39,9 +33,6 @@ jobs:
             rust: ${{ steps.filter.outputs.rust || 'true' }}
             js: ${{ steps.filter.outputs.js || 'true' }}
             products-frontend: ${{ steps.filter.outputs.products-frontend || 'true' }}
-            general: ${{ steps.filter.outputs.general || 'true' }}
-            devex: ${{ steps.filter.outputs.devex || 'true' }}
-            test-rules: ${{ steps.filter.outputs.test-rules || 'true' }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -78,53 +69,9 @@ jobs:
                         - 'services/stripe-app/**'
                         - '.semgrep/rules/security/**'
                         - '.github/workflows/ci-security.yaml'
-                      # prefer-codegen-api scopes itself to `/products/*/frontend/` minus
-                      # `**/generated/**`, so mirror those two bounds and nothing more: a
-                      # backend-only product change has nothing here to scan. Deliberately
-                      # not narrowed by file extension, because the rule's `languages:
-                      # [typescript, javascript]` covers more suffixes than an allowlist
-                      # here would keep up with (.mjs and .cjs are already in use).
                       products-frontend:
-                        - 'products/*/frontend/**'
-                        - '.semgrep/rules/security/prefer-codegen-api.yaml'
-                        - '.github/workflows/ci-security.yaml'
-                        - '!**/generated/**'
-                      # semgrep-general scans everything its own --exclude flags don't drop,
-                      # so these negations must stay one-for-one with those flags below.
-                      # Dropping a flag there without dropping it here is the dangerous
-                      # direction: the files come into scan scope while the job stops being
-                      # triggered for them.
-                      general:
-                        - '**'
-                        - '!cli/**'
-                        - '!common/**'
-                        - '!ee/**'
-                        - '!frontend/**'
-                        - '!livestream/**'
-                        - '!nodejs/**'
-                        - '!posthog/**'
-                        - '!products/**'
-                        - '!rust/**'
-                        - '!.semgrep/**'
-                        - '!docs/**'
-                        - '!services/**'
-                      # Mirrors the directory list semgrep-devex passes to semgrep. Its
-                      # rules span python/typescript/generic, so this can't narrow by
-                      # extension.
-                      devex:
-                        - 'bin/**'
-                        - 'common/**'
-                        - 'ee/**'
-                        - 'frontend/**'
-                        - 'packages/**'
-                        - 'posthog/**'
                         - 'products/**'
-                        - '.semgrep/rules/devex/**'
-                        - '.github/workflows/ci-security.yaml'
-                      # `semgrep --test .semgrep/` only exercises the rules against their
-                      # own committed fixtures, so nothing outside .semgrep/ can change it.
-                      test-rules:
-                        - '.semgrep/**'
+                        - '.semgrep/rules/security/prefer-codegen-api.yaml'
                         - '.github/workflows/ci-security.yaml'
 
     semgrep-python:
@@ -327,8 +274,6 @@ jobs:
 
     # scans GitHub Actions and other repo-wide config
     semgrep-general:
-        needs: changes
-        if: needs.changes.outputs.general == 'true'
         runs-on: ubuntu-latest
         timeout-minutes: 20
 
@@ -347,8 +292,7 @@ jobs:
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-            # exclude all directories already scanned by other jobs.
-            # Keep this list one-for-one with the `general` filter in the changes job.
+            # exclude all directories already scanned by other jobs
             - name: Run Semgrep
               run: |
                   docker run --rm -v "${{ github.workspace }}:/src" -w /src \
@@ -388,8 +332,6 @@ jobs:
     #   - ERROR-severity rules fail the job on any finding (regression guards).
     # See `.semgrep/rules/devex/README.md`.
     semgrep-devex:
-        needs: changes
-        if: needs.changes.outputs.devex == 'true'
         runs-on: ubuntu-latest
         timeout-minutes: 20
 
@@ -441,8 +383,6 @@ jobs:
                       bin/ common/ ee/ frontend/ packages/ posthog/ products/
 
     semgrep-test-rules:
-        needs: changes
-        if: needs.changes.outputs.test-rules == 'true'
         runs-on: ubuntu-latest
         timeout-minutes: 10
 
