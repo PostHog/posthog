@@ -17,7 +17,6 @@ export interface FinishedLocalRunHandle {
     runPhase: 'completed' | 'error'
     tasks: { id: string; title: string; status: string }[]
     error: { message?: string } | null
-    /** Who ran it, snapshotted so the finished-run handoff can still name the initiator. */
     startedBy?: { name: string; email: string } | null
 }
 

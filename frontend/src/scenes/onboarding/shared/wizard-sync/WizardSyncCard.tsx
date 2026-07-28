@@ -48,13 +48,11 @@ export function StatusGlyph({ progress }: { progress: InstallationProgress }): J
     return <Spinner className="text-xl shrink-0 text-accent" textColored />
 }
 
-// Tiny chip naming where the run is happening, so cloud and local runs read distinctly. When we know
-// who started a local run and it wasn't the viewer, name them so a teammate's run doesn't read as
-// "your machine".
 export function localModeLabel(startedByLabel?: string | null): string {
     return startedByLabel ? `On ${startedByLabel}'s machine` : 'On your machine'
 }
 
+// Tiny chip naming where the run is happening, so cloud and local runs read distinctly.
 function ModeChip({ mode, startedByLabel }: { mode: WizardSyncMode; startedByLabel?: string | null }): JSX.Element {
     return (
         <span className="inline-flex items-center gap-1 text-xs text-muted">

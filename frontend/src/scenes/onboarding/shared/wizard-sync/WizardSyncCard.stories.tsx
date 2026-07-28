@@ -154,8 +154,7 @@ export const LocalRunning: Story = {
     },
 }
 
-// Local run started by a teammate: the mode chip names them so a shared org's run doesn't read as
-// "On your machine".
+// Local run started by a teammate: the chip names them instead of "On your machine".
 export const LocalRunningStartedByTeammate: Story = {
     args: {
         mode: 'local',

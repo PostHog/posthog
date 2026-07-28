@@ -3,9 +3,7 @@ import type { WizardSessionDTOApi } from 'products/wizard/frontend/generated/api
 import type { InstallationProgress, InstallationStep, InstallationStepStatus } from './installationProgressLogic'
 import type { TaskRunConnectionStatus } from './taskRunStreamLogic'
 
-// The initiator to show, if we know one. Prefer a real name; fall back to the email so we never show a
-// blank attribution. `email` rides along only for the "is this me?" check a surface does before
-// deciding whether to name someone.
+// Prefer a real name; fall back to email so we never render a blank attribution.
 export function startedByFromSession(session: WizardSessionDTOApi | null): { name: string; email: string } | null {
     const createdBy = session?.created_by
     if (!createdBy) {

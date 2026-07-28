@@ -23,9 +23,7 @@ import { DetectedDashboard, wizardDashboardLogic } from './wizardDashboardLogic'
 import { localModeLabel, StatusGlyph, WizardSyncCard, WizardSyncMode } from './WizardSyncCard'
 import { wizardSyncUiLogic } from './wizardSyncUiLogic'
 
-// The teammate name to show for a run, or null when it's the viewer's own run (falls back to "your
-// machine") or we don't know who started it. Matching on email keeps a viewer's own run reading as
-// "your machine".
+// The teammate's name, or null for the viewer's own run (matched on email) or an unknown initiator.
 function resolveStartedByLabel(
     startedBy: InstallationProgress['startedBy'],
     currentUserEmail: string | undefined

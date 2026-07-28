@@ -61,8 +61,7 @@ def upsert_session(params: UpsertWizardSessionInput) -> tuple[WizardSessionDTO, 
             "error": params.error,
             "pending_input": params.pending_input,
         }
-        # `created_by` records the initiator and must not change on later pushes for the same
-        # run, so it lives only in create_defaults (applied on insert, not on update).
+        # created_by only in create_defaults so a later push for the same run can't reattribute it.
         instance, created = WizardSession.objects.update_or_create(
             team_id=params.team_id,
             session_id=params.session_id,
