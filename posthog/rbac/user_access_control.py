@@ -482,7 +482,7 @@ def fallback_parent_object_id(obj: Model, parent_resource: APIScopeObject) -> Op
     """Id of the object `obj` falls back to for access, or None when it has no such parent.
 
     None is what makes a self-managed table skip its source tiers rather than inherit from a
-    source it doesn't have - so an "all sources" rule can't reach a table no source owns.
+    source it doesn't have.
     """
     field = _fallback_parent_field(type(obj), parent_resource)
     if field is None:
@@ -1339,10 +1339,6 @@ class UserAccessControl:
         rows, then the fallback parent's object rows, then resource-level rows, then the parent's
         resource-level rows, then default object rows, then the resource default. Shared by
         `get_user_access_level` and `bulk_object_access_levels`.
-
-        `fallback_parent_id` identifies the RESOURCE_FALLBACK_MAP parent this object belongs to, and is
-        None when it has none - a self-managed warehouse table has no source, so a rule written about
-        sources must not reach it.
         """
         parent = RESOURCE_FALLBACK_MAP.get(resource) if fallback_parent_id else None
 
@@ -1410,8 +1406,8 @@ class UserAccessControl:
         `get_user_access_level`, but object rows come from the bulk preload grouped in memory,
         so no per-object queries are issued.
         """
-        # Tables and views aren't used in search. If they need to be, load the parent ids here too, so
-        # access is checked against the source and not just the table.
+        # Warehouse tables aren't listed by either caller (search, the file tree). If that changes, load
+        # the parent ids here too, so access is checked against the source and not just the table.
         parent = RESOURCE_FALLBACK_MAP.get(resource)
         if parent:
             raise NotImplementedError(f"bulk_object_access_levels cannot resolve `{resource}` through `{parent}`")
