@@ -201,9 +201,9 @@ export interface sidepanelTicketsLogicMeta {
         isBillingResolved: (billing: BillingType | null, billingLoading: boolean) => boolean
         supportResponseTime: (
             billing: BillingType | null,
-            supportPlans: any,
-            billingPlan: any,
-            currentOrganization: any
+            supportPlans: BillingPlanType[],
+            billingPlan: BillingPlan | null,
+            currentOrganization: OrganizationType | null
         ) => string | null
     }
 }
