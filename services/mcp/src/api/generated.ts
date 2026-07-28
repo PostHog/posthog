@@ -30421,7 +30421,7 @@ export namespace Schemas {
       /** @nullable */
       shortcut?: boolean | null;
       readonly created_at: string;
-      readonly created_by: UserBasic;
+      readonly created_by: UserBasic | null;
       /** @nullable */
       readonly last_viewed_at: string | null;
       /**
@@ -47898,7 +47898,7 @@ export namespace Schemas {
       /** @nullable */
       shortcut?: boolean | null;
       readonly created_at?: string;
-      readonly created_by?: UserBasic;
+      readonly created_by?: UserBasic | null;
       /** @nullable */
       readonly last_viewed_at?: string | null;
       /**
