@@ -67,4 +67,17 @@ describe('createDenyEventsStep', () => {
 
         expect(result).toEqual(denied ? dlq('event_in_denylist') : ok(input))
     })
+
+    test.each([
+        ['$exception', true],
+        ['$ai_generation', true],
+        ['$pageview', false],
+    ])('names and prefixes combine as OR: %s denied=%s', async (eventName, denied) => {
+        const combinedStep = createDenyEventsStep({ eventNames: ['$exception'], eventPrefixes: ['$ai_'] })
+        const input = makeInput(eventName)
+
+        const result = await combinedStep(input)
+
+        expect(result).toEqual(denied ? dlq('event_in_denylist') : ok(input))
+    })
 })

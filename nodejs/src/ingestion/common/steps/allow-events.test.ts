@@ -63,4 +63,17 @@ describe('createAllowEventsStep', () => {
 
         expect(result).toEqual(allowed ? ok(input) : dlq('event_not_in_allowlist'))
     })
+
+    test.each([
+        ['$$heatmap', true],
+        ['$ai_tag', true],
+        ['$pageview', false],
+    ])('names and prefixes combine as OR: %s allowed=%s', async (eventName, allowed) => {
+        const combinedStep = createAllowEventsStep({ eventNames: ['$$heatmap'], eventPrefixes: ['$ai_'] })
+        const input = makeInput(eventName)
+
+        const result = await combinedStep(input)
+
+        expect(result).toEqual(allowed ? ok(input) : dlq('event_not_in_allowlist'))
+    })
 })
