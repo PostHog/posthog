@@ -8,8 +8,8 @@ regression can be handed to another model to fix.
 
 The toggle lives in
 ``posthog.hogql_queries.insights.retention.retention_base_query_fixed.retention_fixed_interval_base_query_use_dwh_variant``
-and is forced via ``unittest.mock.patch`` (the patch target is the shared
-``RETENTION_BASE_QUERY_VARIANT_PATCH_PATH`` constant). Three insight shapes are NOT affected by the
+and is forced via ``unittest.mock.patch`` (the patch target is the
+``RETENTION_BASE_QUERY_VARIANT_PATCH_PATH`` constant below). Three insight shapes are NOT affected by the
 toggle and are classified SKIPPED: data-warehouse retention (always routed to the new path), the
 24h rolling window mode (a different builder with no legacy/new split), and insights whose
 referenced actions/cohorts were deleted (both variants fail identically today, so there is no
@@ -60,7 +60,6 @@ import posthog.clickhouse.client.execute as ch_execute
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql_queries.insights.retention.retention_base_query_fixed import (
-    RETENTION_BASE_QUERY_VARIANT_PATCH_PATH,
     RETENTION_FIXED_INTERVAL_BASE_QUERY_DWH_VARIANT_FLAG,
 )
 from posthog.hogql_queries.insights.retention.retention_query_runner import RetentionQueryRunner
@@ -70,6 +69,15 @@ from posthog.hogql_queries.query_runner import get_query_runner
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.product_analytics.backend.models.insight import Insight
+
+# Deliberately duplicated from posthog.hogql_queries.insights.retention.test.retention_base_query_variant
+# rather than imported: this file gets copied onto prod pods whose images may not have that helper's
+# current shape, so it must only import modules that have long been deployed. ``patch`` raises at
+# runtime if this dotted path ever goes stale, so the duplication cannot drift silently.
+RETENTION_BASE_QUERY_VARIANT_PATCH_PATH = (
+    "posthog.hogql_queries.insights.retention.retention_base_query_fixed."
+    "retention_fixed_interval_base_query_use_dwh_variant"
+)
 
 DATA_WAREHOUSE_ENTITY_TYPE = "data_warehouse"
 ROLLING_24H_WINDOW_MODE = "24_hour_windows"

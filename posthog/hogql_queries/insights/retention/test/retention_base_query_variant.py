@@ -4,8 +4,10 @@ from typing import Any, TypeVar, cast
 
 from unittest.mock import patch
 
-from posthog.hogql_queries.insights.retention.retention_base_query_fixed import RETENTION_BASE_QUERY_VARIANT_PATCH_PATH
-
+RETENTION_BASE_QUERY_VARIANT_PATCH_PATH = (
+    "posthog.hogql_queries.insights.retention.retention_base_query_fixed."
+    "retention_fixed_interval_base_query_use_dwh_variant"
+)
 SKIP_RETENTION_BASE_QUERY_VARIANT_COMPARISON_ATTR = "_skip_retention_base_query_variant_comparison"
 
 Result = TypeVar("Result")

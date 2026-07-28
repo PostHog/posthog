@@ -83,9 +83,12 @@ from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 
-from posthog.hogql_queries.insights.retention.retention_base_query_fixed import RETENTION_BASE_QUERY_VARIANT_PATCH_PATH
 from posthog.hogql_queries.query_runner import get_query_runner
+
+# The patch path comes from the sibling command (which defines it locally, not via import) so this
+# pair of files stays runnable when copied onto a prod pod regardless of the image's vintage.
 from posthog.management.commands.compare_retention_legacy_vs_dwh import (
+    RETENTION_BASE_QUERY_VARIANT_PATCH_PATH,
     attribute_variant_errors,
     classify_insight,
     compute_interval_context,
