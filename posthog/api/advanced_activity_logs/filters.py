@@ -71,12 +71,23 @@ def _validate_detail_filter(field_path: Any, filter_config: Any) -> None:
     if _MAX_ARRAY_INDICES_TO_CHECK ** field_path.count("[]") > _MAX_INDEXED_PATHS:
         raise serializers.ValidationError(f"Detail filter field path '{field_path}' nests too many arrays.")
 
-    for segment in field_path.replace("[]", "").split("."):
+    stripped = field_path.replace("[]", "")
+    for segment in stripped.split("."):
         if not segment:
             raise serializers.ValidationError(f"Detail filter field path '{field_path}' has an empty segment.")
-        if segment in _DJANGO_LOOKUP_NAMES:
+
+    # Check the components Django will actually see, not the dot-separated segments. A segment
+    # ending in `_` next to one starting with `_` joins into a run of underscores that shifts the
+    # `__` boundary, so a lookup name can surface as its own component without ever having been a
+    # segment -- and reach the database as a lookup.
+    for component in stripped.replace(".", "__").split("__"):
+        if not component:
             raise serializers.ValidationError(
-                f"Detail filter field path '{field_path}' uses reserved segment '{segment}'."
+                f"Detail filter field path '{field_path}' has an ambiguous underscore boundary."
+            )
+        if component in _DJANGO_LOOKUP_NAMES:
+            raise serializers.ValidationError(
+                f"Detail filter field path '{field_path}' uses reserved segment '{component}'."
             )
 
 

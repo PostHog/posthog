@@ -218,6 +218,11 @@ class TestDetailFilterValidation(SimpleTestCase):
             ("unsupported_operation", "name", {"operation": "regex", "value": ".*"}),
             ("lookup_suffixed_path", "name.regex", {"operation": "exact", "value": "^(a+)+$"}),
             ("lookup_named_path", "regex", {"operation": "exact", "value": "^(a+)+$"}),
+            # Underscores at a segment boundary shift where the `__` separator falls once the
+            # segments are joined, so a lookup can reach Django without ever being a segment.
+            ("lookup_across_segment_boundary", "a_._regex", {"operation": "exact", "value": "^(a+)+$"}),
+            ("lookup_across_boundary_iregex", "name_._iregex", {"operation": "exact", "value": "^(a+)+$"}),
+            ("lookup_leading_segment", "regex_.a", {"operation": "exact", "value": "^(a+)+$"}),
             ("array_nesting_fan_out", "a[].b[].c[].d[].e", {"operation": "exact", "value": "x"}),
             ("non_object_filter_config", "name", "test"),
         ]
