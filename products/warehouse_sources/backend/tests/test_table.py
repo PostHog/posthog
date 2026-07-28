@@ -10,10 +10,13 @@ from django.test import SimpleTestCase
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
+from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
 from posthog.hogql.database.models import DatabaseField, StringDatabaseField, UUIDDatabaseField
+from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 
 from posthog.exceptions import ClickHouseAtCapacity
 
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource, ExternalDataSourceType
 from products.warehouse_sources.backend.models.table import (
     DataWarehouseTable,
     get_hogql_field_for_column,
@@ -47,6 +50,36 @@ class TestDataWarehouseTableColumnOrder(BaseTest):
         table.set_columns({"z": {"clickhouse": "String"}, "a": {"clickhouse": "String"}})
 
         assert table.column_order == ["z", "a"]
+
+
+class TestHogqlDefinitionDirectGating(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("synced", ExternalDataSource.AccessMethod.WAREHOUSE, HogQLDataWarehouseTable),
+            ("direct", ExternalDataSource.AccessMethod.DIRECT, DirectClickHouseTable),
+        ]
+    )
+    def test_clickhouse_source_direct_gated_on_access_method(
+        self, _name: str, access_method: str, expected_type: type
+    ) -> None:
+        # A ClickHouse source's tables must only render as a direct table when access_method == direct.
+        # A synced (warehouse) ClickHouse source has to fall through to the S3-backed table, otherwise
+        # every connection-less query against it is forced down the direct path and rejected.
+        source = ExternalDataSource(
+            source_type=ExternalDataSourceType.CLICKHOUSE,
+            access_method=access_method,
+            job_inputs={"database": "default"},
+        )
+        table = DataWarehouseTable(
+            name="clickhouse_raffle",
+            format="DeltaS3Wrapper",
+            url_pattern="s3://bucket/team_1/raffle",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True}},
+            options={},
+        )
+        table.external_data_source = source
+
+        assert isinstance(table.hogql_definition(), expected_type)
 
 
 class TestSafeExposeChError:
