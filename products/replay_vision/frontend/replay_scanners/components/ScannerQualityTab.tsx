@@ -34,7 +34,7 @@ import type {
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { ObservationLabelControl, ObservationLabelFeedback } from '../../observations/ObservationLabelControl'
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
-import { formatCredits } from '../../utils/credits'
+import { formatCreditCount, formatCreditsRange } from '../../utils/credits'
 import { buildChartDayFormatter, fillLabelDays, versionAccuracyStrip } from '../../utils/labelStats'
 import { readConfidence } from '../../utils/observation'
 import { replayScannerLogic } from '../replayScannerLogic'
@@ -403,9 +403,9 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                                     (ratedCount === 0
                                         ? 'Rate at least one result first'
                                         : quota?.exhausted && quota.credit_limit !== null
-                                          ? `Monthly Replay Vision budget of ${formatCredits(quota.credit_limit)} reached. Resets ${dayjs(quota.period_end).format('MMM D')}.`
+                                          ? `Monthly Replay Vision budget of ${formatCreditCount(quota.credit_limit)} reached. Resets ${dayjs(quota.period_end).format('MMM D')}.`
                                           : quota && quota.remaining !== null && plannedTestCredits > quota.remaining
-                                            ? `Only ${formatCredits(quota.remaining)} of budget left this month. Lower the test session count.`
+                                            ? `Only ${formatCreditCount(quota.remaining)} of budget left this period. Lower the test session count.`
                                             : undefined)
                                 }
                                 tooltip="Re-runs the scanner with the suggested prompt against your rated sessions, so you can see what would change before applying. Each tested session is charged like a normal observation. Pick how many below."
@@ -461,9 +461,9 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                         <span>
                             of your {Math.min(evaluationSessionCap, ratedCount)} most useful rated session
                             {Math.min(evaluationSessionCap, ratedCount) === 1 ? '' : 's'}, charging{' '}
-                            {formatCredits(plannedTestCredits)}
+                            {formatCreditCount(plannedTestCredits)}
                             {quota && quota.remaining !== null && quota.credit_limit !== null
-                                ? ` (${formatCredits(quota.remaining)} of ${formatCredits(quota.credit_limit)} left this month)`
+                                ? `, ${formatCreditsRange(quota.remaining, quota.credit_limit)} left this period`
                                 : ''}
                             .
                         </span>

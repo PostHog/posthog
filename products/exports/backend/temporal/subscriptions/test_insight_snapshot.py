@@ -4,7 +4,7 @@ from decimal import Decimal
 
 import pytest
 
-from posthog.caching.fetch_from_cache import InsightResult
+from posthog.caching.insight_result import InsightResult
 
 from products.exports.backend.temporal.subscriptions.insight_snapshot import (
     _has_comparison_enabled,

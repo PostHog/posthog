@@ -4553,7 +4553,7 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(
             response.json(),
             {
-                "message": "Direct query mode is currently supported only for Postgres, MySQL, Snowflake, and Redshift sources."
+                "message": "Direct query mode is currently supported only for Postgres, MySQL, Snowflake, Redshift, and ClickHouse sources."
             },
         )
 
@@ -4571,7 +4571,7 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(
             response.json(),
             {
-                "message": "Direct query mode is currently supported only for Postgres, MySQL, Snowflake, and Redshift sources."
+                "message": "Direct query mode is currently supported only for Postgres, MySQL, Snowflake, Redshift, and ClickHouse sources."
             },
         )
 

@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-07-27 11:02:35 UTC
+// Generated at: 2026-07-27 20:28:49 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -102,6 +102,7 @@ export type CanonicalProvider =
     | 'modelrun-fp4'
     | 'moonshotai-highspeed'
     | 'moonshotai-int4'
+    | 'moonshotai-mxfp4'
     | 'morph'
     | 'morph-fp4'
     | 'nebius-base'

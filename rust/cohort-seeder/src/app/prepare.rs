@@ -16,10 +16,12 @@ use tracing::warn;
 use crate::domain::{plan_days, Lookback, PinnedRun, PinnedWarning, PlanCaps, RunId};
 use crate::observability::metrics::{
     BOUNDARY_CAS_LOST, BOUNDARY_ESTABLISHED, CHUNKS_PLANNED, CONDITIONS_DROPPED,
-    LOOKBACK_TRUNCATED, RUNS_DISCOVERED, RUNS_WAITING_BOUNDARY, RUNS_WITHOUT_CHUNKS,
-    RUN_CHUNKS_REMAINING, RUN_VALIDATION_FAILURES, TZ_FALLBACK, WINDOW_DAYS_MISMATCH,
+    LOOKBACK_TRUNCATED, RUNS_DISCOVERED, RUNS_PLANNING_STAMPED, RUNS_PLANNING_WITHHELD,
+    RUNS_WAITING_BOUNDARY, RUNS_WITHOUT_CHUNKS, RUN_CHUNKS_REMAINING, RUN_VALIDATION_FAILURES,
+    TZ_FALLBACK, WINDOW_DAYS_MISMATCH,
 };
 use crate::store::chunks::{PgChunkStore, PlanOutcome};
+use crate::store::completion::{mark_chunks_planned, PlanningStampOutcome};
 use crate::store::runs::{
     discover_runs, establish_boundary, fail_run, record_run_warning, BoundaryOutcome,
     DiscoveredRun, RunError, RunStatus, RunWarningNote,
@@ -135,12 +137,29 @@ async fn prepare_run(
         persist_run_warning(pool, run_id, RunWarningNote::LookbackTruncated).await;
     }
 
+    // Without the proof the run never dispatches, so an uncovered cohort can never stamp readiness
+    // on zero seeded history. Siblings still get planned and seeded.
+    let coverage_complete = validated.uncovered_cohorts.is_empty();
+    if !coverage_complete {
+        counter!(RUNS_PLANNING_WITHHELD).increment(1);
+        warn!(
+            run_id = ?run_id,
+            uncovered_cohorts = ?validated.uncovered_cohorts,
+            "active participations have no surviving pinned condition; withholding the planning proof"
+        );
+    }
+
     let days = plan_days(
         &validated.run.conditions,
         validated.run.boundary,
         &plan_caps,
     );
     if days.is_empty() {
+        if coverage_complete {
+            // A legitimately zero-chunk run still needs the proof, or it stalls waiting for chunks
+            // that will never exist.
+            stamp_planning(pool, run_id).await;
+        }
         return PrepareOutcome::NoChunks;
     }
     match store
@@ -149,6 +168,9 @@ async fn prepare_run(
     {
         Ok(PlanOutcome::Planned { inserted }) => {
             counter!(CHUNKS_PLANNED).increment(inserted);
+            if coverage_complete {
+                stamp_planning(pool, run_id).await;
+            }
         }
         Ok(PlanOutcome::RunNotSeeding) => return PrepareOutcome::Skipped,
         Err(error) => {
@@ -157,6 +179,16 @@ async fn prepare_run(
         }
     }
     PrepareOutcome::Eligible(Arc::new(validated.run))
+}
+
+/// Stamp the planning proof once planning has run. A failure is logged but never changes the prepare
+/// outcome — the run keeps seeding and the next pass re-stamps.
+async fn stamp_planning(pool: &PgPool, run_id: RunId) {
+    match mark_chunks_planned(pool, run_id).await {
+        Ok(PlanningStampOutcome::Stamped) => counter!(RUNS_PLANNING_STAMPED).increment(1),
+        Ok(PlanningStampOutcome::Skipped) => {}
+        Err(error) => warn!(run_id = ?run_id, error = %error, "stamping the planning proof failed"),
+    }
 }
 
 async fn handle_run_error(pool: &PgPool, run_id: Option<RunId>, error: RunError) {

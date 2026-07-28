@@ -269,6 +269,9 @@ impl PersonhogStore {
             return Ok(false);
         }
         handoff.phase = new_phase;
+        // The phase clock restarts with the phase: duration metrics and
+        // the per-phase age gauge read this stamp.
+        handoff.phase_entered_at_ms = assignment_coordination::util::now_millis();
         let txn = Txn::new()
             .when(vec![Compare::mod_revision(
                 handoff_key.clone(),
@@ -529,6 +532,7 @@ impl PersonhogStore {
             .ok_or_else(|| Error::NotFound(format!("handoff for partition {partition}")))?;
 
         handoff.phase = crate::types::HandoffPhase::Complete;
+        handoff.phase_entered_at_ms = assignment_coordination::util::now_millis();
 
         let assignment = PartitionAssignment {
             partition,

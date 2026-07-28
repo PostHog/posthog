@@ -27,6 +27,8 @@ from products.tasks.backend.facade.contracts import (
     ChannelFeedMessageDTO,
     SandboxCustomImageDTO,
     SandboxEnvironmentDTO,
+    TaskActivityDTO,
+    TaskActivityPageDTO,
     TaskAutomationDTO,
     TaskDetailDTO,
     TaskMentionDTO,
@@ -39,6 +41,7 @@ from products.tasks.backend.facade.contracts import (
 from products.tasks.backend.facade.run_config import (
     ALL_INITIAL_PERMISSION_MODE_CHOICES,
     CODEX_INITIAL_PERMISSION_MODE_CHOICES,
+    CONTEXT_WINDOW_CHOICES,
     INITIAL_PERMISSION_MODE_CHOICES,
     PUBLIC_REASONING_EFFORTS,
     LLMProvider,
@@ -780,7 +783,7 @@ class TaskRunArtifactUploadSerializer(serializers.Serializer):
         help_text="Optional structured metadata for special artifact types, such as skill bundles.",
     )
 
-    def validate(self, attrs):
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         attrs = validate_task_run_artifact_metadata(attrs)
         content = attrs["content"]
         content_encoding = attrs.get("content_encoding", "utf-8")
@@ -1474,6 +1477,117 @@ class TaskMentionSerializer(DataclassSerializer):
         ]
 
 
+class TaskActivityQuerySerializer(serializers.Serializer):
+    """Query parameters for the task-centric activity feed."""
+
+    limit = serializers.IntegerField(
+        required=False,
+        default=100,
+        min_value=1,
+        max_value=500,
+        help_text="Maximum number of tasks to return (most recent activity first).",
+    )
+    before = serializers.DateTimeField(
+        required=False,
+        help_text="Activity timestamp from the final row of the previous page.",
+    )
+    before_id = serializers.UUIDField(
+        required=False,
+        help_text="Activity ID from the final row of the previous page.",
+    )
+
+    def validate(self, attrs):
+        if ("before" in attrs) != ("before_id" in attrs):
+            raise serializers.ValidationError("before and before_id must be provided together")
+        return attrs
+
+
+class TaskActivitySerializer(DataclassSerializer):
+    """Response shape for one task in the requester's activity feed (one row per task)."""
+
+    latest_author = TaskUserBasicInfoSerializer(
+        allow_null=True,
+        required=False,
+        help_text="Author of the thread message tied to the latest activity, when one applies.",
+    )
+    activity_kind = serializers.ChoiceField(
+        choices=["awaiting_input", "completed", "mention", "message", "created"],
+        help_text=(
+            "What the latest activity on this task was: an agent run waiting on the requester "
+            "(awaiting_input), a completed run (completed), someone @-mentioning them (mention), "
+            "a thread reply (message), or their creating the task (created)."
+        ),
+    )
+    snippet = serializers.CharField(
+        help_text="Content of the thread message tied to the latest activity; empty for task-creation rows."
+    )
+    is_unread = serializers.BooleanField(
+        help_text="Whether the requester has yet to see this activity. Activity they caused themselves is never unread."
+    )
+
+    class Meta:
+        dataclass = TaskActivityDTO
+        fields = [
+            "id",
+            "task_id",
+            "task_title",
+            "channel_id",
+            "channel_name",
+            "activity_at",
+            "activity_kind",
+            "snippet",
+            "latest_author",
+            "latest_message_id",
+            "is_unread",
+        ]
+
+
+class TaskActivityPageSerializer(DataclassSerializer):
+    """A page of the requester's activity feed, plus the unread total across the whole feed."""
+
+    results = TaskActivitySerializer(many=True, help_text="Tasks with activity, most recent first.")
+    unread_count = serializers.IntegerField(
+        help_text="Unread tasks across the requester's whole feed, not just this page. Backs the sidebar badge."
+    )
+    next_before = serializers.DateTimeField(
+        allow_null=True,
+        required=False,
+        help_text="Activity timestamp to pass as before for the next page, or null on the final page.",
+    )
+    next_before_id = serializers.UUIDField(
+        allow_null=True,
+        required=False,
+        help_text="Activity ID to pass as before_id for the next page, or null on the final page.",
+    )
+
+    class Meta:
+        dataclass = TaskActivityPageDTO
+        fields = ["results", "unread_count", "next_before", "next_before_id"]
+
+
+class TaskActivityReadMarkerSerializer(serializers.Serializer):
+    task_id = serializers.UUIDField(help_text="Task whose displayed activity should be marked read.")
+    seen_before = serializers.DateTimeField(
+        help_text="Mark activity at or before this timestamp read without clearing newer activity."
+    )
+
+
+class TaskActivityMarkReadSerializer(serializers.Serializer):
+    """Request body for clearing the unread flag on specific tasks."""
+
+    activities = serializers.ListField(
+        child=TaskActivityReadMarkerSerializer(),
+        allow_empty=False,
+        max_length=500,
+        help_text="Displayed task activities to mark read if they have not changed.",
+    )
+
+
+class TaskActivityMarkReadResponseSerializer(serializers.Serializer):
+    marked_read = serializers.IntegerField(help_text="How many feed rows changed from unread to read.")
+    unread_count = serializers.IntegerField(help_text="The requester's remaining unread total after the update.")
+
+
 class TaskRepositoriesResponseSerializer(serializers.Serializer):
     repositories = serializers.ListField(
         child=serializers.CharField(),
@@ -1777,6 +1891,18 @@ class TaskRunCreateRequestSerializer(ImportedMcpServersFieldMixin, RelayedMcpSer
         default=None,
         help_text="Reasoning effort to request for models that expose an effort control.",
     )
+    context_window = serializers.ChoiceField(
+        choices=CONTEXT_WINDOW_CHOICES,
+        required=False,
+        default=None,
+        help_text="Context window size for models that support the 1M window.",
+    )
+    fast_mode = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Enable fast mode for models that support it.",
+    )
     github_user_token = serializers.CharField(
         required=False,
         default=None,
@@ -1840,7 +1966,10 @@ class TaskRunCreateRequestSerializer(ImportedMcpServersFieldMixin, RelayedMcpSer
             attrs.pop("pending_user_message", None)
 
         runtime_fields = ("runtime_adapter", "model")
-        has_runtime_selection = any(attrs.get(field) is not None for field in (*runtime_fields, "reasoning_effort"))
+        has_runtime_selection = any(
+            attrs.get(field) is not None
+            for field in (*runtime_fields, "reasoning_effort", "context_window", "fast_mode")
+        )
 
         if not has_runtime_selection:
             if errors:
@@ -1957,6 +2086,18 @@ class TaskRunBootstrapCreateRequestSerializer(
         default=None,
         help_text="Reasoning effort to request for models that expose an effort control.",
     )
+    context_window = serializers.ChoiceField(
+        choices=CONTEXT_WINDOW_CHOICES,
+        required=False,
+        default=None,
+        help_text="Context window size for models that support the 1M window.",
+    )
+    fast_mode = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Enable fast mode for models that support it.",
+    )
     github_user_token = serializers.CharField(
         required=False,
         default=None,
@@ -2008,7 +2149,10 @@ class TaskRunBootstrapCreateRequestSerializer(
                     )
 
         runtime_fields = ("runtime_adapter", "model")
-        has_runtime_selection = any(attrs.get(field) is not None for field in (*runtime_fields, "reasoning_effort"))
+        has_runtime_selection = any(
+            attrs.get(field) is not None
+            for field in (*runtime_fields, "reasoning_effort", "context_window", "fast_mode")
+        )
         if not has_runtime_selection:
             if errors:
                 raise serializers.ValidationError(errors)
