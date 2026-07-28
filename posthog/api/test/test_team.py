@@ -3582,6 +3582,19 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
             "Each URL can include up to 5 wildcards. Remove the extra ones from this entry."
         )
 
+    @parameterized.expand(
+        [
+            ["number", 123],
+            ["object", {"nested": "value"}],
+            ["list", ["https://example.com"]],
+            ["boolean", True],
+        ]
+    )
+    def test_rejects_non_string_widget_domain(self, _name: str, entry: Any) -> None:
+        # widget_domains rides in on a raw JSONField, so entries reach validation untyped.
+        serializer = TeamSerializer(data={"conversations_settings": {"widget_domains": [entry]}}, partial=True)
+        assert not serializer.is_valid()
+
     def test_invalid_autocapture_exceptions_opt_in_not_a_boolean(self) -> None:
         # `autocapture_exceptions_errors_to_ignore` is deliberately not here: its validation
         # lives in the object-level `validate()` (via `validate_team_attrs`), which needs

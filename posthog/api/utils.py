@@ -573,6 +573,9 @@ def validate_authorized_url_wildcards(urls: list[str]) -> None:
     make matching more expensive, so they are rejected at write time.
     """
     for url in urls:
+        if not isinstance(url, str):
+            # widget_domains arrives on a raw JSONField, so entries are not string-coerced for us.
+            raise ValidationError("Each URL must be a string.")
         try:
             host = parse_domain(url)
         except ValueError:
