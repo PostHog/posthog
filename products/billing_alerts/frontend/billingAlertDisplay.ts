@@ -1,15 +1,14 @@
-import type { AlertingWizardStep } from 'lib/components/Alerting'
-
 import type {
     BillingAlertConfigurationStateEnumApi,
-    MetricEnumApi,
+    BillingAlertMetricEnumApi,
 } from 'products/billing_alerts/frontend/generated/api.schemas'
 
+import type { BillingAlertWizardStepDefinition } from './BillingAlertComponents'
 import { BILLING_ALERT_NUMBER_FIELDS } from './billingAlertFields'
 import { BillingAlertWizardStep } from './billingAlertsLogic'
 import type { BillingAlertConfiguration, BillingAlertDestinationKey } from './billingAlertsLogic'
 
-export const BILLING_ALERT_WIZARD_STEPS: AlertingWizardStep<BillingAlertWizardStep>[] = [
+export const BILLING_ALERT_WIZARD_STEPS: BillingAlertWizardStepDefinition<BillingAlertWizardStep>[] = [
     { key: BillingAlertWizardStep.Destination, label: 'Destination' },
     { key: BillingAlertWizardStep.Trigger, label: 'Trigger' },
     { key: BillingAlertWizardStep.Configure, label: 'Configure' },
@@ -43,11 +42,11 @@ export const BILLING_ALERT_DESTINATIONS: {
 
 export { BILLING_ALERT_NUMBER_FIELDS }
 
-export function metricLabel(metric: MetricEnumApi | undefined): string {
+export function metricLabel(metric: BillingAlertMetricEnumApi | undefined): string {
     return metric === 'usage' ? 'Usage' : 'Spend'
 }
 
-export function formatValue(value: string | null | undefined, metric: MetricEnumApi | undefined): string {
+export function formatValue(value: string | null | undefined, metric: BillingAlertMetricEnumApi | undefined): string {
     if (value === null || value === undefined) {
         return '-'
     }

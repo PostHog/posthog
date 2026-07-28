@@ -3,9 +3,11 @@ from decimal import Decimal
 from typing import Any
 
 from posthog.test.base import BaseTest
+from unittest.mock import MagicMock, patch
 
 from products.billing_alerts.backend.logic.evaluator import evaluate_billing_alert
-from products.billing_alerts.backend.logic.state_machine import evaluate_and_record_billing_alert, event_should_dispatch
+from products.billing_alerts.backend.logic.notifications import evaluate_and_dispatch_billing_alert
+from products.billing_alerts.backend.logic.state_machine import event_should_dispatch
 from products.billing_alerts.backend.models import (
     MAX_FAILURES_BEFORE_BROKEN,
     BillingAlertConfiguration,
@@ -13,6 +15,22 @@ from products.billing_alerts.backend.models import (
 )
 
 NOW = datetime(2026, 6, 23, 12, 0, tzinfo=UTC)
+
+
+def evaluate_and_record_billing_alert(*args, **kwargs) -> BillingAlertEvent:
+    """Exercise the production delivery-first pipeline with an acknowledged internal event."""
+    with (
+        patch(
+            "products.billing_alerts.backend.logic.notifications.produce_alert_internal_event",
+            return_value=MagicMock(),
+        ),
+        patch(
+            "products.billing_alerts.backend.logic.notifications.alert_internal_event_delivered",
+            return_value=True,
+        ),
+    ):
+        event, _ = evaluate_and_dispatch_billing_alert(*args, **kwargs)
+    return event
 
 
 def _billing_response(values: list[int | str]) -> dict[str, Any]:
@@ -122,7 +140,8 @@ class TestBillingAlertEvaluator(BaseTest):
         assert event.kind == BillingAlertEvent.Kind.ERRORED
         assert event.error_code == "BillingAlertEvaluationError"
         assert "Invalid billing value" in (event.error_message or "")
-        assert alert.state == BillingAlertConfiguration.State.ERRORED
+        assert alert.state == BillingAlertConfiguration.State.NOT_FIRING
+        assert alert.consecutive_failures == 1
 
     def test_billing_service_error_records_dispatchable_error_event(self) -> None:
         alert = self._alert()
@@ -142,7 +161,23 @@ class TestBillingAlertEvaluator(BaseTest):
         assert event.error_code == "BillingAlertEvaluationError"
         assert "authentication_failed" in (event.error_message or "")
         assert event_should_dispatch(event) is True
-        assert alert.state == BillingAlertConfiguration.State.ERRORED
+        assert alert.state == BillingAlertConfiguration.State.NOT_FIRING
+
+    def test_billing_service_error_preserves_existing_firing_episode(self) -> None:
+        alert = self._alert(state=BillingAlertConfiguration.State.FIRING)
+
+        event = evaluate_and_record_billing_alert(
+            alert,
+            now=NOW,
+            billing_response={"status": "error", "detail": "billing unavailable"},
+        )
+        alert.refresh_from_db()
+
+        assert event.kind == BillingAlertEvent.Kind.ERRORED
+        assert event.state_before == BillingAlertConfiguration.State.FIRING
+        assert event.state_after == BillingAlertConfiguration.State.FIRING
+        assert alert.state == BillingAlertConfiguration.State.FIRING
+        assert alert.consecutive_failures == 1
 
     def test_billing_service_error_uses_latest_failure_count(self) -> None:
         alert = self._alert()
@@ -215,7 +250,7 @@ class TestBillingAlertEvaluator(BaseTest):
 
         assert refiring.kind == BillingAlertEvent.Kind.FIRING
         assert refiring.id != firing.id
-        assert refiring.notification_sent_at is None
+        assert refiring.notification_sent_at == NOW.replace(hour=14)
         assert event_should_dispatch(refiring) is True
         assert alert.state == BillingAlertConfiguration.State.FIRING
         assert (

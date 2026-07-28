@@ -31,8 +31,10 @@ export function BillingAlertDestinationFields(): JSX.Element {
         useActions(billingAlertsLogic)
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
 
-    const slackIntegrations = integrations?.filter((integration) => integration.kind === 'slack') ?? []
-    const selectedSlackIntegration = integrations?.find((integration) => integration.id === slackIntegrationId)
+    const slackIntegrations = integrations?.filter((integration: IntegrationType) => integration.kind === 'slack') ?? []
+    const selectedSlackIntegration = integrations?.find(
+        (integration: IntegrationType) => integration.id === slackIntegrationId
+    )
 
     return (
         <div className="deprecated-space-y-3">
@@ -83,8 +85,14 @@ export function BillingAlertDestinationFields(): JSX.Element {
 }
 
 export function BillingAlertDestinationPanel(): JSX.Element | null {
-    const { destinationAlertId, selectedDestinationKey, destinationSaving, canCreateDestination } =
-        useValues(billingAlertsLogic)
+    const {
+        destinationAlertId,
+        selectedDestinationKey,
+        destinationSaving,
+        canCreateDestination,
+        destinationTypeExists,
+        slackExecutionTeamMismatch,
+    } = useValues(billingAlertsLogic)
     const { setDestinationAlertId, createDestination } = useActions(billingAlertsLogic)
 
     if (!destinationAlertId) {
@@ -108,7 +116,13 @@ export function BillingAlertDestinationPanel(): JSX.Element | null {
                         onClick={createDestination}
                         loading={destinationSaving}
                         disabledReason={
-                            !canCreateDestination ? destinationDisabledReason(selectedDestinationKey) : undefined
+                            destinationTypeExists
+                                ? `A ${destinationLabel(selectedDestinationKey)} destination already exists.`
+                                : slackExecutionTeamMismatch
+                                  ? "Switch to this alert's execution project to use its Slack integrations."
+                                  : !canCreateDestination
+                                    ? destinationDisabledReason(selectedDestinationKey)
+                                    : undefined
                         }
                         data-attr="create-billing-alert-destination"
                     >
