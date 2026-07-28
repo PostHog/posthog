@@ -2486,6 +2486,14 @@ def append_suggested_reviewers(
                 if isinstance(prior_reason, str):
                     prior_reason_by_login[login] = prior_reason
 
+        # Newly-added reviewers carry no routing evidence, so record who added them and when
+        # (this path is always attributed to request.user). Dates use the report's project timezone.
+        actor = cast(User, request.user)
+        # Build the date without the platform-specific %-d directive (fails on non-Unix).
+        now_local = timezone.now().astimezone(team.timezone_info)
+        added_on = f"{now_local:%b} {now_local.day}, {now_local.year}"
+        manual_add_reason = f"Added as a reviewer by {actor.get_full_name().strip() or actor.email} on {added_on}"
+
         # Dedupe by canonical login, preserve first-seen order.
         new_content: list[dict] = []
         for login_lc, github_name, explicit_name, reason, explicit_reason in resolved_entries:
@@ -2494,9 +2502,12 @@ def append_suggested_reviewers(
             seen.add(login_lc)
             # If the client supplied github_name (incl. ""), honour it. Otherwise
             # carry over the prior one so kept reviewers don't lose their name.
-            # Same rule for reason.
+            # Same rule for reason. Only fall back to the manual-add note when the field was
+            # omitted for a brand-new reviewer — an explicit null clears the reason, as for kept ones.
             effective_name = github_name if explicit_name else prior_name_by_login.get(login_lc)
             effective_reason = reason if explicit_reason else prior_reason_by_login.get(login_lc)
+            if not explicit_reason and login_lc not in prior_logins:
+                effective_reason = manual_add_reason
             new_content.append(
                 {
                     "github_login": login_lc,
