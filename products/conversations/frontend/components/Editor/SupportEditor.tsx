@@ -658,7 +658,9 @@ export function SupportEditor({
                         key="file-upload"
                         // Extensions listed alongside MIME types because browsers report an
                         // empty or inconsistent type for .md/.csv depending on the OS.
-                        accept={'image/*,application/pdf,.pdf,.md,.markdown,.txt,.csv,text/plain,text/markdown,text/csv'}
+                        accept={
+                            'image/*,application/pdf,.pdf,.md,.markdown,.txt,.csv,text/plain,text/markdown,text/csv'
+                        }
                         multiple={false}
                         alternativeDropTargetRef={dropRef}
                         onChange={setFilesToUpload}
