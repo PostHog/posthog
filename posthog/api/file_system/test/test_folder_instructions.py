@@ -174,6 +174,14 @@ class TestDesktopFolderInstructionsAPI(APIBaseTest):
     def test_me_folder_and_instructions_are_private_to_the_creator(self):
         folder_id = self._create_desktop_folder("me")
         self.client.patch(self._instructions_url(folder_id), {"content": "private"})
+        child = FileSystem.objects.create(
+            team=self.team,
+            path="me/private-canvas",
+            depth=2,
+            type="dashboard",
+            surface="desktop",
+            created_by=self.user,
+        )
 
         other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "testpass")
         other_user.is_staff = True
@@ -182,6 +190,12 @@ class TestDesktopFolderInstructionsAPI(APIBaseTest):
 
         listing = self.client.get(f"/api/projects/{self.team.id}/desktop_file_system/?type=folder")
         self.assertNotIn(folder_id, [row["id"] for row in listing.json()["results"]])
+        children = self.client.get(f"/api/projects/{self.team.id}/desktop_file_system/?parent=me")
+        self.assertNotIn(str(child.id), [row["id"] for row in children.json()["results"]])
+        self.assertEqual(
+            self.client.get(f"/api/projects/{self.team.id}/desktop_file_system/{child.id}/").status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
         self.assertEqual(self.client.get(self._instructions_url(folder_id)).status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(
             self.client.patch(self._instructions_url(folder_id), {"content": "leak"}).status_code,

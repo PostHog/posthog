@@ -1088,10 +1088,10 @@ class DesktopFileSystemViewSet(FileSystemViewSet):
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = super().safely_get_queryset(queryset)
-        # `me` looks like a normal channel in the desktop file system, but it is
-        # the personal space. Keep each user's folder (and its CONTEXT.md)
-        # private even when project-level file-system access is otherwise shared.
-        return queryset.filter(~Q(type="folder", depth=1, path="me") | Q(created_by=self.request.user))
+        # Personal-space rows share the same path across users, so their creator
+        # is the ownership boundary even when project-level access is shared.
+        is_personal_space = Q(path="me") | Q(path__startswith="me/")
+        return queryset.filter(~is_personal_space | Q(created_by=self.request.user))
 
     def _allow_delete_without_ref(self, entry: FileSystem) -> bool:
         # Desktop canvases are `dashboard`-typed rows whose source lives in `meta`,
