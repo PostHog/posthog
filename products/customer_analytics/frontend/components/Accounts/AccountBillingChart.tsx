@@ -14,6 +14,11 @@ import {
 } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { InsightErrorState } from 'scenes/insights/EmptyStates'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { AxisSeries, dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import {
     type BuildBarConfigArgs,
     type ChartSeriesMeta,
@@ -24,12 +29,7 @@ import {
     canRenderTimeSeriesBarChart,
     canRenderTimeSeriesComboChart,
     capYSeriesData,
-} from 'lib/charts/timeSeriesChartAdapter'
-import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { InsightErrorState } from 'scenes/insights/EmptyStates'
-import { teamLogic } from 'scenes/teamLogic'
-
-import { AxisSeries, dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
+} from '~/queries/nodes/DataVisualization/timeSeriesChartAdapter'
 import {
     ChartSettings,
     DataVisualizationNode,
@@ -200,8 +200,8 @@ function BillingComboChart({
  * Renders a saved billing insight's chart directly via @posthog/quill-charts instead of the
  * embedded DataVisualization, so Customer analytics owns the per-series show/hide chips without
  * touching shared data-viz code. `dataVisualizationLogic` is still reused read-only for fetch +
- * SQL-results→series parsing; the series and chart config come from the shared adapter in
- * `lib/charts/timeSeriesChartAdapter`, so the SQL insight chart module stays scoped to SQL
+ * SQL-results→series parsing; the series and chart config come from the shared
+ * `DataVisualization/timeSeriesChartAdapter`, so the SQL insight chart module stays scoped to SQL
  * insights without duplicating its rendering semantics here. Hidden
  * series go into quill's controlled `legend.hiddenKeys`: excluded from drawing and scales, the
  * rest rescale into the freed space.

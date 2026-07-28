@@ -1,13 +1,12 @@
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { MAX_SERIES } from 'lib/charts/timeSeriesChartAdapter'
-
 import { AxisSeries } from '../../dataVisualizationLogic'
+import { MAX_SERIES } from '../../timeSeriesChartAdapter'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
 import { LineGraphProps } from './LineGraph'
 
 /**
- * The SQL insight face of the generic time-series adapter in `lib/charts/timeSeriesChartAdapter` —
+ * The SQL insight face of the generic time-series adapter in `../../timeSeriesChartAdapter` —
  * everything chart-shaped is re-exported from there under this module's established names; only
  * the SQL-editor concerns (the too-many-series toast and its dashboard gate) live here.
  */
@@ -26,7 +25,7 @@ export {
     hasMixedSeriesTypes,
     isAreaSeries,
     seriesDisplayType,
-} from 'lib/charts/timeSeriesChartAdapter'
+} from '../../timeSeriesChartAdapter'
 export {
     buildChartSeries as buildSeries,
     buildTooltipConfig as buildSqlTooltipConfig,
@@ -34,8 +33,8 @@ export {
     canRenderTimeSeriesComboChart as canRenderSqlComboGraph,
     canRenderTimeSeriesLineChart as canRenderSqlLineGraph,
     formatSeriesValue as formatSqlSeriesValue,
-} from 'lib/charts/timeSeriesChartAdapter'
-export type { BuildBarConfigArgs, ChartSeriesMeta as SqlLineSeriesMeta } from 'lib/charts/timeSeriesChartAdapter'
+} from '../../timeSeriesChartAdapter'
+export type { BuildBarConfigArgs, ChartSeriesMeta as SqlLineSeriesMeta } from '../../timeSeriesChartAdapter'
 
 export type SqlLineYSeries = AxisSeries<number | null> | AxisBreakdownSeries<number | null>
 

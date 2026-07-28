@@ -18,12 +18,10 @@ import {
 
 import { dayjs } from 'lib/dayjs'
 
-import {
-    type AxisSeriesSettings,
-    formatDataWithSettings,
-} from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { ChartSettings, GoalLine, YAxisSettings } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
+
+import { type AxisSeriesSettings, formatDataWithSettings } from './dataVisualizationLogic'
 
 /**
  * Maps a saved insight's tabular axis series + `ChartSettings` onto quill's time-series charts:
