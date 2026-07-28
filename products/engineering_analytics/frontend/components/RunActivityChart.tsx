@@ -35,7 +35,7 @@ interface RunActivityChartProps {
     className?: string
 }
 
-// Dot/series color per verdict — the shared map so scatter, mini bars, and the run tables' StatusDot agree.
+// Dot/series color per verdict — the shared map so the scatter and the run tables' StatusDot agree.
 const DOT_COLOR = VERDICT_COLOR
 
 const LEGEND_LABEL: Record<string, string> = {
@@ -57,10 +57,6 @@ const MIN_POINTS = 2
 export const isPlottable = (run: ActivityRun): run is ActivityRun & { startedAt: string; durationSeconds: number } =>
     run.startedAt != null && run.durationSeconds != null && run.durationSeconds >= 0
 
-/** False when RunActivityChart would render null, so callers can show their empty state instead. */
-export function hasEnoughRunActivity(runs: ActivityRun[]): boolean {
-    return runs.filter(isPlottable).length >= MIN_POINTS
-}
 // Below this total span the chart is already readable without a zoom brush.
 const BRUSH_THRESHOLD_MS = 24 * 60 * 60 * 1000
 // The lens never narrows below 15 min, so it stays grabbable and the zoomed axis keeps a readable span.

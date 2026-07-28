@@ -22,25 +22,20 @@ import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import {
-    engineeringAnalyticsBrokenTests,
     engineeringAnalyticsCiCards,
     engineeringAnalyticsFlakyTests,
     engineeringAnalyticsPullRequests,
     engineeringAnalyticsQuarantine,
     engineeringAnalyticsQuarantineRequest,
-    engineeringAnalyticsRunFailureLogs,
     engineeringAnalyticsSources,
     engineeringAnalyticsWorkflowHealth,
 } from '../generated/api'
 import type {
-    BrokenTestRowApi,
     FlakyTestItemClassificationEnumApi,
     GitHubSourceApi,
     PullRequestListItemApi,
-    PushCISampleApi,
     QuarantineRequestApi,
     QuarantineRequestResultApi,
-    RunFailureLogsApi,
 } from '../generated/api.schemas'
 import { CIStatus, ciStatusOf } from '../lib/ci'
 import { type FleetSummary, computeFleetSummary } from '../lib/runHealth'
@@ -91,8 +86,6 @@ export interface PullRequestRow {
     failingWorkflows: string[]
     /** Distinct head SHAs across the PR's workflow runs. Fork PRs unattributed. */
     pushes: number
-    /** Per-push CI rounds oldest first, capped server-side — drives the push-history sparkline. */
-    pushHistory: PushCISampleApi[]
     /** Workflow runs attributed to this PR that were a 2nd+ attempt. */
     rerunCycles: number
     /** Estimated CI cost (USD) over the PR's billable jobs. Null when the job source isn't synced. */
@@ -149,37 +142,6 @@ export interface WorkflowHealthRow {
     successRatePrev?: number | null
 }
 
-export interface WorkflowFailureSeries {
-    completed: number[]
-    failures: number[]
-    labels: string[]
-}
-
-function formatBucket(bucketStart: string, granularity: WorkflowGranularity): string {
-    const at = dayjs(bucketStart)
-    if (granularity === 'hour') {
-        return at.format('MMM D, HH:mm')
-    }
-    if (granularity === 'week') {
-        return `Week of ${at.format('MMM D')}`
-    }
-    return at.format('MMM D')
-}
-
-/** Stacked sparkline series: bar height = completed runs, red portion = decisive failures. */
-export function workflowFailureSeries(
-    buckets: WorkflowHealthBucket[],
-    granularity: WorkflowGranularity
-): WorkflowFailureSeries {
-    const completed = buckets.map((b) => b.completed)
-    const failures = buckets.map((b) => b.failures)
-    const labels = buckets.map((b) => {
-        const when = formatBucket(b.bucketStart, granularity)
-        return b.completed > 0 ? `${when} · ${b.failures} of ${b.completed} failed` : `${when} · no completed runs`
-    })
-    return { completed, failures, labels }
-}
-
 /** 'failing'/'passing' key off the latest settled run; rows with nothing completed show only under 'all'. */
 export type WorkflowStatusFilter = 'all' | 'failing' | 'passing'
 
@@ -229,7 +191,6 @@ export function toPullRequestRow(it: PullRequestListItemApi): PullRequestRow {
         pending: it.ci.pending,
         failingWorkflows: it.ci.failing_workflows ?? [],
         pushes: it.pushes ?? 0,
-        pushHistory: it.push_history ?? [],
         rerunCycles: it.rerun_cycles ?? 0,
         estimatedCostUsd: it.estimated_cost_usd ?? null,
         billableMinutes: it.billable_minutes ?? null,
@@ -478,62 +439,6 @@ export interface FlakyTestsData {
     limit: number
 }
 
-// ── Broken-tests panel ─────────────────────────────────────────────────────────────
-// Live CI failures classified by how each is behaving right now — breaking trunk, novel, resolving,
-// flaky, or one PR's problem — ranked most-urgent first. The classifier and the two cluster reads it
-// merges run server-side in the `broken_tests` product endpoint (logic/queries/broken_tests.py); the
-// UI just renders the typed rows, so there is no client-side HogQL or classifier here any more.
-
-export type BrokenTestState = BrokenTestRowApi['state']
-
-/** A classified CI-failure fingerprint, camelCased from the endpoint row. `trend` is the fixed
- * 24-slot hourly failure count (oldest first) the row sparkline renders. */
-export interface BrokenTestRow {
-    fingerprint: string
-    testId: string
-    errorSignature: string
-    jobName: string
-    repo: string
-    state: BrokenTestState
-    firstSeen: string
-    lastSeen: string
-    occurrences: number
-    branches: number
-    masterHits: number
-    // Most recent failing run for this fingerprint — the anchor the row expansion fetches logs for.
-    latestRunId: number
-    latestBranch: string
-    trend: number[]
-}
-
-export interface BrokenTestsData {
-    rows: BrokenTestRow[]
-    // Default-branch jobs whose latest run is red — drives the panel's summary banner.
-    breakingMasterJobs: string[]
-    windowDays: number
-    truncated: boolean
-    limit: number
-}
-
-function toBrokenTestRow(it: BrokenTestRowApi): BrokenTestRow {
-    return {
-        fingerprint: it.fingerprint,
-        testId: it.test_id,
-        errorSignature: it.error_signature,
-        jobName: it.job_name,
-        repo: it.repo,
-        state: it.state,
-        firstSeen: it.first_seen,
-        lastSeen: it.last_seen,
-        occurrences: it.occurrences,
-        branches: it.branches,
-        masterHits: it.master_hits,
-        latestRunId: it.latest_run_id,
-        latestBranch: it.latest_branch,
-        trend: it.trend_24h ?? [],
-    }
-}
-
 export type QuarantineRequestAction = 'quarantine' | 'extend' | 'remove'
 
 /** What the tab submits to the write endpoint; the backend opens the issue + PR. */
@@ -633,12 +538,6 @@ export interface engineeringAnalyticsLogicValues {
     activeSource: GitHubSourceApi | null
     anyLoading: boolean
     author: string | null
-    breakingMasterJobs: string[]
-    brokenTests: BrokenTestRow[]
-    brokenTestsData: BrokenTestsData | null
-    brokenTestsDataLoading: boolean
-    brokenTestsError: string | null
-    brokenTestsWindowDays: number
     cards: CardsData | null
     cardsLoading: boolean
     cardsStatus: LoaderStatus
@@ -659,7 +558,6 @@ export interface engineeringAnalyticsLogicValues {
     hasActiveQuarantineFilters: boolean
     hasActiveWorkflowFilters: boolean
     hasMultipleSources: boolean
-    hiddenBrokenTestCount: number
     notConnected: boolean
     pullRequests: PullRequestRow[]
     pullRequestsLoadError: boolean
@@ -681,12 +579,9 @@ export interface engineeringAnalyticsLogicValues {
     readyCount: number
     readyOnly: boolean
     repo: string | null
-    runFailureLogsByRun: Record<number, RunFailureLogsApi>
-    runFailureLogsByRunLoading: boolean
     scopeRepo: string | null
     search: string
     selectedScope: string | null
-    showPrOnlyBrokenTests: boolean
     sourceId: string | null
     sourceOptions: {
         label: string
@@ -697,7 +592,6 @@ export interface engineeringAnalyticsLogicValues {
     tableTruncated: boolean
     thrashCount: number
     thrashOnly: boolean
-    visibleBrokenTests: BrokenTestRow[]
     workflowCostAvailable: boolean
     workflowFilters: WorkflowFilters
     workflowHealth: WorkflowHealthRow[]
@@ -718,21 +612,6 @@ export interface engineeringAnalyticsLogicActions {
     }
     closeQuarantineModal: () => {
         value: true
-    }
-    loadBrokenTests: () => any
-    loadBrokenTestsFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadBrokenTestsSuccess: (
-        brokenTestsData: BrokenTestsData,
-        payload?: any
-    ) => {
-        brokenTestsData: BrokenTestsData
-        payload?: any
     }
     loadCards: () => any
     loadCardsFailure: (
@@ -809,27 +688,6 @@ export interface engineeringAnalyticsLogicActions {
         quarantine: QuarantineData
         payload?: any
     }
-    loadRunFailureLogs: ({ runId }: { runId: number }) => {
-        runId: number
-    }
-    loadRunFailureLogsFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadRunFailureLogsSuccess: (
-        runFailureLogsByRun: Record<number, RunFailureLogsApi>,
-        payload?: {
-            runId: number
-        }
-    ) => {
-        runFailureLogsByRun: Record<number, RunFailureLogsApi>
-        payload?: {
-            runId: number
-        }
-    }
     loadWorkflowHealth: () => any
     loadWorkflowHealthFailure: (
         error: string,
@@ -896,9 +754,6 @@ export interface engineeringAnalyticsLogicActions {
     }
     setSearch: (search: string) => {
         search: string
-    }
-    setShowPrOnlyBrokenTests: (show: boolean) => {
-        show: boolean
     }
     setSourceId: (sourceId: string | null) => {
         sourceId: string | null
@@ -1005,11 +860,6 @@ export interface engineeringAnalyticsLogicMeta {
             quarantineModeFilter: QuarantineModeFilter
         ) => QuarantineCard | null
         hasActiveQuarantineFilters: (quarantineFilters: QuarantineFilters) => boolean
-        brokenTests: (brokenTestsData: BrokenTestsData | null) => BrokenTestRow[]
-        breakingMasterJobs: (brokenTestsData: BrokenTestsData | null) => string[]
-        brokenTestsWindowDays: (brokenTestsData: BrokenTestsData | null) => number
-        hiddenBrokenTestCount: (brokenTests: BrokenTestRow[]) => number
-        visibleBrokenTests: (brokenTests: BrokenTestRow[], showPrOnlyBrokenTests: boolean) => BrokenTestRow[]
         hasMultipleSources: (githubSources: GitHubSourceApi[]) => boolean
         activeSource: (
             githubSources: GitHubSourceApi[],
@@ -1069,7 +919,6 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             openQuarantineModal: (state: QuarantineModalState) => ({ state }),
             closeQuarantineModal: true,
             setFlakyTestWindow: (window: FlakyTestWindow) => ({ window }),
-            setShowPrOnlyBrokenTests: (show: boolean) => ({ show }),
             refresh: true,
         }),
 
@@ -1205,47 +1054,6 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                             truncated: data.truncated,
                             limit: data.limit,
                         }
-                    },
-                },
-            ],
-            brokenTestsData: [
-                null as BrokenTestsData | null,
-                {
-                    loadBrokenTests: async (): Promise<BrokenTestsData> => {
-                        const data = await engineeringAnalyticsBrokenTests(projectId(), {
-                            source_id: values.sourceId ?? undefined,
-                            repo: values.scopeRepo ?? undefined,
-                        })
-                        return {
-                            rows: data.rows.map(toBrokenTestRow),
-                            breakingMasterJobs: data.breaking_master_jobs,
-                            windowDays: data.window_days,
-                            truncated: data.truncated,
-                            limit: data.limit,
-                        }
-                    },
-                },
-            ],
-            runFailureLogsByRun: [
-                {} as Record<number, RunFailureLogsApi>,
-                {
-                    loadRunFailureLogs: async ({
-                        runId,
-                    }: {
-                        runId: number
-                    }): Promise<Record<number, RunFailureLogsApi>> => {
-                        // Lazy: fetched when a broken-test row is expanded, cached per run so re-expanding
-                        // is free. Rides the product's own engineering_analytics endpoint (not raw /query/),
-                        // so it authorizes under the same scope the rest of the panel uses.
-                        if (!runId || values.runFailureLogsByRun[runId]) {
-                            return values.runFailureLogsByRun
-                        }
-                        const result = await engineeringAnalyticsRunFailureLogs(projectId(), {
-                            run_id: runId,
-                            source_id: values.sourceId ?? undefined,
-                            repo: values.scopeRepo ?? undefined,
-                        })
-                        return { ...values.runFailureLogsByRun, [runId]: result }
                     },
                 },
             ],
@@ -1388,8 +1196,6 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 DEFAULT_FLAKY_TEST_WINDOW as FlakyTestWindow,
                 { setFlakyTestWindow: (_, { window }) => window },
             ],
-            // Prototype panel hides the low-signal PR-only failures by default.
-            showPrOnlyBrokenTests: [false, { setShowPrOnlyBrokenTests: (_, { show }) => show }],
             // Same tri-state as the other loaders: 'notConnected' (no source) defers to the tab-level
             // "connect a source" gate; only a real 'error' surfaces the queue's own banner.
             flakyTestsStatus: [
@@ -1398,16 +1204,6 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     loadFlakyTests: () => 'ok',
                     loadFlakyTestsSuccess: () => 'ok',
                     loadFlakyTestsFailure: (_, { errorObject }) => loaderStatusFromError(errorObject),
-                },
-            ],
-            // Prototype panel reads two views directly; if either isn't provisioned the query errors,
-            // which the panel surfaces in-place instead of crashing the tab.
-            brokenTestsError: [
-                null as string | null,
-                {
-                    loadBrokenTests: () => null,
-                    loadBrokenTestsSuccess: () => null,
-                    loadBrokenTestsFailure: (_, { error }) => error ?? 'Could not load broken tests.',
                 },
             ],
             quarantineModal: [
@@ -1620,28 +1416,6 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 (filters: QuarantineFilters): boolean =>
                     !objectsEqual({ ...filters, search: filters.search.trim() }, DEFAULT_QUARANTINE_FILTERS),
             ],
-            // Classified rows come pre-ranked from the endpoint (severity, then last_seen desc).
-            brokenTests: [
-                (s) => [s.brokenTestsData],
-                (brokenTestsData: BrokenTestsData | null): BrokenTestRow[] => brokenTestsData?.rows ?? [],
-            ],
-            breakingMasterJobs: [
-                (s) => [s.brokenTestsData],
-                (brokenTestsData: BrokenTestsData | null): string[] => brokenTestsData?.breakingMasterJobs ?? [],
-            ],
-            brokenTestsWindowDays: [
-                (s) => [s.brokenTestsData],
-                (brokenTestsData: BrokenTestsData | null): number => brokenTestsData?.windowDays ?? 2,
-            ],
-            hiddenBrokenTestCount: [
-                (s) => [s.brokenTests],
-                (brokenTests: BrokenTestRow[]): number => brokenTests.filter((row) => row.state === 'pr_only').length,
-            ],
-            visibleBrokenTests: [
-                (s) => [s.brokenTests, s.showPrOnlyBrokenTests],
-                (brokenTests: BrokenTestRow[], showPrOnly: boolean): BrokenTestRow[] =>
-                    showPrOnly ? brokenTests : brokenTests.filter((row) => row.state !== 'pr_only'),
-            ],
             hasMultipleSources: [
                 (s) => [s.githubSources],
                 (githubSources: GitHubSourceApi[]): boolean => githubSources.length > 1,
@@ -1725,7 +1499,6 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 actions.loadWorkflowHealth()
                 actions.loadQuarantine()
                 actions.loadFlakyTests()
-                actions.loadBrokenTests()
             },
             setFlakyTestWindow: () => actions.loadFlakyTests(),
             setSourceId: () => actions.refresh(),

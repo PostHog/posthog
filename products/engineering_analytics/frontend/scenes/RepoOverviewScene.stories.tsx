@@ -8,11 +8,9 @@ import { mswDecorator } from '~/mocks/browser'
 
 import type {
     GitHubSourceApi,
-    MasterFailureGroupApi,
     PullRequestListApi,
     RepoOverviewApi,
     WorkflowHealthItemApi,
-    WorkflowRunActivityApi,
 } from '../generated/api.schemas'
 
 const SOURCES: GitHubSourceApi[] = [{ id: 'src-1', repo: 'PostHog/posthog', prefix: '' }]
@@ -63,20 +61,6 @@ const OVERVIEW: RepoOverviewApi = {
     open_to_merge_series_granularity: 'day',
 }
 
-const ACTIVITY: WorkflowRunActivityApi = {
-    points: [520, 680, 1450, 760, 590, 2100, 830, 640].map((duration, i) => ({
-        run_id: 9000 + i,
-        conclusion: i === 5 ? 'failure' : 'success',
-        run_started_at: `2026-07-01T${String(8 + i * 2).padStart(2, '0')}:00:00Z`,
-        duration_seconds: duration,
-        head_branch: 'master',
-        pr_number: 0,
-        head_sha: `deadbeef${String(i).padStart(2, '0')}`,
-    })),
-    truncated: false,
-    limit: 500,
-}
-
 function healthItem(
     workflowName: string,
     costUsd: number,
@@ -118,49 +102,13 @@ const WORKFLOW_HEALTH: WorkflowHealthItemApi[] = [
     healthItem('Frontend CI', 71.9, [0, 1, 0, 0, 2, 0, 1], 0.95),
 ]
 
-// The latest run recovered, but the 24-hour failure feed still includes the earlier failure. The hero
-// must stay green while the triage section preserves that history.
-const RECENT_FAILURES: MasterFailureGroupApi[] = [
-    {
-        repo: { provider: 'github', owner: 'PostHog', name: 'posthog' },
-        workflow_name: 'Backend CI',
-        failed_job: 'Backend tests',
-        run_count: 1,
-        first_seen: '2026-07-01T12:00:00Z',
-        last_seen: '2026-07-01T12:00:00Z',
-        latest_run_id: 8999,
-    },
-]
-
 const PULL_REQUESTS: PullRequestListApi = {
     items: [
         {
             author: { handle: 'jane-dev', display_name: 'Jane Dev', avatar_url: '', is_bot: false },
             repo: { provider: 'github', owner: 'PostHog', name: 'posthog' },
             ci: { runs: 6, passing: 4, failing: 2, pending: 0, failing_workflows: ['Backend CI', 'E2E - Playwright'] },
-            push_history: [
-                {
-                    head_sha: 'aaa111',
-                    started_at: '2026-06-24T11:00:00Z',
-                    wall_seconds: 1320,
-                    failed: false,
-                    pending: false,
-                },
-                {
-                    head_sha: 'bbb222',
-                    started_at: '2026-06-25T09:30:00Z',
-                    wall_seconds: 1500,
-                    failed: false,
-                    pending: false,
-                },
-                {
-                    head_sha: 'ccc333',
-                    started_at: '2026-06-26T14:00:00Z',
-                    wall_seconds: 1680,
-                    failed: true,
-                    pending: false,
-                },
-            ],
+            push_history: [],
             number: 41231,
             title: 'feat(insights): sticky breakdown legends',
             state: 'open',
@@ -178,29 +126,7 @@ const PULL_REQUESTS: PullRequestListApi = {
             author: { handle: 'sam-eng', display_name: 'Sam Eng', avatar_url: '', is_bot: false },
             repo: { provider: 'github', owner: 'PostHog', name: 'posthog' },
             ci: { runs: 5, passing: 5, failing: 0, pending: 0 },
-            push_history: [
-                {
-                    head_sha: 'ddd444',
-                    started_at: '2026-06-30T09:15:00Z',
-                    wall_seconds: 900,
-                    failed: false,
-                    pending: false,
-                },
-                {
-                    head_sha: 'eee555',
-                    started_at: '2026-06-30T15:00:00Z',
-                    wall_seconds: 1020,
-                    failed: false,
-                    pending: false,
-                },
-                {
-                    head_sha: 'fff666',
-                    started_at: '2026-07-01T08:00:00Z',
-                    wall_seconds: 960,
-                    failed: false,
-                    pending: false,
-                },
-            ],
+            push_history: [],
             number: 41250,
             title: 'fix(cohorts): handle empty cohort in query builder',
             state: 'merged',
@@ -237,14 +163,6 @@ const meta: Meta = {
             get: {
                 'api/projects/:team_id/engineering_analytics/sources/': SOURCES,
                 'api/projects/:team_id/engineering_analytics/repo_overview/': OVERVIEW,
-                'api/projects/:team_id/engineering_analytics/current_branch_health/': {
-                    default_branch: 'master',
-                    settled_workflows: WORKFLOW_HEALTH.length,
-                    failing_workflows: 0,
-                    failing_workflow_names: [],
-                },
-                'api/projects/:team_id/engineering_analytics/master_failures/': RECENT_FAILURES,
-                'api/projects/:team_id/engineering_analytics/repo_run_activity/': ACTIVITY,
                 'api/projects/:team_id/engineering_analytics/ci_cards/': {
                     open_prs: 18,
                     repos: 1,
@@ -264,22 +182,4 @@ type Story = StoryObj<typeof meta>
 export const RepoOverview: Story = {
     render: () => <App />,
     parameters: { pageUrl: urls.engineeringAnalytics() },
-}
-
-// The red verdict: failing workflows drive the danger styling, the names subline, and the jump link.
-export const RepoOverviewFailing: Story = {
-    render: () => <App />,
-    parameters: { pageUrl: urls.engineeringAnalytics() },
-    decorators: [
-        mswDecorator({
-            get: {
-                'api/projects/:team_id/engineering_analytics/current_branch_health/': {
-                    default_branch: 'master',
-                    settled_workflows: WORKFLOW_HEALTH.length,
-                    failing_workflows: 2,
-                    failing_workflow_names: ['Backend CI', 'E2E - Playwright'],
-                },
-            },
-        }),
-    ],
 }

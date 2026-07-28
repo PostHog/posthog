@@ -38,7 +38,6 @@ import {
     engineeringAnalyticsLogic,
     filterPullRequests,
     filterWorkflowHealth,
-    workflowFailureSeries,
     filterQuarantineEntries,
     inferOwnerFromSelector,
     quarantineCountsOf,
@@ -148,7 +147,6 @@ function makePr(overrides: Partial<PullRequestRow> = {}): PullRequestRow {
         pending: 0,
         failingWorkflows: [],
         pushes: 0,
-        pushHistory: [],
         rerunCycles: 0,
         estimatedCostUsd: null,
         billableMinutes: null,
@@ -575,36 +573,6 @@ describe('engineeringAnalyticsLogic', () => {
         logic.actions.resetFilters()
         expect(logic.values.filters).toEqual(DEFAULT_FILTERS)
         expect(logic.values.hasActiveFilters).toBe(false)
-    })
-
-    it.each([
-        // Stacked bar: total height is completed (volume), the red portion is failures, so the red
-        // fraction reads as the rate. Skipped/cancelled/action_required are completed but not failures.
-        [
-            'a bad day stacks failures over completed',
-            { completed: 25, successes: 22, failures: 3 },
-            25,
-            3,
-            'Jun 5 · 3 of 25 failed',
-        ],
-        ['an all-green day has no red', { completed: 25, successes: 25, failures: 0 }, 25, 0, 'Jun 5 · 0 of 25 failed'],
-        [
-            'skipped/cancelled runs are not failures',
-            { completed: 25, successes: 20, failures: 0 },
-            25,
-            0,
-            'Jun 5 · 0 of 25 failed',
-        ],
-        [
-            'a bucket with nothing completed is empty',
-            { completed: 0, successes: 0, failures: 0 },
-            0,
-            0,
-            'Jun 5 · no completed runs',
-        ],
-    ])('workflowFailureSeries: %s', (_label, counts, completed, failures, label) => {
-        const series = workflowFailureSeries([{ bucketStart: '2026-06-05', runCount: 30, ...counts }], 'day')
-        expect(series).toEqual({ completed: [completed], failures: [failures], labels: [label] })
     })
 
     it('summarizeLifecycle rolls events up into milestones and verdicts', () => {

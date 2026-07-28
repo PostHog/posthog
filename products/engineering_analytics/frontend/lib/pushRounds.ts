@@ -2,7 +2,6 @@
 // Mirrors the backend's push-history rule (pull_request_list.py): the latest run per workflow
 // decides the verdict; wall time is the earliest run start → the latest completed run end.
 
-import type { PushCISampleApi } from '../generated/api.schemas'
 import { WorkflowRun, isDecisiveFailure } from './lifecycle'
 import { VERDICT_COLOR } from './runStatus'
 
@@ -13,16 +12,6 @@ export interface PushRound {
     wallSeconds: number | null
     failed: boolean
     pending: boolean
-}
-
-export function pushRoundFromSample(sample: PushCISampleApi): PushRound {
-    return {
-        headSha: sample.head_sha,
-        startedAt: sample.started_at,
-        wallSeconds: sample.wall_seconds,
-        failed: sample.failed,
-        pending: sample.pending,
-    }
 }
 
 /** Collapse one push's runs into a round, client-side (the PR page already has the runs). */
