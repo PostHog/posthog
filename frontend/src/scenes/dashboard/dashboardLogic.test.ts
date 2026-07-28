@@ -624,35 +624,18 @@ describe('dashboardLogic', () => {
             })
 
             await expectLogic(logic, () => {
-                dashboardsModel.actions.updateDashboardInsight(
-                    withBreakdownQuery(firstInsight, ['Chrome', 'Firefox'])
-                )
-                dashboardsModel.actions.updateDashboardInsight(withBreakdownQuery(secondInsight, ['Chrome']))
-            }).toFinishAllListeners()
-
-            jest.spyOn(api, 'update')
-
-            // persist the shared value's auto entry
-            await expectLogic(logic, () => {
-                logic.actions.saveEditModeChanges()
-            }).toFinishAllListeners()
-            expect(api.update).toHaveBeenCalledWith(
-                `api/environments/${MOCK_TEAM_ID}/dashboards/5`,
-                expect.objectContaining({
-                    breakdown_colors: [
-                        expect.objectContaining({ breakdownValue: 'Chrome', colorToken: 'preset-1', source: 'auto' }),
-                    ],
-                })
-            )
-
-            // the save response resets tiles to the mock originals, so restore the loaded tile and
-            // put the other into the state a failed refresh leaves behind: a breakdown query whose
-            // insight never got results, while itemsLoading settles back to false
-            await expectLogic(logic, () => {
-                dashboardsModel.actions.updateDashboardInsight(
-                    withBreakdownQuery(firstInsight, ['Chrome', 'Firefox'])
-                )
+                // one loaded tile showing the value, one in the state a failed refresh leaves
+                // behind: a breakdown query whose insight never got results, while itemsLoading
+                // settles back to false
+                dashboardsModel.actions.updateDashboardInsight(withBreakdownQuery(firstInsight, ['Chrome', 'Firefox']))
                 dashboardsModel.actions.updateDashboardInsight(withBreakdownQuery(secondInsight, null))
+                // the auto entry an earlier save materialized while both tiles shared 'Chrome'
+                logic.actions.setBreakdownColorConfig({
+                    breakdownValue: 'Chrome',
+                    breakdownType: 'event',
+                    colorToken: 'preset-1',
+                    source: 'auto',
+                })
             }).toFinishAllListeners()
 
             expect(logic.values.itemsLoading).toBe(false)
@@ -661,13 +644,21 @@ describe('dashboardLogic', () => {
                 expect.objectContaining({ breakdownValue: 'Chrome', colorToken: 'preset-1', source: 'auto' })
             )
 
-            jest.mocked(api.update).mockClear()
+            jest.spyOn(api, 'update')
 
-            // saving in this state must not persist the loss of the entry either
             await expectLogic(logic, () => {
                 logic.actions.saveEditModeChanges()
             }).toFinishAllListeners()
-            expect(api.update).not.toHaveBeenCalled()
+
+            // the entry survives the save instead of being pruned from the partial tile set
+            expect(api.update).toHaveBeenCalledWith(
+                `api/environments/${MOCK_TEAM_ID}/dashboards/5`,
+                expect.objectContaining({
+                    breakdown_colors: [
+                        expect.objectContaining({ breakdownValue: 'Chrome', colorToken: 'preset-1', source: 'auto' }),
+                    ],
+                })
+            )
         })
 
         it('saving after theme change calls api', async () => {
