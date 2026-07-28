@@ -2097,6 +2097,13 @@ class TestDesktopFileSystemSurface(APIBaseTest):
         # Both the leaf and the auto-created parent folder are stamped "desktop".
         self.assertEqual(surfaces, {"desktop"})
 
+    def test_desktop_list_returns_creator(self):
+        self.client.post(self.desktop_url, {"path": "Folder/Item", "type": "doc"})
+
+        [item] = [item for item in self.client.get(self.desktop_url).json()["results"] if item["type"] == "doc"]
+
+        self.assertEqual(item["created_by"]["uuid"], str(self.user.uuid))
+
     def test_legacy_null_rows_appear_on_web_route_only(self):
         FileSystem.objects.create(team=self.team, path="Legacy", type="doc", surface=None, created_by=self.user)
 
