@@ -8,7 +8,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { mcpAnalyticsOnboardingLogic } from '../mcpAnalyticsOnboardingLogic'
-import { MCP_ANALYTICS_DOCS_URL, MCPListeningIndicator } from '../onboarding/MCPAnalyticsInstall'
+import { MCP_ANALYTICS_DOCS_URL, MCPOnboardingLiveStatus } from '../onboarding/MCPAnalyticsInstall'
 import { MCPToolCallPreview } from './MCPToolCallPreview'
 
 const HedgehogRoboHog = pngHoggie(roboHogPng)
@@ -41,6 +41,6 @@ export const mcpAnalyticsEmptyState: SceneProductEmptyState = {
         manualSetupUrl: 'https://posthog.com/docs/mcp-analytics/installation',
         previewLabel: 'Tool calls, once connected',
         Preview: MCPToolCallPreview,
-        statusIndicator: <MCPListeningIndicator />,
+        statusIndicator: <MCPOnboardingLiveStatus />,
     },
 }
