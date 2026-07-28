@@ -148,7 +148,17 @@ export function cloudProgress(
 ): InstallationProgress {
     let phase: InstallationPhase
     let stalledError: { title: string; detail: string | null } | null = null
-    if (!taskRunState) {
+    if (!taskRunState && isStalled) {
+        // The stream never delivered any run state (deleted or access-revoked run, a stream that
+        // stayed silent past taskRunStreamLogic's no-state window). `idle` renders as a spinner with
+        // no way out, so surface the dead end: the error phase carries the retry CTAs and the
+        // dismiss control.
+        phase = 'error'
+        stalledError = {
+            title: 'Setup lost contact',
+            detail: 'We stopped hearing back from this run. Run the wizard yourself, or dismiss it and start over.',
+        }
+    } else if (!taskRunState) {
         phase = taskConnectionStatus === 'connecting' ? 'connecting' : 'idle'
     } else if (taskRunState.status === 'queued' && isStalled) {
         // The run never left the queue (see taskRunStreamLogic's stall timer) — nothing is actually

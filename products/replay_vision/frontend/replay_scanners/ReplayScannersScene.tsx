@@ -38,7 +38,7 @@ import { IngestionLimitBanner } from '../components/IngestionLimitBanner'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
 import { getReplayVisionDeleteDisabledReason, getReplayVisionEditDisabledReason } from '../utils/accessControl'
-import { formatCredits } from '../utils/credits'
+import { creditsToUsd, formatCreditCount } from '../utils/credits'
 import { VisionMetrics } from './components/VisionMetrics'
 import { VisionUsageTab } from './components/VisionUsageTab'
 import { type ScannersSorting, SCANNERS_PAGE_SIZE, replayScannersLogic } from './replayScannersLogic'
@@ -203,7 +203,10 @@ export function ReplayScannersScene(): JSX.Element {
             title: 'Spend this period',
             key: 'credits_this_month',
             render: (_, scanner) => (
-                <span className="text-sm tabular-nums">{formatCredits(scanner.credits_this_month)}</span>
+                <div className="text-sm tabular-nums">
+                    <div>{formatCreditCount(scanner.credits_this_month)}</div>
+                    <div className="text-muted text-xs">≈ {creditsToUsd(scanner.credits_this_month)}</div>
+                </div>
             ),
             sorter: true,
         },

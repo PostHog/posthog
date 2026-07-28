@@ -1,9 +1,10 @@
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use etcd_client::{EventType, WatchStream};
+use metrics::{counter, gauge, histogram};
 use tokio::sync::{Mutex, Notify};
 use tokio_util::sync::CancellationToken;
 
@@ -506,7 +507,10 @@ impl PodHandle {
             DesiredState::Serving => {
                 if !self.warmed_partitions.lock().await.contains(&partition) {
                     tracing::info!(pod, partition, "converging to Serving: warming");
+                    let start = Instant::now();
                     self.handler.warm_partition(partition).await?;
+                    histogram!("personhog_coordination_partition_warm_ms", "trigger" => "restart")
+                        .record(start.elapsed().as_secs_f64() * 1000.0);
                     self.warmed_partitions.lock().await.insert(partition);
                 } else if self.fenced_partitions.lock().await.contains(&partition) {
                     tracing::info!(pod, partition, "converging to Serving: resuming writes");
@@ -521,10 +525,19 @@ impl PodHandle {
                 // waits for is meaningful. The produce path awaits Kafka
                 // delivery before returning, so "no inflight handlers"
                 // implies "every acked write is durable in Kafka."
-                if !self.fenced_partitions.lock().await.contains(&partition) {
+                let newly_fencing = !self.fenced_partitions.lock().await.contains(&partition);
+                if newly_fencing {
                     tracing::info!(pod, partition, "converging to Drained: fencing + draining");
                 }
+                let start = Instant::now();
                 self.handler.drain_partition_inflight(partition).await?;
+                if newly_fencing {
+                    // Only the first convergence does a real drain wait;
+                    // later re-convergences are no-ops that would bury the
+                    // signal in near-zero samples.
+                    histogram!("personhog_coordination_partition_drain_ms")
+                        .record(start.elapsed().as_secs_f64() * 1000.0);
+                }
                 self.fenced_partitions.lock().await.insert(partition);
                 if ack {
                     let handoff = handoff.expect("Drained state only derives from a handoff");
@@ -542,7 +555,10 @@ impl PodHandle {
             DesiredState::Acquiring => {
                 if !self.warmed_partitions.lock().await.contains(&partition) {
                     tracing::info!(pod, partition, "converging to Acquiring: warming");
+                    let start = Instant::now();
                     self.handler.warm_partition(partition).await?;
+                    histogram!("personhog_coordination_partition_warm_ms", "trigger" => "handoff")
+                        .record(start.elapsed().as_secs_f64() * 1000.0);
                     self.warmed_partitions.lock().await.insert(partition);
                 }
                 self.fenced_partitions.lock().await.remove(&partition);
@@ -563,10 +579,14 @@ impl PodHandle {
                 if was_warmed || was_fenced {
                     tracing::info!(pod, partition, "converging to Released: releasing");
                     self.handler.release_partition(partition).await?;
+                    counter!("personhog_coordination_partition_releases_total").increment(1);
                     self.drain_notify.notify_one();
                 }
             }
         }
+
+        gauge!("personhog_coordination_partitions_held")
+            .set(self.held_partition_count().await as f64);
 
         Ok(())
     }
@@ -631,6 +651,9 @@ mod tests {
             phase,
             started_at: 0,
             handoff_id: "h-test".to_string(),
+            freeze_quorum: None,
+            created_at_ms: 0,
+            phase_entered_at_ms: 0,
             new_owner_address: None,
         }
     }
