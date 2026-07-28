@@ -200,8 +200,10 @@ class QuickActionSerializer(serializers.ModelSerializer):
         ):
             raise serializers.ValidationError({"workflow_id": "You don't have access to that workflow."})
 
-        # Only the creator may turn a shared team quick action personal — otherwise a teammate's
-        # edit would make it vanish for everyone else (and the editor), with no way to reach it again.
+        # A non-creator can already delete a shared quick action or clear its body, so this isn't
+        # locking down the content. It blocks the one route with no signal: flipping team -> personal
+        # removes the row from everyone else's picker while it still exists, unreachable, with nothing
+        # to show it happened. Delete is explicit; a silent demotion isn't.
         if (
             instance is not None
             and attrs.get("visibility") == QuickActionVisibility.PERSONAL
