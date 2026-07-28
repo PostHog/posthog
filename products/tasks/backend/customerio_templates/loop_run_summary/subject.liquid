@@ -1,0 +1,1 @@
+{{ trigger.event_title | replace: '&quot;', '"' | replace: '&#x27;', "'" | replace: '&lt;', '<' | replace: '&gt;', '>' | replace: '&amp;', '&' | default: "Loop update" }}
