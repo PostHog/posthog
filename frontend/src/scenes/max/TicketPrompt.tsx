@@ -8,11 +8,7 @@ import { SupportTicketTargetArea, supportLogic } from 'lib/components/Support/su
 import { userLogic } from 'scenes/userLogic'
 
 import { maxThreadLogic } from './maxThreadLogic'
-import { appendTicketMetadata, composeTicketBody } from './ticketUtils'
-
-function formatConfirmationMessage(ticketId: string): string {
-    return `I've created a support ticket for you.\nYour ticket ID is #${ticketId}.\nOur support team will get back to you soon!`
-}
+import { appendTicketMetadata, composeTicketBody, formatTicketConfirmationMessage } from './ticketUtils'
 
 interface TicketPromptProps {
     conversationId: string
@@ -43,7 +39,7 @@ export function TicketPrompt({
     const [hasSubmitted, setHasSubmitted] = useState(false)
     const [isSupportModalOpen, setIsSupportModalOpen] = useState(false)
 
-    const { sendSupportRequest, conversationsFlagEnabled } = useValues(supportLogic)
+    const { sendSupportRequest, conversationsFlagEnabled, supportResponseTime } = useValues(supportLogic)
     const { resetSendSupportRequest, closeSupportForm } = useActions(supportLogic)
     const { appendMessageToConversation } = useActions(maxThreadLogic)
     const { user } = useValues(userLogic)
@@ -52,7 +48,7 @@ export function TicketPrompt({
 
     function handleTicketCreated(ticketId: string): void {
         // Persist the confirmation message and add it to the thread
-        const confirmationMessage = formatConfirmationMessage(ticketId)
+        const confirmationMessage = formatTicketConfirmationMessage(ticketId, supportResponseTime)
         appendMessageToConversation(confirmationMessage)
 
         submitInFlightRef.current = false
