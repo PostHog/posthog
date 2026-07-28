@@ -2,11 +2,12 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ReactNode, useState } from 'react'
 
-import { IconCheck, IconGraph, IconPlay, IconRefresh, IconServer, IconTrash } from '@posthog/icons'
+import { IconCheck, IconGraph, IconPencil, IconPlay, IconRefresh, IconServer, IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonTag } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { NotFound } from 'lib/components/NotFound'
+import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -260,17 +261,13 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
                     editingDefinition={editingDefinition}
                     draftMarkdown={draftMarkdown}
                     saving={mutating}
+                    runResult={runResult}
+                    runResultLoading={runResultLoading}
                     onDraftMarkdown={setDraftMarkdown}
                     onEdit={setEditingDefinition}
                     onSaveMarkdown={(markdown) =>
                         confirmAndUpdate({ definition: { kind: 'MarkdownDefinition', markdown } })
                     }
-                />
-
-                <MetricRunSection
-                    metric={metric}
-                    runResult={runResult}
-                    loading={runResultLoading}
                     onRun={loadRunResult}
                 />
             </SceneContent>
@@ -335,8 +332,14 @@ function MetricMetadata({
             <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm max-w-2xl">
                 <MetadataItem label="Owner" value={metric.owner || 'Unassigned'} />
                 <MetadataItem label="Approved by" value={metric.approved_by?.email || 'Not approved'} />
-                <MetadataItem label="Approved at" value={metric.approved_at || 'Not approved'} />
-                <MetadataItem label="Last run" value={metric.last_run_at || 'Never'} />
+                <MetadataItem
+                    label="Approved at"
+                    value={metric.approved_at ? <TZLabel time={metric.approved_at} /> : 'Not approved'}
+                />
+                <MetadataItem
+                    label="Last run"
+                    value={metric.last_run_at ? <TZLabel time={metric.last_run_at} /> : 'Never'}
+                />
                 {referencedTables.length > 0 && (
                     <div className="flex flex-col gap-1">
                         <span className="text-secondary">Referenced tables</span>
@@ -374,7 +377,7 @@ function MetricMetadata({
     )
 }
 
-function MetadataItem({ label, value }: { label: string; value: string }): JSX.Element {
+function MetadataItem({ label, value }: { label: string; value: ReactNode }): JSX.Element {
     return (
         <div className="flex flex-col">
             <span className="text-secondary">{label}</span>
@@ -407,34 +410,57 @@ function MetricDefinition({
     editingDefinition,
     draftMarkdown,
     saving,
+    runResult,
+    runResultLoading,
     onDraftMarkdown,
     onEdit,
     onSaveMarkdown,
+    onRun,
 }: {
     metric: DataCatalogMetricApi
     editingDefinition: boolean
     draftMarkdown: string
     saving: boolean
+    runResult: DataCatalogMetricRunResult | null
+    runResultLoading: boolean
     onDraftMarkdown: (value: string) => void
     onEdit: (editing: boolean) => void
     onSaveMarkdown: (markdown: string) => void
+    onRun: () => void
 }): JSX.Element {
     const kind = metric.definition_kind
     const sql = definitionField(metric, 'query')
+
+    const runButton = (
+        <LemonButton
+            type="primary"
+            size="small"
+            icon={<IconPlay />}
+            loading={runResultLoading}
+            disabledReason={kind ? undefined : 'This metric has no runnable definition yet'}
+            onClick={onRun}
+        >
+            Run metric
+        </LemonButton>
+    )
+    const results = runResult ? <RunResult runResult={runResult} /> : null
 
     if (kind === 'HogQLQuery') {
         return (
             <Section title="Definition">
                 <CodeSnippet language={Language.SQL}>{sql}</CodeSnippet>
-                <div>
+                <div className="flex gap-2">
+                    {runButton}
                     <LemonButton
                         type="secondary"
                         size="small"
+                        icon={<IconServer />}
                         to={urls.sqlEditor({ query: sql, source: 'metric', metricName: metric.name })}
                     >
                         Open in SQL editor
                     </LemonButton>
                 </div>
+                {results}
             </Section>
         )
     }
@@ -462,9 +488,18 @@ function MetricDefinition({
                 ) : (
                     <>
                         <LemonMarkdown>{definitionField(metric, 'markdown') || '_No instructions yet._'}</LemonMarkdown>
-                        <LemonButton type="secondary" size="small" onClick={() => onEdit(true)}>
-                            Edit
-                        </LemonButton>
+                        <div className="flex gap-2">
+                            {runButton}
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconPencil />}
+                                onClick={() => onEdit(true)}
+                            >
+                                Edit
+                            </LemonButton>
+                        </div>
+                        {results}
                     </>
                 )}
             </Section>
@@ -503,47 +538,20 @@ function MetricDefinition({
             <p className="text-secondary">
                 This metric is derived from an insight. Edit the query in the insight, then refresh the metric.
             </p>
-            {metric.source_insight_short_id && (
-                <div>
+            <div className="flex gap-2">
+                {runButton}
+                {metric.source_insight_short_id && (
                     <LemonButton
                         type="secondary"
                         size="small"
+                        icon={<IconGraph />}
                         to={urls.insightView(metric.source_insight_short_id as InsightShortId)}
                     >
                         View source insight
                     </LemonButton>
-                </div>
-            )}
-        </Section>
-    )
-}
-
-function MetricRunSection({
-    metric,
-    runResult,
-    loading,
-    onRun,
-}: {
-    metric: DataCatalogMetricApi
-    runResult: DataCatalogMetricRunResult | null
-    loading: boolean
-    onRun: () => void
-}): JSX.Element {
-    return (
-        <Section title="Run">
-            <div>
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    icon={<IconPlay />}
-                    loading={loading}
-                    disabledReason={metric.definition_kind ? undefined : 'This metric has no runnable definition yet'}
-                    onClick={onRun}
-                >
-                    Run metric
-                </LemonButton>
+                )}
             </div>
-            {runResult && <RunResult runResult={runResult} />}
+            {results}
         </Section>
     )
 }
