@@ -1,6 +1,8 @@
 import { LemonCheckbox, LemonDialog } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { shortTimeZone } from 'lib/utils/timezones'
 
 import { Experiment } from '~/types'
 
@@ -103,6 +105,52 @@ export function confirmUnfreezeExposure(onConfirm: () => Promise<void>): void {
             children: 'Unfreeze exposure',
             type: 'primary',
             onClick: () => onConfirm(),
+            size: 'small',
+        },
+        secondaryButton: {
+            children: 'Cancel',
+            type: 'tertiary',
+            size: 'small',
+        },
+    })
+}
+
+/** Confirm editing the start or end date of a launched experiment. Both dates bound the analysis
+ * window, so moving either changes which participants and events are counted. Dates are shown in the
+ * project timezone (where the backend calculates results) to avoid device-vs-project ambiguity. */
+export function confirmChangeExperimentDate(opts: {
+    type: 'start' | 'end'
+    newDate: string
+    timezone: string
+    onConfirm: () => void
+}): void {
+    const { type, newDate, timezone, onConfirm } = opts
+    const tzAbbreviation = shortTimeZone(timezone, dayjs(newDate).toDate()) ?? timezone
+    const formattedDate = dayjs(newDate).tz(timezone).format('MMM DD, YYYY, hh:mm A')
+
+    LemonDialog.open({
+        title: type === 'start' ? 'Change start date?' : 'Change end date?',
+        content: (
+            <div className="text-sm text-secondary max-w-md">
+                <p>
+                    The {type} date bounds which participants and events are counted, so your results will shift.
+                    {type === 'start'
+                        ? ' Anyone first exposed before the new start date is no longer included.'
+                        : ' Anyone first exposed after the new end date is no longer included.'}
+                </p>
+                <p className="mb-0">
+                    New {type} date:{' '}
+                    <b>
+                        {formattedDate} {tzAbbreviation}
+                    </b>{' '}
+                    (project timezone)
+                </p>
+            </div>
+        ),
+        primaryButton: {
+            children: type === 'start' ? 'Change start date' : 'Change end date',
+            type: 'primary',
+            onClick: onConfirm,
             size: 'small',
         },
         secondaryButton: {
