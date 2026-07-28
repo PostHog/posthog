@@ -6,6 +6,7 @@ API clients.
 """
 
 from datetime import timedelta
+from typing import Any
 
 from django.conf import settings
 
@@ -29,6 +30,23 @@ logger = structlog.get_logger(__name__)
 RENDER_TIMEOUT = timedelta(seconds=90)
 
 
+# A static PNG has no hover tooltips, so a multi-series chart is unreadable without a
+# legend. The exporter frontend still skips the legend for display types without one.
+def _enable_legend_for_multi_series(query: Any) -> None:
+    if not isinstance(query, dict) or query.get("kind") != "InsightVizNode":
+        return
+    source = query.get("source")
+    if not isinstance(source, dict) or source.get("kind") != "TrendsQuery":
+        return
+    series = source.get("series")
+    multi_series = (isinstance(series, list) and len(series) > 1) or bool(source.get("breakdownFilter"))
+    if not multi_series:
+        return
+    trends_filter = source.setdefault("trendsFilter", {})
+    if isinstance(trends_filter, dict):
+        trends_filter.setdefault("showLegend", True)
+
+
 def render_png_export(
     *,
     team: Team,
@@ -43,6 +61,8 @@ def render_png_export(
     """
     if (export_context is None) == (insight_id is None):
         raise ValueError("Provide exactly one of export_context or insight_id")
+    if export_context is not None:
+        _enable_legend_for_multi_series(export_context.get("source"))
     if insight_id is not None:
         insight = Insight.objects.filter(id=insight_id, team_id=team.id, deleted=False).first()
         # Object-level access matters here: created_by may not be allowed to view the insight.
