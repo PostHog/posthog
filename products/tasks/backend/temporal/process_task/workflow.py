@@ -191,6 +191,8 @@ from products.tasks.backend.temporal.constants import (  # noqa: E402
     MAX_CI_REPETITIONS,
     PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS,
     RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
+    RUN_WIZARD_START_TO_CLOSE_TIMEOUT,
+    SEND_FOLLOWUP_START_TO_CLOSE_TIMEOUT,
     SEND_STEER_SIGNAL,
     STEERING_PROTOCOL_QUERY,
     STEERING_PROTOCOL_VERSION,
@@ -1381,9 +1383,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 sandbox_id=sandbox_output.sandbox_id,
                 repository=repository,
             ),
-            # Above WIZARD_RUN_TIMEOUT_SECONDS (45 min) so the wizard's own timeout bounds the run;
-            # the headroom covers the sandbox lookup and writing the output log.
-            start_to_close_timeout=timedelta(minutes=50),
+            start_to_close_timeout=RUN_WIZARD_START_TO_CLOSE_TIMEOUT,
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
         await self._emit_progress("wizard", "completed", "Ran PostHog setup wizard", "setup")
@@ -2111,7 +2111,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     context=context,
                     steer=steer,
                 ),
-                start_to_close_timeout=timedelta(minutes=35),
+                start_to_close_timeout=SEND_FOLLOWUP_START_TO_CLOSE_TIMEOUT,
                 # The activity heartbeats while blocked on the sync delivery
                 # call, so a worker restart is detected here instead of at
                 # start_to_close. Retries are safe: message_id lets the

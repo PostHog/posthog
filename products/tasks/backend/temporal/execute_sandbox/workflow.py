@@ -30,6 +30,7 @@ from products.tasks.backend.temporal.constants import (
     OUTBOUND_RETRY_BACKOFF,
     PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS,
     RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
+    SEND_FOLLOWUP_START_TO_CLOSE_TIMEOUT,
     SEND_STEER_SIGNAL,
     STEERING_PROTOCOL_QUERY,
     STEERING_PROTOCOL_VERSION,
@@ -1442,7 +1443,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 context=message_context if isinstance(message_context, dict) else {},
                 steer=steer,
             ),
-            start_to_close_timeout=timedelta(minutes=35),
+            start_to_close_timeout=SEND_FOLLOWUP_START_TO_CLOSE_TIMEOUT,
             # See process_task: heartbeat detects worker restarts, message_id
             # makes redelivery idempotent, sentinel failures are non-retryable.
             heartbeat_timeout=timedelta(minutes=1),
