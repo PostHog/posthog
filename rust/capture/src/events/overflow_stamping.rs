@@ -102,12 +102,10 @@ pub fn stamp_overflow_reason(
                 .increment(1);
                 event.metadata.overflow_reason = Some(OverflowReason::ForceLimited);
                 // Self-describing metadata: ForceLimited implies person
-                // processing is skipped. Pre-refactor the sink inferred this
-                // from the limiter result; now we stamp it alongside the
-                // reason so the sink's generic skip-person path handles it
-                // uniformly. Kafka output is byte-identical — the sink's
-                // ForceLimited arm still sets the header redundantly as
-                // defense against a future caller stamping reason-only.
+                // processing is skipped, so the flag is stamped alongside the
+                // reason. The sink derives the person-processing header from
+                // this flag alone — a reason stamped without it would keep
+                // person processing on.
                 event.metadata.skip_person_processing = true;
             }
             OverflowLimiterResult::Limited => {
