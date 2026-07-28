@@ -166,7 +166,7 @@ const batchExportsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/data-pipelines/destinations')
+        return await withPostHogUrl(context, filtered, '/data-management/destinations')
     },
 })
 

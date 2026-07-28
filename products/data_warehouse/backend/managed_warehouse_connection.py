@@ -153,24 +153,37 @@ def _ensure_managed_source_locked(
     )
 
 
+def _membership_table_suffix(*, team_id: int, organization_id: str | UUID) -> str:
+    """The team's warehouse table suffix from its duckgres control-plane row.
+
+    Raises RuntimeError when the control plane can't answer (callers treat that like the
+    reader handshake being unavailable and retry on a later sweep) and ValueError when the
+    team has no backfill-enabled row or sits on the legacy shared tables — neither can be
+    exposed as a per-project query connection.
+    """
+    from posthog.ducklake import cp_teams, team_state  # noqa: PLC0415 — keeps duckdb off this module's import path
+
+    teams = cp_teams.list_org_teams(str(organization_id))
+    if teams is None:
+        raise RuntimeError("The managed warehouse control plane is unreachable")
+    row = next((team for team in teams if team.team_id == team_id), None)
+    if row is None or not row.backfill_enabled:
+        raise ValueError("The team has not joined this managed warehouse")
+    table_suffix = team_state.cp_table_suffix(row)
+    if not table_suffix:
+        raise ValueError("Legacy shared managed warehouse tables cannot be exposed as a query connection")
+    return table_suffix
+
+
 def ensure_managed_warehouse_direct_source(*, team_id: int, organization_id: str | UUID) -> ExternalDataSource:
     """Create or refresh the team's restricted live-query source from its membership."""
-    from posthog.ducklake.models import DuckgresServer, DuckgresServerTeam  # noqa: PLC0415
+    from posthog.ducklake.models import DuckgresServer  # noqa: PLC0415
+
+    table_suffix = _membership_table_suffix(team_id=team_id, organization_id=organization_id)
 
     with transaction.atomic():
         server = DuckgresServer.objects.select_for_update().get(organization_id=organization_id)
         Team.objects.select_for_update().only("id").get(id=team_id, organization_id=organization_id)
-        membership = (
-            DuckgresServerTeam.objects.select_for_update()
-            .filter(server=server, team_id=team_id, backfill_enabled=True)
-            .values("table_suffix")
-            .first()
-        )
-        if membership is None:
-            raise ValueError("The team has not joined this managed warehouse")
-        table_suffix = membership["table_suffix"]
-        if not table_suffix:
-            raise ValueError("Legacy shared managed warehouse tables cannot be exposed as a query connection")
 
         existing = _managed_source_queryset(team_id).select_for_update().filter(deleted=False).first()
         existing_metadata = existing.connection_metadata if existing is not None else None
@@ -217,16 +230,8 @@ def ensure_managed_warehouse_direct_source(*, team_id: int, organization_id: str
         raise RuntimeError("Managed warehouse reader credentials did not match the requested credentials")
 
     with transaction.atomic():
-        server = DuckgresServer.objects.select_for_update().get(organization_id=organization_id)
+        DuckgresServer.objects.select_for_update().get(organization_id=organization_id)
         Team.objects.select_for_update().only("id").get(id=team_id, organization_id=organization_id)
-        membership_exists = DuckgresServerTeam.objects.select_for_update().filter(
-            server=server,
-            team_id=team_id,
-            backfill_enabled=True,
-            table_suffix=table_suffix,
-        )
-        if not membership_exists.exists():
-            raise ValueError("The team has not joined this managed warehouse")
         source = _managed_source_queryset(team_id).select_for_update().filter(id=source_id, deleted=False).first()
         if source is None or not isinstance(source.job_inputs, dict):
             raise RuntimeError("Managed warehouse query source changed while its reader was configured")
@@ -241,7 +246,7 @@ def ensure_managed_warehouse_direct_source(*, team_id: int, organization_id: str
 
 def reconcile_managed_warehouse_tables(*, team_id: int, organization_id: str | UUID) -> None:
     """Discover and register only this team's managed-warehouse tables."""
-    from posthog.ducklake.models import DuckgresServer, DuckgresServerTeam  # noqa: PLC0415
+    from posthog.ducklake.models import DuckgresServer  # noqa: PLC0415
 
     try:
         ensure_managed_warehouse_direct_source(team_id=team_id, organization_id=organization_id)
@@ -259,24 +264,6 @@ def reconcile_managed_warehouse_tables(*, team_id: int, organization_id: str | U
         if server is None or team is None:
             return
 
-        membership_data = (
-            DuckgresServerTeam.objects.select_for_update()
-            .filter(
-                server=server,
-                team_id=team_id,
-                team__organization_id=organization_id,
-                backfill_enabled=True,
-            )
-            .values("table_suffix")
-            .first()
-        )
-        if membership_data is None:
-            return
-
-        table_suffix = membership_data["table_suffix"]
-        if not table_suffix:
-            # Legacy tables are shared across teams and require a team_id predicate that direct HogQL cannot enforce.
-            return
         source = _managed_source_queryset(team_id).select_for_update().filter(deleted=False).first()
         if source is None:
             return
@@ -314,22 +301,11 @@ def reconcile_managed_warehouse_tables(*, team_id: int, organization_id: str | U
         return
 
     with transaction.atomic():
-        # Revalidate after live introspection so deprovision or membership removal wins the race.
+        # Revalidate after live introspection so deprovision wins the race.
         server = DuckgresServer.objects.select_for_update().filter(organization_id=organization_id).first()
         team = Team.objects.select_for_update().only("id").filter(id=team_id, organization_id=organization_id).first()
         if server is None or team is None:
             return
-        membership = (
-            DuckgresServerTeam.objects.select_for_update()
-            .filter(
-                server=server,
-                team_id=team_id,
-                team__organization_id=organization_id,
-                table_suffix=table_suffix,
-                backfill_enabled=True,
-            )
-            .first()
-        )
         source = (
             _managed_source_queryset(team_id)
             .select_for_update()
@@ -341,7 +317,7 @@ def reconcile_managed_warehouse_tables(*, team_id: int, organization_id: str | U
             )
             .first()
         )
-        if membership is None or source is None:
+        if source is None:
             return
 
         for schema in source_schemas:
@@ -380,14 +356,17 @@ def update_managed_warehouse_root_password(*, organization_id: str | UUID, passw
 
 
 def soft_delete_managed_warehouse_sources(*, organization_id: str | UUID) -> None:
-    """Atomically tombstone the organization's managed query sources on deprovision."""
-    from posthog.ducklake.models import DuckgresServer, DuckgresServerTeam  # noqa: PLC0415
+    """Atomically tombstone the organization's managed query sources on deprovision.
+
+    Per-team state needs no disabling here: deprovisioning removes the org's team rows
+    from the duckgres control plane, which is the read source for membership.
+    """
+    from posthog.ducklake.models import DuckgresServer  # noqa: PLC0415
 
     now = timezone.now()
     with transaction.atomic():
         DuckgresServer.objects.select_for_update().filter(organization_id=organization_id).first()
         sources = list(_managed_sources_for_org(organization_id).select_for_update().order_by("team_id"))
-        DuckgresServerTeam.objects.filter(server__organization_id=organization_id).update(backfill_enabled=False)
         DataWarehouseTable.raw_objects.filter(
             external_data_source_id__in=[source.id for source in sources], deleted=False
         ).update(deleted=True, deleted_at=now, updated_at=now)

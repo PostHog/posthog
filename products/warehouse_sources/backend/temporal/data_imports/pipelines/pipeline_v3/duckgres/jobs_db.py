@@ -186,9 +186,9 @@ def _eligibility_ctes(scoped: bool) -> str:
                     -- run_starts/failed_runs scope to it so the work is bounded by the backlog.
                     SELECT DISTINCT cb.run_uuid
                     FROM {BATCH_TABLE} cb
-                    JOIN {_latest_status_lateral(STATUS_TABLE, "cb")} cds ON cds.job_state = 'succeeded'
                     LEFT JOIN {_latest_status_lateral(DUCKGRES_STATUS_TABLE, "cb")} cdgs ON true
                     WHERE cb.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                        AND cb.latest_state = 'succeeded'
                         {_team_scope("cb", scoped=scoped)}
                         AND (cdgs.job_state IS NULL OR cdgs.job_state <> 'succeeded')
                 ),
@@ -204,11 +204,10 @@ def _eligibility_ctes(scoped: bool) -> str:
                     SELECT cr.run_uuid FROM cand_runs cr
                     WHERE EXISTS (
                         SELECT 1 FROM {BATCH_TABLE} fb
-                        JOIN {_latest_status_lateral(STATUS_TABLE, "fb")} fds ON true
                         WHERE fb.run_uuid = cr.run_uuid
                             AND fb.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                             {_team_scope("fb", scoped=scoped)}
-                            AND fds.job_state = 'failed'
+                            AND fb.latest_state = 'failed'
                     )
                     OR EXISTS (
                         SELECT 1 FROM {BATCH_TABLE} fb
@@ -223,7 +222,6 @@ def _eligibility_ctes(scoped: bool) -> str:
                     SELECT old.team_id, old.schema_id, old.run_uuid, rs_ir.started_at,
                            bool_or((old.metadata->>'duckgres_backfill') IS NOT NULL) AS is_backfill_run
                     FROM {BATCH_TABLE} old
-                    JOIN {_latest_status_lateral(STATUS_TABLE, "old")} ods ON ods.job_state = 'succeeded'
                     JOIN run_starts rs_ir ON rs_ir.run_uuid = old.run_uuid
                     LEFT JOIN {DUCKGRES_APPLY_TABLE} oa
                         ON oa.team_id = old.team_id
@@ -231,6 +229,7 @@ def _eligibility_ctes(scoped: bool) -> str:
                         AND oa.run_uuid = old.run_uuid
                         AND oa.batch_index = old.batch_index
                     WHERE old.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                        AND old.latest_state = 'succeeded'
                         {_team_scope("old", scoped=scoped)}
                         AND old.is_final_batch = false
                         AND oa.id IS NULL
@@ -351,7 +350,6 @@ class DuckgresBatchQueue:
                     SELECT
                         {pending_batch_select_columns("dgs")}
                     FROM {BATCH_TABLE} b
-                    JOIN {_latest_status_lateral(STATUS_TABLE, "b")} ds ON true
                     JOIN run_starts rs_b ON rs_b.run_uuid = b.run_uuid
                     LEFT JOIN {_latest_status_lateral(DUCKGRES_STATUS_TABLE, "b")} dgs ON true
                     WHERE
@@ -391,7 +389,7 @@ class DuckgresBatchQueue:
                                 AND u.live >= m.budget
                         )
                         AND NOT {BLOCKED_LIVE_BATCH_CONDITION}
-                        AND ds.job_state = 'succeeded'
+                        AND b.latest_state = 'succeeded'
                         AND (
                             dgs.batch_id IS NULL
                             OR (
@@ -623,7 +621,6 @@ class DuckgresBatchQueue:
                 replace_heads AS MATERIALIZED (
                     SELECT nb.team_id, nb.schema_id, nb.run_uuid, rs.started_at
                     FROM {BATCH_TABLE} nb
-                    JOIN {_latest_status_lateral(STATUS_TABLE, "nb")} nds ON true
                     JOIN run_starts rs ON rs.run_uuid = nb.run_uuid
                     LEFT JOIN {DUCKGRES_APPLY_TABLE} na
                         ON na.team_id = nb.team_id
@@ -632,7 +629,7 @@ class DuckgresBatchQueue:
                         AND na.batch_index = nb.batch_index
                     WHERE nb.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                         {_team_scope("nb", scoped=scoped)}
-                        AND nds.job_state = 'succeeded'
+                        AND nb.latest_state = 'succeeded'
                         AND nb.batch_index = 0
                         AND nb.is_final_batch = false
                         AND nb.is_resume = false
@@ -649,7 +646,6 @@ class DuckgresBatchQueue:
                     JOIN replace_heads rh
                         ON rh.team_id = old.team_id AND rh.schema_id = old.schema_id
                     JOIN run_starts ors ON ors.run_uuid = old.run_uuid
-                    JOIN {_latest_status_lateral(STATUS_TABLE, "old")} ods ON true
                     LEFT JOIN {_latest_status_lateral(DUCKGRES_STATUS_TABLE, "old")} odgs ON true
                     LEFT JOIN {DUCKGRES_APPLY_TABLE} oa
                         ON oa.team_id = old.team_id
@@ -659,7 +655,7 @@ class DuckgresBatchQueue:
                     WHERE old.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                         AND old.run_uuid <> rh.run_uuid
                         AND (ors.started_at, old.run_uuid) < (rh.started_at, rh.run_uuid)
-                        AND ods.job_state = 'succeeded'
+                        AND old.latest_state = 'succeeded'
                         AND old.run_uuid NOT IN (SELECT run_uuid FROM failed_runs)
                         AND (old.is_final_batch = true OR oa.id IS NULL)
                         AND (odgs.batch_id IS NULL OR odgs.job_state = 'waiting_retry')
@@ -713,7 +709,6 @@ class DuckgresBatchQueue:
                             AND b.schema_id = ANY(%(failing_schema_ids)s)
                         ) AS is_failing
                     FROM {BATCH_TABLE} b
-                    JOIN {_latest_status_lateral(STATUS_TABLE, "b")} ds ON true
                     LEFT JOIN {DUCKGRES_APPLY_TABLE} a
                         ON a.team_id = b.team_id
                         AND a.schema_id = b.schema_id
@@ -722,7 +717,7 @@ class DuckgresBatchQueue:
                     WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                         {_team_scope("b", scoped=scoped)}
                         AND (%(eligible_schema_ids)s::varchar[] IS NULL OR b.schema_id = ANY(%(eligible_schema_ids)s))
-                        AND ds.job_state = 'succeeded'
+                        AND b.latest_state = 'succeeded'
                         AND b.is_final_batch = false
                         AND a.id IS NULL
                         AND b.run_uuid NOT IN (SELECT run_uuid FROM failed_runs)

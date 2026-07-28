@@ -1222,7 +1222,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         # Enable materialization - this handles model path setup and schedule creation
         # If this fails, it will set is_materialized = False
         try:
-            saved_query.schedule_materialization(unpause=should_unpause)
+            saved_query.schedule_materialization(unpause=should_unpause, trigger_immediate_run=True)
         except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError) as e:
             # The requested cadence can't be honored (e.g. finer than an upstream source
             # delivers) — a request problem, not a server one.

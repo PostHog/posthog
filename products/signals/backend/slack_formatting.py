@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import re
+from typing import TYPE_CHECKING
 
-from markdown_to_mrkdwn import SlackMarkdownConverter
+if TYPE_CHECKING:
+    from markdown_to_mrkdwn import SlackMarkdownConverter
 
-_SLACK_MRKDWN_CONVERTER = SlackMarkdownConverter()
+_SLACK_MRKDWN_CONVERTER: SlackMarkdownConverter | None = None
 SLACK_SECTION_TEXT_MAX_LEN = 2900
 
 # Matches a converter-emitted Slack angle token: `<dest>` or `<dest|label>`. Input `<`/`>`
@@ -37,9 +39,21 @@ def _defang_unsafe_slack_tokens(text: str) -> str:
     return _SLACK_ANGLE_TOKEN_RE.sub(_replace, text)
 
 
+def _get_slack_mrkdwn_converter() -> SlackMarkdownConverter:
+    """Lazily import and cache the converter so it stays off the django.setup() path."""
+    global _SLACK_MRKDWN_CONVERTER
+    if _SLACK_MRKDWN_CONVERTER is None:
+        from markdown_to_mrkdwn import (
+            SlackMarkdownConverter,  # noqa: PLC0415 — keeps the dep off the app-registry startup path
+        )
+
+        _SLACK_MRKDWN_CONVERTER = SlackMarkdownConverter()
+    return _SLACK_MRKDWN_CONVERTER
+
+
 def markdown_to_slack_mrkdwn(text: str) -> str:
     """Convert untrusted Markdown to Slack mrkdwn without allowing mention injection."""
-    return _defang_unsafe_slack_tokens(_SLACK_MRKDWN_CONVERTER.convert(escape_slack_mrkdwn(text)))
+    return _defang_unsafe_slack_tokens(_get_slack_mrkdwn_converter().convert(escape_slack_mrkdwn(text)))
 
 
 def truncate_slack_section(text: str) -> str:

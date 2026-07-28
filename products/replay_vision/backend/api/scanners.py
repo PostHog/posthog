@@ -72,6 +72,7 @@ from products.replay_vision.backend.queries import (
     refresh_scanner_estimate,
 )
 from products.replay_vision.backend.quota import (
+    ScannerSpend,
     compute_quota_snapshot,
     credits_used_by_scanner,
     current_period_bounds,
@@ -303,6 +304,9 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
             "(1 credit = $0.01). Matches the window of the org-wide quota meter."
         ),
     )
+    observations_this_month = serializers.SerializerMethodField(
+        help_text="Succeeded observations this scanner produced in the current billing period.",
+    )
     last_swept_at = serializers.DateTimeField(
         read_only=True,
         help_text="Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery.",
@@ -350,6 +354,7 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
             "credits_per_observation",
             "estimated_monthly_credits",
             "credits_this_month",
+            "observations_this_month",
             "last_swept_at",
             "created_at",
             "created_by",
@@ -364,6 +369,7 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
             "credits_per_observation",
             "estimated_monthly_credits",
             "credits_this_month",
+            "observations_this_month",
             "last_swept_at",
             "created_at",
             "created_by",
@@ -382,8 +388,7 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
             return None
         return scanner.estimated_monthly_observations * observation_credits_for_model(scanner.model)
 
-    @extend_schema_field(serializers.IntegerField())
-    def get_credits_this_month(self, scanner: ReplayScanner) -> int:
+    def _scanner_spend(self, scanner: ReplayScanner) -> ScannerSpend:
         # The context dict is shared across the list's children, so the page's totals are computed once.
         totals = self.context.get("_scanner_credits_used")
         if totals is None:
@@ -392,7 +397,15 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
             scanner_ids = [s.id for s in instance] if instance is not None else [scanner.id]
             totals = credits_used_by_scanner(self.context["get_team"]().organization_id, scanner_ids)
             self.context["_scanner_credits_used"] = totals
-        return totals.get(scanner.id, 0)
+        return totals.get(scanner.id, ScannerSpend(0, 0))
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_credits_this_month(self, scanner: ReplayScanner) -> int:
+        return self._scanner_spend(scanner).credits
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_observations_this_month(self, scanner: ReplayScanner) -> int:
+        return self._scanner_spend(scanner).observations
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         # Surface the (team_id, name) uniqueness as a 400 instead of letting the DB raise 500.

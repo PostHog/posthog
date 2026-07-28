@@ -97,7 +97,10 @@ def _is_host_safe(host: str, team_id: int) -> tuple[bool, str | None]:
             if not _is_safe_public_ip(resolved_ip):
                 _log("block", "resolved_ip", _INTERNAL_IP_ERROR, resolved_ips)
                 return False, _INTERNAL_IP_ERROR
-    except socket.gaierror:
+    except (socket.gaierror, UnicodeError):
+        # getaddrinfo IDNA-encodes the host, so a malformed hostname (e.g. a DNS label over 63
+        # bytes) raises UnicodeError ("label too long") instead of gaierror. Either way the host
+        # can't be resolved — return the actionable message rather than crashing.
         _log("block", "dns_failure", _DNS_FAILURE_ERROR)
         return (
             False,
