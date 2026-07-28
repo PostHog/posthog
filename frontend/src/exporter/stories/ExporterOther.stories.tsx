@@ -101,6 +101,7 @@ export const AdhocQueryExport: Story = {
         query: (__trendsTable as any).query,
         query_results: { results: (__trendsTable as any).result },
     },
+    tags: ['test-skip'], // doesn't produce a helpful reference image, as canvas can't be captured
 }
 
 /** Multi-series ad-hoc export with `?legend=true` — the horizontal exporter legend below the chart, never the in-chart side legend. */
@@ -111,4 +112,5 @@ export const AdhocQueryExportWithLegend: Story = {
         query_results: { results: (__trendsBarBreakdown as any).result },
         legend: true,
     },
+    tags: ['test-skip'], // doesn't produce a helpful reference image, as canvas can't be captured
 }
