@@ -1139,6 +1139,7 @@ def _do_edit_report(
     reviewers = _build_suggested_reviewers(team, suggested_reviewers, skill_name=run.skill_name)
     updated_fields: list[str] = []
     note_appended = False
+    charts_changed = False
     # One edit is one transaction, so a rejection part-way through takes the whole edit with it
     # instead of leaving the report half-changed. The side effects below (autostart, telemetry,
     # delivery) stay outside, and the `on_commit` hooks these writes register fire on this commit.
@@ -1174,7 +1175,13 @@ def _do_edit_report(
         # Replace the report's charts, the way a summary rewrite replaces the summary. Supplying
         # none leaves the existing ones alone, so an edit that only appends a note keeps them.
         if charts:
-            set_report_charts(team_id=team.id, report_id=report_id, charts=charts)
+            charts_changed = set_report_charts(
+                team_id=team.id,
+                report_id=report_id,
+                charts=charts,
+                attribution=attribution,
+                author=run.skill_name,
+            )
     # Re-run autostart only when reviewers changed: it's idempotent (a report with an implementation
     # task already started no-ops), but a report that was missing a qualifying reviewer can now open a
     # draft PR. Fired outside any txn since it spawns a Task — mirrors emit's post-commit hand-off.
@@ -1210,12 +1217,13 @@ def _do_edit_report(
         updated_fields=updated_fields,
         note_appended=note_appended,
         reviewers_set=reviewers_set,
-        charts_set=len(charts),
+        charts_set=len(charts) if charts_changed else 0,
         report_title=report_title,
     )
     # Record the edit on the run tally only when something actually changed — a no-op edit (e.g. a
-    # title rewrite to its current value) must not claim the run touched the report.
-    if updated_fields or note_appended or reviewers_set or charts:
+    # title rewrite to its current value, or re-sending the charts already stored) must not claim the
+    # run touched the report, or notify its destination a second time about nothing.
+    if updated_fields or note_appended or reviewers_set or charts_changed:
         record_report_edit(team_id=team.id, run_id=run.id, report_id=report_id)
         # Also link the run itself on the report's work log (deduped), so the editing scout's
         # transcript is reachable from the report — not just the run-side `edited_report_ids` tally.

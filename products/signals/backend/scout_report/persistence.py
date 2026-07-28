@@ -368,7 +368,9 @@ def set_report_charts(
     team_id: int,
     report_id: str,
     charts: Sequence[ReportChart],
-) -> str:
+    attribution: ArtefactAttribution | None = None,
+    author: str | None = None,
+) -> bool:
     """Replace an existing report's charts (the `edit_report` chart path).
 
     Team-scoped fail-closed like `append_report_note`. `charts` is the full set the report should
@@ -376,27 +378,56 @@ def set_report_charts(
     with one added to whatever was there. Callers reach this only when the scout supplied charts;
     omitting them leaves the report's charts alone.
 
-    No lock: this is a whole-field write with nothing read back, so the last writer wins the same way
-    it does for `title` and `summary`.
+    Returns whether the stored charts actually changed. `edit_report` is non-idempotent, so the same
+    call can arrive twice; without this the caller counts a re-send of the charts already stored as an
+    edit and notifies the report's destination a second time about nothing.
+
+    Locked and compared against what is stored, like the title/summary path, so the audit note below
+    records a real replacement. When `attribution` is supplied the note goes on the report's work log:
+    the charts are reader-visible content, `edit_report` can target any inbox report, and a rewrite of
+    what a report shows needs the same attributable trail its title and summary get.
     """
     if not charts:
-        return report_id
+        return False
     _validate_report_id(report_id)
     if len(charts) > MAX_REPORT_CHARTS:
         raise InvalidScoutReportError(f"a report accepts at most {MAX_REPORT_CHARTS} charts ({len(charts)})")
     if chart_batch_query_chars(charts) > MAX_REPORT_CHARTS_QUERY_CHARS:
         raise InvalidScoutReportError(f"the charts' queries exceed {MAX_REPORT_CHARTS_QUERY_CHARS} characters in total")
-    updated = SignalReport.objects.filter(team_id=team_id, id=report_id).update(
-        charts=[chart.model_dump(mode="json") for chart in charts],
-        updated_at=timezone.now(),
-    )
-    if not updated:
-        raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+    payload = [chart.model_dump(mode="json") for chart in charts]
+
+    with transaction.atomic():
+        stored = (
+            SignalReport.objects.select_for_update()
+            .filter(team_id=team_id, id=report_id)
+            .values_list("charts", flat=True)
+            .first()
+        )
+        if stored is None:
+            raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+        if stored == payload:
+            logger.info(
+                "signals_scout.edit_report: charts unchanged",
+                extra={"team_id": team_id, "report_id": report_id, "count": len(charts)},
+            )
+            return False
+        SignalReport.objects.filter(team_id=team_id, id=report_id).update(
+            charts=payload,
+            updated_at=timezone.now(),
+        )
+        if attribution is not None:
+            SignalReportArtefact.add_log(
+                team_id=team_id,
+                report_id=report_id,
+                content=NoteArtefact(note=_chart_edit_note(len(charts)), author=author),
+                attribution=attribution,
+            )
+
     logger.info(
         "signals_scout.edit_report: charts set",
         extra={"team_id": team_id, "report_id": report_id, "count": len(charts)},
     )
-    return report_id
+    return True
 
 
 def _merge_forward_reviewer_evidence(*, report_id: str, suggested_reviewers: SuggestedReviewers) -> SuggestedReviewers:
@@ -728,6 +759,10 @@ def _validate_optional_text(field_name: str, value: str | None) -> None:
 
 def _content_edit_note(updated_fields: list[str]) -> str:
     return f"Edited report {' and '.join(updated_fields)} via edit_report."
+
+
+def _chart_edit_note(count: int) -> str:
+    return f"Replaced report charts ({count}) via edit_report."
 
 
 def _validate_report_id(report_id: str) -> None:

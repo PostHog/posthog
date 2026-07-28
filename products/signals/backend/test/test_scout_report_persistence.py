@@ -370,6 +370,41 @@ class TestScoutReportCharts(BaseTest):
         assert [c["chart_id"] for c in stored] == ["signups-drop"]
         assert stored[0]["title"] == "Daily signups (rerun)"
 
+    def test_resending_the_stored_charts_is_not_a_change(self) -> None:
+        # `edit_report` is non-idempotent, so the same call can arrive twice. Reporting a re-send of
+        # what's already stored as a change tallies an edit that changed nothing, and notifies the
+        # report's Slack destination a second time about it.
+        charts = [self._chart("signups-drop", "Daily signups")]
+        report_id = self._create(charts)
+
+        assert set_report_charts(team_id=self.team.id, report_id=report_id, charts=charts) is False
+        assert (
+            set_report_charts(
+                team_id=self.team.id,
+                report_id=report_id,
+                charts=[self._chart("signups-drop", "Daily signups (rerun)")],
+            )
+            is True
+        )
+
+    def test_replacing_charts_is_recorded_on_the_report_s_work_log(self) -> None:
+        # The charts are reader-visible content and `edit_report` can target any inbox report, so a
+        # rewrite of what one shows needs the attributable trail its title and summary rewrites leave.
+        report_id = self._create([self._chart("signups-drop", "Daily signups")])
+
+        set_report_charts(
+            team_id=self.team.id,
+            report_id=report_id,
+            charts=[self._chart("signups-drop", "Daily signups (rerun)")],
+            attribution=ArtefactAttribution.system(),
+            author="signals-scout-errors",
+        )
+
+        notes = SignalReportArtefact.objects.filter(
+            report_id=report_id, type=SignalReportArtefact.ArtefactType.NOTE
+        ).values_list("content", flat=True)
+        assert any("Replaced report charts" in str(content) for content in notes)
+
     def test_setting_no_charts_leaves_the_report_s_charts_alone(self) -> None:
         # An edit that only appends a note must not clear the report's charts — the tool reaches here
         # for every edit, and "no charts supplied" means untouched, not emptied.
