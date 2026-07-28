@@ -334,7 +334,10 @@ async def run_investigation(
             )
     if report is None:
         text = _stringify(content).strip()
-        logger.warning("anomaly_investigation.no_parsable_report", extra={"content_head": text[:200]})
+        # Log only length, not content: the agent's final message can echo customer event
+        # data, which must not land in centralized worker logs. The full output stays
+        # available in the run's LLM analytics trace.
+        logger.warning("anomaly_investigation.no_parsable_report", extra={"content_length": len(text)})
         report = _fallback_report(
             "Agent returned no final message."
             if not text
