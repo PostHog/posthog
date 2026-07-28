@@ -6,7 +6,7 @@
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
 category: Customer analytics
 feature: customer_analytics
-url_prefix: /customer-analytics
+url_prefix: /customer_analytics
 ui_apps: {}
 tools:
     account-notes-list:

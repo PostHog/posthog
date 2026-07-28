@@ -12,6 +12,7 @@ from posthog.clickhouse.query_tagging import Feature, get_query_tags, reset_quer
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import is_background_warming_request
 from products.web_analytics.dags.cache_warming import (
     build_replay_runner,
+    deepen_to_widest_warmable_range,
     get_warmable_queries_op,
     maybe_expand_warming_date_range,
     maybe_opt_into_lazy_precompute,
@@ -100,6 +101,75 @@ class TestMaybeExpandWarmingDateRange(BaseTest):
         self.assertEqual(maybe_expand_warming_date_range(query), query)
 
 
+class TestDeepenToWidestWarmableRange(BaseTest):
+    @parameterized.expand(
+        [
+            # Deepen to the widest exact range the shape's demand covers, so one
+            # warm builds the buckets every narrower variant reuses.
+            ("picks_deepest_day", "-7d", ["-7d", "-30d", "-90d"], 180, "-90d"),
+            ("weeks_convert_to_days", "-7d", ["-7d", "-5w"], 180, "-5w"),  # 5w = 35d > 7d
+            ("hours_are_shallow", "-90d", ["-90d", "-12h"], 180, "-90d"),  # 12h = 0d
+            ("cap_boundary_is_inclusive", "-7d", ["-7d", "-180d"], 180, "-180d"),
+            # Ranges past the cap can't be precomputed, so a warmable sibling must
+            # win instead of an unwarmable deep one being picked and rejected.
+            ("excludes_over_cap", "-7d", ["-7d", "-365d"], 180, "-7d"),
+            ("picks_deepest_in_cap", "-7d", ["-7d", "-90d", "-365d"], 180, "-90d"),
+            # Variable / point-in-time / unbounded forms have no monotonic depth,
+            # so they never override a concrete range and are left untouched.
+            ("skips_month_start", "-7d", ["-7d", "mStart"], 180, "-7d"),
+            ("skips_absolute_and_all", "-14d", ["-14d", "all", "2026-01-01"], 180, "-14d"),
+            ("no_exact_forms_is_noop", "mStart", ["mStart", "all"], 180, "mStart"),
+            ("single_variant_is_noop", "-30d", ["-30d"], 180, "-30d"),
+        ]
+    )
+    def test_deepening(
+        self, _name: str, representative_from: str, observed: list[str], max_days: int, expected_from: str
+    ) -> None:
+        query = {
+            "kind": "WebOverviewQuery",
+            "useWebAnalyticsPrecompute": True,
+            "dateRange": {"date_from": representative_from},
+        }
+
+        result = deepen_to_widest_warmable_range(query, observed, max_days)
+
+        self.assertEqual(result["dateRange"]["date_from"], expected_from)
+
+    @parameterized.expand(
+        [
+            # Deepening is confined to the lazy path and open-ended ranges, so each
+            # of these must ignore the deeper -90d sibling. Opted-out and non-lazy
+            # shapes replay raw — a deeper scan there is background load the tenant
+            # never ran, counted only at the shallow variant. A fixed date_to can't
+            # be paired with another variant's date_from (normalization dropped
+            # which endpoints went together), so splicing -90d onto it could
+            # reverse or balloon the span.
+            (
+                "opted_out",
+                {"kind": "WebOverviewQuery", "useWebAnalyticsPrecompute": False, "dateRange": {"date_from": "-7d"}},
+            ),
+            (
+                "non_lazy_kind",
+                {
+                    "kind": "WebExternalClicksTableQuery",
+                    "useWebAnalyticsPrecompute": True,
+                    "dateRange": {"date_from": "-7d"},
+                },
+            ),
+            (
+                "explicit_date_to",
+                {
+                    "kind": "WebOverviewQuery",
+                    "useWebAnalyticsPrecompute": True,
+                    "dateRange": {"date_from": "-7d", "date_to": "-1d"},
+                },
+            ),
+        ]
+    )
+    def test_leaves_non_lazy_or_bounded_ranges_untouched(self, _name: str, query: dict) -> None:
+        self.assertIs(deepen_to_widest_warmable_range(query, ["-7d", "-90d"], 180), query)
+
+
 class TestBuildReplayRunner(BaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -112,7 +182,16 @@ class TestBuildReplayRunner(BaseTest):
         reset_query_tags()
         super().tearDown()
 
-    def test_lazy_eligible_shape_keeps_widened_range(self) -> None:
+    @parameterized.expand(
+        [
+            # No deep demand: a sub-30d shape widens to the standard warm depth.
+            ("no_deep_demand_widens_to_30d", [], "-30d"),
+            # Deep demand: the replay deepens to the widest range the shape needs,
+            # past the -30d default — so one warm covers the -90d variant too.
+            ("deep_demand_deepens", ["-7d", "-90d"], "-90d"),
+        ]
+    )
+    def test_lazy_eligible_shape_range(self, _name: str, observed: list[str], expected_from: str) -> None:
         # Under the warming tag even a non-enrolled team widens: building
         # buckets for not-yet-enrolled teams is the warmer's purpose.
         query = {
@@ -122,19 +201,19 @@ class TestBuildReplayRunner(BaseTest):
             "dateRange": {"date_from": "-7d"},
         }
 
-        runner, used_json, lazy_eligible = build_replay_runner(self.team, query)
+        runner, used_json, lazy_eligible = build_replay_runner(self.team, query, observed)
 
         self.assertIsNotNone(runner)
         self.assertTrue(lazy_eligible)
-        self.assertEqual(used_json["dateRange"]["date_from"], "-30d")
+        self.assertEqual(used_json["dateRange"]["date_from"], expected_from)
 
     @parameterized.expand(
         [
-            # Shapes every lazy family rejects execute on the raw path — a
-            # widened replay there is a 30-day scan the tenant never ran,
-            # outside their request throttles. If this stops falling back, the
-            # warmer becomes a background-load amplifier for mintable
-            # ineligible shapes.
+            # Shapes every lazy family rejects execute on the raw path — a deepened
+            # or widened replay there is a scan the tenant never ran, outside their
+            # request throttles. The deep -90d demand below must NOT be adopted:
+            # its count belongs to the shallow variant, and the raw guard would let
+            # it through, so an ineligible shape would replay a 90-day scan hourly.
             ("conversion_goal", {"kind": "WebOverviewQuery", "conversionGoal": {"customEventName": "purchase"}}),
             # Passes the shared gate; rejected by all three stats families
             # (paths/frustration: wrong breakdown, simple: bounce rate).
@@ -152,7 +231,7 @@ class TestBuildReplayRunner(BaseTest):
             **extra,
         }
 
-        runner, used_json, lazy_eligible = build_replay_runner(self.team, query)
+        runner, used_json, lazy_eligible = build_replay_runner(self.team, query, ["-7d", "-90d"])
 
         self.assertIsNotNone(runner)
         self.assertFalse(lazy_eligible)
@@ -167,7 +246,7 @@ class TestBuildReplayRunner(BaseTest):
             "dateRange": {"date_from": "-7d"},
         }
 
-        runner, used_json, lazy_eligible = build_replay_runner(self.team, query)
+        runner, used_json, lazy_eligible = build_replay_runner(self.team, query, [])
 
         self.assertIsNotNone(runner)
         self.assertFalse(lazy_eligible)
@@ -177,11 +256,15 @@ class TestBuildReplayRunner(BaseTest):
 class TestFleetQuerySelection(BaseTest):
     @patch("products.web_analytics.dags.cache_warming.sync_execute")
     def test_parses_fleet_rows_into_query_infos(self, mock_exec: MagicMock) -> None:
-        # Guards the row-shape contract with the selection SQL: a column reorder
-        # or JSON handling change would make the warmer warm nothing or crash.
+        # Guards the row-shape contract with the selection SQL: the summed and
+        # representative counts are distinct columns (the raw guard keys on the
+        # representative, so they must not be swapped), and observed_date_froms is
+        # carried through untouched for build_replay_runner to deepen later — the
+        # selection output keeps each shape's faithful representative range. A
+        # column reorder or dropped column fails here.
         mock_exec.return_value = [
-            (101, '{"kind": "WebOverviewQuery"}', 50, "hash-a"),
-            (202, '{"kind": "WebStatsTableQuery"}', 12, "hash-b"),
+            (101, '{"kind": "WebOverviewQuery", "dateRange": {"date_from": "-7d"}}', 50, 8, "hash-a", ["-7d", "-90d"]),
+            (202, '{"kind": "WebStatsTableQuery"}', 12, 12, "hash-b", ["mStart"]),
         ]
         result = queries_to_keep_fresh(dagster.build_op_context(), days=7, minimum_query_count=10, max_shapes=100)
 
@@ -190,15 +273,19 @@ class TestFleetQuerySelection(BaseTest):
             [
                 {
                     "team_id": 101,
-                    "query_json": {"kind": "WebOverviewQuery"},
+                    "query_json": {"kind": "WebOverviewQuery", "dateRange": {"date_from": "-7d"}},
                     "query_count": 50,
+                    "representative_query_count": 8,
                     "normalized_query_hash": "hash-a",
+                    "observed_date_froms": ["-7d", "-90d"],
                 },
                 {
                     "team_id": 202,
                     "query_json": {"kind": "WebStatsTableQuery"},
                     "query_count": 12,
+                    "representative_query_count": 12,
                     "normalized_query_hash": "hash-b",
+                    "observed_date_froms": ["mStart"],
                 },
             ],
         )
@@ -247,7 +334,7 @@ class TestWarmableQueriesCaching(BaseTest):
         # The whole reason this cache exists: the fleet-wide query_log scan is
         # terabytes. If the cache read regresses, the scan runs every warming run
         # again — this fails when the second run re-hits ClickHouse.
-        mock_exec.return_value = [(101, '{"kind": "WebOverviewQuery"}', 50, 123)]
+        mock_exec.return_value = [(101, '{"kind": "WebOverviewQuery"}', 50, 50, 123, ["-7d"])]
 
         first = get_warmable_queries_op(dagster.build_op_context())
         second = get_warmable_queries_op(dagster.build_op_context())
@@ -261,7 +348,7 @@ class TestWarmableQueriesCaching(BaseTest):
     def test_storage_failure_falls_back_to_scan(self, mock_exec: MagicMock, mock_storage: MagicMock) -> None:
         # Object storage being unavailable must degrade to a fresh scan, not break warming.
         mock_storage.read_bytes.side_effect = Exception("storage unavailable")
-        mock_exec.return_value = [(101, '{"kind": "WebOverviewQuery"}', 50, 123)]
+        mock_exec.return_value = [(101, '{"kind": "WebOverviewQuery"}', 50, 50, 123, ["-7d"])]
 
         result = get_warmable_queries_op(dagster.build_op_context())
 
@@ -274,7 +361,7 @@ class TestWarmableQueriesCaching(BaseTest):
         # A decodable-but-malformed blob (missing the expected fields) must miss
         # and trigger a fresh scan, not raise out of the op and skip warming.
         mock_storage.read_bytes.return_value = gzip.compress(json.dumps({"unexpected": "shape"}).encode())
-        mock_exec.return_value = [(101, '{"kind": "WebOverviewQuery"}', 50, 123)]
+        mock_exec.return_value = [(101, '{"kind": "WebOverviewQuery"}', 50, 50, 123, ["-7d"])]
 
         result = get_warmable_queries_op(dagster.build_op_context())
 
@@ -285,17 +372,16 @@ class TestWarmableQueriesCaching(BaseTest):
 class TestWarmQueriesOp(BaseTest):
     @parameterized.expand(
         [
-            # A raw-path (not lazy-eligible) shape below the pre-widening demand
-            # bar must not replay: with the min-2 selection floor, two runs of an
-            # expensive ineligible shape would otherwise become hourly background
-            # scans outside the tenant's request throttles.
+            # A raw-path (not lazy-eligible) shape below the demand bar must not
+            # replay: an expensive ineligible shape would otherwise become an
+            # hourly background scan outside the tenant's request throttles.
             ("raw_low_demand_skipped", False, 2, 0),
             ("raw_high_demand_warms", False, 10, 1),
             ("lazy_low_demand_warms", True, 2, 1),
         ]
     )
     def test_raw_replays_keep_higher_demand_bar(
-        self, _name: str, lazy_eligible: bool, query_count: int, expected_runs: int
+        self, _name: str, lazy_eligible: bool, representative_query_count: int, expected_runs: int
     ) -> None:
         runner = MagicMock()
         runner.get_cache_key.return_value = f"key-{_name}"
@@ -304,16 +390,20 @@ class TestWarmQueriesOp(BaseTest):
                 "products.web_analytics.dags.cache_warming.build_replay_runner",
                 return_value=(runner, {}, lazy_eligible),
             ),
-            patch("products.web_analytics.dags.cache_warming.DjangoCacheQueryCacheManager") as mock_cm,
+            patch("products.web_analytics.dags.cache_warming.QueryCache") as mock_cm,
         ):
-            mock_cm.return_value.get_cache_data.return_value = None
+            mock_cm.return_value.lookup.return_value.entry = None
             warm_queries_op(
                 dagster.build_op_context(),
                 [
                     {
                         "team_id": self.team.pk,
                         "query_json": {"kind": "WebOverviewQuery", "properties": []},
-                        "query_count": query_count,
+                        # Shape-wide sum is deliberately high: the raw guard must
+                        # read the representative's own count, so a high sum can't
+                        # promote a rarely-run expensive variant.
+                        "query_count": 999,
+                        "representative_query_count": representative_query_count,
                         "normalized_query_hash": "h",
                     }
                 ],
@@ -329,9 +419,9 @@ class TestWarmQueriesOp(BaseTest):
         runner.get_cache_key.return_value = "same-key"
         with (
             patch("products.web_analytics.dags.cache_warming.build_replay_runner", return_value=(runner, {}, True)),
-            patch("products.web_analytics.dags.cache_warming.DjangoCacheQueryCacheManager") as mock_cm,
+            patch("products.web_analytics.dags.cache_warming.QueryCache") as mock_cm,
         ):
-            mock_cm.return_value.get_cache_data.return_value = None
+            mock_cm.return_value.lookup.return_value.entry = None
             warm_queries_op(
                 dagster.build_op_context(),
                 [

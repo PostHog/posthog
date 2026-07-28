@@ -38,6 +38,9 @@ export interface LogsViewerProps {
     // Filters enforced by the embedding scene. Merged into the user-editable filterGroup
     // and rendered without an X so users can't accidentally drop the scope.
     pinnedFilters?: UniversalFiltersGroup
+    // Seed the facet/filter rail as collapsed on first mount for this id. Persisted per id,
+    // so a user who expands it keeps that choice; the "Show filters" toggle still re-expands.
+    defaultFacetRailCollapsed?: boolean
 }
 
 export function LogsViewer({
@@ -46,10 +49,11 @@ export function LogsViewer({
     showSavedViewsButton = false,
     initialFilters,
     pinnedFilters,
+    defaultFacetRailCollapsed,
 }: LogsViewerProps): JSX.Element {
     return (
         <BindLogic logic={logsViewerFiltersLogic} props={{ id, initialFilters, pinnedFilters }}>
-            <BindLogic logic={logsViewerConfigLogic} props={{ id }}>
+            <BindLogic logic={logsViewerConfigLogic} props={{ id, defaultFacetRailCollapsed }}>
                 <BindLogic logic={logsViewerDataLogic} props={{ id }}>
                     <BindLogic logic={logDetailsModalLogic} props={{ id }}>
                         <BindLogic logic={logsViewerLogic} props={{ id }}>
