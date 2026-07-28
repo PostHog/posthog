@@ -400,6 +400,29 @@ describe('LogsTransformerService', () => {
         expect(printed?.message).not.toContain('super-secret-key')
     })
 
+    it('redacts deeply nested encrypted input values with no depth limit', async () => {
+        // AnyInputField accepts arbitrary JSON; a depth cap would let a secret below
+        // the cap escape redaction entirely.
+        const deep = { a: { b: { c: { d: { e: { f: { g: { token: 'very-deep-secret' } } } } } } } }
+        setFunctions([
+            await createFunction(
+                `
+                print('deep token is', inputs.secret.a.b.c.d.e.f.g.token)
+                throw Error('boom')
+            `,
+                { encrypted_inputs: { secret: { value: deep, order: 0 } } } as any
+            ),
+        ])
+        const records = [createRecord()]
+
+        await service.transformRecords(TEAM_ID, records)
+
+        const queuedLogs = monitoring.queueLogs.mock.calls.flatMap(([logs]) => logs)
+        const printed = queuedLogs.find((entry) => entry.message.includes('deep token is'))
+        expect(printed?.message).toContain('***REDACTED***')
+        expect(printed?.message).not.toContain('very-deep-secret')
+    })
+
     it('redacts nested encrypted input values, not just top-level strings', async () => {
         // Secret inputs are schema-validated as any JSON value; a string buried in a
         // dict must be redacted like a top-level string secret.
