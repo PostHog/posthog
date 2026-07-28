@@ -1064,21 +1064,39 @@ async def _assert_staging_query_settings(clickhouse_client: ClickHouseClient, ba
     assert actual_settings == [["50000000000", "1"]]
 
 
-async def _fetch_staging_query_settings(clickhouse_client: ClickHouseClient, batch_export_id: str) -> list[list[str]]:
+async def _fetch_staging_query_settings(
+    clickhouse_client: ClickHouseClient,
+    batch_export_id: str,
+    max_wait_time: float = 10.0,
+    poll_interval: float = 0.5,
+) -> list[list[str]]:
     """Return the settings ClickHouse recorded for this export's staging queries.
 
     Looking the queries up by their log comment means a result is also proof the log
     comment was attached.
+
+    ClickHouse pushes a query's `system.query_log` entry after it has responded to the
+    client, so poll rather than read once: a `SYSTEM FLUSH LOGS` right after the export
+    can flush before the entry is even queued, which lags further under CI load.
+
+    Matching on `query_kind` rather than the query text keeps this query from finding
+    itself: it runs with the same log comment as the export it is looking up.
     """
-    await clickhouse_client.execute_query("SYSTEM FLUSH LOGS")
-    rows = await clickhouse_client.read_query(
-        "SELECT Settings['max_bytes_before_external_sort'], Settings['optimize_aggregation_in_order'] "
-        "FROM system.query_log "
-        f"WHERE JSONExtractString(log_comment, 'batch_export_id') = '{batch_export_id}' "
-        "AND JSONExtractString(log_comment, 'product') = 'batch_export' "
-        "AND query LIKE '%INSERT INTO FUNCTION%' AND type = 'QueryFinish'"
-    )
-    return [line.split("\t") for line in rows.decode().splitlines()]
+    elapsed_time = 0.0
+    while True:
+        await clickhouse_client.execute_query("SYSTEM FLUSH LOGS")
+        rows = await clickhouse_client.read_query(
+            "SELECT Settings['max_bytes_before_external_sort'], Settings['optimize_aggregation_in_order'] "
+            "FROM system.query_log "
+            f"WHERE JSONExtractString(log_comment, 'batch_export_id') = '{batch_export_id}' "
+            "AND JSONExtractString(log_comment, 'product') = 'batch_export' "
+            "AND query_kind = 'Insert' AND type = 'QueryFinish'"
+        )
+        settings_per_query = [line.split("\t") for line in rows.decode().splitlines()]
+        if settings_per_query or elapsed_time >= max_wait_time:
+            return settings_per_query
+        await asyncio.sleep(poll_interval)
+        elapsed_time += poll_interval
 
 
 @pytest.mark.parametrize(
