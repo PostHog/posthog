@@ -13,6 +13,8 @@ from requests.exceptions import (
     JSONDecodeError as RequestsJSONDecodeError,
 )
 
+from posthog.temporal.common.errors import NonReportableError
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
 )
@@ -33,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     MetaAdsAuthError,
     MetaAdsResumeConfig,
     _earliest_supported_since,
+    _error_disposition,
     _fetch_integration_row,
     _is_permanent_auth_error,
     _is_transient_error,
@@ -45,6 +48,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     get_integration,
     list_ad_accounts,
     meta_ads_source,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.metrics import (
+    DISPOSITION_AUTH,
+    DISPOSITION_RATE_LIMIT,
+    DISPOSITION_SHRINK,
+    DISPOSITION_TRANSIENT_EXHAUSTED,
+    DISPOSITION_UNCLASSIFIED,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.source import MetaAdsSource
 from products.warehouse_sources.backend.types import IncrementalFieldType
@@ -1308,6 +1318,9 @@ class TestRetryableErrors:
         with pytest.raises(Exception) as exc_info:
             _raise_meta_api_error(_mock_response(500, body))
         assert any(pattern in str(exc_info.value) for pattern in patterns)
+        # import_data_sync re-raises this unchanged, so the NonReportableError
+        # subclass is what keeps the activity interceptor from reporting it.
+        assert isinstance(exc_info.value, NonReportableError)
 
     def test_too_much_data_timeout_does_not_match_retryable_pattern(self) -> None:
         # The too-much-data timeout keeps its own non-retryable classification (adaptive chunking
@@ -1323,6 +1336,26 @@ class TestRetryableErrors:
         with pytest.raises(Exception) as exc_info:
             _raise_meta_api_error(_mock_response(500, body))
         assert not any(pattern in str(exc_info.value) for pattern in patterns)
+
+
+class TestErrorDisposition:
+    @pytest.mark.parametrize(
+        "body,expected",
+        [
+            ({"error": {"code": 190, "error_subcode": 460}}, DISPOSITION_AUTH),
+            ({"error": {"code": 200}}, DISPOSITION_AUTH),
+            ({"error": {"code": 4, "error_subcode": 1504022}}, DISPOSITION_RATE_LIMIT),
+            ({"error": {"code": 2, "error_subcode": 1504038}}, DISPOSITION_SHRINK),
+            # Meta labels this code 2, but `_should_shrink_request` claims it.
+            ({"error": {"code": 2, "error_subcode": 1504044}}, DISPOSITION_SHRINK),
+            ({"error": {"code": 1, "error_subcode": 99}}, DISPOSITION_TRANSIENT_EXHAUSTED),
+            ({"error": {"code": 3018}}, DISPOSITION_UNCLASSIFIED),
+            ({"error": {}}, DISPOSITION_UNCLASSIFIED),
+        ],
+    )
+    def test_disposition_matches_recovery_path(self, body: dict, expected: str) -> None:
+        # Ordering is load-bearing: the label names the recovery that actually ran.
+        assert _error_disposition(_mock_response(400, body)) == expected
 
 
 @freeze_time("2026-06-16")

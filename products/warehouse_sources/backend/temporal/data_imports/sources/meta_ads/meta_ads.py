@@ -18,6 +18,7 @@ from requests.exceptions import (
 )
 
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, MetaAdsIntegration
+from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
@@ -32,6 +33,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.int
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.metaads import (
     MetaAdsSourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.metrics import (
+    DISPOSITION_AUTH,
+    DISPOSITION_RATE_LIMIT,
+    DISPOSITION_SHRINK,
+    DISPOSITION_SHRINK_EXHAUSTED,
+    DISPOSITION_TRANSIENT_EXHAUSTED,
+    DISPOSITION_UNCLASSIFIED,
+    FALLBACK_CHUNK_DAYS,
+    FALLBACK_PAGE_LIMIT,
+    record_adaptive_fallback,
+    record_api_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.schemas import RESOURCE_SCHEMAS
 from products.warehouse_sources.backend.types import IncrementalFieldType
@@ -455,6 +468,25 @@ def _is_rate_limit_error(response: Response) -> bool:
     return _meta_error_code(response) in META_RATE_LIMIT_ERROR_CODES
 
 
+def _error_disposition(response: Response) -> str:
+    """Which recovery path the connector took for this failure.
+
+    Ordered to match ``_raise_meta_api_error`` below, so the label always
+    describes what actually happened rather than what could have. Reaching here
+    with a transient error means ``_get_with_transient_retry`` already spent its
+    attempts on it without the error clearing.
+    """
+    if _is_permanent_auth_error(response):
+        return DISPOSITION_AUTH
+    if _is_rate_limit_error(response):
+        return DISPOSITION_RATE_LIMIT
+    if _should_shrink_request(response):
+        return DISPOSITION_SHRINK
+    if _is_transient_error(response):
+        return DISPOSITION_TRANSIENT_EXHAUSTED
+    return DISPOSITION_UNCLASSIFIED
+
+
 def _raise_meta_api_error(response: Response) -> typing.NoReturn:
     """Raise a descriptive exception for a non-200 Meta API response.
 
@@ -462,17 +494,28 @@ def _raise_meta_api_error(response: Response) -> typing.NoReturn:
     that ``MetaAdsSource.get_non_retryable_errors`` matches on, so the job fails
     fast instead of burning retries. A momentary backend blip (see
     ``_is_transient_error``) that has already exhausted its in-process retries is
-    tagged so ``MetaAdsSource.get_retryable_errors`` can keep the self-recovering
-    failure out of error tracking once Temporal retries the activity, excluding
-    anything the shrink ladders can still act on, which ends at
-    ``_raise_shrink_exhausted_error`` instead. The raw response is appended for
-    debugging.
+    raised as ``MetaAdsRetryableError``, excluding anything the shrink ladders
+    can still act on, which ends at ``_raise_shrink_exhausted_error`` instead.
+    The raw response is appended for debugging.
     Everything else raises the raw response and stays retryable.
     """
+    error = _meta_error_body(response)
+    disposition = _error_disposition(response)
+    record_api_error(_meta_error_code(response), error.get("error_subcode"), disposition)
+    logger.warning(
+        "meta_ads_api_error",
+        status_code=response.status_code,
+        code=error.get("code"),
+        subcode=error.get("error_subcode"),
+        disposition=disposition,
+        # The only identifier that survives into Meta's own logs.
+        fbtrace_id=error.get("fbtrace_id"),
+    )
+
     if _is_permanent_auth_error(response):
         raise Exception(f"{META_AUTH_ERROR_MESSAGE} (Meta API response: {response.status_code} - {response.text})")
     if _is_transient_error(response) and not _should_shrink_request(response):
-        raise Exception(f"Meta API request failed (retryable): {response.status_code} - {response.text}")
+        raise MetaAdsRetryableError(f"Meta API request failed (retryable): {response.status_code} - {response.text}")
     raise Exception(f"Meta API request failed: {response.status_code} - {response.text}")
 
 
@@ -485,7 +528,28 @@ def _raise_shrink_exhausted_error(response: Response) -> typing.NoReturn:
     matches on the message, so the job stops and tells the user what to change
     rather than retrying against the schedule forever.
     """
+    error = _meta_error_body(response)
+    record_api_error(_meta_error_code(response), error.get("error_subcode"), DISPOSITION_SHRINK_EXHAUSTED)
+    logger.warning(
+        "meta_ads_shrink_exhausted",
+        status_code=response.status_code,
+        code=error.get("code"),
+        subcode=error.get("error_subcode"),
+        fbtrace_id=error.get("fbtrace_id"),
+    )
     raise Exception(f"{SHRINK_EXHAUSTED_ERROR_MESSAGE} (Meta API response: {response.status_code} - {response.text})")
+
+
+class MetaAdsRetryableError(NonReportableError):
+    """A Meta failure Temporal should retry and error tracking should ignore.
+
+    Subclassing ``NonReportableError`` is what keeps a self-recovering blip out
+    of error tracking: the activity interceptor in
+    posthog/temporal/common/posthog_client.py skips capture for this type, and
+    re-raising the exception unchanged (as import_data_sync does for anything
+    matching ``get_retryable_errors``) would otherwise carry it straight into
+    ``capture_exception``.
+    """
 
 
 class MetaAdsAuthError(Exception):
@@ -616,6 +680,7 @@ def _iter_simple_pagination(
             if _should_shrink_request(response):
                 smaller = _next_smaller_limit(current_limit)
                 if smaller is not None:
+                    record_adaptive_fallback(FALLBACK_PAGE_LIMIT, current_limit, smaller)
                     current_limit = smaller
                     response = _issue()
                     continue
@@ -742,13 +807,16 @@ def _iter_time_range_pagination(
                     if chunk_size_days in TIME_RANGE_CHUNK_SIZES:
                         current_index = TIME_RANGE_CHUNK_SIZES.index(chunk_size_days)
                         if current_index < len(TIME_RANGE_CHUNK_SIZES) - 1:
-                            chunk_size_days = TIME_RANGE_CHUNK_SIZES[current_index + 1]
+                            smaller_chunk = TIME_RANGE_CHUNK_SIZES[current_index + 1]
+                            record_adaptive_fallback(FALLBACK_CHUNK_DAYS, chunk_size_days, smaller_chunk)
+                            chunk_size_days = smaller_chunk
                             continue
                     # The date range is already a single day, so the page size
                     # is the only dimension left. Re-issuing the same chunk at a
                     # smaller limit is safe: nothing has been yielded yet.
                     smaller_limit = _next_smaller_limit(current_limit)
                     if smaller_limit is not None:
+                        record_adaptive_fallback(FALLBACK_PAGE_LIMIT, current_limit, smaller_limit)
                         current_limit = smaller_limit
                         continue
                     _raise_shrink_exhausted_error(response)
@@ -763,6 +831,7 @@ def _iter_time_range_pagination(
                 if _should_shrink_request(response) and last_paging_url is not None:
                     smaller = _next_smaller_limit(current_limit)
                     if smaller is not None:
+                        record_adaptive_fallback(FALLBACK_PAGE_LIMIT, current_limit, smaller)
                         current_limit = smaller
                         retry_url = _override_limit(last_paging_url, current_limit)
                         response = _fetch_paging_url(retry_url, access_token)
