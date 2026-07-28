@@ -12,6 +12,7 @@ import {
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { dayjs } from 'lib/dayjs'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import {
@@ -85,12 +86,13 @@ export function EndpointsUsageTrendsChart({
         [results, metric, isAreaChart]
     )
 
+    const { timezone } = useValues(teamLogic)
     const theme = useChartTheme()
     const config = useChartConfig<TimeSeriesLineChartConfig>(() => {
         const formatValue = (value: number): string => `${value.toFixed(scale.decimalPlaces)}${scale.suffix}`
         return {
-            xAxis: { tickFormatter: createXAxisTickCallback({ allDays: labels, timezone: 'UTC' }) },
-            yAxis: { tickFormatter: formatValue },
+            xAxis: { tickFormatter: createXAxisTickCallback({ allDays: labels, timezone }) },
+            yAxis: { scale: 'linear', showGrid: true, startAtZero: true, tickFormatter: formatValue },
             legend: { show: series.length > 1, position: 'top', interactive: true },
             tooltip: {
                 placement: 'cursor',
@@ -101,7 +103,7 @@ export function EndpointsUsageTrendsChart({
                 labelFormatter: (label: string) => dayjs(label).format('MMM D, YYYY'),
             },
         }
-    }, [labels, series.length, scale])
+    }, [labels, series.length, scale, timezone])
 
     return (
         // Quill charts fill a flex parent, so the sized container must be a flex column.
