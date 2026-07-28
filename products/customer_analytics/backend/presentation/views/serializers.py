@@ -30,9 +30,11 @@ from posthog.models import OrganizationMembership
 from products.customer_analytics.backend.facade.constants import (
     CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES,
     CUSTOM_PROPERTY_OPTION_COLORS,
+    SLACK_SUMMARY_CADENCE_CHOICES,
 )
 from products.customer_analytics.backend.facade.contracts import (
     AccountAssignment,
+    AccountChannelSummaryView,
     AccountNotebookView,
     AccountNoteView,
     AccountRelationship,
@@ -189,6 +191,15 @@ class AccountSerializer(DataclassSerializer):
             "call notes, and other free-form context. Empty list if no notebooks have been created for the account."
         ),
     )
+    slack_summary_cadence = serializers.ChoiceField(
+        choices=SLACK_SUMMARY_CADENCE_CHOICES,
+        required=False,
+        allow_null=True,
+        help_text=(
+            "How often to generate an AI summary of the account's bound Slack channel "
+            "(daily, weekly, or monthly). Null means summaries are off."
+        ),
+    )
     created_at = serializers.DateTimeField(read_only=True)
     created_by = serializers.IntegerField(read_only=True, allow_null=True)
     updated_at = serializers.DateTimeField(read_only=True, allow_null=True)
@@ -203,6 +214,7 @@ class AccountSerializer(DataclassSerializer):
             "properties",
             "tags",
             "notebooks",
+            "slack_summary_cadence",
             "created_at",
             "created_by",
             "updated_at",
@@ -292,6 +304,43 @@ class AccountNoteSerializer(DataclassSerializer):
         dataclass = AccountNoteView
         ref_name = "AccountNote"
         fields = ["short_id", "title", "created_at", "last_modified_at", "account_id", "account_name", "created_by"]
+
+
+class AccountChannelSummarySerializer(DataclassSerializer):
+    """An AI summary of one closed period of the account's bound Slack channel (read-only)."""
+
+    id = serializers.UUIDField(read_only=True, help_text="UUID of the summary.")
+    slack_channel_id = serializers.CharField(
+        read_only=True, help_text="Slack channel the summary covered — kept even if the account is later rebound."
+    )
+    cadence = serializers.ChoiceField(
+        read_only=True,
+        choices=SLACK_SUMMARY_CADENCE_CHOICES,
+        help_text="Cadence the summarized period belongs to (daily, weekly, or monthly).",
+    )
+    period_start = serializers.DateTimeField(read_only=True, help_text="Start of the summarized period (inclusive).")
+    period_end = serializers.DateTimeField(read_only=True, help_text="End of the summarized period (exclusive).")
+    content = serializers.CharField(
+        read_only=True, help_text="Markdown summary citing the original Slack messages with permalinks."
+    )
+    message_count = serializers.IntegerField(
+        read_only=True, help_text="Number of channel messages the summary covered."
+    )
+    generated_at = serializers.DateTimeField(read_only=True, help_text="When the summary was generated.")
+
+    class Meta:
+        dataclass = AccountChannelSummaryView
+        ref_name = "AccountChannelSummary"
+        fields = [
+            "id",
+            "slack_channel_id",
+            "cadence",
+            "period_start",
+            "period_end",
+            "content",
+            "message_count",
+            "generated_at",
+        ]
 
 
 class CustomPropertyReferenceSerializer(DataclassSerializer):

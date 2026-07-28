@@ -197,6 +197,17 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
             .array(zod.string())
             .optional()
             .describe('Tag names attached to the account. Pass a list to replace existing tags.'),
+        slack_summary_cadence: zod
+            .union([
+                zod
+                    .enum(['daily', 'weekly', 'monthly'])
+                    .describe('\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "How often to generate an AI summary of the account's bound Slack channel (daily, weekly, or monthly). Null means summaries are off.\n\n\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly"
+            ),
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
@@ -398,6 +409,17 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
             .array(zod.string())
             .optional()
             .describe('Tag names attached to the account. Pass a list to replace existing tags.'),
+        slack_summary_cadence: zod
+            .union([
+                zod
+                    .enum(['daily', 'weekly', 'monthly'])
+                    .describe('\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "How often to generate an AI summary of the account's bound Slack channel (daily, weekly, or monthly). Null means summaries are off.\n\n\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly"
+            ),
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 

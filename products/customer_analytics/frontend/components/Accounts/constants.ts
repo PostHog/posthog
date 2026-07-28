@@ -50,6 +50,7 @@ export const AccountsEvents = {
     UsageSeriesToggled: 'customer analytics account usage series toggled',
     RelatedUserClicked: 'customer analytics account related user clicked',
     OpportunityClicked: 'customer analytics account opportunity clicked',
+    SummaryCadenceChanged: 'customer analytics account summary cadence changed',
     EventStreamMembershipToggled: 'customer analytics account event stream toggled',
     EventStreamConfigSaved: 'customer analytics event stream config saved',
     EventStreamTestMessageSent: 'customer analytics event stream test message sent',

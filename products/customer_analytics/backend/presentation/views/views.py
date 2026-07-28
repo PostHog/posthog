@@ -39,6 +39,7 @@ from posthog.rbac.user_access_control import UserAccessControl, model_to_resourc
 
 from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.presentation.views.serializers import (
+    AccountChannelSummarySerializer,
     AccountNotebookSerializer,
     AccountNoteSerializer,
     AccountRelationshipDefinitionSerializer,
@@ -982,6 +983,7 @@ class AccountViewSet(
                     external_id=data.external_id,
                     properties=data.properties or {},
                     tags=_account_tags_input(serializer),
+                    slack_summary_cadence=data.slack_summary_cadence,
                 ),
                 organization_id=self.organization.id,
                 user=cast(User, request.user),
@@ -1010,6 +1012,10 @@ class AccountViewSet(
                     properties=data.properties if "properties" in request.data else None,
                     properties_provided="properties" in request.data,
                     tags=_account_tags_input(serializer),
+                    slack_summary_cadence=data.slack_summary_cadence
+                    if "slack_summary_cadence" in request.data
+                    else None,
+                    slack_summary_cadence_provided="slack_summary_cadence" in request.data,
                 ),
                 user_access_control=self.user_access_control,
                 required_level=_object_required_level(request, write=True),
@@ -1031,6 +1037,20 @@ class AccountViewSet(
     def partial_update(self, request: Request, *args, **kwargs) -> Response:
         kwargs["partial"] = True
         return self.update(request, *args, **kwargs)
+
+    @extend_schema(parameters=[_ACCOUNT_ID_PARAM], responses={200: AccountChannelSummarySerializer(many=True)})
+    @action(methods=["GET"], detail=True)
+    def summaries(self, request: Request, *args, **kwargs) -> Response:
+        if api.get_accessible_account_id(self.team_id, self.kwargs["pk"], self.user_access_control) is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        def fetch(offset: int, limit: int) -> tuple[list[contracts.AccountChannelSummaryView], int]:
+            result = api.list_account_channel_summaries(
+                self.team_id, self.kwargs["pk"], self.user_access_control, offset=offset, limit=limit
+            )
+            return result if result is not None else ([], 0)
+
+        return self._paginate_via_facade(request, fetch, AccountChannelSummarySerializer)
 
     @extend_schema(parameters=[_ACCOUNT_ID_PARAM])
     def destroy(self, request: Request, *args, **kwargs) -> Response:

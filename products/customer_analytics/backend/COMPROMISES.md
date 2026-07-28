@@ -117,6 +117,15 @@ Cutover checklist — when done, the sync and this section are deleted:
 - **No unset/delete emission.** No value-delete path exists; if one is added, its author decides
   whether removal counts as a change.
 
+## Account channel summaries
+
+- **Slack permalinks assume PostHog's workspace.** Summary citations are built as
+  `SLACK_ARCHIVES_ORIGIN/<channel_id>/p<ts>` (`constants.py`) instead of fetched with
+  `chat.getPermalink`, and the origin hardcodes `posthog.slack.com`. One constructed URL per cited
+  message avoids a Slack API call per citation, but breaks for any other workspace. When the
+  SupportHog bot GA's to external workspaces, resolve the workspace domain per team (or call
+  `chat.getPermalink` inside the summary activity) and drop the constant.
+
 ## Tech debt
 
 - **Account property writes have no single choke point.** `Account._properties` is mutated from four

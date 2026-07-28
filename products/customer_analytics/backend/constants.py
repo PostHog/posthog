@@ -36,6 +36,15 @@ CUSTOM_PROPERTY_OPTION_COLORS = [f"preset-{i}" for i in range(1, 11)]
 # Bounds the fan-out so one create can't enqueue an unbounded Slack send loop.
 MAX_ANNOUNCEMENT_CHANNELS = 200
 
+# Base URL for constructed Slack message permalinks (<origin>/<channel_id>/p<ts>) in account
+# channel summaries. Hardcodes PostHog's workspace — pre-GA compromise, see COMPROMISES.md.
+# Mirrors the frontend's SLACK_ARCHIVES_ORIGIN in accountLinksLogic.ts.
+SLACK_ARCHIVES_ORIGIN = "https://posthog.slack.com/archives"
+
+# Mirrors models.SlackSummaryCadence — kept as a plain list so the presentation layer's
+# ChoiceFields stay off the model import path.
+SLACK_SUMMARY_CADENCE_CHOICES = ["daily", "weekly", "monthly"]
+
 DELIVERY_IN_FLIGHT_ERROR = "in_flight"
 DELIVERY_RATE_LIMIT_DEFERRED_ERROR = "rate_limited_deferred"
 DELIVERY_INTERRUPTED_ERROR = "interrupted before confirmation; the message may have been delivered"

@@ -36,6 +36,8 @@ import { accountRelatedUsersLogic } from './accountRelatedUsersLogic'
 import { AccountRelationshipsExpansion } from './AccountRelationshipsExpansion'
 import { accountRelationshipsLogic } from './accountRelationshipsLogic'
 import { accountsExpansionLogic } from './accountsExpansionLogic'
+import { AccountSummariesExpansion } from './AccountSummariesExpansion'
+import { accountSummariesLogic } from './accountSummariesLogic'
 import { AccountsEvents } from './constants'
 import { EditAccountLinksButton } from './EditAccountLinksButton'
 
@@ -143,6 +145,7 @@ export function AccountNotebooksExpansion({
     useMountedLogic(accountBillingLogic({ accountId, externalId, kind: 'usage' }))
     useMountedLogic(accountBillingLogic({ accountId, externalId, kind: 'spend' }))
     useMountedLogic(accountOpportunitiesLogic({ accountId }))
+    useMountedLogic(accountSummariesLogic({ accountId }))
     const { setSearchTerm, setSorting, createNote } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { activeTabFor } = useValues(accountsExpansionLogic)
@@ -308,6 +311,11 @@ export function AccountNotebooksExpansion({
                                 key: 'opportunities',
                                 label: 'Opportunities',
                                 content: <AccountOpportunitiesExpansion accountId={accountId} />,
+                            },
+                            {
+                                key: 'summaries',
+                                label: 'Summaries',
+                                content: <AccountSummariesExpansion accountId={accountId} />,
                             },
                             // Flag-gated here (not just inside the component) so the tab label hides too.
                             !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP] && {

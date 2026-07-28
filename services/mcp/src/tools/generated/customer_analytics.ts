@@ -216,6 +216,9 @@ const accountsCreate = (): ToolBase<typeof AccountsCreateSchema, Schemas.Account
         if (params.tags !== undefined) {
             body['tags'] = params.tags
         }
+        if (params.slack_summary_cadence !== undefined) {
+            body['slack_summary_cadence'] = params.slack_summary_cadence
+        }
         const result = await context.api.request<Schemas.Account>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/`,
@@ -428,6 +431,9 @@ const accountsPartialUpdate = (): ToolBase<typeof AccountsPartialUpdateSchema, S
         }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
+        }
+        if (params.slack_summary_cadence !== undefined) {
+            body['slack_summary_cadence'] = params.slack_summary_cadence
         }
         const result = await context.api.request<Schemas.Account>({
             method: 'PATCH',

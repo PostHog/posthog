@@ -179,6 +179,20 @@ export namespace Schemas {
     } | null;
 
     /**
+     * * `daily` - daily
+     * * `weekly` - weekly
+     * * `monthly` - monthly
+     */
+    export type SlackSummaryCadenceEnum = typeof SlackSummaryCadenceEnum[keyof typeof SlackSummaryCadenceEnum];
+
+
+    export const SlackSummaryCadenceEnum = {
+      Daily: 'daily',
+      Weekly: 'weekly',
+      Monthly: 'monthly',
+    } as const;
+
+    /**
      * A Customer Analytics account — a logical grouping used to assign customer-success ownership.
      */
     export interface Account {
@@ -203,6 +217,12 @@ export namespace Schemas {
       tags?: string[];
       /** Short IDs of the internal notebooks linked to this account, used to persist investigations, call notes, and other free-form context. Empty list if no notebooks have been created for the account. */
       readonly notebooks: readonly string[];
+      /** How often to generate an AI summary of the account's bound Slack channel (daily, weekly, or monthly). Null means summaries are off.
+       *
+       * * `daily` - daily
+       * * `weekly` - weekly
+       * * `monthly` - monthly */
+      slack_summary_cadence?: SlackSummaryCadenceEnum | null;
       readonly created_at: string;
       /** @nullable */
       readonly created_by: number | null;
@@ -218,6 +238,32 @@ export namespace Schemas {
       readonly id: number;
       /** Email of the assignee. */
       readonly email: string;
+    }
+
+    /**
+     * An AI summary of one closed period of the account's bound Slack channel (read-only).
+     */
+    export interface AccountChannelSummary {
+      /** UUID of the summary. */
+      readonly id: string;
+      /** Slack channel the summary covered — kept even if the account is later rebound. */
+      readonly slack_channel_id: string;
+      /** Cadence the summarized period belongs to (daily, weekly, or monthly).
+       *
+       * * `daily` - daily
+       * * `weekly` - weekly
+       * * `monthly` - monthly */
+      readonly cadence: SlackSummaryCadenceEnum;
+      /** Start of the summarized period (inclusive). */
+      readonly period_start: string;
+      /** End of the summarized period (exclusive). */
+      readonly period_end: string;
+      /** Markdown summary citing the original Slack messages with permalinks. */
+      readonly content: string;
+      /** Number of channel messages the summary covered. */
+      readonly message_count: number;
+      /** When the summary was generated. */
+      readonly generated_at: string;
     }
 
     export type PropertyOperator = typeof PropertyOperator[keyof typeof PropertyOperator];
@@ -39952,6 +39998,15 @@ export namespace Schemas {
       metric_quality?: MetricQualityEnum;
     }
 
+    export interface PaginatedAccountChannelSummaryList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AccountChannelSummary[];
+    }
+
     export interface PaginatedAccountList {
       count: number;
       /** @nullable */
@@ -45544,6 +45599,12 @@ export namespace Schemas {
       tags?: string[];
       /** Short IDs of the internal notebooks linked to this account, used to persist investigations, call notes, and other free-form context. Empty list if no notebooks have been created for the account. */
       readonly notebooks?: readonly string[];
+      /** How often to generate an AI summary of the account's bound Slack channel (daily, weekly, or monthly). Null means summaries are off.
+       *
+       * * `daily` - daily
+       * * `weekly` - weekly
+       * * `monthly` - monthly */
+      slack_summary_cadence?: SlackSummaryCadenceEnum | null;
       readonly created_at?: string;
       /** @nullable */
       readonly created_by?: number | null;
@@ -71313,6 +71374,17 @@ export namespace Schemas {
      * Include ended assignments (the full timeline), not just active ones.
      */
     include_history?: boolean;
+    };
+
+    export type AccountsSummariesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type ActionsListParams = {

@@ -14,6 +14,8 @@ from posthog.models.scoping.manager import TeamScopedManager
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
+from products.customer_analytics.backend.models.account_channel_summary import SlackSummaryCadence
+
 if TYPE_CHECKING:
     from posthog.models import Team, User
 
@@ -63,6 +65,7 @@ class AccountManager(TeamScopedManager["Account"]):
         created_by: "User | None" = None,
         external_id: str | None = None,
         properties: "dict | AccountProperties | None" = None,
+        slack_summary_cadence: str | None = None,
     ) -> "Account":
         validated = AccountProperties.from_input(properties or {})
         return self.unscoped().create(
@@ -71,6 +74,7 @@ class AccountManager(TeamScopedManager["Account"]):
             name=self._cap_to_field_length("name", name),
             external_id=self._cap_to_field_length("external_id", external_id) if external_id is not None else None,
             _properties=validated.model_dump(mode="json", exclude_unset=True),
+            slack_summary_cadence=slack_summary_cadence,
         )
 
     def update_account(
@@ -80,6 +84,7 @@ class AccountManager(TeamScopedManager["Account"]):
         name: str | _Unset = _UNSET,
         external_id: str | None | _Unset = _UNSET,
         properties: "dict | AccountProperties | _Unset" = _UNSET,
+        slack_summary_cadence: str | None | _Unset = _UNSET,
     ) -> "Account":
         update_fields: list[str] = []
         if name is not _UNSET:
@@ -93,6 +98,9 @@ class AccountManager(TeamScopedManager["Account"]):
         if properties is not _UNSET:
             account._properties = AccountProperties.from_input(properties).model_dump(mode="json", exclude_unset=True)
             update_fields.append("_properties")
+        if slack_summary_cadence is not _UNSET:
+            account.slack_summary_cadence = slack_summary_cadence
+            update_fields.append("slack_summary_cadence")
         if update_fields:
             account.save(update_fields=update_fields)
         return account
@@ -108,6 +116,8 @@ class Account(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFiel
     external_id = models.CharField(max_length=400, null=True, blank=True)
     name = models.CharField(max_length=400)
     _properties = JSONField(default=dict, db_column="properties")
+    # NULL = periodic Slack channel summaries off for this account.
+    slack_summary_cadence = models.CharField(max_length=10, choices=SlackSummaryCadence.choices, null=True, blank=True)
 
     objects = AccountManager()  # type: ignore[assignment, misc]
 
