@@ -229,9 +229,9 @@ export const ALL_SDKS: SDK[] = [
         name: 'Eve',
         key: SDKKey.EVE,
         tags: [SDKTag.FRAMEWORK],
-        searchTerms: ['Vercel Eve'],
+        searchTerms: ['Vercel Eve', 'agent'],
         image: 'https://res.cloudinary.com/dmukukwp6/image/upload/vercel_373fa70879.svg',
-        docsLink: 'https://vercel.com/docs/eve/observability#export-ai-sdk-spans-with-opentelemetry',
+        docsLink: 'https://posthog.com/docs/ai-observability/installation/eve',
     },
     {
         name: 'LangChain',

@@ -5,11 +5,9 @@ import { PluginEvent } from '~/plugin-scaffold'
 import { promotePosthogCustomMetadata } from './custom-metadata'
 import { OtelLibraryMiddleware } from './types'
 
-// Vercel AI SDK attributes to strip after processing. Includes both
-// Vercel-specific ai.* attributes and standard GenAI semantic convention
-// attributes that have already been mapped to $ai_* properties.
+// Provider-specific and standard attributes to strip after processing.
 const STRIP_KEYS = [
-    // Vercel AI SDK specific
+    // Vercel AI SDK and Eve-specific
     'ai.operationId',
     'ai.telemetry.functionId',
     'ai.model.id',
@@ -44,6 +42,7 @@ const STRIP_KEYS = [
     'ai.schema.description',
     'operation.name',
     'resource.name',
+    'eve.session.id',
     // Standard GenAI semantic convention attributes not mapped to $ai_* properties
     'gen_ai.request.max_tokens',
     'gen_ai.response.id',

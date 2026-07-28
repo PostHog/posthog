@@ -615,6 +615,7 @@ describe('vercel-ai middleware', () => {
             expect(event.properties!['$ai_span_name']).toBe('customer-support')
             expect(event.properties!['$ai_framework']).toBe('eve')
             expect(event.properties!['$ai_session_id']).toBe('session-123')
+            expect(event.properties!['eve.session.id']).toBeUndefined()
             expect(event.properties!['$ai_lib']).toBe('opentelemetry/vercel-ai')
             expect(event.properties!['eve.turn.id']).toBe('turn-1')
         })
