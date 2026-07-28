@@ -90,6 +90,19 @@ class TestReportCharts(SimpleTestCase):
                     },
                 },
             ),
+            # `SuggestedQuestionsQueryRunner` calls `hit_openai`, so a chart carrying one buys an LLM
+            # completion every time a reader opens the report, up to the chart cap.
+            (
+                "a_nested_llm_query",
+                {
+                    "chart_id": "ok",
+                    "title": "t",
+                    "query": {
+                        "kind": "InsightVizNode",
+                        "source": {"kind": "SuggestedQuestionsQuery"},
+                    },
+                },
+            ),
             # `sendRawQuery` skips the HogQL printer and sends the query text verbatim to the external
             # engine, under the session of whoever opens the report.
             (

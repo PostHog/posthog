@@ -60,8 +60,10 @@ _MAX_CHART_QUERY_DEPTH = 100
 
 # Query kinds whose payload is a program rather than a description of data. The renderer hands a
 # node's nested source straight to the query service, and `HogQuery` is the branch there that runs
-# its `code` through `execute_hog`.
-_EXECUTABLE_QUERY_KINDS = frozenset({"HogQuery"})
+# its `code` through `execute_hog`. `SuggestedQuestionsQuery` is not an interpreter but bills like
+# one: its runner calls `hit_openai`, so a report carrying it spends money on the reader's behalf
+# every time someone opens it, times the chart cap.
+_EXECUTABLE_QUERY_KINDS = frozenset({"HogQuery", "SuggestedQuestionsQuery"})
 
 
 def _nests_too_deeply(value: Any) -> bool:
@@ -86,7 +88,7 @@ def _nests_too_deeply(value: Any) -> bool:
 def _executable_payload(value: Any) -> str | None:
     """What a query node carries that something downstream would *run*, or None if nothing does.
 
-    The `kind` allowlist only covers the outer node, and three shapes reach an interpreter from
+    The `kind` allowlist only covers the outer node, and four shapes reach something expensive from
     underneath it, each on a different reader's behalf:
 
     - `bytecode`: a `DataVisualizationNode` can hold `tableSettings.conditionalFormatting[*].bytecode`,
@@ -101,8 +103,13 @@ def _executable_payload(value: Any) -> str | None:
       `connectionId` on its own still goes through the printer and the resource access check, so it
       stays allowed — it's the raw-SQL bypass that turns a chart into someone else's shell.
 
-    A chart is a picture of a query, not a program, so all three are refused wherever they sit rather
-    than only at the paths known today.
+    - a nested `SuggestedQuestionsQuery`: an allowed outer node auto-loads its source, and that
+      runner calls `hit_openai`, so opening the report buys an LLM completion per chart. Refused for
+      cost rather than execution, but it reaches the same place: work the reader never asked for.
+
+    A chart is a picture of a query, not a program, so all four are refused wherever they sit rather
+    than only at the paths known today. Enumerating hazards this way loses to an allowlist of
+    renderable source kinds; that is the durable shape, and a wider change than adding a refusal.
 
     Walks an explicit stack rather than recursing: the query is caller-supplied and only bounded by
     its serialized size, so a few hundred nested objects fit well inside that bound while a recursive
