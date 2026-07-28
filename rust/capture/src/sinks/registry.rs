@@ -71,17 +71,17 @@ impl Outputs<'_> {
     /// "custom" so admin topic names never leak into error messages.
     fn name(&self) -> &'static str {
         match self {
-            Outputs::AnalyticsMain => "analytics_main",
-            Outputs::AnalyticsOverflow => "analytics_overflow",
-            Outputs::AnalyticsHistorical => "analytics_historical",
-            Outputs::ClientWarningsMain => "client_warnings_main",
-            Outputs::HeatmapsMain => "heatmaps_main",
-            Outputs::SessionReplayMain => "session_replay_main",
-            Outputs::SessionReplayOverflow => "session_replay_overflow",
+            Outputs::AnalyticsMain => "analytics-main",
+            Outputs::AnalyticsOverflow => "analytics-overflow",
+            Outputs::AnalyticsHistorical => "analytics-historical",
+            Outputs::ClientWarningsMain => "clientwarnings-main",
+            Outputs::HeatmapsMain => "heatmaps-main",
+            Outputs::SessionReplayMain => "sessionreplay-main",
+            Outputs::SessionReplayOverflow => "sessionreplay-overflow",
             Outputs::Dlq => "dlq",
-            Outputs::ErrorTrackingMain => "error_tracking_main",
-            Outputs::AiMain => "ai_main",
-            Outputs::AiOverflow => "ai_overflow",
+            Outputs::ErrorTrackingMain => "errortracking-main",
+            Outputs::AiMain => "ai-main",
+            Outputs::AiOverflow => "ai-overflow",
             Outputs::Custom(_) => "custom",
         }
     }
@@ -270,14 +270,14 @@ mod tests {
     /// Every registered output, blanked one at a time, must fail the check and
     /// the error must name the offending output.
     #[rstest]
-    #[case("analytics_main", |r: &mut OutputRegistry| r.main.clear())]
-    #[case("analytics_overflow", |r: &mut OutputRegistry| r.overflow.clear())]
-    #[case("analytics_historical", |r: &mut OutputRegistry| r.historical.clear())]
-    #[case("client_warnings_main", |r: &mut OutputRegistry| r.client_ingestion_warning.clear())]
-    #[case("heatmaps_main", |r: &mut OutputRegistry| r.heatmaps.clear())]
-    #[case("session_replay_overflow", |r: &mut OutputRegistry| r.replay_overflow.clear())]
+    #[case("analytics-main", |r: &mut OutputRegistry| r.main.clear())]
+    #[case("analytics-overflow", |r: &mut OutputRegistry| r.overflow.clear())]
+    #[case("analytics-historical", |r: &mut OutputRegistry| r.historical.clear())]
+    #[case("clientwarnings-main", |r: &mut OutputRegistry| r.client_ingestion_warning.clear())]
+    #[case("heatmaps-main", |r: &mut OutputRegistry| r.heatmaps.clear())]
+    #[case("sessionreplay-overflow", |r: &mut OutputRegistry| r.replay_overflow.clear())]
     #[case("dlq", |r: &mut OutputRegistry| r.dlq.clear())]
-    #[case("error_tracking_main", |r: &mut OutputRegistry| r.error_tracking.clear())]
+    #[case("errortracking-main", |r: &mut OutputRegistry| r.error_tracking.clear())]
     fn check_complete_rejects_empty_topic(
         #[case] output_name: &str,
         #[case] blank: fn(&mut OutputRegistry),
