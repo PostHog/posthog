@@ -16,7 +16,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.exceptions_capture import bind_exception_context
-from posthog.temporal.common.errors import NonReportableError
+from posthog.temporal.common.errors import NonReportableError, RetryableNonReportableError
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
 from posthog.temporal.common.shutdown import WorkerShuttingDownError
 
@@ -179,6 +179,26 @@ class NonReportableActivityWorkflow:
     async def run(self, inputs: OptionallyFailingInputs) -> None:
         await workflow.execute_activity(
             non_reportable_activity,
+            inputs,
+            start_to_close_timeout=dt.timedelta(minutes=1),
+            heartbeat_timeout=dt.timedelta(seconds=5),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+
+
+@activity.defn
+async def retryable_non_reportable_activity(inputs: OptionallyFailingInputs) -> None:
+    raise RetryableNonReportableError(
+        "embedding service is unavailable; retry then fail open", type="EmbeddingServiceUnavailable"
+    )
+
+
+@workflow.defn
+class RetryableNonReportableActivityWorkflow:
+    @workflow.run
+    async def run(self, inputs: OptionallyFailingInputs) -> None:
+        await workflow.execute_activity(
+            retryable_non_reportable_activity,
             inputs,
             start_to_close_timeout=dt.timedelta(minutes=1),
             heartbeat_timeout=dt.timedelta(seconds=5),
@@ -406,6 +426,36 @@ async def test_non_reportable_error_is_not_captured(temporal_client: Client):
             with pytest.raises(WorkflowFailureError):
                 await temporal_client.execute_workflow(
                     "NonReportableActivityWorkflow",
+                    OptionallyFailingInputs(fail=True),
+                    id=workflow_id,
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+        mock_ph_capture.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_retryable_non_reportable_error_is_not_captured(temporal_client: Client):
+    """A RetryableNonReportableError (a real ApplicationError for a tolerated transient blip that
+    the workflow fails open on once retries are exhausted, e.g. a short embedding-service outage)
+    still fails the activity and keeps retrying, but the interceptor must re-raise it without
+    reporting it to error tracking — otherwise one outage fans out into a burst of tracked issues."""
+    task_queue = "TEST-TASK-QUEUE"
+    workflow_id = str(uuid.uuid4())
+
+    with patch("posthog.temporal.common.posthog_client.capture_exception") as mock_ph_capture:
+        async with Worker(
+            temporal_client,
+            task_queue=task_queue,
+            workflows=[RetryableNonReportableActivityWorkflow],
+            activities=[retryable_non_reportable_activity],
+            interceptors=[PostHogClientInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await temporal_client.execute_workflow(
+                    "RetryableNonReportableActivityWorkflow",
                     OptionallyFailingInputs(fail=True),
                     id=workflow_id,
                     task_queue=task_queue,

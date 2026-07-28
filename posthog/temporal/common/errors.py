@@ -11,6 +11,16 @@ class NonReportableError(Exception):
     retrying can't resolve, so a tracked exception would only be noise."""
 
 
+class RetryableNonReportableError(ApplicationError):
+    """An ``ApplicationError`` for an expected, transient upstream condition that SHOULD keep
+    retrying — unlike :class:`NonReportableError`, whose failures retrying can't fix — but should
+    NOT be reported to error tracking. The activity interceptor re-raises these without capturing
+    them, and because it stays a real ``ApplicationError`` the retry policy and any ``error.type``
+    inspection in the workflow keep working unchanged. Use it (with an explicit ``type=``) for a
+    tolerated blip that the workflow already fails open on once retries are exhausted, so a burst of
+    retries during a short outage doesn't fan out into a burst of tracked issues."""
+
+
 # Bound error strings so a multi-MB str(e) (ClickHouse 5xx body, Playwright HTML dump)
 # can't blow out Temporal's 2 MiB payload limit.
 MAX_ERROR_MESSAGE_CHARS = 8_000

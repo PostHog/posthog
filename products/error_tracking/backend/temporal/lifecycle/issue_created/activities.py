@@ -15,6 +15,7 @@ from posthog.api.embedding_worker import generate_embedding
 from posthog.kafka_client.routing import producer_scope
 from posthog.kafka_client.topics import KAFKA_DOCUMENT_EMBEDDINGS_TOPIC
 from posthog.models import Team
+from posthog.temporal.common.errors import RetryableNonReportableError
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
@@ -80,7 +81,10 @@ def _embedding_unavailable_error(inputs: IssueCreatedWorkflowInputs, reason: str
         issue_id=inputs.issue_id,
         reason=reason,
     )
-    return ApplicationError(message, type=EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE)
+    # RetryableNonReportableError (an ApplicationError subclass) so the worker's Temporal interceptor
+    # skips capturing this expected blip too — the caller's scoped capture already skips it, but a
+    # re-raised ApplicationError would otherwise get captured a second time at the interceptor.
+    return RetryableNonReportableError(message, type=EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE)
 
 
 def _prepare_issue_created_embedding(inputs: IssueCreatedWorkflowInputs) -> IssueEmbeddingPreparationResult:
