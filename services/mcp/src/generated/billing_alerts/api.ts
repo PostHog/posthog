@@ -12,7 +12,7 @@ export const BillingAlertsCreateParams = /* @__PURE__ */ zod.object({
     organization_id: zod
         .string()
         .describe(
-            "ID of the organization you're trying to access. To find the ID of the organization, make a call to /api/organizations/."
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
         ),
 })
 
@@ -39,11 +39,11 @@ export const BillingAlertsCreateBody = /* @__PURE__ */ zod.object({
     threshold_type: zod
         .enum(['relative_increase', 'absolute_value', 'absolute_increase'])
         .describe(
-            '* `relative_increase` - Relative increase\n* `absolute_value` - Absolute value\n* `absolute_increase` - Absolute increase'
+            '\* `relative_increase` - Relative increase\n\* `absolute_value` - Absolute value\n\* `absolute_increase` - Absolute increase'
         )
         .optional()
         .describe(
-            'Threshold rule type.\n\n* `relative_increase` - Relative increase\n* `absolute_value` - Absolute value\n* `absolute_increase` - Absolute increase'
+            'Threshold rule type.\n\n\* `relative_increase` - Relative increase\n\* `absolute_value` - Absolute value\n\* `absolute_increase` - Absolute increase'
         ),
     threshold_percentage: zod
         .stringFormat('decimal', billingAlertsCreateBodyThresholdPercentageRegExp)
@@ -94,9 +94,9 @@ export const BillingAlertsCreateBody = /* @__PURE__ */ zod.object({
                     zod.object({
                         type: zod
                             .enum(['slack', 'webhook', 'teams'])
-                            .describe('* `slack` - slack\n* `webhook` - webhook\n* `teams` - teams')
+                            .describe('\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams')
                             .describe(
-                                'Destination type.\n\n* `slack` - slack\n* `webhook` - webhook\n* `teams` - teams'
+                                'Destination type.\n\n\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams'
                             ),
                         slack_workspace_id: zod
                             .number()
@@ -124,7 +124,7 @@ export const BillingAlertsPartialUpdateParams = /* @__PURE__ */ zod.object({
     organization_id: zod
         .string()
         .describe(
-            "ID of the organization you're trying to access. To find the ID of the organization, make a call to /api/organizations/."
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
         ),
 })
 
@@ -155,11 +155,11 @@ export const BillingAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
     threshold_type: zod
         .enum(['relative_increase', 'absolute_value', 'absolute_increase'])
         .describe(
-            '* `relative_increase` - Relative increase\n* `absolute_value` - Absolute value\n* `absolute_increase` - Absolute increase'
+            '\* `relative_increase` - Relative increase\n\* `absolute_value` - Absolute value\n\* `absolute_increase` - Absolute increase'
         )
         .optional()
         .describe(
-            'Threshold rule type.\n\n* `relative_increase` - Relative increase\n* `absolute_value` - Absolute value\n* `absolute_increase` - Absolute increase'
+            'Threshold rule type.\n\n\* `relative_increase` - Relative increase\n\* `absolute_value` - Absolute value\n\* `absolute_increase` - Absolute increase'
         ),
     threshold_percentage: zod
         .stringFormat('decimal', billingAlertsPartialUpdateBodyThresholdPercentageRegExp)
@@ -210,9 +210,9 @@ export const BillingAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     zod.object({
                         type: zod
                             .enum(['slack', 'webhook', 'teams'])
-                            .describe('* `slack` - slack\n* `webhook` - webhook\n* `teams` - teams')
+                            .describe('\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams')
                             .describe(
-                                'Destination type.\n\n* `slack` - slack\n* `webhook` - webhook\n* `teams` - teams'
+                                'Destination type.\n\n\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams'
                             ),
                         slack_workspace_id: zod
                             .number()
