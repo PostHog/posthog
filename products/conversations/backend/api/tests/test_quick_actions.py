@@ -5,6 +5,7 @@ from rest_framework import status
 
 from posthog.models import Team, User
 
+from products.conversations.backend.api.quick_actions import QuickActionViewSet
 from products.conversations.backend.models import QuickAction, Ticket
 from products.workflows.backend.facade.api import HogFlowNotRunnableError, HogFlowServiceError
 
@@ -248,6 +249,12 @@ class TestQuickActionAPI(APIBaseTest):
             )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
         invoke.assert_not_called()
+
+    def test_run_action_requires_ticket_and_workflow_write_scopes(self) -> None:
+        # Security regression guard: running a workflow executes its stored-secret actions, so the
+        # run endpoint must require hog_flow:write on top of ticket:write. A ticket-scoped API key
+        # alone must not be able to trigger workflow execution.
+        self.assertEqual(QuickActionViewSet.run.kwargs["required_scopes"], ["ticket:write", "hog_flow:write"])
 
     def test_unrelated_edit_not_blocked_when_workflow_became_inactive(self) -> None:
         # Regression guard: once a workflow is attached, an unrelated edit (rename) must not be

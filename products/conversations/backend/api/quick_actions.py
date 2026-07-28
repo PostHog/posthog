@@ -269,7 +269,8 @@ class QuickActionViewSet(
     # beyond what ticket access already implies.
     scope_object = "ticket"
     # Custom @action methods fall through to no required scope unless listed here, which 403s every
-    # personal-API-key / MCP caller. Keep the DRF defaults and add `run`.
+    # personal-API-key / MCP caller. Keep the DRF defaults and add `run` (its API-key access is
+    # further narrowed to also require hog_flow:write via required_scopes on the action).
     scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy", "run"]
     # `safely_get_queryset` re-filters by team; the fail-closed manager can't run `.all()` at
     # class-definition time (no team context), so start unscoped.
@@ -329,7 +330,10 @@ class QuickActionViewSet(
             ),
         },
     )
-    @action(detail=True, methods=["post"])
+    # Running a workflow executes its actions with their stored secrets, so a ticket-scoped API key
+    # must not reach it on ticket:write alone. Require hog_flow:write too, on top of the per-workflow
+    # RBAC check in the body.
+    @action(detail=True, methods=["post"], required_scopes=["ticket:write", "hog_flow:write"])
     def run(self, request: Request, **kwargs: Any) -> Response:
         """Run a workflow quick action against a ticket, synthesizing the ticket's event context."""
         quick_action = self.get_object()
