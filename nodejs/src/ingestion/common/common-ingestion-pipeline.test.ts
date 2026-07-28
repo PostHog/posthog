@@ -15,6 +15,7 @@ import { PipelineResult, dlq, drop, isDropResult, isOkResult, ok, redirect } fro
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { PluginEvent } from '~/plugin-scaffold'
 import { createTestTeam } from '~/tests/helpers/team'
+import { RecordedTopHogMetric, createRecordingTopHog } from '~/tests/helpers/tophog'
 import { EventHeaders, IncomingEvent, Team } from '~/types'
 
 import { CommonIngestionPipelineConfig, newCommonIngestionPipeline } from './common-ingestion-pipeline'
@@ -63,7 +64,7 @@ describe('CommonIngestionPipelineBuilder', () => {
     let promiseScheduler: PromiseScheduler
     let config: CommonIngestionPipelineConfig<TestRedirectOutput>
     let topHog: TopHogRegistry
-    let topHogRecords: { name: string; key: Record<string, string>; value: number }[]
+    let topHogRecords: Map<string, RecordedTopHogMetric[]>
 
     const team = createTestTeam({ id: 42, api_token: 'token-42' })
 
@@ -180,17 +181,9 @@ describe('CommonIngestionPipelineBuilder', () => {
 
         promiseScheduler = new PromiseScheduler()
 
-        topHogRecords = []
-        const recorder = (name: string) => ({
-            record: (key: Record<string, string>, value: number) => {
-                topHogRecords.push({ name, key, value })
-            },
-        })
-        topHog = {
-            registerSum: recorder,
-            registerMax: recorder,
-            registerAverage: recorder,
-        }
+        const recording = createRecordingTopHog()
+        topHog = recording.registry
+        topHogRecords = recording.records
 
         config = {
             teamManager: mockTeamManager,
@@ -757,13 +750,15 @@ describe('CommonIngestionPipelineBuilder', () => {
         const pipeline = newCommonIngestionPipeline<MessageOnly, MessageOnly>(config)
             .parseHeaders()
             .parseMessage()
-            .resolveTeam([
-                countResult('teams_resolved', (result, input) =>
-                    isOkResult(result)
-                        ? { outcome: `ok:${result.value.team.id}` }
-                        : { outcome: `miss:${input.headers.distinct_id}` }
-                ),
-            ])
+            .resolveTeam({
+                topHog: [
+                    countResult('teams_resolved', (result, input) =>
+                        isOkResult(result)
+                            ? { outcome: `ok:${result.value.team.id}` }
+                            : { outcome: `miss:${input.headers.distinct_id}` }
+                    ),
+                ],
+            })
             .build()
 
         const batches = await runPipeline(pipeline, [
@@ -771,8 +766,10 @@ describe('CommonIngestionPipelineBuilder', () => {
             createMessage('user-1', 'test_event', 'unknown-token'),
         ])
 
-        const resolved = topHogRecords.filter((r) => r.name === 'teams_resolved')
-        expect(resolved.map((r) => r.key)).toEqual([{ outcome: 'ok:42' }, { outcome: 'miss:user-1' }])
+        expect((topHogRecords.get('teams_resolved') ?? []).map((r) => r.key)).toEqual([
+            { outcome: 'ok:42' },
+            { outcome: 'miss:user-1' },
+        ])
         const elements = batches.flatMap((batch) => batch.elements)
         expect(isOkResult(elements[0].result)).toBe(true)
         expect(isDropResult(elements[1].result)).toBe(true)
@@ -787,11 +784,11 @@ describe('CommonIngestionPipelineBuilder', () => {
 
         await runPipeline(pipeline, [createMessage('user-0')])
 
-        const sizes = topHogRecords.filter((r) => r.name === 'message_size_by_token')
+        const sizes = topHogRecords.get('message_size_by_token') ?? []
         expect(sizes).toHaveLength(1)
         expect(sizes[0].key).toEqual({ token: team.api_token })
         expect(sizes[0].value).toBeGreaterThan(0)
-        expect(topHogRecords.some((r) => r.name === 'parse_time_ms_by_token')).toBe(true)
+        expect(topHogRecords.get('parse_time_ms_by_token')).toHaveLength(1)
     })
 
     it('passes retry options through to chunk steps', async () => {

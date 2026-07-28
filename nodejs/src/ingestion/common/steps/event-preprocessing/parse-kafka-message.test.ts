@@ -3,6 +3,7 @@ import { Message } from 'node-rdkafka'
 import { logger } from '~/common/utils/logger'
 import { TopHogRegistry, createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
 import { PipelineResultType, dlq, ok } from '~/ingestion/framework/results'
+import { createRecordingTopHog } from '~/tests/helpers/tophog'
 import { EventHeaders } from '~/types'
 
 import { createParseKafkaMessageStep, parseMessageTopHogMetrics } from './parse-kafka-message'
@@ -465,21 +466,6 @@ describe('createParseKafkaMessageStep', () => {
     })
 
     describe('parseMessageTopHogMetrics', () => {
-        type Recorded = { key: Record<string, string>; value: number }
-
-        function createRecordingTopHog(): { registry: TopHogRegistry; records: Map<string, Recorded[]> } {
-            const records = new Map<string, Recorded[]>()
-            const recorder = (name: string) => ({
-                record: (key: Record<string, string>, value: number) => {
-                    records.set(name, [...(records.get(name) ?? []), { key, value }])
-                },
-            })
-            return {
-                registry: { registerSum: recorder, registerMax: recorder, registerAverage: recorder },
-                records,
-            }
-        }
-
         function createWrappedStep(registry: TopHogRegistry) {
             return createTopHogWrapper(registry)(
                 createParseKafkaMessageStep<{ message: Message; headers: EventHeaders }>(),

@@ -18,6 +18,7 @@ import { DisabledOverflowRedirect } from '~/ingestion/common/overflow-redirect/d
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { ok } from '~/ingestion/framework/results'
 import { createTestTeam } from '~/tests/helpers/team'
+import { createNoopTopHog } from '~/tests/helpers/tophog'
 
 import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT } from './outputs'
 import { AiIngestionPipelineConfig, createAiIngestionPipeline } from './pipeline'
@@ -173,12 +174,7 @@ describe('AiIngestionPipeline', () => {
             cdpHogWatcherSampleRate: 1,
             eventSchemaEnforcementEnabled: false,
             eventSchemaEnforcementManager: {} as unknown as EventSchemaEnforcementManager,
-            // No-op metrics registry — these tests assert pipeline output, not topHog counters.
-            topHog: {
-                registerSum: () => ({ record: () => {} }),
-                registerMax: () => ({ record: () => {} }),
-                registerAverage: () => ({ record: () => {} }),
-            },
+            topHog: createNoopTopHog(),
             aiBlobStore: null,
             aiBlobOffloadConfig: {
                 isTeamEnabled: (): boolean => false,

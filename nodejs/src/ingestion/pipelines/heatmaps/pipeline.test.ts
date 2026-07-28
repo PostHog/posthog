@@ -14,6 +14,7 @@ import { EventFilterManager } from '~/ingestion/common/event-filters'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { drop, ok } from '~/ingestion/framework/results'
 import { createTestTeam } from '~/tests/helpers/team'
+import { createNoopTopHog } from '~/tests/helpers/tophog'
 
 import { HEATMAPS_OUTPUT } from './outputs'
 import { HeatmapsPipelineConfig, createHeatmapsPipeline } from './pipeline'
@@ -147,12 +148,7 @@ describe('HeatmapsPipeline', () => {
                 ),
                 [TOPHOG_OUTPUT]: new SingleIngestionOutput(TOPHOG_OUTPUT, 'tophog_test', mockKafkaProducer, 'test'),
             }),
-            // No-op metrics registry — these tests assert pipeline output, not topHog counters.
-            topHog: {
-                registerSum: () => ({ record: () => {} }),
-                registerMax: () => ({ record: () => {} }),
-                registerAverage: () => ({ record: () => {} }),
-            },
+            topHog: createNoopTopHog(),
             teamManager: mockTeamManager,
             eventIngestionRestrictionManager: mockEventIngestionRestrictionManager,
             eventFilterManager: mockEventFilterManager,
