@@ -11,7 +11,7 @@ export function NewTicket(): JSX.Element {
     const { sendMessage, setView } = useActions(sidepanelTicketsLogic)
 
     const placeholder = supportResponseTime
-        ? `Describe what you need help with and our support engineers will get back to you within ${supportResponseTime}.`
+        ? `Describe what you need help with and our support engineers aim to get back to you within ${supportResponseTime}.`
         : 'Describe what you need help with and our support engineers will get back to you.'
 
     return (
