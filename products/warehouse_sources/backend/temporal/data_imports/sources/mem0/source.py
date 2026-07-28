@@ -27,10 +27,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mem0.mem0 
     validate_credentials as validate_mem0_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mem0.settings import (
+    DEFAULT_VERSION,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     MEM0_ENDPOINTS,
     MEMORIES_ENDPOINT,
+    SUPPORTED_VERSIONS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -48,6 +50,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class Mem0Source(ResumableSource[Mem0SourceConfig, Mem0ResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.mem0.ai/api-reference"
+
+    supported_versions = SUPPORTED_VERSIONS
+    default_version = DEFAULT_VERSION
 
     @property
     def source_type(self) -> ExternalDataSourceType:
