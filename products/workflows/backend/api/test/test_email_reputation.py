@@ -43,6 +43,22 @@ class TestEmailReputationAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"reputation": None, "workflows": []}
 
+    def test_reputation_endpoint_search_filters_before_the_cap(self):
+        # A healthy workflow pushed past the worst-50 cap must still be findable by name
+        needle = self._create_flow("Quarterly newsletter")
+        self._create_snapshot(needle, RUN_2, state="healthy", bounce_rate=0.001)
+        for i in range(55):
+            noisy = self._create_flow(f"Blast {i}")
+            self._create_snapshot(noisy, RUN_2, state="critical", bounce_rate=0.2)
+
+        unfiltered = self.client.get(f"/api/projects/{self.team.id}/hog_flows/reputation").json()
+        assert all(row["hog_flow_name"] != "Quarterly newsletter" for row in unfiltered["workflows"])
+
+        searched = self.client.get(f"/api/projects/{self.team.id}/hog_flows/reputation?search=newsLETTER").json()
+        assert [row["hog_flow_name"] for row in searched["workflows"]] == ["Quarterly newsletter"]
+        # The team aggregate is unaffected by workflow search
+        assert searched["reputation"] is None
+
     def test_reputation_endpoint_returns_latest_history_and_worst_first_workflows(self):
         ok_flow = self._create_flow("Fine workflow")
         bad_flow = self._create_flow("Toxic workflow")

@@ -450,9 +450,11 @@ def _make_requests_session() -> "requests.Session":
     from urllib3.util.retry import Retry
 
     retry = Retry(
-        total=5,
-        connect=5,  # Redundant to set this + total, but just being explicit
         backoff_factor=1.0,  # 0s, 2s, 4s, 6s, ...
+        connect=5,  # Retry on connection errors
+        status=5,  # Retry on statuses matching the ones below
+        status_forcelist=[429, 500, 502, 503],
+        allowed_methods=(*Retry.DEFAULT_ALLOWED_METHODS, "POST"),
     )
 
     session = requests.Session()
