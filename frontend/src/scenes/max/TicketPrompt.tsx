@@ -43,8 +43,8 @@ export function TicketPrompt({
     const [hasSubmitted, setHasSubmitted] = useState(false)
     const [isSupportModalOpen, setIsSupportModalOpen] = useState(false)
 
-    const { sendSupportRequest, conversationsFlagEnabled } = useValues(supportLogic)
-    const { resetSendSupportRequest, closeSupportForm } = useActions(supportLogic)
+    const { sendSupportRequest, conversationsFlagEnabled, sidePanelAvailable } = useValues(supportLogic)
+    const { resetSendSupportRequest, closeSupportForm, viewConversationsTicket } = useActions(supportLogic)
     const { appendMessageToConversation } = useActions(maxThreadLogic)
     const { user } = useValues(userLogic)
 
@@ -60,6 +60,13 @@ export function TicketPrompt({
         setIsSupportModalOpen(false)
         setIsSubmitting(false)
         closeSupportForm()
+
+        // Last, because opening the panel reopens the support form via the URL hash, which clears the
+        // submission state this handler reads
+        const createdTicket = supportLogic.values.lastSubmittedConversationsTicket
+        if (sidePanelAvailable && createdTicket?.id === ticketId) {
+            viewConversationsTicket(createdTicket)
+        }
     }
 
     function openSupportModal(): void {
@@ -76,6 +83,7 @@ export function TicketPrompt({
             tags: ['raised_from_posthog_ai_chat'],
             ai_conversation_id: conversationId,
             ai_trace_id: traceId,
+            view_created_ticket: true,
         })
         setIsSupportModalOpen(true)
     }

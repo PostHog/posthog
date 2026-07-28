@@ -15,6 +15,7 @@ import {
     supportLogic,
 } from './supportLogic'
 import * as SupportModal from './SupportModal'
+import { supportRouterLogic } from './supportRouterLogic'
 
 // supportLogic and SupportModal import each other, so jest.mock('./SupportModal') leaves supportLogic
 // bound to the real openSupportModal — spy on the live module export instead so the call is intercepted.
@@ -161,6 +162,34 @@ describe('supportLogic', () => {
             expect(sendMessage).toHaveBeenCalledWith('Help!', { name: 'Max', email: 'max@example.com' }, true)
             expect(zendeskCalls()).toHaveLength(0)
             expect(logic.values.lastSubmittedTicketId).toBe('t1')
+        })
+
+        // Regression guard: the submit must not open the side panel itself. Doing so writes the
+        // #panel=support hash, and supportRouterLogic answers that by reopening the support form,
+        // which wipes the submission state callers read to tell success from failure.
+        it('hands the created ticket to the caller instead of navigating mid-submit', async () => {
+            const sendMessage = jest
+                .fn()
+                .mockResolvedValue({ ticket_id: 't1', ticket_status: 'open', created_at: '2026-07-28T00:00:00Z' })
+            ;(posthog as any).conversations = { isAvailable: () => true, sendMessage }
+            enableConversationsFlag()
+            sidePanelStateLogic.actions.setSidePanelAvailable(true)
+            const routerLogic = supportRouterLogic.build()
+            routerLogic.mount()
+
+            try {
+                await logic.asyncActions.submitSupportTicket({ ...FORM_FIELDS, view_created_ticket: true })
+
+                expect(logic.values.lastSubmittedTicketId).toBe('t1')
+                expect(logic.values.lastSubmittedConversationsTicket).toEqual({
+                    id: 't1',
+                    status: 'open',
+                    created_at: '2026-07-28T00:00:00Z',
+                })
+                expect(logic.values.pendingViewTicket).toBeNull()
+            } finally {
+                routerLogic.unmount()
+            }
         })
 
         it.each([
