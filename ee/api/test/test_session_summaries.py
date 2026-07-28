@@ -15,6 +15,7 @@ from rest_framework import exceptions
 from posthog.temporal.session_replay.session_summary_group.types import FailedSessionInfo, SessionSummaryStreamUpdate
 
 from ee.api.session_summaries import _NO_READY_SUMMARY_ERROR_SUBSTRING
+from ee.hogai.session_summaries.availability import CLOUD_ONLY_MESSAGE, MISSING_API_KEY_MESSAGE
 from ee.hogai.session_summaries.session_group.patterns import (
     EnrichedSessionGroupSummaryPattern,
     EnrichedSessionGroupSummaryPatternsList,
@@ -61,7 +62,7 @@ class TestSessionSummariesAPI(APIBaseTest):
 
         # Mock environment requirements
         self.environment_patches = [
-            patch("ee.api.session_summaries.is_cloud", return_value=True),
+            patch("ee.hogai.session_summaries.availability.is_cloud", return_value=True),
             patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}),
         ]
         for p in self.environment_patches:
@@ -220,7 +221,7 @@ class TestSessionSummariesAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, 401)
 
-    @patch("ee.api.session_summaries.is_cloud")
+    @patch("ee.hogai.session_summaries.availability.is_cloud")
     def test_create_summaries_not_cloud(self, mock_is_cloud: Mock) -> None:
         """Test error when not in cloud environment"""
         mock_is_cloud.return_value = False
@@ -229,7 +230,7 @@ class TestSessionSummariesAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, 400)
         error: dict[str, Any] = response.json()  # type: ignore[attr-defined]
-        self.assertIn("Session summaries are only supported in PostHog Cloud", str(error))
+        self.assertIn(CLOUD_ONLY_MESSAGE, str(error))
 
     @patch.dict(os.environ, {}, clear=True)  # Remove OPENAI_API_KEY
     def test_create_summaries_no_openai_key(self) -> None:
@@ -238,7 +239,7 @@ class TestSessionSummariesAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, 400)
         error: dict[str, Any] = response.json()  # type: ignore[attr-defined]
-        self.assertIn("Session summaries are only supported in PostHog Cloud", str(error))
+        self.assertIn(MISSING_API_KEY_MESSAGE, str(error))
 
     @patch("ee.api.session_summaries.find_sessions_timestamps")
     def test_create_summaries_session_not_found(self, mock_find_sessions: Mock) -> None:
@@ -537,7 +538,7 @@ class TestStreamSessionSummariesAPI(APIBaseTest):
         self.url = f"/api/environments/{self.team.id}/session_summaries/stream_batch/"
 
         self.environment_patches = [
-            patch("ee.api.session_summaries.is_cloud", return_value=True),
+            patch("ee.hogai.session_summaries.availability.is_cloud", return_value=True),
             patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}),
         ]
         for p in self.environment_patches:
@@ -719,7 +720,7 @@ class TestStreamSessionSummariesAPI(APIBaseTest):
         response = self._make_streaming_request(session_ids=["session_1"])
         self.assertEqual(response.status_code, 401)
 
-    @patch("ee.api.session_summaries.is_cloud")
+    @patch("ee.hogai.session_summaries.availability.is_cloud")
     def test_stream_individually_not_cloud_returns_400(self, mock_is_cloud: Mock) -> None:
         mock_is_cloud.return_value = False
         response = self._make_streaming_request(session_ids=["session_1"])

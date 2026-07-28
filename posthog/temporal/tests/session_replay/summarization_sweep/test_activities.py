@@ -1,6 +1,8 @@
 import pytest
 from unittest.mock import patch
 
+from django.test import override_settings
+
 from asgiref.sync import sync_to_async
 
 from posthog.models.organization import Organization
@@ -32,6 +34,21 @@ async def test_find_sessions_returns_empty_when_config_disabled(activity_environ
         find_sessions_for_team_activity,
         FindSessionsInput(team_id=team.id, lookback_minutes=30),
     )
+    assert result.session_ids == []
+    assert result.user_id is None
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_find_sessions_returns_empty_off_cloud(activity_environment, team):
+    # Off-cloud every dispatched child is guaranteed to fail, so the sweep must find nothing
+    # even while the team has summarization switched on.
+    await sync_to_async(enable_signal_source)(team)
+    with override_settings(DEBUG=False, CLOUD_DEPLOYMENT=None):
+        result = await activity_environment.run(
+            find_sessions_for_team_activity,
+            FindSessionsInput(team_id=team.id, lookback_minutes=30),
+        )
     assert result.session_ids == []
     assert result.user_id is None
 

@@ -21,6 +21,7 @@ from posthog.temporal.session_replay.session_summary_group.types import (
 )
 from posthog.temporal.session_replay.session_summary_group.workflow import execute_summarize_session_group
 
+from ee.hogai.session_summaries.availability import session_summaries_unavailable_reason
 from ee.hogai.session_summaries.constants import (
     GROUP_SUMMARIES_MIN_SESSIONS,
     MAX_SESSIONS_TO_SUMMARIZE,
@@ -89,6 +90,12 @@ class SummarizeSessionsTool(MaxTool):
         recordings_filters_or_explicit_session_ids: MaxRecordingUniversalFilters | list[str],
         summary_title: str,
     ) -> tuple[str, dict | None]:
+        # Refuse before resolving session IDs: the group flow this tool dispatches to runs one
+        # activity per session, so a deployment that can't summarize at all should explain that
+        # to the user rather than fan out work that can only fail.
+        unavailable_reason = session_summaries_unavailable_reason()
+        if unavailable_reason is not None:
+            return unavailable_reason, None
         # If filters - convert filters to recordings query and get session IDs
         if isinstance(recordings_filters_or_explicit_session_ids, MaxRecordingUniversalFilters):
             recordings_query = convert_filters_to_recordings_query(

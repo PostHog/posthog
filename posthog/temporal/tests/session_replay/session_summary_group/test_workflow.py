@@ -12,6 +12,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
+from django.test import override_settings
 
 from openai.types.responses import (
     Response as OpenAIResponse,
@@ -37,6 +38,7 @@ from posthog.temporal.session_replay.session_summary.activities.check_summary_ex
 from posthog.temporal.session_replay.session_summary.activities.event_based.get_llm_single_session_summary import (
     get_llm_single_session_summary_activity,
 )
+from posthog.temporal.session_replay.session_summary.errors import SessionSummariesUnsupportedEnvironmentError
 from posthog.temporal.session_replay.session_summary.state import (
     StateActivitiesEnum,
     _compress_redis_data,
@@ -177,6 +179,21 @@ async def test_get_llm_single_session_summary_activity_standalone(
         assert summary_after is not None, "Summary should exist in DB after the activity"
         assert summary_after.session_id == mock_session_id
         assert summary_after.team_id == ateam.id
+
+
+@pytest.mark.asyncio
+async def test_get_llm_single_session_summary_activity_off_cloud_raises_non_reportable_error(
+    mock_session_id: str,
+    mock_single_session_summary_inputs: Callable,
+    ateam: Team,
+    auser: User,
+):
+    # The group flow reaches this activity without passing a dispatch-time gate, so the guard has
+    # to hold here too, and it has to raise the marker error that stops retries and reporting.
+    input_data = mock_single_session_summary_inputs(mock_session_id, ateam.id, auser.id)
+    with override_settings(DEBUG=False, CLOUD_DEPLOYMENT=None):
+        with pytest.raises(SessionSummariesUnsupportedEnvironmentError):
+            await get_llm_single_session_summary_activity(input_data)
 
 
 @pytest.mark.asyncio
@@ -1026,6 +1043,37 @@ class TestSummarizeSessionGroupWorkflow:
                 SessionSummaryStreamUpdate.FINAL_RESULT,
                 (expected_patterns, "session-group-summary-id", []),
             )
+
+    @pytest.mark.asyncio
+    async def test_execute_summarize_session_group_off_cloud_starts_no_workflow(
+        self,
+        mock_session_id: str,
+        mock_user: MagicMock,
+        mock_team: MagicMock,
+        mock_session_group_summary_inputs: Callable,
+    ):
+        # Starting the group workflow off-cloud fans out one doomed activity per session, so the
+        # refusal has to happen before anything is dispatched.
+        session_ids, _, _ = self.setup_workflow_test(
+            mock_session_id, mock_session_group_summary_inputs, "off_cloud", mock_user, mock_team
+        )
+        with (
+            override_settings(DEBUG=False, CLOUD_DEPLOYMENT=None),
+            patch(
+                "posthog.temporal.session_replay.session_summary_group.workflow._start_session_group_summary_workflow",
+                side_effect=AssertionError("should not start a workflow off-cloud"),
+            ),
+            pytest.raises(SessionSummariesUnsupportedEnvironmentError),
+        ):
+            async for _ in execute_summarize_session_group(
+                session_ids=session_ids,
+                user=mock_user,
+                team=mock_team,
+                min_timestamp=datetime.now() - timedelta(days=1),
+                max_timestamp=datetime.now(),
+                summary_title="Test summary",
+            ):
+                pass
 
     @pytest.mark.asyncio
     async def test_start_session_group_summary_workflow_fetches_from_db(

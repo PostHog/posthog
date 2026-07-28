@@ -1,4 +1,3 @@
-import os
 import re
 import json
 import uuid
@@ -29,7 +28,6 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.streaming import sse_streaming_response
 from posthog.clickhouse.query_tagging import Product, tag_queries
-from posthog.cloud_utils import is_cloud
 from posthog.event_usage import EventSource, get_event_source
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import OrganizationMembership, Team, User
@@ -53,6 +51,7 @@ from products.replay.backend.models.team_session_summaries_config import (
     TeamSessionSummariesConfig,
 )
 
+from ee.hogai.session_summaries.availability import session_summaries_unavailable_reason
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
 from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
 from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
@@ -196,11 +195,9 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             raise exceptions.NotAuthenticated()
         tag_queries(product=Product.SESSION_SUMMARY)
         user = cast(User, request.user)
-        # Validate environment requirements
-        environment_is_allowed = settings.DEBUG or is_cloud()
-        has_openai_api_key = bool(os.environ.get("OPENAI_API_KEY"))
-        if not environment_is_allowed or not has_openai_api_key:
-            raise exceptions.ValidationError("Session summaries are only supported in PostHog Cloud")
+        unavailable_reason = session_summaries_unavailable_reason()
+        if unavailable_reason is not None:
+            raise exceptions.ValidationError(unavailable_reason)
         return user
 
     def _validate_input(self, request: Request) -> tuple[list[str], datetime, datetime, ExtraSummaryContext | None]:

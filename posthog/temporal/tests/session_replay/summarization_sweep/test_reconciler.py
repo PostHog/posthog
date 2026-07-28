@@ -4,6 +4,8 @@ from typing import Any
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.test import override_settings
+
 import temporalio.worker
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
@@ -57,6 +59,21 @@ async def test_list_enabled_teams_returns_enabled_only(activity_environment, org
     assert t_enabled.id in result
     assert t_disabled.id not in result
     assert t_none.id not in result
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_list_enabled_teams_empty_off_cloud(activity_environment, organization):
+    # Summarization can't run off-cloud, so the reconciler must stop creating per-team schedules
+    # and tear down whichever ones already exist.
+    from asgiref.sync import sync_to_async
+
+    t_enabled = await sync_to_async(Team.objects.create)(organization=organization, name="enabled")
+    await sync_to_async(enable_signal_source)(t_enabled, enabled=True)
+
+    with override_settings(DEBUG=False, CLOUD_DEPLOYMENT=None):
+        result = await activity_environment.run(list_enabled_teams_activity)
+    assert result == {}
 
 
 @pytest.mark.django_db(transaction=True)

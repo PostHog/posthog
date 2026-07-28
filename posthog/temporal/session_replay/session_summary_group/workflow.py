@@ -22,6 +22,7 @@ from posthog.temporal.session_replay.session_summary.activities.capture_timing i
     CaptureTimingInputs,
     capture_timing_activity,
 )
+from posthog.temporal.session_replay.session_summary.errors import raise_if_session_summaries_unsupported
 from posthog.temporal.session_replay.session_summary.state import (
     StateActivitiesEnum,
     generate_state_id_from_session_ids,
@@ -670,6 +671,9 @@ async def execute_summarize_session_group(
     """
     Start the workflow and yield status updates and final summary for the group of sessions.
     """
+    # Off-cloud there is nothing to dispatch: the group flow fans out one activity per session,
+    # so starting it would only produce one guaranteed failure per session.
+    raise_if_session_summaries_unsupported()
     # Use shared identifier to be able to construct all the ids to check/debug.
     shared_id = _generate_shared_id(session_ids)
     # Prepare the input data

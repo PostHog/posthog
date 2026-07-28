@@ -58,6 +58,7 @@ from posthog.temporal.session_replay.session_summary.activities.video_based impo
     tag_and_highlight_session_activity,
     upload_video_to_gemini_activity,
 )
+from posthog.temporal.session_replay.session_summary.errors import raise_if_session_summaries_unsupported
 from posthog.temporal.session_replay.session_summary.state import StateActivitiesEnum, generate_state_key
 from posthog.temporal.session_replay.session_summary.types.inputs import (
     SingleSessionProgress,
@@ -576,6 +577,7 @@ async def _start_video_summary_workflow(
     permitted once a previous run has reached any terminal state (CANCELLED,
     FAILED, TERMINATED, COMPLETED).
     """
+    raise_if_session_summaries_unsupported()
     client = await async_connect()
     retry_policy = RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS))
     conflict_policy = (
@@ -606,6 +608,7 @@ async def _execute_single_session_summary_workflow(inputs: SingleSessionSummaryI
     - If the previous run is in any terminal state (including CANCELLED),
       ``ALLOW_DUPLICATE`` lets a fresh run start under the same id.
     """
+    raise_if_session_summaries_unsupported()
     client = await async_connect()
     retry_policy = RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS))
     await client.execute_workflow(

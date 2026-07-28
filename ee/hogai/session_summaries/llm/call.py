@@ -1,5 +1,3 @@
-import os
-
 from django.conf import settings
 
 import structlog
@@ -9,9 +7,9 @@ from posthoganalytics.ai.openai import AsyncOpenAI, OpenAI
 from posthoganalytics.client import Client
 from rest_framework import exceptions
 
-from posthog.cloud_utils import is_cloud
 from posthog.utils import get_instance_region
 
+from ee.hogai.session_summaries.availability import session_summaries_unavailable_reason
 from ee.hogai.session_summaries.constants import BASE_LLM_CALL_TIMEOUT_S, SESSION_SUMMARIES_REASONING_EFFORT
 
 logger = structlog.get_logger(__name__)
@@ -26,11 +24,9 @@ def _build_posthog_props(trigger_session_id: str | None) -> dict[str, str]:
 
 def _get_default_posthog_client() -> Client:
     """Return the default analytics client after validating the environment."""
-    if not settings.DEBUG and not is_cloud():
-        raise exceptions.ValidationError("AI features are only available in PostHog Cloud")
-
-    if not os.environ.get("OPENAI_API_KEY"):
-        raise exceptions.ValidationError("OpenAI API key is not configured")
+    unavailable_reason = session_summaries_unavailable_reason()
+    if unavailable_reason is not None:
+        raise exceptions.ValidationError(unavailable_reason)
 
     client = posthoganalytics.default_client
     if not client:

@@ -6,6 +6,7 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.models.user import User
 from posthog.sync import database_sync_to_async
+from posthog.temporal.session_replay.session_summary.errors import raise_if_session_summaries_unsupported
 from posthog.temporal.session_replay.session_summary.state import (
     StateActivitiesEnum,
     get_data_class_from_redis,
@@ -60,6 +61,10 @@ async def get_llm_single_session_summary_activity(
     inputs: SingleSessionSummaryInputs,
 ) -> None:
     """Summarize a single session via LLM. Caches inputs/outputs in Redis to avoid Temporal payload limits."""
+    # Ahead of any DB/Redis work: the LLM client rejects an off-cloud deployment anyway, so
+    # every attempt up to that point is wasted. The group flow reaches this activity without
+    # passing a dispatch-time gate, so the check has to live here too.
+    raise_if_session_summaries_unsupported()
     # Re-check the summary guard: the group-summary path skips the workflow-entry guard.
     summary_exists = await database_sync_to_async(SingleSessionSummary.objects.summaries_exist)(
         team_id=inputs.team_id,

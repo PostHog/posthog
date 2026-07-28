@@ -37,10 +37,14 @@ from posthog.temporal.session_replay.summarization_sweep.types import (
 from products.replay.backend.models.session_summaries import SingleSessionSummary
 from products.signals.backend.models import SignalSourceConfig
 
+from ee.hogai.session_summaries.availability import session_summaries_environment_allowed
+
 logger = structlog.get_logger(__name__)
 
 
 def _is_team_summarization_allowed(team_id: int) -> bool:
+    if not session_summaries_environment_allowed():
+        return False
     return SignalSourceConfig.objects.filter(
         team_id=team_id,
         source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
@@ -166,6 +170,10 @@ def compute_schedule_fingerprint(config: Mapping[str, Any] | None) -> str:
 
 
 def _list_allowed_team_fingerprints() -> dict[int, str]:
+    # Empty off-cloud, which both stops the reconciler creating per-team schedules and makes it
+    # tear down whichever ones already exist.
+    if not session_summaries_environment_allowed():
+        return {}
     rows = SignalSourceConfig.objects.filter(
         source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
         source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
