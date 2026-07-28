@@ -97,7 +97,7 @@ class TestBackfillFinalizer(BaseTest):
         elif outcome == "shortfall":
             rows.update(error="markers short, retryable")
         elif outcome == "missing_outcome":
-            pass  # nothing written despite reconcile_observed_at — INV-1 violation
+            pass  # nothing written despite reconcile_observed_at
         else:
             raise ValueError(outcome)
         return cohort, participation
@@ -130,8 +130,8 @@ class TestBackfillFinalizer(BaseTest):
             ("all_superseded", ["superseded", "superseded"], CohortBackfillRunStatus.SUPERSEDED, []),
             ("superseded_trumps_completed", ["superseded_and_completed"], CohortBackfillRunStatus.SUPERSEDED, []),
             ("shortfall_holds", ["shortfall"], CohortBackfillRunStatus.RECONCILING, []),
-            # No outcome at all despite reconcile_observed_at: an INV-1 violation must hold the run
-            # rather than terminalize it on incomplete information.
+            # No outcome at all despite reconcile_observed_at must hold the run rather than
+            # terminalize it on incomplete information.
             ("missing_outcome_holds", ["missing_outcome"], CohortBackfillRunStatus.RECONCILING, []),
             ("mixed_held_still_stamps", ["completed", "shortfall"], CohortBackfillRunStatus.RECONCILING, [0]),
         ]
