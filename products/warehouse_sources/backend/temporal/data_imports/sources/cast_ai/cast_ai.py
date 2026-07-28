@@ -62,13 +62,16 @@ def _client_config(api_key: str) -> ClientConfig:
         "base_url": CASTAI_BASE_URL,
         "auth": {"type": "api_key", "api_key": api_key, "name": "X-API-Key", "location": "header"},
         "headers": {"Accept": "application/json"},
+        # X-API-Key is a custom header requests keeps across origins, so never follow a
+        # redirect that could hand the CAST AI key to another host.
+        "allow_redirects": False,
     }
 
 
 def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     # ListClusters is the cheapest authenticated call available (no required params, and an
     # empty cluster list is still a valid 200), so it doubles as the credential probe.
-    res = make_tracked_session(redact_values=(api_key,)).get(
+    res = make_tracked_session(redact_values=(api_key,), allow_redirects=False).get(
         f"{CASTAI_BASE_URL}/v1/kubernetes/external-clusters",
         headers={"X-API-Key": api_key, "Accept": "application/json"},
         timeout=10,
