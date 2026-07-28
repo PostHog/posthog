@@ -7,6 +7,7 @@ from uuid import UUID, uuid4, uuid5
 
 import structlog
 from posthoganalytics import Posthog
+from posthoganalytics.ai.utils import _capture_ai_event
 
 from llm_gateway.auth.models import resolve_distinct_id
 from llm_gateway.callbacks.base import InstrumentedCallback
@@ -423,7 +424,7 @@ class PostHogCallback(InstrumentedCallback):
             _enable_multimodal_capture=True,
         )
         try:
-            client.capture(**capture_kwargs)
+            _capture_ai_event(client, **capture_kwargs)
         except Exception as e:
             client.capture_exception(e, **capture_kwargs)
             logger.exception("posthog_capture_failed", host=host, error=str(e))
