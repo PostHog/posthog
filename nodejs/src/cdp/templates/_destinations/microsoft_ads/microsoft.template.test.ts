@@ -1,5 +1,7 @@
 import { DateTime, Settings } from 'luxon'
 
+import { parseJSON } from '~/common/utils/json-parse'
+
 import { TemplateTester, createAdDestinationPayload } from '../../test/test-helpers'
 import { template } from './microsoft.template'
 
@@ -89,7 +91,8 @@ describe('microsoft template', () => {
             createAdDestinationPayload({ person: { properties: { msclkid: null } } })
         )
         expect(response.error).toBeUndefined()
-        expect(JSON.parse(response.invocation.queueParameters!.body as string).data[0].userData).toEqual({
+        const body = parseJSON((response.invocation.queueParameters as { body: string }).body)
+        expect(body.data[0].userData).toEqual({
             em: '3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3',
         })
     })
