@@ -22,8 +22,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.charthop.c
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.charthop.settings import (
     CHARTHOP_ENDPOINTS,
+    DEFAULT_VERSION,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SUPPORTED_VERSIONS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -45,6 +47,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class ChartHopSource(ResumableSource[ChartHopSourceConfig, ChartHopResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.charthop.com/charthop-for-developers"
+    supported_versions = SUPPORTED_VERSIONS
+    default_version = DEFAULT_VERSION
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -111,6 +115,9 @@ The organization ID (or slug) is optional — it's detected automatically when y
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
+        # Table set, incremental fields, and primary keys are identical across versions —
+        # only the `changes` request path/filter differs (see settings.version_overrides),
+        # so discovery doesn't vary by pin.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
@@ -123,7 +130,9 @@ The organization ID (or slug) is optional — it's detected automatically when y
         if schema_name is not None and schema_name not in CHARTHOP_ENDPOINTS:
             return False, f"Unknown ChartHop schema '{schema_name}'"
 
-        status, message = check_access(config.api_key, config.org_id, schema_name)
+        status, message = check_access(
+            config.api_key, config.org_id, schema_name, self.resolve_api_version(api_version)
+        )
 
         if status == 200:
             return True, None
@@ -167,4 +176,5 @@ The organization ID (or slug) is optional — it's detected automatically when y
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
+            api_version=self.resolve_api_version(inputs.api_version),
         )
