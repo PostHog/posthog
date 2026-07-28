@@ -94,8 +94,8 @@ export interface logsColumnConfiguratorLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         newColumnError: (newColumn: { expression: string; name: string; type: LogsColumnType }) => string | null
-        draftErrors: (draft: LogsColumnConfig[]) => string | null
         addableBuiltInColumns: (draft: LogsColumnConfig[]) => Exclude<LogsColumnType, 'custom'>[]
+        draftErrors: (draft: LogsColumnConfig[]) => string | null
     }
 }
 
