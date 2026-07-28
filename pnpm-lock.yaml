@@ -1118,9 +1118,18 @@ importers:
       mdast-util-find-and-replace:
         specifier: ^3.0.2
         version: 3.0.2
+      mdast-util-from-markdown:
+        specifier: ^2.0.3
+        version: 2.0.3
+      mdast-util-gfm-table:
+        specifier: ^2.0.0
+        version: 2.0.0
       mermaid:
         specifier: ^11.15.0
         version: 11.15.0
+      micromark-extension-gfm-table:
+        specifier: ^2.1.1
+        version: 2.1.1
       monaco-editor:
         specifier: ^0.55.1
         version: 0.55.1
