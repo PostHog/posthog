@@ -14898,10 +14898,10 @@ export namespace Schemas {
      * * `private` - Private (only visible to creator)
      * * `shared` - Shared with team
      */
-    export type VisibilityEnum = typeof VisibilityEnum[keyof typeof VisibilityEnum];
+    export type ColumnConfigurationVisibilityEnum = typeof ColumnConfigurationVisibilityEnum[keyof typeof ColumnConfigurationVisibilityEnum];
 
 
-    export const VisibilityEnum = {
+    export const ColumnConfigurationVisibilityEnum = {
       Private: 'private',
       Shared: 'shared',
     } as const;
@@ -14922,7 +14922,7 @@ export namespace Schemas {
       order_by?: string[] | null;
       /** Product-specific view state that does not fit the columnar fields (e.g. Customer analytics overview tiles and column display). */
       properties?: unknown;
-      visibility?: VisibilityEnum;
+      visibility?: ColumnConfigurationVisibilityEnum;
       /** @nullable */
       readonly created_by: number | null;
       readonly created_at: string;
@@ -47084,7 +47084,7 @@ export namespace Schemas {
       order_by?: string[] | null;
       /** Product-specific view state that does not fit the columnar fields (e.g. Customer analytics overview tiles and column display). */
       properties?: unknown;
-      visibility?: VisibilityEnum;
+      visibility?: ColumnConfigurationVisibilityEnum;
       /** @nullable */
       readonly created_by?: number | null;
       readonly created_at?: string;

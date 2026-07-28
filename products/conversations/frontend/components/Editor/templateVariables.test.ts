@@ -6,12 +6,16 @@ describe('templateVariables', () => {
     it.each([
         ['Hi {{customer.name}}!', { 'customer.name': 'Ada' }, 'Hi Ada!'],
         ['Ticket #{{ ticket.number }}', { 'ticket.number': '42' }, 'Ticket #42'],
-        // Unknown or unset tokens resolve to empty so no raw {{...}} reaches the customer.
+        // A known token that is unset blanks, so no raw {{customer.name}} reaches the customer.
         ['Hi {{customer.name}}', {}, 'Hi '],
-        ['{{unknown.token}} done', { 'customer.name': 'Ada' }, ' done'],
-    ])('applyTemplateVariables(%j) fills known tokens and blanks the rest', (text, values, expected) => {
-        expect(applyTemplateVariables(text as string, values as Record<string, string>)).toBe(expected)
-    })
+        // A token we don't recognize is left intact, so a reply explaining template syntax keeps it.
+        ['Use {{ user.name }} in Liquid', { 'customer.name': 'Ada' }, 'Use {{ user.name }} in Liquid'],
+    ])(
+        'applyTemplateVariables(%j) fills known tokens, blanks unset, and keeps unknown ones',
+        (text, values, expected) => {
+            expect(applyTemplateVariables(text as string, values as Record<string, string>)).toBe(expected)
+        }
+    )
 
     it('substitutes variables in every text node of a rich-content tree without mutating the input', () => {
         const input: JSONContent = {

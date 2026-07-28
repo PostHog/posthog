@@ -12,17 +12,23 @@ export type TemplateVariableToken = (typeof TEMPLATE_VARIABLES)[number]['token']
 
 export type TemplateVariableValues = Partial<Record<TemplateVariableToken, string>>
 
+const KNOWN_TOKENS: ReadonlySet<string> = new Set(TEMPLATE_VARIABLES.map((v) => v.token))
+
 // Matches {{ token }} with optional surrounding whitespace.
 const VARIABLE_PATTERN = /\{\{\s*([\w.]+)\s*\}\}/g
 
 /**
  * Replace {{variable}} tokens in a string with their resolved values.
- * Unknown or unset tokens resolve to an empty string so no raw {{...}} leaks to the customer.
+ * A known variable that is unset resolves to an empty string so no raw {{customer.name}} leaks to
+ * the customer. A token we don't recognize is left untouched, so a reply that itself talks about
+ * template syntax (e.g. a Liquid/Jinja {{ user.name }} example) survives the insert intact.
  */
 export function applyTemplateVariables(text: string, values: TemplateVariableValues): string {
-    return text.replace(VARIABLE_PATTERN, (_match, token: string) => {
-        const value = values[token as TemplateVariableToken]
-        return value ?? ''
+    return text.replace(VARIABLE_PATTERN, (match, token: string) => {
+        if (!KNOWN_TOKENS.has(token)) {
+            return match
+        }
+        return values[token as TemplateVariableToken] ?? ''
     })
 }
 

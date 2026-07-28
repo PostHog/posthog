@@ -65,15 +65,19 @@ export const QuickActionPicker = forwardRef<QuickActionPickerRef, QuickActionPic
             const count = filtered.length
             const keyMappings = {
                 ArrowUp: (): boolean => {
-                    if (count > 0) {
-                        setSelectedIndex((i) => (i - 1 + count) % count)
+                    // With no matches (e.g. a line that starts with `/` but is really a path), let the
+                    // keypress through so the composer caret still moves instead of being swallowed.
+                    if (count === 0) {
+                        return false
                     }
+                    setSelectedIndex((i) => (i - 1 + count) % count)
                     return true
                 },
                 ArrowDown: (): boolean => {
-                    if (count > 0) {
-                        setSelectedIndex((i) => (i + 1) % count)
+                    if (count === 0) {
+                        return false
                     }
+                    setSelectedIndex((i) => (i + 1) % count)
                     return true
                 },
                 Enter: (): boolean => {

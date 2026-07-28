@@ -972,11 +972,19 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 const assignee = ticketActions.assignee
                 if (assignee && assignee.id != null) {
                     const type = assignee.type === 'role' ? 'role' : 'user'
-                    actions.setAssignee({ type, id: type === 'user' ? Number(assignee.id) : assignee.id })
+                    const id = type === 'user' ? Number(assignee.id) : assignee.id
+                    // A non-numeric user id becomes NaN, serializes to null, and would silently clear
+                    // the assignee. Skip the assignee action rather than wiping it.
+                    if (type === 'user' && Number.isNaN(id)) {
+                        lemonToast.error('That quick action has an invalid assignee, so it was skipped.')
+                    } else {
+                        actions.setAssignee({ type, id })
+                        fields.push('assignee')
+                    }
                 } else {
                     actions.setAssignee(null)
+                    fields.push('assignee')
                 }
-                fields.push('assignee')
             }
             // Persist only the fields this quick action set, so any unrelated unsaved ticket edits
             // aren't saved as a side effect. Text insertion into the composer is handled separately.

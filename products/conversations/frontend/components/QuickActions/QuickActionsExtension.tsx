@@ -86,8 +86,14 @@ export const QuickActionsExtension = Extension.create<QuickActionsExtensionOptio
                 // Don't hijack a leading `/` inside a code block, where it's ordinary code.
                 allow: ({ editor }) => !editor.isActive('codeBlock'),
                 render: () => {
-                    let renderer: ReactRenderer<QuickActionPickerRef>
-                    const close = (): void => renderer?.destroy()
+                    // Nullable + idempotent teardown: once closed (Escape, click-away, exit), later
+                    // onUpdate/onKeyDown callbacks that ProseMirror still fires no-op instead of
+                    // hitting a destroyed renderer.
+                    let renderer: ReactRenderer<QuickActionPickerRef> | null = null
+                    const close = (): void => {
+                        renderer?.destroy()
+                        renderer = null
+                    }
 
                     return {
                         onStart: (props) => {
@@ -97,17 +103,17 @@ export const QuickActionsExtension = Extension.create<QuickActionsExtensionOptio
                             })
                         },
                         onUpdate(props) {
-                            renderer.updateProps({ ...props, options: extensionOptions, onClose: close })
+                            renderer?.updateProps({ ...props, options: extensionOptions, onClose: close })
                         },
                         onKeyDown(props) {
                             if (props.event.key === 'Escape') {
-                                renderer.destroy()
+                                close()
                                 return true
                             }
-                            return renderer.ref?.onKeyDown(props.event) ?? false
+                            return renderer?.ref?.onKeyDown(props.event) ?? false
                         },
                         onExit() {
-                            renderer.destroy()
+                            close()
                         },
                     }
                 },
