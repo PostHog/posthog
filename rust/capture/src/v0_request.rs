@@ -8,6 +8,7 @@ use tracing::{instrument, Span};
 
 use crate::{
     api::CaptureError,
+    config::CaptureMode,
     event_restrictions::Pipeline,
     payload::{decompress_payload, Compression},
 };
@@ -143,6 +144,10 @@ pub struct ProcessingContext {
     pub is_mirror_deploy: bool, // TODO(eli): can remove after migration
     pub historical_migration: bool,
     pub chatty_debug_enabled: bool,
+    /// Deployment capture mode. Governs Import-only policy in the legacy
+    /// analytics path: skip the global rate limiter and drop any batch not
+    /// flagged `historical_migration: true`.
+    pub capture_mode: CaptureMode,
 }
 
 // these are the legacy endpoints capture maintains. Can eliminate this

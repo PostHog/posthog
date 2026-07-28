@@ -41,6 +41,7 @@ from products.tasks.backend.facade.contracts import (
 from products.tasks.backend.facade.run_config import (
     ALL_INITIAL_PERMISSION_MODE_CHOICES,
     CODEX_INITIAL_PERMISSION_MODE_CHOICES,
+    CONTEXT_WINDOW_CHOICES,
     INITIAL_PERMISSION_MODE_CHOICES,
     PUBLIC_REASONING_EFFORTS,
     LLMProvider,
@@ -1890,6 +1891,18 @@ class TaskRunCreateRequestSerializer(ImportedMcpServersFieldMixin, RelayedMcpSer
         default=None,
         help_text="Reasoning effort to request for models that expose an effort control.",
     )
+    context_window = serializers.ChoiceField(
+        choices=CONTEXT_WINDOW_CHOICES,
+        required=False,
+        default=None,
+        help_text="Context window size for models that support the 1M window.",
+    )
+    fast_mode = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Enable fast mode for models that support it.",
+    )
     github_user_token = serializers.CharField(
         required=False,
         default=None,
@@ -1953,7 +1966,10 @@ class TaskRunCreateRequestSerializer(ImportedMcpServersFieldMixin, RelayedMcpSer
             attrs.pop("pending_user_message", None)
 
         runtime_fields = ("runtime_adapter", "model")
-        has_runtime_selection = any(attrs.get(field) is not None for field in (*runtime_fields, "reasoning_effort"))
+        has_runtime_selection = any(
+            attrs.get(field) is not None
+            for field in (*runtime_fields, "reasoning_effort", "context_window", "fast_mode")
+        )
 
         if not has_runtime_selection:
             if errors:
@@ -2070,6 +2086,18 @@ class TaskRunBootstrapCreateRequestSerializer(
         default=None,
         help_text="Reasoning effort to request for models that expose an effort control.",
     )
+    context_window = serializers.ChoiceField(
+        choices=CONTEXT_WINDOW_CHOICES,
+        required=False,
+        default=None,
+        help_text="Context window size for models that support the 1M window.",
+    )
+    fast_mode = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Enable fast mode for models that support it.",
+    )
     github_user_token = serializers.CharField(
         required=False,
         default=None,
@@ -2121,7 +2149,10 @@ class TaskRunBootstrapCreateRequestSerializer(
                     )
 
         runtime_fields = ("runtime_adapter", "model")
-        has_runtime_selection = any(attrs.get(field) is not None for field in (*runtime_fields, "reasoning_effort"))
+        has_runtime_selection = any(
+            attrs.get(field) is not None
+            for field in (*runtime_fields, "reasoning_effort", "context_window", "fast_mode")
+        )
         if not has_runtime_selection:
             if errors:
                 raise serializers.ValidationError(errors)

@@ -111,17 +111,17 @@ def classify_request_source(request: Request) -> tuple[str, dict[str, str | None
     """Classify a notebook request as a browser action (``ui``) vs a programmatic client (``mcp``/API).
 
     Session-cookie requests are the browser; anything else (personal API key, OAuth app) is a
-    programmatic client. The PostHog MCP server forwards the client identity so PostHog Desktop can be
-    told apart from a customer's own MCP client: ``mcp_consumer`` is ``posthog-code``/``posthog-cli``
-    for first-party PostHog Desktop, and ``mcp_oauth_client`` is the OAuth app name (e.g. Claude) for
-    third-party clients. Shared by the create and read events."""
+    programmatic client. ``mcp_consumer`` is the wrapping app the PostHog MCP server forwards
+    (``posthog-code``/``posthog-cli`` for first-party PostHog Desktop), which tells it apart from a
+    customer's own MCP client. The third-party OAuth app name (e.g. Claude) rides along on every
+    request-bound event as ``mcp_oauth_client_name`` via ``get_request_analytics_properties``, so it
+    isn't repeated here. Shared by the create and read events."""
     authenticator = getattr(request, "successful_authenticator", None)
     if authenticator is None or isinstance(authenticator, SessionAuthentication):
         return NotebookCreationSource.UI, {}
     return NotebookCreationSource.MCP, {
         "api_key_type": type(authenticator).__name__,
         "mcp_consumer": request.META.get("HTTP_X_POSTHOG_MCP_CONSUMER"),
-        "mcp_oauth_client": request.META.get("HTTP_X_POSTHOG_MCP_OAUTH_CLIENT_NAME"),
     }
 
 
@@ -268,7 +268,6 @@ class NotebookSerializer(NotebookMinimalSerializer):
             visibility=notebook.visibility,
             node_count=notebook_node_count(notebook.content),
             mcp_consumer=source_props.get("mcp_consumer"),
-            mcp_oauth_client=source_props.get("mcp_oauth_client"),
             api_key_type=source_props.get("api_key_type"),
         )
 
@@ -748,7 +747,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 is_creator=instance.created_by_id == getattr(request.user, "id", None),
                 user_access_level=serializer.data.get("user_access_level"),
                 mcp_consumer=source_props.get("mcp_consumer"),
-                mcp_oauth_client=source_props.get("mcp_oauth_client"),
                 api_key_type=source_props.get("api_key_type"),
             )
 

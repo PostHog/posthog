@@ -6,7 +6,7 @@ import type { QuickActionActionsApi } from '../../generated/api.schemas'
 import type { AiReplyFeedbackRating, ChatMessage, Ticket, TicketChannel, TicketStatus } from '../../types'
 import { TemplateVariableValues } from '../Editor/templateVariables'
 import { MessageInput } from './MessageInput'
-import { MessageList } from './MessageList'
+import { MessageList, type TimelineExtra } from './MessageList'
 
 export interface ChatViewProps {
     messages: ChatMessage[]
@@ -44,6 +44,8 @@ export interface ChatViewProps {
     onPrivateChange?: (isPrivate: boolean) => void
     /** Extra actions rendered next to the send button in MessageInput */
     extraActions?: React.ReactNode
+    /** Non-message thread entries, placed by their own timestamp (e.g. team-only agent findings) */
+    threadExtras?: TimelineExtra[]
     /** Blocks sending customer-facing messages (private notes stay available) */
     replyDisabledReason?: string | JSX.Element
     /** Whether draft mode is on: tints the composer green and confirms the recipient before sending */
@@ -86,6 +88,7 @@ export function ChatView({
     draftContent,
     onDraftChange,
     isPrivate,
+    threadExtras,
     onPrivateChange,
     extraActions,
     replyDisabledReason,
@@ -123,6 +126,7 @@ export function ChatView({
                 feedbackByMessageId={feedbackByMessageId}
                 showAiReplyFeedback={showAiReplyFeedback}
                 onSubmitAiReplyFeedback={onSubmitAiReplyFeedback}
+                extras={threadExtras}
             />
             <div className="border-t pt-3">
                 <MessageInput
