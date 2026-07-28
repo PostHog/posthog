@@ -59,6 +59,7 @@ from products.data_warehouse.backend.facade.api import WebhookConsumerConfig, We
 from products.managed_warehouse.backend.facade.temporal import (
     ACTIVITIES as DUCKLAKE_ACTIVITIES,
     DuckLakeCopyDataImportsWorkflow,
+    DuckLakeRegisterDataImportsWorkflow,
 )
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
@@ -646,7 +647,12 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
             async with Worker(
                 activity_environment.client,
                 task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
-                workflows=[ExternalDataJobWorkflow, CDPProducerJobWorkflow, DuckLakeCopyDataImportsWorkflow],
+                workflows=[
+                    ExternalDataJobWorkflow,
+                    CDPProducerJobWorkflow,
+                    DuckLakeCopyDataImportsWorkflow,
+                    DuckLakeRegisterDataImportsWorkflow,
+                ],
                 activities=ACTIVITIES + DUCKLAKE_ACTIVITIES,  # type: ignore
                 workflow_runner=UnsandboxedWorkflowRunner(),
                 activity_executor=ThreadPoolExecutor(max_workers=50),
