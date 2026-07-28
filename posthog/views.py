@@ -1,9 +1,10 @@
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
 from functools import wraps
 from html import escape
-from typing import Any, Union
+from typing import Any, TypeVar, Union
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 from django.apps import apps
@@ -12,7 +13,11 @@ from django.contrib.admin.sites import site as admin_site
 from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required as base_login_required
-from django.db import DEFAULT_DB_ALIAS, connections
+from django.db import (
+    DEFAULT_DB_ALIAS,
+    Error as DjangoDBError,
+    connections,
+)
 from django.db.migrations.executor import MigrationExecutor
 from django.db.models import Q
 from django.http import HttpRequest, HttpResponse, HttpResponseNotAllowed, JsonResponse
@@ -75,9 +80,32 @@ logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
 
+T = TypeVar("T")
+
+
 def _traced(name: str, fn, *args, **kwargs):
     with tracer.start_as_current_span(name):
         return fn(*args, **kwargs)
+
+
+def _probe(name: str, unavailable: T, fn: Callable[..., T], *args: Any, **kwargs: Any) -> T:
+    """Run a preflight probe that talks to Postgres, degrading to `unavailable` if it can't reach it.
+
+    `_build_template_context` inlines `preflight_check` into every `index.html` render — the
+    logged-out login and signup pages included — so a probe that lets a DB error escape turns a
+    transient Postgres blip into a hard 500 on the app shell. Reporting the subsystem as
+    unavailable (as `is_postgres_alive` already does for `db`) leaves the page loadable, which is
+    what a self-hoster debugging their own stack needs.
+
+    Catches `django.db.Error` rather than just `DatabaseError` so a dropped connection
+    (`InterfaceError`, which is a sibling not a subclass) degrades the same way.
+    """
+    with tracer.start_as_current_span(name):
+        try:
+            return fn(*args, **kwargs)
+        except DjangoDBError:
+            logger.warning("preflight_probe_unavailable", probe=name, exc_info=True)
+            return unavailable
 
 
 def noop(*args, **kwargs) -> None:
@@ -192,8 +220,8 @@ def render_query(request: HttpRequest) -> HttpResponse:
 
 @never_cache
 def preflight_check(request: HttpRequest) -> JsonResponse:
-    with tracer.start_as_current_span("preflight.slack_config_main"):
-        slack_client_id = SlackIntegration.slack_config().get("SLACK_APP_CLIENT_ID")
+    slack_config: dict[str, Any] = _probe("preflight.slack_config_main", {}, SlackIntegration.slack_config)
+    slack_client_id = slack_config.get("SLACK_APP_CLIENT_ID")
     hubspot_client_id = settings.HUBSPOT_APP_CLIENT_ID
     salesforce_client_id = settings.SALESFORCE_CONSUMER_KEY
 
@@ -209,17 +237,20 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         or settings.TEST,
         "kafka": in_cloud or _traced("preflight.is_kafka_connected", is_kafka_connected),
         "db": in_cloud or _traced("preflight.is_postgres_alive", is_postgres_alive),
-        "initiated": in_cloud or _traced("preflight.organization_exists", Organization.objects.exists),
+        "initiated": in_cloud or _probe("preflight.organization_exists", False, Organization.objects.exists),
         "cloud": in_cloud,
         "demo": settings.DEMO,
         "realm": get_instance_realm(),
         "region": get_instance_region(),
-        "available_social_auth_providers": _traced(
-            "preflight.available_social_auth_providers", get_instance_available_sso_providers
+        "available_social_auth_providers": _probe(
+            "preflight.available_social_auth_providers",
+            # Keep the payload shape stable so the frontend still sees every provider key.
+            {"github": False, "gitlab": False, "google-oauth2": False},
+            get_instance_available_sso_providers,
         ),
-        "can_create_org": _traced("preflight.can_create_org", get_can_create_org, request.user),
+        "can_create_org": _probe("preflight.can_create_org", False, get_can_create_org, request.user),
         "email_service_available": in_cloud
-        or _traced("preflight.is_email_available", is_email_available, with_absolute_urls=True),
+        or _probe("preflight.is_email_available", False, is_email_available, with_absolute_urls=True),
         "slack_service": {
             "available": bool(slack_client_id),
             "client_id": slack_client_id or None,
@@ -253,7 +284,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
             **response,
             "available_timezones": _traced("preflight.available_timezones", get_available_timezones_with_offsets),
             "opt_out_capture": os.environ.get("OPT_OUT_CAPTURE", False),
-            "licensed_users_available": _traced("preflight.licensed_users_available", get_licensed_users_available)
+            "licensed_users_available": _probe("preflight.licensed_users_available", None, get_licensed_users_available)
             if not in_cloud
             else None,
             "openai_available": bool(os.environ.get("OPENAI_API_KEY")),

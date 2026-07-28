@@ -7,6 +7,7 @@ from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_
 from unittest.mock import patch
 
 from django.conf import settings
+from django.db import OperationalError
 from django.test import override_settings
 from django.utils import timezone
 
@@ -349,6 +350,59 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             response = self.client.get("/_preflight/")
             assert response.status_code == status.HTTP_200_OK
             assert response.json()["kafka"] is probe_result
+
+    @parameterized.expand(
+        [
+            (
+                "slack_config",
+                "posthog.views.SlackIntegration.slack_config",
+                "slack_service",
+                {"available": False, "client_id": None},
+            ),
+            ("organization_exists", "posthog.views.Organization.objects.exists", "initiated", False),
+            (
+                "sso_providers",
+                "posthog.views.get_instance_available_sso_providers",
+                "available_social_auth_providers",
+                {"github": False, "gitlab": False, "google-oauth2": False},
+            ),
+            ("can_create_org", "posthog.views.get_can_create_org", "can_create_org", False),
+            ("email_available", "posthog.views.is_email_available", "email_service_available", False),
+            (
+                "licensed_users_available",
+                "posthog.views.get_licensed_users_available",
+                "licensed_users_available",
+                None,
+            ),
+        ]
+    )
+    def test_preflight_degrades_when_a_postgres_probe_is_unreachable(self, _name, target, key, unavailable):
+        # `_build_template_context` inlines preflight into every index.html render, so a probe that
+        # lets a DatabaseError escape 500s the app shell instead of reporting the subsystem as down.
+        with (
+            self.is_cloud(False),
+            self.settings(OBJECT_STORAGE_ENABLED=False),
+            patch(target, side_effect=OperationalError("[Errno -2] Name or service not known")),
+        ):
+            response = self.client.get("/_preflight/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[key] == unavailable
+
+    def test_signup_page_renders_when_a_postgres_probe_is_unreachable(self):
+        self.client.logout()
+
+        with (
+            self.is_cloud(False),
+            self.settings(OBJECT_STORAGE_ENABLED=False),
+            patch(
+                "posthog.views.SlackIntegration.slack_config",
+                side_effect=OperationalError("[Errno -2] Name or service not known"),
+            ),
+        ):
+            response = self.client.get("/signup/")
+
+        assert response.status_code == status.HTTP_200_OK
 
     @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=False)
     def test_preflight_omits_allow_dev_login_when_disabled(self):

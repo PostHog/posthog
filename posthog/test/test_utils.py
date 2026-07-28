@@ -14,6 +14,7 @@ from unittest.mock import call, patch
 from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
 from django.core.handlers.wsgi import WSGIRequest
+from django.db import OperationalError
 from django.http import HttpRequest
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.test.client import RequestFactory
@@ -1327,6 +1328,15 @@ class TestResolveDogfoodFlagsTeam(TestCase):
     def test_returns_none_when_there_are_no_teams(self):
         assert resolve_dogfood_flags_team() is None
         assert get_dogfood_flags_team_id() is None
+
+    def test_returns_none_when_postgres_is_unreachable(self):
+        # `_build_template_context` calls this on every self-capture render, so a DB blip must
+        # degrade to "no dogfood team" rather than 500 the app shell.
+        with patch.object(
+            Team.objects, "order_by", side_effect=OperationalError("[Errno -2] Name or service not known")
+        ):
+            assert resolve_dogfood_flags_team() is None
+            assert get_dogfood_flags_team_id() is None
 
 
 class TestBuildFlagProvider(TestCase):

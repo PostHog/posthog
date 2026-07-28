@@ -808,8 +808,10 @@ def resolve_dogfood_flags_team() -> Optional["Team"]:
     try:
         # Order by PK to match the sync write target (`project.teams.first()`).
         return Team.objects.order_by("pk").first()
-    except ProgrammingError:
-        # Table absent before migrations have run.
+    except DatabaseError:
+        # Table absent before migrations have run, or Postgres unreachable. `_build_template_context`
+        # calls this on every self-capture render, so raising here 500s the app shell (login page
+        # included) over a bootstrap detail the page renders fine without.
         return None
 
 
