@@ -1,6 +1,6 @@
 ---
 name: bet
-description: Run the full Foundry bet lifecycle (create, fund, status, verdict, portfolio) from conversation, against the live PostHog REST API and a bet's git-backed memory repo. Use when the user says "/bet", asks to start/create a bet, wants a status update or "scout report" on a bet, wants to record a bet's verdict (promoted/rolled_back/iterate), or wants to see the bet portfolio. Never requires the user's session cookie — everything goes through a scoped personal API key.
+description: Run the full Foundry bet lifecycle (create, fund, status, exposure ramp, scout, verdict, portfolio) from conversation, against the live PostHog REST API and a bet's git-backed memory repo. Use when the user says "/bet", asks to start/create a bet, wants a status update or "scout report" on a bet, wants to record a bet's verdict (promoted/rolled_back/iterate), or wants to see the bet portfolio. Never requires the user's session cookie — everything goes through a scoped personal API key.
 ---
 
 # /bet — the Foundry front door
@@ -41,7 +41,12 @@ still gets enforced by a human (you). Get:
 - A **slug** (kebab-case, becomes the feature flag key `bet-<slug>`).
 - **Exactly one** success metric (name + target) — the formal definition lives
   in the experiment `fund` creates; this is the one number that decides the bet.
-- **Guardrails** — what must not regress.
+- **Guardrails** — what must not regress. Ask if the user wants any of them
+  machine-checkable: `{metric: {metric_kind: trend|error_rate, query_ref},
+threshold, direction: above|below}`, where `query_ref` is an existing
+  insight's `short_id`. Skip this for a guardrail with no matching insight
+  yet — an unparameterized guardrail (just `name`/`constraint`) is fine, the
+  scout just skips it with a note instead of evaluating it.
 - **Budget** (`usd`/`time_hours`/`iterations`), all optional but worth asking.
 - **Sources** — what signal/report motivated this bet (label + URL).
 - **`execution_mode`**: `external` (default — the user's own orchestrator
@@ -72,6 +77,15 @@ builder, max_gate_iterations?}}`) — Foundry runs an actual headless
     Either way, if they want memory, also get which repo.
 - Optional **rollout KPIs** — see step (c). Ask, but don't push: most bets
   are simple and skip this.
+- Optional **exposure plan** (`exposure_plan`) — ask whether the user wants
+  Foundry to ramp the flag itself once the bet is gated, instead of ramping
+  it by hand: `{steps: [{rollout_pct, min_hours, halt_on_guardrail_breach}],
+auto_start: true}`. `min_hours` accepts fractions (e.g. `0.01` for a quick
+  demo ramp). Each step's `halt_on_guardrail_breach` (default true) checks
+  every machine-checkable guardrail after that step's soak time — a breach
+  halts the ramp (flag rollout back to 0) instead of advancing. Skip this
+  entirely (leave `exposure_plan` empty or `auto_start: false`) for a bet the
+  user wants to ramp manually — nothing about exposure changes for that bet.
 - **The gauntlet** (`gate_config`) — the constraint battery a builder can't
   weaken, since it's authored here, before the build, not by the agent doing
   the building. Recommend a default battery and let the user adjust it:
@@ -154,7 +168,7 @@ convention this follows).
 that's the entire interface their orchestrator needs. For `managed` bets,
 nothing further; funding already started the run.
 
-## `/bet status <slug>` — the scout report
+## `/bet status <slug>` — the full status report
 
 Run `scripts/status.sh <slug>` and relay its output. It renders: state,
 hypothesis, guardrails, the node tree (indented by depth), the gate outcome —
@@ -167,10 +181,38 @@ read none of the code — don't just dump JSON, narrate what the script
 printed, and call out a failing _required_ check distinctly from a failing
 optional one.
 
+## `/bet scout <slug>` — the scout's evidence, narrated
+
+Run `scripts/scout.sh <slug>` and turn its output into a narrative: this is
+where the LLM adds value over the in-product scout, which is deliberately
+rule-based (no LLM calls inside the product — see `products/foundry/README.md`
+decision 1). The script prints:
+
+- Each guardrail's declared threshold/direction, or "unparameterized" if the
+  scout has nothing to check for it.
+- Exposure ramp progress: steps configured, each `exposure.advanced` step
+  reached so far, and whether it halted on a guardrail breach.
+- Any `verdict.proposed` events already on the timeline — the in-product
+  scout runs on a schedule (`foundry_scout_task`), so this can be empty even
+  for a bet that's clearly done ramping if the schedule hasn't ticked yet.
+- The linked experiment, if any.
+
+Narrate trends and anomalies the raw numbers don't show on their own (is a
+guardrail close to its threshold, is the ramp stalled, does the experiment
+look like it's trending toward significance) — this is genuinely a judgment
+call, not something to script. If there's no pending proposal yet but the
+evidence already looks conclusive, say so plainly rather than waiting
+silently for the schedule.
+
 ## `/bet verdict <slug>` — decide and record
 
-1. Run `scripts/status.sh <slug>` to gather the same evidence a human would
-   read.
+1. Run `scripts/scout.sh <slug>` to gather the same evidence a human would
+   read. If it shows a pending `verdict.proposed`, treat its recommendation
+   as the default and evaluate it against the evidence rather than starting
+   from scratch — the in-product scout already applied its own rules (see
+   `products/foundry/backend/logic/scout.py`), so agreeing with a well-evidenced
+   proposal is a legitimate outcome, not a rubber stamp only if you also
+   independently re-derive the same conclusion.
 2. **You** recommend `promoted` / `rolled_back` / `iterate` with reasoning
    grounded in that evidence (metric movement vs. target, guardrail status,
    gate result, exposure duration) — this is a judgment call, not something a
