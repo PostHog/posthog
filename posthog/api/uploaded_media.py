@@ -46,6 +46,11 @@ _UPLOADABLE_DOCUMENT_CONTENT_TYPES = frozenset(
 # unauthenticated /uploaded_media endpoint. Anything outside this set is
 # served as a download with a generic content type so stored HTML/SVG/etc.
 # cannot execute script in the application origin.
+#
+# Keep this to inert raster images. The text types on the upload allowlist are
+# accepted WITHOUT byte validation on the assumption they only ever download —
+# adding any text/* or otherwise active type here would silently break that
+# assumption and turn stored bytes into an inline-execution vector.
 _INLINE_SAFE_CONTENT_TYPES = frozenset(
     {
         "image/png",
@@ -127,9 +132,10 @@ def validate_image_file(file: Optional[bytes], user: int) -> bool:
 
 
 def validate_pdf_file(file: Optional[bytes]) -> bool:
-    """Verify the bytes really are a PDF before we store them under a PDF content
-    type. PDFs are served as forced downloads, so this guards against a spoofed
-    content type being persisted, not against inline execution."""
+    """Best-effort check that the bytes start with the PDF magic marker. PDFs are
+    always served as forced downloads, so this is a light sanity check to catch an
+    obviously-mismatched content type, not a security boundary (the marker is easily
+    forged)."""
     if file is None:
         return False
     return file[:5] == b"%PDF-"
@@ -214,7 +220,7 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 team=self.team,
                 created_by=request.user,
                 file_name=file.name,
-                content_type=file.content_type,
+                content_type=content_type,
                 content=file.file,
             )
             if uploaded_media is None:
@@ -224,21 +230,33 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             # save it to object storage anyway and then delete the record if it's not valid
             if uploaded_media.media_location is None:
                 raise APIException("Could not read uploaded media")
-            bytes_to_verify = object_storage.read_bytes(uploaded_media.media_location)
             if is_image:
-                is_valid = validate_image_file(bytes_to_verify, user=request.user.id)
+                is_valid = validate_image_file(
+                    object_storage.read_bytes(uploaded_media.media_location), user=request.user.id
+                )
             elif content_type == "application/pdf":
-                is_valid = validate_pdf_file(bytes_to_verify)
+                is_valid = validate_pdf_file(object_storage.read_bytes(uploaded_media.media_location))
             else:
                 # Remaining allowlisted types are plain text, served only as forced
-                # downloads, so there's nothing to sniff or spoof into something unsafe.
+                # downloads (see _INLINE_SAFE_CONTENT_TYPES), so there's nothing to
+                # sniff or spoof into something unsafe and no bytes to read back.
                 is_valid = True
             if not is_valid:
                 statsd.incr(
-                    "uploaded_media.image_failed_validation",
-                    tags={"file_name": file.name, "team": self.team_id},
+                    "uploaded_media.failed_validation",
+                    tags={"file_name": file.name, "team": self.team_id, "content_type": content_type},
                 )
-                # TODO a batch process can delete media with no records in the DB or for deleted teams
+                # Clean up both the record and the stored object so a rejected upload
+                # doesn't leak an orphaned object; a cleanup failure must not mask the
+                # validation error the user needs to see.
+                try:
+                    object_storage.delete(uploaded_media.media_location)
+                except Exception:
+                    logger.warning(
+                        "uploaded_media.orphan_cleanup_failed",
+                        media_location=uploaded_media.media_location,
+                        exc_info=True,
+                    )
                 uploaded_media.delete()
                 raise ValidationError(
                     code="invalid_file",
@@ -248,7 +266,7 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             headers = self.get_success_headers(uploaded_media.get_absolute_url())
             statsd.incr(
                 "uploaded_media.uploaded",
-                tags={"team_id": self.team.pk, "content_type": file.content_type},
+                tags={"team_id": self.team.pk, "content_type": content_type},
             )
             return Response(
                 {
