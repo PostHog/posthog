@@ -312,7 +312,7 @@ function VersionFields({ config, changed }: { config: VersionConfig; changed: Se
             {rows.map((row) => (
                 <Fragment key={row.field}>
                     <span className="text-muted">{row.label}</span>
-                    {/* Emphasis suits a short value, not a whole prompt; the change summary flags that one. */}
+                    {/* Emphasis suits a short value, not a whole prompt. The change summary flags that one. */}
                     <span className={changed.has(row.field) && row.field !== 'prompt' ? 'font-medium' : undefined}>
                         {row.value}
                     </span>

@@ -112,7 +112,7 @@ def _label_day_counts(
 
 
 def _parse_json_object(raw: str | None) -> dict[str, Any]:
-    """Run snapshots are a JSONB field, so a legacy row can hold anything; non-objects read as empty
+    """Run snapshots are a JSONB field, so a legacy row can hold anything. Non-objects read as empty
     rather than failing the whole stats request."""
     if not raw:
         return {}
@@ -125,7 +125,7 @@ def _parse_json_object(raw: str | None) -> dict[str, Any]:
 
 def _version_markers(queryset: QuerySet[ReplayObservation]) -> list[dict[str, Any]]:
     """Every scanner version that produced observations, with its first day, the config it ran with, and
-    rating counts. All-time: charts window it client-side; the configuration overview shows the full history.
+    rating counts. All-time: charts window it client-side. The configuration overview shows the full history.
     Fields a snapshot doesn't carry come back null, so the history can say "not recorded" instead of
     implying nothing changed."""
     rows = (

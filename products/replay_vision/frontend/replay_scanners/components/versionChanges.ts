@@ -64,7 +64,7 @@ export function formatConfigValue(field: string, value: unknown): string {
 }
 
 /** Every version-tracked field that differs between two versions, for the "what changed" readout.
- * Top-level fields only compare when both versions recorded them; config keys always compare, since
+ * Top-level fields only compare when both versions recorded them. Config keys always compare, since
  * scanner_config is snapshotted whole and an absent key means the value is unset. */
 export function diffVersionConfigs(previous: VersionConfig, current: VersionConfig): VersionChanges {
     const changes: VersionFieldChange[] = []
