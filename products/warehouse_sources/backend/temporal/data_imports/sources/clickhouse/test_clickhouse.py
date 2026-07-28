@@ -1367,6 +1367,45 @@ class TestBypassEnvProxy:
         assert mock_get_client.call_args.kwargs["pool_mgr"] is expected_pool_mgr_factory()
 
 
+class TestDirectQueryClientBypassEnvProxy:
+    """`direct_query_client` (the HogQL direct-query path) must bypass the egress
+    proxy for internal-host-allowlisted teams, exactly like the sync/schema paths.
+    Without it, an allowlisted team pointing at a PostHog-internal ClickHouse host
+    gets a 407 from the proxy's CONNECT tunnel and can't run direct queries.
+    """
+
+    @pytest.mark.parametrize("allowlisted", [True, False])
+    def test_forwards_bypass_env_proxy_from_allowlist(self, allowlisted):
+        from contextlib import contextmanager
+
+        from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import source as source_module
+
+        source = source_module.ClickHouseSource()
+
+        config = MagicMock()
+        config.database = "default"
+        config.user = "reader"
+        config.password = "secret"
+        config.secure = True
+        config.verify = True
+
+        @contextmanager
+        def fake_tunnel(_config, _team_id):
+            yield ("ch-internal.posthog.dev", 8443)
+
+        mock_client = MagicMock()
+
+        with (
+            patch.object(source, "with_ssh_tunnel", fake_tunnel),
+            patch.object(source_module, "is_team_allowlisted_for_internal_hosts", return_value=allowlisted),
+            patch.object(source_module, "_get_client", return_value=mock_client) as mock_get_client,
+        ):
+            with source.direct_query_client(config, team_id=2, query_timeout=60):
+                pass
+
+        assert mock_get_client.call_args.kwargs["bypass_env_proxy"] is allowlisted
+
+
 class TestInternalHostTeamAllowlist:
     @pytest.mark.parametrize(
         "region,team_id,expected",

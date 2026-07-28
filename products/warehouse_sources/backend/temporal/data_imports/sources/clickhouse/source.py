@@ -303,6 +303,10 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
         the product — the direct-SQL adapter drives the query through this method rather than
         importing the client factory.
         """
+        # Internal teams may point at PostHog-internal ClickHouse hosts, which the
+        # egress proxy would refuse — connect those directly, matching the sync path.
+        bypass_env_proxy = is_team_allowlisted_for_internal_hosts(team_id)
+
         with self.with_ssh_tunnel(config, team_id) as (host, port):
             client = _get_client(
                 host=host,
@@ -314,6 +318,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
                 verify=config.verify,
                 query_timeout=query_timeout,
                 settings=settings,
+                bypass_env_proxy=bypass_env_proxy,
             )
             try:
                 yield client
