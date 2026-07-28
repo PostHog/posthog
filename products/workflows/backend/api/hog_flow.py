@@ -622,10 +622,13 @@ class HogFlowActionSerializer(serializers.Serializer):
     config = HogFlowActionConfigField(
         help_text=(
             "Type-specific config keyed by action type. "
-            "trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. "
+            "trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. webhook and "
+            "manual triggers also require template_id: 'template-source-webhook', and tracking_pixel "
+            "requires template_id: 'template-source-webhook-pixel'. "
             "filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], "
             "actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, "
-            "type: event|person|group}. "
+            "type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} "
+            "to reference a cohort. "
             "function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable "
             "hog templating ({person.x}, {event.x}); flat strings won't interpolate. "
             "function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open "
@@ -1755,8 +1758,8 @@ class HogFlowInvocationSerializer(serializers.Serializer):
         default=False,
         write_only=True,
         help_text=(
-            "Test the workflow's staged draft instead of its live config. Requires an open draft; "
-            "can't be combined with an explicit configuration override."
+            "Test the workflow's staged draft instead of its live config. Set this only when workflows-get "
+            "returns a non-null 'draft'; it can't be combined with an explicit configuration override."
         ),
     )
 
