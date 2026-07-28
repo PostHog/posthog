@@ -129,6 +129,47 @@ serde = "1"
     assert.deepEqual(parseCrateDependencies(toml, crateNames).sort(), ['shared'])
 })
 
+// Cargo spells dependency sections four ways. The [dependencies.<name>] form
+// carries the name in the header, and reading only body keys silently dropped
+// the edge (rust/personhog-stateright depends on personhog-coordination this
+// way), which let a shared crate and its dependent get disjoint targets and
+// merge in parallel.
+test('dependency sections are parsed in every header form Cargo allows', () => {
+    const crateNames = new Set(['shared', 'other', 'renamed-crate'])
+    const cases = [
+        ['plain table', '[dependencies]\nshared = { path = "../shared" }\n', ['shared']],
+        ['dev table', '[dev-dependencies]\nshared.workspace = true\n', ['shared']],
+        ['build table', '[build-dependencies]\nshared = "1"\n', ['shared']],
+        ['dependency-per-table', '[dependencies.shared]\npath = "../shared"\nversion = "0.1"\n', ['shared']],
+        ['dev dependency-per-table', '[dev-dependencies.other]\npath = "../other"\n', ['other']],
+        [
+            'target-scoped table',
+            '[target.\'cfg(not(target_env = "msvc"))\'.dependencies]\nshared = { version = "1" }\n',
+            ['shared'],
+        ],
+        [
+            'dependency-per-table with a rename',
+            '[dependencies.alias]\npackage = "renamed-crate"\npath = "../renamed-crate"\n',
+            ['renamed-crate'],
+        ],
+        // The workspace table declares versions for every member, not this
+        // crate's own edges.
+        ['workspace table excluded', '[workspace.dependencies]\nshared = { path = "shared" }\n', []],
+    ]
+    for (const [label, toml, expected] of cases) {
+        assert.deepEqual(parseCrateDependencies(toml, crateNames).sort(), expected, label)
+    }
+})
+
+// Attribute keys inside a [dependencies.<name>] table would be read as
+// dependency names if the body were scanned, inventing an edge to any crate
+// that happens to share a name with a Cargo attribute.
+test('attributes inside a dependency-per-table are not read as crate names', () => {
+    const crateNames = new Set(['shared', 'path', 'features'])
+    const toml = '[dependencies.shared]\npath = "../shared"\nfeatures = ["a"]\n'
+    assert.deepEqual(parseCrateDependencies(toml, crateNames), ['shared'])
+})
+
 test('an isolated product change stays narrow and names its tach dependents', () => {
     assert.deepEqual(computeTargets(['products/alpha/backend/api.py'], CONTEXT), [
         'py:product:alpha',

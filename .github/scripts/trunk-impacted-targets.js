@@ -201,15 +201,52 @@ function parseCrateName(tomlText) {
 // version-suffixed alias (prost14 = { package = "prost" }), which contributes
 // no intra-workspace edge, but resolving through it is what keeps a renamed
 // workspace crate from being dropped.
+// Classifies a section header, returning null when it carries no dependencies.
+// Cargo spells dependency sections four ways, and the ones where the dependency
+// name lives in the header rather than in a body key are easy to miss:
+//
+//   [dependencies]                                  -> body keys are the names
+//   [dev-dependencies] / [build-dependencies]       -> body keys are the names
+//   [target.'cfg(...)'.dependencies]                -> body keys are the names
+//   [dependencies.<name>]                           -> the header carries the name
+//
+// `[workspace.dependencies]` is excluded: it declares versions for the whole
+// workspace rather than this crate's own edges.
+function dependencySectionName(header) {
+    if (header.startsWith('workspace.')) {
+        return null
+    }
+    const match = header.match(/(?:^|\.)(?:dev-|build-)?dependencies(?:\.(.+))?$/)
+    if (!match) {
+        return null
+    }
+    return { named: match[1] ? match[1].replace(/^["']|["']$/g, '') : null }
+}
+
 function parseCrateDependencies(tomlText, crateNames) {
     const deps = new Set()
     const sections = tomlText.split(/^\s*\[/m)
     for (const section of sections) {
         const header = section.split(']')[0]
-        if (!/(^|-)dependencies$/.test(header) && !/dependencies\./.test(header)) {
+        const dependencySection = dependencySectionName(header)
+        if (!dependencySection) {
             continue
         }
         const body = section.slice(section.indexOf(']') + 1)
+
+        // In a [dependencies.<name>] table the body holds attributes (path,
+        // version, features), not dependency names, so scanning its keys would
+        // both miss the real edge and risk matching an attribute that happens
+        // to share a crate name.
+        if (dependencySection.named) {
+            const renamed = body.match(/^\s*package\s*=\s*"([^"]+)"/m)
+            const name = renamed ? renamed[1] : dependencySection.named
+            if (crateNames.has(name)) {
+                deps.add(name)
+            }
+            continue
+        }
+
         for (const line of body.split('\n')) {
             const stripped = line.replace(/#.*$/, '').trim()
             if (!stripped) {
