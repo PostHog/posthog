@@ -36,6 +36,11 @@ OBJECT_STORAGE_TASKS_FOLDER = os.getenv("OBJECT_STORAGE_TASKS_FOLDER", "tasks")
 OBJECT_STORAGE_LEGAL_DOCUMENTS_FOLDER = os.getenv("OBJECT_STORAGE_LEGAL_DOCUMENTS_FOLDER", "legal_documents")
 OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET = os.getenv("OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET", "posthog")
 
+# Notebooks SQLV2 frame store (products/notebooks/backend/sql_v2_frame_store.md): stream
+# python-node frame materializations to object storage instead of the Redis JSON transport.
+# Default off — rollout is env-gated per deployment on top of the product feature flag.
+NOTEBOOKS_FRAME_STORE_ENABLED = get_from_env("NOTEBOOKS_FRAME_STORE_ENABLED", False, type_cast=str_to_bool)
+
 # Query cache specific bucket - falls back to general object storage bucket if not set
 QUERY_CACHE_S3_BUCKET = os.getenv("QUERY_CACHE_S3_BUCKET") or OBJECT_STORAGE_BUCKET
 
@@ -51,6 +56,14 @@ BILLING_USAGE_REPORTS_S3_BUCKET = os.getenv("BILLING_USAGE_REPORTS_S3_BUCKET") o
 # expire non-`ready` bundles after a grace period (handled by infra). Falls
 # back to the general bucket in dev / self-hosted.
 AGENT_BUNDLES_S3_BUCKET = os.getenv("AGENT_BUNDLES_S3_BUCKET") or OBJECT_STORAGE_BUCKET
+
+# AI observability blob storage — offloaded binary payloads (images, files) from ai_events,
+# content-addressed under `{prefix}{team_id}/sha256/{hash}`. The nodejs ingestion writer reads
+# the same AI_BLOB_S3_BUCKET / AI_BLOB_S3_PREFIX env vars but defaults both to "" (offload
+# disabled) — any deployment enabling offload must set bucket AND prefix identically on both
+# services, or every read silently 404s. Defaults here match the local-dev ingestion wiring.
+AI_BLOB_S3_BUCKET = os.getenv("AI_BLOB_S3_BUCKET", "ai-blobs")
+AI_BLOB_S3_PREFIX = os.getenv("AI_BLOB_S3_PREFIX", "aio/")
 
 # Identity matching scratch storage (products/growth `identity_matching_job`). The job writes
 # per-run Parquet objects via ClickHouse `INSERT INTO FUNCTION s3(...)` and the read API globs

@@ -29,8 +29,6 @@ interface SessionBatchEntry {
     featureRecorder: SessionFeatureRecorder
     sessionKey: SessionKey
     retentionPeriod: RetentionPeriod
-    /** Kafka partition the session is pinned to; used to drop the session on partition revocation. */
-    partition: number
 }
 
 /**
@@ -78,10 +76,8 @@ interface SessionBatchEntry {
  */
 export class SessionBatchRecorder {
     // Sessions are keyed by (teamId, sessionId) across all partitions. A session is pinned to one
-    // partition, so the key is unique; each entry carries its partition for revocation. Not readonly:
-    // discard and flush swap it for a fresh map.
+    // partition, so the key is unique. Not readonly: flush swaps it for a fresh map.
     private sessions = new SessionMap<SessionBatchEntry>()
-    private readonly partitionSizes = new Map<number, number>()
     private _size: number = 0
     private readonly batchId: string
     private readonly rateLimiter: SessionRateLimiter
@@ -120,7 +116,7 @@ export class SessionBatchRecorder {
         const sessionId = message.message.session_id
         const teamId = message.team.teamId
 
-        const isEventAllowed = this.rateLimiter.handleMessage(teamId, sessionId, partition, message.message)
+        const isEventAllowed = this.rateLimiter.handleMessage(teamId, sessionId, message.message)
 
         if (!isEventAllowed) {
             logger.debug('🔁', 'session_batch_recorder_event_rate_limited', {
@@ -142,10 +138,6 @@ export class SessionBatchRecorder {
             }
 
             return 0
-        }
-
-        if (!this.partitionSizes.has(partition)) {
-            this.partitionSizes.set(partition, 0)
         }
 
         const existingBatchState = this.sessions.get(teamId, sessionId)
@@ -187,7 +179,6 @@ export class SessionBatchRecorder {
                 ),
                 sessionKey,
                 retentionPeriod,
-                partition,
             })
         }
 
@@ -211,8 +202,6 @@ export class SessionBatchRecorder {
             }
         }
 
-        const currentPartitionSize = this.partitionSizes.get(partition)!
-        this.partitionSizes.set(partition, currentPartitionSize + bytesWritten)
         this._size += bytesWritten
 
         logger.debug('🔁', 'session_batch_recorder_recorded_message', {
@@ -236,35 +225,6 @@ export class SessionBatchRecorder {
     }
 
     /**
-     * Discards all sessions for a given partition, so that they are not persisted in this batch
-     * Used when partitions are revoked during Kafka rebalancing
-     */
-    public discardPartition(partition: number): void {
-        const partitionSize = this.partitionSizes.get(partition)
-        if (partitionSize !== undefined) {
-            logger.info('🔁', 'session_batch_recorder_discarding_partition', {
-                partition,
-                partitionSize,
-            })
-
-            this.rateLimiter.discardPartition(partition)
-
-            this._size -= partitionSize
-            this.partitionSizes.delete(partition)
-            // Revocation is rare, so rebuilding the session map without the partition is fine — it
-            // keeps the per-message lookups a single, flat map access.
-            const remaining = new SessionMap<SessionBatchEntry>()
-            for (const entry of this.sessions.values()) {
-                if (entry.partition !== partition) {
-                    remaining.set(entry.sessionBlockRecorder.teamId, entry.sessionBlockRecorder.sessionId, entry)
-                }
-            }
-            this.sessions = remaining
-            this.offsetManager.discardPartition(partition)
-        }
-    }
-
-    /**
      * Flushes the session recordings to storage and commits Kafka offsets
      *
      * @throws If the flush operation fails
@@ -279,7 +239,6 @@ export class SessionBatchRecorder {
         // recorded then dropped (e.g. rate limited), leaving batch state to reset.
         if (this.sessions.size === 0) {
             await this.offsetManager.commit()
-            this.partitionSizes.clear()
             this._size = 0
             this.rateLimiter.clear()
             logger.info('🔁', 'session_batch_recorder_flushed_no_sessions')
@@ -402,9 +361,8 @@ export class SessionBatchRecorder {
                 }
             }
 
-            // Clear sessions, partition sizes, total size, and rate limiter state after successful flush
+            // Clear sessions, total size, and rate limiter state after successful flush
             this.sessions = new SessionMap()
-            this.partitionSizes.clear()
             this._size = 0
             this.rateLimiter.clear()
 

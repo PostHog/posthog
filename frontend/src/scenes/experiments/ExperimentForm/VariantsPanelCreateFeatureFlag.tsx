@@ -237,8 +237,8 @@ export const VariantsPanelCreateFeatureFlag = ({
                                                     disabledReason={
                                                         disabled
                                                             ? 'Cannot edit feature flag in edit mode'
-                                                            : variant.key === 'control'
-                                                              ? 'Control variant cannot be changed'
+                                                            : experiment.type === 'web' && variant.key === 'control'
+                                                              ? "Web experiments require a variant with key 'control'"
                                                               : null
                                                     }
                                                     onChange={(value) =>

@@ -3,6 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconX } from '@posthog/icons'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
+import { IconHeatmap } from 'lib/lemon-ui/icons'
+import { buildRecordingMatchingEventFiltersForUrl } from 'scenes/heatmaps/components/heatmapRecordingFallbackLogic'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 
 import { SessionRecordingPlayerLogicProps, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
@@ -17,8 +19,9 @@ import { sessionPlayerModalLogic } from './sessionPlayerModalLogic'
  *
  */
 export function SessionPlayerModal(): JSX.Element | null {
-    const { activeSessionRecording } = useValues(sessionPlayerModalLogic())
+    const { activeSessionRecording, modalContext } = useValues(sessionPlayerModalLogic())
     const { closeSessionPlayer } = useActions(sessionPlayerModalLogic())
+    const isChoosingHeatmapBackground = modalContext?.type === 'heatmap-background-selection'
 
     // activeSessionRecording?.matching_events should always be a single element array
     // but, we're filtering and using flatMap just in case
@@ -32,14 +35,22 @@ export function SessionPlayerModal(): JSX.Element | null {
     const logicProps: SessionRecordingPlayerLogicProps = {
         playerKey: 'modal',
         sessionRecordingId: activeSessionRecording?.id || '',
-        autoPlay: true,
-        matchingEventsMatchType: {
-            matchType: 'uuid',
-            matchedEvents: matchedEvents,
-        },
+        autoPlay: !isChoosingHeatmapBackground,
+        matchingEventsMatchType: isChoosingHeatmapBackground
+            ? {
+                  matchType: 'backend',
+                  filters: buildRecordingMatchingEventFiltersForUrl(modalContext.targetUrl),
+              }
+            : {
+                  matchType: 'uuid',
+                  matchedEvents: matchedEvents,
+              },
+        skipToFirstMatchingEvent: isChoosingHeatmapBackground,
     }
 
-    const { isFullScreen } = useValues(sessionRecordingPlayerLogic(logicProps))
+    const playerLogic = sessionRecordingPlayerLogic(logicProps)
+    const { isFullScreen, resolution, rootFrame } = useValues(playerLogic)
+    const { openHeatmap } = useActions(playerLogic)
 
     return (
         <LemonModal
@@ -54,8 +65,34 @@ export function SessionPlayerModal(): JSX.Element | null {
             zIndex="1161"
         >
             {!isFullScreen && (
-                <div className="flex items-center justify-end border-b bg-surface-primary px-1 py-0.5">
-                    <LemonButton icon={<IconX />} size="small" onClick={closeSessionPlayer} tooltip="Close" />
+                <div className="flex items-center justify-between gap-4 border-b bg-surface-primary px-3 py-2">
+                    {isChoosingHeatmapBackground ? (
+                        <div>
+                            <h3 className="mb-0">Choose the background</h3>
+                            <p className="mb-0 text-sm text-muted">
+                                The player pauses at the first matching page event. Scrub to the exact state you want,
+                                then use that moment as the heatmap background.
+                            </p>
+                        </div>
+                    ) : (
+                        <span />
+                    )}
+                    <div className="flex items-center gap-2 shrink-0">
+                        {isChoosingHeatmapBackground ? (
+                            <LemonButton
+                                type="primary"
+                                icon={<IconHeatmap />}
+                                onClick={openHeatmap}
+                                disabledReason={
+                                    !rootFrame || !resolution ? 'Wait for the recording to load' : undefined
+                                }
+                                data-attr="heatmap-use-recording-moment"
+                            >
+                                Use this moment as background
+                            </LemonButton>
+                        ) : null}
+                        <LemonButton icon={<IconX />} size="small" onClick={closeSessionPlayer} tooltip="Close" />
+                    </div>
                 </div>
             )}
             <LemonModal.Content embedded>

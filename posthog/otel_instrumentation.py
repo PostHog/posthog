@@ -1,4 +1,5 @@
 import os
+import atexit
 import typing
 import logging
 
@@ -101,11 +102,21 @@ def initialize_otel():
             source_module="otel_instrumentation",
         )
 
-        provider = TracerProvider(resource=resource)
+        # shutdown_on_exit=False: the SDK's own atexit hook calls provider.shutdown(),
+        # which joins the BatchSpanProcessor export thread WITHOUT a timeout. If the
+        # OTLP collector is unreachable, that thread sits in the gRPC exporter's
+        # retry/backoff loop (~63s of sleeps per batch, and the exporter's shutdown
+        # flag is only set after the join returns), so every process exit hangs until
+        # SIGKILL — under granian this turns each worker stop into a
+        # "refused to gracefully stop" hard kill. A bounded force_flush gives spans
+        # their best shot at export and then lets the process exit; the export thread
+        # is a daemon, so skipping shutdown() leaks nothing at exit.
+        provider = TracerProvider(resource=resource, shutdown_on_exit=False)
         otlp_exporter = OTLPSpanExporter()  # Assumes OTLP endpoint is configured via env vars
         processor = BatchSpanProcessor(otlp_exporter)
         provider.add_span_processor(processor)
         trace.set_tracer_provider(provider)
+        atexit.register(lambda: provider.force_flush(timeout_millis=5_000))
         logger.info(
             "otel_core_components_initialized_successfully",
             service_name=service_name,

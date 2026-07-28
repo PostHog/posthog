@@ -78,7 +78,7 @@ describe('scannerDigestLogic', () => {
         expect(logic.values.latestRunLoading).toEqual(false)
     })
 
-    it('one-click create sends the digest marker and defaults, then reloads the list', async () => {
+    it('one-click create sends the digest marker and defaults, then settles without a card flash', async () => {
         useMocks(mocksFor([]))
         mountLogic()
         await expectLogic(logic).toFinishAllListeners()
@@ -91,10 +91,12 @@ describe('scannerDigestLogic', () => {
                 },
             },
         })
+        // Optimistic insert + local run resolution instead of a refetch: refetching would blank the
+        // card (digest absent while the list reloads, then latestRunLoading true) and flash it.
         await expectLogic(logic, () => {
             logic.actions.createDigest()
         })
-            .toDispatchActions(['createDigestSuccess', 'loadActions'])
+            .toDispatchActions(['createDigestSuccess', 'addAction', 'loadLatestRunSuccess'])
             .toFinishAllListeners()
         expect(body).toMatchObject({
             name: 'Daily digest: my-scanner',
@@ -103,5 +105,28 @@ describe('scannerDigestLogic', () => {
             trigger_config: { rrule: 'FREQ=DAILY;BYHOUR=8;BYMINUTE=0' },
             delivery_config: [],
         })
+        // The card renders the created digest immediately (no null-rendering gap).
+        expect(logic.values.digest?.id).toEqual('d-new')
+        expect(logic.values.latestRunLoading).toEqual(false)
+    })
+
+    it('runNow posts to the digest run endpoint and clears its loading state', async () => {
+        useMocks(mocksFor([DIGEST]))
+        mountLogic()
+        await expectLogic(logic).toFinishAllListeners()
+        let posted = false
+        useMocks({
+            post: {
+                '/api/projects/:team/vision/actions/:action/run/': ({ request }: { request: Request }) => {
+                    // Runs the digest itself (d1), not some other action.
+                    expect(request.url).toContain('/vision/actions/d1/run/')
+                    posted = true
+                    return [202, { workflow_id: 'wf-1', already_running: false }]
+                },
+            },
+        })
+        await expectLogic(logic, () => logic.actions.runNow()).toFinishAllListeners()
+        expect(posted).toBe(true)
+        expect(logic.values.runningNow).toBe(false)
     })
 })

@@ -5,6 +5,7 @@ from django.conf import settings
 from posthog.schema import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
@@ -33,7 +34,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BingAdsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bingads import (
+    BingAdsSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 from .bing_ads import bing_ads_source, get_incremental_fields, get_schemas
@@ -44,6 +47,9 @@ from .utils import BingAdsResumeConfig
 @SourceRegistry.register
 class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], OAuthMixin):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v13",)
+    default_version = "v13"
+    api_docs_url = "https://learn.microsoft.com/en-us/advertising/guides/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -79,6 +85,14 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
         )
         return {
             "AADSTS650052": service_principal_friendly,
+            # PostHog's own Azure AD application secret (BING_ADS_CLIENT_SECRET) is invalid or expired —
+            # Microsoft rejects the token request with AADSTS7000215 for the app itself, not the connected
+            # account. Reconnecting the integration can't fix it; only rotating PostHog's app secret can, so
+            # this is internal config (None message), not customer-actionable. Wrapped by the SDK as
+            # `OAuthTokenRequestException: invalid_client AADSTS7000215: …`, so it shares those two generic
+            # substrings — it must precede both so handle_non_retryable doesn't surface the misleading
+            # "reconnect your integration" message.
+            "AADSTS7000215": None,
             # OAuth grant rejection by Microsoft (the bingads SDK raises OAuthTokenRequestException
             # whose str() format is "<error_code> <error_description>").
             "OAuthTokenRequestException": auth_friendly,
@@ -140,7 +154,7 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
             keywords=["microsoft ads", "microsoft advertising"],
             label="Bing Ads",
             caption="Ensure you have granted PostHog access to your Bing Ads account, learn how to do this in [the documentation](https://posthog.com/docs/cdp/sources/bing-ads).",
-            releaseStatus="beta",
+            releaseStatus=ReleaseStatus.GA,
             iconPath="/static/services/bing-ads.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/bing-ads",
             fields=cast(
@@ -175,7 +189,11 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
         )
 
     def validate_credentials(
-        self, config: BingAdsSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: BingAdsSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if not config.account_id or not config.bing_ads_integration_id:
             return False, "Account ID and Bing Ads integration are required"
@@ -255,6 +273,7 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         bing_ads_schemas = get_schemas()
         ads_incremental_fields = get_incremental_fields()

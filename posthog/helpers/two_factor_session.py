@@ -288,7 +288,7 @@ def is_sso_authentication_backend(request: HttpRequest):
 
 
 CODE_LENGTH = 6
-CODE_TTL_SECONDS = 600  # 10 minutes
+CODE_TTL_SECONDS = 1800  # 30 minutes
 CODE_MAX_ATTEMPTS = 5
 # Failed-attempt budget for a pending login is tracked in Redis so the cap is enforced atomically
 # (INCR) rather than via a raceable session read-modify-write, which parallel guesses could sidestep.

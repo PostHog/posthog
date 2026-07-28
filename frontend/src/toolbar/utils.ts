@@ -8,7 +8,7 @@ import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
 import { ActionStepForm, ElementRect } from '~/toolbar/types'
 import { finder } from '~/toolbar/vendor/finder'
-import { ActionStepType } from '~/types'
+import { Experiment, ActionStepType, ExperimentStatus } from '~/types'
 
 import { ActionStepPropertyKey } from './actions/ActionStep'
 
@@ -733,6 +733,47 @@ export function makeNavigateWrapper(onNavigate: () => void, patchKey: string): (
             unwrapReplaceState?.()
         }
     }
+}
+
+// Toolbar-owned copy of the app's experiment variant-split helper. Duplicated rather than
+// imported from scenes/experiments/utils, which drags 37KB and app-only modules into the
+// customer-facing bundle for this one pure function.
+export function percentageDistribution(variantCount: number): number[] {
+    const basePercentage = Math.floor(100 / variantCount)
+    const percentages = new Array(variantCount).fill(basePercentage)
+
+    // try to equally distribute `remaining` across variants
+    let remaining = 100 - basePercentage * variantCount
+    for (let i = 0; remaining > 0; i++, remaining--) {
+        percentages[i] += 1
+    }
+
+    return percentages
+}
+
+// Toolbar-owned copy of the app's experiment status helpers. Duplicated rather than imported
+// from scenes/experiments/experimentStatus so the toolbar bundle doesn't reach into the app
+// scene zone for these two pure functions.
+type ExperimentStatusInput = Pick<Experiment, 'status' | 'start_date' | 'end_date'> | null | undefined
+
+function getExperimentStatus(experiment: ExperimentStatusInput): ExperimentStatus {
+    if (!experiment) {
+        return ExperimentStatus.Draft
+    }
+    if (experiment.status) {
+        return experiment.status
+    }
+    if (experiment.end_date) {
+        return ExperimentStatus.Stopped
+    }
+    if (experiment.start_date) {
+        return ExperimentStatus.Running
+    }
+    return ExperimentStatus.Draft
+}
+
+export function isLaunched(experiment: ExperimentStatusInput): boolean {
+    return getExperimentStatus(experiment) !== ExperimentStatus.Draft
 }
 
 export function joinWithUiHost(uiHost: string, path: string): string {

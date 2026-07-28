@@ -1,11 +1,6 @@
 {
     "//": "Toolbar -> app-zone import edges that exist today, enforced by bin/check-toolbar-graph.mjs. These are the toolbar's intentional seams into app code. Do not add entries; delete an entry if you cut its edge.",
     "edges": [
-        "src/lib/components/PropertyKeyInfo.tsx -> src/scenes/surveys/surveyQuestionLabelsLogic.ts",
-        "src/taxonomy/helpers.ts -> src/scenes/surveys/surveyQuestionLabelsLogic.ts",
-        "src/taxonomy/taxonomy.tsx -> src/scenes/web-analytics/tabs/marketing-analytics/utils.ts",
-        "src/toolbar/experiments/experimentsTabLogic.tsx -> src/scenes/experiments/experimentStatus.ts",
-        "src/toolbar/experiments/experimentsTabLogic.tsx -> src/scenes/experiments/utils.ts",
         "src/toolbar/product-tours/ProductToursSidebar.tsx -> src/scenes/product-tours/stepUtils.tsx",
         "src/toolbar/product-tours/StepCard.tsx -> src/scenes/product-tours/stepUtils.tsx",
         "src/toolbar/product-tours/productToursLogic.ts -> src/scenes/product-tours/constants.ts",

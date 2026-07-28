@@ -78,3 +78,15 @@ WORKFLOW_JOBS_COLUMNS: dict[str, dict[str, str]] = {
     "completed_at": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "steps": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
 }
+
+# Contract for the ``github_team_members`` warehouse source (org team membership). Member rows
+# are GitHub user objects with the parent team's identity injected by the source fan-out
+# (``team_id`` / ``team_slug`` / ``team_name``); ``login`` + ``team_slug`` are the join keys the
+# membership-based merge timing reads. Same Nullable discipline as above.
+TEAM_MEMBERS_COLUMNS: dict[str, dict[str, str]] = {
+    "id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
+    "login": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "team_id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
+    "team_slug": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "team_name": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+}

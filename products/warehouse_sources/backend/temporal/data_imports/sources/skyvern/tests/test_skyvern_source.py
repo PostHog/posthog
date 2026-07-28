@@ -6,7 +6,9 @@ import structlog
 from posthog.schema import SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SkyvernSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.skyvern import (
+    SkyvernSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.skyvern import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.skyvern.skyvern import SkyvernResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.skyvern.source import SkyvernSource

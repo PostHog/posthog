@@ -1,0 +1,248 @@
+import { useActions, useValues } from 'kea'
+
+import { LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
+
+import { TZLabel } from 'lib/components/TZLabel'
+import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
+import { urls } from 'scenes/urls'
+
+import type {
+    EmailReputationSnapshotApi,
+    EmailReputationStateEnumApi,
+    WorkflowEmailReputationSnapshotApi,
+} from 'products/workflows/frontend/generated/api.schemas'
+
+import { workflowsReputationLogic } from './workflowsReputationLogic'
+
+// Descriptions must match the evaluator's default thresholds
+// (nodejs/src/cdp/services/email-reputation/classifier.ts DEFAULT_THRESHOLDS).
+const STATE_CONFIG: Record<EmailReputationStateEnumApi, { label: string; type: LemonTagType; tooltip: string }> = {
+    healthy: {
+        label: 'Healthy',
+        type: 'success',
+        tooltip:
+            'Hard bounce rate below 2% and spam complaint rate below 0.1%. Transient bounces (greylisting, mailbox full) are not counted.',
+    },
+    warning: {
+        label: 'Warning',
+        type: 'warning',
+        tooltip:
+            'Hard bounce rate at or above 2%, or spam complaint rate at or above 0.1%. Review your recipient list before rates climb further.',
+    },
+    critical: {
+        label: 'Critical',
+        type: 'danger',
+        tooltip:
+            'Hard bounce rate at or above 5%, or spam complaint rate at or above 0.5%. Sending at these rates puts email deliverability at risk.',
+    },
+    insufficient_data: {
+        label: 'Not enough data',
+        type: 'muted',
+        tooltip: 'Fewer than 100 emails in the evaluated window, which is too few to judge reliably.',
+    },
+}
+
+function StateTag({ state }: { state: EmailReputationStateEnumApi }): JSX.Element {
+    const config = STATE_CONFIG[state] ?? STATE_CONFIG.insufficient_data
+    return (
+        <Tooltip title={config.tooltip}>
+            <LemonTag type={config.type}>{config.label}</LemonTag>
+        </Tooltip>
+    )
+}
+
+function formatRate(rate: number): string {
+    return percentage(rate, 2, true)
+}
+
+// Must match the evaluator's window config (nodejs/src/cdp/services/email-reputation: representative
+// volume = max(1,000, 3× the biggest sending day), min window 24h, 30d lookback) and the endpoint's
+// cap (HogFlowViewSet.WORKFLOW_REPUTATION_LIMIT).
+const EVALUATION_WINDOW_TOOLTIP =
+    'Rates are calculated over your most recent sending: roughly 3 times your biggest sending day of the last 30 days (at least 1,000 emails, and at least the last 24 hours), so a single campaign never dominates the score. The window looks back up to 30 days.'
+const WORKFLOW_LIMIT = 50
+
+function MetricLabel({ label, tooltip }: { label: string; tooltip: string }): JSX.Element {
+    return (
+        <Tooltip title={tooltip}>
+            <div className="text-secondary text-xs border-b border-dotted border-current inline-block cursor-default">
+                {label}
+            </div>
+        </Tooltip>
+    )
+}
+
+function TeamReputationCard({ reputation }: { reputation: EmailReputationSnapshotApi }): JSX.Element {
+    return (
+        <div className="border rounded p-4 bg-surface-primary">
+            <div className="flex items-center gap-2">
+                <h3 className="mb-0">Project email reputation</h3>
+                <StateTag state={reputation.state} />
+            </div>
+            <div className="flex flex-wrap gap-8 mt-3">
+                <div>
+                    <MetricLabel
+                        label="Bounce rate"
+                        tooltip="Hard (permanent) bounces divided by emails evaluated. Transient bounces like a full mailbox are not counted."
+                    />
+                    <div className="text-lg font-semibold">{formatRate(reputation.bounce_rate)}</div>
+                </div>
+                <div>
+                    <MetricLabel label="Spam complaint rate" tooltip="Spam complaints divided by emails evaluated." />
+                    <div className="text-lg font-semibold">{formatRate(reputation.complaint_rate)}</div>
+                </div>
+                <div>
+                    <MetricLabel label="Emails evaluated (recent volume)" tooltip={EVALUATION_WINDOW_TOOLTIP} />
+                    <div className="text-lg font-semibold">{humanFriendlyNumber(reputation.emails_sent)}</div>
+                </div>
+                <div>
+                    <div className="text-secondary text-xs">Last evaluated</div>
+                    <div className="text-lg font-semibold">
+                        <TZLabel time={reputation.evaluated_at} />
+                    </div>
+                </div>
+            </div>
+        </div>
+    )
+}
+
+function WorkflowHistoryTable({ history }: { history: readonly EmailReputationSnapshotApi[] }): JSX.Element {
+    return (
+        <div className="py-1">
+            <div className="text-secondary text-xs mb-1">Daily scores from the last 7 days</div>
+            <LemonTable
+                size="small"
+                embedded
+                dataSource={[...history].reverse()}
+                rowKey={(snapshot) => snapshot.evaluated_at}
+                columns={[
+                    {
+                        title: 'Evaluated',
+                        key: 'evaluated_at',
+                        render: (_, snapshot: EmailReputationSnapshotApi) => <TZLabel time={snapshot.evaluated_at} />,
+                    },
+                    {
+                        title: 'State',
+                        key: 'state',
+                        render: (_, snapshot: EmailReputationSnapshotApi) => <StateTag state={snapshot.state} />,
+                    },
+                    {
+                        title: 'Bounce rate',
+                        key: 'bounce_rate',
+                        align: 'right',
+                        render: (_, snapshot: EmailReputationSnapshotApi) => formatRate(snapshot.bounce_rate),
+                    },
+                    {
+                        title: 'Complaint rate',
+                        key: 'complaint_rate',
+                        align: 'right',
+                        render: (_, snapshot: EmailReputationSnapshotApi) => formatRate(snapshot.complaint_rate),
+                    },
+                    {
+                        title: 'Emails sent',
+                        key: 'emails_sent',
+                        align: 'right',
+                        render: (_, snapshot: EmailReputationSnapshotApi) => humanFriendlyNumber(snapshot.emails_sent),
+                    },
+                ]}
+            />
+        </div>
+    )
+}
+
+export function WorkflowsReputation(): JSX.Element {
+    const { teamReputation, workflowSnapshots, reputationResponseLoading, search } = useValues(workflowsReputationLogic)
+    const { setSearch } = useActions(workflowsReputationLogic)
+
+    return (
+        <div className="space-y-4" data-attr="workflows-reputation">
+            {teamReputation ? (
+                <TeamReputationCard reputation={teamReputation} />
+            ) : (
+                !reputationResponseLoading && (
+                    <div className="border rounded p-4 text-secondary">
+                        No reputation data yet. Reputation is calculated daily from email bounces and spam complaints
+                        once your workflows start sending email.
+                    </div>
+                )
+            )}
+            <div className="flex items-center gap-3">
+                <LemonInput
+                    type="search"
+                    placeholder="Search workflows"
+                    value={search}
+                    onChange={setSearch}
+                    className="max-w-80"
+                    data-attr="workflows-reputation-search"
+                />
+                {!search.trim() && workflowSnapshots.length >= WORKFLOW_LIMIT && (
+                    <span className="text-secondary text-xs">
+                        Showing the {WORKFLOW_LIMIT} workflows with the worst reputation. Search to find any other
+                        evaluated workflow.
+                    </span>
+                )}
+            </div>
+            <LemonTable
+                dataSource={[...workflowSnapshots]}
+                loading={reputationResponseLoading}
+                rowKey={(snapshot) => snapshot.hog_flow_id}
+                emptyState={
+                    search.trim()
+                        ? 'No evaluated workflows match your search.'
+                        : 'No workflows have sent enough email to be evaluated yet.'
+                }
+                columns={[
+                    {
+                        title: 'Workflow',
+                        key: 'workflow',
+                        render: (_, snapshot: WorkflowEmailReputationSnapshotApi) => (
+                            <Link to={urls.workflow(snapshot.hog_flow_id, 'workflow')} className="font-semibold">
+                                {snapshot.hog_flow_name || snapshot.hog_flow_id}
+                            </Link>
+                        ),
+                    },
+                    {
+                        title: 'State',
+                        key: 'state',
+                        render: (_, snapshot: WorkflowEmailReputationSnapshotApi) => (
+                            <StateTag state={snapshot.state} />
+                        ),
+                    },
+                    {
+                        title: 'Bounce rate',
+                        key: 'bounce_rate',
+                        align: 'right',
+                        render: (_, snapshot: WorkflowEmailReputationSnapshotApi) => formatRate(snapshot.bounce_rate),
+                    },
+                    {
+                        title: 'Complaint rate',
+                        key: 'complaint_rate',
+                        align: 'right',
+                        render: (_, snapshot: WorkflowEmailReputationSnapshotApi) =>
+                            formatRate(snapshot.complaint_rate),
+                    },
+                    {
+                        title: 'Emails sent',
+                        key: 'emails_sent',
+                        align: 'right',
+                        render: (_, snapshot: WorkflowEmailReputationSnapshotApi) =>
+                            humanFriendlyNumber(snapshot.emails_sent),
+                    },
+                    {
+                        title: 'Evaluated',
+                        key: 'evaluated_at',
+                        render: (_, snapshot: WorkflowEmailReputationSnapshotApi) => (
+                            <TZLabel time={snapshot.evaluated_at} />
+                        ),
+                    },
+                ]}
+                expandable={{
+                    rowExpandable: (snapshot: WorkflowEmailReputationSnapshotApi) => snapshot.history.length > 1,
+                    expandedRowRender: (snapshot: WorkflowEmailReputationSnapshotApi) => (
+                        <WorkflowHistoryTable history={snapshot.history} />
+                    ),
+                }}
+            />
+        </div>
+    )
+}

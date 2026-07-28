@@ -8,6 +8,23 @@ if TYPE_CHECKING:
     from posthog.models import Team
 
 
+# `system.information_schema` tables whose rows/columns are gated behind `data_catalog` read access
+# (see `_can_read_catalog` in information_schema.py): `tables` carries the certification mark,
+# `relationships` carries proposal confidence/reasoning, `metrics` is entirely catalog-governed, and
+# `certifications` / `relationship_proposals` are the fully catalog-governed review queues. A query
+# touching any of these must partition the cache by `data_catalog` access, or an allowed user's cached
+# rows would be served to a denied user on a cache hit.
+_DATA_CATALOG_INFORMATION_SCHEMA_TABLES = frozenset(
+    {
+        "system.information_schema.tables",
+        "system.information_schema.relationships",
+        "system.information_schema.metrics",
+        "system.information_schema.certifications",
+        "system.information_schema.relationship_proposals",
+    }
+)
+
+
 def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str]]:
     """The set of access-control scope names a query reads, e.g. "notebook", "warehouse_table".
     Empty when the query reads no access-controlled table.
@@ -40,6 +57,19 @@ def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str
         table_names = set(get_table_names(select))
         system_scopes = {f"system.{name}": scope for name, scope in access_controlled_system_tables().items()}
         scopes: set[str] = {system_scopes[name] for name in table_names if name in system_scopes}
+
+        # The catalog-enriched information_schema tables aren't PostgresTables, so they're absent from
+        # `access_controlled_system_tables()`; gate them explicitly on `data_catalog` read access.
+        if table_names & _DATA_CATALOG_INFORMATION_SCHEMA_TABLES:
+            scopes.add("data_catalog")
+            # Their row visibility also depends on per-object warehouse denials (`_catalog_table_visible`
+            # and referenced-table filtering hide rows for sources/views the caller can't see), so
+            # partition on warehouse access too. Without this, two `data_catalog` users with different
+            # source grants share a cache key and the denied one is served the allowed one's certification
+            # notes / proposal evidence on a hit. The specific denied object IDs fold into the key via
+            # AnalyticsQueryRunner._get_object_access_restrictions.
+            scopes.add("warehouse_table")
+            scopes.add("warehouse_view")
 
         # Connection-scoped queries read the external source's upstream data directly. Their tables
         # are virtual (named by ExternalDataSchema.name) or physical direct rows, which the

@@ -1,0 +1,138 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "confidence": {
+            "description": "Agent's confidence the finding is real in [0, 1]. Persisted in `extra`.",
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+        },
+        "dedupe_keys": {
+            "description": "Optional keys for downstream dedupe (e.g. `error_tracking_issue:<id>`).",
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        },
+        "description": {
+            "description": "Canonical evidence-bundle prose. Becomes the signal's `description`.",
+            "maxLength": 50000,
+            "type": "string"
+        },
+        "evidence": {
+            "description": "Citations supporting the finding. Capped at 20 entries.",
+            "items": {
+                "description": "One citation attached to a finding. Mirrors `SignalsScoutEvidenceEntry`.",
+                "properties": {
+                    "entity_id": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Optional ID of the cited entity (issue id, recording id, log query id)."
+                    },
+                    "source_product": {
+                        "description": "Source the citation came from (`error_tracking`, `session_replay`, `logs`, ...).",
+                        "type": "string"
+                    },
+                    "summary": {
+                        "description": "One-sentence prose about why this evidence supports the finding.",
+                        "type": "string"
+                    }
+                },
+                "required": ["source_product", "summary"],
+                "type": "object"
+            },
+            "maxItems": 20,
+            "type": "array"
+        },
+        "finding_id": {
+            "anyOf": [
+                {
+                    "maxLength": 100,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Stable id for this finding, baked into the signal's source_id for traceability. NOT a dedupe key — re-emitting the same id creates another signal."
+        },
+        "hypothesis": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional one-line hypothesis the finding tests."
+        },
+        "mcp_trace_id": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional MCP trace id for cross-system debugging."
+        },
+        "run_id": {
+            "description": "UUID of the `SignalScoutRun` bridge row.",
+            "type": "string"
+        },
+        "severity": {
+            "anyOf": [
+                {
+                    "description": "* `P0` - P0\n* `P1` - P1\n* `P2` - P2\n* `P3` - P3\n* `P4` - P4",
+                    "enum": ["P0", "P1", "P2", "P3", "P4"],
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional severity tag — one of P0, P1, P2, P3, P4. Informational only.\n\n* `P0` - P0\n* `P1` - P1\n* `P2` - P2\n* `P3` - P3\n* `P4` - P4"
+        },
+        "tags": {
+            "description": "Optional category tags as lowercase kebab-case slugs (e.g. `cost-spike`, `silent-failure`), max 10. Reuse the vocabulary in your `tags:<domain>:taxonomy` scratchpad entry when a tag fits; coin a new slug when a genuinely new category emerges. Near-miss formats are normalized to slugs; persisted in the signal's `extra.tags` and on the emission row.",
+            "items": {
+                "maxLength": 50,
+                "type": "string"
+            },
+            "maxItems": 10,
+            "type": "array"
+        },
+        "time_range": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "date_from": {
+                            "description": "ISO-8601 inclusive lower bound for the finding's window.",
+                            "type": "string"
+                        },
+                        "date_to": {
+                            "description": "ISO-8601 inclusive upper bound for the finding's window.",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["date_from", "date_to"],
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional time window the finding refers to."
+        }
+    },
+    "required": ["run_id", "description", "confidence", "evidence"],
+    "type": "object"
+}

@@ -9,7 +9,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fullstory.
     FullStoryResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.fullstory.source import FullStorySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FullStorySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fullstory import (
+    FullStorySourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

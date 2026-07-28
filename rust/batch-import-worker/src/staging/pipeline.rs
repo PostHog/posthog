@@ -206,22 +206,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn zero_byte_raw_surfaces_decode_error() {
-        // A zero-byte .raw is not a valid gzip stream: the decoder rejects it
-        // ("unexpected end of file") and the pipeline must surface that honestly.
-        // Sources guarantee this input is unreachable - a zero-byte download is
-        // turned into an empty part before any decoder sees it (the 404 branch,
-        // s3_gzip's and date_range_export's zero-byte guards) - so an error here
-        // means a source-level bug, never a valid empty export.
+    async fn zero_byte_raw_yields_no_bytes() {
+        // A zero-byte .raw has no compression magic, so the producer streams it
+        // as plaintext: an empty part, not a decode error. Sources still guard
+        // zero-byte downloads before any decoder sees them (the 404 branch,
+        // s3_gzip's and date_range_export's zero-byte guards), so this mainly
+        // pins that an empty file can no longer pause a job as spurious
+        // corruption.
         let dir = TempDir::new().unwrap();
         let raw = dir.path().join("a.raw");
         std::fs::write(&raw, b"").unwrap();
 
-        let result = collect(open_plaintext_stream(raw, ExtractorType::PlainGzip, 0)).await;
-        assert!(
-            result.is_err(),
-            "zero-byte input must error, not stage empty"
-        );
+        assert_pipeline_output(ExtractorType::PlainGzip, raw, Some(b"")).await;
     }
 
     #[tokio::test]

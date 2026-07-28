@@ -2,7 +2,10 @@ from typing import cast
 
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from posthog.hogql import ast
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import to_printed_hogql
@@ -202,3 +205,21 @@ class TestBytecodePlaceholders(BaseTest):
         finder = find_placeholders(expr)
         self.assertTrue(len(finder.placeholder_expressions) > 0)
         self.assertEqual(finder.placeholder_fields, [])
+
+    @parameterized.expand(
+        [
+            ("sleep_direct", "{sleep(600)}", "sleep"),
+            ("run_direct", "{run('SELECT 1')}", "run"),
+            ("nested_in_another_call", "{concat(sleep(600))}", "sleep"),
+            # Indirect invocations bypass the static name check but must still be rejected at VM
+            # dispatch, otherwise the blocking function runs on the request thread.
+            ("sleep_expression_call", "{(sleep)(600)}", "sleep"),
+            ("run_expression_call", "{(run)('SELECT 1')}", "run"),
+            ("sleep_bound_to_local", "{(() -> {let f := sleep; return f(600)})()}", "sleep"),
+        ]
+    )
+    def test_replace_placeholders_rejects_blocking_functions(self, _name, query, fn_name):
+        expr = parse_expr(query)
+        with self.assertRaises((QueryError, HogVMException)) as context:
+            replace_placeholders(expr, {})
+        self.assertIn(fn_name, str(context.exception))

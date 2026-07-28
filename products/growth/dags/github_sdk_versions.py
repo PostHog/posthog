@@ -32,8 +32,11 @@ SDK_FETCH_FUNCTIONS: dict[SdkTypes, Callable[[], dict[str, Any]]] = {
     "posthog-node": lambda: fetch_node_sdk_data(),
     "posthog-react-native": lambda: fetch_react_native_sdk_data(),
     "posthog-flutter": lambda: fetch_flutter_sdk_data(),
+    "posthog-kmp": lambda: fetch_kmp_sdk_data(),
     "posthog-ios": lambda: fetch_ios_sdk_data(),
     "posthog-android": lambda: fetch_android_sdk_data(),
+    "posthog-java": lambda: fetch_java_sdk_data(),
+    "posthog-server": lambda: fetch_java_server_sdk_data(),
     "posthog-go": lambda: fetch_go_sdk_data(),
     "posthog-php": lambda: fetch_php_sdk_data(),
     "posthog-ruby": lambda: fetch_ruby_sdk_data(),
@@ -233,11 +236,26 @@ def fetch_ios_sdk_data() -> dict[str, Any]:
     return fetch_sdk_data_from_releases("PostHog/posthog-ios")
 
 
+def fetch_kmp_sdk_data() -> dict[str, Any]:
+    """Fetch Kotlin Multiplatform SDK data from GitHub releases API"""
+    return fetch_sdk_data_from_releases("PostHog/posthog-kmp", tag_prefixes=["v"])
+
+
 def fetch_android_sdk_data() -> dict[str, Any]:
     """Fetch Android SDK data from GitHub releases API"""
     return fetch_sdk_data_from_releases(
         "PostHog/posthog-android", tag_prefixes=prefixed_or_unprefixed_semver_tags("android-v")
     )
+
+
+def fetch_java_sdk_data() -> dict[str, Any]:
+    """Fetch releases for the archived Java SDK."""
+    return fetch_sdk_data_from_releases("PostHog/posthog-java", tag_prefixes=[UNPREFIXED_SEMVER_TAG])
+
+
+def fetch_java_server_sdk_data() -> dict[str, Any]:
+    """Fetch Java server SDK data from its dedicated tags in the Android monorepo."""
+    return fetch_sdk_data_from_releases("PostHog/posthog-android", tag_prefixes=["server-v"])
 
 
 def fetch_go_sdk_data() -> dict[str, Any]:

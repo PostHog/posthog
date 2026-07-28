@@ -107,6 +107,8 @@ class TestFetchBranchTarget(BaseTest):
         assert meta.pr_number is None
         assert meta.pr_url is None
         assert meta.empty_diff is True
+        # Branch targets have no pull ref — sandboxes must check out the branch itself.
+        assert meta.branch == "feat"
         # The resolved installation id must reach the compare fetch — dropping it silently turns the
         # calls identity-blind (no egress budget accounting).
         mock_compare.assert_called_once_with(
@@ -135,6 +137,8 @@ class TestFetchBranchTarget(BaseTest):
         assert meta.pr_number == 9
         assert meta.pr_url == "https://github.com/o/r/pull/9"
         assert meta.empty_diff is False
+        # PR reviews check out the pinned pull ref, which survives head-branch deletion on merge.
+        assert meta.branch == "pull/9/head"
         mock_fetcher.assert_called_once_with(owner="o", repo="r", pr_number=9, token="tok", installation_id="9876543")
         row = ReviewReport.objects.for_team(self.team.id).get(id=stored_id)
         assert row.pr_number == 9

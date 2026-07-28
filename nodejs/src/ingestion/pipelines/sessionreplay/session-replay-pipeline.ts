@@ -11,9 +11,9 @@ import { newBatchingPipeline } from '~/ingestion/framework/builders'
 import { TopHogRegistry, createTopHogWrapper, sum, timer } from '~/ingestion/framework/extensions/tophog'
 import { createBatch } from '~/ingestion/framework/helpers'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
-import { ok } from '~/ingestion/framework/results'
+import { isOkResult, ok } from '~/ingestion/framework/results'
 import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
-import { SessionBatchManager } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-manager'
+import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
 import { SessionFilter } from '~/ingestion/pipelines/sessionreplay/sessions/session-filter'
 import { SessionTracker } from '~/ingestion/pipelines/sessionreplay/sessions/session-tracker'
 import { RetentionService } from '~/ingestion/pipelines/sessionreplay/shared/retention/retention-service'
@@ -29,13 +29,12 @@ import { createRecordSessionEventStep } from './record-session-event-step'
 import { SessionBatchContext } from './session-batch-context'
 import { createMarkSeenStep } from './session-batch-mark-seen-step'
 import { createResolveRetentionStep } from './session-batch-resolve-retention-step'
-import { createAttachSessionBatchStep } from './session-batch-step'
 import { createTrackAndGateStep } from './session-batch-track-and-gate-step'
 import { createResolveKeyStep } from './session-resolve-key-step'
 import { createTeamFilterStep } from './team-filter-step'
 import { createValidateSessionReplayHeadersStep } from './validate-headers-step'
 
-export interface SessionReplayPipelineInput {
+export interface SessionReplayPipelineInput extends SessionBatchContext {
     message: Message
 }
 
@@ -45,15 +44,16 @@ export interface SessionReplayPipelineOutput {
 }
 
 /**
- * The session replay pipeline: a batching pipeline whose beforeBatch tags the current session batch
- * recorder onto every element ({@link SessionBatchContext}), so the steps fold into the recorder
- * they were fed with rather than reaching into shared batch state.
+ * The session replay pipeline: a batching pipeline whose input elements each carry the session batch
+ * recorder they fold into ({@link SessionBatchContext}). The layer above (the consumer, later the
+ * accumulating pipeline) owns the recorder and stamps it on the messages it feeds, so the steps stay
+ * decoupled from batch creation and flushing.
  */
 export type SessionReplayPipeline = BatchingPipeline<
     SessionReplayPipelineInput,
     SessionReplayPipelineOutput,
     MessageContext,
-    SessionBatchContext,
+    Record<never, object>,
     MessageContext & BatchingContext,
     OverflowOutput
 >
@@ -76,8 +76,6 @@ export interface SessionReplayPipelineConfig {
     sessionKeyResolutionMaxConcurrency: number
     /** TopHog registry for tracking metrics. */
     topHog: TopHogRegistry
-    /** Session batch manager for recording sessions. */
-    sessionBatchManager: SessionBatchManager
     /** Debug logging matcher for partition-based debugging. */
     isDebugLoggingEnabled: ValueMatcher<number>
 }
@@ -85,8 +83,8 @@ export interface SessionReplayPipelineConfig {
 /**
  * Creates the session replay pipeline.
  *
- * Each feed() is one batch: the beforeBatch hook tags the manager's current recorder onto every
- * element, and the per-message sub-pipeline processes messages through these phases:
+ * Each feed() is one batch: every element already carries the recorder it folds into (stamped by the
+ * layer above), and the per-message sub-pipeline processes messages through these phases:
  * 1. Restrictions - Parse headers and apply event ingestion restrictions (drop/overflow)
  * 2. Team Filter - Validate team ownership and enrich with team context
  * 3. Parse - Parse Kafka messages into structured session recording data (inside teamAware for warning handling)
@@ -106,7 +104,6 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
         keyStore,
         sessionKeyResolutionMaxConcurrency,
         topHog,
-        sessionBatchManager,
         isDebugLoggingEnabled,
     } = config
 
@@ -121,11 +118,14 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
         SessionReplayPipelineInput,
         SessionReplayPipelineOutput,
         MessageContext,
-        SessionBatchContext,
+        Record<never, object>,
         MessageContext,
         OverflowOutput
     >(
-        (beforeBatch) => beforeBatch.pipe(createAttachSessionBatchStep(sessionBatchManager)),
+        (beforeBatch) =>
+            beforeBatch.pipe(function passThroughBeforeBatch(input) {
+                return Promise.resolve(ok(input))
+            }),
         (batch) =>
             batch
                 .messageAware((b) =>
@@ -238,21 +238,32 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
             afterBatch.pipe(function passThroughAfterBatch(input) {
                 return Promise.resolve(ok(input))
             }),
-        // One batch in flight at a time (also the framework default): each feed tags the manager's
-        // current recorder, so a concurrent batch could span a flush and record into a stale recorder.
+        // One batch in flight at a time (also the framework default): a feed's elements carry the
+        // recorder current when it was fed, so a concurrent batch could span a flush and record into a
+        // stale recorder.
         { concurrentBatches: 1 }
     )
 }
 
+/** The Kafka progress and lag inputs a processed batch yields for the caller to act on after it drains. */
+export interface SessionReplayBatchProgress {
+    /** Highest Kafka offset reached per partition, across every terminal result — advances the commit. */
+    maxOffsets: Map<number, number>
+    /** Source messages of the OK (recorded) results only, for ingestion-lag sampling after the flush. */
+    okMessages: Message[]
+}
+
 /**
- * Runs a batch of messages through the session replay pipeline and returns the highest Kafka offset
- * reached per partition.
+ * Runs a batch of messages through the session replay pipeline and returns the Kafka progress it made:
+ * the highest offset reached per partition, plus the source messages of the OK results.
  *
  * Every message ends the pipeline with a terminal result — OK (recorded), DROP, DLQ, or REDIRECT —
  * and each result still carries its source message in the context. Draining them here and taking the
  * max offset per partition is the single place Kafka progress is tracked: the recorder no longer
  * tracks offsets while recording, and drop/dlq steps no longer have to remember to. The caller feeds
- * the returned offsets to the offset manager, which commits them on the next flush.
+ * the returned offsets to the offset manager, which commits them on the next flush. Every disposition
+ * advances the offset, but only OK results are collected for lag sampling — those are the messages
+ * actually recorded, matching the per-event `record-ingestion-lag` step's ingested-only semantics.
  *
  * Relies on the pipeline draining the whole fed batch before it returns null, so every fed message
  * yields exactly one terminal result here.
@@ -265,14 +276,18 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
 export async function runSessionReplayPipeline(
     pipeline: SessionReplayPipeline,
     messages: Message[],
+    sessionBatchRecorder: SessionBatchRecorder,
     promiseScheduler: PromiseScheduler
-): Promise<Map<number, number>> {
-    const maxOffsetByPartition = new Map<number, number>()
+): Promise<SessionReplayBatchProgress> {
+    const maxOffsets = new Map<number, number>()
+    const okMessages: Message[] = []
     if (messages.length === 0) {
-        return maxOffsetByPartition
+        return { maxOffsets, okMessages }
     }
 
-    const batch = createBatch(messages.map((message) => ({ message })))
+    // Stamp the caller's current recorder onto every message, so the record step folds into the batch
+    // the layer above owns for this cycle.
+    const batch = createBatch(messages.map((message) => ({ message, sessionBatchRecorder })))
     // The consumer drains each batch fully before feeding the next and the hooks always succeed,
     // so a rejected feed can only be a framework invariant violation.
     const feedResult = await pipeline.feed(batch)
@@ -285,15 +300,18 @@ export async function runSessionReplayPipeline(
         for (const sideEffect of batchResult.sideEffects ?? []) {
             void promiseScheduler.schedule(sideEffect)
         }
-        for (const { context } of batchResult.elements) {
+        for (const { result, context } of batchResult.elements) {
             const { partition, offset } = context.message
-            const current = maxOffsetByPartition.get(partition)
+            const current = maxOffsets.get(partition)
             if (current === undefined || offset > current) {
-                maxOffsetByPartition.set(partition, offset)
+                maxOffsets.set(partition, offset)
+            }
+            if (isOkResult(result)) {
+                okMessages.push(context.message)
             }
         }
         batchResult = await pipeline.next()
     }
 
-    return maxOffsetByPartition
+    return { maxOffsets, okMessages }
 }

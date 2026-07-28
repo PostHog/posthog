@@ -12,7 +12,7 @@ use uuid::Uuid;
 use k8s_awareness::DiscoveredPod;
 
 use crate::jobs::{AnalysisRequest, JobView};
-use crate::kafka::lag::{self, GroupLag, GroupLagSummary};
+use crate::kafka::lag::{self, ConsumerTarget, GroupLag, LagOverview};
 use crate::proxy;
 use crate::state::AppState;
 use crate::ui;
@@ -65,22 +65,73 @@ impl IntoResponse for ApiError {
     }
 }
 
-async fn get_lag_overview(State(state): State<AppState>) -> Json<Vec<GroupLagSummary>> {
-    Json(lag::scan_all_groups(&state.config).await)
+/// The API only accepts exact group/topic pairs present in the (cached)
+/// discovered targets — prefix checks alone would let a fabricated group
+/// read any prefixed topic, and the tool must not become a generic Kafka
+/// browser. Prefix mismatches fail fast with a clearer message.
+async fn validated_target(
+    state: &AppState,
+    group: &str,
+    topic: &str,
+) -> Result<ConsumerTarget, ApiError> {
+    if !group.starts_with(&state.config.group_prefix) {
+        return Err(ApiError::bad_request(format!(
+            "group '{group}' is outside the '{}' prefix",
+            state.config.group_prefix
+        )));
+    }
+    if !topic.starts_with(&state.config.topic_prefix) {
+        return Err(ApiError::bad_request(format!(
+            "topic '{topic}' is outside the '{}' prefix",
+            state.config.topic_prefix
+        )));
+    }
+
+    let targets = state
+        .discovery
+        .get_or_refresh(|| lag::discover_targets(&state.config))
+        .await
+        .map_err(|e| ApiError::upstream(format!("target discovery failed: {e:#}")))?;
+    let target = ConsumerTarget {
+        group: group.to_string(),
+        topic: topic.to_string(),
+    };
+    if !targets.contains(&target) {
+        return Err(ApiError::bad_request(format!(
+            "'{group}' / '{topic}' is not a discovered consumer target \
+             (discovery refreshes every {}s)",
+            state.config.discovery_cache_ttl_secs
+        )));
+    }
+    Ok(target)
+}
+
+async fn get_lag_overview(State(state): State<AppState>) -> Result<Json<LagOverview>, ApiError> {
+    let overview = state
+        .overview
+        .get_or_refresh(|| async {
+            let targets = state
+                .discovery
+                .get_or_refresh(|| lag::discover_targets(&state.config))
+                .await?;
+            Ok(lag::scan_targets(&state.config, targets.as_ref().clone()).await)
+        })
+        .await
+        .map_err(|e| ApiError::upstream(format!("lag overview failed: {e:#}")))?;
+    Ok(Json(overview.as_ref().clone()))
 }
 
 #[derive(Deserialize)]
 struct LagQuery {
     group: String,
+    topic: String,
 }
 
 async fn get_lag(
     State(state): State<AppState>,
     Query(query): Query<LagQuery>,
 ) -> Result<Json<GroupLag>, ApiError> {
-    let target = state.config.target_for_group(&query.group).ok_or_else(|| {
-        ApiError::bad_request(format!("unknown consumer group '{}'", query.group))
-    })?;
+    let target = validated_target(&state, &query.group, &query.topic).await?;
 
     let group_lag = lag::scan_group_lag(&state.config, &target)
         .await
@@ -93,12 +144,7 @@ async fn create_analysis(
     State(state): State<AppState>,
     Json(request): Json<AnalysisRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
-    let target = state
-        .config
-        .target_for_group(&request.group)
-        .ok_or_else(|| {
-            ApiError::bad_request(format!("unknown consumer group '{}'", request.group))
-        })?;
+    let target = validated_target(&state, &request.group, &request.topic).await?;
     if request.partition < 0 {
         return Err(ApiError::bad_request("partition must be non-negative"));
     }
@@ -175,8 +221,12 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/pods", get(list_pods))
         // The consumer debug UI is served per pod; its relative `debug/...`
-        // fetches resolve to the proxy route below.
-        .route("/pods/:name/", get(ui::consumer_debug))
-        .route("/pods/:name/debug/*rest", get(proxy::proxy_debug))
+        // fetches resolve to the proxy route below. Pods are addressed by
+        // namespace + name so identical names across lanes cannot collide.
+        .route("/pods/:namespace/:name/", get(ui::consumer_debug))
+        .route(
+            "/pods/:namespace/:name/debug/*rest",
+            get(proxy::proxy_debug),
+        )
         .with_state(state)
 }

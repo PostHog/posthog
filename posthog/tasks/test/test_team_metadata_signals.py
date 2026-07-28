@@ -106,6 +106,17 @@ class TestRelatedTeamsMetadataFanoutTask(BaseTest):
 
         mock_update.delay.assert_not_called()
 
+    def test_logs_and_reraises_on_failure(self) -> None:
+        with (
+            patch("posthog.tasks.team_metadata.update_team_metadata_cache_task") as mock_update,
+            patch("posthog.tasks.team_metadata.logger") as mock_logger,
+            self.assertRaises(Exception),
+        ):
+            mock_update.delay.side_effect = Exception("broker down")
+            update_related_teams_metadata_cache_task(organization_id=self.organization.id)
+
+        mock_logger.exception.assert_called_once()
+
 
 @override_settings(FLAGS_REDIS_URL="redis://localhost:6379")
 class TestOrgProjectDeleteCascadesToTeamClear(BaseTest):

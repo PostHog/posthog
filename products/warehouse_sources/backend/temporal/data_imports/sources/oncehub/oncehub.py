@@ -1,28 +1,30 @@
 import dataclasses
-from collections.abc import Iterator
 from typing import Any, Optional
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.oncehub.settings import ONCEHUB_ENDPOINTS
 
 ONCEHUB_BASE_URL = "https://api.oncehub.com/v2"
 # List endpoints accept a `limit` of 1-100 (default 10); the largest page minimises round trips
 # against OnceHub's tight 5 requests/second account rate limit.
 PAGE_SIZE = 100
-REQUEST_TIMEOUT_SECONDS = 60
 # Cheap endpoint used to confirm an API key is genuine. The key is account-wide, so one probe
 # validates access to every list endpoint.
 DEFAULT_PROBE_PATH = "/users"
 
 
-class OncehubRetryableError(Exception):
-    pass
+def _probe_headers(api_key: str) -> dict[str, str]:
+    return {"API-Key": api_key, "Accept": "application/json"}
 
 
 @dataclasses.dataclass
@@ -33,127 +35,134 @@ class OncehubResumeConfig:
     cursor: str | None = None
 
 
-def _headers(api_key: str) -> dict[str, str]:
-    return {"API-Key": api_key, "Accept": "application/json"}
+class OncehubCursorPaginator(BasePaginator):
+    """Cursor pagination for OnceHub v2 list endpoints.
 
+    OnceHub has no numeric offset — each next page is requested with ``after`` set to the previous
+    page's last object ID. A page's ``has_more`` flag (or an empty page) terminates the walk. The
+    saved cursor points at the next page to fetch, so a resumed run re-issues from there and merge
+    dedupes the re-pulled page on ``id``.
+    """
 
-@retry(
-    retry=retry_if_exception_type((OncehubRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_page(
-    session: requests.Session,
-    path: str,
-    cursor: str | None,
-    limit: int,
-    logger: FilteringBoundLogger,
-) -> tuple[list[dict[str, Any]], bool]:
-    params: dict[str, Any] = {"limit": limit}
-    if cursor is not None:
-        params["after"] = cursor
+    def __init__(self, cursor_param: str = "after") -> None:
+        super().__init__()
+        self.cursor_param = cursor_param
+        self._cursor: Optional[str] = None
 
-    response = session.get(
-        f"{ONCEHUB_BASE_URL}{path}",
-        params=params,
-        timeout=REQUEST_TIMEOUT_SECONDS,
-    )
+    def init_request(self, request: Request) -> None:
+        self._apply(request)
 
-    # OnceHub rate limits at 5 req/s per account (429 with type "rate_limit_error"); back off and retry.
-    if response.status_code == 429 or response.status_code >= 500:
-        raise OncehubRetryableError(f"OnceHub API error (retryable): status={response.status_code}, path={path}")
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        body = response.json()
+        has_more = bool(body.get("has_more")) if isinstance(body, dict) else False
+        # Stop on an empty page or once the API says there is no more — matching the hand-rolled walk.
+        if not data or not has_more:
+            self._has_next_page = False
+            return
+        self._cursor = data[-1]["id"]
+        self._has_next_page = True
 
-    if not response.ok:
-        logger.error(f"OnceHub API error: status={response.status_code}, body={response.text}, path={path}")
-        response.raise_for_status()
+    def update_request(self, request: Request) -> None:
+        self._apply(request)
 
-    data = response.json()
-    # OnceHub list endpoints wrap records in {"object": "list", "data": [...], "has_more": bool}.
-    if not isinstance(data, dict) or not isinstance(data.get("data"), list):
-        raise OncehubRetryableError(f"OnceHub returned an unexpected payload for {path}: {type(data).__name__}")
+    def _apply(self, request: Request) -> None:
+        if self._cursor is not None:
+            if request.params is None:
+                request.params = {}
+            request.params[self.cursor_param] = self._cursor
 
-    results: list[dict[str, Any]] = data["data"]
-    has_more = bool(data.get("has_more"))
-    return results, has_more
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        return {"cursor": self._cursor} if self._has_next_page and self._cursor is not None else None
 
-
-def get_rows(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[OncehubResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
-    config = ONCEHUB_ENDPOINTS[endpoint]
-    session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    cursor = resume.cursor if resume else None
-    if resume and resume.cursor is not None:
-        logger.debug(f"OnceHub: resuming {endpoint} from cursor {cursor}")
-
-    while True:
-        items, has_more = _fetch_page(session, config.path, cursor, PAGE_SIZE, logger)
-        if items:
-            yield items
-
-        if not has_more or not items:
-            break
-
-        # Cursor pagination advances by the last item's object ID — OnceHub has no numeric offset.
-        cursor = items[-1]["id"]
-        # Save AFTER yielding so a crash re-fetches from the next page (already-yielded pages are
-        # persisted); merge dedupes the re-pulled page on the primary key.
-        resumable_source_manager.save_state(OncehubResumeConfig(cursor=cursor))
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        cursor = state.get("cursor")
+        if cursor is not None:
+            self._cursor = cursor
+            self._has_next_page = True
 
 
 def oncehub_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[OncehubResumeConfig],
+    db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = ONCEHUB_ENDPOINTS[endpoint]
 
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": ONCEHUB_BASE_URL,
+            # Only the non-secret Accept header goes here; the API key rides the framework auth config
+            # so it is redacted from logs and raised error messages.
+            "headers": {"Accept": "application/json"},
+            "auth": {"type": "api_key", "api_key": api_key, "name": "API-Key", "location": "header"},
+            "paginator": OncehubCursorPaginator(),
+        },
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": {"limit": PAGE_SIZE},
+                    # OnceHub list endpoints wrap records in {"object": "list", "data": [...], "has_more": bool}.
+                    "data_selector": "data",
+                    # A 200 body that is not this envelope (missing `data`, or a bare/non-list payload)
+                    # means the response shape changed — fail loud instead of silently syncing 0 rows.
+                    "data_selector_required": True,
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.cursor is not None:
+            initial_paginator_state = {"cursor": resume.cursor}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-fetches
+        # the next page (already-yielded pages are persisted) and merge dedupes on the primary key.
+        if state and state.get("cursor") is not None:
+            resumable_source_manager.save_state(OncehubResumeConfig(cursor=str(state["cursor"])))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
+        column_hints=resource.column_hints,
     )
 
 
-def check_access(api_key: str, path: str = DEFAULT_PROBE_PATH) -> tuple[int, Optional[str]]:
-    """Probe a single endpoint to validate the API key.
-
-    Returns ``(status, message)``: ``200`` reachable, ``401``/``403`` auth failure, ``0`` for a
-    connection problem, other HTTP status otherwise.
-    """
-    session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
-    try:
-        response = session.get(f"{ONCEHUB_BASE_URL}{path}", params={"limit": 1}, timeout=15)
-    except Exception as e:
-        return 0, f"Could not connect to OnceHub: {e}"
-
-    if response.status_code in (401, 403):
-        return response.status_code, None
-
-    if not response.ok:
-        return response.status_code, f"OnceHub returned HTTP {response.status_code}"
-
-    return 200, None
-
-
 def validate_credentials(api_key: str) -> tuple[bool, str | None]:
-    status, message = check_access(api_key)
-    if status == 200:
+    """Probe a cheap endpoint to validate the API key.
+
+    The key is account-wide, so one probe validates access to every list endpoint. ``200`` is valid;
+    ``401``/``403`` is an auth failure; any other outcome (unexpected status or an unreachable probe)
+    is reported as not validated.
+    """
+    ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        f"{ONCEHUB_BASE_URL}{DEFAULT_PROBE_PATH}?limit=1",
+        headers=_probe_headers(api_key),
+    )
+    if ok:
         return True, None
     if status in (401, 403):
         return False, "Invalid OnceHub API key"
-    return False, message or "Could not validate OnceHub API key"
+    if status is None:
+        return False, "Could not validate OnceHub API key"
+    return False, f"OnceHub returned HTTP {status}"

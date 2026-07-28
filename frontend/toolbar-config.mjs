@@ -26,6 +26,9 @@ const shimmedModules = {
     'scenes/sceneLogic': 'src/toolbar/shims/sceneLogic.ts',
     'scenes/teamLogic': 'src/toolbar/shims/teamLogic.ts',
     'lib/logic/featureFlagLogic': 'src/toolbar/shims/featureFlagLogic.ts',
+    // Survey question labels load from an authenticated endpoint the toolbar can't reach, so
+    // the shim keeps its shared consumers (PropertyKeyInfo, taxonomy helpers) out of the app zone.
+    'scenes/surveys/surveyQuestionLabelsLogic': 'src/toolbar/shims/surveyQuestionLabelsLogic.ts',
     // Not a kea shim: the toolbar's parity-tested urls duplicate (see src/toolbar/urls.ts).
     // Toolbar code imports it directly; this entry covers lib/ components shared with the
     // app (TZLabel, Link, HeatmapEventsPanel), whose scenes/urls import would otherwise pull
@@ -44,29 +47,9 @@ const deniedPaths = [
     'scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager.ts',
 ]
 
-// Heavy third-party libraries the toolbar never renders but which would otherwise leak in
-// transitively through the shared scene graph. Denying them at resolve time keeps them out of
-// the artifact set entirely; bin/check-toolbar-graph.mjs asserts their absence.
-const deniedThirdPartyPackages = [
-    // chart.js + its annotation plugin (via Sparkline). Charts in the toolbar go through the
-    // already-denied LineGraph.
-    /^chart\.js(\/|$)/,
-    /^chartjs-plugin-annotation(\/|$)/,
-]
-
-const deniedPatterns = [
-    /monaco/,
-    /scenes\/insights\/filters\/ActionFilter/,
-    /lib\/components\/CodeSnippet/,
-    /scenes\/session-recordings\/player/,
-    /queries\/schema-guard/,
-    /queries\/schema.json/,
-    /queries\/QueryEditor\/QueryEditor/,
-    /scenes\/billing/,
-    /scenes\/data-warehouse/,
-    /LineGraph/,
-    ...deniedThirdPartyPackages,
-]
+// PayGateMini (shipped in the toolbar) imports scenes/billing, which we can't bundle because it
+// pulls in chart.js, monaco, and the rest of the app's billing scene graph.
+const deniedPatterns = [/scenes\/billing/]
 
 /**
  * The toolbar shares lib/ code with the main app, and that code reaches app-only modules
@@ -78,11 +61,10 @@ const deniedPatterns = [
  *   contracts, and the parity-tested urls duplicate). These are intentional injection points:
  *   the toolbar genuinely needs different answers (its own team context, no scene routing)
  *   than the app.
- * - Denied modules get replaced with an inert proxy. Every deny is load-bearing: without them
- *   PayGateMini pulls in scenes/billing (re-inlining the app scene graph), and even with
- *   billing denied the lib-zone paths (CodeSnippet -> monaco, Sparkline/LineGraph -> chart.js,
- *   the replay player, the query schema) balloon the eager set. A deny can only be retired
- *   once its import path is cut at the source.
+ * - Denied modules get replaced with an inert proxy. The deny list is kept minimal: only the
+ *   paths a toolbar-shipped module actually reaches today (chiefly PayGateMini -> scenes/billing)
+ *   need cutting here. Regressions that reintroduce heavier dependencies are caught by the guard
+ *   scripts rather than pre-emptively denied.
  *
  * The enforced invariants live in bin/check-toolbar-size.mjs (eager-chunk budget, per-file
  * CloudFront limit), bin/check-toolbar-graph.mjs (boundary edges, forbidden packages, source

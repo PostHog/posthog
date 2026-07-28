@@ -113,6 +113,23 @@ CLOUDFLARE_OPENAI_RESPONSES_CONFIG = ProviderConfig(
     endpoint_name="cloudflare_responses",
     extract_effort=effort_from_reasoning,
 )
+# Modal-served GLM (OpenAI-compatible vLLM endpoint). Same per-surface split as Cloudflare so a
+# Modal-specific regression is distinguishable in metrics during the migration.
+MODAL_ANTHROPIC_CONFIG = ProviderConfig(
+    name="modal",
+    endpoint_name="modal_anthropic_messages",
+    extract_effort=effort_from_output_config,
+)
+MODAL_OPENAI_CONFIG = ProviderConfig(
+    name="modal",
+    endpoint_name="modal_chat_completions",
+    extract_effort=effort_from_reasoning_effort,
+)
+MODAL_OPENAI_RESPONSES_CONFIG = ProviderConfig(
+    name="modal",
+    endpoint_name="modal_responses",
+    extract_effort=effort_from_reasoning,
+)
 
 _KNOWN_LITELLM_PROVIDER_PREFIXES = (
     "anthropic/",

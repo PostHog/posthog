@@ -68,7 +68,9 @@ def build_table_name(source: ExternalDataSource, schema_name: str):
     # Dots in `schema_name` would parse as `<table>.<column>` in HogQL, so any source that ever
     # produces a dotted schema name (today: Postgres multi-schema like `public.auth_group`) needs
     # them rewritten. No-op for pre-existing single-schema sources whose names never contained dots.
-    safe_schema_name = schema_name.replace(".", "__")
+    # Slashes appear in GitHub's repo-qualified names (`owner/repo.issues`) and aren't a valid
+    # identifier character at all, so they flatten to a single underscore.
+    safe_schema_name = schema_name.replace("/", "_").replace(".", "__")
     return f"{source.prefix or ''}{source.source_type}_{safe_schema_name}".lower()
 
 

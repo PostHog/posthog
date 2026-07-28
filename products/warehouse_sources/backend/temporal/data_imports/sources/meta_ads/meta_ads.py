@@ -8,8 +8,14 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from django.db import OperationalError, close_old_connections
 
+import structlog
 from requests import Response
-from requests.exceptions import JSONDecodeError as RequestsJSONDecodeError
+from requests.exceptions import (
+    ChunkedEncodingError,
+    ConnectionError as RequestsConnectionError,
+    JSONDecodeError as RequestsJSONDecodeError,
+    ReadTimeout,
+)
 
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, MetaAdsIntegration
 
@@ -20,10 +26,17 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     SourceResponse,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccountListingError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MetaAdsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.metaads import (
+    MetaAdsSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.schemas import RESOURCE_SCHEMAS
 from products.warehouse_sources.backend.types import IncrementalFieldType
+
+logger = structlog.get_logger(__name__)
 
 # Meta Ads API only supports data from the last 3 years. Meta's insights endpoints
 # reject a `time_range` whose start is beyond ~37 months from today with error code
@@ -95,7 +108,7 @@ def _fetch_paging_url(url: str, access_token: str) -> Response:
     Saved URLs have ``access_token`` stripped; we pass it via ``params`` at
     request time so the token never persists in Redis or debug logs.
     """
-    return make_tracked_session().get(url, params={"access_token": access_token})
+    return _get_with_transient_retry(lambda: make_tracked_session().get(url, params={"access_token": access_token}))
 
 
 def _clean_account_id(s: str | None) -> str | None:
@@ -144,16 +157,26 @@ def _fetch_integration_row(integration_id: int, team_id: int) -> Integration:
             _backoff_sleep(attempt)
 
 
-def get_integration(config: MetaAdsSourceConfig, team_id: int) -> Integration:
-    """Get the Meta Ads integration."""
-    integration = _fetch_integration_row(config.meta_ads_integration_id, team_id)
+class MetaAdsTokenRefreshError(Exception):
+    """Meta refused to refresh the integration's access token — only re-authorization fixes it."""
+
+
+def get_integration_by_id(integration_id: int, team_id: int) -> Integration:
+    """Get a Meta Ads integration by row id, with a freshly refreshed access token."""
+    integration = _fetch_integration_row(integration_id, team_id)
     meta_ads_integration = MetaAdsIntegration(integration)
     meta_ads_integration.refresh_access_token()
 
     if meta_ads_integration.integration.errors == ERROR_TOKEN_REFRESH_FAILED:
-        raise Exception("Failed to refresh token for Meta Ads integration. Please re-authorize the integration.")
+        raise MetaAdsTokenRefreshError(
+            "Failed to refresh token for Meta Ads integration. Please re-authorize the integration."
+        )
 
     return meta_ads_integration.integration
+
+
+def get_integration(config: MetaAdsSourceConfig, team_id: int) -> Integration:
+    return get_integration_by_id(config.meta_ads_integration_id, team_id)
 
 
 @dataclass
@@ -270,6 +293,74 @@ def _is_timeout_error(response: Response) -> bool:
         return False
 
 
+# Meta's error-code reference documents code 1 ("API Unknown" — an unexplained backend hiccup
+# that usually clears in 1-2 retries) and code 2 ("API Service" — temporary downtime/overload) as
+# retry-recommended: https://developers.facebook.com/docs/graph-api/guides/error-handling. Meta
+# also flags some of these transient via ``error.is_transient``, but that flag isn't set
+# consistently — code 2 "Service temporarily unavailable" has been observed with
+# ``is_transient: false`` — so the documented codes are trusted over the flag. The request itself
+# is fine, so a couple of immediate retries with a short backoff usually clears it — keeping a
+# self-recovering blip from failing the whole activity (and surfacing as error-tracking noise)
+# while still letting it propagate, and Temporal retry from saved resume state, if it persists.
+META_TRANSIENT_ERROR_MAX_ATTEMPTS = 4
+META_TRANSIENT_ERROR_CODES = {1, 2}
+
+
+def _is_transient_error(response: Response) -> bool:
+    """Return True for Meta errors that are momentary backend blips worth retrying immediately.
+
+    Distinct from the too-much-data timeout (``_is_timeout_error``), which has its own
+    limit-shrinking recovery; a transient error is retried with the request unchanged.
+    """
+    try:
+        error = response.json().get("error", {})
+    except (ValueError, AttributeError):
+        return False
+    return error.get("is_transient") is True or error.get("code") in META_TRANSIENT_ERROR_CODES
+
+
+# Meta's connection occasionally resets mid-response — `requests` raises these while decoding the
+# body, after urllib3's own connection-level retries have already returned headers, so there's no
+# `Response` object yet to inspect for `_is_transient_error`. Re-issuing the same request is safe:
+# nothing was yielded from the failed one yet.
+NETWORK_TRANSIENT_ERRORS = (ChunkedEncodingError, RequestsConnectionError, ReadTimeout)
+
+
+def _get_with_transient_retry(issue: collections.abc.Callable[[], Response]) -> Response:
+    """Issue a request, absorbing transient network failures and Meta's transient server errors.
+
+    Re-issuing the same request is safe: a transiently-failed request yielded no rows. Too-much-data
+    timeouts are left for the caller's limit-shrinking path. If a failure persists past the bound, the
+    last response (or exception) propagates as usual, so the caller raises it, staying retryable upstream.
+    """
+    attempt = 1
+    while True:
+        try:
+            response = issue()
+        except NETWORK_TRANSIENT_ERRORS:
+            if attempt >= META_TRANSIENT_ERROR_MAX_ATTEMPTS:
+                raise
+            _backoff_sleep(attempt)
+            attempt += 1
+            continue
+
+        if (
+            attempt >= META_TRANSIENT_ERROR_MAX_ATTEMPTS
+            or response.status_code == 200
+            or not _is_transient_error(response)
+            or _is_timeout_error(response)
+        ):
+            return response
+
+        _backoff_sleep(attempt)
+        attempt += 1
+
+
+def _get_initial_request(url: str, params: dict) -> Response:
+    """Issue a first (non-cursor) Graph API request, absorbing Meta's transient server errors."""
+    return _get_with_transient_retry(lambda: make_tracked_session().get(url, params=params))
+
+
 # Meta error codes that indicate a permanent auth or permission problem — the
 # only fix is for the user to re-authorize the integration, so retrying the job
 # is pointless. We key off the numeric ``code`` rather than the error ``type``:
@@ -283,9 +374,32 @@ def _is_timeout_error(response: Response) -> bool:
 META_AUTH_ERROR_CODES = {102, 190}
 META_PERMISSION_ERROR_CODES = {10, *range(200, 300)}
 
+# Meta throttling codes. The request was rejected for its volume, not for being malformed, so the
+# call is fine and the only fix is waiting — never a bug on our side.
+#   4 — application request limit reached (our app, across all users).
+#   17 — user request limit reached.
+#   32 — page request limit reached.
+#   613 — custom-level rate limit reached.
+# https://developers.facebook.com/docs/graph-api/overview/rate-limiting
+META_RATE_LIMIT_ERROR_CODES = {4, 17, 32, 613}
+
 META_AUTH_ERROR_MESSAGE = (
     "Meta Ads access token is invalid, expired, or lacks the required permissions. Please re-authorize the integration."
 )
+
+META_RATE_LIMIT_ERROR_MESSAGE = (
+    "Meta is rate limiting requests for this connection. Please wait a few minutes and try again."
+)
+
+
+def _meta_error_code(response: Response) -> int | None:
+    """The numeric ``error.code`` of a Meta error body, or None if it carries no parseable one."""
+    try:
+        error = response.json().get("error", {})
+    except (ValueError, AttributeError):
+        return None
+    code = error.get("code")
+    return code if isinstance(code, int) else None
 
 
 def _is_permanent_auth_error(response: Response) -> bool:
@@ -295,14 +409,13 @@ def _is_permanent_auth_error(response: Response) -> bool:
     permission denials. These are terminal: retrying the sync keeps failing
     until the user reconnects the integration.
     """
-    try:
-        error = response.json().get("error", {})
-    except (ValueError, AttributeError):
-        return False
-    code = error.get("code")
-    if not isinstance(code, int):
-        return False
+    code = _meta_error_code(response)
     return code in META_AUTH_ERROR_CODES or code in META_PERMISSION_ERROR_CODES
+
+
+def _is_rate_limit_error(response: Response) -> bool:
+    """Return True for Meta errors that mean "too many requests", which only waiting fixes."""
+    return _meta_error_code(response) in META_RATE_LIMIT_ERROR_CODES
 
 
 def _raise_meta_api_error(response: Response) -> typing.NoReturn:
@@ -310,12 +423,92 @@ def _raise_meta_api_error(response: Response) -> typing.NoReturn:
 
     Permanent auth/permission failures raise a clean, user-actionable message
     that ``MetaAdsSource.get_non_retryable_errors`` matches on, so the job fails
-    fast instead of burning retries. The raw response is appended for debugging.
+    fast instead of burning retries. A momentary backend blip (see
+    ``_is_transient_error``) that has already exhausted its in-process retries is
+    tagged so ``MetaAdsSource.get_retryable_errors`` can keep the self-recovering
+    failure out of error tracking once Temporal retries the activity — excluding
+    the too-much-data timeout, which has its own non-retryable classification since
+    plain retries never resolve it. The raw response is appended for debugging.
     Everything else raises the raw response and stays retryable.
     """
     if _is_permanent_auth_error(response):
         raise Exception(f"{META_AUTH_ERROR_MESSAGE} (Meta API response: {response.status_code} - {response.text})")
+    if _is_transient_error(response) and not _is_timeout_error(response):
+        raise Exception(f"Meta API request failed (retryable): {response.status_code} - {response.text}")
     raise Exception(f"Meta API request failed: {response.status_code} - {response.text}")
+
+
+class MetaAdsAuthError(Exception):
+    """Meta rejected the credentials or the permissions they carry (see `_is_permanent_auth_error`)."""
+
+
+class MetaAdsRateLimitError(Exception):
+    """Meta throttled the request (see `_is_rate_limit_error`) — retrying later is the only fix."""
+
+
+# No `business{name}`: reading it needs the `business_management` scope, which the Meta OAuth
+# consent doesn't request (`ads_read` only), and Meta 400s the whole request when it's asked for.
+AD_ACCOUNT_FIELDS = "account_id,name,account_status"
+AD_ACCOUNT_PAGE_LIMIT = 100
+# This listing runs in the web request path, not a Temporal worker, so a cursor that never resolves
+# would pin a worker. Bound it rather than trusting Meta to end the chain.
+MAX_AD_ACCOUNT_PAGES = 100
+# Per-request timeout for the listing path. Without it a hung Meta connection pins the web worker
+# for the life of the request, since these calls run inline in `oauth_accounts`, not in a worker.
+AD_ACCOUNT_LISTING_TIMEOUT_SECONDS = 10
+
+
+def _raise_for_meta_error(response: Response) -> None:
+    """Map a non-200 Meta listing response to the actionable error the picker surfaces. Called for every
+    page, including the one fetched just before the page cap, so an auth or rate-limit failure on the
+    final fetch isn't swallowed and mislabeled as "too many pages"."""
+    if response.status_code != 200:
+        if _is_permanent_auth_error(response):
+            raise MetaAdsAuthError(META_AUTH_ERROR_MESSAGE)
+        if _is_rate_limit_error(response):
+            raise MetaAdsRateLimitError(META_RATE_LIMIT_ERROR_MESSAGE)
+        _raise_meta_api_error(response)
+
+
+def list_ad_accounts(integration: Integration) -> list[dict]:
+    """Every ad account the connected Meta user can access."""
+    access_token = integration.sensitive_config["access_token"]
+    # `redact_values` masks the access token wherever it lands in telemetry — Meta takes it as a query
+    # param here and echoes it back inside each `paging.next` URL, so without this the credential would
+    # be recorded in the logged/sampled request URLs.
+    session = make_tracked_session(redact_values=(access_token,))
+    accounts: list[dict] = []
+    response = session.get(
+        f"https://graph.facebook.com/{MetaAdsIntegration.api_version}/me/adaccounts",
+        params={"fields": AD_ACCOUNT_FIELDS, "limit": AD_ACCOUNT_PAGE_LIMIT, "access_token": access_token},
+        timeout=AD_ACCOUNT_LISTING_TIMEOUT_SECONDS,
+    )
+
+    for _ in range(MAX_AD_ACCOUNT_PAGES):
+        _raise_for_meta_error(response)
+
+        body = response.json()
+        page = body.get("data") or []
+        accounts.extend(page)
+
+        next_url = (body.get("paging") or {}).get("next")
+        # Meta keeps handing out a `next` cursor past the final page, which then returns no data.
+        if not next_url or not page:
+            return accounts
+
+        response = session.get(
+            _strip_access_token(next_url),
+            params={"access_token": access_token},
+            timeout=AD_ACCOUNT_LISTING_TIMEOUT_SECONDS,
+        )
+
+    # The response fetched on the final loop iteration is never re-checked by the loop, so surface a real
+    # auth/rate-limit failure there rather than masking it with the "too many pages" error below.
+    _raise_for_meta_error(response)
+    # Hitting the cap means Meta kept returning a fresh, non-empty `next` cursor past the bound. Returning
+    # `accounts` here would present a truncated (and possibly duplicated) list as the complete set, so the
+    # picker would silently hide accounts. Fail closed with an actionable message instead.
+    raise IntegrationAccountListingError("Meta returned too many pages while listing ad accounts. Please try again.")
 
 
 def _iter_simple_pagination(
@@ -359,8 +552,8 @@ def _iter_simple_pagination(
             )
             return _fetch_paging_url(url, access_token)
         if current_limit != PAGE_LIMIT_FALLBACK_SIZES[0]:
-            return make_tracked_session().get(initial_url, params={**params, "limit": current_limit})
-        return make_tracked_session().get(initial_url, params=params)
+            return _get_initial_request(initial_url, {**params, "limit": current_limit})
+        return _get_initial_request(initial_url, params)
 
     response = _issue()
     malformed_json_attempts = 0
@@ -490,7 +683,7 @@ def _iter_time_range_pagination(
             }
 
             chunk_params = {**params, "limit": current_limit, "time_range": json.dumps(chunk_time_range)}
-            response = make_tracked_session().get(url, params=chunk_params)
+            response = _get_initial_request(url, chunk_params)
 
             if response.status_code != 200:
                 # Fallback only happens on the initial chunk request (before any data is yielded).
@@ -528,7 +721,7 @@ def _iter_time_range_pagination(
                 if last_paging_url is not None:
                     response = _fetch_paging_url(_override_limit(last_paging_url, current_limit), access_token)
                 elif chunk_params is not None:
-                    response = make_tracked_session().get(url, params=chunk_params)
+                    response = _get_initial_request(url, chunk_params)
                 else:
                     # Unreachable: on the non-resume path chunk_params is always
                     # set, and on the resume path last_paging_url is always set.

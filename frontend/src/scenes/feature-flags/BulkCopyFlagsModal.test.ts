@@ -1,4 +1,4 @@
-import { splitCopiedByOverwrite } from './BulkCopyFlagsModal'
+import { splitCopiedByOverwrite } from './flagSelectionLogic'
 
 describe('splitCopiedByOverwrite', () => {
     it('returns no entries when nothing was copied', () => {

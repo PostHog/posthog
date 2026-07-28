@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
-import { IconCheck, IconWarning, IconX } from '@posthog/icons'
+import { IconCheck, IconCopy, IconWarning, IconX } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -14,28 +15,32 @@ import {
 import { pluralize } from 'lib/utils/strings'
 import { organizationLogic } from 'scenes/organizationLogic'
 
-import {
-    BULK_COPY_MAX_TARGET_PROJECTS,
-    BulkCopyFailure,
-    BulkCopyResult,
-    flagSelectionLogic,
-} from './flagSelectionLogic'
+import { BulkCopyFailure, flagSelectionLogic, getBulkCopyDisabledReason } from './flagSelectionLogic'
 
-/** Splits each copied entry's projectIds into freshly created flags vs. overwrites of flags that already existed in the target. */
-export function splitCopiedByOverwrite(copied: BulkCopyResult['copied']): {
-    newCopies: Array<{ key: string; projectIds: number[] }>
-    overwrites: Array<{ key: string; projectIds: number[] }>
-} {
-    const newCopies = copied
-        .map((entry) => ({
-            key: entry.key,
-            projectIds: entry.projectIds.filter((id) => !entry.updatedProjectIds.includes(id)),
-        }))
-        .filter((entry) => entry.projectIds.length > 0)
-    const overwrites = copied
-        .map((entry) => ({ key: entry.key, projectIds: entry.updatedProjectIds }))
-        .filter((entry) => entry.projectIds.length > 0)
-    return { newCopies, overwrites }
+/** "Copy to projects" bulk action button shared by the flags overview table and the projects grid. */
+export function BulkCopyToProjectsButton({
+    dataAttr,
+    selectedCount,
+    extraDisabledReason,
+    onOpen,
+}: {
+    dataAttr: string
+    selectedCount: number
+    extraDisabledReason?: string | null
+    onOpen: () => void
+}): JSX.Element {
+    return (
+        <LemonButton
+            type="secondary"
+            size="small"
+            icon={<IconCopy />}
+            data-attr={dataAttr}
+            disabledReason={getBulkCopyDisabledReason(selectedCount, extraDisabledReason)}
+            onClick={onOpen}
+        >
+            Copy to projects
+        </LemonButton>
+    )
 }
 
 function CopiedFlagsList({
@@ -97,6 +102,10 @@ export function BulkCopyFlagsModal(): JSX.Element | null {
         bulkCopyProgress,
         bulkCopyResult,
         bulkCopyFlagCount,
+        bulkCopySplitCopied,
+        bulkCopyPendingApproval: pendingApproval,
+        bulkCopyHardFailures: hardFailures,
+        bulkCopySubmitDisabledReason,
     } = useValues(flagSelectionLogic)
     const {
         closeBulkCopyModal,
@@ -108,26 +117,31 @@ export function BulkCopyFlagsModal(): JSX.Element | null {
     } = useActions(flagSelectionLogic)
     const { currentOrganization } = useValues(organizationLogic)
 
+    // Gate the sort on visibility (rather than skipping the hook) so it doesn't redo this work
+    // on every render of the parent scene while the modal is closed.
+    const teams = useMemo(
+        () =>
+            bulkCopyModalVisible
+                ? [...(currentOrganization?.teams ?? [])].sort((a, b) => a.name.localeCompare(b.name))
+                : [],
+        [bulkCopyModalVisible, currentOrganization?.teams]
+    )
+    const teamNameById = useMemo(() => new Map(teams.map((team) => [team.id, team.name])), [teams])
+    const destinationOptions = useMemo(
+        () =>
+            teams
+                .filter((team) => team.id !== bulkCopySourceProjectId)
+                .map((team) => ({ key: String(team.id), label: team.name, value: team.id })),
+        [teams, bulkCopySourceProjectId]
+    )
+
     if (!bulkCopyModalVisible || !bulkCopyParams) {
         return null
     }
 
-    const teams = [...(currentOrganization?.teams ?? [])].sort((a, b) => a.name.localeCompare(b.name))
-    const teamNameById = new Map(teams.map((team) => [team.id, team.name]))
-    const destinationOptions = teams
-        .filter((team) => team.id !== bulkCopySourceProjectId)
-        .map((team) => ({ key: String(team.id), label: team.name, value: team.id }))
-
-    const pendingApproval = bulkCopyResult?.failed.filter((failure) => failure.approvalPending) ?? []
-    const hardFailures = bulkCopyResult?.failed.filter((failure) => !failure.approvalPending) ?? []
-    const { newCopies, overwrites } = splitCopiedByOverwrite(bulkCopyResult?.copied ?? [])
-
-    const submitDisabledReason =
-        bulkCopyTargetProjectIds.length === 0
-            ? 'Select at least one destination project'
-            : bulkCopyTargetProjectIds.length > BULK_COPY_MAX_TARGET_PROJECTS
-              ? `Bulk copy supports up to ${BULK_COPY_MAX_TARGET_PROJECTS} destination projects at once`
-              : undefined
+    const { newCopies, overwrites } = bulkCopySplitCopied
+    const progressText =
+        bulkCopyRunning && bulkCopyProgress ? `Copying ${bulkCopyProgress.done} of ${bulkCopyProgress.total}` : null
 
     return (
         <LemonModal
@@ -157,17 +171,13 @@ export function BulkCopyFlagsModal(): JSX.Element | null {
                             type="primary"
                             onClick={bulkCopyFlags}
                             loading={bulkCopyRunning}
-                            disabledReason={submitDisabledReason}
+                            disabledReason={bulkCopySubmitDisabledReason}
                             data-attr="bulk-copy-flags-submit"
                         >
-                            {bulkCopyRunning && bulkCopyProgress
-                                ? `Copying ${bulkCopyProgress.done} of ${bulkCopyProgress.total}…`
-                                : 'Copy flags'}
+                            {progressText ? `${progressText}…` : 'Copy flags'}
                         </LemonButton>
                         <span aria-live="polite" aria-atomic="true" className="sr-only">
-                            {bulkCopyRunning && bulkCopyProgress
-                                ? `Copying ${bulkCopyProgress.done} of ${bulkCopyProgress.total}`
-                                : ''}
+                            {progressText ?? ''}
                         </span>
                     </>
                 )
@@ -178,7 +188,7 @@ export function BulkCopyFlagsModal(): JSX.Element | null {
                     {newCopies.length > 0 && (
                         <div className="space-y-2">
                             <div className="flex items-center gap-2 text-success font-medium">
-                                <IconCheck className="text-lg" />
+                                <IconCheck className="text-lg" aria-hidden="true" />
                                 <span>Copied {pluralize(newCopies.length, 'new flag')}</span>
                             </div>
                             <CopiedFlagsList entries={newCopies} teamNameById={teamNameById} />
@@ -187,7 +197,7 @@ export function BulkCopyFlagsModal(): JSX.Element | null {
                     {overwrites.length > 0 && (
                         <div className="space-y-2">
                             <div className="flex items-center gap-2 text-warning font-medium">
-                                <IconWarning className="text-lg" />
+                                <IconWarning className="text-lg" aria-hidden="true" />
                                 <span>Updated {pluralize(overwrites.length, 'existing flag')}</span>
                             </div>
                             <p className="text-sm text-muted pl-6 mb-0">
@@ -200,7 +210,7 @@ export function BulkCopyFlagsModal(): JSX.Element | null {
                     {pendingApproval.length > 0 && (
                         <div className="space-y-2">
                             <div className="flex items-center gap-2 text-warning font-medium">
-                                <IconWarning className="text-lg" />
+                                <IconWarning className="text-lg" aria-hidden="true" />
                                 <span>
                                     {pluralize(pendingApproval.length, 'copy', 'copies')} pending approval
                                     <LemonTag type="warning" className="ml-2 uppercase">
@@ -218,7 +228,7 @@ export function BulkCopyFlagsModal(): JSX.Element | null {
                     {hardFailures.length > 0 && (
                         <div className="space-y-2">
                             <div className="flex items-center gap-2 text-danger font-medium">
-                                <IconX className="text-lg" />
+                                <IconX className="text-lg" aria-hidden="true" />
                                 <span>{pluralize(hardFailures.length, 'copy', 'copies')} failed</span>
                             </div>
                             <FailureList failures={hardFailures} teamNameById={teamNameById} />

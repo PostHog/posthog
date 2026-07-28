@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RocketlaneSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rocketlane import (
+    RocketlaneSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.rocketlane.rocketlane import (
     RocketlaneResumeConfig,
     check_access,
@@ -36,6 +38,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class RocketlaneSource(ResumableSource[RocketlaneSourceConfig, RocketlaneResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("1.0",)
+    default_version = "1.0"
+    api_docs_url = "https://developer.rocketlane.com/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -78,7 +83,7 @@ You can generate an API key under **Settings → API** in the [Rocketlane app](h
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            # An invalid or revoked api-key surfaces as a requests HTTPError when `_fetch_page` calls
+            # An invalid or revoked api-key surfaces as a requests HTTPError raised by the client's
             # `raise_for_status()`. Retrying can never satisfy a credential problem, so stop the sync.
             # Match the stable status text and base host, not the per-request path/query.
             "401 Client Error: Unauthorized for url: https://api.rocketlane.com": "Your Rocketlane API key is invalid or has been revoked. Generate a new key under Settings → API, then reconnect.",
@@ -92,6 +97,7 @@ You can generate an API key under **Settings → API** in the [Rocketlane app](h
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — Rocketlane's list endpoints expose per-field filters
         # but no single server-side `updated_after` cursor, so there is nothing to advance.
@@ -110,7 +116,11 @@ You can generate an API key under **Settings → API** in the [Rocketlane app](h
         return schemas
 
     def validate_credentials(
-        self, config: RocketlaneSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: RocketlaneSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The api-key is account-wide, so a single probe validates access to every schema; there is
         # no per-endpoint scope to check.
@@ -136,6 +146,8 @@ You can generate an API key under **Settings → API** in the [Rocketlane app](h
         return rocketlane_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every Rocketlane endpoint is full refresh
         )

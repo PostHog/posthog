@@ -101,6 +101,23 @@ describe('FunnelChart', () => {
         expect(chart.xTicks()).toHaveLength(0)
     })
 
+    it('floors the chart region height with chartMinHeight so a tall footer cannot collapse the canvas', async () => {
+        renderHogChart(
+            <FunnelChart
+                steps={STEPS}
+                series={SERIES}
+                theme={THEME}
+                stepFooter={(stepIndex) => <span>{STEPS[stepIndex]}</span>}
+                config={{ chartMinHeight: 150 }}
+            />
+        )
+        await waitFor(() => {
+            expect(document.querySelectorAll('[data-attr="hog-funnel-step-footer-cell"]')).toHaveLength(STEPS.length)
+        })
+        const region = document.querySelector('[data-attr="hog-funnel-chart-region"]') as HTMLElement
+        expect(region.style.minHeight).toBe('150px')
+    })
+
     it.each<[string, { label: string; count: number }[], number[]]>([
         [
             'zero basis collapses to 0 instead of NaN',

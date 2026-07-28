@@ -29,7 +29,7 @@ You cannot scan a whole project in one run. Your leverage comes from a **durable
 
 ## Quick close-out: is anything worth checking?
 
-If `signals-scout-project-profile-get` shows no recent dashboard access (`recent_dashboards` empty or all `last_accessed_at` stale) **and** `insights-trending-retrieve` returns nothing with a meaningful `view_count`, this team isn't actively looking at saved analytics right now. Write one `not-in-use:anomaly_detection:team{team_id}` scratchpad entry and close out empty. Re-running with the same key idempotently refreshes the timestamp.
+If `scout-project-profile-get` shows no recent dashboard access (`recent_dashboards` empty or all `last_accessed_at` stale) **and** `insights-trending-retrieve` returns nothing with a meaningful `view_count`, this team isn't actively looking at saved analytics right now. Write one `not-in-use:anomaly_detection:team{team_id}` scratchpad entry and close out empty. Re-running with the same key idempotently refreshes the timestamp.
 
 ## How a run works
 
@@ -39,9 +39,9 @@ Cycle between these moves; skip what's not useful. Aim to spend the bulk of a ru
 
 Three cheap reads cold-start every run:
 
-- `signals-scout-scratchpad-search` (`text=watchlist` with `limit=100`, then `text=anomaly`) — your durable watchlist, per-insight baselines, and what you've ruled out. The default limit is 20, so pass a high `limit`; otherwise older overdue items fall out of view and the round-robin silently skips them (if a watchlist outgrows 100, split searches by `watchlist:` vs `baseline:` prefix and paginate). This is what makes you cheaper and smarter each run.
-- `signals-scout-runs-list` (last 7d) — what prior runs of this scout (and siblings) checked, found, and ruled out. Don't re-walk ground a recent run already covered.
-- `signals-scout-project-profile-get` — `recent_dashboards` (with `last_accessed_at` / `last_refresh`) names the dashboards humans opened recently; `top_events` gives raw-volume context for sanity-checking magnitudes.
+- `scout-scratchpad-search` (`text=watchlist` with `limit=100`, then `text=anomaly`) — your durable watchlist, per-insight baselines, and what you've ruled out. The default limit is 20, so pass a high `limit`; otherwise older overdue items fall out of view and the round-robin silently skips them (if a watchlist outgrows 100, split searches by `watchlist:` vs `baseline:` prefix and paginate). This is what makes you cheaper and smarter each run.
+- `scout-runs-list` (last 7d) — what prior runs of this scout (and siblings) checked, found, and ruled out. Don't re-walk ground a recent run already covered.
+- `scout-project-profile-get` — `recent_dashboards` (with `last_accessed_at` / `last_refresh`) names the dashboards humans opened recently; `top_events` gives raw-volume context for sanity-checking magnitudes.
 
 ### Exploit — re-check the watchlist items that are due
 
@@ -82,14 +82,14 @@ Memory is continuous, not a final step. Maintain the watchlist and baselines as 
 
 For each candidate anomaly, classify against prior runs, the inbox, and the scratchpad (net-new / material-update / already-covered / addressed-or-noise — full classifier in [`references/watchlist-and-memory.md`](references/watchlist-and-memory.md)). You file findings on the **report channel**: a scored, attributed anomaly you'd stand behind is a finished, 1:1 inbox report, not a weak signal for the pipeline to cluster — so you author it directly. Then:
 
-- **Author** a fresh report via `signals-scout-emit-report` when the move is net-new and clears the bar. **Before you author, write the anomaly up in a notebook** (`notebooks-create`) — the report `summary` is the inbox surface, but the notebook is the durable artifact a human opens to see the charts, the baseline math, and the attribution behind the call. Build it first, then link its URL from the report `summary` and cite it as an `evidence` entry. The report contract _and_ the notebook structure — the title/summary prose contract, evidence, actionability, suggested reviewers, the notebook layout + embedded-chart recipe, worked example — are in [`references/report-contract.md`](references/report-contract.md). For this scout a report-worthy anomaly is: robust z ≥ ~3.5 on the latest complete bucket, the move not explained by seasonality or a known data-pipeline gap, with the insight `short_id`, the bucket value, the baseline, the z-score, and the time window in the evidence. **Search the inbox first** (`inbox-reports-list`, plus your `report:` scratchpad pointer) — the channel is not idempotent, so never author a duplicate.
-- **Edit** the existing report via `signals-scout-edit-report` when one already covers this insight's anomaly (found via the inbox search or a `report:anomaly_detection:insight:<short_id>` pointer) and you have a material update — it's still firing, escalated, or correlates with a fresh deploy. `append_note` with the new evidence (link a fresh notebook for the new window); rewrite `title`/`summary` only on a report you own. Don't author a second report for the same ongoing move.
+- **Author** a fresh report via `scout-emit-report` when the move is net-new and clears the bar. **Before you author, write the anomaly up in a notebook** (`notebooks-create`) — the report `summary` is the inbox surface, but the notebook is the durable artifact a human opens to see the charts, the baseline math, and the attribution behind the call. Build it first, then link its URL from the report `summary` and cite it as an `evidence` entry. The report contract _and_ the notebook structure — the title/summary prose contract, evidence, actionability, suggested reviewers, the notebook layout + embedded-chart recipe, worked example — are in [`references/report-contract.md`](references/report-contract.md). For this scout a report-worthy anomaly is: robust z ≥ ~3.5 on the latest complete bucket, the move not explained by seasonality or a known data-pipeline gap, with the insight `short_id`, the bucket value, the baseline, the z-score, and the time window in the evidence. **Search the inbox first** (`inbox-reports-list`, plus your `report:` scratchpad pointer) — the channel is not idempotent, so never author a duplicate.
+- **Edit** the existing report via `scout-edit-report` when one already covers this insight's anomaly (found via the inbox search or a `report:anomaly_detection:insight:<short_id>` pointer) and you have a material update — it's still firing, escalated, or correlates with a fresh deploy. `append_note` with the new evidence (link a fresh notebook for the new window); rewrite `title`/`summary` only on a report you own. Don't author a second report for the same ongoing move.
 - **Remember** if it's suggestive but below the bar, or to refresh a baseline / record what you ruled out.
 - **Skip** if a `noise:` / `addressed:` / `report:` entry already covers it without new evidence.
 
 ### Close out
 
-One paragraph: which watchlist items you checked, what you added, which anomalies you reported (authored or updated), and what you ruled out and why. The harness saves this as the run summary; future runs read it via `signals-scout-runs-list`. Do **not** write a separate "run metadata" scratchpad entry. "Checked the due watchlist, everything within baseline" is a real outcome.
+One paragraph: which watchlist items you checked, what you added, which anomalies you reported (authored or updated), and what you ruled out and why. The harness saves this as the run summary; future runs read it via `scout-runs-list`. Do **not** write a separate "run metadata" scratchpad entry. "Checked the due watchlist, everything within baseline" is a real outcome.
 
 ## Disqualifiers (skip these)
 
@@ -121,11 +121,11 @@ Local: `Bash` + `python3` — the distribution-shift lens: run a pure-stdlib two
 
 Write (user-facing):
 
-- `signals-scout-emit-report` / `signals-scout-edit-report` (gated on `signal_scout_report:write`) — the report channel: author a full inbox report for an anomaly, or update the existing one on a recurrence. Field-level contract in [`references/report-contract.md`](references/report-contract.md).
+- `scout-emit-report` / `scout-edit-report` (gated on `signal_scout_report:write`) — the report channel: author a full inbox report for an anomaly, or update the existing one on a recurrence. Field-level contract in [`references/report-contract.md`](references/report-contract.md).
 - `notebooks-create` (gated on `notebook:write`) — the durable write-up that backs an authored report. Build it _before_ authoring and reference its URL from the report `summary` and an `evidence` entry. Layout + embedded-chart recipe (embed the anomalous insight with a `SavedInsightNode`; chart a SQL-fallback series with a `DataVisualizationNode`) is in [`references/report-contract.md`](references/report-contract.md).
 - `notebooks-destroy` — clean up the write-up if the report did not surface (preflight gate-skip, or the safety judge suppressed it) so a non-surfacing run leaves no orphan artifact. See [`references/report-contract.md`](references/report-contract.md).
 
-Harness-level: `signals-scout-project-profile-get`, `signals-scout-scratchpad-search`, `signals-scout-runs-list`, `signals-scout-runs-retrieve` (orientation + dedupe); `signals-scout-emit-report`, `signals-scout-edit-report` (the report channel); `signals-scout-scratchpad-remember`, `signals-scout-scratchpad-forget` (memory).
+Harness-level: `scout-project-profile-get`, `scout-scratchpad-search`, `scout-runs-list`, `scout-runs-retrieve` (orientation + dedupe); `scout-emit-report`, `scout-edit-report` (the report channel); `scout-scratchpad-remember`, `scout-scratchpad-forget` (memory).
 
 ## When to stop
 

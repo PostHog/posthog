@@ -29,13 +29,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.decagon.se
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DecagonSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.decagon import (
+    DecagonSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class DecagonSource(ResumableSource[DecagonSourceConfig, DecagonResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://docs.decagon.ai/api-reference/getting-started"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -96,6 +99,7 @@ You can find your API key on the **Developer** page of the [Decagon dashboard](h
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -114,7 +118,11 @@ You can find your API key on the **Developer** page of the [Decagon dashboard](h
         return schemas
 
     def validate_credentials(
-        self, config: DecagonSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: DecagonSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_decagon_credentials(config.api_key):
             return True, None

@@ -42,4 +42,6 @@ def filter_integration_accounts(accounts: list[IntegrationAccount], search: str 
         if query in account.display_name.lower()
         or query in account.value.lower()
         or (account.secondary_text is not None and query in account.secondary_text.lower())
+        # The client also matches on `group`, and it can only match rows the server returned.
+        or (account.group is not None and query in account.group.lower())
     ]
