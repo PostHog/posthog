@@ -68,7 +68,7 @@ export function Exporter(props: ExportedData): JSX.Element {
     const { whitelabel, showInspector = false } = exportOptions
     const forcedTheme = resolveForcedTheme(exportOptions.theme)
 
-    // A metric insight sizes to a square card rather than filling the viewport, so drop the 100vh floor
+    // A metric insight sizes to a compact card rather than filling the viewport, so drop the 100vh floor
     // that would otherwise leave empty space below it (see Exporter.scss and ExportedInsight.scss).
     const metric =
         insight &&
