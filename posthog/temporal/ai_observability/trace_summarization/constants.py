@@ -62,7 +62,12 @@ AI_EVENT_TYPES = (
 SCHEDULE_INTERVAL_HOURS = 1  # How often the coordinator runs
 
 # Coordinator concurrency settings
-DEFAULT_MAX_CONCURRENT_TEAMS = 20  # Max teams to process in parallel
+# Each team's child workflow fires a sampling query straight at ClickHouse's synchronous
+# query path, so this value is also the number of simultaneous sampling queries a coordinator
+# tick launches. ClickHouse caps a user at 30 concurrent queries; kept well below that (and
+# with headroom for the trace/generation coordinators overlapping and the per-item fetch
+# queries) so a busy cluster doesn't answer with a burst of TOO_MANY_SIMULTANEOUS_QUERIES.
+DEFAULT_MAX_CONCURRENT_TEAMS = 8  # Max teams to process in parallel
 
 # Timeout configuration (in seconds)
 SAMPLE_TIMEOUT_SECONDS = 900  # 15 minutes for sampling query (buffer above QUERY_ASYNC 600s ClickHouse timeout)
@@ -76,7 +81,9 @@ SAMPLE_HEARTBEAT_TIMEOUT = timedelta(seconds=120)  # 2 minutes - sampling has lo
 # Schedule-to-close timeouts - caps total time including all retry attempts,
 # backoff intervals, and queue time. Prevents runaway retries from blocking
 # the workflow indefinitely when something is fundamentally broken.
-SAMPLE_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=1200)  # 20 min total for sampling (2 attempts * 900s + backoff)
+SAMPLE_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(
+    seconds=1200
+)  # 20 min hard cap across all sampling attempts + capacity backoff
 
 # Activity 1: Fetch + format + store in Redis (fast, ClickHouse-bound)
 FETCH_AND_FORMAT_START_TO_CLOSE_TIMEOUT = timedelta(seconds=120)
@@ -106,8 +113,16 @@ WORKFLOW_EXECUTION_TIMEOUT_MINUTES = 30  # Max time for single team workflow —
 COORDINATOR_EXECUTION_TIMEOUT_MINUTES = 55  # Must finish before next hourly trigger to avoid silent skips
 
 # Retry policies
+# Sampling queries hit ClickHouse's synchronous path and can come back as ClickHouseAtCapacity
+# (code 202 TOO_MANY_SIMULTANEOUS_QUERIES) when the cluster is busy. Retry with real backoff so
+# a transient capacity spike is waited out rather than surfacing as a hard failure — the default
+# 1s spacing just re-collides with the same contention. Capacity errors fail fast, so the extra
+# attempts cost backoff time, not query time, and stay within SAMPLE_SCHEDULE_TO_CLOSE_TIMEOUT.
 SAMPLE_RETRY_POLICY = RetryPolicy(
-    maximum_attempts=2,
+    maximum_attempts=5,
+    initial_interval=timedelta(seconds=10),
+    backoff_coefficient=2.0,
+    maximum_interval=timedelta(seconds=120),
     non_retryable_error_types=["ValueError", "TypeError"],
 )
 COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY = RetryPolicy(maximum_attempts=1)

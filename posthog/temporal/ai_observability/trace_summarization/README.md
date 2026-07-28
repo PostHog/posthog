@@ -140,7 +140,7 @@ Key constants in `constants.py`:
 | ------------------------------------------- | -------------- | ----------------------------------------------- |
 | `DEFAULT_MAX_ITEMS_PER_WINDOW`              | 15             | Max items per window                            |
 | `DEFAULT_BATCH_SIZE`                        | 5              | Concurrent item processing                      |
-| `DEFAULT_MAX_CONCURRENT_TEAMS`              | 5              | Max teams to process in parallel                |
+| `DEFAULT_MAX_CONCURRENT_TEAMS`              | 8              | Max teams (and simultaneous sampling queries) per coordinator tick |
 | `DEFAULT_MODE`                              | "detailed"     | Summary detail level                            |
 | `DEFAULT_MODEL`                             | "gpt-4.1-nano" | LLM model for summarization                     |
 | `DEFAULT_WINDOW_MINUTES`                    | 60             | Time window to query                            |
@@ -152,7 +152,7 @@ Key constants in `constants.py`:
 | `SUMMARIZE_AND_SAVE_START_TO_CLOSE_TIMEOUT` | 900s           | Summarize + save activity timeout (per attempt) |
 | `SUMMARIZE_AND_SAVE_HEARTBEAT_TIMEOUT`      | 60s            | Heartbeat window for summarize activity         |
 
-Retry policies: `SAMPLE_RETRY_POLICY` (3 attempts), `FETCH_AND_FORMAT_RETRY_POLICY` (3 attempts), `SUMMARIZE_AND_SAVE_RETRY_POLICY` (4 attempts with backoff, `TextReprExpiredError` non-retryable), `COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY` (2 attempts). All retry policies exclude `ValueError` and `TypeError` from retries.
+Retry policies: `SAMPLE_RETRY_POLICY` (5 attempts with backoff, so ClickHouse capacity spikes are waited out rather than failing hard), `FETCH_AND_FORMAT_RETRY_POLICY` (2 attempts), `SUMMARIZE_AND_SAVE_RETRY_POLICY` (2 attempts with backoff, `TextReprExpiredError` non-retryable), `COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY` (1 attempt). All retry policies exclude `ValueError` and `TypeError` from retries.
 
 ## Redis Intermediate Storage
 
