@@ -91,11 +91,14 @@ jobs:
                       dockerignore:
                         - .dockerignore
                       # Drives the hadolint lint job below — the matched paths are passed straight
-                      # to hadolint via the `dockerfiles_files` output.
+                      # to hadolint via the `dockerfiles_files` output. Scoped to added|modified
+                      # so a PR that deletes a Dockerfile doesn't hand hadolint a path that no
+                      # longer exists in the tree.
                       dockerfiles:
-                        - '**/Dockerfile'
-                        - '**/*.Dockerfile'
-                        - '**/Dockerfile.*'
+                        - added|modified:
+                            - '**/Dockerfile'
+                            - '**/*.Dockerfile'
+                            - '**/Dockerfile.*'
 
     dockerignore_guard:
         needs: changes

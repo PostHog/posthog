@@ -35,9 +35,16 @@ export function ObservationStatusTag({
         return <LemonTag type="success">Succeeded</LemonTag>
     }
     if (status === 'failed') {
-        // Raw exception text lives in `FailureDetail`; tooltip is the description only.
+        // Raw exception text lives in `FailureDetail`.
         const parsed = errorReason ? parseFailureReason(errorReason) : null
-        const tooltip = parsed ? failureKindDescription(parsed.kind) : errorReason || null
+        const tooltip = parsed ? (
+            <div className="flex flex-col gap-1">
+                <div>{parsed.label}</div>
+                <div className="text-xs opacity-80">{failureKindDescription(parsed.kind)}</div>
+            </div>
+        ) : (
+            errorReason || null
+        )
         return (
             <Tooltip title={tooltip}>
                 <LemonTag type="danger">Failed</LemonTag>
@@ -141,7 +148,10 @@ export function ObservationPrimaryOutput({
     }
     const scannerType = snapshot.scanner_type
     const config = configFromSnapshot(snapshot)
-    const prompt = showPrompt ? (config?.prompt ?? null) : null
+    const promptText = config?.prompt ?? null
+    const prompt = showPrompt ? promptText : null
+    // Tooltip carries the prompt only when it isn't printed inline.
+    const promptTooltip = prompt ? null : promptText
     const summaryClass = expandSummary ? 'text-sm whitespace-pre-wrap' : compact ? 'text-sm truncate' : 'text-sm'
     const bodyClass = compact ? 'text-sm truncate' : 'text-sm'
     const promptClass = 'text-xs text-muted'
@@ -161,9 +171,11 @@ export function ObservationPrimaryOutput({
             verdict === 'yes' ? 'Yes' : verdict === 'no' ? 'No' : verdict === 'inconclusive' ? 'Inconclusive' : '—'
         return (
             <div className="flex flex-col gap-1">
-                <LemonTag size="medium" type={tagType} className="self-start">
-                    {tagLabel}
-                </LemonTag>
+                <Tooltip title={promptTooltip}>
+                    <LemonTag size="medium" type={tagType} className="self-start">
+                        {tagLabel}
+                    </LemonTag>
+                </Tooltip>
                 {prompt && <span className={promptClass}>{prompt}</span>}
             </div>
         )
@@ -283,11 +295,13 @@ export function ObservationPrimaryOutput({
         const displayLabel = resultLabel ?? scaleLabel
         return (
             <div className="flex flex-col gap-1">
-                <span className="text-sm">
-                    <span className="font-semibold text-base">{score ?? '—'}</span>
-                    {scaleMax !== null && <span className="text-muted"> / {scaleMax}</span>}
-                    {displayLabel && <span className="text-muted"> — {displayLabel}</span>}
-                </span>
+                <Tooltip title={promptTooltip}>
+                    <span className="text-sm self-start">
+                        <span className="font-semibold text-base">{score ?? '—'}</span>
+                        {scaleMax !== null && <span className="text-muted"> / {scaleMax}</span>}
+                        {displayLabel && <span className="text-muted"> — {displayLabel}</span>}
+                    </span>
+                </Tooltip>
                 {prompt && <span className={promptClass}>{prompt}</span>}
             </div>
         )
