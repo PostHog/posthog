@@ -1,16 +1,76 @@
 import { InstallationProgress, InstallationStep, InstallationStepStatus } from './installationProgressLogic'
+import type { TaskRunConnectionStatus } from './taskRunStreamLogic'
 
-// "m:ss", or "h:mm:ss" once a run passes the hour mark (cloud runs can be long).
+// Ceiling on the displayed elapsed time. The clock is driven by a persisted handle that outlives the
+// run it names, so without a cap a run nobody ever settled counts up for as long as the browser keeps
+// the handle. Display only: telemetry keeps the true elapsed.
+export const MAX_DISPLAY_ELAPSED_SECONDS = 6 * 60 * 60
+
+// "m:ss", or "h:mm:ss" once a run passes the hour mark (cloud runs can be long). Anything past the
+// display cap reads as the cap with a trailing "+".
 export function formatElapsed(totalSeconds: number): string {
-    const s = Math.max(0, Math.floor(totalSeconds))
+    const raw = Math.max(0, Math.floor(totalSeconds))
+    const s = Math.min(MAX_DISPLAY_ELAPSED_SECONDS, raw)
     const hours = Math.floor(s / 3600)
     const minutes = Math.floor((s % 3600) / 60)
     const seconds = s % 60
     const ss = seconds.toString().padStart(2, '0')
+    const clamped = raw > s ? '+' : ''
     if (hours > 0) {
-        return `${hours}:${minutes.toString().padStart(2, '0')}:${ss}`
+        return `${hours}:${minutes.toString().padStart(2, '0')}:${ss}${clamped}`
     }
-    return `${minutes}:${ss}`
+    return `${minutes}:${ss}${clamped}`
+}
+
+// Silence alone says nothing about a cloud run: the pipeline is designed to go quiet for long
+// stretches, publishing nothing between the agent starting and the PR opening, and its CI follow-up
+// loop sleeps a quarter hour at a time. So the silence window only counts while the stream that
+// would carry those updates is down, and it is set wider than the longest designed quiet period.
+// The age cap is the second, independent gate, for a handle that survived a day of reloads without
+// its run ever settling.
+export const STALE_RUN_SILENCE_MS = 30 * 60 * 1000
+export const STALE_RUN_MAX_AGE_MS = 24 * 60 * 60 * 1000
+
+/**
+ * Whether the transport that would carry a run's updates is down, which is what turns silence into
+ * evidence. `idle` and `connecting` are the states every stream passes through before it has had a
+ * chance to say anything, including on each mount of a run that is already hours old and on every
+ * reconnect in between: counting them would call a healthy long run stale for the length of a
+ * connect, and offer a dismiss that orphans it. A stream that never gets past them is still caught,
+ * by `isStalled`, which the run logic sets once it gives up.
+ */
+export function isStreamLost(status: TaskRunConnectionStatus, isStalled: boolean): boolean {
+    return isStalled || status === 'error' || status === 'closed'
+}
+
+/**
+ * Whether a still-running run has gone stale, meaning its surfaces should offer a dismiss instead of
+ * only a minimize. `lastActivityAt` is when the stream last delivered anything (null when it never
+ * has, in which case the handle's kickoff stamp stands in), and `streamLost` says whether the
+ * transport that would deliver more is down right now. The stamp is a client clock and the silence
+ * window is wide enough to absorb the skew against it.
+ */
+export function isRunStale(
+    startedAt: string | undefined,
+    lastActivityAt: number | null,
+    streamLost: boolean,
+    now: number
+): boolean {
+    const startedMs = startedAt ? new Date(startedAt).getTime() : NaN
+    if (!Number.isNaN(startedMs) && now - startedMs > STALE_RUN_MAX_AGE_MS) {
+        return true
+    }
+    if (!streamLost) {
+        return false
+    }
+    const silentSince = lastActivityAt ?? startedMs
+    return !Number.isNaN(silentSince) && now - silentSince > STALE_RUN_SILENCE_MS
+}
+
+// What the widgets print where the elapsed clock goes. A stale run's clock is meaningless, so it is
+// replaced by the reason it stopped mattering.
+export function elapsedLabel(elapsedSeconds: number, stale: boolean = false): string {
+    return stale ? 'Stalled' : formatElapsed(elapsedSeconds)
 }
 
 // The short status line shown in the collapsed card header.
