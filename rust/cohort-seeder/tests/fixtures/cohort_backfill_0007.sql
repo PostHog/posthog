@@ -86,7 +86,7 @@ CREATE TABLE cohort_backfill_run_cohorts (
 );
 
 -- A minimal projection of posthog_cohort, present only so load_current_behavioral_hashes can read a
--- cohort's current behavioral shape hash for INV-1 hash attribution. Not part of the cohorts app's
+-- cohort's current behavioral shape hash when attributing a shortfall. Not part of the cohorts app's
 -- backfill migrations.
 CREATE TABLE posthog_cohort (
     id integer PRIMARY KEY,

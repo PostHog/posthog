@@ -1,5 +1,5 @@
-//! Pure completion-protocol domain: the types the auto-dispatch producer mints and the later
-//! observer (PR-C) consumes. Depends only on `cohort-core` and sibling domain modules — no sqlx, no
+//! Pure completion-protocol domain: the types the auto-dispatch producer mints and the observer
+//! consumes. Depends only on `cohort-core` and sibling domain modules — no sqlx, no
 //! rdkafka. Every illegal state the protocol must never persist (a partial partition set, a
 //! consumed-offset masquerading as a next-to-read offset, an unfenced settlement verdict) is made
 //! unrepresentable here so the store and app layers can trust these values without re-checking them.
@@ -312,6 +312,29 @@ impl WatchPositions {
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
+
+    pub fn iter(&self) -> impl Iterator<Item = (MembershipPartition, NextOffset)> + '_ {
+        self.0
+            .iter()
+            .map(|(&partition, &offset)| (partition, offset))
+    }
+
+    /// Advance a partition's position to the later of its current and `offset`. The watcher reads a
+    /// single global consumer, so positions must never regress even when a re-assignment re-reads an
+    /// earlier offset; taking the max keeps the persisted resume state monotone.
+    ///
+    /// A partition this position set does not already name is ignored rather than inserted. Such a
+    /// partition appeared after the dispatch captured its start offsets, so the run never read it
+    /// from the beginning; inserting it would claim coverage of everything below `offset`. Leaving
+    /// it absent keeps [`ObservationEnds::caught_up`] fail-closed — the run holds until a
+    /// re-dispatch recaptures a start position for it.
+    pub fn advance(&mut self, partition: MembershipPartition, offset: NextOffset) {
+        if let Some(current) = self.0.get_mut(&partition) {
+            if offset > *current {
+                *current = offset;
+            }
+        }
+    }
 }
 
 impl Serialize for WatchPositions {
@@ -341,8 +364,23 @@ impl ObservationEnds {
         self.0.insert(partition, offset);
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
+    /// The membership end-watermarks captured at the liveness pass have the same shape as the
+    /// watcher's start positions — both are next-to-read offsets keyed by membership partition.
+    pub fn from_positions(positions: &WatchPositions) -> Self {
+        Self(positions.0.clone())
+    }
+
+    /// How many captured-end partitions the watcher has not yet read to — the reconcile marker-watch
+    /// lag, for the observer's hold gauge. Zero exactly when [`Self::caught_up`] mints a proof.
+    pub fn behind(&self, positions: &WatchPositions) -> usize {
+        self.0
+            .iter()
+            .filter(|(partition, end)| {
+                positions
+                    .get(**partition)
+                    .is_none_or(|position| position.get() < end.get())
+            })
+            .count()
     }
 
     /// A [`SettleProof`] is minted only when the watcher has read to or past every captured end. A
@@ -375,7 +413,7 @@ impl<'de> Deserialize<'de> for ObservationEnds {
 }
 
 /// Proof that the watcher has caught up to the captured observation ends. A non-`Clone` zero-sized
-/// token: PR-C's `settle` accepts one by value, so a negative reconcile verdict cannot be reached
+/// token: `MarkerLedger::settle` accepts one by value, so a negative reconcile verdict cannot be reached
 /// without first proving the marker set for this dispatch was fully observed.
 #[derive(Debug)]
 pub struct SettleProof(());
@@ -447,7 +485,7 @@ impl DispatchEpoch {
     }
 }
 
-/// One observed `reconcile_complete` marker, fed to PR-C's ledger fold.
+/// One observed `reconcile_complete` marker, fed to the ledger fold.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ObservedMarker {
     pub team_id: TeamId,
@@ -474,7 +512,8 @@ pub struct DispatchedReconcile {
 /// Why a reconciling run has no usable dispatch record and needs a re-dispatch to self-heal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UndispatchedReason {
-    /// `reconcile_dispatched_at` is NULL: a CAS-then-crash, or a pre-B5 manually-reconciling run.
+    /// `reconcile_dispatched_at` is NULL: a CAS-then-crash, or a run reconciled by hand before the
+    /// dispatch record existed.
     NeverDispatched,
     /// The dispatch stamp is set but `reconcile_hwms` or `marker_watch` is missing.
     MissingRecord,
@@ -729,6 +768,36 @@ mod tests {
     #[test]
     fn reconcile_hwms_deserialize_rejects_a_partial_set() {
         assert!(serde_json::from_value::<ReconcileHwms>(serde_json::json!({"0": 5})).is_err());
+    }
+
+    #[test]
+    fn advance_is_monotone_and_ignores_partitions_it_does_not_track() {
+        // Both guards feed `caught_up`. Regressing a position would rewind persisted coverage;
+        // inserting an untracked partition would claim coverage of everything below `offset`.
+        let tracked = MembershipPartition::new(0);
+        let untracked = MembershipPartition::new(1);
+        let mut positions = WatchPositions::new();
+        positions.insert(tracked, NextOffset::from_high_watermark(10));
+
+        positions.advance(tracked, NextOffset::from_high_watermark(20));
+        assert_eq!(
+            positions.get(tracked),
+            Some(NextOffset::from_high_watermark(20))
+        );
+
+        positions.advance(tracked, NextOffset::from_high_watermark(5));
+        assert_eq!(
+            positions.get(tracked),
+            Some(NextOffset::from_high_watermark(20)),
+            "a re-assignment re-reading an earlier offset must not regress coverage"
+        );
+
+        positions.advance(untracked, NextOffset::from_high_watermark(99));
+        assert_eq!(
+            positions.get(untracked),
+            None,
+            "a partition with no captured start is never claimed as covered"
+        );
     }
 
     #[test]
