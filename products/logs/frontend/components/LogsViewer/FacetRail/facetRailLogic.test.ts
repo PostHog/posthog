@@ -100,6 +100,17 @@ describe('facetRailLogic', () => {
             expect((filtersLogic.values.filterGroup.values[0] as UniversalFiltersGroup).values).toEqual([])
         })
 
+        it('holds one service included while another is excluded', async () => {
+            await expectLogic(logic, () => logic.actions.toggleFacetValue(SERVICE_SOURCE, 'api')).toFinishAllListeners()
+            await expectLogic(logic, () =>
+                logic.actions.toggleFacetValue(SERVICE_SOURCE, 'worker')
+            ).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.toggleFacetValue(SERVICE_SOURCE, 'api')).toFinishAllListeners()
+
+            expect(filtersLogic.values.serviceNames).toEqual(['worker'])
+            expect(logFilterExclusions(filtersLogic.values.filterGroup, 'service_name')).toEqual(['api'])
+        })
+
         it('keeps service and severity exclusions under their own keys', async () => {
             // Both column facets store exclusions as is_not log filters — a service exclusion must
             // not clobber a severity exclusion already in the group, or vice versa.
