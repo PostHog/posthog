@@ -564,6 +564,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 "skipped_unactionable",
                 "blocked_unsafe",
                 "blocked_unsafe_reply",
+                "failed",
                 "in_progress",
             }
             results = {r.strip() for r in ai_triage_result_param.split(",") if r.strip() in valid_results}

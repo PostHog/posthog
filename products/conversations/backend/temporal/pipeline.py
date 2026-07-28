@@ -63,10 +63,11 @@ class SupportReplyWorkflow:
 
     Triage lifecycle (`ai_triage.status`), recorded via `_record_triage`:
       - in_progress: run started, context built, draft loop not yet terminal.
-      - done: a terminal branch set `outcome`; recorded in `finally`. An empty
-        `outcome` (unexpected crash) is never marked done.
+      - done: the run ended and a terminal outcome was recorded in `finally`.
 
     Terminal outcomes (`ai_triage.result`), exactly one per finished run:
+      - failed: the workflow stopped on an unexpected error; Temporal retains
+        the underlying failure for diagnosis.
       - blocked_unsafe: input safety gate rejected the incoming ticket
         (prompt-injection / exfiltration) before any LLM draft work.
       - skipped_unactionable: classifier judged the ticket has no answerable
@@ -424,9 +425,11 @@ class SupportReplyWorkflow:
                 "missing": best_missing,
             }
             return "escalated_no_reply"
+        except Exception:
+            # Keep the workflow failed in Temporal while closing its persisted lifecycle.
+            outcome = {"result": "failed"}
+            raise
         finally:
-            # `outcome` is only set on the workflow's own terminal branches; on an unexpected
-            # crash it stays empty, so we never mark a failed run as "done".
             if outcome:
                 await _record_triage(
                     {

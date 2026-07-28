@@ -6,6 +6,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
+from temporalio.client import WorkflowFailureError
 
 from posthog.models import Organization, Team
 
@@ -1549,6 +1550,76 @@ class TestRecordTriageActivity:
             assert last_call_patch["status"] == "done"
             assert last_call_patch["result"] == expected_result
             assert "finished_at" in last_call_patch
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_records_failed_triage_when_draft_activity_fails(self):
+        from temporalio.testing import WorkflowEnvironment
+        from temporalio.worker import Worker
+
+        failure_message = "sensitive draft failure"
+        with (
+            patch(
+                f"{BUILD_CONTEXT_MODULE}._build_context_sync",
+                return_value=BuildContextOutput(ticket_context="help", ticket_title="Help"),
+            ),
+            patch(
+                f"{SAFETY_FILTER_MODULE}._safety_filter",
+                new_callable=AsyncMock,
+                return_value=SafetyFilterOutput(safe=True),
+            ),
+            patch(
+                f"{CLASSIFY_MODULE}._classify",
+                new_callable=AsyncMock,
+                return_value=ClassifyOutput(ticket_type="how_to", needs_diagnostics=False, seed_queries=[]),
+            ),
+            patch(
+                f"{REFINE_QUERIES_MODULE}._refine_queries",
+                new_callable=AsyncMock,
+                return_value=RefineQueriesOutput(queries=["q"]),
+            ),
+            patch(f"{RETRIEVE_MODULE}._retrieve_sync", return_value=RetrieveOutput(chunk_ids=[])),
+            patch(
+                f"{DRAFT_MODULE}._draft_async",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError(failure_message),
+            ),
+            patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync") as mock_record_triage,
+        ):
+            async with await WorkflowEnvironment.start_time_skipping() as env:
+                async with Worker(
+                    env.client,
+                    task_queue="test-queue",
+                    workflows=[SupportReplyWorkflow],
+                    activities=[
+                        support_build_context_activity,
+                        support_safety_filter_activity,
+                        support_classify_activity,
+                        support_refine_queries_activity,
+                        support_retrieve_activity,
+                        support_draft_activity,
+                        support_record_triage_activity,
+                    ],
+                ):
+                    with pytest.raises(WorkflowFailureError):
+                        await env.client.execute_workflow(
+                            SupportReplyWorkflow.run,
+                            SupportReplyInput(team_id=1, ticket_id="deadbeef-0000-0000-0000-000000000001"),
+                            id="test-triage-draft-failure",
+                            task_queue="test-queue",
+                        )
+
+        first_call_patch = mock_record_triage.call_args_list[0][0][2]
+        assert first_call_patch["status"] == "in_progress"
+
+        last_call_patch = mock_record_triage.call_args_list[-1][0][2]
+        assert last_call_patch["status"] == "done"
+        assert last_call_patch["result"] == "failed"
+        assert "finished_at" in last_call_patch
+        assert "ai_trace_id" in last_call_patch
+        assert "workflow_id" in last_call_patch
+        assert "run_id" in last_call_patch
+        assert failure_message not in repr(last_call_patch)
 
     @pytest.mark.django_db
     @pytest.mark.asyncio

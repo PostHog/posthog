@@ -58,6 +58,7 @@ export type AITriageResult =
     | 'skipped_unactionable'
     | 'blocked_unsafe'
     | 'blocked_unsafe_reply'
+    | 'failed'
 
 export interface AITriage {
     schema_version?: number
@@ -297,6 +298,7 @@ export const aiTriageResultLabel: Record<AITriageResult, string> = {
     skipped_unactionable: 'Skipped',
     blocked_unsafe: 'Blocked unsafe ticket',
     blocked_unsafe_reply: 'Blocked unsafe reply',
+    failed: 'Failed',
 }
 
 export const aiTriageProcessingLabel = 'Processing'
@@ -319,6 +321,7 @@ export function aiTriageResultTagType(result: AITriageResult): AITriageTagType {
             return 'warning'
         case 'blocked_unsafe':
         case 'blocked_unsafe_reply':
+        case 'failed':
             return 'danger'
         case 'skipped_unactionable':
             return 'default'

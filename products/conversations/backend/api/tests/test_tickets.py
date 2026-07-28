@@ -320,6 +320,21 @@ class TestTicketAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
 
+    def test_filter_by_failed_ai_triage(self, mock_on_commit):
+        self.ticket.ai_triage = {"status": "done", "result": "failed"}
+        self.ticket.save(update_fields=["ai_triage"])
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="other-session",
+            distinct_id="other-user",
+            ai_triage={"status": "done", "result": "persisted"},
+        )
+
+        ticket_ids = self._list_ids(ai_triage_result="failed")
+
+        self.assertEqual(ticket_ids, {str(self.ticket.id)})
+
     def test_filter_by_multiple_statuses(self, mock_on_commit):
         """Test filtering tickets by multiple statuses (comma-separated)."""
         self.ticket.status = Status.NEW
