@@ -33,7 +33,7 @@ from pydantic import ValidationError as PydanticValidationError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Integration, OrganizationMembership, Tag
-from posthog.models.activity_logging.activity_log import AuditableScope, Detail, changes_between, log_activity
+from posthog.models.activity_logging.activity_log import AuditableScope, Detail, Trigger, changes_between, log_activity
 from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
@@ -376,6 +376,21 @@ def get_external_account(team_id: int, external_id: str) -> contracts.ExternalAc
     if account is None:
         return None
     return _to_external_account(account)
+
+
+def create_external_account(
+    team: Team, *, external_id: str, name: str | None, workflow_id: str | None = None
+) -> tuple[contracts.ExternalAccount, bool]:
+    """Get-or-create an account by external id for the external API. Returns the account and
+    whether it was created; an existing account is returned untouched. Attribution goes to the
+    originating workflow (activity-log trigger) — there is no acting user on this path.
+    Raises ``AccountPropertiesValidationError`` / ``AccountConflictError`` (concurrent create)."""
+    existing = _get_external_account_by_external_id(team.pk, external_id)
+    if existing is not None:
+        return _to_external_account(existing), False
+    trigger = Trigger(job_type="hog_flow", job_id=workflow_id, payload={}) if workflow_id else None
+    account = create_account(team=team, name=name or external_id, external_id=external_id, trigger=trigger)
+    return _to_external_account(account), True
 
 
 def list_external_accounts(
@@ -740,11 +755,14 @@ def _log_activity_swallowing(
     user: "User | None",
     was_impersonated: bool,
     previous=None,
+    trigger: Trigger | None = None,
 ) -> None:
     """Replicates ``posthog.api.utils.log_activity_from_viewset`` — including its blanket
     ``except: pass`` — for the account / customer-journey write paths."""
     try:
         detail_kwargs: dict[str, Any] = {"name": name}
+        if trigger is not None:
+            detail_kwargs["trigger"] = trigger
         if previous is not None:
             detail_kwargs["changes"] = changes_between(cast(AuditableScope, scope), previous=previous, current=instance)
         log_activity(
@@ -2032,6 +2050,7 @@ def create_account(
     properties: "dict | _ModelAccountProperties | None" = None,
     tags: list[str] | None = None,
     was_impersonated: bool = False,
+    trigger: Trigger | None = None,
 ) -> Account:
     """The single account-creation write path: validates properties, sets tags, shadows role
     assignments into the relationships table, and logs activity. Product-internal — it returns
@@ -2063,6 +2082,7 @@ def create_account(
         team_id=team.pk,
         user=created_by,
         was_impersonated=was_impersonated,
+        trigger=trigger,
     )
     return account
 

@@ -262,9 +262,23 @@ class ExternalAccountUpdateSerializer(serializers.Serializer):
             raise serializers.ValidationError({field: "Assignee id must be a user id"})
 
 
+class ExternalAccountCreateSerializer(serializers.Serializer):
+    external_id = serializers.CharField(
+        max_length=400,
+        help_text="External ID (group key) for the account. An account with this ID already existing is a no-op.",
+    )
+    name = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_blank=True,
+        help_text="Account name. Falls back to the external ID when omitted or blank.",
+    )
+
+
 class ExternalAccountView(APIView):
     """
     GET /api/customer_analytics/external/account?external_id=<external_id> — Fetch account data
+    POST /api/customer_analytics/external/account — Create an account (no-op if it already exists)
     PATCH /api/customer_analytics/external/account — Update an account's role contacts and tags
 
     Authenticated via Bearer token (team secret_api_token) in Authorization header.
@@ -290,6 +304,42 @@ class ExternalAccountView(APIView):
             return Response({"error": "Account not found"}, status=status.HTTP_404_NOT_FOUND)
 
         return Response(_external_account_body(account))
+
+    @extend_schema(request=ExternalAccountCreateSerializer, responses={201: OpenApiTypes.OBJECT})
+    def post(self, request: Request) -> Response:
+        team, error = _authenticate_team(request)
+        if error:
+            return error
+
+        assert team is not None
+
+        serializer = ExternalAccountCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({"error": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+        data = serializer.validated_data
+
+        external_id = data["external_id"].strip()
+        if not external_id:
+            return Response({"error": "external_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            account, created = facade.create_external_account(
+                team,
+                external_id=external_id,
+                name=(data.get("name") or "").strip() or None,
+                workflow_id=_workflow_id_from_request(request),
+            )
+        except facade.AccountConflictError:
+            # Lost a concurrent-create race; the account exists now, so honor no-op semantics.
+            existing = facade.get_external_account(team.id, external_id)
+            if existing is None:
+                return Response({"error": "Failed to create account"}, status=status.HTTP_400_BAD_REQUEST)
+            account, created = existing, False
+
+        return Response(
+            _external_account_body(account),
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
 
     def patch(self, request: Request) -> Response:
         team, error = _authenticate_team(request)
