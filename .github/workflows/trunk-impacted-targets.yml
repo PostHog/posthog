@@ -4,6 +4,12 @@ name: Trunk impacted targets
 # schedule it. Trunk needs an impacted-targets upload to place a PR into a lane;
 # without one, fork PRs never enter the queue and have to be merged by hand.
 #
+# Targets are computed by .github/scripts/trunk-impacted-targets.js, which maps
+# changed paths onto lane names. Trunk runs two PRs in parallel only when their
+# target sets are disjoint, so that script is biased toward over-reporting and
+# falls back to "ALL" (overlaps everything, the old single-lane behavior)
+# whenever it cannot classify a change with confidence.
+#
 # The upload authenticates with the org API token (x-api-token) on internal PRs.
 # Fork PR workflow runs do NOT receive repo secrets — GitHub withholds them from
 # `pull_request` runs originating in a fork — so for forks we authenticate with
@@ -29,9 +35,10 @@ jobs:
     upload:
         name: Upload impacted targets to Trunk
         runs-on: ubuntu-24.04
-        timeout-minutes: 5
-        # Reads only the event payload and talks out to Trunk — no repo write or
-        # PR API access needed.
+        timeout-minutes: 10
+        # Reads the repo (the target computation walks tach.toml, products/, and
+        # the rust Cargo manifests) and talks out to Trunk. No repo write or PR
+        # API access needed.
         permissions:
             contents: read
         env:
@@ -44,12 +51,59 @@ jobs:
             # run's head_sha, which is what Trunk checks on a fork upload.
             PR_SHA: ${{ github.event.pull_request.head.sha }}
             TARGET_BRANCH: ${{ github.event.pull_request.base.ref }}
-            TRUNK_API_TOKEN: ${{ secrets.TRUNK_API_TOKEN }}
         steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 1000
+                  filter: blob:none
+
+            - name: Fetch PR base for the changed-file diff
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+              run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+
+            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  token: ${{ github.token }}
+
+            - name: Compute impacted targets
+              id: targets
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+              run: |
+                  set -uo pipefail
+
+                  # A missing merge base (branch older than the fetched depth) or
+                  # any diff failure has to widen to ALL rather than upload a
+                  # partial file list, which Trunk cannot distinguish from a
+                  # complete one.
+                  if ! merge_base="$(git merge-base "refs/remotes/origin/$BASE_REF" HEAD 2>/dev/null)"; then
+                      echo "::warning::No merge base against $BASE_REF within the fetched depth; reporting ALL."
+                      echo 'targets={"impactedTargets":"ALL"}' >> "$GITHUB_OUTPUT"
+                      exit 0
+                  fi
+
+                  if ! changed="$(git diff --name-only "$merge_base" HEAD)"; then
+                      echo "::warning::Could not diff against the merge base; reporting ALL."
+                      echo 'targets={"impactedTargets":"ALL"}' >> "$GITHUB_OUTPUT"
+                      exit 0
+                  fi
+
+                  echo "$changed" | sed 's/^/  /'
+
+                  # The script prints "ALL" or a JSON array on stdout and never
+                  # exits non-zero; it degrades to "ALL" internally on any error.
+                  computed="$(printf '%s\n' "$changed" | node .github/scripts/trunk-impacted-targets.js)"
+                  printf 'targets=%s\n' "$(jq -cn --argjson t "$computed" '{impactedTargets: $t}')" >> "$GITHUB_OUTPUT"
+
             - name: Upload impacted targets to Trunk
               # Not continue-on-error: a silent failure here is exactly what keeps
               # fork PRs out of the queue, so surface upload problems loudly.
               # --retry rides out transient Trunk/network blips.
+              env:
+                  TRUNK_API_TOKEN: ${{ secrets.TRUNK_API_TOKEN }}
+                  IMPACTED_TARGETS: ${{ steps.targets.outputs.targets }}
               run: |
                   set -euo pipefail
 
@@ -58,13 +112,6 @@ jobs:
                       exit 0
                   fi
 
-                  # We report "ALL" — every target — which is always correct: it
-                  # can never under-report and let the queue merge conflicting
-                  # PRs in parallel. It yields no parallelism benefit, but it
-                  # gets every PR (forks included) into the queue. To actually
-                  # parallelise, replace "ALL" with a computed target-name list
-                  # (e.g. derived from the ci-paths-filter.yml outputs) once the
-                  # queue's target names are defined.
                   payload="$(jq -n \
                       --arg host "github.com" \
                       --arg owner "$REPO_OWNER" \
@@ -72,7 +119,8 @@ jobs:
                       --argjson number "$PR_NUMBER" \
                       --arg sha "$PR_SHA" \
                       --arg targetBranch "$TARGET_BRANCH" \
-                      '{repo: {host: $host, owner: $owner, name: $name}, pr: {number: $number, sha: $sha}, targetBranch: $targetBranch, impactedTargets: "ALL"}')"
+                      --argjson impacted "$IMPACTED_TARGETS" \
+                      '{repo: {host: $host, owner: $owner, name: $name}, pr: {number: $number, sha: $sha}, targetBranch: $targetBranch} + $impacted')"
 
                   if [ "$IS_FORK" = "true" ]; then
                       echo "Fork PR — authenticating with x-forked-workflow-run-id ($RUN_ID)"
