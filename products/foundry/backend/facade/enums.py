@@ -49,6 +49,8 @@ class BetEventKind(StrEnum):
     ARTIFACT_READY = "artifact.ready"
     GATE_RESULT = "gate.result"
     EXPOSURE_STARTED = "exposure.started"
+    EXPOSURE_ADVANCED = "exposure.advanced"
+    EXPOSURE_HALTED = "exposure.halted"
     VERDICT_PROPOSED = "verdict.proposed"
     BUDGET_EXCEEDED = "budget.exceeded"
     KNOWLEDGE_PUBLISHED = "knowledge.published"

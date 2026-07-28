@@ -2,7 +2,18 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.foundry.backend.presentation.serializers import CreateBetEventSerializer, RunConfigSerializer
+from products.foundry.backend.presentation.serializers import (
+    CreateBetEventSerializer,
+    CreateBetSerializer,
+    GuardrailSerializer,
+    RunConfigSerializer,
+)
+
+MINIMAL_BET = {
+    "slug": "checkout-friction",
+    "hypothesis": "reducing checkout steps raises conversion",
+    "success_metric": {"name": "conversion"},
+}
 
 
 class TestNodePayloadValidation(SimpleTestCase):
@@ -93,3 +104,118 @@ class TestRunConfigBuildLoopValidation(SimpleTestCase):
         serializer = RunConfigSerializer(data={"build_loop": build_loop})
         assert serializer.is_valid(), serializer.errors
         assert serializer.validated_data["build_loop"]["test_writer"] is None
+
+
+class TestExposurePlanValidation(SimpleTestCase):
+    """ADR-6 criterion 1: exposure_plan gains a typed shape while legacy free-form bets
+    (iterations 1-5 fixtures) must keep validating unchanged."""
+
+    @parameterized.expand(
+        [
+            ({},),
+            ({"channel": "slack", "notes": "ramp manually over a week"},),
+        ]
+    )
+    def test_legacy_free_form_exposure_plan_still_validates(self, exposure_plan):
+        serializer = CreateBetSerializer(data={**MINIMAL_BET, "exposure_plan": exposure_plan})
+        assert serializer.is_valid(), serializer.errors
+        validated = serializer.validated_data["exposure_plan"]
+        assert validated["steps"] == []
+        assert validated["auto_start"] is False
+        for key, value in exposure_plan.items():
+            assert validated[key] == value
+
+    def test_typed_steps_validate_and_free_form_keys_round_trip_alongside(self):
+        exposure_plan = {
+            "auto_start": True,
+            "steps": [
+                {"rollout_pct": 10, "min_hours": 0.01},
+                {"rollout_pct": 100, "min_hours": 0.01, "halt_on_guardrail_breach": False},
+            ],
+            "note": "kept alongside the typed fields",
+        }
+        serializer = CreateBetSerializer(data={**MINIMAL_BET, "exposure_plan": exposure_plan})
+        assert serializer.is_valid(), serializer.errors
+        validated = serializer.validated_data["exposure_plan"]
+        assert validated["note"] == "kept alongside the typed fields"
+        assert validated["steps"][0] == {"rollout_pct": 10.0, "min_hours": 0.01, "halt_on_guardrail_breach": True}
+        assert validated["steps"][1]["halt_on_guardrail_breach"] is False
+
+    @parameterized.expand(
+        [
+            ({"steps": [{"rollout_pct": 150, "min_hours": 1}], "auto_start": True},),
+            ({"steps": [{"rollout_pct": 10}], "auto_start": True},),
+        ]
+    )
+    def test_malformed_step_rejected(self, exposure_plan):
+        serializer = CreateBetSerializer(data={**MINIMAL_BET, "exposure_plan": exposure_plan})
+        assert not serializer.is_valid()
+        assert "steps" in serializer.errors["exposure_plan"]
+
+
+class TestGuardrailValidation(SimpleTestCase):
+    """ADR-6 criterion 1: guardrails gain optional machine-checkable params; an
+    unparameterized (legacy) guardrail must keep validating unchanged."""
+
+    def test_legacy_unparameterized_guardrail_still_validates(self):
+        serializer = GuardrailSerializer(data={"name": "error rate", "constraint": "must not rise"})
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["metric"] is None
+        assert serializer.validated_data["threshold"] is None
+        assert serializer.validated_data["direction"] is None
+
+    def test_parameterized_guardrail_validates(self):
+        serializer = GuardrailSerializer(
+            data={
+                "name": "error rate",
+                "metric": {"metric_kind": "error_rate", "query_ref": "abc123"},
+                "threshold": 0.05,
+                "direction": "above",
+            }
+        )
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["metric"]["query_ref"] == "abc123"
+
+    @parameterized.expand(
+        [
+            ({"direction": "sideways"}, "direction"),
+            ({"metric": {"metric_kind": "not-a-real-kind"}}, "metric"),
+        ]
+    )
+    def test_invalid_choice_rejected(self, overrides, bad_field):
+        serializer = GuardrailSerializer(data={"name": "error rate", **overrides})
+        assert not serializer.is_valid()
+        assert bad_field in serializer.errors
+
+
+class TestExposureAndVerdictPayloadValidation(SimpleTestCase):
+    """ADR-6's new event kinds (exposure.advanced, exposure.halted, verdict.proposed)
+    validate their payload shape the same way the existing node/knowledge kinds do."""
+
+    @parameterized.expand(
+        [
+            ("exposure.advanced", {}, "step"),
+            ("exposure.advanced", {"step": 0}, "rollout_pct"),
+            ("exposure.halted", {}, "reason"),
+            ("verdict.proposed", {}, "recommendation"),
+            ("verdict.proposed", {"recommendation": "not-a-real-verdict"}, "recommendation"),
+        ]
+    )
+    def test_missing_or_invalid_required_field_rejected(self, kind, payload, bad_field):
+        serializer = CreateBetEventSerializer(data={"kind": kind, "payload": payload})
+        assert not serializer.is_valid()
+        assert bad_field in serializer.errors["payload"]
+
+    @parameterized.expand(
+        [
+            ("exposure.advanced", {"step": 1, "rollout_pct": 50}),
+            ("exposure.halted", {"reason": "guardrail_breach", "guardrail": "error rate", "details": "0.08 vs 0.05"}),
+            (
+                "verdict.proposed",
+                {"recommendation": "promoted", "evidence": {"condition": "exposure_completed"}},
+            ),
+        ]
+    )
+    def test_well_formed_payload_accepted(self, kind, payload):
+        serializer = CreateBetEventSerializer(data={"kind": kind, "payload": payload})
+        assert serializer.is_valid(), serializer.errors

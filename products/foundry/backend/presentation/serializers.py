@@ -30,12 +30,56 @@ class SuccessMetricSerializer(serializers.Serializer):
     )
 
 
+class GuardrailMetricSerializer(serializers.Serializer):
+    metric_kind = serializers.ChoiceField(
+        choices=["trend", "error_rate"],
+        help_text=(
+            "What query_ref represents: 'trend' (an insight trend series) or 'error_rate' "
+            "(a rate-shaped insight). Both are evaluated the same way today — this documents "
+            "intent for the scout's evidence summary, not different read logic."
+        ),
+    )
+    query_ref = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text=(
+            "short_id of the insight the scout runs to evaluate this guardrail. Leave blank "
+            "(along with threshold/direction) to keep the guardrail unparameterized — the "
+            "scout then skips it with a note instead of evaluating it."
+        ),
+    )
+
+
 class GuardrailSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Name of the guardrail metric that must not regress.")
     constraint = serializers.CharField(
         required=False,
         allow_blank=True,
         help_text="Constraint the guardrail enforces, e.g. 'error rate must not rise'.",
+    )
+    metric = GuardrailMetricSerializer(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "Machine-checkable metric reference. Omit this (or threshold/direction below) to "
+            "leave the guardrail unparameterized — the scout skips it with a note rather than "
+            "failing."
+        ),
+    )
+    threshold = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Numeric value that, combined with direction, decides a breach. Required alongside metric/direction to make this guardrail machine-checkable.",
+    )
+    direction = serializers.ChoiceField(
+        choices=["above", "below"],
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Breach direction: 'above' means a value greater than threshold breaches; 'below' means a value less than threshold breaches.",
     )
 
 
@@ -45,6 +89,59 @@ class BudgetSerializer(serializers.Serializer):
     iterations = serializers.IntegerField(
         required=False, help_text="Maximum number of build iterations before the bet expires."
     )
+
+
+class ExposureStepSerializer(serializers.Serializer):
+    rollout_pct = serializers.FloatField(
+        min_value=0,
+        max_value=100,
+        help_text="Feature flag rollout percentage this step advances to.",
+    )
+    min_hours = serializers.FloatField(
+        min_value=0,
+        help_text=(
+            "Hours to hold this step's rollout before checking guardrails and advancing. "
+            "Fractional values are accepted so a short ramp can complete in minutes for testing."
+        ),
+    )
+    halt_on_guardrail_breach = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text="Whether a guardrail breach at the end of this step halts the ramp (rollout set to 0) instead of advancing to the next step.",
+    )
+
+
+class ExposurePlanSerializer(serializers.Serializer):
+    """Typed shape for a bet's exposure_plan, with free-form keys still allowed alongside
+    (e.g. a human-readable rollout note) — see ADR-6 decision 1. ``to_internal_value``/
+    ``to_representation`` round-trip any key this serializer doesn't itself declare
+    instead of DRF's default of dropping unknown keys, so legacy free-form
+    exposure_plans keep validating and rendering unchanged."""
+
+    steps = serializers.ListField(
+        child=ExposureStepSerializer(),
+        required=False,
+        default=list,
+        help_text="Ordered ramp steps Foundry drives automatically once auto_start is true and the bet is exposed.",
+    )
+    auto_start = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Whether Foundry should drive 'steps' itself via the foundry-expose-bet Temporal "
+            "workflow as soon as the bet is exposed, instead of leaving rollout to manual flag edits."
+        ),
+    )
+
+    def to_internal_value(self, data: dict) -> dict:
+        validated = super().to_internal_value(data)
+        extra = {k: v for k, v in (data or {}).items() if k not in self.fields}
+        return {**extra, **validated}
+
+    def to_representation(self, instance: dict) -> dict:
+        typed = {k: v for k, v in (instance or {}).items() if k in self.fields}
+        extra = {k: v for k, v in (instance or {}).items() if k not in self.fields}
+        return {**extra, **super().to_representation(typed)}
 
 
 class SourceRefSerializer(serializers.Serializer):
@@ -281,8 +378,8 @@ class BetSerializer(DataclassSerializer):
         help_text="Metrics that must not regress while the bet is exposed.",
     )
     budget = BudgetSerializer(help_text="Resource ceiling for autonomous execution.")
-    exposure_plan = JSONObjectField(
-        help_text="How the bet should be rolled out once gated (free-form, consumed by the orchestrator)."
+    exposure_plan = ExposurePlanSerializer(
+        help_text="How the bet should be rolled out once gated: typed ramp steps plus auto_start, free-form keys allowed alongside."
     )
     sources = serializers.ListField(
         child=SourceRefSerializer(),
@@ -334,10 +431,10 @@ class CreateBetSerializer(serializers.Serializer):
         help_text="Metrics that must not regress while the bet is exposed.",
     )
     budget = BudgetSerializer(required=False, default=dict, help_text="Resource ceiling for autonomous execution.")
-    exposure_plan = JSONObjectField(
+    exposure_plan = ExposurePlanSerializer(
         required=False,
         default=dict,
-        help_text="How the bet should be rolled out once gated (free-form, consumed by the orchestrator).",
+        help_text="How the bet should be rolled out once gated: typed ramp steps plus auto_start, free-form keys allowed alongside.",
     )
     sources = serializers.ListField(
         child=SourceRefSerializer(),
@@ -441,6 +538,38 @@ class ArtifactReadyPayloadSerializer(serializers.Serializer):
     )
 
 
+class ExposureAdvancedPayloadSerializer(serializers.Serializer):
+    step = serializers.IntegerField(
+        help_text="Zero-based index into exposure_plan.steps this event reports advancing to."
+    )
+    rollout_pct = serializers.FloatField(help_text="The feature flag rollout percentage this step set.")
+
+
+class ExposureHaltedPayloadSerializer(serializers.Serializer):
+    reason = serializers.CharField(help_text="Why the ramp halted, e.g. 'guardrail_breach'.")
+    guardrail = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Name of the guardrail that breached, if the halt was guardrail-triggered.",
+    )
+    details = serializers.CharField(
+        required=False, allow_blank=True, default="", help_text="Human-readable detail about the breach or halt."
+    )
+
+
+class VerdictProposedPayloadSerializer(serializers.Serializer):
+    recommendation = serializers.ChoiceField(
+        choices=[(v.value, v.value) for v in BetVerdict],
+        help_text="The scout's recommended verdict for a human to record via the verdict action.",
+    )
+    evidence = JSONObjectField(
+        required=False,
+        default=dict,
+        help_text="Typed evidence backing the recommendation: {condition, ...condition-specific fields} — see logic/scout.py.",
+    )
+
+
 _TYPED_PAYLOAD_SERIALIZERS: dict[BetEventKind, type[serializers.Serializer]] = {
     BetEventKind.NODE_SPAWNED: NodeSpawnedPayloadSerializer,
     BetEventKind.NODE_FINISHED: NodeFinishedPayloadSerializer,
@@ -448,6 +577,9 @@ _TYPED_PAYLOAD_SERIALIZERS: dict[BetEventKind, type[serializers.Serializer]] = {
     BetEventKind.BUDGET_EXCEEDED: BudgetExceededPayloadSerializer,
     BetEventKind.KNOWLEDGE_PUBLISHED: KnowledgePublishedPayloadSerializer,
     BetEventKind.ARTIFACT_READY: ArtifactReadyPayloadSerializer,
+    BetEventKind.EXPOSURE_ADVANCED: ExposureAdvancedPayloadSerializer,
+    BetEventKind.EXPOSURE_HALTED: ExposureHaltedPayloadSerializer,
+    BetEventKind.VERDICT_PROPOSED: VerdictProposedPayloadSerializer,
 }
 
 

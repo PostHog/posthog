@@ -12577,11 +12577,6 @@ export namespace Schemas {
       explicit_datetime_to?: string | null;
     }
 
-    /**
-     * How the bet should be rolled out once gated (free-form, consumed by the orchestrator).
-     */
-    export type BetDTOExposurePlan = { [key: string]: unknown };
-
     export interface SuccessMetric {
       /** Human-readable name of the metric the bet is judged on. */
       name: string;
@@ -12591,11 +12586,57 @@ export namespace Schemas {
       description?: string;
     }
 
+    /**
+     * * `trend` - trend
+     * * `error_rate` - error_rate
+     */
+    export type MetricKindEnum = typeof MetricKindEnum[keyof typeof MetricKindEnum];
+
+
+    export const MetricKindEnum = {
+      Trend: 'trend',
+      ErrorRate: 'error_rate',
+    } as const;
+
+    export interface GuardrailMetric {
+      /** What query_ref represents: 'trend' (an insight trend series) or 'error_rate' (a rate-shaped insight). Both are evaluated the same way today — this documents intent for the scout's evidence summary, not different read logic.
+       *
+       * * `trend` - trend
+       * * `error_rate` - error_rate */
+      metric_kind: MetricKindEnum;
+      /** short_id of the insight the scout runs to evaluate this guardrail. Leave blank (along with threshold/direction) to keep the guardrail unparameterized — the scout then skips it with a note instead of evaluating it. */
+      query_ref?: string;
+    }
+
+    /**
+     * * `above` - above
+     * * `below` - below
+     */
+    export type GuardrailDirectionEnum = typeof GuardrailDirectionEnum[keyof typeof GuardrailDirectionEnum];
+
+
+    export const GuardrailDirectionEnum = {
+      Above: 'above',
+      Below: 'below',
+    } as const;
+
     export interface Guardrail {
       /** Name of the guardrail metric that must not regress. */
       name: string;
       /** Constraint the guardrail enforces, e.g. 'error rate must not rise'. */
       constraint?: string;
+      /** Machine-checkable metric reference. Omit this (or threshold/direction below) to leave the guardrail unparameterized — the scout skips it with a note rather than failing. */
+      metric?: GuardrailMetric | null;
+      /**
+         * Numeric value that, combined with direction, decides a breach. Required alongside metric/direction to make this guardrail machine-checkable.
+         * @nullable
+         */
+      threshold?: number | null;
+      /** Breach direction: 'above' means a value greater than threshold breaches; 'below' means a value less than threshold breaches.
+       *
+       * * `above` - above
+       * * `below` - below */
+      direction?: GuardrailDirectionEnum | null;
     }
 
     export interface Budget {
@@ -12605,6 +12646,36 @@ export namespace Schemas {
       time_hours?: number;
       /** Maximum number of build iterations before the bet expires. */
       iterations?: number;
+    }
+
+    export interface ExposureStep {
+      /**
+         * Feature flag rollout percentage this step advances to.
+         * @minimum 0
+         * @maximum 100
+         */
+      rollout_pct: number;
+      /**
+         * Hours to hold this step's rollout before checking guardrails and advancing. Fractional values are accepted so a short ramp can complete in minutes for testing.
+         * @minimum 0
+         */
+      min_hours: number;
+      /** Whether a guardrail breach at the end of this step halts the ramp (rollout set to 0) instead of advancing to the next step. */
+      halt_on_guardrail_breach?: boolean;
+    }
+
+    /**
+     * Typed shape for a bet's exposure_plan, with free-form keys still allowed alongside
+     * (e.g. a human-readable rollout note) — see ADR-6 decision 1. ``to_internal_value``/
+     * ``to_representation`` round-trip any key this serializer doesn't itself declare
+     * instead of DRF's default of dropping unknown keys, so legacy free-form
+     * exposure_plans keep validating and rendering unchanged.
+     */
+    export interface ExposurePlan {
+      /** Ordered ramp steps Foundry drives automatically once auto_start is true and the bet is exposed. */
+      steps?: ExposureStep[];
+      /** Whether Foundry should drive 'steps' itself via the foundry-expose-bet Temporal workflow as soon as the bet is exposed, instead of leaving rollout to manual flag edits. */
+      auto_start?: boolean;
     }
 
     export interface SourceRef {
@@ -12803,8 +12874,8 @@ export namespace Schemas {
       guardrails: Guardrail[];
       /** Resource ceiling for autonomous execution. */
       budget: Budget;
-      /** How the bet should be rolled out once gated (free-form, consumed by the orchestrator). */
-      exposure_plan: BetDTOExposurePlan;
+      /** How the bet should be rolled out once gated: typed ramp steps plus auto_start, free-form keys allowed alongside. */
+      exposure_plan: ExposurePlan;
       /** Lineage references to the signals/reports that motivated the bet. */
       sources: SourceRef[];
       /** 'external': any orchestrator POSTs events. 'managed': Foundry drives the run via Temporal.
@@ -12839,6 +12910,8 @@ export namespace Schemas {
       created_by_id: number | null;
       created_at: string;
       updated_at: string;
+      exposure_advanced_steps?: number;
+      exposure_halted?: boolean;
     }
 
     /**
@@ -12855,6 +12928,8 @@ export namespace Schemas {
      * * `artifact.ready` - ARTIFACT_READY
      * * `gate.result` - GATE_RESULT
      * * `exposure.started` - EXPOSURE_STARTED
+     * * `exposure.advanced` - EXPOSURE_ADVANCED
+     * * `exposure.halted` - EXPOSURE_HALTED
      * * `verdict.proposed` - VERDICT_PROPOSED
      * * `budget.exceeded` - BUDGET_EXCEEDED
      * * `knowledge.published` - KNOWLEDGE_PUBLISHED
@@ -12873,6 +12948,8 @@ export namespace Schemas {
       Artifactready: 'artifact.ready',
       Gateresult: 'gate.result',
       Exposurestarted: 'exposure.started',
+      Exposureadvanced: 'exposure.advanced',
+      Exposurehalted: 'exposure.halted',
       Verdictproposed: 'verdict.proposed',
       Budgetexceeded: 'budget.exceeded',
       Knowledgepublished: 'knowledge.published',
@@ -15980,11 +16057,6 @@ export namespace Schemas {
       memory_gb?: number;
     }
 
-    /**
-     * How the bet should be rolled out once gated (free-form, consumed by the orchestrator).
-     */
-    export type CreateBetExposurePlan = { [key: string]: unknown };
-
     export interface CreateBet {
       /**
          * Unique-per-project identifier; also seeds the feature flag key ('bet-<slug>').
@@ -16000,8 +16072,8 @@ export namespace Schemas {
       guardrails?: Guardrail[];
       /** Resource ceiling for autonomous execution. */
       budget?: Budget;
-      /** How the bet should be rolled out once gated (free-form, consumed by the orchestrator). */
-      exposure_plan?: CreateBetExposurePlan;
+      /** How the bet should be rolled out once gated: typed ramp steps plus auto_start, free-form keys allowed alongside. */
+      exposure_plan?: ExposurePlan;
       /** Lineage references to the signals/reports that motivated the bet. */
       sources?: SourceRef[];
       /**
@@ -16039,6 +16111,8 @@ export namespace Schemas {
      * * `artifact.ready` - artifact.ready
      * * `gate.result` - gate.result
      * * `exposure.started` - exposure.started
+     * * `exposure.advanced` - exposure.advanced
+     * * `exposure.halted` - exposure.halted
      * * `verdict.proposed` - verdict.proposed
      * * `budget.exceeded` - budget.exceeded
      * * `knowledge.published` - knowledge.published
@@ -16056,6 +16130,8 @@ export namespace Schemas {
       Artifactready: 'artifact.ready',
       Gateresult: 'gate.result',
       Exposurestarted: 'exposure.started',
+      Exposureadvanced: 'exposure.advanced',
+      Exposurehalted: 'exposure.halted',
       Verdictproposed: 'verdict.proposed',
       Budgetexceeded: 'budget.exceeded',
       Knowledgepublished: 'knowledge.published',
@@ -16073,6 +16149,8 @@ export namespace Schemas {
        * * `artifact.ready` - artifact.ready
        * * `gate.result` - gate.result
        * * `exposure.started` - exposure.started
+       * * `exposure.advanced` - exposure.advanced
+       * * `exposure.halted` - exposure.halted
        * * `verdict.proposed` - verdict.proposed
        * * `budget.exceeded` - budget.exceeded
        * * `knowledge.published` - knowledge.published
@@ -38012,20 +38090,12 @@ export namespace Schemas {
       Broken: 'broken',
     } as const;
 
-    export type LogsAlertStateChangeSignalExtraThresholdOperatorEnum = typeof LogsAlertStateChangeSignalExtraThresholdOperatorEnum[keyof typeof LogsAlertStateChangeSignalExtraThresholdOperatorEnum];
-
-
-    export const LogsAlertStateChangeSignalExtraThresholdOperatorEnum = {
-      Above: 'above',
-      Below: 'below',
-    } as const;
-
     export interface LogsAlertStateChangeSignalExtra {
       alert_id: string;
       alert_name: string;
       action: LogsAlertStateChangeSignalExtraActionEnum;
       threshold_count: number;
-      threshold_operator: LogsAlertStateChangeSignalExtraThresholdOperatorEnum;
+      threshold_operator: GuardrailDirectionEnum;
       window_minutes: number;
       result_count: number | null;
       consecutive_failures: number;

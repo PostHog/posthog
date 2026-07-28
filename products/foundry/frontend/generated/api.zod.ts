@@ -15,6 +15,14 @@ import * as zod from 'zod'
 export const betsCreateBodySlugMax = 200
 
 export const betsCreateBodySlugRegExp = new RegExp('^[-a-zA-Z0-9_]+$')
+export const betsCreateBodyGuardrailsItemMetricOneQueryRefDefault = ``
+export const betsCreateBodyExposurePlanOneStepsItemRolloutPctMin = 0
+export const betsCreateBodyExposurePlanOneStepsItemRolloutPctMax = 100
+
+export const betsCreateBodyExposurePlanOneStepsItemMinHoursMin = 0
+
+export const betsCreateBodyExposurePlanOneStepsItemHaltOnGuardrailBreachDefault = true
+export const betsCreateBodyExposurePlanOneAutoStartDefault = false
 export const betsCreateBodyExecutionModeDefault = `external`
 export const betsCreateBodyRunConfigOneCommandDefault = ``
 export const betsCreateBodyGateConfigOneChecksItemRequiredDefault = true
@@ -47,6 +55,43 @@ export const BetsCreateBody = /* @__PURE__ */ zod.object({
                     .string()
                     .optional()
                     .describe("Constraint the guardrail enforces, e.g. 'error rate must not rise'."),
+                metric: zod
+                    .union([
+                        zod.object({
+                            metric_kind: zod
+                                .enum(['trend', 'error_rate'])
+                                .describe('\* `trend` - trend\n\* `error_rate` - error_rate')
+                                .describe(
+                                    "What query_ref represents: 'trend' (an insight trend series) or 'error_rate' (a rate-shaped insight). Both are evaluated the same way today — this documents intent for the scout's evidence summary, not different read logic.\n\n\* `trend` - trend\n\* `error_rate` - error_rate"
+                                ),
+                            query_ref: zod
+                                .string()
+                                .default(betsCreateBodyGuardrailsItemMetricOneQueryRefDefault)
+                                .describe(
+                                    'short_id of the insight the scout runs to evaluate this guardrail. Leave blank (along with threshold\/direction) to keep the guardrail unparameterized — the scout then skips it with a note instead of evaluating it.'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Machine-checkable metric reference. Omit this (or threshold\/direction below) to leave the guardrail unparameterized — the scout skips it with a note rather than failing.'
+                    ),
+                threshold: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Numeric value that, combined with direction, decides a breach. Required alongside metric\/direction to make this guardrail machine-checkable.'
+                    ),
+                direction: zod
+                    .union([
+                        zod.enum(['above', 'below']).describe('\* `above` - above\n\* `below` - below'),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        "Breach direction: 'above' means a value greater than threshold breaches; 'below' means a value less than threshold breaches.\n\n\* `above` - above\n\* `below` - below"
+                    ),
             })
         )
         .optional()
@@ -60,9 +105,47 @@ export const BetsCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Resource ceiling for autonomous execution.'),
     exposure_plan: zod
-        .record(zod.string(), zod.unknown())
+        .object({
+            steps: zod
+                .array(
+                    zod.object({
+                        rollout_pct: zod
+                            .number()
+                            .min(betsCreateBodyExposurePlanOneStepsItemRolloutPctMin)
+                            .max(betsCreateBodyExposurePlanOneStepsItemRolloutPctMax)
+                            .describe('Feature flag rollout percentage this step advances to.'),
+                        min_hours: zod
+                            .number()
+                            .min(betsCreateBodyExposurePlanOneStepsItemMinHoursMin)
+                            .describe(
+                                "Hours to hold this step's rollout before checking guardrails and advancing. Fractional values are accepted so a short ramp can complete in minutes for testing."
+                            ),
+                        halt_on_guardrail_breach: zod
+                            .boolean()
+                            .default(betsCreateBodyExposurePlanOneStepsItemHaltOnGuardrailBreachDefault)
+                            .describe(
+                                'Whether a guardrail breach at the end of this step halts the ramp (rollout set to 0) instead of advancing to the next step.'
+                            ),
+                    })
+                )
+                .optional()
+                .describe(
+                    'Ordered ramp steps Foundry drives automatically once auto_start is true and the bet is exposed.'
+                ),
+            auto_start: zod
+                .boolean()
+                .default(betsCreateBodyExposurePlanOneAutoStartDefault)
+                .describe(
+                    "Whether Foundry should drive 'steps' itself via the foundry-expose-bet Temporal workflow as soon as the bet is exposed, instead of leaving rollout to manual flag edits."
+                ),
+        })
+        .describe(
+            "Typed shape for a bet's exposure_plan, with free-form keys still allowed alongside\n(e.g. a human-readable rollout note) — see ADR-6 decision 1. ``to_internal_value``\/\n``to_representation`` round-trip any key this serializer doesn't itself declare\ninstead of DRF's default of dropping unknown keys, so legacy free-form\nexposure_plans keep validating and rendering unchanged."
+        )
         .optional()
-        .describe('How the bet should be rolled out once gated (free-form, consumed by the orchestrator).'),
+        .describe(
+            'How the bet should be rolled out once gated: typed ramp steps plus auto_start, free-form keys allowed alongside.'
+        ),
     sources: zod
         .array(
             zod.object({
@@ -249,16 +332,18 @@ export const BetsEventsCreateBody = /* @__PURE__ */ zod.object({
             'artifact.ready',
             'gate.result',
             'exposure.started',
+            'exposure.advanced',
+            'exposure.halted',
             'verdict.proposed',
             'budget.exceeded',
             'knowledge.published',
             'note',
         ])
         .describe(
-            '\* `run.started` - run.started\n\* `run.finished` - run.finished\n\* `node.spawned` - node.spawned\n\* `node.finished` - node.finished\n\* `node.failed` - node.failed\n\* `artifact.ready` - artifact.ready\n\* `gate.result` - gate.result\n\* `exposure.started` - exposure.started\n\* `verdict.proposed` - verdict.proposed\n\* `budget.exceeded` - budget.exceeded\n\* `knowledge.published` - knowledge.published\n\* `note` - note'
+            '\* `run.started` - run.started\n\* `run.finished` - run.finished\n\* `node.spawned` - node.spawned\n\* `node.finished` - node.finished\n\* `node.failed` - node.failed\n\* `artifact.ready` - artifact.ready\n\* `gate.result` - gate.result\n\* `exposure.started` - exposure.started\n\* `exposure.advanced` - exposure.advanced\n\* `exposure.halted` - exposure.halted\n\* `verdict.proposed` - verdict.proposed\n\* `budget.exceeded` - budget.exceeded\n\* `knowledge.published` - knowledge.published\n\* `note` - note'
         )
         .describe(
-            "Typed event kind reported by the orchestrator. 'gate.result' with payload {pass: true} advances building → gated.\n\n\* `run.started` - run.started\n\* `run.finished` - run.finished\n\* `node.spawned` - node.spawned\n\* `node.finished` - node.finished\n\* `node.failed` - node.failed\n\* `artifact.ready` - artifact.ready\n\* `gate.result` - gate.result\n\* `exposure.started` - exposure.started\n\* `verdict.proposed` - verdict.proposed\n\* `budget.exceeded` - budget.exceeded\n\* `knowledge.published` - knowledge.published\n\* `note` - note"
+            "Typed event kind reported by the orchestrator. 'gate.result' with payload {pass: true} advances building → gated.\n\n\* `run.started` - run.started\n\* `run.finished` - run.finished\n\* `node.spawned` - node.spawned\n\* `node.finished` - node.finished\n\* `node.failed` - node.failed\n\* `artifact.ready` - artifact.ready\n\* `gate.result` - gate.result\n\* `exposure.started` - exposure.started\n\* `exposure.advanced` - exposure.advanced\n\* `exposure.halted` - exposure.halted\n\* `verdict.proposed` - verdict.proposed\n\* `budget.exceeded` - budget.exceeded\n\* `knowledge.published` - knowledge.published\n\* `note` - note"
         ),
     payload: zod
         .record(zod.string(), zod.unknown())

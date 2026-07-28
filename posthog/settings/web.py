@@ -633,6 +633,9 @@ SPECTACULAR_SETTINGS = {
         # Staff flags-cache warm-run status; 'state'/'scope' are collision-prone field names.
         "FlagsWarmRunStateEnum": ["running", "completed", "cancelled"],
         "FlagsWarmRunScopeEnum": ["all_teams", "teams_with_flags"],
+        # Foundry's Guardrail.direction shares its ["above", "below"] choice set with the
+        # unrelated logs alert threshold_operator field; pin a distinct, semantic name.
+        "GuardrailDirectionEnum": ["above", "below"],
         # bulk_update_tags exposes an identical add/remove/set `action` ChoiceField on both
         # BulkUpdateTagsRequest and its UUID subclass, so the shared enum can't be component-prefixed
         # unambiguously and auto-resolves to a hash name. Pin it to a stable name.

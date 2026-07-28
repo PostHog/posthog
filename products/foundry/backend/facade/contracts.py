@@ -44,6 +44,11 @@ class BetDTO:
     created_by_id: int | None
     created_at: datetime
     updated_at: datetime
+    # Computed from the event log (exposure.advanced/exposure.halted), not stored columns —
+    # lets the portfolio table show ramp progress without each row re-fetching the full
+    # event log (see facade/api.py::_exposure_advanced_counts/_exposure_halted_bet_ids).
+    exposure_advanced_steps: int = 0
+    exposure_halted: bool = False
 
 
 @dataclass(frozen=True)

@@ -7,11 +7,6 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-/**
- * How the bet should be rolled out once gated (free-form, consumed by the orchestrator).
- */
-export type BetDTOApiExposurePlan = { [key: string]: unknown }
-
 export interface SuccessMetricApi {
     /** Human-readable name of the metric the bet is judged on. */
     name: string
@@ -21,11 +16,55 @@ export interface SuccessMetricApi {
     description?: string
 }
 
+/**
+ * * `trend` - trend
+ * * `error_rate` - error_rate
+ */
+export type MetricKindEnumApi = (typeof MetricKindEnumApi)[keyof typeof MetricKindEnumApi]
+
+export const MetricKindEnumApi = {
+    Trend: 'trend',
+    ErrorRate: 'error_rate',
+} as const
+
+export interface GuardrailMetricApi {
+    /** What query_ref represents: 'trend' (an insight trend series) or 'error_rate' (a rate-shaped insight). Both are evaluated the same way today — this documents intent for the scout's evidence summary, not different read logic.
+     *
+     * * `trend` - trend
+     * * `error_rate` - error_rate */
+    metric_kind: MetricKindEnumApi
+    /** short_id of the insight the scout runs to evaluate this guardrail. Leave blank (along with threshold/direction) to keep the guardrail unparameterized — the scout then skips it with a note instead of evaluating it. */
+    query_ref?: string
+}
+
+/**
+ * * `above` - above
+ * * `below` - below
+ */
+export type GuardrailDirectionEnumApi = (typeof GuardrailDirectionEnumApi)[keyof typeof GuardrailDirectionEnumApi]
+
+export const GuardrailDirectionEnumApi = {
+    Above: 'above',
+    Below: 'below',
+} as const
+
 export interface GuardrailApi {
     /** Name of the guardrail metric that must not regress. */
     name: string
     /** Constraint the guardrail enforces, e.g. 'error rate must not rise'. */
     constraint?: string
+    /** Machine-checkable metric reference. Omit this (or threshold/direction below) to leave the guardrail unparameterized — the scout skips it with a note rather than failing. */
+    metric?: GuardrailMetricApi | null
+    /**
+     * Numeric value that, combined with direction, decides a breach. Required alongside metric/direction to make this guardrail machine-checkable.
+     * @nullable
+     */
+    threshold?: number | null
+    /** Breach direction: 'above' means a value greater than threshold breaches; 'below' means a value less than threshold breaches.
+     *
+     * * `above` - above
+     * * `below` - below */
+    direction?: GuardrailDirectionEnumApi | null
 }
 
 export interface BudgetApi {
@@ -35,6 +74,36 @@ export interface BudgetApi {
     time_hours?: number
     /** Maximum number of build iterations before the bet expires. */
     iterations?: number
+}
+
+export interface ExposureStepApi {
+    /**
+     * Feature flag rollout percentage this step advances to.
+     * @minimum 0
+     * @maximum 100
+     */
+    rollout_pct: number
+    /**
+     * Hours to hold this step's rollout before checking guardrails and advancing. Fractional values are accepted so a short ramp can complete in minutes for testing.
+     * @minimum 0
+     */
+    min_hours: number
+    /** Whether a guardrail breach at the end of this step halts the ramp (rollout set to 0) instead of advancing to the next step. */
+    halt_on_guardrail_breach?: boolean
+}
+
+/**
+ * Typed shape for a bet's exposure_plan, with free-form keys still allowed alongside
+ * (e.g. a human-readable rollout note) — see ADR-6 decision 1. ``to_internal_value``/
+ * ``to_representation`` round-trip any key this serializer doesn't itself declare
+ * instead of DRF's default of dropping unknown keys, so legacy free-form
+ * exposure_plans keep validating and rendering unchanged.
+ */
+export interface ExposurePlanApi {
+    /** Ordered ramp steps Foundry drives automatically once auto_start is true and the bet is exposed. */
+    steps?: ExposureStepApi[]
+    /** Whether Foundry should drive 'steps' itself via the foundry-expose-bet Temporal workflow as soon as the bet is exposed, instead of leaving rollout to manual flag edits. */
+    auto_start?: boolean
 }
 
 export interface SourceRefApi {
@@ -228,8 +297,8 @@ export interface BetDTOApi {
     guardrails: GuardrailApi[]
     /** Resource ceiling for autonomous execution. */
     budget: BudgetApi
-    /** How the bet should be rolled out once gated (free-form, consumed by the orchestrator). */
-    exposure_plan: BetDTOApiExposurePlan
+    /** How the bet should be rolled out once gated: typed ramp steps plus auto_start, free-form keys allowed alongside. */
+    exposure_plan: ExposurePlanApi
     /** Lineage references to the signals/reports that motivated the bet. */
     sources: SourceRefApi[]
     /** 'external': any orchestrator POSTs events. 'managed': Foundry drives the run via Temporal.
@@ -264,12 +333,9 @@ export interface BetDTOApi {
     created_by_id: number | null
     created_at: string
     updated_at: string
+    exposure_advanced_steps?: number
+    exposure_halted?: boolean
 }
-
-/**
- * How the bet should be rolled out once gated (free-form, consumed by the orchestrator).
- */
-export type CreateBetApiExposurePlan = { [key: string]: unknown }
 
 export interface CreateBetApi {
     /**
@@ -286,8 +352,8 @@ export interface CreateBetApi {
     guardrails?: GuardrailApi[]
     /** Resource ceiling for autonomous execution. */
     budget?: BudgetApi
-    /** How the bet should be rolled out once gated (free-form, consumed by the orchestrator). */
-    exposure_plan?: CreateBetApiExposurePlan
+    /** How the bet should be rolled out once gated: typed ramp steps plus auto_start, free-form keys allowed alongside. */
+    exposure_plan?: ExposurePlanApi
     /** Lineage references to the signals/reports that motivated the bet. */
     sources?: SourceRefApi[]
     /**
@@ -325,6 +391,8 @@ export type BetEventDTOApiPayload = { [key: string]: unknown }
  * * `artifact.ready` - ARTIFACT_READY
  * * `gate.result` - GATE_RESULT
  * * `exposure.started` - EXPOSURE_STARTED
+ * * `exposure.advanced` - EXPOSURE_ADVANCED
+ * * `exposure.halted` - EXPOSURE_HALTED
  * * `verdict.proposed` - VERDICT_PROPOSED
  * * `budget.exceeded` - BUDGET_EXCEEDED
  * * `knowledge.published` - KNOWLEDGE_PUBLISHED
@@ -342,6 +410,8 @@ export const BetEventDTOKindEnumApi = {
     Artifactready: 'artifact.ready',
     Gateresult: 'gate.result',
     Exposurestarted: 'exposure.started',
+    Exposureadvanced: 'exposure.advanced',
+    Exposurehalted: 'exposure.halted',
     Verdictproposed: 'verdict.proposed',
     Budgetexceeded: 'budget.exceeded',
     Knowledgepublished: 'knowledge.published',
@@ -372,6 +442,8 @@ export type CreateBetEventApiPayload = { [key: string]: unknown }
  * * `artifact.ready` - artifact.ready
  * * `gate.result` - gate.result
  * * `exposure.started` - exposure.started
+ * * `exposure.advanced` - exposure.advanced
+ * * `exposure.halted` - exposure.halted
  * * `verdict.proposed` - verdict.proposed
  * * `budget.exceeded` - budget.exceeded
  * * `knowledge.published` - knowledge.published
@@ -388,6 +460,8 @@ export const CreateBetEventKindEnumApi = {
     Artifactready: 'artifact.ready',
     Gateresult: 'gate.result',
     Exposurestarted: 'exposure.started',
+    Exposureadvanced: 'exposure.advanced',
+    Exposurehalted: 'exposure.halted',
     Verdictproposed: 'verdict.proposed',
     Budgetexceeded: 'budget.exceeded',
     Knowledgepublished: 'knowledge.published',
@@ -405,6 +479,8 @@ export interface CreateBetEventApi {
      * * `artifact.ready` - artifact.ready
      * * `gate.result` - gate.result
      * * `exposure.started` - exposure.started
+     * * `exposure.advanced` - exposure.advanced
+     * * `exposure.halted` - exposure.halted
      * * `verdict.proposed` - verdict.proposed
      * * `budget.exceeded` - budget.exceeded
      * * `knowledge.published` - knowledge.published
