@@ -57,6 +57,9 @@ tools:
     hog-flows-discard-draft-create:
         operation: hog_flows_discard_draft_create
         enabled: false
+    hog-flows-email-sending-suspension-retrieve:
+        operation: hog_flows_email_sending_suspension_retrieve
+        enabled: false
     hog-flows-invocations-create:
         operation: hog_flows_invocations_create
         enabled: false
