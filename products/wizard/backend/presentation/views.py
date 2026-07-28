@@ -278,6 +278,9 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer.is_valid(raise_exception=True)
         req: UpsertWizardSessionRequest = serializer.save()
 
+        user = getattr(request, "user", None)
+        created_by_id = user.id if user is not None and not user.is_anonymous else None
+
         dto, created = wizard_facade.upsert(
             UpsertWizardSessionInput(
                 team_id=self.team_id,
@@ -290,6 +293,7 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 event_plan=req.event_plan,
                 error=req.error,
                 pending_input=req.pending_input,
+                created_by_id=created_by_id,
             )
         )
         response_status = status.HTTP_201_CREATED if created else status.HTTP_200_OK

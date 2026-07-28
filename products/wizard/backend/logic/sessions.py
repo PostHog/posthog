@@ -7,7 +7,12 @@ from functools import partial
 
 from django.db import transaction
 
-from products.wizard.backend.facade.contracts import UpsertWizardSessionInput, WizardSessionDTO, WizardTaskDTO
+from products.wizard.backend.facade.contracts import (
+    UpsertWizardSessionInput,
+    WizardSessionDTO,
+    WizardSessionUserDTO,
+    WizardTaskDTO,
+)
 from products.wizard.backend.facade.enums import RunPhase, TaskStatus
 from products.wizard.backend.logic.pubsub import publish_session_update
 from products.wizard.backend.logic.utils import is_stale
@@ -39,26 +44,30 @@ def upsert_session(params: UpsertWizardSessionInput) -> tuple[WizardSessionDTO, 
         if event_plan is None and params.run_phase == RunPhase.COMPLETED and previous_session:
             event_plan = previous_session.event_plan
 
+        defaults = {
+            "workflow_id": params.workflow_id,
+            "skill_id": params.skill_id,
+            "started_at": params.started_at,
+            "run_phase": params.run_phase.value,
+            "tasks": [
+                {
+                    "id": task.id,
+                    "title": task.title,
+                    "status": task.status.value,
+                }
+                for task in params.tasks
+            ],
+            "event_plan": event_plan,
+            "error": params.error,
+            "pending_input": params.pending_input,
+        }
+        # `created_by` records the initiator and must not change on later pushes for the same
+        # run, so it lives only in create_defaults (applied on insert, not on update).
         instance, created = WizardSession.objects.update_or_create(
             team_id=params.team_id,
             session_id=params.session_id,
-            defaults={
-                "workflow_id": params.workflow_id,
-                "skill_id": params.skill_id,
-                "started_at": params.started_at,
-                "run_phase": params.run_phase.value,
-                "tasks": [
-                    {
-                        "id": task.id,
-                        "title": task.title,
-                        "status": task.status.value,
-                    }
-                    for task in params.tasks
-                ],
-                "event_plan": event_plan,
-                "error": params.error,
-                "pending_input": params.pending_input,
-            },
+            defaults=defaults,
+            create_defaults={**defaults, "created_by_id": params.created_by_id},
         )
         if previous_run_phase != RunPhase.COMPLETED.value and params.run_phase == RunPhase.COMPLETED:
             transaction.on_commit(
@@ -80,12 +89,12 @@ def _enqueue_event_definition_sync(team_id: int, session_id: str) -> None:
 
 
 def get_session(team_id: int, session_id: str) -> WizardSessionDTO | None:
-    instance = WizardSession.objects.filter(team_id=team_id, session_id=session_id).first()
+    instance = WizardSession.objects.select_related("created_by").filter(team_id=team_id, session_id=session_id).first()
     return _to_dto(instance) if instance else None
 
 
 def get_latest_session(team_id: int, workflow_id: str, skill_id: str | None = None) -> WizardSessionDTO | None:
-    qs = WizardSession.objects.filter(team_id=team_id, workflow_id=workflow_id)
+    qs = WizardSession.objects.select_related("created_by").filter(team_id=team_id, workflow_id=workflow_id)
     if skill_id:
         qs = qs.filter(skill_id=skill_id)
     # created_at breaks ties on equal (client-supplied, second-granularity) started_at
@@ -107,7 +116,7 @@ def list_sessions(
     cost stays bounded regardless of how many sessions the team has. The view
     layer should always pass a `limit`.
     """
-    qs = WizardSession.objects.filter(team_id=team_id)
+    qs = WizardSession.objects.select_related("created_by").filter(team_id=team_id)
     if workflow_id:
         qs = qs.filter(workflow_id=workflow_id)
     if skill_id:
@@ -123,6 +132,7 @@ def list_sessions(
 
 def _to_dto(instance: WizardSession) -> WizardSessionDTO:
     run_phase = RunPhase(instance.run_phase)
+    created_by = instance.created_by
     return WizardSessionDTO(
         session_id=instance.session_id,
         team_id=instance.team_id,
@@ -142,6 +152,11 @@ def _to_dto(instance: WizardSession) -> WizardSessionDTO:
         event_plan=instance.event_plan,
         error=instance.error,
         pending_input=instance.pending_input,
+        created_by=(
+            WizardSessionUserDTO(id=created_by.id, first_name=created_by.first_name, email=created_by.email)
+            if created_by is not None
+            else None
+        ),
         created_at=instance.created_at,
         updated_at=instance.updated_at,
     )

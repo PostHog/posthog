@@ -66,6 +66,14 @@ class WizardSessionSerializer(DataclassSerializer):
 
     class Meta:
         dataclass = WizardSessionDTO
+        extra_kwargs = {
+            "created_by": {
+                "help_text": (
+                    "The user who initiated this wizard run (null for runs created before "
+                    "attribution existed). Lets the UI name whose run it is."
+                ),
+            },
+        }
 
 
 class UpsertWizardSessionRequestSerializer(DataclassSerializer):

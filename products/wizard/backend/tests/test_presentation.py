@@ -64,6 +64,15 @@ class TestWizardSessionViewSet(APIBaseTest):
 
         self.assertEqual(WizardSession.objects.unscoped().filter(team=self.team).count(), 1)
 
+    def test_create_session_attributes_run_to_authenticated_user(self):
+        response = self.client.post(self._url(), self._payload(), format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        created_by = response.json()["created_by"]
+        self.assertEqual(created_by["id"], self.user.id)
+        self.assertEqual(created_by["email"], self.user.email)
+        self.assertEqual(created_by["first_name"], self.user.first_name)
+
     def test_completed_session_requires_event_definition_write_scope(self):
         self._authenticate_personal_api_key(["wizard_session:write"])
 

@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from django.test import override_settings
 
-from posthog.models import Team
+from posthog.models import Team, User
 
 from products.event_definitions.backend.models import EventDefinition
 from products.wizard.backend.facade import api as wizard_facade
@@ -248,6 +248,23 @@ def test_upsert_with_different_session_id_creates_new_row(team):
     wizard_facade.upsert(_input(team.id, session_id="run-2"))
 
     assert len(wizard_facade.list_for_team(team.id, limit=100)) == 2
+
+
+@pytest.mark.django_db
+def test_created_by_is_set_on_create_and_not_overwritten_on_update(team, user):
+    other_user = User.objects.create(email="second-runner@posthog.com", first_name="Second")
+
+    created, _ = wizard_facade.upsert(_input(team.id, created_by_id=user.id))
+    assert created.created_by is not None
+    assert created.created_by.id == user.id
+
+    # A later push for the same run — even one carrying a different user — must not reattribute it.
+    updated, was_created = wizard_facade.upsert(
+        _input(team.id, run_phase=RunPhase.COMPLETED, created_by_id=other_user.id)
+    )
+    assert was_created is False
+    assert updated.created_by is not None
+    assert updated.created_by.id == user.id
 
 
 @pytest.mark.django_db

@@ -22,6 +22,15 @@ class WizardTaskDTO:
 
 
 @dataclass(frozen=True)
+class WizardSessionUserDTO:
+    """The person who ran the wizard, for surfaces that attribute a run to its initiator."""
+
+    id: int
+    first_name: str
+    email: str
+
+
+@dataclass(frozen=True)
 class WizardSessionDTO:
     session_id: str
     team_id: int
@@ -33,6 +42,7 @@ class WizardSessionDTO:
     event_plan: dict[str, Any] | None
     error: dict[str, Any] | None
     pending_input: dict[str, Any] | None
+    created_by: WizardSessionUserDTO | None
     created_at: datetime
     updated_at: datetime
     is_stale: bool
@@ -65,3 +75,5 @@ class UpsertWizardSessionInput:
     event_plan: dict[str, Any] | None
     error: dict[str, Any] | None
     pending_input: dict[str, Any] | None
+    # The authenticated user who posted the run; set on create only, never overwritten on update.
+    created_by_id: int | None = None
