@@ -76,12 +76,15 @@ fn extracts_debug_ids_matching_cymbal_fixtures() {
 fn discovers_and_packages_elf_files() {
     let report = discover(&fixtures_dir()).unwrap();
 
-    // The three uncompressed ELF fixtures are found and valid
+    // The four uncompressed ELF fixtures are found and valid — including the
+    // aarch64-linux-android shared object, whose chunk id must match what an
+    // Android SDK derives from a tombstone's per-frame GNU build id
     let mut debug_ids: Vec<&str> = report.files.iter().map(|f| f.debug_id.as_str()).collect();
     debug_ids.sort();
     assert_eq!(
         debug_ids,
         vec![
+            "06cc4a52-afc9-d0e7-8c56-651f8bbd4a59",
             "140ab543-c098-09dc-22b6-11f72e46d6fe",
             "7561847b-1054-7eb3-7763-4415adfaa134",
             "850c70a2-6592-a70c-3e49-c0e443794d23",
