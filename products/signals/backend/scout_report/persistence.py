@@ -271,6 +271,19 @@ def get_scout_report_title(*, team_id: int, report_id: str) -> str | None:
     return SignalReport.objects.filter(team_id=team_id, id=report_id).values_list("title", flat=True).first()
 
 
+def get_scout_report_content(*, team_id: int, report_id: str) -> tuple[str, str]:
+    """Team-scoped `(title, summary)` lookup, for the edit path's safety judge. Fail-closed like the
+    writes below: a `report_id` the team doesn't own raises rather than returning empty prose, so a
+    content edit is rejected on a bad id before it pays for the judge — and so a judged-unsafe edit
+    can't answer 200 for a report that was never there."""
+    _validate_report_id(report_id)
+    stored = SignalReport.objects.filter(team_id=team_id, id=report_id).values_list("title", "summary").first()
+    if stored is None:
+        raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+    title, summary = stored
+    return title or "", summary or ""
+
+
 def get_scout_report_status(*, team_id: int, report_id: str) -> SignalReport.Status | None:
     """Team-scoped status lookup, for the edit path's Slack-delivery gate: only a surfaced report may
     have its content pushed to a configured destination, matching emit. Returns None when the report

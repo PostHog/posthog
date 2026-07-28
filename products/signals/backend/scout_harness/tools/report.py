@@ -78,6 +78,7 @@ from products.signals.backend.scout_report import (
     ScoutReportSignal,
     append_report_note,
     create_scout_report,
+    get_scout_report_content,
     get_scout_report_status,
     get_scout_report_title,
     record_report_edit,
@@ -1201,9 +1202,21 @@ def _do_edit_report(
     # content write is dropped (the existing, already-judged prose stays); a note/reviewer-only edit
     # supplies no prose, so it skips the judge. Judged inline via `async_to_sync` like emit's sync path,
     # and outside the transaction below — an LLM call must never be made holding a write txn open.
+    #
+    # The judge sees the report's *resolved* pair, not just the half this edit supplies: an edit may
+    # rewrite the title and leave the summary standing, and it's the combination that surfaces and feeds
+    # the implementation agent — a title reading as an instruction shouldn't pass because the summary it
+    # acts on was left out of the prompt. Resolving it also rejects a bad or foreign `report_id` here,
+    # before the call is paid for: otherwise an unsafe verdict would answer 200 (suppressed) for a report
+    # that was never there, since the write that proves existence is exactly the one suppression skips.
     content_safety: SafetyJudgment | None = None
     if title is not None or summary is not None:
-        content_safety = async_to_sync(judge_report_content_safety)(team_id=team.id, title=title, summary=summary)
+        stored_title, stored_summary = get_scout_report_content(team_id=team.id, report_id=report_id)
+        content_safety = async_to_sync(judge_report_content_safety)(
+            team_id=team.id,
+            title=stored_title if title is None else title,
+            summary=stored_summary if summary is None else summary,
+        )
     content_suppressed = content_safety is not None and not content_safety.choice
 
     updated_fields: list[str] = []
@@ -1322,6 +1335,13 @@ def _validate_edit_inputs(
         raise InvalidScoutReportError(
             "edit_report needs at least one of title, summary, append_note, suggested_reviewers, charts"
         )
+    # Same caps the emit path applies, for the same reason: the prose is rendered into the safety-judge
+    # prompt, so an unbounded rewrite lets one malformed call spend (or fail) on a huge LLM request. The
+    # serializer bounds `title` but not `summary`, and callers that bypass DRF bound neither.
+    if title is not None and len(title) > MAX_REPORT_TITLE_LENGTH:
+        raise InvalidScoutReportError(f"title exceeds {MAX_REPORT_TITLE_LENGTH} chars ({len(title)})")
+    if summary is not None and len(summary) > MAX_REPORT_SUMMARY_LENGTH:
+        raise InvalidScoutReportError(f"summary exceeds {MAX_REPORT_SUMMARY_LENGTH} chars ({len(summary)})")
 
 
 async def edit_report(

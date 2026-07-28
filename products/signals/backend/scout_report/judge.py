@@ -61,11 +61,14 @@ def resolve_authored_report_status(*, safe: bool, actionability: ActionabilityCh
             raise ValueError(f"unhandled actionability choice: {actionability}")
 
 
-def _content_signal(content: str) -> SignalData:
-    """Wrap authored report prose as a `SignalData` the safety judge can evaluate directly."""
+def _report_content_signal(title: str, summary: str) -> SignalData:
+    """Wrap the authored `title` + `summary` as a `SignalData` so the safety judge evaluates the exact
+    prose that will surface (and feed autostart), not just the backing evidence. Prompt-injection can
+    land in the report body itself while the evidence descriptions look benign — this makes the judge
+    see the report text too, so an unsafe title/summary suppresses the report."""
     return SignalData(
         signal_id=str(uuid.uuid4()),
-        content=content,
+        content=f"{title}\n\n{summary}",
         source_product=SOURCE_PRODUCT,
         source_type=SOURCE_TYPE,
         source_id="report_content",
@@ -73,14 +76,6 @@ def _content_signal(content: str) -> SignalData:
         timestamp=timezone.now(),
         extra={},
     )
-
-
-def _report_content_signal(title: str, summary: str) -> SignalData:
-    """Wrap the authored `title` + `summary` as a `SignalData` so the safety judge evaluates the exact
-    prose that will surface (and feed autostart), not just the backing evidence. Prompt-injection can
-    land in the report body itself while the evidence descriptions look benign — this makes the judge
-    see the report text too, so an unsafe title/summary suppresses the report."""
-    return _content_signal(f"{title}\n\n{summary}")
 
 
 def _chart_signal(charts: Sequence[ReportChart]) -> SignalData | None:
@@ -157,17 +152,20 @@ async def judge_scout_report(
     return ScoutReportJudgement(status=status, safety=safety, actionability=actionability)
 
 
-async def judge_report_content_safety(*, team_id: int, title: str | None, summary: str | None) -> SafetyJudgment:
-    """Safety-judge the rewritten prose of an `edit_report` before it is persisted.
+async def judge_report_content_safety(*, team_id: int, title: str, summary: str) -> SafetyJudgment:
+    """Safety-judge the prose an `edit_report` would leave on the report, before it is persisted.
 
-    Unlike `judge_scout_report`, an edit carries no new backing evidence — only a rewritten title
-    and/or summary — so the judge sees exactly the text the scout is trying to persist (and that
-    would surface in the inbox and feed autostart). Callers suppress the content write, leaving the
-    existing already-judged prose in place, when the returned judgment is unsafe — keeping the safety
-    judge on every content-surfacing write the way `emit_report` already has it. Only the supplied
-    fields are judged (a `None` field is the caller declining to change it, so it's omitted)."""
-    parts = [part for part in (title, summary) if part is not None]
-    safety_response = await judge_report_safety(team_id=team_id, signals=[_content_signal("\n\n".join(parts))])
+    Unlike `judge_scout_report`, an edit carries no new backing evidence — only rewritten prose — so the
+    judge sees exactly the text that would surface in the inbox and feed autostart. Callers suppress the
+    content write, leaving the existing already-judged prose in place, when the returned judgment is
+    unsafe — keeping the safety judge on every content-surfacing write the way `emit_report` already
+    has it.
+
+    `title`/`summary` are the report's *resolved final* pair, not just the fields this edit supplies: an
+    edit may rewrite one and leave the other standing, and it is the combination a reader (and the
+    implementation agent) sees. Judging only the supplied half would let a title that reads as an
+    instruction pass because the summary it acts on isn't in the prompt."""
+    safety_response = await judge_report_safety(team_id=team_id, signals=[_report_content_signal(title, summary)])
     return SafetyJudgment(
         choice=safety_response.choice,
         explanation=safety_response.explanation if not safety_response.choice else None,

@@ -18,6 +18,8 @@ from posthog.models.organization import OrganizationMembership
 from products.signals.backend.artefact_schemas import Priority, PriorityAssessment, SuggestedReviewers, TaskRunArtefact
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalSourceConfig
 from products.signals.backend.scout_harness.tools.report import (
+    MAX_REPORT_SUMMARY_LENGTH,
+    MAX_REPORT_TITLE_LENGTH,
     MAX_SUGGESTED_REVIEWERS,
     REPORT_KIND_FINDING,
     REPORT_KIND_SELF_IMPROVEMENT,
@@ -333,12 +335,16 @@ class TestScoutReportAPI(APIBaseTest):
         ]
         assert all(c.product == "signals" and c.type == "scout" for c in contents)
 
-    def test_edit_report_fails_closed_on_cross_team_report(self) -> None:
+    @parameterized.expand([("safe_verdict", True), ("unsafe_verdict", False)])
+    def test_edit_report_fails_closed_on_cross_team_report(self, _name: str, judge_safe: bool) -> None:
+        # The unsafe verdict is the interesting half: suppression skips the content write, which is what
+        # proves the report exists for this team — so ownership has to be settled before the judge runs,
+        # or a foreign report_id answers 200 (suppressed) instead of 400.
         other_org = Organization.objects.create(name="other")
         other_team = Team.objects.create(organization=other_org, name="other")
         other_report = SignalReport.objects.create(team=other_team, status=SignalReport.Status.READY, title="theirs")
         run = _make_run(self.team)
-        with _safe_judge():
+        with _safe_judge(choice=judge_safe, explanation="" if judge_safe else "injection"):
             response = self.client.post(
                 self._edit_url(str(run.id)),
                 data={"report_id": str(other_report.id), "title": "hijacked"},
@@ -346,6 +352,46 @@ class TestScoutReportAPI(APIBaseTest):
             )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert SignalReport.objects.get(id=other_report.id).title == "theirs"
+
+    def test_edit_report_judges_the_resolved_pair_not_just_the_rewritten_field(self) -> None:
+        # A title-only rewrite still surfaces alongside the stored summary, and that pair is what a
+        # reader and the implementation agent act on — so the judge has to see both. Judging the
+        # supplied half alone lets a title that reads as an instruction through, because the summary
+        # it operates on never entered the prompt.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        with _safe_judge() as judge:
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": created["report_id"], "title": "fix(checkout): p99 still bad"},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        judged = judge.call_args.kwargs["signals"][0].content
+        assert "fix(checkout): p99 still bad" in judged
+        assert self._payload()["summary"] in judged
+
+    @parameterized.expand(
+        [
+            ("oversized_title", {"title": "x" * (MAX_REPORT_TITLE_LENGTH + 1)}),
+            ("oversized_summary", {"summary": "x" * (MAX_REPORT_SUMMARY_LENGTH + 1)}),
+        ]
+    )
+    def test_edit_report_rejects_oversized_prose_before_judging(self, _name: str, overrides: dict) -> None:
+        # The prose is rendered into the safety-judge prompt, so an unbounded rewrite would spend (or
+        # fail) a large LLM request per call — the emit path caps both fields for exactly this reason.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        with _safe_judge() as judge:
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": created["report_id"], **overrides},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        judge.assert_not_called()
 
     def _latest_artefact(self, report_id: str, artefact_type: str) -> SignalReportArtefact | None:
         return (
