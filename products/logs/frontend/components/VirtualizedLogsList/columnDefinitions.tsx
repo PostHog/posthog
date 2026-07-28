@@ -152,6 +152,8 @@ export interface ConfiguredColumnCallbacks {
     onResize?: (id: string, width: number) => void
     onRemove?: (id: string) => void
     onMove?: (id: string, direction: 'left' | 'right') => void
+    /** When set, the "Remove column" action is shown but disabled with this reason (e.g. last column). */
+    removeDisabledReason?: string
 }
 
 /** Presentation context shared by every configured column, resolved once per table render. */
@@ -184,7 +186,7 @@ function ColumnHeaderMenu({
     isFirst: boolean
     isLast: boolean
 }): JSX.Element | null {
-    const { onRemove, onMove } = callbacks
+    const { onRemove, onMove, removeDisabledReason } = callbacks
     if (!onRemove && !onMove) {
         return null
     }
@@ -212,6 +214,7 @@ function ColumnHeaderMenu({
                           label: 'Remove column',
                           icon: <IconTrash />,
                           status: 'danger' as const,
+                          disabledReason: removeDisabledReason,
                           onClick: () => onRemove(config.id),
                       }
                     : null,

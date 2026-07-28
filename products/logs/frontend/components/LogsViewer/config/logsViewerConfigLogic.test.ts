@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { FilterLogicalOperator } from '~/types'
 
+import { DEFAULT_LOGS_COLUMNS } from './columns'
 import { LogsViewerGroupBy, logsViewerConfigLogic } from './logsViewerConfigLogic'
 import { LogsViewerFilters } from './types'
 
@@ -99,6 +100,30 @@ describe('logsViewerConfigLogic', () => {
 
             logic.actions.replaceGroupByAt(0, dim('b'))
             expect(logic.values.groupBys.map((d) => d.key)).toEqual(['c', 'b'])
+        })
+    })
+
+    describe('columns', () => {
+        // The persisted `columns` list has no in-table control to re-add built-in columns for
+        // most users (the configurator is flagged off), so an empty table is an unrecoverable
+        // dead-end. The reducer guard and the mount-time heal are what prevent/repair that.
+        it('keeps the last column rather than emptying the table', () => {
+            logic.actions.setColumns([{ id: 'only', type: 'timestamp' }])
+            logic.actions.removeColumn('only')
+            expect(logic.values.columns.map((c) => c.id)).toEqual(['only'])
+        })
+
+        it('restores defaults on mount when the persisted column list is empty', () => {
+            const emptyLogic = logsViewerConfigLogic({ id: 'empty-columns-tab' })
+            emptyLogic.mount()
+            emptyLogic.actions.setColumns([])
+            expect(emptyLogic.values.columns).toEqual([])
+            emptyLogic.unmount()
+
+            const remounted = logsViewerConfigLogic({ id: 'empty-columns-tab' })
+            remounted.mount()
+            expect(remounted.values.columns).toEqual(DEFAULT_LOGS_COLUMNS)
+            remounted.unmount()
         })
     })
 

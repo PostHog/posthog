@@ -262,7 +262,13 @@ export const logsViewerConfigLogic = kea<logsViewerConfigLogicType>([
             {
                 setColumns: (_, { columns }) => normalizeColumns(columns),
                 addColumn: (state, { column }) => normalizeColumns([...state, column]),
-                removeColumn: (state, { id }) => state.filter((column) => column.id !== id),
+                // Never let the table be stripped to zero columns: `columns` is persisted, so an
+                // empty table sticks across reloads, and the only control that re-adds built-in
+                // columns (the configurator) is feature-flagged off for most users.
+                removeColumn: (state, { id }) => {
+                    const next = state.filter((column) => column.id !== id)
+                    return next.length > 0 ? next : state
+                },
                 setColumnWidth: (state, { id, width }) =>
                     state.map((column) => (column.id === id ? { ...column, width } : column)),
                 moveColumn: (state, { id, direction }) => {
@@ -314,6 +320,12 @@ export const logsViewerConfigLogic = kea<logsViewerConfigLogicType>([
     }),
 
     afterMount(({ actions, props, values }) => {
+        // Recover users who already persisted an empty column list before the removeColumn guard
+        // existed — an empty table has no in-table control to re-add columns, so restore defaults.
+        if (values.columns.length === 0) {
+            actions.setColumns(DEFAULT_LOGS_COLUMNS)
+        }
+
         // One-time migration of the legacy per-attribute column config, which lived (persisted)
         // on logsViewerLogic before the unified column model. Only runs while `columns` is
         // pristine, and removes the legacy key so a later reset-to-default cannot re-migrate.

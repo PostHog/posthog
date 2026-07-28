@@ -11,6 +11,7 @@ import { pngHoggie } from 'lib/brand/hoggies'
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { SizeProps } from 'lib/components/AutoSizer/AutoSizer'
 import { TZLabelProps } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { isPinnedColumn } from 'products/logs/frontend/components/LogsViewer/config/columns'
 import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
@@ -181,6 +182,10 @@ export function VirtualizedLogsList({
     } = useActions(logsViewerLogic)
     const { openLogDetails } = useActions(logDetailsModalLogic)
 
+    // Removing a column is only offered where users can re-add one: the configurator is gated
+    // behind this flag, so without it the "Remove column" action would be a one-way dead-end.
+    const canConfigureColumns = useFeatureFlag('LOGS_COLUMN_CONFIGURATION')
+
     const containerRef = useRef<HTMLDivElement>(null)
 
     const { shouldLoadMore } = useValues(virtualizedLogsListLogic({ id }))
@@ -215,13 +220,19 @@ export function VirtualizedLogsList({
         const rendering = { tzLabelFormat, orderBy, onChangeOrderBy, wrapBody, prettifyJson, flexWidthRef }
         // Move bounds range over movable columns only — pinned columns sort last and never swap
         const movable = columnConfigs.filter((config) => !isPinnedColumn(config))
+        const callbacks = {
+            onResize: setColumnWidth,
+            onMove: moveColumn,
+            onRemove: canConfigureColumns ? removeColumn : undefined,
+            removeDisabledReason: columnConfigs.length <= 1 ? "Can't remove the last column" : undefined,
+        }
         return [
             createControlsColumn({ dataSourceRef }),
             ...columnConfigs.map((config) =>
                 createConfiguredColumn({
                     config,
                     alias: aliasById.get(config.id),
-                    callbacks: { onResize: setColumnWidth, onRemove: removeColumn, onMove: moveColumn },
+                    callbacks,
                     rendering,
                     isFirst: config === movable[0],
                     isLast: config === movable[movable.length - 1],
@@ -237,6 +248,7 @@ export function VirtualizedLogsList({
         setColumnWidth,
         removeColumn,
         moveColumn,
+        canConfigureColumns,
         wrapBody,
         prettifyJson,
     ])
