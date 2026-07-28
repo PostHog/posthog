@@ -492,8 +492,8 @@ tools:
         title: Create prompt
         description: >
             Create a new LLM prompt for the current team. Requires a unique name and prompt content (string or JSON
-            object). Optionally pass 'config', a JSON object with model parameters or any agent configuration
-            (e.g. model, temperature, tools) — it is versioned with the prompt and returned as-is when fetching it.
+            object). Optionally pass 'config', a JSON object with model parameters or any agent configuration (e.g.
+            model, temperature, tools) — it is versioned with the prompt and returned as-is when fetching it.
         include_params:
             - name
             - prompt
