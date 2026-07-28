@@ -46,6 +46,7 @@ def _to_dto(bet: Bet) -> contracts.BetDTO:
         execution_mode=ExecutionMode(bet.execution_mode),
         run_config=bet.run_config,
         memory_repo_url=bet.memory_repo_url,
+        gate_config=bet.gate_config,
         feature_flag_id=bet.feature_flag_id,
         feature_flag_key=bet.feature_flag.key if bet.feature_flag else None,
         experiment_id=bet.experiment_id,
@@ -107,6 +108,7 @@ def create_bet(input: contracts.CreateBetInput, *, user: User | None = None) -> 
             execution_mode=input.execution_mode,
             run_config=input.run_config,
             memory_repo_url=input.memory_repo_url,
+            gate_config=input.gate_config,
         )
         return _to_dto(bet)
 

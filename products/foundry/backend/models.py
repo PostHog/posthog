@@ -62,6 +62,14 @@ class Bet(TeamScopedRootMixin):
         blank=True,
         help_text="Git-backed memory repo (e.g. Gitea) cloned into managed nodes' sandboxes at a conventional path.",
     )
+    gate_config = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            "The gauntlet's constraint battery: {checks: [{name, check_type, required, params}], "
+            "protected_paths: [...], artifact: {template}}. Owned outside the builder's reach."
+        ),
+    )
     feature_flag = models.ForeignKey(
         "feature_flags.FeatureFlag",
         null=True,

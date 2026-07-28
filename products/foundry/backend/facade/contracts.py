@@ -37,6 +37,7 @@ class BetDTO:
     execution_mode: ExecutionMode
     run_config: dict[str, Any]
     memory_repo_url: str | None
+    gate_config: dict[str, Any]
     feature_flag_id: int | None
     feature_flag_key: str | None
     experiment_id: int | None
@@ -86,3 +87,4 @@ class CreateBetInput:
     execution_mode: ExecutionMode = ExecutionMode.EXTERNAL
     run_config: dict[str, Any] = field(default_factory=dict)
     memory_repo_url: str | None = None
+    gate_config: dict[str, Any] = field(default_factory=dict)

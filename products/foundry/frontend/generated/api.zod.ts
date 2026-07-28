@@ -16,6 +16,8 @@ export const betsCreateBodySlugMax = 200
 
 export const betsCreateBodySlugRegExp = new RegExp('^[-a-zA-Z0-9_]+$')
 export const betsCreateBodyExecutionModeDefault = `external`
+export const betsCreateBodyGateConfigOneChecksItemRequiredDefault = true
+export const betsCreateBodyGateConfigOneArtifactOneTemplateDefault = `slim_base`
 
 export const BetsCreateBody = /* @__PURE__ */ zod.object({
     slug: zod
@@ -87,6 +89,63 @@ export const BetsCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .nullish()
         .describe("Git-backed memory repo cloned into managed nodes' sandboxes at a conventional path."),
+    gate_config: zod
+        .object({
+            checks: zod
+                .array(
+                    zod.object({
+                        name: zod
+                            .string()
+                            .describe('Short identifier for this check, shown in the gate card breakdown.'),
+                        check_type: zod
+                            .enum(['command', 'coverage', 'mutation', 'flag_guard', 'reviewhog'])
+                            .describe(
+                                '\* `command` - command\n\* `coverage` - coverage\n\* `mutation` - mutation\n\* `flag_guard` - flag_guard\n\* `reviewhog` - reviewhog'
+                            )
+                            .describe(
+                                "One of 'command', 'coverage', 'mutation', 'flag_guard', 'reviewhog'.\n\n\* `command` - command\n\* `coverage` - coverage\n\* `mutation` - mutation\n\* `flag_guard` - flag_guard\n\* `reviewhog` - reviewhog"
+                            ),
+                        required: zod
+                            .boolean()
+                            .default(betsCreateBodyGateConfigOneChecksItemRequiredDefault)
+                            .describe(
+                                "Required checks must pass for the gate to pass; a failing optional check is recorded in the breakdown but doesn't block gating."
+                            ),
+                        params: zod
+                            .record(zod.string(), zod.unknown())
+                            .optional()
+                            .describe(
+                                'Type-specific parameters; shape depends on check_type (see the per-type params serializers).'
+                            ),
+                    })
+                )
+                .optional()
+                .describe(
+                    'The constraint battery run against the artifact diff. Empty means no automatic gauntlet run.'
+                ),
+            protected_paths: zod
+                .array(zod.string())
+                .optional()
+                .describe(
+                    "Path prefixes the builder may never touch (e.g. the test-writer's acceptance tests). Non-empty implicitly adds an always-on, always-required 'protected_paths' check to the gate.result breakdown."
+                ),
+            artifact: zod
+                .object({
+                    template: zod
+                        .enum(['default_base', 'notebook_base', 'pi_base', 'vm_base', 'streamlit_base', 'slim_base'])
+                        .describe(
+                            '\* `default_base` - default_base\n\* `notebook_base` - notebook_base\n\* `pi_base` - pi_base\n\* `vm_base` - vm_base\n\* `streamlit_base` - streamlit_base\n\* `slim_base` - slim_base'
+                        )
+                        .default(betsCreateBodyGateConfigOneArtifactOneTemplateDefault)
+                        .describe(
+                            'Sandbox template the gauntlet checks out the artifact and runs its checks in.\n\n\* `default_base` - default_base\n\* `notebook_base` - notebook_base\n\* `pi_base` - pi_base\n\* `vm_base` - vm_base\n\* `streamlit_base` - streamlit_base\n\* `slim_base` - slim_base'
+                        ),
+                })
+                .optional()
+                .describe('Sandbox config the gauntlet provisions to run checks in.'),
+        })
+        .optional()
+        .describe("The gauntlet's constraint battery: checks, protected_paths, and artifact sandbox config."),
 })
 
 /**
@@ -118,7 +177,7 @@ export const BetsEventsCreateBody = /* @__PURE__ */ zod.object({
         .record(zod.string(), zod.unknown())
         .optional()
         .describe(
-            "Event payload. For 'gate.result': {pass: bool, violations: [{code, message, severity}]}. Node\/knowledge kinds (node.spawned, node.finished, node.failed, budget.exceeded, knowledge.published) are validated against a typed shape."
+            "Event payload. For 'gate.result': {pass: bool, violations: [{code, message, severity}]}. Node\/knowledge\/artifact kinds (node.spawned, node.finished, node.failed, budget.exceeded, knowledge.published, artifact.ready) are validated against a typed shape."
         ),
 })
 

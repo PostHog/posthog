@@ -61,6 +61,85 @@ export const ExecutionModeEnumApi = {
 } as const
 
 /**
+ * * `command` - command
+ * * `coverage` - coverage
+ * * `mutation` - mutation
+ * * `flag_guard` - flag_guard
+ * * `reviewhog` - reviewhog
+ */
+export type CheckTypeEnumApi = (typeof CheckTypeEnumApi)[keyof typeof CheckTypeEnumApi]
+
+export const CheckTypeEnumApi = {
+    Command: 'command',
+    Coverage: 'coverage',
+    Mutation: 'mutation',
+    FlagGuard: 'flag_guard',
+    Reviewhog: 'reviewhog',
+} as const
+
+/**
+ * Type-specific parameters; shape depends on check_type (see the per-type params serializers).
+ */
+export type GateCheckApiParams = { [key: string]: unknown }
+
+export interface GateCheckApi {
+    /** Short identifier for this check, shown in the gate card breakdown. */
+    name: string
+    /** One of 'command', 'coverage', 'mutation', 'flag_guard', 'reviewhog'.
+     *
+     * * `command` - command
+     * * `coverage` - coverage
+     * * `mutation` - mutation
+     * * `flag_guard` - flag_guard
+     * * `reviewhog` - reviewhog */
+    check_type: CheckTypeEnumApi
+    /** Required checks must pass for the gate to pass; a failing optional check is recorded in the breakdown but doesn't block gating. */
+    required?: boolean
+    /** Type-specific parameters; shape depends on check_type (see the per-type params serializers). */
+    params?: GateCheckApiParams
+}
+
+/**
+ * * `default_base` - default_base
+ * * `notebook_base` - notebook_base
+ * * `pi_base` - pi_base
+ * * `vm_base` - vm_base
+ * * `streamlit_base` - streamlit_base
+ * * `slim_base` - slim_base
+ */
+export type TemplateEnumApi = (typeof TemplateEnumApi)[keyof typeof TemplateEnumApi]
+
+export const TemplateEnumApi = {
+    DefaultBase: 'default_base',
+    NotebookBase: 'notebook_base',
+    PiBase: 'pi_base',
+    VmBase: 'vm_base',
+    StreamlitBase: 'streamlit_base',
+    SlimBase: 'slim_base',
+} as const
+
+export interface GateArtifactConfigApi {
+    /** Sandbox template the gauntlet checks out the artifact and runs its checks in.
+     *
+     * * `default_base` - default_base
+     * * `notebook_base` - notebook_base
+     * * `pi_base` - pi_base
+     * * `vm_base` - vm_base
+     * * `streamlit_base` - streamlit_base
+     * * `slim_base` - slim_base */
+    template?: TemplateEnumApi
+}
+
+export interface GateConfigApi {
+    /** The constraint battery run against the artifact diff. Empty means no automatic gauntlet run. */
+    checks?: GateCheckApi[]
+    /** Path prefixes the builder may never touch (e.g. the test-writer's acceptance tests). Non-empty implicitly adds an always-on, always-required 'protected_paths' check to the gate.result breakdown. */
+    protected_paths?: string[]
+    /** Sandbox config the gauntlet provisions to run checks in. */
+    artifact?: GateArtifactConfigApi
+}
+
+/**
  * * `drafted` - DRAFTED
  * * `funded` - FUNDED
  * * `building` - BUILDING
@@ -115,6 +194,8 @@ export interface BetDTOApi {
      * @nullable
      */
     memory_repo_url?: string | null
+    /** The gauntlet's constraint battery: checks, protected_paths, and artifact sandbox config. */
+    gate_config: GateConfigApi
     id: string
     slug: string
     hypothesis: string
@@ -181,6 +262,8 @@ export interface CreateBetApi {
      * @nullable
      */
     memory_repo_url?: string | null
+    /** The gauntlet's constraint battery: checks, protected_paths, and artifact sandbox config. */
+    gate_config?: GateConfigApi
 }
 
 /**
@@ -231,7 +314,7 @@ export interface BetEventDTOApi {
 }
 
 /**
- * Event payload. For 'gate.result': {pass: bool, violations: [{code, message, severity}]}. Node/knowledge kinds (node.spawned, node.finished, node.failed, budget.exceeded, knowledge.published) are validated against a typed shape.
+ * Event payload. For 'gate.result': {pass: bool, violations: [{code, message, severity}]}. Node/knowledge/artifact kinds (node.spawned, node.finished, node.failed, budget.exceeded, knowledge.published, artifact.ready) are validated against a typed shape.
  */
 export type CreateBetEventApiPayload = { [key: string]: unknown }
 
@@ -282,7 +365,7 @@ export interface CreateBetEventApi {
      * * `knowledge.published` - knowledge.published
      * * `note` - note */
     kind: CreateBetEventKindEnumApi
-    /** Event payload. For 'gate.result': {pass: bool, violations: [{code, message, severity}]}. Node/knowledge kinds (node.spawned, node.finished, node.failed, budget.exceeded, knowledge.published) are validated against a typed shape. */
+    /** Event payload. For 'gate.result': {pass: bool, violations: [{code, message, severity}]}. Node/knowledge/artifact kinds (node.spawned, node.finished, node.failed, budget.exceeded, knowledge.published, artifact.ready) are validated against a typed shape. */
     payload?: CreateBetEventApiPayload
 }
 

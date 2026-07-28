@@ -113,6 +113,19 @@ class FoundryNodeWorkflow(PostHogWorkflow):
                     "title": knowledge.get("title", ""),
                 },
             )
+        # New field on RunNodeOutput, defaults to [] — see workflow-versioning rule: this loop
+        # never executes on replay of a history recorded before artifact_ready_events existed.
+        for artifact in result.artifact_ready_events:
+            await _record(
+                input,
+                "artifact.ready",
+                {
+                    "repo_url": artifact.get("repo_url", ""),
+                    "ref": artifact.get("ref", ""),
+                    "base_ref": artifact.get("base_ref", ""),
+                    "pr_url": artifact.get("pr_url"),
+                },
+            )
 
         finished_kind = "node.finished" if result.exit_code == 0 else "node.failed"
         await _record(

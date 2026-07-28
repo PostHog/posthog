@@ -12632,6 +12632,87 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `command` - command
+     * * `coverage` - coverage
+     * * `mutation` - mutation
+     * * `flag_guard` - flag_guard
+     * * `reviewhog` - reviewhog
+     */
+    export type CheckTypeEnum = typeof CheckTypeEnum[keyof typeof CheckTypeEnum];
+
+
+    export const CheckTypeEnum = {
+      Command: 'command',
+      Coverage: 'coverage',
+      Mutation: 'mutation',
+      FlagGuard: 'flag_guard',
+      Reviewhog: 'reviewhog',
+    } as const;
+
+    /**
+     * Type-specific parameters; shape depends on check_type (see the per-type params serializers).
+     */
+    export type GateCheckParams = { [key: string]: unknown };
+
+    export interface GateCheck {
+      /** Short identifier for this check, shown in the gate card breakdown. */
+      name: string;
+      /** One of 'command', 'coverage', 'mutation', 'flag_guard', 'reviewhog'.
+       *
+       * * `command` - command
+       * * `coverage` - coverage
+       * * `mutation` - mutation
+       * * `flag_guard` - flag_guard
+       * * `reviewhog` - reviewhog */
+      check_type: CheckTypeEnum;
+      /** Required checks must pass for the gate to pass; a failing optional check is recorded in the breakdown but doesn't block gating. */
+      required?: boolean;
+      /** Type-specific parameters; shape depends on check_type (see the per-type params serializers). */
+      params?: GateCheckParams;
+    }
+
+    /**
+     * * `default_base` - default_base
+     * * `notebook_base` - notebook_base
+     * * `pi_base` - pi_base
+     * * `vm_base` - vm_base
+     * * `streamlit_base` - streamlit_base
+     * * `slim_base` - slim_base
+     */
+    export type TemplateEnum = typeof TemplateEnum[keyof typeof TemplateEnum];
+
+
+    export const TemplateEnum = {
+      DefaultBase: 'default_base',
+      NotebookBase: 'notebook_base',
+      PiBase: 'pi_base',
+      VmBase: 'vm_base',
+      StreamlitBase: 'streamlit_base',
+      SlimBase: 'slim_base',
+    } as const;
+
+    export interface GateArtifactConfig {
+      /** Sandbox template the gauntlet checks out the artifact and runs its checks in.
+       *
+       * * `default_base` - default_base
+       * * `notebook_base` - notebook_base
+       * * `pi_base` - pi_base
+       * * `vm_base` - vm_base
+       * * `streamlit_base` - streamlit_base
+       * * `slim_base` - slim_base */
+      template?: TemplateEnum;
+    }
+
+    export interface GateConfig {
+      /** The constraint battery run against the artifact diff. Empty means no automatic gauntlet run. */
+      checks?: GateCheck[];
+      /** Path prefixes the builder may never touch (e.g. the test-writer's acceptance tests). Non-empty implicitly adds an always-on, always-required 'protected_paths' check to the gate.result breakdown. */
+      protected_paths?: string[];
+      /** Sandbox config the gauntlet provisions to run checks in. */
+      artifact?: GateArtifactConfig;
+    }
+
+    /**
      * * `drafted` - DRAFTED
      * * `funded` - FUNDED
      * * `building` - BUILDING
@@ -12688,6 +12769,8 @@ export namespace Schemas {
          * @nullable
          */
       memory_repo_url?: string | null;
+      /** The gauntlet's constraint battery: checks, protected_paths, and artifact sandbox config. */
+      gate_config: GateConfig;
       id: string;
       slug: string;
       hypothesis: string;
@@ -15893,10 +15976,12 @@ export namespace Schemas {
          * @nullable
          */
       memory_repo_url?: string | null;
+      /** The gauntlet's constraint battery: checks, protected_paths, and artifact sandbox config. */
+      gate_config?: GateConfig;
     }
 
     /**
-     * Event payload. For 'gate.result': {pass: bool, violations: [{code, message, severity}]}. Node/knowledge kinds (node.spawned, node.finished, node.failed, budget.exceeded, knowledge.published) are validated against a typed shape.
+     * Event payload. For 'gate.result': {pass: bool, violations: [{code, message, severity}]}. Node/knowledge/artifact kinds (node.spawned, node.finished, node.failed, budget.exceeded, knowledge.published, artifact.ready) are validated against a typed shape.
      */
     export type CreateBetEventPayload = { [key: string]: unknown };
 
@@ -15948,7 +16033,7 @@ export namespace Schemas {
        * * `knowledge.published` - knowledge.published
        * * `note` - note */
       kind: CreateBetEventKindEnum;
-      /** Event payload. For 'gate.result': {pass: bool, violations: [{code, message, severity}]}. Node/knowledge kinds (node.spawned, node.finished, node.failed, budget.exceeded, knowledge.published) are validated against a typed shape. */
+      /** Event payload. For 'gate.result': {pass: bool, violations: [{code, message, severity}]}. Node/knowledge/artifact kinds (node.spawned, node.finished, node.failed, budget.exceeded, knowledge.published, artifact.ready) are validated against a typed shape. */
       payload?: CreateBetEventPayload;
     }
 

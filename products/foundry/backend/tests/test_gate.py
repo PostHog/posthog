@@ -6,8 +6,13 @@ from products.foundry.backend.facade.contracts import CreateBetInput
 from products.foundry.backend.facade.enums import BetEventKind, BetState
 from products.review_hog.backend.facade.contracts import ReviewReportStatus, ReviewViolation, TriggerReviewResult
 
+# A bet with no gate_config.checks has nothing for the automatic hook to run (ADR-4) — these
+# tests exercise the reviewhog check type specifically, so every bet here declares one.
+_REVIEWHOG_GATE_CONFIG = {"checks": [{"name": "review", "check_type": "reviewhog"}]}
+
 
 def _bet_in_building(team, user, **create_kwargs):
+    create_kwargs.setdefault("gate_config", _REVIEWHOG_GATE_CONFIG)
     bet = api.create_bet(
         CreateBetInput(
             team_id=team.id,
@@ -43,9 +48,34 @@ class TestReviewHogGate:
         api.record_event(team.id, bet.id, BetEventKind.GATE_RESULT, {"pass": True, "violations": []}, user=user)
         assert api.get_bet(team.id, bet.id).state == BetState.GATED
 
-    def test_flag_on_but_no_pr_url_skips_gracefully(self, team, user, django_capture_on_commit_callbacks):
+    def test_flag_on_but_no_checks_configured_leaves_bet_building_for_manual_gate(
+        self, team, user, django_capture_on_commit_callbacks
+    ):
+        """The flag alone isn't enough — a bet with an empty gate_config has nothing for the
+        automatic hook to run, so it must not attempt to start a gate workflow at all."""
         with (
             patch("products.foundry.backend.logic.gate.reviewhog_gate_enabled", return_value=True),
+            patch("products.foundry.backend.temporal.gate_client.execute_foundry_run_gate_workflow") as mock_execute,
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            bet = _bet_in_building(team, user, gate_config={})
+            api.record_event(team.id, bet.id, BetEventKind.RUN_FINISHED, {}, user=user)
+
+        mock_execute.assert_not_called()
+        assert api.get_bet(team.id, bet.id).state == BetState.BUILDING
+        kinds = [e.kind for e in api.list_events(team.id, bet.id)]
+        assert BetEventKind.GATE_RESULT not in kinds
+
+    def test_flag_on_but_no_pr_url_skips_gracefully(self, team, user, django_capture_on_commit_callbacks):
+        # No live Temporal server in this test process — force the no-Temporal degradation
+        # path (ADR-4 acceptance criterion 8) so this exercises the same ReviewHog-only
+        # Celery fallback iteration 2 shipped.
+        with (
+            patch("products.foundry.backend.logic.gate.reviewhog_gate_enabled", return_value=True),
+            patch(
+                "products.foundry.backend.temporal.gate_client.execute_foundry_run_gate_workflow",
+                side_effect=RuntimeError("no Temporal server reachable"),
+            ),
             django_capture_on_commit_callbacks(execute=True),
         ):
             bet = _bet_in_building(team, user)
@@ -61,6 +91,10 @@ class TestReviewHogGate:
         with (
             patch("products.foundry.backend.logic.gate.reviewhog_gate_enabled", return_value=True),
             patch("products.review_hog.backend.facade.api.is_review_available_for_team", return_value=False),
+            patch(
+                "products.foundry.backend.temporal.gate_client.execute_foundry_run_gate_workflow",
+                side_effect=RuntimeError("no Temporal server reachable"),
+            ),
             django_capture_on_commit_callbacks(execute=True),
         ):
             bet = _bet_in_building(team, user)
@@ -90,6 +124,10 @@ class TestReviewHogGate:
                     in_progress=False,
                     violations=[ReviewViolation(code="bug", message="off-by-one", severity="must_fix")],
                 ),
+            ),
+            patch(
+                "products.foundry.backend.temporal.gate_client.execute_foundry_run_gate_workflow",
+                side_effect=RuntimeError("no Temporal server reachable"),
             ),
             django_capture_on_commit_callbacks(execute=True),
         ):

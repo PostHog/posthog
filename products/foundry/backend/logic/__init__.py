@@ -71,6 +71,7 @@ def create_bet(
     execution_mode: ExecutionMode = ExecutionMode.EXTERNAL,
     run_config: dict[str, Any] | None = None,
     memory_repo_url: str | None = None,
+    gate_config: dict[str, Any] | None = None,
 ) -> Bet:
     return Bet.objects.create(
         team=team,
@@ -86,6 +87,7 @@ def create_bet(
         execution_mode=execution_mode,
         run_config=run_config or {},
         memory_repo_url=memory_repo_url,
+        gate_config=gate_config or {},
     )
 
 
@@ -177,7 +179,8 @@ def apply_event(bet: Bet, kind: BetEventKind, payload: dict[str, Any], user: Use
             upsert_node_from_event(bet, kind, payload)
 
         if state == BetState.BUILDING and kind in (BetEventKind.RUN_FINISHED, BetEventKind.ARTIFACT_READY):
-            gate_logic.maybe_schedule_gate(bet, payload.get("pr_url"))
+            artifact = payload if kind == BetEventKind.ARTIFACT_READY else {"pr_url": payload.get("pr_url")}
+            gate_logic.maybe_schedule_gate(bet, artifact)
     return event
 
 

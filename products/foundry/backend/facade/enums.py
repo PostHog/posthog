@@ -59,3 +59,22 @@ class BetEventKind(StrEnum):
 
 # Kinds external writers may POST; STATE_CHANGED is reserved for the state machine.
 EXTERNAL_EVENT_KINDS: tuple[BetEventKind, ...] = tuple(k for k in BetEventKind if k != BetEventKind.STATE_CHANGED)
+
+
+class GateCheckType(StrEnum):
+    """Declarable check types in ``gate_config.checks``.
+
+    ``protected_paths`` is deliberately absent: it's implicit and always-on whenever
+    ``gate_config.protected_paths`` is non-empty, driven by that top-level field rather than
+    a declared check (see ``logic/gauntlet.py``)."""
+
+    COMMAND = "command"
+    COVERAGE = "coverage"
+    MUTATION = "mutation"
+    FLAG_GUARD = "flag_guard"
+    REVIEWHOG = "reviewhog"
+
+
+# Synthetic check_type used for the implicit protected-paths check in gate.result's ``checks``
+# breakdown — never a valid value for a declared check in gate_config.checks (see GateCheckType).
+PROTECTED_PATHS_CHECK_TYPE = "protected_paths"

@@ -52,6 +52,10 @@ class RunNodeOutput:
     knowledge_events: list[dict[str, Any]]
     notes: list[str]
     sandbox_external_id: str
+    # Defaults to [] so old recorded activity results (from before this field existed) decode
+    # cleanly on replay — see the workflow-versioning rule: a new workflow command gated on a
+    # new defaulted output field never fires while replaying an old history.
+    artifact_ready_events: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _resolve_sandbox_backend() -> str:
@@ -119,6 +123,7 @@ def run_node_activity(input: RunNodeInput) -> RunNodeOutput:
     events = _parse_foundry_events(result.stdout)
     spawn_requests = [e for e in events if e.get("type") == "spawn_child"]
     knowledge_events = [e for e in events if e.get("type") == "knowledge_published"]
+    artifact_ready_events = [e for e in events if e.get("type") == "artifact_ready"]
     notes.extend(str(e.get("message", "")) for e in events if e.get("type") == "note")
 
     return RunNodeOutput(
@@ -127,6 +132,7 @@ def run_node_activity(input: RunNodeInput) -> RunNodeOutput:
         knowledge_events=knowledge_events,
         notes=notes,
         sandbox_external_id=sandbox.id,
+        artifact_ready_events=artifact_ready_events,
     )
 
 
