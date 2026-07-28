@@ -5,7 +5,7 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { logger } from '~/common/utils/logger'
 import { IngestionConsumerConfig } from '~/ingestion/config'
 import { BatchResult, FeedResult } from '~/ingestion/framework/batching-pipeline'
-import { createOkContext } from '~/ingestion/framework/helpers'
+import { createKafkaDebugContext, createOkContext } from '~/ingestion/framework/helpers'
 import { OkResultWithContext } from '~/ingestion/framework/pipeline.interface'
 import { HealthCheckResult, PluginServerService } from '~/types'
 
@@ -144,7 +144,9 @@ class KafkaBatchHandler {
             this.logBatchStart(messages)
         }
 
-        const batch = messages.map((message) => createOkContext({ message }, { message }))
+        const batch = messages.map((message) =>
+            createOkContext({ message }, { message, debugContext: createKafkaDebugContext(message) })
+        )
 
         const feedResult = await this.pipeline.feed(batch)
         if (!feedResult.ok) {
