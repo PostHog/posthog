@@ -5,6 +5,11 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
+// Keep this a static import so the module graph resolves while the test file is loading. Deferring
+// it to a require() inside the render path charges roughly a second of module resolution to
+// whichever test renders first, and that second is spent inside Jest's 5s per-test timeout instead
+// of outside it, which leaves chart suites without enough headroom on a contended CI runner.
+import { InsightViz } from '~/queries/nodes/InsightViz/InsightViz'
 import { FunnelsQuery, InsightVizNode, NodeKind, StickinessQuery, TrendsQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { FunnelVizType } from '~/types'
@@ -110,11 +115,6 @@ function InsightWrapper({
         showHeader: showFilters,
         full: showFilters,
     })
-
-    // Dynamic require to break a circular-dependency cycle that causes Jest to fail
-    // with static imports. Node's module cache means this is only resolved once.
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { InsightViz } = require('~/queries/nodes/InsightViz/InsightViz')
 
     return (
         <InsightViz
