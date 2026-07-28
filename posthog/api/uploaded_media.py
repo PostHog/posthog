@@ -27,7 +27,20 @@ FOUR_MEGABYTES = 4 * 1024 * 1024
 # Non-image content types accepted by the upload endpoint. These are never
 # rendered inline — download() serves them as forced downloads — so they can be
 # attached to support tickets without the stored-XSS risk that HTML/SVG carry.
-_UPLOADABLE_DOCUMENT_CONTENT_TYPES = frozenset({"application/pdf"})
+# This is a deliberate safe allowlist, not an open door: executables, scripts,
+# HTML, and SVG stay blocked because they are the types that turn a download
+# into a foot-gun. PDFs are byte-checked; the plain-text types cannot be
+# meaningfully sniffed and don't need to be, since they only ever download.
+_UPLOADABLE_DOCUMENT_CONTENT_TYPES = frozenset(
+    {
+        "application/pdf",
+        "text/plain",
+        "text/markdown",
+        "text/x-markdown",
+        "text/csv",
+        "application/csv",
+    }
+)
 
 # Content types safe to render inline in a browser when served from the
 # unauthenticated /uploaded_media endpoint. Anything outside this set is
@@ -181,7 +194,7 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description="""
     When object storage is available this API allows upload of media which can be used, for example, in text cards on dashboards or as attachments on support tickets.
 
-    Uploaded media must be less than 4MB and either an image (content type beginning with 'image/') or a PDF ('application/pdf').
+    Uploaded media must be less than 4MB and one of a safe allowlist: an image (content type beginning with 'image/'), a PDF, or a plain-text document ('text/plain', 'text/markdown', 'text/csv'). Non-image types are always served as downloads.
     """,
         responses={201: OpenApiTypes.OBJECT},
     )
@@ -212,11 +225,14 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             if uploaded_media.media_location is None:
                 raise APIException("Could not read uploaded media")
             bytes_to_verify = object_storage.read_bytes(uploaded_media.media_location)
-            is_valid = (
-                validate_image_file(bytes_to_verify, user=request.user.id)
-                if is_image
-                else validate_pdf_file(bytes_to_verify)
-            )
+            if is_image:
+                is_valid = validate_image_file(bytes_to_verify, user=request.user.id)
+            elif content_type == "application/pdf":
+                is_valid = validate_pdf_file(bytes_to_verify)
+            else:
+                # Remaining allowlisted types are plain text, served only as forced
+                # downloads, so there's nothing to sniff or spoof into something unsafe.
+                is_valid = True
             if not is_valid:
                 statsd.incr(
                     "uploaded_media.image_failed_validation",

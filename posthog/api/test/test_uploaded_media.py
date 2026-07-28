@@ -140,6 +140,53 @@ class TestMediaAPI(APIBaseTest):
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
             assert UploadedMedia.objects.count() == 0
 
+    @parameterized.expand(
+        [
+            ("plain_text", "notes.txt", "text/plain"),
+            ("markdown", "README.md", "text/markdown"),
+            ("csv", "export.csv", "text/csv"),
+        ]
+    )
+    def test_accepts_safe_text_types_and_serves_them_as_downloads(
+        self, _name: str, file_name: str, content_type: str
+    ) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            text_file = SimpleUploadedFile(name=file_name, content=b"col_a,col_b\n1,2\n", content_type=content_type)
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/uploaded_media",
+                {"image": text_file},
+                format="multipart",
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+            media_location = response.json()["image_location"]
+
+            self.client.logout()
+            download_response = self.client.get(media_location)
+
+        assert download_response.status_code == status.HTTP_200_OK
+        assert download_response.headers["Content-Type"].startswith("application/octet-stream")
+        assert download_response.headers.get("Content-Disposition", "").startswith("attachment")
+
+    @parameterized.expand(
+        [
+            ("html", "text/html"),
+            ("xml", "application/xml"),
+            ("executable", "application/x-msdownload"),
+            ("javascript", "application/javascript"),
+        ]
+    )
+    def test_rejects_types_outside_the_safe_allowlist(self, _name: str, content_type: str) -> None:
+        # The allowlist is the point: types that turn a download into a foot-gun stay blocked.
+        # (SVG is image/* so it goes through the stricter image validator instead.)
+        harmful = SimpleUploadedFile(name="payload", content=b"whatever", content_type=content_type)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/uploaded_media",
+            {"image": harmful},
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, response.json())
+        assert UploadedMedia.objects.count() == 0
+
     def test_made_up_id_is_404(self) -> None:
         response = self.client.get(f"/uploaded_media/{UUIDT()}")
         assert response.status_code == status.HTTP_404_NOT_FOUND

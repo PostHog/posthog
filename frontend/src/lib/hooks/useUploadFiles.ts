@@ -74,6 +74,24 @@ function canReduceThisBlobType(file: File): boolean {
 // Callers default to images only; pass a wider list (e.g. 'application/pdf') to opt in.
 const IMAGE_ONLY_CONTENT_TYPES = ['image/*']
 
+// Browsers often report an empty type for text files (.md especially) since the OS
+// has no registered MIME. The upload endpoint keys on content type, so fall back to
+// the extension for these known-safe text types before validating and uploading.
+const EXTENSION_CONTENT_TYPES: Record<string, string> = {
+    md: 'text/markdown',
+    markdown: 'text/markdown',
+    txt: 'text/plain',
+    csv: 'text/csv',
+}
+
+function resolveContentType(file: File): string {
+    if (file.type) {
+        return file.type
+    }
+    const extension = file.name.split('.').pop()?.toLowerCase() ?? ''
+    return EXTENSION_CONTENT_TYPES[extension] ?? ''
+}
+
 function isContentTypeAllowed(fileType: string, allowedContentTypes: string[]): boolean {
     return allowedContentTypes.some((allowed) =>
         allowed.endsWith('/*') ? fileType.startsWith(allowed.slice(0, -1)) : fileType === allowed
@@ -84,7 +102,8 @@ export async function uploadFile(
     file: File,
     allowedContentTypes: string[] = IMAGE_ONLY_CONTENT_TYPES
 ): Promise<MediaUploadResponse> {
-    if (!isContentTypeAllowed(file.type, allowedContentTypes)) {
+    const contentType = resolveContentType(file)
+    if (!isContentTypeAllowed(contentType, allowedContentTypes)) {
         throw new Error('File type is not supported')
     }
 
@@ -92,6 +111,9 @@ export async function uploadFile(
     if (canReduceThisBlobType(file)) {
         const compressedBlob = await lazyImageBlobReducer(file)
         fileToUpload = new File([compressedBlob], file.name, { type: compressedBlob.type })
+    } else if (contentType !== file.type) {
+        // Re-stamp the inferred type so the multipart part carries it to the backend.
+        fileToUpload = new File([file], file.name, { type: contentType })
     }
 
     const formData = new FormData()
@@ -128,7 +150,7 @@ export function useUploadFiles({
                 setUploading(true)
                 const file: File = filesToUpload[0]
                 const media = await uploadFile(file, allowedContentTypes)
-                onUpload?.(media.image_location, media.name, media.id, file.type)
+                onUpload?.(media.image_location, media.name, media.id, resolveContentType(file))
             } catch (error) {
                 const errorDetail = (error as any).detail || 'unknown error'
                 onError(errorDetail)

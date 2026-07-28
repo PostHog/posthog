@@ -439,7 +439,15 @@ export function SupportEditor({
     const dropRef = useRef<HTMLDivElement>(null)
 
     const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
-        allowedContentTypes: ['image/*', 'application/pdf'],
+        allowedContentTypes: [
+            'image/*',
+            'application/pdf',
+            'text/plain',
+            'text/markdown',
+            'text/x-markdown',
+            'text/csv',
+            'application/csv',
+        ],
         onUpload: (url, fileName, _id, contentType) => {
             if (ttEditor) {
                 if (contentType.startsWith('image/')) {
@@ -648,7 +656,9 @@ export function SupportEditor({
                     <div className="w-px h-4 bg-border mx-1" />
                     <LemonFileInput
                         key="file-upload"
-                        accept={'image/*,application/pdf'}
+                        // Extensions listed alongside MIME types because browsers report an
+                        // empty or inconsistent type for .md/.csv depending on the OS.
+                        accept={'image/*,application/pdf,.pdf,.md,.markdown,.txt,.csv,text/plain,text/markdown,text/csv'}
                         multiple={false}
                         alternativeDropTargetRef={dropRef}
                         onChange={setFilesToUpload}
@@ -668,11 +678,11 @@ export function SupportEditor({
                                 disabledReason={
                                     objectStorageAvailable
                                         ? undefined
-                                        : 'Enable object storage to add images and PDFs by dragging and dropping'
+                                        : 'Enable object storage to add attachments by dragging and dropping'
                                 }
                                 tooltip={
                                     objectStorageAvailable
-                                        ? 'Click here or drag and drop to upload images and PDFs'
+                                        ? 'Click here or drag and drop to upload images, PDFs, and text files'
                                         : null
                                 }
                             />
