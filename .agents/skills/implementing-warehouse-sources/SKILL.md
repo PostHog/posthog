@@ -279,11 +279,11 @@ do here.
 Wiring a source into the inbox is a **separate, additive piece of work** with its own skill —
 `/adding-inbox-sources` — and it changes nothing in this skill's deliverable. It only becomes possible
 once the data-warehouse source exists (which is exactly what this skill produces), so build and ship the
-source first. That skill touches three surfaces: a server-side "signals scout" emitter + registry entry
-+ `SignalSourceProduct` enum in this repo (`products/signals/backend/`), the inbox UI in the separate
-`posthog/code` repo, and the `npx @posthog/wizard self-driving` onboarding flow in `PostHog/context-mill`.
-Read `/adding-inbox-sources` before starting — none of that plumbing belongs in the source's own
-`products/warehouse_sources/` code.
+source first. That skill touches three surfaces: a server-side "signals scout" emitter plus a registry
+entry and `SignalSourceProduct` enum in this repo (`products/signals/backend/`), the inbox UI in the
+separate `posthog/code` repo, and the `npx @posthog/wizard self-driving` onboarding flow in
+`PostHog/context-mill`. Read `/adding-inbox-sources` before starting — none of that plumbing belongs in
+the source's own `products/warehouse_sources/` code.
 
 ## Vendor API version metadata
 
