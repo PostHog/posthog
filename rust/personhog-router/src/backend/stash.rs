@@ -151,6 +151,14 @@ impl StashTable {
         }
     }
 
+    /// Whether the partition currently has a stash entry — a live
+    /// window, or backlog a yielded drain left parked. The entry only
+    /// disappears through drain's settle-and-evict, so its existence is
+    /// exactly "the stash lifecycle for this partition is not closed".
+    pub fn has_entry(&self, partition: u32) -> bool {
+        self.inner.contains_key(&partition)
+    }
+
     fn get_or_create(&self, partition: u32) -> Arc<PartitionStash> {
         self.inner
             .entry(partition)

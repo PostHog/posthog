@@ -247,6 +247,10 @@ fn fail_superseded(req: StashedRequest) {
 
 #[async_trait]
 impl StashHandler for RouterStashHandler {
+    fn stash_pending(&self, partition: u32) -> bool {
+        self.leader_backend.stash_table().has_entry(partition)
+    }
+
     async fn begin_stash(&self, partition: u32, new_owner: &str) -> CoordResult<()> {
         tracing::info!(
             partition,

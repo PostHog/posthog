@@ -37,6 +37,24 @@ pub trait StashHandler: Send + Sync {
         target: &str,
         cancel: CancellationToken,
     ) -> Result<()>;
+
+    /// Whether the partition's stash lifecycle is still open — an entry
+    /// exists, holding parked requests or an unflushed (possibly empty)
+    /// stash window. This is the authority the reconcile pass consults
+    /// before re-requesting a drain: a settled partition has no entry
+    /// (the drain's final act evicts it), while a drain that yielded
+    /// early leaves the entry and its backlog behind, so re-requesting
+    /// is exactly the retry mechanism. Entry existence — not backlog
+    /// depth — is the correct predicate, because a completed handoff
+    /// with an empty stash window still needs one drain to settle and
+    /// evict the entry; gating on parked requests would leave that
+    /// window open forever.
+    ///
+    /// Defaults to `true`, which preserves the always-request behavior
+    /// for implementations that don't track stash state.
+    fn stash_pending(&self, _partition: u32) -> bool {
+        true
+    }
 }
 
 /// Runs drains off the handoff watch loop, one lane per partition.
@@ -695,12 +713,20 @@ impl RoutingTable {
                         .write()
                         .await
                         .insert(handoff.partition, handoff.new_owner.clone());
-                    lanes.request(
-                        Arc::clone(handler),
-                        router_name.to_string(),
-                        handoff.partition,
-                        handoff.new_owner.clone(),
-                    );
+                    // Only request a drain while the stash lifecycle is
+                    // open. A settled partition has no entry, and its
+                    // finished lane never absorbs (a finished drain may
+                    // have yielded with backlog), so an unconditional
+                    // request here would respawn a no-op drain every
+                    // tick for every quiet partition.
+                    if handler.stash_pending(handoff.partition) {
+                        lanes.request(
+                            Arc::clone(handler),
+                            router_name.to_string(),
+                            handoff.partition,
+                            handoff.new_owner.clone(),
+                        );
+                    }
                 }
             }
         }
@@ -721,12 +747,17 @@ impl RoutingTable {
                 .write()
                 .await
                 .insert(assignment.partition, assignment.owner.clone());
-            lanes.request(
-                Arc::clone(handler),
-                router_name.to_string(),
-                assignment.partition,
-                assignment.owner,
-            );
+            // Same gate as the Complete arm: "no handoff means no stash"
+            // only demands a drain when something is actually parked or
+            // a window is still open.
+            if handler.stash_pending(assignment.partition) {
+                lanes.request(
+                    Arc::clone(handler),
+                    router_name.to_string(),
+                    assignment.partition,
+                    assignment.owner,
+                );
+            }
         }
         Ok(())
     }

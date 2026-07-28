@@ -1860,3 +1860,110 @@ async fn the_reconcile_pass_reasserts_freeze_acks() {
 
     cancel.cancel();
 }
+
+/// A cutover handler whose stash has fully settled: `stash_pending`
+/// reports no entry, the way the router does once a drain has evicted
+/// the partition from its stash table.
+struct SettledCutoverHandler {
+    events: Arc<Mutex<Vec<CutoverEvent>>>,
+}
+
+#[async_trait]
+impl StashHandler for SettledCutoverHandler {
+    async fn begin_stash(&self, partition: u32, new_owner: &str) -> Result<()> {
+        self.events.lock().await.push(CutoverEvent::StashBegan {
+            partition,
+            new_owner: new_owner.to_string(),
+        });
+        Ok(())
+    }
+
+    async fn drain_stash(
+        &self,
+        partition: u32,
+        target: &str,
+        _cancel: CancellationToken,
+    ) -> Result<()> {
+        self.events.lock().await.push(CutoverEvent::StashDrained {
+            partition,
+            target: target.to_string(),
+        });
+        Ok(())
+    }
+
+    fn stash_pending(&self, _partition: u32) -> bool {
+        false
+    }
+}
+
+/// A settled partition must not have drains respawned by every reconcile
+/// tick: its finished lane can never absorb (a finished drain may have
+/// yielded with backlog), so without the `stash_pending` gate the pass
+/// would spawn a fresh no-op drain for every quiet assigned partition,
+/// every tick. The Freezing handoff on partition 1 acts as the pass
+/// counter — `begin_stash` is re-asserted unconditionally each pass — so
+/// the assertion is provably non-vacuous across multiple passes.
+#[tokio::test]
+async fn the_reconcile_pass_skips_drains_for_settled_partitions() {
+    let store = test_store("reconcile-skips-settled").await;
+    assert!(store
+        .create_assignments_and_handoffs(
+            &[PartitionAssignment {
+                partition: 0,
+                owner: "pod-old".to_string(),
+                status: AssignmentStatus::Active,
+                advertise_address: None,
+            }],
+            &[],
+            &[],
+        )
+        .await
+        .expect("write assignment"));
+    put_handoff(&store, 1, None, "keeper-pod", HandoffPhase::Freezing).await;
+
+    let router = RoutingTable::new(
+        Arc::clone(&store),
+        RoutingTableConfig {
+            router_name: "rss-router".to_string(),
+            reconcile_interval: Duration::from_millis(200),
+            ..RoutingTableConfig::default()
+        },
+    );
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let handler = SettledCutoverHandler {
+        events: Arc::clone(&events),
+    };
+    let cancel = CancellationToken::new();
+    let token = cancel.child_token();
+    tokio::spawn(async move { router.run(token, Arc::new(handler)).await });
+
+    // Wait until partition 1's begin_stash has been asserted at least
+    // three times — proof that multiple reconcile passes have evaluated
+    // partition 0's bare assignment.
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let events = Arc::clone(&events);
+        async move {
+            events
+                .lock()
+                .await
+                .iter()
+                .filter(|e| matches!(e, CutoverEvent::StashBegan { partition: 1, .. }))
+                .count()
+                >= 3
+        }
+    })
+    .await;
+
+    let drained = events
+        .lock()
+        .await
+        .iter()
+        .filter(|e| matches!(e, CutoverEvent::StashDrained { partition: 0, .. }))
+        .count();
+    assert_eq!(
+        drained, 0,
+        "a settled partition must not have drains respawned by reconcile ticks"
+    );
+
+    cancel.cancel();
+}
