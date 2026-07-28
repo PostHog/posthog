@@ -111,6 +111,11 @@ class CellDiff:
     dwh: float
     abs_diff: float
     rel_diff: Optional[float]  # None when legacy == 0
+    # Recheck verdict: True = the second pass returned the exact same legacy/dwh values
+    # (a deterministic difference), False = the cell differed again but with moved values
+    # (the data churned under the queries — merges/late ingest, not a systematic gap),
+    # None = no recheck information (single pass).
+    values_stable: Optional[bool] = None
 
 
 @dataclasses.dataclass
@@ -524,9 +529,18 @@ def intersect_stable_mismatch(first: CorrectnessDiff, second: CorrectnessDiff) -
     mismatch (reproduces) from live-ingest noise that happened to land outside the trailing window on
     the first pass (does not reproduce). Every MISMATCH signal is intersected, since live ingest can
     perturb breakdown ranking and row coverage as well as raw cell counts.
+
+    Kept cells are annotated with ``values_stable``: a deterministic query difference returns the
+    exact same legacy/dwh values in both passes, while continuously-churning data (person merges,
+    late ingest into historical buckets) keeps the same busy cells differing with MOVED values.
+    Key-only matching cannot tell those apart; the annotation can.
     """
-    second_keys = {_cell_key(c) for c in second.cell_diffs}
-    stable_cells = [c for c in first.cell_diffs if _cell_key(c) in second_keys]
+    second_by_key = {_cell_key(c): c for c in second.cell_diffs}
+    stable_cells = [
+        dataclasses.replace(c, values_stable=(c.legacy == twin.legacy and c.dwh == twin.dwh))
+        for c in first.cell_diffs
+        if (twin := second_by_key.get(_cell_key(c))) is not None
+    ]
 
     second_only_legacy = set(second.breakdown_only_legacy)
     second_only_dwh = set(second.breakdown_only_dwh)
@@ -1223,16 +1237,25 @@ def _render_trailing_drift(
 
 
 def _render_cell_diff_table(out: Callable[[str], None], cell_diffs: list[CellDiff], max_rows: int) -> None:
-    out("| Breakdown | Cohort | Period | Field | Legacy | DWH | Δabs | Δrel |")
-    out("| --- | --- | --- | --- | --- | --- | --- | --- |")
+    # The values column only exists when a recheck ran: "identical" = same values both passes
+    # (deterministic difference), "moved" = differed both passes with different values (data churn).
+    has_stability = any(diff.values_stable is not None for diff in cell_diffs)
+    stability_header = " Values |" if has_stability else ""
+    out(f"| Breakdown | Cohort | Period | Field | Legacy | DWH | Δabs | Δrel |{stability_header}")
+    out(f"| --- | --- | --- | --- | --- | --- | --- | --- |{' --- |' if has_stability else ''}")
     for diff in cell_diffs[:max_rows]:
         rel = "n/a" if diff.rel_diff is None else f"{diff.rel_diff * 100:+.1f}%"
+        stability_cell = ""
+        if has_stability:
+            stability_cell = (
+                f" {'identical' if diff.values_stable else 'moved' if diff.values_stable is not None else 'n/a'} |"
+            )
         out(
             f"| {_fmt_breakdown(diff.breakdown_value)} | {diff.row_label} | {diff.value_label} | "
-            f"{diff.field} | {diff.legacy:g} | {diff.dwh:g} | {diff.abs_diff:g} | {rel} |"
+            f"{diff.field} | {diff.legacy:g} | {diff.dwh:g} | {diff.abs_diff:g} | {rel} |{stability_cell}"
         )
     if len(cell_diffs) > max_rows:
-        out(f"| … | | | | | | +{len(cell_diffs) - max_rows} more | |")
+        out(f"| … | | | | | | +{len(cell_diffs) - max_rows} more | |{' |' if has_stability else ''}")
     out("")
 
 

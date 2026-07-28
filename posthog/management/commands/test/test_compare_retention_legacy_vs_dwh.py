@@ -318,6 +318,17 @@ class TestIntersectStableMismatch(TestCase):
         self.assertEqual(result.status, "MISMATCH")
         self.assertEqual(len(result.cell_diffs), 1)
         self.assertEqual(result.cell_diffs[0].value_label, "Day 1")
+        self.assertIs(result.cell_diffs[0].values_stable, True)
+
+    def test_moved_values_kept_but_marked_unstable(self):
+        # Same cell differs in both passes but with different values: data churned under the
+        # queries (merges / late ingest), so it must not be reported as a deterministic difference.
+        first = diff_retention_results(_simple_series([100, 50]), _simple_series([100, 40]))
+        second = diff_retention_results(_simple_series([100, 52]), _simple_series([100, 45]))
+        result = intersect_stable_mismatch(first, second)
+        self.assertEqual(result.status, "MISMATCH")
+        self.assertEqual(len(result.cell_diffs), 1)
+        self.assertIs(result.cell_diffs[0].values_stable, False)
 
     def test_reproduced_row_count_mismatch_kept(self):
         first = diff_retention_results(_simple_series([10]), [])

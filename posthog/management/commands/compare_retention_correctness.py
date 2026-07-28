@@ -296,6 +296,14 @@ def _check_one(insight: Insight, url: str, freeze: bool, recheck: bool) -> Row:
                 f"{len(diff.cell_diffs)} {stable}cell diff(s), "
                 f"rows legacy={diff.row_count_legacy} dwh={diff.row_count_dwh}"
             )
+            if rechecked and diff.cell_diffs:
+                # Value-identical cells reproduce exactly (deterministic difference); moved values
+                # mean the data changed under the queries in both passes (merge/late-ingest churn).
+                identical = sum(1 for c in diff.cell_diffs if c.values_stable)
+                if identical:
+                    detail += f", {identical}/{len(diff.cell_diffs)} value-identical (deterministic)"
+                else:
+                    detail += ", all values moved between passes (churn, not deterministic)"
             if recheck and not rechecked:
                 detail += " (recheck errored — stability unverified)"
         return Row(insight.id, insight.short_id, insight.team_id, url, diff.status, detail)
