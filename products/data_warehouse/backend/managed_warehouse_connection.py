@@ -1,8 +1,15 @@
-"""Expose a managed Duckgres warehouse in the SQL editor as a read-only Postgres connection.
+"""Expose a managed Duckgres warehouse in the SQL editor as a project-scoped Postgres connection.
 
 Each member team gets a Postgres ``ExternalDataSource`` pointed at the organization's
-``DuckgresServer``. Duckgres issues a distinct database login for each project and enforces
-read-only access to the project's schemas, so both HogQL and raw SQL stay inside that boundary.
+``DuckgresServer``. Duckgres issues a distinct database login for each project and confines it to
+that project's schemas, so both HogQL and raw SQL stay inside that boundary.
+
+The login is Duckgres's ``project_user``: read/write **within** the project's own namespaces.
+Writes are the default because a project connection is the user's own warehouse, not a report of
+it. The project boundary is identical to the read-only ``project_reader`` it replaces — Duckgres
+derives the same namespaces for both modes, and write authorization does not widen the set of
+reachable relations, so a project still cannot read or write another project's schemas.
+
 Setup happens in two steps:
 
 1. ``ensure_managed_warehouse_direct_source`` creates the initially empty source row when a team
@@ -50,6 +57,13 @@ logger = structlog.get_logger(__name__)
 
 MANAGED_WAREHOUSE_SOURCE_DESCRIPTION = "Managed warehouse (auto-provisioned)"
 
+# The Duckgres access mode backing a project connection, recorded on the source's
+# connection_metadata. It is also the migration marker: a source whose stored kind differs from
+# this constant is re-credentialed and its discovered catalog is dropped, which is how sources
+# moved off the org root credential and then off the read-only project_reader. Changing this
+# value re-runs that handshake for every existing source, so change it only with that intent.
+PROJECT_CREDENTIAL_KIND = "project_user"
+
 
 def _managed_source_queryset(team_id: int) -> QuerySet[ExternalDataSource]:
     return ExternalDataSource._base_manager.filter(
@@ -79,7 +93,7 @@ def _ensure_managed_source_locked(
     server: DuckgresServer,
     username: str,
     password: str,
-    reader_configured: bool,
+    credential_configured: bool,
 ) -> ExternalDataSource | None:
     # Deliberately includes soft-deleted rows: a re-enabled membership revives its tombstoned
     # source (the caller's credential pre-read filters deleted=False, so a revived row always
@@ -90,9 +104,10 @@ def _ensure_managed_source_locked(
     if existing is not None:
         update_fields: list[str] = []
         connection_metadata = dict(existing.connection_metadata or {})
-        if connection_metadata.get("credential_kind") != "project_reader":
-            # Old managed sources used the org root credential, so discard any catalog
-            # entries discovered before Duckgres enforced the project boundary.
+        if connection_metadata.get("credential_kind") != PROJECT_CREDENTIAL_KIND:
+            # The source is on a superseded credential — the org root login, or the read-only
+            # project_reader. Its catalog was discovered as a different principal, so discard
+            # the entries and let reconcile rediscover them as the current one.
             now = timezone.now()
             DataWarehouseTable.raw_objects.filter(
                 team_id=team_id, external_data_source_id=existing.id, deleted=False
@@ -104,24 +119,24 @@ def _ensure_managed_source_locked(
         if existing.access_method != ExternalDataSource.AccessMethod.DIRECT:
             existing.access_method = ExternalDataSource.AccessMethod.DIRECT
             update_fields.append("access_method")
-        if existing.direct_query_enabled != reader_configured:
-            existing.direct_query_enabled = reader_configured
+        if existing.direct_query_enabled != credential_configured:
+            existing.direct_query_enabled = credential_configured
             update_fields.append("direct_query_enabled")
         if (
             connection_metadata.get("engine") != "duckdb"
             or connection_metadata.get("system_managed") is not True
-            or connection_metadata.get("credential_kind") != "project_reader"
+            or connection_metadata.get("credential_kind") != PROJECT_CREDENTIAL_KIND
         ):
             existing.connection_metadata = {
                 **connection_metadata,
                 "engine": "duckdb",
                 "system_managed": True,
-                "credential_kind": "project_reader",
-                "reader_configured": reader_configured,
+                "credential_kind": PROJECT_CREDENTIAL_KIND,
+                "credential_configured": credential_configured,
             }
             update_fields.append("connection_metadata")
-        elif connection_metadata.get("reader_configured") is not reader_configured:
-            existing.connection_metadata = {**connection_metadata, "reader_configured": reader_configured}
+        elif connection_metadata.get("credential_configured") is not credential_configured:
+            existing.connection_metadata = {**connection_metadata, "credential_configured": credential_configured}
             update_fields.append("connection_metadata")
         if existing.deleted:
             existing.deleted = False
@@ -143,12 +158,12 @@ def _ensure_managed_source_locked(
         description=MANAGED_WAREHOUSE_SOURCE_DESCRIPTION,
         access_method=ExternalDataSource.AccessMethod.DIRECT,
         created_via=ExternalDataSource.CreatedVia.WEB,
-        direct_query_enabled=reader_configured,
+        direct_query_enabled=credential_configured,
         connection_metadata={
             "engine": "duckdb",
             "system_managed": True,
-            "credential_kind": "project_reader",
-            "reader_configured": reader_configured,
+            "credential_kind": PROJECT_CREDENTIAL_KIND,
+            "credential_configured": credential_configured,
         },
     )
 
@@ -157,7 +172,7 @@ def _membership_table_suffix(*, team_id: int, organization_id: str | UUID) -> st
     """The team's warehouse table suffix from its duckgres control-plane row.
 
     Raises RuntimeError when the control plane can't answer (callers treat that like the
-    reader handshake being unavailable and retry on a later sweep) and ValueError when the
+    credential handshake being unavailable and retry on a later sweep) and ValueError when the
     team has no backfill-enabled row or sits on the legacy shared tables — neither can be
     exposed as a per-project query connection.
     """
@@ -176,7 +191,13 @@ def _membership_table_suffix(*, team_id: int, organization_id: str | UUID) -> st
 
 
 def ensure_managed_warehouse_direct_source(*, team_id: int, organization_id: str | UUID) -> ExternalDataSource:
-    """Create or refresh the team's restricted live-query source from its membership."""
+    """Create or refresh the team's project-scoped live-query source from its membership.
+
+    A source already holding a current-kind credential is left alone. One on a superseded kind
+    (org root, or the read-only project_reader) is re-credentialed here: it gets a fresh username
+    and password and stays `direct_query_enabled=False` until the Duckgres handshake below
+    confirms them, so a half-migrated source is never queryable.
+    """
     from posthog.ducklake.models import DuckgresServer  # noqa: PLC0415
 
     table_suffix = _membership_table_suffix(team_id=team_id, organization_id=organization_id)
@@ -187,24 +208,28 @@ def ensure_managed_warehouse_direct_source(*, team_id: int, organization_id: str
 
         existing = _managed_source_queryset(team_id).select_for_update().filter(deleted=False).first()
         existing_metadata = existing.connection_metadata if existing is not None else None
-        has_reader_credentials = (
+        has_project_credentials = (
             existing is not None
             and isinstance(existing_metadata, dict)
-            and existing_metadata.get("credential_kind") == "project_reader"
+            and existing_metadata.get("credential_kind") == PROJECT_CREDENTIAL_KIND
             and isinstance(existing.job_inputs, dict)
             and existing.job_inputs.get("user")
             and existing.job_inputs.get("password")
         )
-        if has_reader_credentials:
+        if has_project_credentials:
             assert existing is not None
             assert isinstance(existing_metadata, dict)
             assert isinstance(existing.job_inputs, dict)
-            reader_configured = existing_metadata.get("reader_configured") is True
+            credential_configured = existing_metadata.get("credential_configured") is True
             username = str(existing.job_inputs["user"])
             password = str(existing.job_inputs["password"])
         else:
-            reader_configured = False
-            username = f"posthog_team_{team_id}"
+            credential_configured = False
+            # Duckgres derives this name from the team and owns it: the read/write project_user
+            # is `posthog_team_<id>_rw`, distinct from the read-only `posthog_team_<id>`. The
+            # handshake below asserts the name Duckgres returns matches, so a drift in either
+            # derivation fails loudly instead of silently configuring the wrong login.
+            username = f"posthog_team_{team_id}_rw"
             password = secrets.token_urlsafe(32)
 
         source = _ensure_managed_source_locked(
@@ -212,33 +237,33 @@ def ensure_managed_warehouse_direct_source(*, team_id: int, organization_id: str
             server=server,
             username=username,
             password=password,
-            reader_configured=reader_configured,
+            credential_configured=credential_configured,
         )
         if source is None:
             raise RuntimeError("Failed to create the managed warehouse query source")
-        if reader_configured:
+        if credential_configured:
             return source
         source_id = source.id
 
-    credentials = managed_warehouse.configure_project_reader(
+    credentials = managed_warehouse.configure_project_user(
         organization_id=organization_id,
         team_id=team_id,
         table_suffix=table_suffix,
         password=password,
     )
     if credentials != {"username": username, "password": password}:
-        raise RuntimeError("Managed warehouse reader credentials did not match the requested credentials")
+        raise RuntimeError("Managed warehouse project credentials did not match the requested credentials")
 
     with transaction.atomic():
         DuckgresServer.objects.select_for_update().get(organization_id=organization_id)
         Team.objects.select_for_update().only("id").get(id=team_id, organization_id=organization_id)
         source = _managed_source_queryset(team_id).select_for_update().filter(id=source_id, deleted=False).first()
         if source is None or not isinstance(source.job_inputs, dict):
-            raise RuntimeError("Managed warehouse query source changed while its reader was configured")
+            raise RuntimeError("Managed warehouse query source changed while its credential was configured")
         if source.job_inputs.get("user") != username or source.job_inputs.get("password") != password:
-            raise RuntimeError("Managed warehouse query source changed while its reader was configured")
+            raise RuntimeError("Managed warehouse query source changed while its credential was configured")
         connection_metadata = dict(source.connection_metadata or {})
-        source.connection_metadata = {**connection_metadata, "reader_configured": True}
+        source.connection_metadata = {**connection_metadata, "credential_configured": True}
         source.direct_query_enabled = True
         source.save(update_fields=["connection_metadata", "direct_query_enabled", "updated_at"])
         return source
@@ -255,7 +280,7 @@ def reconcile_managed_warehouse_tables(*, team_id: int, organization_id: str | U
     except RuntimeError:
         # The credential handshake needs the warehouse control plane; while an org is still
         # provisioning this fails on every sweep, so skip quietly and let the next run retry.
-        logger.info("Managed warehouse reader handshake not possible yet", team_id=team_id)
+        logger.info("Managed warehouse credential handshake not possible yet", team_id=team_id)
         return
 
     with transaction.atomic():
@@ -271,11 +296,11 @@ def reconcile_managed_warehouse_tables(*, team_id: int, organization_id: str | U
         source_config = dict(source.job_inputs or {})
         source_api_version = source.api_version
 
-    # The allowlist mirrors the live Duckgres org-team row (the same row its reader policy is
+    # The allowlist mirrors the live Duckgres org-team row (the same row its access policy is
     # derived from), so hand-set layouts — legacy overrides like team 2's posthog.events, custom
     # schema names like devex — stay in sync instead of assuming the suffix-derived scheme.
-    # Introspection also runs AS the reader, so this filter is defense in depth, not the boundary.
-    namespaces = managed_warehouse.project_reader_namespaces(organization_id=organization_id, team_id=team_id)
+    # Introspection also runs AS the project login, so this filter is defense in depth, not the boundary.
+    namespaces = managed_warehouse.project_namespaces(organization_id=organization_id, team_id=team_id)
     if namespaces is None:
         return
     allowed_schemas, allowed_relations = namespaces
@@ -346,7 +371,7 @@ def _managed_sources_for_org(organization_id: str | UUID) -> QuerySet[ExternalDa
 
 
 def update_managed_warehouse_root_password(*, organization_id: str | UUID, password: str) -> None:
-    """Refresh the internal root writer without changing project reader credentials."""
+    """Refresh the internal root credential without touching any project login."""
     from posthog.ducklake.models import DuckgresServer  # noqa: PLC0415
 
     with transaction.atomic():

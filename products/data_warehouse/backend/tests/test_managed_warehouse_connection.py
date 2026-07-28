@@ -43,15 +43,15 @@ _CONNECTION: _Connection = {
     "password": "pw",
 }
 
-_PROJECT_READER_PASSWORD = "reader-password-with-at-least-32-characters"
+_PROJECT_USER_PASSWORD = "project-password-with-at-least-32-characters"
 
 
 @pytest.fixture(autouse=True)
-def _mock_project_reader_credentials():
-    def configure_project_reader(*, team_id: int, password: str, **_kwargs: object) -> dict[str, str]:
-        return {"username": f"posthog_team_{team_id}", "password": password}
+def _mock_project_user_credentials():
+    def configure_project_user(*, team_id: int, password: str, **_kwargs: object) -> dict[str, str]:
+        return {"username": f"posthog_team_{team_id}_rw", "password": password}
 
-    def project_reader_namespaces(*, team_id: int, **_kwargs: object) -> tuple[set[str], set[tuple[str, str]]]:
+    def project_namespaces(*, team_id: int, **_kwargs: object) -> tuple[set[str], set[tuple[str, str]]]:
         # Mirrors the Duckgres row these tests provision (suffix "prod" layout).
         return (
             {f"team_{team_id}", "posthog_data_imports_prod", f"shadow_{team_id}_models"},
@@ -59,11 +59,11 @@ def _mock_project_reader_credentials():
         )
 
     with (
-        patch.object(managed_warehouse, "configure_project_reader", side_effect=configure_project_reader) as mocked,
-        patch.object(managed_warehouse, "project_reader_namespaces", side_effect=project_reader_namespaces),
+        patch.object(managed_warehouse, "configure_project_user", side_effect=configure_project_user) as mocked,
+        patch.object(managed_warehouse, "project_namespaces", side_effect=project_namespaces),
         patch(
             "products.data_warehouse.backend.managed_warehouse_connection.secrets.token_urlsafe",
-            return_value=_PROJECT_READER_PASSWORD,
+            return_value=_PROJECT_USER_PASSWORD,
         ),
     ):
         yield mocked
@@ -138,9 +138,9 @@ class TestEnsureManagedWarehouseDirectSource:
         assert source.prefix == MANAGED_WAREHOUSE_SOURCE_PREFIX
         # job_inputs carry the warehouse connection so live queries reach it.
         assert source.job_inputs["host"] == _CONNECTION["host"]
-        assert source.job_inputs["user"] == f"posthog_team_{team.id}"
-        assert source.job_inputs["password"] == _PROJECT_READER_PASSWORD
-        assert source.connection_metadata["credential_kind"] == "project_reader"
+        assert source.job_inputs["user"] == f"posthog_team_{team.id}_rw"
+        assert source.job_inputs["password"] == _PROJECT_USER_PASSWORD
+        assert source.connection_metadata["credential_kind"] == "project_user"
 
     def test_is_idempotent(self) -> None:
         # Without dedup, every status poll / re-enable would spawn a duplicate connection.
@@ -162,7 +162,7 @@ class TestEnsureManagedWarehouseDirectSource:
         assert first.pk == second.pk
         assert ExternalDataSource.objects.filter(team_id=team.id, prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX).count() == 1
 
-    def test_concurrent_reader_setup_reuses_the_persisted_credential(self) -> None:
+    def test_concurrent_credential_setup_reuses_the_persisted_credential(self) -> None:
         org = Organization.objects.create(name="Org")
         team = Team.objects.create(organization=org)
         DuckgresServer.objects.create(
@@ -176,20 +176,20 @@ class TestEnsureManagedWarehouseDirectSource:
         _add_membership(team)
         requested_passwords: list[str] = []
 
-        def configure_project_reader(*, team_id: int, password: str, **_kwargs: object) -> dict[str, str]:
+        def configure_project_user(*, team_id: int, password: str, **_kwargs: object) -> dict[str, str]:
             requested_passwords.append(password)
             if len(requested_passwords) == 1:
                 _ensure(team)
-            return {"username": f"posthog_team_{team_id}", "password": password}
+            return {"username": f"posthog_team_{team_id}_rw", "password": password}
 
-        with patch.object(managed_warehouse, "configure_project_reader", side_effect=configure_project_reader):
+        with patch.object(managed_warehouse, "configure_project_user", side_effect=configure_project_user):
             source = _ensure(team)
 
         source.refresh_from_db()
-        assert requested_passwords == [_PROJECT_READER_PASSWORD, _PROJECT_READER_PASSWORD]
+        assert requested_passwords == [_PROJECT_USER_PASSWORD, _PROJECT_USER_PASSWORD]
         assert source.direct_query_enabled is True
         assert isinstance(source.connection_metadata, dict)
-        assert source.connection_metadata["reader_configured"] is True
+        assert source.connection_metadata["credential_configured"] is True
         assert ExternalDataSource.objects.filter(team=team, prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX).count() == 1
 
     def test_does_not_expose_legacy_shared_tables(self) -> None:
@@ -287,6 +287,86 @@ class TestEnsureManagedWarehouseDirectSource:
         assert managed_source.id == source.id
         assert managed_source.access_method == ExternalDataSource.AccessMethod.DIRECT
         assert not ExternalDataSchema.objects.filter(id=schema.id).exists()
+
+    def test_upgrades_a_read_only_project_reader_source_to_the_read_write_login(self) -> None:
+        # Sources provisioned before writes were the default hold the read-only
+        # `posthog_team_<id>` credential. The kind mismatch must re-credential them onto the
+        # read/write `posthog_team_<id>_rw` login and drop the catalog discovered as the old
+        # principal, exactly as the earlier root -> project_reader move did.
+        org = Organization.objects.create(name="Org")
+        team = Team.objects.create(organization=org)
+        DuckgresServer.objects.create(
+            organization=org,
+            host=_CONNECTION["host"],
+            port=_CONNECTION["port"],
+            database=_CONNECTION["database"],
+            username=_CONNECTION["username"],
+            password=_CONNECTION["password"],
+        )
+        _add_membership(team)
+        source = ExternalDataSource.objects.create(
+            team=team,
+            source_id="managed-source",
+            connection_id="managed-connection",
+            destination_id="managed-destination",
+            status=ExternalDataSource.Status.RUNNING,
+            source_type="Postgres",
+            prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            direct_query_enabled=True,
+            job_inputs={"user": f"posthog_team_{team.id}", "password": "reader-password"},
+            connection_metadata={
+                "engine": "duckdb",
+                "system_managed": True,
+                "credential_kind": "project_reader",
+                "reader_configured": True,
+            },
+        )
+        schema = ExternalDataSchema.objects.create(
+            team=team,
+            source=source,
+            name=f"team_{team.id}.discovered_as_reader",
+            should_sync=True,
+        )
+
+        managed_source = _ensure(team)
+
+        assert managed_source.id == source.id
+        assert isinstance(managed_source.job_inputs, dict)
+        assert managed_source.job_inputs["user"] == f"posthog_team_{team.id}_rw"
+        assert managed_source.job_inputs["password"] == _PROJECT_USER_PASSWORD
+        assert isinstance(managed_source.connection_metadata, dict)
+        assert managed_source.connection_metadata["credential_kind"] == "project_user"
+        assert managed_source.connection_metadata["credential_configured"] is True
+        # The old principal's catalog is dropped so reconcile rediscovers as the new one.
+        assert not ExternalDataSchema.objects.filter(id=schema.id).exists()
+
+    def test_leaves_a_source_already_on_the_read_write_login_untouched(self) -> None:
+        # The upgrade is a one-time handshake, not something every sweep re-runs: a source
+        # already holding project_user credentials keeps them (re-minting on every poll would
+        # churn the password and break in-flight queries).
+        org = Organization.objects.create(name="Org")
+        team = Team.objects.create(organization=org)
+        DuckgresServer.objects.create(
+            organization=org,
+            host=_CONNECTION["host"],
+            port=_CONNECTION["port"],
+            database=_CONNECTION["database"],
+            username=_CONNECTION["username"],
+            password=_CONNECTION["password"],
+        )
+        _add_membership(team)
+
+        first = _ensure(team)
+        assert isinstance(first.job_inputs, dict)
+        established_password = first.job_inputs["password"]
+
+        second = _ensure(team)
+
+        assert second.id == first.id
+        assert isinstance(second.job_inputs, dict)
+        assert second.job_inputs["user"] == f"posthog_team_{team.id}_rw"
+        assert second.job_inputs["password"] == established_password
 
 
 def _source_schema(table_name: str, source_schema: str = "posthog") -> SourceSchema:
@@ -452,7 +532,7 @@ class TestReconcileManagedWarehouseTables:
         org, team = self._setup()
         with patch.object(
             managed_warehouse,
-            "project_reader_namespaces",
+            "project_namespaces",
             return_value=(
                 {f"team_{team.id}", "posthog_data_imports_team_2", f"shadow_{team.id}_models"},
                 {("posthog", "events"), ("posthog", "persons")},
@@ -472,7 +552,7 @@ class TestReconcileManagedWarehouseTables:
 
     def test_fails_closed_when_the_team_row_is_missing_or_disabled(self) -> None:
         org, team = self._setup()
-        with patch.object(managed_warehouse, "project_reader_namespaces", return_value=None):
+        with patch.object(managed_warehouse, "project_namespaces", return_value=None):
             with patch(
                 "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.get_schemas"
             ) as get_schemas:
@@ -611,7 +691,7 @@ class TestManagedWarehouseLifecycle:
 
         source.refresh_from_db()
         server.refresh_from_db()
-        assert source.job_inputs["password"] == _PROJECT_READER_PASSWORD
+        assert source.job_inputs["password"] == _PROJECT_USER_PASSWORD
         assert server.password == "rotated"
 
     def test_soft_delete_removes_sources_and_their_tables(self) -> None:

@@ -210,10 +210,15 @@ def _row_team_id(row: dict) -> int | None:
         return None
 
 
-def configure_project_reader(
+def configure_project_user(
     *, organization_id: UUID | str, team_id: int, table_suffix: str, password: str
 ) -> dict[str, str]:
-    """Apply the project's read-only credential, creating its team row only when absent.
+    """Apply the project's read/write credential, creating its team row only when absent.
+
+    Duckgres issues two team-scoped logins: `project_reader` (read-only) and `project_user`
+    (read/write). Both are scoped to exactly the same namespaces — the only difference is
+    whether writes are authorized — so a project connection gets the writable one and the
+    project boundary is unchanged.
 
     The org-team row is Duckgres-owned state that also drives external-writer discovery
     (viaduck/millpond write targets) and may be hand-set (break-glass edits, legacy layouts).
@@ -245,28 +250,29 @@ def configure_project_reader(
     credential_response = _request(
         "PUT",
         organization_id,
-        f"/teams/{team_id}/project-reader",
+        f"/teams/{team_id}/project-user",
         json_body={"password": password},
         require_enabled=False,
     )
     if not status.is_success(credential_response.status_code) or not isinstance(credential_response.data, dict):
-        raise RuntimeError("Failed to create the project's managed warehouse reader")
+        raise RuntimeError("Failed to create the project's managed warehouse user")
     username = credential_response.data.get("username")
     response_password = credential_response.data.get("password")
     if not isinstance(username, str) or not username or not isinstance(response_password, str) or not response_password:
-        raise RuntimeError("Managed warehouse reader response did not include credentials")
+        raise RuntimeError("Managed warehouse user response did not include credentials")
     return {"username": username, "password": response_password}
 
 
-def project_reader_namespaces(
-    *, organization_id: UUID | str, team_id: int
-) -> tuple[set[str], set[tuple[str, str]]] | None:
-    """Return the (whole schemas, legacy posthog-schema tables) the project's reader may see.
+def project_namespaces(*, organization_id: UUID | str, team_id: int) -> tuple[set[str], set[tuple[str, str]]] | None:
+    """Return the (whole schemas, legacy posthog-schema tables) the project's login may see.
 
-    Mirrors the Duckgres policy derivation from the org-team row: the reader is granted the row's
+    Mirrors the Duckgres policy derivation from the org-team row: the login is granted the row's
     schema_name, its data-imports schema (override or `<schema>_data_imports`), the modeled-data
     schema, and `posthog.<override>` for each non-NULL legacy events/persons override — including
     overrides that spell the derived default name. None means no enabled row exists (fail closed).
+
+    Mode-independent by design: Duckgres derives the SAME namespaces for `project_reader` and
+    `project_user`, so this mirror is correct for both and must not gain a mode argument.
     """
     row = _get_project_team_row(organization_id=organization_id, team_id=team_id)
     if row is None or row.get("enabled") is not True:
