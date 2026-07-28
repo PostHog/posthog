@@ -5059,6 +5059,104 @@ class TestTaskRunAPI(BaseTaskAPITest):
             message_id=None,
         )
 
+    @patch("products.tasks.backend.facade.api.GitHubIntegration")
+    @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
+    def test_relay_message_after_pr_opened_posts_github_comment(self, mock_execute_relay, mock_github_class):
+        from posthog.models.integration import Integration
+
+        from products.slack_app.backend.models import SlackThreadTaskMapping
+
+        github_integration = Integration.objects.create(
+            team=self.team, kind="github", integration_id="gh-1", config={}
+        )
+        task = self.create_task()
+        task.github_integration = github_integration
+        task.save(update_fields=["github_integration"])
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            output={"pr_url": "https://github.com/posthog/posthog/pull/1"},
+        )
+
+        slack_integration = Integration.objects.create(
+            team=self.team, kind="slack", integration_id="T_SLACK", config={}
+        )
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=slack_integration,
+            slack_workspace_id="T_SLACK",
+            channel="C123",
+            thread_ts="1234.5678",
+            task=task,
+            task_run=run,
+            mentioning_slack_user_id="U123",
+        )
+        mock_github = MagicMock()
+        mock_github.comment_on_pull_request_from_url.return_value = {"success": True}
+        mock_github_class.return_value = mock_github
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/",
+            {"text": "Fixed the failing lint check and pushed."},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"status": "skipped"})
+        mock_github.comment_on_pull_request_from_url.assert_called_once_with(
+            "https://github.com/posthog/posthog/pull/1", "Fixed the failing lint check and pushed."
+        )
+        mock_execute_relay.assert_not_called()
+
+    @patch("products.tasks.backend.facade.api.GitHubIntegration")
+    @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
+    def test_relay_message_falls_back_to_slack_when_github_comment_fails(self, mock_execute_relay, mock_github_class):
+        from posthog.models.integration import Integration
+
+        from products.slack_app.backend.models import SlackThreadTaskMapping
+
+        github_integration = Integration.objects.create(
+            team=self.team, kind="github", integration_id="gh-1", config={}
+        )
+        task = self.create_task()
+        task.github_integration = github_integration
+        task.save(update_fields=["github_integration"])
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            output={"pr_url": "https://github.com/posthog/posthog/pull/1"},
+        )
+
+        slack_integration = Integration.objects.create(
+            team=self.team, kind="slack", integration_id="T_SLACK", config={}
+        )
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=slack_integration,
+            slack_workspace_id="T_SLACK",
+            channel="C123",
+            thread_ts="1234.5678",
+            task=task,
+            task_run=run,
+            mentioning_slack_user_id="U123",
+        )
+        mock_github = MagicMock()
+        mock_github.comment_on_pull_request_from_url.return_value = {"success": False, "error": "boom"}
+        mock_github_class.return_value = mock_github
+        mock_execute_relay.return_value = "relay-1"
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/",
+            {"text": "Fixed the failing lint check and pushed."},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"status": "accepted", "relay_id": "relay-1"})
+        mock_execute_relay.assert_called_once()
+
     @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
     def test_relay_message_skips_when_no_slack_mapping(self, mock_execute_relay):
         task = self.create_task()

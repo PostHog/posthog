@@ -34,7 +34,7 @@ import posthoganalytics
 
 from posthog.event_usage import groups
 from posthog.models import Team, User
-from posthog.models.integration import Integration
+from posthog.models.integration import GitHubIntegration, Integration
 
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
@@ -2906,6 +2906,29 @@ def _pick_relay_text(*, text: str, text_parts: list[str] | None) -> str:
     return text
 
 
+def _post_ci_followup_as_github_comment(run: TaskRun, pr_url: str, body: str) -> bool:
+    """Post a run follow-up message as a comment on its already-opened PR.
+
+    Returns True when the comment was posted, False to fall back to a Slack relay
+    (no GitHub integration on the task, or the GitHub API rejected the comment).
+    """
+    integration = run.task.github_integration
+    if integration is None:
+        return False
+    try:
+        result = GitHubIntegration(integration).comment_on_pull_request_from_url(pr_url, body)
+    except Exception:
+        logger.exception("task_run_ci_followup_comment_failed", extra={"run_id": str(run.id)})
+        return False
+    if not result.get("success"):
+        logger.warning(
+            "task_run_ci_followup_comment_rejected",
+            extra={"run_id": str(run.id), "error": result.get("error")},
+        )
+        return False
+    return True
+
+
 def relay_task_run_message(
     run_id: str | UUID,
     task_id: str | UUID,
@@ -2920,7 +2943,8 @@ def relay_task_run_message(
 
     Returns ``(status, relay_id)`` where status is ``"accepted"`` (relay_id set), ``"skipped"``
     (run not found / terminal / no Slack mapping / empty text / streamed inline under the
-    agent-design flag), or ``"failed"``.
+    agent-design flag / posted as a GitHub comment because the run already opened a PR), or
+    ``"failed"``.
 
     When ``text_parts`` is provided the last non-empty entry is used — it's the
     post-last-tool-use answer, and posting only that keeps the interim narration
@@ -2947,6 +2971,12 @@ def relay_task_run_message(
     posted_text = _pick_relay_text(text=text, text_parts=text_parts)
     trimmed = posted_text.strip()
     if not trimmed:
+        return "skipped", None
+
+    # Once the run has opened a PR, later messages are CI/review follow-ups. Post them as a
+    # comment on the PR instead of trailing verbose updates behind the "PR opened" card in Slack.
+    pr_url = (run.output or {}).get("pr_url")
+    if pr_url and _post_ci_followup_as_github_comment(run, pr_url, trimmed):
         return "skipped", None
 
     if bool((run.state or {}).get(AGENT_DESIGN_STATE_KEY)):
