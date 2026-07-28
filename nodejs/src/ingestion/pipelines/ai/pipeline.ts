@@ -46,7 +46,6 @@ import { createReadOnlyProcessGroupsStep } from '~/ingestion/common/steps/event-
 import { createSplitAiEventsStep } from '~/ingestion/common/steps/event-processing/split-ai-events-step'
 import { createStripPersonUpdatePropertiesStep } from '~/ingestion/common/steps/event-processing/strip-person-update-properties-step'
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
-import { AI_EVENT_TYPES } from '~/ingestion/common/subpipelines/ai-event-types'
 import { IngestionOverflowMode } from '~/ingestion/config'
 import { TopHogWrapper, sum, sumOk, sumResult } from '~/ingestion/framework/extensions/tophog'
 import { isDropResult } from '~/ingestion/framework/results'
@@ -146,8 +145,11 @@ export function createAiIngestionPipeline<
         })
             .beforeBatch((b) => b.pipe(createEventFiltersBatchAppMetricsBeforeBatchStep(outputs)))
             // Header-only steps: allow only AI events, apply token restrictions.
+            // Prefix match rather than the canonical AI_EVENT_TYPES set: internal
+            // meta-events ($ai_tag, $ai_generation_summary, ...) share the lane
+            // without the ai_events double-write, which stays gated on the set.
             .parseHeaders()
-            .pipe(createAllowEventsStep([...AI_EVENT_TYPES]))
+            .pipe(createAllowEventsStep({ eventPrefixes: ['$ai_'] }))
             .pipe(
                 createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
                     overflowMode,

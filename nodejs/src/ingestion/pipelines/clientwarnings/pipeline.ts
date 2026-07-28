@@ -56,7 +56,7 @@ export function createClientWarningsPipeline<
     })
         .beforeBatch((b) => b.pipe(createEventFiltersBatchAppMetricsBeforeBatchStep(outputs)))
         .parseHeaders()
-        .pipe(createAllowEventsStep(['$$client_ingestion_warning']))
+        .pipe(createAllowEventsStep({ eventNames: ['$$client_ingestion_warning'] }))
         .pipe(createApplyBasicEventRestrictionsStep(eventIngestionRestrictionManager))
         .parseMessage()
         .resolveTeam()

@@ -15,7 +15,7 @@ function makeInput(eventName: string | undefined) {
 }
 
 describe('createAllowEventsStep', () => {
-    const step = createAllowEventsStep(['$$client_ingestion_warning'])
+    const step = createAllowEventsStep({ eventNames: ['$$client_ingestion_warning'] })
 
     it('passes through events whose name is in the allow list', async () => {
         const input = makeInput('$$client_ingestion_warning')
@@ -41,11 +41,26 @@ describe('createAllowEventsStep', () => {
         expect(result).toEqual(ok(input))
     })
 
-    it('DLQs every named event when the allow list is empty', async () => {
-        const emptyStep = createAllowEventsStep([])
+    it('DLQs every named event when nothing is allowed', async () => {
+        const emptyStep = createAllowEventsStep({})
 
         const result = await emptyStep(makeInput('$pageview'))
 
         expect(result).toEqual(dlq('event_not_in_allowlist'))
+    })
+
+    test.each([
+        ['$ai_generation', true],
+        ['$ai_tag', true],
+        ['$ai_', true],
+        ['$aiproduct_event', false],
+        ['$pageview', false],
+    ])('eventPrefixes matches by prefix: %s allowed=%s', async (eventName, allowed) => {
+        const prefixStep = createAllowEventsStep({ eventPrefixes: ['$ai_'] })
+        const input = makeInput(eventName)
+
+        const result = await prefixStep(input)
+
+        expect(result).toEqual(allowed ? ok(input) : dlq('event_not_in_allowlist'))
     })
 })

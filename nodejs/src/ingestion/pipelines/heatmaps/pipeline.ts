@@ -72,7 +72,7 @@ export function createHeatmapsPipeline<TInput extends HeatmapsPipelineInput, TCo
         })
             .beforeBatch((b) => b.pipe(createEventFiltersBatchAppMetricsBeforeBatchStep(outputs)))
             .parseHeaders()
-            .pipe(createAllowEventsStep(['$$heatmap']))
+            .pipe(createAllowEventsStep({ eventNames: ['$$heatmap'] }))
             .pipe(createApplyBasicEventRestrictionsStep(eventIngestionRestrictionManager))
             .parseMessage()
             .resolveTeam()
