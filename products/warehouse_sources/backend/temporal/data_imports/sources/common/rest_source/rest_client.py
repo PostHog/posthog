@@ -321,8 +321,7 @@ class RESTClient:
                 paginator.set_resume_state(initial_paginator_state)
             paginator.init_request(request)
 
-        # Flipped once any request in this walk has come back authenticated, which changes how a
-        # later 401 is read — see the 401 branch in ``_send_request``.
+        # Set once a request in this walk has succeeded; changes how a later 401 is read.
         auth_established = False
 
         while True:
@@ -420,18 +419,15 @@ class RESTClient:
                 retry_after=_parse_retry_after(response),
             )
 
-        # A 401 on the first request of a walk is a genuine credential problem, so it stays
-        # fail-fast below. A 401 *after* the same credential has already been accepted is a
-        # different animal: the API's auth tier rejected one request mid-stream. Aborting there
-        # throws away a long paginated export, and for sources that classify "401 Client Error" as
-        # non-retryable it also pauses the schema and tells the user to check a token that
-        # demonstrably works. Retry instead. The message is taken verbatim from `raise_for_status`
-        # so that a credential genuinely revoked mid-run still matches that classification once
-        # the retries are exhausted, rather than degrading into an unrecognized error.
+        # A 401 before anything has authenticated is a bad credential, and stays fail-fast below.
+        # A 401 after the same credential was accepted is the auth tier rejecting one request
+        # mid-stream, where aborting throws away a long paginated export.
         if response.status_code == 401 and auth_established:
             try:
                 response.raise_for_status()
             except HTTPError as e:
+                # Keep raise_for_status's wording — once retries are spent, the schema pause and
+                # friendly message in `update_external_data_job_model` select on it by substring.
                 raise RESTClientRetryableError(self._redact(str(e))) from None
 
         response_hooks = hooks.get("response", [])

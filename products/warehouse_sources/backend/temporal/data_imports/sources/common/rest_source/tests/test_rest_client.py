@@ -120,20 +120,8 @@ class TestRESTClient:
         ]
         mock_session.send.side_effect = responses
 
-        class TwoPagePaginator(BasePaginator):
-            def __init__(self):
-                super().__init__()
-                self._page = 0
-
-            def update_state(self, response, data=None):
-                self._page += 1
-                self._has_next_page = self._page < 2
-
-            def update_request(self, request):
-                pass
-
         client = RESTClient(base_url="https://api.example.com")
-        pages = list(client.paginate(path="/items", paginator=TwoPagePaginator()))
+        pages = list(client.paginate(path="/items", paginator=_TwoPagePaginator()))
 
         assert len(pages) == 2
         assert pages[0] == [{"id": 1}]
@@ -383,8 +371,7 @@ class TestRESTClient:
         "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
     )
     def test_first_request_401_fails_fast(self, MockSession, mock_sleep) -> None:
-        # Nothing has authenticated yet, so a 401 really is a bad credential — surface it
-        # immediately instead of burning the retry budget on a deterministic rejection.
+        # Nothing has authenticated yet, so the 401 is a bad credential, not a blip.
         mock_session = MockSession.return_value
         mock_session.headers = {}
         mock_session.prepare_request.return_value = MagicMock()
@@ -401,8 +388,7 @@ class TestRESTClient:
         "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
     )
     def test_401_after_an_authenticated_page_is_retried(self, MockSession, mock_sleep) -> None:
-        # The same credential was accepted for page 1, so a 401 on page 2 is a transient rejection
-        # from the API's auth tier. Retrying it keeps a long paginated export alive.
+        # Page 1 authenticated, so the page-2 401 is retried rather than failing the walk.
         mock_session = MockSession.return_value
         mock_session.headers = {}
         mock_session.prepare_request.return_value = MagicMock()
@@ -423,8 +409,7 @@ class TestRESTClient:
         "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
     )
     def test_persistent_401_mid_walk_keeps_the_client_error_wording(self, MockSession, mock_sleep) -> None:
-        # A credential revoked mid-run exhausts the retries, and sources classify that case by
-        # matching on "401 Client Error" — so the reraised message has to keep the wording.
+        # Schema pausing selects on this wording by substring, so exhausting retries must keep it.
         mock_session = MockSession.return_value
         mock_session.headers = {}
         mock_session.prepare_request.return_value = MagicMock()

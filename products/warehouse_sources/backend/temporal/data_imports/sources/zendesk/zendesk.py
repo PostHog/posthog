@@ -335,11 +335,9 @@ class ZendeskIncrementalEndpointPaginator(BasePaginator):
         if not next_page:
             raise ValueError("Zendesk incremental export returned end_of_stream=False without a next_page")
 
-        # The time-based export advances by setting the next `start_time` to the page's `end_time`,
-        # so when more than `per_page` records share that timestamp the link stops moving and
-        # pagination re-fetches the same page forever. `tickets` and `users` escape this via the
-        # cursor export; `ticket_events` and `ticket_metric_events` have no cursor variant, so the
-        # stall has to be detected here rather than spinning against a rate-limited endpoint.
+        # No cursor export exists for these endpoints (see the `tickets` resource above), so a
+        # timestamp shared by more records than one page holds pins `start_time` and re-fetches
+        # the same page forever.
         if next_page == current_page:
             raise ValueError(
                 "Zendesk incremental export returned the same next_page twice: pagination is stalled on a "
