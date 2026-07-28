@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { Fragment } from 'react'
 
@@ -35,7 +36,6 @@ import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { NavLink } from '~/layout/panel-layout/ai-first/NavLink'
 import { PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -175,7 +175,6 @@ export function NavTabBrowse(): JSX.Element {
     const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
     const { recentItems, recentItemsLoading } = useValues(navRecentsLogic)
     const { isSidebarSectionShown, isSidebarItemShown } = useValues(uiCustomizationLogic)
-    const { showConfigureHomeModal } = useActions(navigationLogic)
     const { toggleCommand } = useActions(commandLogic)
     const showToolsSearchRow = featureFlags[FEATURE_FLAGS.CMD_K_NAV_EXPERIMENT] === 'tools-row' && !isLayoutNavCollapsed
     const currentPath = removeProjectIdIfPresent(pathname)
@@ -228,7 +227,7 @@ export function NavTabBrowse(): JSX.Element {
                             data-attr="nav-item-home"
                             onClick={() => posthog.capture('nav item clicked', { item: 'home' })}
                             sideAction={{
-                                onClick: () => showConfigureHomeModal(),
+                                onClick: () => router.actions.push(urls.settings('user-navigation', 'homepage')),
                                 tooltip: 'Configure home',
                                 'data-attr': 'nav-configure-home',
                             }}

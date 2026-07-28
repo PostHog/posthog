@@ -4,8 +4,6 @@ import { useEffect, useState } from 'react'
 
 import { LemonSearchableSelect, LemonSegmentedButton, LemonSelectOptions, LemonTag } from '@posthog/lemon-ui'
 
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
-
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
@@ -14,11 +12,6 @@ import { emptySceneParams } from '~/scenes/scenes'
 import { Scene, SceneTab } from '~/scenes/sceneTypes'
 import { teamLogic } from '~/scenes/teamLogic'
 import { urls } from '~/scenes/urls'
-
-export interface ConfigureHomeModalProps {
-    isOpen: boolean
-    onClose: () => void
-}
 
 type HomepageMode = 'launchpad' | 'search' | 'default_dashboard'
 
@@ -39,7 +32,7 @@ function getHomepageMode(
     return null
 }
 
-/** The homepage picker itself, shared between the Configure home modal and the Navigation settings page. */
+/** The homepage picker, rendered by the Navigation settings page. */
 export function HomepageConfiguration(): JSX.Element {
     const { homepage } = useValues(sceneLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -212,19 +205,5 @@ export function HomepageConfiguration(): JSX.Element {
                 )}
             </div>
         </section>
-    )
-}
-
-export function ConfigureHomeModal({ isOpen, onClose }: ConfigureHomeModalProps): JSX.Element {
-    return (
-        <LemonModal
-            isOpen={isOpen}
-            onClose={onClose}
-            title="Configure homepage"
-            description="Choose your personal homepage for this project."
-            width="48rem"
-        >
-            <HomepageConfiguration />
-        </LemonModal>
     )
 }

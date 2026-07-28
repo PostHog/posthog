@@ -13,7 +13,7 @@ import {
     SIDEBAR_CUSTOMIZABLE_SECTIONS,
     SidebarCustomizableItem,
 } from '~/layout/panel-layout/sidebarCustomization'
-import { HomepageConfiguration } from '~/layout/scenes/ConfigureHomeModal'
+import { HomepageConfiguration } from '~/layout/scenes/HomepageConfiguration'
 import { uiCustomizationLogic } from '~/layout/uiCustomizationLogic'
 import { productConfiguration } from '~/products'
 import { FileSystemImport } from '~/queries/schema/schema-general'
