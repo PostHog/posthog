@@ -32,6 +32,13 @@ const CRASH_FIRST_LIBS = new Set([
     'posthog-server',
 ])
 
+// Best-effort boundary: compares the event's occurrence timestamp against the
+// cloud rollout date of the pipeline normalization. Events that straddle the
+// boundary (offline-buffered mobile deliveries, imports) and self-hosted
+// deployments that upgraded later can be misclassified — the cost is reversed
+// display order on those old events only, and the population shrinks to zero
+// with event retention. A precise answer would need a persisted storage-order
+// marker, which pre-dates this code; not worth adding for a transient case.
 const WIRE_ORDER_NORMALIZATION_DATE = '2026-07-10T00:00:00Z'
 
 export function isStoredCrashFirst(lib: string | undefined, timestamp: string | undefined): boolean {
