@@ -60,7 +60,7 @@ const PERSON_COLUMN_NAMES = [
     'is_identified',
     'last_seen_at',
 ]
-const PERSON_COLUMNS = PERSON_COLUMN_NAMES.join(', ')
+export const PERSON_COLUMNS = PERSON_COLUMN_NAMES.join(', ')
 const PERSON_COLUMNS_PREFIXED = PERSON_COLUMN_NAMES.map((column) => `p.${column}`).join(', ')
 
 function queryTag(base: string, callerTag?: string): string {
