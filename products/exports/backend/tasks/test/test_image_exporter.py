@@ -110,6 +110,7 @@ class TestImageExporter(APIBaseTest):
         mock_open_file: Any,
         mock_screenshot_asset: Any,
     ) -> None:
+        mock_process_query.return_value = {"results": []}
         source = {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": [{"event": "$pageview"}]}}
         exported_asset = ExportedAsset.objects.create(
             team=self.team,
@@ -129,6 +130,28 @@ class TestImageExporter(APIBaseTest):
         url_to_render = mock_screenshot_asset.call_args[0][1]
         assert "/exporter?token=" in url_to_render
         assert exported_asset.content == b"image_data"
+
+    @patch("products.exports.backend.tasks.image_exporter.process_query_dict")
+    def test_adhoc_query_export_fails_fast_on_invalid_query(
+        self,
+        mock_process_query: Any,
+        mock_remove: Any,
+        mock_open_file: Any,
+        mock_screenshot_asset: Any,
+    ) -> None:
+        mock_process_query.return_value = {"results": None, "error": "1 validation error for QuerySchemaRoot"}
+        exported_asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            created_by=self.user,
+            export_context={"source": {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}}},
+        )
+
+        with self.settings(OBJECT_STORAGE_ENABLED=False), self.assertRaisesRegex(Exception, "Invalid query"):
+            image_exporter.export_image(exported_asset)
+
+        # The browser must never be reached — the point is failing before the render.
+        mock_screenshot_asset.assert_not_called()
 
     def test_image_exporter_writes_to_asset_when_object_storage_is_disabled(self, *args: Any) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=False):
