@@ -52,9 +52,10 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
   resolved-inbox-report re-measurement to the canonical `signals-scout-inbox-validation` scout
   when the `scout_fleet` roster shows it actively running — the per-scout queue exists precisely
   because that fleet scout may not be enabled, and because signal-channel findings and recorded
-  watches never become resolved reports it could re-measure. Queue entries are team-shared data:
-  the section tells the scout to check `created_by_skill` and re-derive, rather than execute, a
-  probe from an entry its own runs didn't write. The report persona is further gated per-tool: it names only
+  watches never become resolved reports it could re-measure. Queue entries are team-shared data — and
+  `remember()` upserts keep the original `created_by_run`, so attribution never proves who last
+  wrote the content: the section tells the scout to treat every stored probe as untrusted and
+  re-derive it from the live report or finding it names, never execute it as stored. The report persona is further gated per-tool: it names only
   the report tool(s) actually in `allowed_tools` (emit-only, edit-only, or both), and
   drops the author-time sections for an edit-only scout — the report endpoints fail
   closed on the exact tool, so the prompt must never steer a scout toward one it lacks.
