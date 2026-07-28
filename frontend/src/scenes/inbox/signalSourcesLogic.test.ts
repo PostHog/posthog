@@ -9,7 +9,11 @@ import { AccessControlLevel, ExternalDataJobStatus, ExternalDataSource, External
 import { signalSourcesLogic } from './signalSourcesLogic'
 import { SignalSourceProduct, SignalSourceType } from './types'
 
-const githubSchema = (id: string, name: string): ExternalDataSourceSchema => ({
+const githubSchema = (
+    id: string,
+    name: string,
+    overrides: Partial<ExternalDataSourceSchema> = {}
+): ExternalDataSourceSchema => ({
     id,
     name,
     label: null,
@@ -22,6 +26,7 @@ const githubSchema = (id: string, name: string): ExternalDataSourceSchema => ({
     incremental_field_type: null,
     sync_frequency: '24hour',
     primary_key_columns: null,
+    ...overrides,
 })
 
 const githubSource: ExternalDataSource = {
@@ -45,6 +50,12 @@ const githubSource: ExternalDataSource = {
     revenue_analytics_config: { enabled: false, include_invoiceless_charges: false },
     user_access_level: AccessControlLevel.Manager,
 }
+
+const sourceWith = (id: string, schemas: ExternalDataSourceSchema[]): ExternalDataSource => ({
+    ...githubSource,
+    id,
+    schemas,
+})
 
 const githubIssuesConfig = {
     id: 'config-1',
@@ -87,6 +98,8 @@ describe('signalSourcesLogic', () => {
     })
 
     afterEach(() => {
+        // Spies on the shared `api` singleton outlive the test that set them and leak into the next.
+        jest.restoreAllMocks()
         logic?.unmount()
     })
 
@@ -167,5 +180,52 @@ describe('signalSourcesLogic', () => {
 
         expect(createSourceConfig).toHaveBeenCalledTimes(1)
         expect(logic.values.isGithubIssuesToggling).toBe(false)
+    })
+
+    // Forcing a required table to sync sent a bare should_sync, which the backend rejects for a
+    // schema that never had a sync method ("Sync type must be set up first before enabling schema"),
+    // so enabling a signal failed outright on any table the team had not configured by hand.
+    it.each([
+        {
+            name: 'asks the backend for sync defaults when the schema has no sync method',
+            sources: [
+                sourceWith('src-a', [
+                    githubSchema('sc-a', 'PostHog/posthog.issues', { should_sync: false, sync_type: null }),
+                ]),
+            ],
+            expectedCalls: [['src-a', [{ id: 'sc-a', should_sync: true, apply_sync_defaults: true }]]],
+        },
+        {
+            name: 'leaves an already-configured schema to its own sync method',
+            sources: [
+                sourceWith('src-a', [
+                    githubSchema('sc-a', 'issues', { should_sync: false, sync_type: 'full_refresh' }),
+                ]),
+            ],
+            expectedCalls: [['src-a', [{ id: 'sc-a', should_sync: true }]]],
+        },
+        {
+            name: 'still reaches every connected source of that type, one request each',
+            sources: [
+                sourceWith('src-a', [githubSchema('sc-a', 'issues', { should_sync: false, sync_type: null })]),
+                sourceWith('src-b', [githubSchema('sc-b', 'issues', { should_sync: true })]),
+                sourceWith('src-c', [githubSchema('sc-c', 'issues', { should_sync: false, sync_type: 'incremental' })]),
+            ],
+            expectedCalls: [
+                ['src-a', [{ id: 'sc-a', should_sync: true, apply_sync_defaults: true }]],
+                ['src-c', [{ id: 'sc-c', should_sync: true }]],
+            ],
+        },
+    ])('$name', async ({ sources, expectedCalls }) => {
+        const bulkUpdateSchemas = jest.spyOn(api.externalDataSources, 'bulkUpdateSchemas').mockResolvedValue([])
+        jest.spyOn(api.signalSourceConfigs, 'create').mockResolvedValue(githubIssuesConfig)
+        warehouseSources = sources
+        logic.actions.loadSourceConfigsSuccess([])
+
+        logic.actions.initiateDataWarehouseSourceToggle('github')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(bulkUpdateSchemas.mock.calls).toEqual(expectedCalls)
+        expect(logic.values.dataSourceSetupSource).toBeNull()
     })
 })

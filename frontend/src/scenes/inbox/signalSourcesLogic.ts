@@ -728,13 +728,29 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         ): Promise<void> {
             const matchesTable = (schema: ExternalDataSourceSchema): boolean =>
                 schema.name === tableName || schema.name.endsWith(`.${tableName}`)
-            const schemas = sources
+            const pending = sources
                 .filter((source: ExternalDataSource) => source.source_type === dwSourceType)
-                .flatMap((source: ExternalDataSource) => source.schemas ?? [])
-                .filter((schema: ExternalDataSourceSchema) => matchesTable(schema) && !schema.should_sync)
+                .map((source: ExternalDataSource) => ({
+                    source,
+                    schemas: (source.schemas ?? []).filter(
+                        (schema: ExternalDataSourceSchema) => matchesTable(schema) && !schema.should_sync
+                    ),
+                }))
+                .filter(({ schemas }) => schemas.length > 0)
             await Promise.all(
-                schemas.map((schema: ExternalDataSourceSchema) =>
-                    api.externalDataSchemas.update(schema.id, { should_sync: true })
+                pending.map(({ source, schemas }) =>
+                    api.externalDataSources.bulkUpdateSchemas(
+                        source.id,
+                        schemas.map((schema: ExternalDataSourceSchema) => ({
+                            id: schema.id,
+                            should_sync: true,
+                            // The backend rejects should_sync on a schema that never had a sync method
+                            // ("Sync type must be set up first before enabling schema"), so ask it to
+                            // discover and fill one in. Schemas that already have one are left alone
+                            // because the discovery call hits the customer's source.
+                            ...(schema.sync_type ? {} : { apply_sync_defaults: true }),
+                        }))
+                    )
                 )
             )
         }
