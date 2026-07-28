@@ -4,6 +4,7 @@ from decimal import Decimal
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 
@@ -404,3 +405,54 @@ class TestBillingAlertAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["event"]["id"] == str(event.id)
+
+    @patch(
+        "products.billing_alerts.backend.presentation.throttles.BillingAlertCheckNowThrottle.rate",
+        new="2/minute",
+    )
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_check_now_is_throttled_per_organization_across_revisions_and_alerts(
+        self, _rate_limit_enabled_mock
+    ) -> None:
+        first = self._alert(name="First")
+        second = self._alert(name="Second")
+        claim = BillingAlertEvaluationClaim.objects.create(
+            alert=first,
+            evaluation_date=timezone.now().date(),
+            configuration_revision=first.configuration_revision,
+            attempt_count=1,
+        )
+        event = BillingAlertEvent.objects.create(
+            claim=claim,
+            team_id=first.execution_team_id,
+            kind=BillingAlertEvent.Kind.CHECK,
+            source=BillingAlertEvent.Source.MANUAL,
+            attempt_number=1,
+            metric=BillingAlertConfiguration.Metric.SPEND,
+            state_before=BillingAlertConfiguration.State.NOT_FIRING,
+            state_after=BillingAlertConfiguration.State.NOT_FIRING,
+            reason="Manual check",
+        )
+        throttle_key = f"throttle_billing_alert_check_now_organization_{self.organization.id}"
+        cache.delete(throttle_key)
+        self.addCleanup(cache.delete, throttle_key)
+
+        with patch(
+            "products.billing_alerts.backend.presentation.views.billing_alerts_api.evaluate_and_dispatch_alert",
+            return_value=BillingAlertDispatchResult(event=event, dispatched_destinations=0),
+        ) as evaluate_and_dispatch:
+            first_check = self.client.post(f"{self.url}{first.id}/check_now/", format="json")
+            edit = self.client.patch(
+                f"{self.url}{first.id}/",
+                {"threshold_percentage": "75.00"},
+                format="json",
+            )
+            second_check = self.client.post(f"{self.url}{first.id}/check_now/", format="json")
+            throttled = self.client.post(f"{self.url}{second.id}/check_now/", format="json")
+
+        assert first_check.status_code == status.HTTP_200_OK
+        assert edit.status_code == status.HTTP_200_OK
+        assert edit.json()["configuration_revision"] == 2
+        assert second_check.status_code == status.HTTP_200_OK
+        assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert evaluate_and_dispatch.call_count == 2

@@ -4,7 +4,8 @@ from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from django.db.models import F, Q, QuerySet
+from django.db.models import F, Q, QuerySet, Window
+from django.db.models.functions import RowNumber
 
 import structlog
 import temporalio.activity
@@ -40,6 +41,26 @@ def due_billing_alerts_q(now: datetime) -> QuerySet[BillingAlertConfiguration]:
         .filter(Q(next_check_at__lte=now) | Q(next_check_at__isnull=True))
         .filter(Q(snooze_until__isnull=True) | Q(snooze_until__lte=now))
         .exclude(state=BillingAlertConfiguration.State.BROKEN)
+    )
+
+
+def _due_billing_alerts_for_sweep(now: datetime) -> QuerySet[BillingAlertConfiguration]:
+    """Interleave due alerts by organization inside the global sweep budget."""
+    return (
+        due_billing_alerts_q(now)
+        .annotate(
+            _organization_rank=Window(
+                expression=RowNumber(),
+                partition_by=[F("organization_id")],
+                order_by=[F("next_check_at").asc(nulls_first=True), F("id").asc()],
+            )
+        )
+        .order_by(
+            "_organization_rank",
+            F("next_check_at").asc(nulls_first=True),
+            "organization_id",
+            "id",
+        )[:MAX_DUE_BILLING_ALERTS_PER_TICK]
     )
 
 
@@ -183,12 +204,8 @@ async def discover_due_billing_alerts_activity() -> list[BillingAlertInfo]:
     @database_sync_to_async(thread_sensitive=False)
     def get_due_alerts() -> list[BillingAlertInfo]:
         now = datetime.now(UTC)
-        alerts = (
-            due_billing_alerts_q(now)
-            .order_by(F("next_check_at").asc(nulls_first=True))
-            .values_list(
-                "id", "organization_id", "baseline_window_days", "evaluation_delay_hours", "pending_evaluation_date"
-            )[:MAX_DUE_BILLING_ALERTS_PER_TICK]
+        alerts = _due_billing_alerts_for_sweep(now).values_list(
+            "id", "organization_id", "baseline_window_days", "evaluation_delay_hours", "pending_evaluation_date"
         )
         return [
             BillingAlertInfo(
