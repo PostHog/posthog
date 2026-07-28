@@ -319,7 +319,9 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
             properties=[],
         )
         runner = MarketingAnalyticsAttributionQueryRunner(query=query, team=self.team)
-        person_arrays = runner.to_query().ctes["person_arrays"].expr
+        ctes = runner.to_query().ctes or {}
+        person_arrays = ctes["person_arrays"].expr
+        assert isinstance(person_arrays, ast.SelectQuery)
 
         class FindSubqueryIn(TraversingVisitor):
             def __init__(self) -> None:
