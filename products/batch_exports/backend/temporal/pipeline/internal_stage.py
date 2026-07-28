@@ -6,7 +6,7 @@ import typing
 import asyncio
 import datetime as dt
 from contextlib import asynccontextmanager, suppress
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from django.conf import settings
 
@@ -18,7 +18,7 @@ from temporalio import activity
 
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import Product
-from posthog.credentials import AWSAccessKeyId, AWSSecretAccessKey, unsafe_cast_aws_credentials
+from posthog.credentials import AWSKeyPair
 
 from products.batch_exports.backend.temporal.utils import make_retryable_with_exponential_backoff
 
@@ -101,26 +101,19 @@ def _get_s3_endpoint_url() -> str:
     return settings.BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT
 
 
-@dataclass(frozen=True)
-class S3StagingCredentials:
-    # Both None when keyless (IAM-role) auth is used.
-    aws_access_key_id: AWSAccessKeyId | None
-    aws_secret_access_key: AWSSecretAccessKey | None = field(repr=False)
+def _get_s3_credentials() -> AWSKeyPair | None:
+    """Get the S3 credentials for the internal staging bucket, or None to authenticate keylessly.
 
-
-def _get_s3_credentials() -> S3StagingCredentials:
-    """Get the S3 credentials for S3 internal staging bucket.
-
-    If keyless S3 auth is enabled, we use no credentials as the IAM role will be used to authenticate.
-    Otherwise, we use the credentials from the object storage settings.
+    Keyless S3 auth (IAM role) returns None. A partially configured environment counts as keyless
+    rather than yielding half a key pair.
     """
-    use_keyless_s3_auth = not _uses_object_storage_endpoint()
-    if use_keyless_s3_auth:
-        return S3StagingCredentials(aws_access_key_id=None, aws_secret_access_key=None)
-    access_key_id, secret_access_key = unsafe_cast_aws_credentials(
-        settings.OBJECT_STORAGE_ACCESS_KEY_ID, settings.OBJECT_STORAGE_SECRET_ACCESS_KEY
-    )
-    return S3StagingCredentials(aws_access_key_id=access_key_id, aws_secret_access_key=secret_access_key)
+    if not _uses_object_storage_endpoint():
+        return None
+    access_key_id = settings.OBJECT_STORAGE_ACCESS_KEY_ID
+    secret_access_key = settings.OBJECT_STORAGE_SECRET_ACCESS_KEY
+    if access_key_id is None or secret_access_key is None:
+        return None
+    return AWSKeyPair.unsafe_from_strings(access_key_id, secret_access_key)
 
 
 def socket_factory(addr_info):
@@ -158,12 +151,12 @@ class AIOHTTPSession(BaseAIOHTTPSession):
 @asynccontextmanager
 async def get_s3_client():
     """Async context manager for creating and managing an S3 client."""
-    s3_creds = _get_s3_credentials()
+    credentials = _get_s3_credentials()
     session = aioboto3.Session()
     async with session.client(
         "s3",
-        aws_access_key_id=s3_creds.aws_access_key_id,
-        aws_secret_access_key=s3_creds.aws_secret_access_key,
+        aws_access_key_id=credentials.access_key_id if credentials else None,
+        aws_secret_access_key=credentials.secret_access_key if credentials else None,
         endpoint_url=_get_s3_endpoint_url(),
         region_name=settings.BATCH_EXPORT_OBJECT_STORAGE_REGION,
         # aiobotocore defaults keepalive_timeout to 12 seconds, which can be low for
@@ -417,12 +410,9 @@ async def _get_query(
     num_partitions = num_partitions or settings.BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS
     assert num_partitions is not None  # to satisfy mypy
 
-    s3_creds = _get_s3_credentials()
-
     s3_function = get_s3_function_call(
         s3_folder=s3_staging_folder_url,
-        s3_key=s3_creds.aws_access_key_id,
-        s3_secret=s3_creds.aws_secret_access_key,
+        credentials=_get_s3_credentials(),
         num_partitions=num_partitions,
     )
 
@@ -618,13 +608,11 @@ async def _write_batch_export_record_batches_to_internal_stage(
             query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
 
             if isinstance(query_or_model, RecordBatchModel):
-                s3_creds = _get_s3_credentials()
                 query, query_parameters = await query_or_model.as_insert_into_s3_query_with_parameters(
                     data_interval_start=interval_start,
                     data_interval_end=interval_end,
                     s3_folder=s3_staging_folder_url,
-                    s3_key=s3_creds.aws_access_key_id,
-                    s3_secret=s3_creds.aws_secret_access_key,
+                    credentials=_get_s3_credentials(),
                     num_partitions=num_partitions or settings.BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS,
                 )
             else:

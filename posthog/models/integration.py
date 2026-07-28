@@ -6,7 +6,7 @@ import base64
 import hashlib
 import secrets
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, NoReturn, Optional, Self
 from urllib.parse import parse_qs, urlencode, urlparse
@@ -42,7 +42,7 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
 from posthog.cache_utils import cache_for
-from posthog.credentials import AWSAccessKeyId, AWSSecretAccessKey, unsafe_cast_aws_credentials
+from posthog.credentials import AWSKeyPair
 from posthog.egress.github.transport import github_request
 from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
@@ -3962,18 +3962,11 @@ class S3CredentialIntegrationError(Exception):
     pass
 
 
-@dataclass(frozen=True)
-class S3Credentials:
-    aws_access_key_id: AWSAccessKeyId
-    aws_secret_access_key: AWSSecretAccessKey = field(repr=False)
-
-
-def _read_s3_credentials(integration: Integration) -> S3Credentials:
+def _read_s3_credentials(integration: Integration) -> AWSKeyPair:
     try:
-        access_key_id, secret_access_key = unsafe_cast_aws_credentials(
+        return AWSKeyPair.unsafe_from_strings(
             integration.sensitive_config["aws_access_key_id"], integration.sensitive_config["aws_secret_access_key"]
         )
-        return S3Credentials(aws_access_key_id=access_key_id, aws_secret_access_key=secret_access_key)
     except KeyError as e:
         raise S3CredentialIntegrationError(f"S3 integration is not valid: {str(e)} missing")
 
@@ -4116,9 +4109,9 @@ class AwsS3Integration:
                 f"Integration provided is not an AWS S3 integration (got kind='{integration.kind}')"
             )
         self.integration = integration
-        _s3_creds = _read_s3_credentials(integration)
-        self.aws_access_key_id = _s3_creds.aws_access_key_id
-        self.aws_secret_access_key = _s3_creds.aws_secret_access_key
+        credentials = _read_s3_credentials(integration)
+        self.aws_access_key_id = credentials.access_key_id
+        self.aws_secret_access_key = credentials.secret_access_key
 
     @property
     def aws_account_id(self) -> str | None:
@@ -4217,9 +4210,9 @@ class S3CompatibleIntegration:
                 f"Integration provided is not an S3-compatible integration (got kind='{integration.kind}')"
             )
         self.integration = integration
-        _s3_creds = _read_s3_credentials(integration)
-        self.aws_access_key_id = _s3_creds.aws_access_key_id
-        self.aws_secret_access_key = _s3_creds.aws_secret_access_key
+        credentials = _read_s3_credentials(integration)
+        self.aws_access_key_id = credentials.access_key_id
+        self.aws_secret_access_key = credentials.secret_access_key
         try:
             self.endpoint_url = integration.config["endpoint_url"]
         except KeyError:
