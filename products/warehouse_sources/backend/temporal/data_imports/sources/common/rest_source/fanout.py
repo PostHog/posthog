@@ -30,6 +30,7 @@ class DependentEndpointConfig:
     include_from_parent: list[str]
     parent_field_renames: dict[str, str] = field(default_factory=dict)
     parent_params: dict[str, Any] = field(default_factory=dict)
+    child_params: dict[str, Any] = field(default_factory=dict)
 
 
 def rename_parent_fields(parent_name: str, renames: dict[str, str]) -> Callable[[dict[str, Any]], dict[str, Any]]:
@@ -111,6 +112,8 @@ def build_dependent_resource(
     }
     if page_size_param is not None:
         child_params[page_size_param] = child_config.page_size
+    # The resolve param binds child requests to their parent row — config must not clobber it.
+    child_params.update({k: v for k, v in fanout.child_params.items() if k != fanout.resolve_param})
     if child_params_extra:
         child_params.update(child_params_extra)
     child_endpoint_config: Endpoint = {
