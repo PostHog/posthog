@@ -196,8 +196,8 @@ function UrlBlocklistOptions(): JSX.Element | null {
             formKey="proposedUrlBlocklist"
             addUrl={addUrlBlocklist}
             validationWarning={urlBlocklistInputValidationWarning}
-            title="Pause recordings when the user visits a page that matches the URL"
-            description="Used to pause recordings for part of a user journey"
+            title="Pause recording on matching URLs"
+            description="When the current page URL matches one of these patterns, recording pauses until the user navigates away. Each pattern is a regular expression, so it only takes effect when it actually matches the URL."
             checkUrl={checkUrlBlocklist}
             checkUrlResults={checkUrlBlocklistResults}
             setCheckUrl={setCheckUrlBlocklist}
@@ -400,7 +400,6 @@ function useHeaderStatuses(currentTeam: TeamType | TeamPublicType | null): {
     flagStatus: string
     samplingStatus: string
     minDurationStatus: string
-    blocklistStatus: string
 } {
     const { urlTriggerConfig, eventTriggerConfig } = useValues(replayTriggersLogic)
 
@@ -409,7 +408,6 @@ function useHeaderStatuses(currentTeam: TeamType | TeamPublicType | null): {
     const flagKey = currentTeam?.session_recording_linked_flag?.key
     const numericSampleRate = toDisplaySampleRate(currentTeam?.session_recording_sample_rate)
     const minDurationMs = currentTeam?.session_recording_minimum_duration_milliseconds
-    const blocklistCount = currentTeam?.session_recording_url_blocklist_config?.length ?? 0
 
     return {
         urlStatus: urlCount > 0 ? pluralize(urlCount, 'pattern') : 'Not configured',
@@ -417,7 +415,6 @@ function useHeaderStatuses(currentTeam: TeamType | TeamPublicType | null): {
         flagStatus: flagKey ? flagKey : 'Not configured',
         samplingStatus: `${numericSampleRate}%${numericSampleRate === 100 ? ' (default)' : ''}`,
         minDurationStatus: minDurationMs ? `${minDurationMs / 1000}s` : 'No minimum',
-        blocklistStatus: blocklistCount > 0 ? pluralize(blocklistCount, 'pattern') : 'Not configured',
     }
 }
 
@@ -485,23 +482,21 @@ function LegacyRecordingConditions(): JSX.Element {
                     ]}
                 />
             </div>
-
-            <div>
-                <h3 className="text-base font-semibold mb-2">
-                    Recording exclusions <Since web={{ version: '1.171.0' }} />
-                </h3>
-                <LemonCollapse
-                    multiple
-                    panels={[
-                        {
-                            key: 'blocklist',
-                            header: <TriggerPanelHeader title="URL blocklist" status={statuses.blocklistStatus} />,
-                            content: <UrlBlocklistOptions />,
-                        },
-                    ]}
-                />
-            </div>
         </>
+    )
+}
+
+function RecordingExclusions(): JSX.Element {
+    return (
+        <div className="flex flex-col gap-2">
+            <h3 className="text-base font-semibold mb-0">Recording exclusions</h3>
+            <LemonBanner type="info">
+                URL exclusions always apply, on every current SDK version and regardless of your trigger groups. When a
+                user is on a matching page, recording pauses and resumes once they leave, so the rest of the session is
+                still captured.
+            </LemonBanner>
+            <UrlBlocklistOptions />
+        </div>
     )
 }
 
@@ -559,24 +554,20 @@ export function ReplayTriggers(): JSX.Element {
         {
             key: 'web',
             label: 'Web',
-            content: (
+            content: isV2TriggersEnabled ? (
                 <div className="flex flex-col gap-y-4">
-                    {isV2TriggersEnabled && (
-                        <>
-                            <SdkCompatibilityBanner />
+                    <SdkCompatibilityBanner />
 
-                            <TriggerGroupsEditor />
-                        </>
-                    )}
+                    <TriggerGroupsEditor />
 
-                    {isV2TriggersEnabled && (
-                        <div className="mt-2">
-                            <LemonDivider className="mb-4" />
-                            <h3 className="text-base font-semibold mb-1">Legacy recording conditions</h3>
-                        </div>
-                    )}
+                    <RecordingExclusions />
 
-                    {isV2TriggersEnabled && shouldMinimizeLegacyConditions ? (
+                    <div className="mt-2">
+                        <LemonDivider className="mb-4" />
+                        <h3 className="text-base font-semibold mb-1">Legacy recording conditions</h3>
+                    </div>
+
+                    {shouldMinimizeLegacyConditions ? (
                         <LemonCollapse
                             panels={[
                                 {
@@ -597,15 +588,18 @@ export function ReplayTriggers(): JSX.Element {
                         />
                     ) : (
                         <>
-                            {isV2TriggersEnabled && (
-                                <LemonBanner type="warning">
-                                    Used by SDK versions &lt; v{TRIGGER_GROUPS_MIN_SDK_VERSION} and as fallback for
-                                    newer versions if trigger groups are not configured.
-                                </LemonBanner>
-                            )}
+                            <LemonBanner type="warning">
+                                Used by SDK versions &lt; v{TRIGGER_GROUPS_MIN_SDK_VERSION} and as fallback for newer
+                                versions if trigger groups are not configured.
+                            </LemonBanner>
                             <LegacyRecordingConditions />
                         </>
                     )}
+                </div>
+            ) : (
+                <div className="flex flex-col gap-y-4">
+                    <LegacyRecordingConditions />
+                    <RecordingExclusions />
                 </div>
             ),
         },
