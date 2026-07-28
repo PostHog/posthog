@@ -26,7 +26,6 @@ from hogli_commands.workflow_lint.checks.checkout_full_depth import CheckoutFull
 from hogli_commands.workflow_lint.checks.dorny_negation import DornyNegationCheck
 from hogli_commands.workflow_lint.checks.job_timeouts import JobTimeoutsCheck
 from hogli_commands.workflow_lint.checks.pr_concurrency import PrConcurrencyCheck
-from hogli_commands.workflow_lint.checks.schema_cache_epoch import SchemaCacheEpochCheck
 from hogli_commands.workflow_lint.checks.semgrep_services_coverage import SemgrepServicesCoverageCheck
 from hogli_commands.workflow_lint.model import PR_TRIGGERS, Workflow, WorkflowParseError, read_workflows
 
@@ -813,96 +812,6 @@ class TestCacheWriteGateCheck:
     )
     def test_push_trigger_is_default_only(self, on: object, default_only: bool) -> None:
         assert _push_trigger_is_default_only(on) is default_only
-
-
-# ---------------------------------------------------------------------------
-# SchemaCacheEpochCheck
-# ---------------------------------------------------------------------------
-
-
-class TestSchemaCacheEpochCheck:
-    def test_passes_when_all_declarations_match(self, tmp_path: Path) -> None:
-        # Workflow-level (ci-backend/ci-dagster shape), step-level
-        # (ci-e2e-playwright shape), and a workflow with no declaration at all.
-        _write(
-            tmp_path,
-            "ci-backend.yml",
-            """
-            name: Backend
-            on: [push]
-            env:
-              SCHEMA_CACHE_EPOCH: v1
-            jobs: {}
-            """,
-        )
-        _write(
-            tmp_path,
-            "ci-e2e-playwright.yml",
-            """
-            name: E2E
-            on: [pull_request]
-            jobs:
-              build:
-                runs-on: ubuntu-latest
-                timeout-minutes: 5
-                steps:
-                  - id: schema-key
-                    env:
-                      SCHEMA_CACHE_EPOCH: v1
-                    run: echo ok
-            """,
-        )
-        _write(
-            tmp_path,
-            "ci-other.yml",
-            """
-            name: Other
-            on: [pull_request]
-            jobs: {}
-            """,
-        )
-        assert SchemaCacheEpochCheck().run(_read_all(tmp_path)).issues == []
-
-    @pytest.mark.parametrize("declaration_site", ["workflow", "step"])
-    def test_fails_when_consumer_lags_the_saver(self, tmp_path: Path, declaration_site: str) -> None:
-        _write(
-            tmp_path,
-            "ci-backend.yml",
-            """
-            name: Backend
-            on: [push]
-            env:
-              SCHEMA_CACHE_EPOCH: v2
-            jobs: {}
-            """,
-        )
-        if declaration_site == "workflow":
-            consumer = """
-            name: Dagster
-            on: [pull_request]
-            env:
-              SCHEMA_CACHE_EPOCH: v1
-            jobs: {}
-            """
-        else:
-            consumer = """
-            name: Dagster
-            on: [pull_request]
-            jobs:
-              changes:
-                runs-on: ubuntu-latest
-                timeout-minutes: 5
-                steps:
-                  - id: schema-key
-                    env:
-                      SCHEMA_CACHE_EPOCH: v1
-                    run: echo ok
-            """
-        _write(tmp_path, "ci-dagster.yml", consumer)
-        [issue] = SchemaCacheEpochCheck().run(_read_all(tmp_path)).issues
-        assert issue.workflow == "ci-dagster.yml"
-        assert "'v1'" in issue.message
-        assert "'v2'" in issue.message
 
 
 # ---------------------------------------------------------------------------
