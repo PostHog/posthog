@@ -431,9 +431,10 @@ class TestRunTaggerWorkflow:
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
         "status_code,should_raise",
-        # A 402 means the team is over its ingestion quota, which is a billing condition we swallow
-        # so the tagger workflow succeeds instead of exhausting retries on a request that can't recover.
-        [(402, False), (500, True)],
+        [
+            pytest.param(402, False, id="billing_limit_is_swallowed"),
+            pytest.param(500, True, id="server_error_still_raises"),
+        ],
     )
     async def test_emit_tagger_event_activity_billing_limit(self, setup_data, status_code: int, should_raise: bool):
         team = setup_data["team"]

@@ -1,7 +1,6 @@
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from http import HTTPStatus
 from typing import Any
 
 import structlog
@@ -531,9 +530,7 @@ async def emit_tagger_event_activity(inputs: EmitTaggerEventInputs) -> None:
     try:
         await database_sync_to_async(_emit, thread_sensitive=False)()
     except CaptureInternalError as e:
-        if e.status_code == HTTPStatus.PAYMENT_REQUIRED:
-            # Team is over its ingestion quota, so ingestion would drop this event anyway.
-            # That's a billing condition, not a system fault — don't retry it or fail the workflow.
+        if e.is_billing_limit_exceeded:
             logger.info("Skipping tag event emission; team over billing quota", team_id=event_data["team_id"])
             return
         raise

@@ -1,7 +1,6 @@
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from http import HTTPStatus
 from typing import Any
 
 from django.conf import settings
@@ -327,10 +326,8 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
         await database_sync_to_async(_emit, thread_sensitive=False)()
         increment_emit_event_outcome("success")
     except CaptureInternalError as e:
-        if e.status_code == HTTPStatus.PAYMENT_REQUIRED:
-            # Team is over its ingestion quota, so ingestion would drop this event anyway.
-            # That's a billing condition, not a system fault — don't retry it or count it as an error.
-            increment_emit_event_outcome("dropped_over_quota")
+        if e.is_billing_limit_exceeded:
+            increment_emit_event_outcome("dropped_billing_limited")
             logger.info("Skipping eval event emission; team over billing quota", team_id=event_data["team_id"])
             return
         increment_emit_event_outcome("failed")

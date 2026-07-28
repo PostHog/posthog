@@ -131,10 +131,10 @@ def increment_tokens(token_type: str, count: int) -> None:
 
 
 def increment_emit_event_outcome(outcome: str) -> None:
-    """Track $ai_evaluation event emission outcomes (success/failed/dropped_over_quota).
+    """Track $ai_evaluation event emission outcomes (success/failed/dropped_billing_limited).
 
     Distinguishes Activity 4 failures from other workflow failures so we can
-    measure and alert on dropped eval events specifically. `dropped_over_quota`
+    measure and alert on dropped eval events specifically. `dropped_billing_limited`
     is an expected billing condition, not a system failure, so it's kept out of
     the `failed` bucket the error-rate alert watches.
     """
@@ -143,7 +143,7 @@ def increment_emit_event_outcome(outcome: str) -> None:
     meter = get_metric_meter({"outcome": outcome})
     counter = meter.create_counter(
         "llma_eval_emit_event_outcome",
-        "Outcome of $ai_evaluation event emission (success/failed/dropped_over_quota)",
+        "Outcome of $ai_evaluation event emission (success/failed/dropped_billing_limited)",
     )
     counter.add(1)
 
