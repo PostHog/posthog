@@ -2,14 +2,15 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.http import JsonResponse
 from django.test import override_settings
 
+from parameterized import parameterized
 from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
-from rest_framework.response import Response
 from rest_framework.test import APIRequestFactory
 
-from ee.api.agentic_provisioning import AUTH_CODE_CACHE_PREFIX
+from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX
 from ee.api.agentic_provisioning.region_proxy import (
     _proxy_to_region,
     _should_proxy_bearer_lookup,
@@ -17,6 +18,7 @@ from ee.api.agentic_provisioning.region_proxy import (
     _should_proxy_token_lookup,
 )
 from ee.api.agentic_provisioning.test.base import ProvisioningTestBase
+from ee.api.agentic_provisioning.throttling import RegionProxyThrottle
 
 factory = APIRequestFactory()
 
@@ -196,7 +198,7 @@ class TestDecoratorIntegration(ProvisioningTestBase):
     @override_settings(CLOUD_DEPLOYMENT="US")
     @patch("ee.api.agentic_provisioning.region_proxy._proxy_to_region")
     def test_proxy_success_returns_proxied_response(self, mock_proxy):
-        mock_proxy.return_value = Response({"type": "oauth", "oauth": {"code": "abc"}})
+        mock_proxy.return_value = JsonResponse({"type": "oauth", "oauth": {"code": "abc"}})
         payload = {"email": "test@example.com", "configuration": {"region": "EU"}}
         res = self._post_api("/api/agentic/provisioning/account_requests", data=payload)
         assert mock_proxy.called
@@ -270,7 +272,7 @@ class TestBearerLookupDecoratorCoverage(ProvisioningTestBase):
     @override_settings(CLOUD_DEPLOYMENT="US")
     @patch("ee.api.agentic_provisioning.region_proxy._proxy_to_region")
     def test_unknown_bearer_token_is_proxied_on_every_endpoint(self, mock_proxy):
-        mock_proxy.return_value = Response({"status": "ok"}, status=200)
+        mock_proxy.return_value = JsonResponse({"status": "ok"}, status=200)
 
         for method, url in self._resource_endpoints():
             mock_proxy.reset_mock()
@@ -291,38 +293,76 @@ class TestBearerLookupDecoratorCoverage(ProvisioningTestBase):
             assert not mock_proxy.called, f"{method} {url} should not proxy for a locally valid bearer token"
 
 
-class TestDecoratorCoverageContract(BaseTest):
-    """Catches forgotten `@region_proxy` decorators on bearer-auth endpoints.
+class TestRegionProxyThrottle(ProvisioningTestBase):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
 
-    If you add a new endpoint that accepts a bearer access token, either decorate it
-    with `region_proxy(strategy="bearer_lookup")` or add it to the allowlist here
+    @parameterized.expand(
+        [
+            (
+                "typed_envelope",
+                "/api/agentic/provisioning/account_requests",
+                {"email": "throttled@example.com", "configuration": {"region": "EU"}},
+                "type",
+            ),
+            # Any resource id works: bearer_lookup proxies before the handler reads it.
+            ("status_envelope", "/api/agentic/provisioning/resources/1", None, "status"),
+        ]
+    )
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    @patch.object(RegionProxyThrottle, "rate", "1/minute")
+    @patch("ee.api.agentic_provisioning.region_proxy._proxy_to_region")
+    def test_forwarding_is_capped_per_ip(self, _name, url, data, envelope_key, mock_proxy):
+        mock_proxy.return_value = JsonResponse({"status": "ok"})
+
+        def call():
+            if data is None:
+                return self._get_with_bearer(url, token="unknown_token_from_the_other_region")
+            return self._post_api(url, data=data)
+
+        assert call().status_code == 200
+        assert mock_proxy.called
+
+        mock_proxy.reset_mock()
+        rejected = call()
+
+        assert not mock_proxy.called, "over-budget requests must not reach the other region"
+        assert rejected.status_code == 429
+        assert rejected["Retry-After"]
+        body = rejected.json()
+        assert body[envelope_key] == "error"
+        assert body["error"]["code"] == "rate_limited"
+
+
+class TestRegionProxyCoverageContract(BaseTest):
+    """Catches forgotten ``region_proxy_strategy`` on bearer-auth endpoints.
+
+    If you add a new endpoint that accepts a bearer access token, either declare
+    ``region_proxy_strategy = "bearer_lookup"`` on it (or build on
+    BearerResourceAPIView, which carries it) or add it to the allowlist here
     with a written reason."""
 
     REGION_AWARE_ENDPOINTS = {
-        "provisioning_resources_create": "bearer_lookup",
-        "provisioning_resource_detail": "bearer_lookup",
-        "provisioning_rotate_credentials": "bearer_lookup",
-        "provisioning_resource_remove": "bearer_lookup",
-        "deep_links": "bearer_lookup",
-        "account_requests": "body_region",
-        "oauth_token": "token_lookup",
+        "ResourcesCreateView": "bearer_lookup",
+        "ResourceDetailView": "bearer_lookup",
+        "RotateCredentialsView": "bearer_lookup",
+        "ResourceRemoveView": "bearer_lookup",
+        "GitHubIntegrationView": "bearer_lookup",
+        "WizardRunsView": "bearer_lookup",
+        "DeepLinksView": "bearer_lookup",
+        "AccountRequestsView": "body_region",
+        "OAuthTokenView": "token_lookup",
     }
 
-    def test_all_region_aware_endpoints_have_proxy_decorator(self):
+    def test_all_region_aware_endpoints_declare_proxy_strategy(self):
         from ee.api.agentic_provisioning import views
-        from ee.api.agentic_provisioning.region_proxy import REGION_PROXY_REGISTRY
 
         for view_name, expected_strategy in self.REGION_AWARE_ENDPOINTS.items():
-            assert hasattr(views, view_name), f"View {view_name} is missing from views.py"
-            qualname = (
-                getattr(views, view_name).__qualname__
-                if hasattr(getattr(views, view_name), "__qualname__")
-                else view_name
-            )
-            registered_strategy = REGION_PROXY_REGISTRY.get(qualname) or REGION_PROXY_REGISTRY.get(view_name)
-            assert registered_strategy == expected_strategy, (
-                f"{view_name} must be decorated with @region_proxy(strategy={expected_strategy!r}) "
-                f"(registry has: {registered_strategy!r})"
+            assert hasattr(views, view_name), f"View {view_name} is missing from the views package"
+            declared_strategy = getattr(getattr(views, view_name), "region_proxy_strategy", None)
+            assert declared_strategy == expected_strategy, (
+                f"{view_name} must declare region_proxy_strategy = {expected_strategy!r} (found: {declared_strategy!r})"
             )
 
 
