@@ -262,6 +262,7 @@ export function resolveLogTransformationInputs(
                 globals: { ...globals, inputs },
                 timeout: timeoutMs,
                 maxAsyncSteps: 0,
+                memoryLimit: LOG_TRANSFORMATION_MEMORY_LIMIT_BYTES,
             })
             durationMs += execMs
             if (error || execResult?.error || !execResult?.finished) {

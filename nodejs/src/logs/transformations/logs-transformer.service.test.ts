@@ -400,6 +400,25 @@ describe('LogsTransformerService', () => {
         expect(printed?.message).not.toContain('super-secret-key')
     })
 
+    it('redacts encrypted input values from the thrown error message', async () => {
+        // print() output is sanitized at capture, but the thrown error string is
+        // queued as the error-level log entry — throwing a secret must not let it
+        // be read back from persisted function logs.
+        setFunctions([
+            await createFunction(`throw Error(f'lookup failed for {inputs.apiKey}')`, {
+                encrypted_inputs: { apiKey: { value: 'super-secret-key', order: 0 } },
+            } as any),
+        ])
+        const records = [createRecord()]
+
+        await service.transformRecords(TEAM_ID, records)
+
+        const queuedLogs = monitoring.queueLogs.mock.calls.flatMap(([logs]) => logs)
+        const errorEntry = queuedLogs.find((entry) => entry.level === 'error')
+        expect(errorEntry?.message).toContain('***REDACTED***')
+        expect(errorEntry?.message).not.toContain('super-secret-key')
+    })
+
     it('teamHasTransformations uses the cheap id lookup', async () => {
         manager.getHogFunctionIdsForTeams.mockResolvedValue({ [TEAM_ID]: ['some-id'] })
         await expect(service.teamHasTransformations(TEAM_ID)).resolves.toBe(true)
