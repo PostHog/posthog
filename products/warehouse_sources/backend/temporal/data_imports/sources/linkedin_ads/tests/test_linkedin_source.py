@@ -9,6 +9,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.client import LinkedinAdsClient
 from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source import (
     LINKEDIN_ADS_VERSION_202606,
+    LINKEDIN_ADS_VERSION_202607,
     LinkedInAdsSource,
 )
 
@@ -75,9 +76,9 @@ class TestLinkedInAdsSource:
         retryable_errors = self.source.get_retryable_errors()
         assert not any(pattern in other_error for pattern in retryable_errors)
 
-    def test_defaults_new_sources_to_202606(self):
-        assert self.source.default_version == LINKEDIN_ADS_VERSION_202606
-        assert set(self.source.supported_versions) == {"v1", LINKEDIN_ADS_VERSION_202606}
+    def test_defaults_new_sources_to_202607(self):
+        assert self.source.default_version == LINKEDIN_ADS_VERSION_202607
+        assert set(self.source.supported_versions) == {"v1", LINKEDIN_ADS_VERSION_202606, LINKEDIN_ADS_VERSION_202607}
 
     @pytest.mark.parametrize(
         "pinned_version,expected_header",
@@ -86,8 +87,9 @@ class TestLinkedInAdsSource:
             # sent (202508), so their syncs stay byte-for-byte unchanged after the default flip.
             ("v1", "202508"),
             (LINKEDIN_ADS_VERSION_202606, "202606"),
+            (LINKEDIN_ADS_VERSION_202607, "202607"),
             # No pin resolves to the new default.
-            (None, "202606"),
+            (None, "202607"),
             # An undeclared pin is honored verbatim and passed straight through for LinkedIn to validate.
             ("209901", "209901"),
         ],
@@ -116,7 +118,7 @@ class TestLinkedInAdsSource:
 
         self.source.get_oauth_accounts(integration_id=456, team_id=self.team_id)
 
-        assert mock_client_for_integration.call_args.kwargs["api_version"] == "202606"
+        assert mock_client_for_integration.call_args.kwargs["api_version"] == "202607"
 
     def test_validate_credentials_missing_account_id(self):
         """Test credential validation with missing account ID."""
