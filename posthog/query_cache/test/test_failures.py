@@ -12,6 +12,7 @@ from posthog.query_cache.failures import (
     BASE_BACKOFF,
     BUDGET_EXTENDED,
     BUDGET_INTERACTIVE,
+    FAILURE_DECAY,
     KIND_POLICIES,
     QueryFailureCache,
 )
@@ -64,37 +65,41 @@ class TestQueryFailureCache(SimpleTestCase):
         )
         assert QueryFailureCache("cache_key_future").get_open() is None
 
-    def test_load_dependent_breaker_opens_after_threshold_and_backs_off_exponentially(self):
-        failure_cache = QueryFailureCache("cache_key_1")
+    @parameterized.expand([(kind,) for kind in KIND_POLICIES])
+    def test_breaker_opens_at_its_threshold_and_backs_off_exponentially(self, kind):
+        threshold = KIND_POLICIES[kind].open_threshold
+        failure_cache = QueryFailureCache(f"cache_key_threshold_{kind}")
         with freeze_time("2026-01-01T00:00:00Z") as frozen:
-            for _ in range(KIND_POLICIES["timeout"].open_threshold - 1):
-                failure_cache.record_failure("timeout", "failed")
+            for _ in range(threshold - 1):
+                failure_cache.record_failure(kind, "failed")
                 assert failure_cache.get_open() is None
 
-            record = failure_cache.record_failure("timeout", "failed")
+            record = failure_cache.record_failure(kind, "failed")
             assert record is not None
+            assert record.consecutive_failures == threshold
             assert record.open_until == datetime.now(UTC) + BASE_BACKOFF
             assert failure_cache.get_open() is not None
 
             frozen.tick(BASE_BACKOFF + timedelta(seconds=1))
             assert failure_cache.get_open() is None
-            record = failure_cache.record_failure("timeout", "failed")
+            record = failure_cache.record_failure(kind, "failed")
             assert record is not None
             assert record.open_until == datetime.now(UTC) + BASE_BACKOFF * 2
 
-    @parameterized.expand([("memory_limit",), ("query_size",)])
-    def test_deterministic_kinds_open_on_first_failure(self, kind):
-        failure_cache = QueryFailureCache(f"cache_key_instant_{kind}")
-        with freeze_time("2026-01-01T00:00:00Z"):
-            record = failure_cache.record_failure(kind, "failed")
-            assert record is not None
-            assert record.consecutive_failures == 1
-            assert record.open_until == datetime.now(UTC) + BASE_BACKOFF
+    def test_consecutive_count_decays_once_the_previous_failure_is_old(self):
+        # A query only attempted when someone opens its dashboard fails hours apart, which the
+        # breaker used to compound into the maximum backoff.
+        failure_cache = QueryFailureCache("cache_key_decay")
+        with freeze_time("2026-01-01T00:00:00Z") as frozen:
+            for _ in range(KIND_POLICIES["timeout"].open_threshold + 3):
+                failure_cache.record_failure("timeout", "failed")
             assert failure_cache.get_open() is not None
 
-            record = failure_cache.record_failure(kind, "failed")
+            frozen.tick(FAILURE_DECAY)
+            record = failure_cache.record_failure("timeout", "failed")
             assert record is not None
-            assert record.open_until == datetime.now(UTC) + BASE_BACKOFF * 2
+            assert record.consecutive_failures == 1
+            assert failure_cache.get_open() is None
 
     def test_backoff_is_capped_and_survives_high_failure_counts(self):
         # 50 failures is past the point where uncapped backoff math overflows timedelta.

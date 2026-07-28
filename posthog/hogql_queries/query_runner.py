@@ -1490,9 +1490,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         cached_response_candidate: Optional[dict]
         self.raw_cached_results_bytes = None
         raw_results: Optional[bytes] = None
-        # The breaker record is only needed here to gate async dispatch; blocking execution is
-        # gated once, inside _execute_and_cache_blocking.
+        # The breaker record is needed here for every mode that can serve a cached result: an open
+        # breaker turns "recalculate" into "keep serving what we have". Blocking execution that
+        # reaches ClickHouse is still gated once more, inside _execute_and_cache_blocking.
         include_failure = self._query_failure_caching_enabled and execution_mode in (
+            ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
             ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
             ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
             ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
@@ -1573,15 +1575,19 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 cached_response.query_status = self.get_async_query_status(cache_key=cache_manager.cache_key)
                 return cached_response
 
-            # An open breaker forbids pointless recalculation: async dispatch is gated here,
-            # blocking recalculation is gated in _execute_and_cache_blocking.
+            # An open breaker forbids pointless recalculation. Every branch below already holds a
+            # usable cached result, so the breaker downgrades the request to "serve what we have"
+            # rather than failing it — the remembered error is only raised where there is nothing
+            # to serve (the cache-miss branch, and _execute_and_cache_blocking).
             failure = lookup.failure
 
             if execution_mode in (
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
             ):
-                self._raise_if_failure_fresh_for(failure, BUDGET_EXTENDED)
+                served = self._cached_result_over_open_breaker(cached_response, failure, BUDGET_EXTENDED, cache_manager)
+                if served is not None:
+                    return served
                 # We're allowed to calculate, but we'll do it asynchronously and attach the query status
                 cached_response.query_status = self.enqueue_async_calculation(
                     cache_manager=cache_manager, user=user, refresh_requested=True, analytics_props=analytics_props
@@ -1591,12 +1597,24 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 # We're allowed to calculate if the lazy check fails, but we'll do it asynchronously
                 assert isinstance(cached_response, CachedResponse)
                 if self._is_stale_for_request(last_refresh=last_refresh_from_cached_result(cached_response), lazy=True):
-                    self._raise_if_failure_fresh_for(failure, BUDGET_EXTENDED)
+                    served = self._cached_result_over_open_breaker(
+                        cached_response, failure, BUDGET_EXTENDED, cache_manager
+                    )
+                    if served is not None:
+                        return served
                     cached_response.query_status = self.enqueue_async_calculation(
                         cache_manager=cache_manager, user=user, analytics_props=analytics_props
                     )
                 cached_response.query_status = self.get_async_query_status(cache_key=cache_manager.cache_key)
                 return cached_response
+            elif execution_mode == ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE:
+                # The default for a dashboard's own refresh cycle. A blocking recalculation follows
+                # unless the breaker forbids it, in which case the stale numbers beat an empty tile.
+                served = self._cached_result_over_open_breaker(
+                    cached_response, failure, budget_for_limit_context(self.limit_context), cache_manager
+                )
+                if served is not None:
+                    return served
         else:
             count_query_cache_hit(self.team.pk, hit="miss", trigger="")
             # We have no cached result. If we aren't allowed to calculate, let's return the cache miss
@@ -1647,13 +1665,40 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         except Exception:
             return False
 
-    def _raise_if_failure_fresh_for(self, failure: Optional[QueryFailureRecord], budget: Budget) -> None:
+    def _forbidden_by_breaker(self, failure: Optional[QueryFailureRecord], budget: Budget) -> bool:
         """The one breaker rule: a failure outcome that is fresh for the given execution budget
-        substitutes for the execution it would forbid."""
-        if failure is None or not failure.forbids(budget):
+        forbids the execution it stands in for."""
+        return failure is not None and failure.forbids(budget)
+
+    def _raise_if_failure_fresh_for(self, failure: Optional[QueryFailureRecord], budget: Budget) -> None:
+        """Substitute the remembered failure for a forbidden execution. Only for callers with
+        nothing to fall back on — when a cached result exists, serve it instead."""
+        if not self._forbidden_by_breaker(failure, budget):
             return
+        assert failure is not None
         QUERY_FAILURE_CACHE_COUNTER.labels(action="served_error", kind=failure.kind).inc()
         raise build_failure_exception(failure)
+
+    def _cached_result_over_open_breaker(
+        self,
+        cached_response: CR,
+        failure: Optional[QueryFailureRecord],
+        budget: Budget,
+        cache_manager: QueryCache,
+    ) -> Optional[CR]:
+        """The cached result to serve in place of a recalculation the breaker forbids, or None when
+        it doesn't forbid one.
+
+        Refusing to recalculate must not also cost the user the results they already have. The
+        breaker exists to spare ClickHouse a doomed query, not to blank the insight that query
+        feeds: raising here would leave the request with neither fresh nor cached data, and the
+        API surfaces that as an empty tile."""
+        if not self._forbidden_by_breaker(failure, budget):
+            return None
+        assert failure is not None
+        QUERY_FAILURE_CACHE_COUNTER.labels(action="served_stale", kind=failure.kind).inc()
+        cached_response.query_status = self.get_async_query_status(cache_key=cache_manager.cache_key)
+        return cached_response
 
     def _call_with_rate_limits(self, *, dashboard_id: Optional[int]) -> tuple[R, float]:
         """Execute calculate() with all rate limiters applied.

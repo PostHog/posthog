@@ -35,14 +35,22 @@ class KindPolicy:
 
 
 KIND_POLICIES: dict[FailureKind, KindPolicy] = {
-    "memory_limit": KindPolicy(open_threshold=1, max_backoff=timedelta(hours=4), timeout_independent=True),
+    # Peak memory varies run to run, so a query sitting near the ceiling can exceed it once and
+    # then finish. One sample doesn't distinguish that from a query that can never fit.
+    "memory_limit": KindPolicy(open_threshold=2, max_backoff=timedelta(minutes=30), timeout_independent=True),
     "timeout": KindPolicy(open_threshold=3, max_backoff=timedelta(minutes=30), timeout_independent=False),
     "too_slow": KindPolicy(open_threshold=3, max_backoff=timedelta(minutes=30), timeout_independent=False),
-    "query_size": KindPolicy(open_threshold=1, max_backoff=timedelta(hours=4), timeout_independent=True),
+    # The query text is byte-identical for a given cache key, so its size cannot come in under the
+    # limit on a retry. One failure is the whole story.
+    "query_size": KindPolicy(open_threshold=1, max_backoff=timedelta(minutes=30), timeout_independent=True),
 }
 
 BASE_BACKOFF = timedelta(minutes=2)
 RECORD_TTL = timedelta(hours=24)
+# A breaker that only ratchets up counts failures hours apart as if they were consecutive, so a
+# query attempted a handful of times over a working day ends up pinned at the ceiling. A failure
+# older than this describes a different moment on the cluster, so the count starts over.
+FAILURE_DECAY = timedelta(hours=1)
 
 
 @dataclass(frozen=True)
@@ -67,14 +75,19 @@ class QueryFailureRecord:
         return budget == BUDGET_INTERACTIVE
 
 
+def _decayed(record: QueryFailureRecord) -> bool:
+    return datetime.now(UTC) - record.last_failed_at >= FAILURE_DECAY
+
+
 class QueryFailureCache:
     """Per-cache-key circuit breaker for deterministically failing queries.
 
     Failures are counted per query cache key; once the kind's open threshold is reached, the
-    breaker opens and requests that would otherwise recalculate are served the remembered
-    failure until an exponentially growing backoff elapses. Any successful calculation closes
-    the breaker. Storage errors fail open: a broken cache backend makes this feature a no-op,
-    never a query failure.
+    breaker opens and requests that would otherwise recalculate skip the query until an
+    exponentially growing backoff elapses — serving the cached result if there is one, and the
+    remembered failure only when there isn't. Any successful calculation closes the breaker, and
+    the count decays so failures far apart don't compound. Storage errors fail open: a broken
+    cache backend makes this feature a no-op, never a query failure.
     """
 
     def __init__(self, cache_key: str) -> None:
@@ -97,7 +110,7 @@ class QueryFailureCache:
             previous = self._load()
             failures = 1
             record_budget = budget
-            if previous is not None and previous.kind == kind:
+            if previous is not None and previous.kind == kind and not _decayed(previous):
                 failures = previous.consecutive_failures + 1
                 if previous.budget == BUDGET_EXTENDED:
                     # Once the big-budget path has failed, a later small-budget failure must

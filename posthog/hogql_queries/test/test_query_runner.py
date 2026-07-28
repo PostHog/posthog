@@ -1739,8 +1739,18 @@ class TestQueryFailureCaching(BaseTest):
             assert getattr(ctx.exception, "served_from_query_failure_cache", False)
             assert ctx.exception.status_code == 504
 
-    def test_open_breaker_raises_even_with_stale_cache(self):
-        # Stale data is deliberately not served to mask a failing query.
+    @parameterized.expand(
+        [
+            ("stale_blocking_refresh_serves_cache", ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE, False),
+            ("stale_async_refresh_serves_cache", ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE, False),
+            ("forced_refresh_explains_the_failure", ExecutionMode.CALCULATE_BLOCKING_ALWAYS, True),
+        ]
+    )
+    def test_open_breaker_over_a_stale_cache(self, _name, execution_mode, expects_error):
+        # Refusing to recalculate must not also throw away the numbers already in cache: the API
+        # renders the breaker's error as an empty insight, so raising here blanks a dashboard tile
+        # that could have kept showing its last good results. A refresh the user explicitly asked
+        # for is the exception — there, the remembered failure is the answer they came for.
         runner_class = setup_test_query_runner_class()
         runner = runner_class(query={"some_attr": "bla"}, team=self.team)
         with mock.patch("posthoganalytics.feature_enabled", side_effect=_failure_caching_flag):
@@ -1748,11 +1758,22 @@ class TestQueryFailureCaching(BaseTest):
                 runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)  # seed the cache
                 frozen.tick(timedelta(minutes=15))  # past the harness's 10-minute staleness window
 
-                mock_calculate = self._open_breaker(runner_class, runner)
-                with self.assertRaises(ClickHouseQueryTimeOut) as ctx:
-                    runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
-                assert mock_calculate.call_count == KIND_POLICIES["timeout"].open_threshold
-                assert getattr(ctx.exception, "served_from_query_failure_cache", False)
+                mock_calculate = self._open_breaker(runner_class, runner, error=_per_query_memory_error())
+                calls_while_opening = mock_calculate.call_count
+
+                with mock.patch.object(runner_class, "enqueue_async_calculation", autospec=True) as mock_enqueue:
+                    if expects_error:
+                        with self.assertRaises(ClickHouseQueryMemoryLimitExceeded) as ctx:
+                            runner.run(execution_mode=execution_mode)
+                        assert getattr(ctx.exception, "served_from_query_failure_cache", False)
+                    else:
+                        response = runner.run(execution_mode=execution_mode)
+                        assert response.is_cached is True
+                        assert response.results[0] == ["row", 1, 2, 3]
+
+                # Either way ClickHouse is spared — that part is the point of the breaker.
+                mock_enqueue.assert_not_called()
+                assert mock_calculate.call_count == calls_while_opening
 
     @parameterized.expand(
         [
@@ -1760,17 +1781,18 @@ class TestQueryFailureCaching(BaseTest):
             ("query_size", ClickHouseQuerySizeExceeded),
         ]
     )
-    def test_deterministic_kinds_open_on_first_failure(self, _name, make_error):
+    def test_deterministic_kinds_open_at_their_threshold(self, kind, make_error):
         runner_class = setup_test_query_runner_class()
         runner = runner_class(query={"some_attr": "bla"}, team=self.team)
         error = make_error()
+        threshold = KIND_POLICIES[kind].open_threshold
         with mock.patch("posthoganalytics.feature_enabled", side_effect=_failure_caching_flag):
             mock_calculate = self._open_breaker(runner_class, runner, error=error)
-            assert mock_calculate.call_count == 1
+            assert mock_calculate.call_count == threshold
 
             with self.assertRaises(type(error)) as ctx:
                 runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
-            assert mock_calculate.call_count == 1
+            assert mock_calculate.call_count == threshold
             assert getattr(ctx.exception, "served_from_query_failure_cache", False)
 
     def test_forced_blocking_run_respects_open_breaker(self):
