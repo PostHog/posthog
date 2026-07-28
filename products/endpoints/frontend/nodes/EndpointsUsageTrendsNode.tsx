@@ -73,7 +73,9 @@ export function EndpointsUsageTrendsNode(props: {
 export function EndpointsUsageTrendsChart({
     results,
     metric,
-    interval,
+    // Quill only formats the axis ticks and the tooltip header when both `timezone` and `interval`
+    // are set, so an absent interval would leave raw ISO labels on both.
+    interval = 'day',
 }: {
     results: TrendsDataPoint[]
     metric: EndpointsUsageMetric
