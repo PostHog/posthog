@@ -10,6 +10,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+from requests.exceptions import RequestException
+
 from posthog.plugins.plugin_server_api import create_hog_flow_manual_invocation
 from posthog.rbac.user_access_control import UserAccessControl
 
@@ -57,13 +59,18 @@ def invoke_hog_flow_now(team_id: int, workflow_id: str | UUID, globals: dict[str
     """Run an active workflow's full graph against a caller-synthesized event context.
 
     `globals` is `{event: {...}, person?: {...}, groups?: {...}}`. Raises HogFlowNotRunnableError
-    if the workflow isn't an active flow for the team, or HogFlowServiceError if the plugin-server
-    rejects the run or is unreachable at the HTTP layer.
+    if the workflow isn't an active flow for the team, or HogFlowServiceError for any failure of the
+    downstream call — a non-2xx response, or a connection-level error (refused/DNS/timeout). Callers
+    catch those two; the raw `requests` exception never escapes this facade.
     """
     if not workflow_is_runnable(team_id, workflow_id):
         raise HogFlowNotRunnableError("That workflow does not exist or is not active.")
 
-    response = create_hog_flow_manual_invocation(team_id, str(workflow_id), {"globals": globals})
+    try:
+        response = create_hog_flow_manual_invocation(team_id, str(workflow_id), {"globals": globals})
+    except RequestException as e:
+        # Connection refused / DNS / timeout never completes a round trip and raises from `requests`.
+        raise HogFlowServiceError("Couldn't reach the workflow service.") from e
     if not response.ok:
         # A completed non-2xx round-trip (404/5xx) doesn't raise from `requests`, but it's still a
         # service-layer failure, not the workflow being invalid — keep the two distinct for callers.

@@ -9,7 +9,6 @@ from django.utils import timezone
 
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
-from requests.exceptions import RequestException
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
@@ -368,11 +367,11 @@ class QuickActionViewSet(
             invoke_hog_flow_now(self.team_id, quick_action.workflow_id, globals_payload)
         except HogFlowNotRunnableError as e:
             raise serializers.ValidationError({"workflow_id": str(e)})
-        except (RequestException, HogFlowServiceError):
-            # The workflow service (CDP) was unreachable or rejected the call at the HTTP layer — for
-            # example the manual-invocation route isn't deployed yet, returning a 404 that `requests`
-            # doesn't raise on. That's an upstream failure, not a bad request, so surface a clean 502
-            # rather than a misleading workflow_id validation error.
+        except HogFlowServiceError:
+            # The workflow service (CDP) was unreachable or rejected the call — e.g. the manual-
+            # invocation route isn't deployed yet (a 404 requests doesn't raise on), a 5xx, or a
+            # connection failure. That's an upstream problem, not a bad request, so surface a clean
+            # 502 rather than a misleading workflow_id validation error.
             logger.exception("quick_action_run_workflow_service_unreachable", workflow_id=str(quick_action.workflow_id))
             return Response(
                 {"detail": "Couldn't reach the workflow service. Try again shortly."},

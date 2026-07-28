@@ -1008,11 +1008,15 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             if (!ticket) {
                 return
             }
-            // Guard against a double-fire kicking off the (non-idempotent) workflow run twice.
+            // The run isn't idempotent, so block a double-fire. Say so instead of swallowing the
+            // second click silently (there's no picker entry left to disable, it closes on select).
             if (cache.runningWorkflowQuickAction) {
+                lemonToast.info(`Still running "${quickAction.name}". Give it a moment.`)
                 return
             }
             cache.runningWorkflowQuickAction = true
+            // Acknowledge the click up front; the run can take until the CDP timeout to come back.
+            lemonToast.success(`Running "${quickAction.name}"`)
             try {
                 // Wait out any ticket-field update from the same quick action so the workflow runs
                 // against the updated ticket, not the pre-update state.
@@ -1022,7 +1026,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 await conversationsQuickActionsRunCreate(String(getCurrentTeamId()), quickAction.short_id, {
                     ticket_id: ticket.id,
                 })
-                lemonToast.success(`Running "${quickAction.name}"`)
                 // The workflow may change the ticket server-side; refresh so a later local edit
                 // doesn't PATCH over its changes with stale state.
                 actions.loadTicket()
@@ -1031,6 +1034,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 lemonToast.error('Failed to run workflow')
             } finally {
                 cache.runningWorkflowQuickAction = false
+                // Drop the consumed settle promise so it can't latch a resolved value for a later run.
+                cache.ticketUpdateSettled = undefined
             }
         },
         loadTicket: async () => {

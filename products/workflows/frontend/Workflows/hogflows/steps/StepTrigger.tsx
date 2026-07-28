@@ -226,12 +226,19 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
                 value: 'webhook',
                 icon: <IconWebhooks />,
             },
-            {
-                label: 'Manual',
-                description: 'Run only when triggered by hand, from the button here or a support quick action',
-                value: 'manual',
-                icon: <IconButton />,
-            },
+            // The "manual" trigger is hidden from new workflows (trigger surface was reduced ahead of
+            // soft launch in 60ccc795624). It's only offered when the current trigger is already
+            // manual, so existing manual workflows still render and can switch to another type.
+            ...(type === 'manual'
+                ? [
+                      {
+                          label: 'Manual',
+                          description: 'Run only when triggered by hand, from the trigger button',
+                          value: 'manual',
+                          icon: <IconButton />,
+                      },
+                  ]
+                : []),
             // The generic "schedule" trigger is hidden from new workflows. It's only offered when the
             // current trigger is already a schedule, so existing workflows still render and can be
             // switched to a different trigger type without crashing.
@@ -493,8 +500,7 @@ function StepTriggerConfigurationManual(): JSX.Element {
                     <Tooltip title="It's up there on the top right ⤴︎">
                         <span className="font-bold cursor-pointer">the trigger button</span>
                     </Tooltip>
-                    , or from a support conversation by adding it as a <span className="font-bold">quick action</span>{' '}
-                    (Support → settings → Quick actions).
+                    .
                 </p>
             </div>
         </>

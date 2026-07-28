@@ -75,10 +75,13 @@ export function QuickActionsSection(): JSX.Element {
     const { workflows, workflowsLoading } = useValues(workflowsLogic)
     const { loadWorkflows } = useActions(workflowsLogic)
 
-    // workflowsLogic doesn't load on mount, so kick the fetch to populate the workflow picker.
+    // Fetch the workflow list lazily, only once an editor modal is open (the sole place the picker
+    // renders), rather than on every settings-page render.
     useEffect(() => {
-        loadWorkflows()
-    }, [loadWorkflows])
+        if (isModalOpen) {
+            loadWorkflows()
+        }
+    }, [isModalOpen, loadWorkflows])
 
     const workflowOptions = workflows
         .filter((w) => w.status === 'active' || w.id === workflowId)
