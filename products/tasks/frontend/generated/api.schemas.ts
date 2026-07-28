@@ -2839,6 +2839,8 @@ export const JsonrpcEnumApi = {
  * * `set_config_option` - set_config_option
  * * `mcp_response` - mcp_response
  * * `pi/rpc` - pi/rpc
+ * * `queue_get` - queue_get
+ * * `queue_clear` - queue_clear
  */
 export type MethodEnumApi = (typeof MethodEnumApi)[keyof typeof MethodEnumApi]
 
@@ -2850,6 +2852,8 @@ export const MethodEnumApi = {
     SetConfigOption: 'set_config_option',
     McpResponse: 'mcp_response',
     PiRpc: 'pi/rpc',
+    QueueGet: 'queue_get',
+    QueueClear: 'queue_clear',
 } as const
 
 /**
@@ -2868,7 +2872,9 @@ export interface TaskRunCommandRequestApi {
      * * `permission_response` - permission_response
      * * `set_config_option` - set_config_option
      * * `mcp_response` - mcp_response
-     * * `pi/rpc` - pi/rpc */
+     * * `pi/rpc` - pi/rpc
+     * * `queue_get` - queue_get
+     * * `queue_clear` - queue_clear */
     method: MethodEnumApi
     /** Parameters for the command */
     params?: TaskRunCommandRequestApiParams
