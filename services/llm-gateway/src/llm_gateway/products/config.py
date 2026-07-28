@@ -139,6 +139,19 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         credit_bucket=None,
         requires_server_credential=True,
     ),
+    # The setup wizard's cloud run (Task.OriginProduct.ONBOARDING). Unbilled like
+    # background_agents, and this one runs before the user has decided to buy anything.
+    # Two gates keep the free route shut: Django refuses `onboarding` as a caller-supplied
+    # task origin, and the agent-server only routes here for a run carrying the protected
+    # `wizard_config` state key. Models stay narrow because a free bucket shouldn't reach
+    # the whole fleet; claude-opus-4-8 is only the SDK's fallback for the pinned sonnet.
+    "onboarding": ProductConfig(
+        allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
+        allowed_models=frozenset({"claude-sonnet-5", "claude-opus-4-8"}) | BEDROCK_MODELS,
+        allow_api_keys=False,
+        credit_bucket=None,
+        requires_server_credential=True,
+    ),
     "slack_app": ProductConfig(
         allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
         allowed_models=_POSTHOG_CODE_AGENT_MODELS | BEDROCK_MODELS,

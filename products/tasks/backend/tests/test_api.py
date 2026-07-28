@@ -1267,6 +1267,7 @@ class TestTaskAPI(BaseTaskAPITest):
         [
             ("image_builder",),
             ("experiments",),
+            ("onboarding",),
         ]
     )
     def test_create_task_rejects_internal_origin(self, origin: str):

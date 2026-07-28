@@ -552,9 +552,9 @@ class TestCheckFreeTierModelAccess:
 
 class TestServerCredentialRequirement:
     """The internal products that share the PostHog Desktop OAuth app (background_agents, signals,
-    slack_app, conversations) must accept only server-minted tokens — those carrying the internal
-    `internal_run:read` marker. Otherwise a user's own Desktop OAuth token could route around the
-    posthog_code free-tier gate through these products to premium models."""
+    slack_app, conversations, onboarding) must accept only server-minted tokens — those carrying the
+    internal `internal_run:read` marker. Otherwise a user's own Desktop OAuth token could route around
+    the posthog_code free-tier gate through these products to premium models."""
 
     _MARKER_SCOPES = ["llm_gateway:read", "task:write", "internal_run:read"]
 
@@ -567,7 +567,7 @@ class TestServerCredentialRequirement:
         yield
         get_settings.cache_clear()
 
-    @pytest.mark.parametrize("product", ["background_agents", "signals", "slack_app", "conversations"])
+    @pytest.mark.parametrize("product", ["background_agents", "signals", "slack_app", "conversations", "onboarding"])
     def test_oauth_without_marker_is_rejected(self, product: str):
         # a desktop Code token (wildcard scope, no internal marker); claude-sonnet-5 is in every
         # sibling's model list, so the rejection is unambiguously the missing server credential
@@ -577,7 +577,7 @@ class TestServerCredentialRequirement:
         assert allowed is False
         assert error is not None and "server-minted" in error
 
-    @pytest.mark.parametrize("product", ["background_agents", "signals", "slack_app", "conversations"])
+    @pytest.mark.parametrize("product", ["background_agents", "signals", "slack_app", "conversations", "onboarding"])
     def test_oauth_with_marker_is_allowed(self, product: str):
         allowed, error = check_product_access(
             product, "oauth_access_token", POSTHOG_CODE_US_APP_ID, "claude-sonnet-5", scopes=self._MARKER_SCOPES

@@ -30,6 +30,7 @@ DEFAULT_PRODUCT_COST_LIMITS: dict[str, "ProductCostLimit"] = {
     "wizard": ProductCostLimit(limit_usd=10000.0, window_seconds=86400),
     "posthog_code": ProductCostLimit(limit_usd=5000.0, window_seconds=3600),
     "background_agents": ProductCostLimit(limit_usd=1000.0, window_seconds=3600),
+    "onboarding": ProductCostLimit(limit_usd=1000.0, window_seconds=3600),
     "django": ProductCostLimit(limit_usd=5000.0, window_seconds=86400),
     "custom_image_scans": ProductCostLimit(limit_usd=1000.0, window_seconds=86400),
     "signals": ProductCostLimit(limit_usd=25000.0, window_seconds=86400),
