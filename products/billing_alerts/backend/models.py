@@ -140,7 +140,7 @@ class BillingAlertEvent(UUIDModel):
     current_value = models.DecimalField(max_digits=20, decimal_places=6, null=True, blank=True)
     baseline_value = models.DecimalField(max_digits=20, decimal_places=6, null=True, blank=True)
     absolute_delta = models.DecimalField(max_digits=20, decimal_places=6, null=True, blank=True)
-    relative_delta_percentage = models.DecimalField(max_digits=12, decimal_places=6, null=True, blank=True)
+    relative_delta_percentage = models.DecimalField(max_digits=28, decimal_places=6, null=True, blank=True)
     threshold_value_snapshot = models.DecimalField(max_digits=20, decimal_places=6, null=True, blank=True)
     threshold_percentage_snapshot = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
     minimum_value_snapshot = models.DecimalField(max_digits=20, decimal_places=6, null=True, blank=True)
