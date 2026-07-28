@@ -1,24 +1,55 @@
 from typing import Any
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
+
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
 
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.models import Organization, Team
 from posthog.models.integration import Integration
 
+from products.replay_vision.backend.api.vision_actions import (
+    MAX_DELIVERY_TARGETS,
+    MAX_ENABLED_ALERTS_PER_SCANNER,
+    DeliveryTargetSerializer,
+    _redact_webhook_url,
+)
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun, VisionActionRunStatus
+
+# The webhook destination template lives in the nodejs registry (no Python source object like Slack's).
+# Provisioning only needs the row to resolve by id and expose its inputs, so this minimal stand-in is enough.
+_WEBHOOK_TEMPLATE = {
+    "id": "template-webhook",
+    "name": "HTTP Webhook",
+    "description": "Sends a webhook templated by the incoming event data",
+    "type": "destination",
+    "status": "stable",
+    "free": False,
+    "category": ["Custom"],
+    "code_language": "hog",
+    "code": "let res := fetch(inputs.url, {'method': inputs.method, 'headers': inputs.headers, 'body': inputs.body})",
+    "inputs_schema": [
+        {"key": "url", "type": "string", "label": "Webhook URL", "required": True},
+        {"key": "method", "type": "string", "label": "Method", "required": False},
+        {"key": "body", "type": "json", "label": "JSON Body", "required": False},
+        {"key": "headers", "type": "dictionary", "label": "Headers", "required": False},
+    ],
+}
 
 
 class _VisionActionAPITestCase(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        # Creating an action provisions a Slack internal_destination HogFunction, which resolves the
-        # template from the DB.
+        # Creating an action provisions an internal_destination HogFunction, which resolves the
+        # template from the DB — sync both delivery templates so slack and webhook targets provision.
         sync_template_to_db(template_slack)
+        sync_template_to_db(_WEBHOOK_TEMPLATE)
         self.flag_patcher = patch(
             "products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled",
             return_value=True,
@@ -47,7 +78,7 @@ class _VisionActionAPITestCase(APIBaseTest):
             name=name,
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "did the user check out?"},
-            model=ScannerModel.GEMINI_3_FLASH,
+            model=ScannerModel.GEMINI_3_6_FLASH,
         )
 
     def _create_slack_integration(self, team: Team | None = None) -> Integration:
@@ -65,7 +96,7 @@ class _VisionActionAPITestCase(APIBaseTest):
             "name": "daily-summary",
             "scanner": str(self.scanner.id),
             "trigger_config": {"rrule": "FREQ=DAILY", "timezone": "UTC"},
-            "selection": {"scanner_type": "summarizer", "window_days": 1},
+            "selection": {"verdict": ["yes"]},
             "synthesis_config": {"prompt_guide": "keep it short"},
             "delivery_config": [
                 {"type": "slack", "integration_id": self.integration.id, "channel": "#general"},
@@ -94,6 +125,74 @@ class TestVisionActionViewSet(_VisionActionAPITestCase):
         self.assertEqual(action.team_id, self.team.id)
         self.assertEqual(action.delivery_config[0]["integration_id"], self.integration.id)
         self.assertIsNotNone(action.next_run_at)
+
+    def test_targeting_a_scanner_the_editor_cannot_read_is_rejected(self) -> None:
+        # The engine reads observations as the action's CREATOR, so a lower-privileged editor
+        # re-pointing an action at a scanner they can't read would exfiltrate that scanner's data
+        # via the delivery channel. Targeting writes must be checked against the requesting user.
+        hidden = self._create_scanner(name="restricted")
+        with patch(
+            "products.replay_vision.backend.scanner_access.UserAccessControl.filter_queryset_by_access_level",
+            side_effect=lambda qs, **_: qs.exclude(pk=hidden.pk),
+        ):
+            resp = self.client.post(self.actions_url, data=self._create_payload(scanner=str(hidden.id)), format="json")
+            self.assertEqual(resp.status_code, 400, resp.content)
+            self.assertIn("access", resp.json()["detail"])
+
+            # An action a privileged creator already pointed at the hidden scanner: an edit that
+            # doesn't touch targeting (rename) stays allowed, but touching targeting re-checks.
+            theirs = VisionAction.all_teams.create(
+                team=self.team,
+                scanner=hidden,
+                name="theirs",
+                trigger_config={"rrule": "FREQ=DAILY", "timezone": "UTC"},
+            )
+            resp = self.client.patch(f"{self.actions_url}{theirs.id}/", data={"name": "renamed"}, format="json")
+            self.assertEqual(resp.status_code, 200, resp.content)
+            resp = self.client.patch(
+                f"{self.actions_url}{theirs.id}/", data={"selection": {"verdict": ["yes"]}}, format="json"
+            )
+            self.assertEqual(resp.status_code, 400, resp.content)
+
+    def test_enabled_alert_cap_per_scanner(self) -> None:
+        # Alerts evaluate on every scanner sweep, so unbounded fan-out multiplies sweep work — the
+        # cap must reject the N+1th enabled alert while still allowing a disabled one.
+        for i in range(MAX_ENABLED_ALERTS_PER_SCANNER):
+            VisionAction.all_teams.create(
+                team=self.team,
+                scanner=self.scanner,
+                name=f"alert-{i}",
+                mode="alert",
+                alert_config={"frequency": "every_match", "metric": "count"},
+                trigger_config={"rrule": "FREQ=HOURLY", "timezone": "UTC"},
+            )
+        payload = self._create_payload(
+            name="one-too-many",
+            mode="alert",
+            alert_config={"frequency": "every_match", "metric": "count"},
+            selection={},
+        )
+        resp = self.client.post(self.actions_url, data=payload, format="json")
+        self.assertEqual(resp.status_code, 400, resp.content)
+        self.assertIn("at most", resp.json()["detail"])
+
+        resp = self.client.post(self.actions_url, data={**payload, "enabled": False}, format="json")
+        self.assertEqual(resp.status_code, 201, resp.content)
+        # Re-enabling it later must hit the same cap.
+        resp = self.client.patch(f"{self.actions_url}{resp.json()['id']}/", data={"enabled": True}, format="json")
+        self.assertEqual(resp.status_code, 400, resp.content)
+
+    def test_second_digest_for_scanner_rejected(self) -> None:
+        first = self.client.post(
+            self.actions_url, data=self._create_payload(name="digest-1", is_scanner_digest=True), format="json"
+        )
+        self.assertEqual(first.status_code, 201, first.content)
+        self.assertTrue(first.json()["is_scanner_digest"])
+        second = self.client.post(
+            self.actions_url, data=self._create_payload(name="digest-2", is_scanner_digest=True), format="json"
+        )
+        self.assertEqual(second.status_code, 400, second.content)
+        self.assertIn("daily digest", second.json()["detail"].lower())
 
     def test_list(self) -> None:
         self.client.post(self.actions_url, data=self._create_payload(), format="json")
@@ -187,12 +286,71 @@ class TestVisionActionViewSet(_VisionActionAPITestCase):
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(resp.json()["attr"], "name")
 
-    def test_selection_valid_accepted(self) -> None:
+    def test_webhook_target_accepted(self) -> None:
+        # Wiring guard: the viewset accepts a webhook target and persists it (the serializer no longer
+        # rejects non-slack types). The SimpleTestCase covers the per-type shape matrix.
+        resp = self.client.post(
+            self.actions_url,
+            data=self._create_payload(delivery_config=[{"type": "webhook", "url": "https://example.com/hook"}]),
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 201, resp.content)
+        action = VisionAction.all_teams.get(id=resp.json()["id"])
+        self.assertEqual(action.delivery_config, [{"type": "webhook", "url": "https://example.com/hook"}])
+
+    def test_slack_integration_idor_rejected(self) -> None:
+        # A Slack integration from another team must not be usable as a delivery target.
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        foreign = Integration.objects.create(
+            team=other_team, kind="slack", integration_id="T_FOREIGN", created_by=self.user
+        )
         resp = self.client.post(
             self.actions_url,
             data=self._create_payload(
-                selection={"scanner_type": "scorer", "min_score": 0.5, "max_score": 1.0, "tags": ["a", "b"]}
+                delivery_config=[{"type": "slack", "integration_id": foreign.id, "channel": "#general"}]
             ),
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 400, resp.content)
+
+    def test_too_many_delivery_targets_rejected(self) -> None:
+        # Each target provisions an enabled HogFunction that POSTs on every run, so an over-cap list
+        # would turn one action into a webhook fan-out to many hosts.
+        targets = [{"type": "webhook", "url": f"https://example.com/hook/{i}"} for i in range(MAX_DELIVERY_TARGETS + 1)]
+        resp = self.client.post(self.actions_url, data=self._create_payload(delivery_config=targets), format="json")
+        self.assertEqual(resp.status_code, 400, resp.content)
+
+    def test_webhook_url_redacted_for_viewers(self) -> None:
+        # A webhook URL can carry a bearer token in its path/query. Configuring delivery needs editor
+        # access, but reading the action only needs viewer, so a viewer must not be able to lift the
+        # credentialed URL an editor set — it comes back redacted to scheme+host.
+        secret = "https://hooks.example.com/services/T0/B0/xoxb-secret-token"
+        created = self.client.post(
+            self.actions_url,
+            data=self._create_payload(delivery_config=[{"type": "webhook", "url": secret}]),
+            format="json",
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        action_id = created.json()["id"]
+
+        # The admin test user can edit, so they see the full URL.
+        full = self.client.get(f"{self.actions_url}{action_id}/").json()
+        self.assertEqual(full["delivery_config"][0]["url"], secret)
+
+        # Simulate a viewer: viewer access holds (so the GET still returns the action), but editor
+        # access to the scanner does not (so the URL is redacted).
+        with patch(
+            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object",
+            side_effect=lambda obj, required_level, **_: required_level != "editor",
+        ):
+            redacted = self.client.get(f"{self.actions_url}{action_id}/").json()
+        self.assertEqual(redacted["delivery_config"][0]["url"], "https://hooks.example.com/…")
+        self.assertNotIn("xoxb-secret-token", redacted["delivery_config"][0]["url"])
+
+    def test_selection_valid_accepted(self) -> None:
+        resp = self.client.post(
+            self.actions_url,
+            data=self._create_payload(selection={"min_score": 0.5, "max_score": 1.0, "tags": ["a", "b"]}),
             format="json",
         )
         self.assertEqual(resp.status_code, 201, resp.content)
@@ -200,15 +358,28 @@ class TestVisionActionViewSet(_VisionActionAPITestCase):
         self.assertEqual(action.selection["min_score"], 0.5)
 
     def test_selection_unknown_key_ignored(self) -> None:
-        # The typed SelectionSerializer is the allowlist; unknown keys are dropped, not persisted.
+        # The typed SelectionSerializer is the allowlist; unknown keys (including the retired
+        # scanner_type/status/window_days) are dropped, not persisted.
         resp = self.client.post(
             self.actions_url,
-            data=self._create_payload(selection={"scanner_type": "summarizer", "bogus_key": "x"}),
+            data=self._create_payload(selection={"scanner_type": "summarizer", "window_days": 3, "bogus_key": "x"}),
             format="json",
         )
         self.assertEqual(resp.status_code, 201, resp.content)
         action = VisionAction.all_teams.get(id=resp.json()["id"])
-        self.assertNotIn("bogus_key", action.selection)
+        for key in ("bogus_key", "scanner_type", "window_days"):
+            self.assertNotIn(key, action.selection)
+
+    @parameterized.expand(
+        [
+            ("min_above_max", {"min_score": 2.0, "max_score": 1.0}),
+            ("unknown_verdict", {"verdict": ["maybe"]}),
+            ("verdict_not_a_list", {"verdict": "yes"}),
+        ]
+    )
+    def test_selection_invalid_rejected(self, _name: str, selection: dict[str, Any]) -> None:
+        resp = self.client.post(self.actions_url, data=self._create_payload(selection=selection), format="json")
+        self.assertEqual(resp.status_code, 400, resp.content)
 
 
 class TestVisionActionCrossTeamIDOR(_VisionActionAPITestCase):
@@ -304,6 +475,19 @@ class TestVisionActionRunViewSet(_VisionActionAPITestCase):
         self.assertNotIn("synthesized_markdown", completed)
         self.assertNotIn("observations", completed)
 
+    def test_hides_alert_state_bookkeeping_runs(self) -> None:
+        # Quiet alert checks (not_breached/still_breached skips) are engine state, not user-facing
+        # outcomes — run history must show only actual firings, failures, and summary skips.
+        fired = self._create_run(status=VisionActionRunStatus.COMPLETED, synthesized_markdown="3 new matches")
+        failed = self._create_run(status=VisionActionRunStatus.FAILED, error={"message": "boom"})
+        quiet = self._create_run(status=VisionActionRunStatus.SKIPPED, error={"skip_reason": "not_breached"})
+        suppressed = self._create_run(status=VisionActionRunStatus.SKIPPED, error={"skip_reason": "still_breached"})
+
+        results = self.client.get(self.runs_url()).json()["results"]
+        self.assertEqual({r["id"] for r in results}, {str(fired.id), str(failed.id)})
+        self.assertEqual(self.client.get(f"{self.runs_url()}{quiet.id}/").status_code, 404)
+        self.assertEqual(self.client.get(f"{self.runs_url()}{suppressed.id}/").status_code, 404)
+
     def test_retrieve_returns_summary_and_observations_in_stored_order(self) -> None:
         obs_a = self._create_observation("sess-a", title="Checkout")
         obs_b = self._create_observation("sess-b", title="Onboarding")
@@ -318,6 +502,8 @@ class TestVisionActionRunViewSet(_VisionActionAPITestCase):
         body = self.client.get(f"{self.runs_url()}{run.id}/").json()
         self.assertEqual(body["synthesized_markdown"], "# Themes")
         self.assertEqual([o["id"] for o in body["observations"]], [str(obs_b.id), str(obs_a.id)])
+        # 1-based position in summary order — what the report's `[obs N]` citations reference.
+        self.assertEqual([o["index"] for o in body["observations"]], [1, 2])
         self.assertEqual(body["observations"][0]["session_id"], "sess-b")
         self.assertEqual(body["observations"][0]["title"], "Onboarding")
         self.assertEqual(body["observations"][1]["recording_subject_email"], "user@example.com")
@@ -336,12 +522,39 @@ class TestVisionActionRunViewSet(_VisionActionAPITestCase):
 
         body = self.client.get(f"{self.runs_url()}{run.id}/").json()
         self.assertEqual([o["id"] for o in body["observations"]], [str(mine.id)])
+        # `mine` was second in observation_ids; dropping the unresolved foreign id must leave a gap, not
+        # renumber it to 1 — otherwise its `index` would no longer match the `[obs 2]` citation in the report.
+        self.assertEqual(body["observations"][0]["index"], 2)
 
-    def test_error_reason_surfaced(self) -> None:
-        run = self._create_run(status=VisionActionRunStatus.SKIPPED, error={"skip_reason": "over budget"})
+    @parameterized.expand(
+        [
+            # (status, error, expected copy)
+            (
+                VisionActionRunStatus.SKIPPED,
+                {"skip_reason": "skipped_empty"},
+                "No new observations in this window to summarize.",
+            ),
+            # Historical run rows (pre-#66892) stored the old enum; the alias must still humanize.
+            (
+                VisionActionRunStatus.SKIPPED,
+                {"skip_reason": "no_delivery_flow"},
+                "No delivery destination is configured for this action.",
+            ),
+            # Abort reasons carry FAILED status — the copy must not contradict the "failed" banner by saying "Skipped".
+            (
+                VisionActionRunStatus.FAILED,
+                {"aborted": "aborted_no_consent"},
+                "AI data processing isn't enabled for this organization.",
+            ),
+        ]
+    )
+    def test_error_reason_humanized(self, status: str, error: dict[str, Any], expected: str) -> None:
+        # A raw engine skip/abort reason is mapped to human copy, not surfaced verbatim.
+        run = self._create_run(status=status, error=error)
         resp = self.client.get(f"{self.runs_url()}{run.id}/")
         self.assertEqual(resp.status_code, 200, resp.content)
-        self.assertEqual(resp.json()["error_reason"], "over budget")
+        self.assertEqual(resp.json()["error_reason"], expected)
+        self.assertNotIn("Skipped", resp.json()["error_reason"])
 
     def test_failed_run_error_reason_does_not_leak_raw_exception(self) -> None:
         # The engine stamps error["message"] with raw exception text (str(e)[:500]); the API must not
@@ -352,7 +565,8 @@ class TestVisionActionRunViewSet(_VisionActionAPITestCase):
         )
         resp = self.client.get(f"{self.runs_url()}{run.id}/")
         self.assertEqual(resp.status_code, 200, resp.content)
-        self.assertEqual(resp.json()["error_reason"], "Run failed")
+        self.assertNotIn("secret_token", resp.json()["error_reason"])
+        self.assertEqual(resp.json()["error_reason"], "This run failed while generating the summary.")
 
     def test_runs_scoped_to_their_action(self) -> None:
         other_action = VisionAction.all_teams.create(team=self.team, scanner=self.scanner, name="other-action")
@@ -394,3 +608,129 @@ class TestVisionActionRunCrossTeamIDOR(_VisionActionAPITestCase):
         # The action belongs to another team, so the nested route must 404 rather than leak its runs.
         resp = self.client.get(f"/api/projects/{self.team.id}/vision/actions/{self.other_action.id}/runs/")
         self.assertEqual(resp.status_code, 404)
+
+
+class TestVisionActionRunNow(_VisionActionAPITestCase):
+    """POST /vision/actions/{id}/run/ starts the processing workflow now without touching the schedule."""
+
+    def _summary(self, **overrides: Any) -> VisionAction:
+        defaults: dict[str, Any] = {
+            "team_id": self.team.id,
+            "scanner": self.scanner,
+            "name": "daily digest",
+            "created_by": self.user,
+            "trigger_config": {"rrule": "FREQ=DAILY;BYHOUR=8", "timezone": "UTC"},
+        }
+        defaults.update(overrides)
+        return VisionAction.objects.for_team(self.team.id).create(**defaults)
+
+    def _run_url(self, action_id: str) -> str:
+        return f"{self.actions_url}{action_id}/run/"
+
+    @patch("products.replay_vision.backend.api.trigger.async_to_sync")
+    @patch("products.replay_vision.backend.api.trigger.sync_connect")
+    def test_run_starts_the_workflow_now_and_leaves_the_schedule_untouched(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        from products.replay_vision.backend.temporal.constants import (
+            PROCESS_VISION_ACTION_WORKFLOW_NAME,
+            build_process_vision_action_workflow_id,
+        )
+
+        mock_sync_connect.return_value = MagicMock()
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+
+        action = self._summary()
+        next_run_before = action.next_run_at
+
+        resp = self.client.post(self._run_url(str(action.id)), format="json")
+        self.assertEqual(resp.status_code, 202, resp.content)
+        body = resp.json()
+        self.assertFalse(body["already_running"])
+        self.assertEqual(body["workflow_id"], build_process_vision_action_workflow_id(action.id))
+
+        args, kwargs = start_workflow.call_args
+        self.assertEqual(args[0], PROCESS_VISION_ACTION_WORKFLOW_NAME)
+        inputs = args[1]
+        self.assertEqual(inputs.vision_action_id, action.id)
+        self.assertEqual(inputs.mode, "group_summary")
+        self.assertIsNotNone(inputs.scheduled_at)  # anchors the window at "now"
+
+        # The run must not advance the recurring schedule — that only happens at scheduled claim time.
+        action.refresh_from_db()
+        self.assertEqual(action.next_run_at, next_run_before)
+
+    @patch("products.replay_vision.backend.api.trigger.async_to_sync")
+    @patch("products.replay_vision.backend.api.trigger.sync_connect")
+    def test_run_coalesces_onto_an_already_running_workflow(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        from temporalio.exceptions import WorkflowAlreadyStartedError
+
+        from products.replay_vision.backend.temporal.constants import (
+            PROCESS_VISION_ACTION_WORKFLOW_NAME,
+            build_process_vision_action_workflow_id,
+        )
+
+        action = self._summary()
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock(
+            side_effect=WorkflowAlreadyStartedError(
+                workflow_id=build_process_vision_action_workflow_id(action.id),
+                workflow_type=PROCESS_VISION_ACTION_WORKFLOW_NAME,
+            )
+        )
+
+        resp = self.client.post(self._run_url(str(action.id)), format="json")
+        self.assertEqual(resp.status_code, 202, resp.content)
+        self.assertTrue(resp.json()["already_running"])
+
+    @patch("products.replay_vision.backend.api.trigger.async_to_sync")
+    @patch("products.replay_vision.backend.api.trigger.sync_connect")
+    def test_run_rejects_alerts(self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock) -> None:
+        # Alerts check continuously on the sweep, so there's no meaningful on-demand run for them.
+        alert = self._summary(
+            name="rage alert",
+            mode="alert",
+            alert_config={"frequency": "every_match", "metric": "count"},
+        )
+        resp = self.client.post(self._run_url(str(alert.id)), format="json")
+        self.assertEqual(resp.status_code, 400, resp.content)
+        start_workflow = mock_async_to_sync.return_value
+        start_workflow.assert_not_called()
+
+
+class TestDeliveryTargetSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("slack_ok", {"type": "slack", "integration_id": 1, "channel": "#general"}, True),
+            ("webhook_ok", {"type": "webhook", "url": "https://example.com/hook"}, True),
+            ("slack_missing_channel", {"type": "slack", "integration_id": 1}, False),
+            ("slack_missing_integration", {"type": "slack", "channel": "#general"}, False),
+            ("webhook_missing_url", {"type": "webhook"}, False),
+            # Cleartext is rejected — the report can carry session-derived content.
+            ("webhook_http", {"type": "webhook", "url": "http://example.com/hook"}, False),
+            ("webhook_bad_scheme", {"type": "webhook", "url": "ftp://example.com/hook"}, False),
+            ("webhook_not_a_url", {"type": "webhook", "url": "not-a-url"}, False),
+            # Embedded credentials are rejected — redaction couldn't safely surface them anyway.
+            ("webhook_userinfo", {"type": "webhook", "url": "https://token:secret@example.com/hook"}, False),
+            ("unknown_type", {"type": "discord", "url": "https://example.com/hook"}, False),
+        ]
+    )
+    def test_per_type_shape(self, _label: str, target: dict[str, Any], expected_valid: bool) -> None:
+        # The per-type shape (slack needs integration+channel, webhook needs a well-formed https url) is
+        # pure in-memory validation — a bad target must be rejected before it reaches provisioning.
+        self.assertEqual(DeliveryTargetSerializer(data=target).is_valid(), expected_valid)
+
+    @parameterized.expand(
+        [
+            ("path_and_query", "https://hooks.example.com/svc/tok?k=v", "https://hooks.example.com/…"),
+            # Defense in depth: even if userinfo slipped past validation, the redaction must not echo it.
+            ("userinfo", "https://token:secret@hooks.example.com/path", "https://hooks.example.com/…"),
+            ("port", "https://hooks.example.com:8443/path", "https://hooks.example.com:8443/…"),
+            ("ipv6", "https://[2001:db8::1]:9000/path", "https://[2001:db8::1]:9000/…"),
+        ]
+    )
+    def test_redact_webhook_url(self, _label: str, url: str, expected: str) -> None:
+        self.assertEqual(_redact_webhook_url(url), expected)

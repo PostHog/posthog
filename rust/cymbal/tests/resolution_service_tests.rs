@@ -569,6 +569,8 @@ async fn subscribe_emits_periodic_load_events_with_monotonic_sequence() {
     assert_eq!(events[1].sequence, 2);
     assert_eq!(events[2].sequence, 3);
     assert!(!events[0].draining);
+    assert_eq!(events[0].in_flight, 0);
+    assert_eq!(events[0].max_in_flight, 4);
     assert_eq!(events[0].service_instance_id, "test-instance");
 }
 

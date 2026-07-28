@@ -49,7 +49,7 @@ def _make_scanner(**overrides: Any) -> ReplayScanner:
         "name": "estimate-scanner",
         "scanner_type": ScannerType.MONITOR,
         "scanner_config": {"prompt": "p"},
-        "model": ScannerModel.GEMINI_3_FLASH,
+        "model": ScannerModel.GEMINI_3_6_FLASH,
     }
     defaults.update(overrides)
     return ReplayScanner.objects.create(**defaults)
@@ -135,6 +135,7 @@ class TestEstimateInvalidationOnSave:
         "field, value, expect_stale",
         [
             ("sampling_rate", 0.25, True),
+            ("sampling_mode", "focused", True),
             ("query", {"kind": "RecordingsQuery", "operand": "AND"}, True),
             ("name", "renamed", False),
             ("scanner_config", {"prompt": "new prompt"}, False),  # version-tracked but not a volume input

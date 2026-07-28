@@ -20,8 +20,8 @@ export function getModelPickerFooterLink(hasByokKeys: boolean): { label: string;
     }
 }
 
-export function parseTrialProviderKeyId(providerKeyId: string): LLMProvider | null {
-    return providerKeyId.startsWith('trial:') ? toLLMProvider(providerKeyId.slice(6)) : null
+export function parsePlaygroundProviderKeyId(providerKeyId: string): LLMProvider | null {
+    return providerKeyId.startsWith('playground:') ? toLLMProvider(providerKeyId.slice(11)) : null
 }
 
 export interface ModelPickerProps {
@@ -46,7 +46,7 @@ export function findSelectedProvider(
     if (exactMatch) {
         return exactMatch.provider
     }
-    // Fall back to matching by model id alone (e.g., trial mode where providerKeyId is null)
+    // Fall back to matching by model id alone (e.g., playground mode where providerKeyId is null)
     const modelMatch = groups.find((g) => g.models.some((m) => m.id === model))
     return modelMatch?.provider ?? null
 }

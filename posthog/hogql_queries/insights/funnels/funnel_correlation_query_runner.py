@@ -16,6 +16,7 @@ from posthog.schema import (
     FunnelCorrelationResult,
     FunnelCorrelationResultsType,
     FunnelsActorsQuery,
+    FunnelsDataWarehouseNode,
     FunnelsQuery,
     HogQLQueryModifiers,
     HogQLQueryResponse,
@@ -23,6 +24,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import property_to_expr
@@ -37,6 +39,7 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 from posthog.models.element.element import chain_to_elements
+from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.models.event.util import ElementSerializer
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.user import User
@@ -106,6 +109,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
         user: Optional[User] = None,
     ):
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context, user=user)
+        self._use_new_events_schema = use_new_events_schema(team.pk)
         self.actors_query = self.query.source
         self.funnels_query = self.actors_query.source
 
@@ -206,6 +210,16 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
                 results=FunnelCorrelationResult(events=[], skewed=False), modifiers=self.modifiers
             )
 
+        if self._uses_data_warehouse_series():
+            # Correlation joins the events table onto the funnel actors on person_id, but a
+            # data-warehouse funnel aggregates actors by a warehouse column (coerced to a
+            # string id), so there is nothing on the events table to correlate against and
+            # the join would fail on a UUID/String type mismatch. Return empty rather than
+            # raising — correlation is a secondary panel and shouldn't crash the insight.
+            return FunnelCorrelationResponse(
+                results=FunnelCorrelationResult(events=[], skewed=False), modifiers=self.modifiers
+            )
+
         events, skewed_totals, hogql, response = self._calculate_internal()
 
         return FunnelCorrelationResponse(
@@ -226,24 +240,40 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
     def _calculate_internal(self) -> tuple[list[EventOddsRatio], bool, str, HogQLQueryResponse]:
         query = self.to_query()
 
-        hogql = to_printed_hogql(query, self.team)
+        # Display-only response HogQL (never executed); bypass warehouse ACL so printing doesn't fail closed userless.
+        hogql = to_printed_hogql(query, self.team, bypass_warehouse_access_control=True)
 
         response = execute_hogql_query(
             query_type="FunnelsQuery",
             query=query,
             team=self.team,
             user=self.user,
+            context=HogQLContext(
+                team_id=self.team.pk,
+                user=self.user,
+                use_new_events_schema=self._use_new_events_schema,
+            ),
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
         )
-        assert response.results
+        if not response.results:
+            # An empty funnel yields no rows for the property/event-property correlation
+            # queries. Nothing to correlate — return empty rather than raising.
+            return [], True, hogql, response
 
         # Get the total success/failure counts from the results
         results = [result for result in response.results if result[0] != self.TOTAL_IDENTIFIER]
-        _, success_total, failure_total = next(
-            result for result in response.results if result[0] == self.TOTAL_IDENTIFIER
+        totals_row = next(
+            (result for result in response.results if result[0] == self.TOTAL_IDENTIFIER),
+            None,
         )
+        if totals_row is None:
+            # No totals row means the funnel matched no actors — the property and
+            # event-property correlation queries arrayJoin over the actors CTE, so an empty
+            # funnel produces no rows at all (including no totals). Nothing to correlate.
+            return [], True, hogql, response
+        _, success_total, failure_total = totals_row
 
         # Add a little structure, and keep it close to the query definition so it's
         # obvious what's going on with result indices.
@@ -584,11 +614,12 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
                 )
             """
         else:
-            event_property_array_query = """
+            properties_pairs = "JSONExtractKeysAndValues(event_table.properties, 'String')"
+            event_property_array_query = f"""
                 if(
                     empty(event_table.event),
                     [],
-                    arrayMap(prop -> tuple(event_table.event, prop.1, prop.2), JSONExtractKeysAndValues(event_table.properties, 'String'))
+                    arrayMap(prop -> tuple(event_table.event, prop.1, prop.2), {properties_pairs})
                 )
             """
 
@@ -873,6 +904,14 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
 
     def _get_aggregation_join_query(self):
         if self.funnels_query.aggregation_group_type_index is None:
+            # When the funnel aggregates by a custom HogQL expression, funnel_actors.actor_id
+            # holds that value rather than a person UUID, so joining persons.id (UUID) against
+            # it mismatches types and fails with "no supertype for types UUID, String". Coerce
+            # both sides to string so the join runs — it simply won't match persons, which is
+            # expected for a non-person aggregation (the events-side join is coerced the same
+            # way in _get_aggregation_target_join_query).
+            if self._hogql_aggregation_expr() is not None:
+                return "JOIN (SELECT id, properties as person_props FROM persons) persons ON toString(persons.id) = toString(funnel_actors.actor_id)"
             return f"JOIN (SELECT id, properties as person_props FROM persons) persons ON persons.id = funnel_actors.actor_id"
         else:
             group_type_index = self.funnels_query.aggregation_group_type_index
@@ -935,6 +974,9 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
             )
 
         return ast.Alias(alias="prop", expr=ast.Call(name="arrayJoin", args=[prop_array]))
+
+    def _uses_data_warehouse_series(self) -> bool:
+        return any(isinstance(entity, FunnelsDataWarehouseNode) for entity in self.funnels_query.series)
 
     def _get_funnel_step_names(self) -> list[str]:
         events: set[str] = set()

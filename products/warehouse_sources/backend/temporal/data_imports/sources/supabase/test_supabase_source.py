@@ -63,6 +63,34 @@ def test_direct_host_failure_surfaces_ipv4_addon_hint(host):
 @pytest.mark.parametrize(
     "host",
     [
+        "abcdefgh.supabase.co",
+        "https://abcdefgh.supabase.co",
+        "https://abcdefgh.supabase.co/",
+        "  HTTPS://ABCDEFGH.SUPABASE.CO  ",
+    ],
+)
+def test_project_url_host_is_rejected_before_connecting(host):
+    # The dashboard's "Project URL" (`<ref>.supabase.co`) is the REST endpoint, not a database
+    # host. Pasting it (often with the scheme) must short-circuit to actionable guidance instead
+    # of attempting a doomed connection that yields an opaque DNS error.
+    config = mock.MagicMock(host=host)
+
+    with mock.patch.object(PostgresSource, "validate_credentials") as super_validate:
+        success, error = SupabaseSource().validate_credentials(config, team_id=1)
+
+    super_validate.assert_not_called()
+    assert success is False
+    assert error is not None
+    assert "project url" in error.lower()
+    assert "pooler.supabase.com" in error
+    # The suggested pooler username is case-sensitive, so the ref must be lowercased even when
+    # the user typed the host in caps (see the uppercase parametrized case).
+    assert "postgres.abcdefgh" in error
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
         "db.abcdefghijklmnop.supabase.co",
         "aws-0-us-east-1.pooler.supabase.com",
         "db.example.com",

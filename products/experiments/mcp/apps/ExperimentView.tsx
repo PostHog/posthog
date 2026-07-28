@@ -11,17 +11,17 @@ export interface ExperimentViewProps {
 
 export function ExperimentView({ experiment }: ExperimentViewProps): ReactElement {
     const status = getStatus(experiment)
-    const variants = experiment.parameters?.feature_flag_variants ?? []
+    const variants = experiment.feature_flag?.filters?.multivariate?.variants ?? []
 
     const variantColumns: DataTableColumn<ExperimentVariant>[] = [
         { key: 'key', header: 'Key', sortable: true },
         { key: 'name', header: 'Name' },
         {
-            key: 'split_percent',
+            key: 'rollout_percentage',
             header: 'Split %',
             align: 'right',
             render: (row) => {
-                const pct = row.split_percent ?? row.rollout_percentage
+                const pct = row.rollout_percentage
                 return pct != null ? `${pct}%` : '\u2014'
             },
         },

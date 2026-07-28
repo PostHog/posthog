@@ -1,4 +1,5 @@
 import './styles/layers.css'
+import './styles/utilities.css'
 
 export { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from './accordion'
 export {
@@ -34,7 +35,15 @@ export { Avatar, AvatarImage, AvatarFallback, AvatarGroup } from './avatar'
 export { Badge, badgeVariants } from './badge'
 export { Button, buttonVariants, type ButtonProps } from './button'
 export { ChatBubbleGroup, ChatBubble, ChatBubbleContent, ChatBubbleReactions, bubbleVariants } from './chat/chat-bubble'
-export { ChatMarker, ChatMarkerIcon, ChatMarkerContent, markerVariants } from './chat/chat-marker'
+export { ChatGlobe } from './chat/chat-globe'
+export {
+    ChatMarker,
+    ChatMarkerIcon,
+    ChatMarkerContent,
+    ChatMarkerValue,
+    markerVariants,
+    type ChatMarkerStatus,
+} from './chat/chat-marker'
 export {
     ChatMessageGroup,
     ChatMessage,
@@ -54,6 +63,43 @@ export {
     useChatMessageScrollerScrollable,
     useChatMessageScrollerVisibility,
 } from './chat/chat-message-scroller'
+export { ChatSource, ChatSourceList, ChatSourceTitle, ChatSourceUrl, type ChatSourceStatus } from './chat/chat-source'
+export { ChatStream, ChatStreamLine } from './chat/chat-stream'
+export {
+    ChatTask,
+    ChatTaskDetail,
+    ChatTaskList,
+    ChatTaskListContent,
+    ChatTaskListCount,
+    ChatTaskListLabel,
+    ChatTaskListProgress,
+    ChatTaskListTrigger,
+    type ChatTaskStatus,
+} from './chat/chat-task-list'
+export {
+    ThreadItemGroup,
+    ThreadItem,
+    ThreadItemGutter,
+    ThreadItemContent,
+    ThreadItemHeader,
+    ThreadItemAuthor,
+    ThreadItemTimestamp,
+    ThreadItemBody,
+    ThreadItemMention,
+    ThreadItemLink,
+    ThreadItemAttachment,
+    ThreadItemAttachmentTrigger,
+    ThreadItemAttachmentContent,
+    ThreadItemAttachmentImage,
+    ThreadItemReactions,
+    ThreadItemReaction,
+    ThreadItemReactionEmoji,
+    ThreadItemActions,
+    ThreadItemAction,
+    ThreadItemReplies,
+    ThreadItemRepliesLabel,
+    ThreadItemRepliesMeta,
+} from './chat/thread-item'
 export { ButtonGroup, ButtonGroupSeparator, ButtonGroupText, buttonGroupVariants } from './button-group'
 export { Card, CardHeader, CardFooter, CardTitle, CardDescription, CardContent } from './card'
 export { CardGroup } from './card-group'

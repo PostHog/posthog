@@ -1,3 +1,4 @@
+import { expectLogic } from 'kea-test-utils'
 import { EventType, IncrementalSource, NodeType, mutationData } from 'posthog-js/rrweb-types'
 
 import { chunkMutationSnapshot, MUTATION_CHUNK_SIZE } from '@posthog/replay-shared'
@@ -69,6 +70,19 @@ describe('snapshotDataLogic', () => {
             expect(logic.values.isRecordingDeleted).toBe(true)
             expect(logic.values.recordingDeletedAt).toBe(null)
             expect(logic.values.recordingDeletedBy).toBe(null)
+        })
+    })
+
+    describe('source load give-up', () => {
+        it('dispatches snapshotSourceLoadExhausted once retries are exhausted', async () => {
+            const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+            await expectLogic(logic, () => {
+                logic.actions.loadSnapshotsForSourceFailure('load failed', new Error('load failed'))
+                logic.actions.loadSnapshotsForSourceFailure('load failed', new Error('load failed'))
+                logic.actions.loadSnapshotsForSourceFailure('load failed', new Error('load failed'))
+                logic.actions.loadSnapshotsForSourceFailure('load failed', new Error('load failed'))
+            }).toDispatchActions(['snapshotSourceLoadExhausted'])
+            consoleError.mockRestore()
         })
     })
 

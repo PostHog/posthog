@@ -44,6 +44,17 @@ fn build_test_manager(token: CancellationToken) -> Manager {
 
 impl ServerHandle {
     pub async fn for_config(config: Config) -> ServerHandle {
+        Self::for_config_with_s3(config, None).await
+    }
+
+    /// Like `for_config`, but injects an S3 client for the flags-with-cohorts reader.
+    /// Pass a dummy that returns NotFound to make a cache miss classify as CacheMiss
+    /// (the flags Rust test job has no object store, so real S3 reads error out).
+    #[allow(dead_code)]
+    pub async fn for_config_with_s3(
+        config: Config,
+        flags_with_cohorts_s3: Option<Arc<dyn common_hypercache::S3Client + Send + Sync>>,
+    ) -> ServerHandle {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let shutdown = CancellationToken::new();
@@ -53,7 +64,14 @@ impl ServerHandle {
 
         let rayon_dispatcher = RayonDispatcher::new(2, None);
         tokio::spawn(async move {
-            serve(config, listener, rayon_dispatcher, handles).await;
+            serve(
+                config,
+                listener,
+                rayon_dispatcher,
+                handles,
+                flags_with_cohorts_s3,
+            )
+            .await;
             // Drain the lifecycle monitor after serve returns so the supervisor
             // thread exits cleanly. Any error is logged — a failing shutdown
             // shouldn't fail the test unless the test explicitly asserts on it.

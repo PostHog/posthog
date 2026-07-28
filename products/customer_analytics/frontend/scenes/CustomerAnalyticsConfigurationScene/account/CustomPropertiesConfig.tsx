@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconDatabase, IconInfo, IconPencil, IconTrash } from '@posthog/icons'
+import { IconInfo, IconPencil, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTableColumns, Tooltip } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
@@ -20,7 +20,6 @@ import type {
 
 import { customPropertyDefinitionsLogic } from './customPropertyDefinitionsLogic'
 import { CustomPropertyModal } from './CustomPropertyModal'
-import { CustomPropertySourceModal } from './CustomPropertySourceModal'
 import { labelForDisplayType, type SourceSyncStatusLevel, sourceSyncStatus } from './customPropertyTypes'
 
 const TAG_TYPE_BY_SYNC_LEVEL: Record<SourceSyncStatusLevel, LemonTagType> = {
@@ -32,8 +31,7 @@ const TAG_TYPE_BY_SYNC_LEVEL: Record<SourceSyncStatusLevel, LemonTagType> = {
 
 export function CustomPropertiesConfig(): JSX.Element {
     const { definitions, definitionsLoading } = useValues(customPropertyDefinitionsLogic)
-    const { openCreateModal, openEditModal, openSourceModal, deleteDefinition } =
-        useActions(customPropertyDefinitionsLogic)
+    const { openCreateModal, openEditModal, deleteDefinition } = useActions(customPropertyDefinitionsLogic)
     const restrictionReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -59,8 +57,24 @@ export function CustomPropertiesConfig(): JSX.Element {
             render: (_, definition) => <span className="font-semibold">{definition.name}</span>,
         },
         {
+            title: 'Attach to',
+            render: (_, definition) =>
+                definition.target_type === 'person' ? (
+                    <LemonTag type="completion">Person</LemonTag>
+                ) : (
+                    <LemonTag type="default">Account</LemonTag>
+                ),
+        },
+        {
             title: 'Type',
-            render: (_, definition) => labelForDisplayType(definition.display_type),
+            // display_type only shapes how an account property renders; a person property is a raw
+            // $set value, so there's nothing meaningful to show for it.
+            render: (_, definition) =>
+                definition.target_type === 'person' ? (
+                    <span className="text-secondary">—</span>
+                ) : (
+                    labelForDisplayType(definition.display_type)
+                ),
         },
         {
             title: 'Description',
@@ -114,14 +128,6 @@ export function CustomPropertiesConfig(): JSX.Element {
                 <div className="flex gap-1 justify-end">
                     <LemonButton
                         size="small"
-                        icon={<IconDatabase />}
-                        tooltip={definition.source ? 'Configure sync' : 'Sync from a view'}
-                        active={!!definition.source}
-                        onClick={() => openSourceModal(definition)}
-                        disabledReason={restrictionReason}
-                    />
-                    <LemonButton
-                        size="small"
                         icon={<IconPencil />}
                         tooltip="Edit"
                         onClick={() => openEditModal(definition)}
@@ -147,7 +153,7 @@ export function CustomPropertiesConfig(): JSX.Element {
                     <h3 className="mb-0">Custom properties</h3>
                     <p className="text-secondary mb-0">Define typed properties to store on your accounts.</p>
                 </div>
-                <LemonButton type="primary" onClick={openCreateModal} disabledReason={restrictionReason}>
+                <LemonButton type="primary" onClick={() => openCreateModal()} disabledReason={restrictionReason}>
                     New custom property
                 </LemonButton>
             </div>
@@ -159,7 +165,6 @@ export function CustomPropertiesConfig(): JSX.Element {
                 emptyState="No custom properties yet. Create one to get started."
             />
             <CustomPropertyModal />
-            <CustomPropertySourceModal />
         </div>
     )
 }

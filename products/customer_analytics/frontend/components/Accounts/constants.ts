@@ -32,6 +32,7 @@ export const AccountsEvents = {
     Searched: 'customer analytics accounts searched',
     Refreshed: 'customer analytics accounts refreshed',
     Sorted: 'customer analytics accounts sorted',
+    AccountOpened: 'customer analytics accounts account opened',
     ColumnsSaved: 'customer analytics accounts columns saved',
     OverviewTilesEdited: 'customer analytics accounts overview tiles edited',
     OverviewTilesLocalStorageRead: 'customer analytics accounts overview tiles localstorage read',
@@ -46,6 +47,17 @@ export const AccountsEvents = {
     NotesSearched: 'customer analytics accounts notes searched',
     NotesSorted: 'customer analytics accounts notes sorted',
     TabViewed: 'customer analytics account tab viewed',
+    UsageSeriesToggled: 'customer analytics account usage series toggled',
     RelatedUserClicked: 'customer analytics account related user clicked',
     OpportunityClicked: 'customer analytics account opportunity clicked',
+    EventStreamMembershipToggled: 'customer analytics account event stream toggled',
+    EventStreamConfigSaved: 'customer analytics event stream config saved',
+    EventStreamTestMessageSent: 'customer analytics event stream test message sent',
+    NotesTabViewed: 'customer analytics notes tab viewed',
+    NotesTabSearched: 'customer analytics notes tab searched',
+    NotesTabFiltered: 'customer analytics notes tab filtered',
+    NotesTabNoteClicked: 'customer analytics notes tab note clicked',
+    NotesTabAccountClicked: 'customer analytics notes tab account clicked',
 } as const
+
+export type NotesTabFilterType = 'created_by' | 'account' | 'my_notes' | 'my_accounts'

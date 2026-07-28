@@ -1891,7 +1891,7 @@ class TestMaterializedReadPath(APIBaseTest):
 
     def _build_read_query(self, query_str: str, variables_meta: dict, variable_values: dict) -> str:
         """Simulate the materialized read path: analyze variables, then build a SELECT with filters."""
-        from products.endpoints.backend.services.strategies import apply_where_filter
+        from products.endpoints.backend.logic.strategies import apply_where_filter
 
         hogql_query = {"kind": "HogQLQuery", "query": query_str, "variables": variables_meta}
         _, _, var_infos = analyze_variables_for_materialization(hogql_query)

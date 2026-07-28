@@ -43,7 +43,7 @@ export function GlobalShortcuts(): null {
         intent: 'Search',
         interaction: 'function',
         callback: () => {
-            toggleCommand()
+            toggleCommand('keyboard-shortcut')
         },
         priority: 10,
     })
@@ -79,7 +79,7 @@ export function GlobalShortcuts(): null {
         keybind: [keyBinds.zenMode],
         intent: 'Toggle zen mode',
         interaction: 'function',
-        callback: toggleZenMode,
+        callback: () => toggleZenMode('shortcut'),
     })
 
     useShortcut({

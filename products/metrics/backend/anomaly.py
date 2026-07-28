@@ -106,6 +106,8 @@ def _find_onset(
     for point in points:
         if _parse_point_time(point.time) < anomaly_from:
             continue
+        if point.value is None:
+            continue  # non-representable aggregate — can't evidence an onset
         deviation = point.value - baseline_mean
         if direction == "down":
             deviation = -deviation
@@ -169,8 +171,10 @@ def characterize_anomaly(
     rows = _run()
     points = [MetricPoint(time=row["time"], value=row["value"]) for row in rows]
     point_times = [_parse_point_time(p.time) for p in points]
-    baseline_values = [p.value for p, t in zip(points, point_times) if baseline_from <= t < baseline_to]
-    anomaly_values = [p.value for p, t in zip(points, point_times) if t >= anomaly_from]
+    baseline_values = [
+        p.value for p, t in zip(points, point_times) if baseline_from <= t < baseline_to and p.value is not None
+    ]
+    anomaly_values = [p.value for p, t in zip(points, point_times) if t >= anomaly_from and p.value is not None]
 
     baseline_mean = _mean(baseline_values)
     baseline_stddev = statistics.pstdev(baseline_values) if len(baseline_values) > 1 else 0.0
@@ -258,6 +262,18 @@ def _discover_candidate_keys(
     return tuple(keys[:MAX_CANDIDATE_KEYS])
 
 
+def dimension_magnitude(mover: MetricAnomalyDimension) -> float:
+    """How much a label value actually moved, blending relative change with
+    scale: a tiny series that tripled and a large series that barely budged
+    should not rank — nor be judged the dominant cause — on ratio alone. The
+    blast-radius classifier must compare movers on this same measure they were
+    ranked by, or the top mover by magnitude can lose a raw-ratio comparison.
+    """
+    if mover.baseline_value == 0 or mover.change_ratio <= 0:
+        return abs(mover.anomaly_value - mover.baseline_value)
+    return abs(math.log(mover.change_ratio)) * max(abs(mover.anomaly_value), abs(mover.baseline_value))
+
+
 def _find_top_movers(
     *,
     run: Callable[..., list[dict[str, Any]]],
@@ -285,6 +301,8 @@ def _find_top_movers(
             else:
                 continue  # gap between an explicit baseline and the anomaly
             label = row["labels"].get(key, "")
+            if row["value"] is None:
+                continue  # non-representable aggregate (overflow) — not evidence for either window
             per_label.setdefault(label, {"baseline": [], "anomaly": []})[bucket].append(row["value"])
         for label, windows in per_label.items():
             baseline_value = _mean(windows["baseline"])
@@ -302,10 +320,5 @@ def _find_top_movers(
                 )
             )
 
-    def _magnitude(mover: MetricAnomalyDimension) -> float:
-        if mover.baseline_value == 0 or mover.change_ratio <= 0:
-            return abs(mover.anomaly_value - mover.baseline_value)
-        return abs(math.log(mover.change_ratio)) * max(abs(mover.anomaly_value), abs(mover.baseline_value))
-
-    movers.sort(key=lambda m: (-_magnitude(m), m.key, m.label))
+    movers.sort(key=lambda m: (-dimension_magnitude(m), m.key, m.label))
     return tuple(movers[:MAX_TOP_MOVERS])

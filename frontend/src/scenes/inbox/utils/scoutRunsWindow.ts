@@ -1,4 +1,4 @@
-// Ported from PostHog Code desktop `packages/core/src/scouts/scoutRunsWindow.ts`
+// Ported from PostHog Desktop `packages/core/src/scouts/scoutRunsWindow.ts`
 // and `scoutPresentation.ts`. Pure metrics + display helpers over scout runs and
 // configs; no I/O. The runs endpoint caps each response at 100 rows newest-first;
 // `scoutFleetLogic.loadRunsWindow` assembles the full window by walking the
@@ -6,9 +6,12 @@
 // "the recent window" with a "truncated" suffix when that walk hits its page cap.
 
 import { humanFriendlyDuration } from 'lib/utils/durations'
+import { objectsEqual } from 'lib/utils/objects'
 import { pluralize } from 'lib/utils/strings'
 
-import { SignalScoutConfig, SignalScoutRunStatus, SignalScoutRunSummary } from '../types'
+import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
+
+import { SignalScoutRunStatus, SignalScoutRunSummary } from '../types'
 
 /**
  * The window every scout stat describes. The cloud runs endpoint caps each list
@@ -36,11 +39,12 @@ export function scoutRunsWindowLabel(complete: boolean): string {
 // fan-out. Shared so the page (`findingsLogic`) and the callout summary count the exact same set.
 export const MAX_FLEET_EMITTED_RUNS = 120
 
-/** The most recent emitted runs across the fleet, newest first, capped at `MAX_FLEET_EMITTED_RUNS`. */
+/** The most recent output-producing runs across the fleet — runs that emitted a finding OR
+ * authored/edited a report via the report channel — newest first, capped at `MAX_FLEET_EMITTED_RUNS`. */
 export function mostRecentEmittedRuns(runs: SignalScoutRunSummary[]): SignalScoutRunSummary[] {
     return (
         runs
-            .filter((run) => (run.emitted_count ?? 0) > 0)
+            .filter((run) => runProducedOutput(run))
             .slice()
             // "Most recently emitted" — a run can complete (and emit) later than one created after it, so
             // order by completion, falling back to creation. Matches `emittedFindingsSummary`'s `latestAt`.
@@ -49,12 +53,21 @@ export function mostRecentEmittedRuns(runs: SignalScoutRunSummary[]): SignalScou
     )
 }
 
+// ── Scout skill-name helpers ──────────────────────────────────────────────────
+
+/** The shared `signals-scout-*` skill-name prefix. The fleet prefix is noise inside the scouts surface. */
+export const SIGNALS_SCOUT_SKILL_PREFIX = 'signals-scout-'
+
+/** Strip the fleet prefix, leaving the bare scout code name verbatim. `signals-scout-apm` → `apm`. */
+export function stripScoutPrefix(skillName: string): string {
+    return skillName.startsWith(SIGNALS_SCOUT_SKILL_PREFIX)
+        ? skillName.slice(SIGNALS_SCOUT_SKILL_PREFIX.length)
+        : skillName
+}
+
 /** "signals-scout-error-tracking" → "Error tracking" */
 export function prettifyScoutSkillName(skillName: string): string {
-    const cleaned = skillName
-        .replace(/^signals-scout-/, '')
-        .replace(/[-_]/g, ' ')
-        .trim()
+    const cleaned = stripScoutPrefix(skillName).replace(/[-_]/g, ' ').trim()
     if (!cleaned) {
         return skillName
     }
@@ -79,6 +92,13 @@ export function normalizeRunStatus(status: SignalScoutRunStatus): ScoutRunStatus
         return 'queued'
     }
     return 'unknown'
+}
+
+/** Returns true when a run's status has settled — not running or queued.
+ * Settled runs can be safely reused across polls without freezing wall-clock renders. */
+export function isSettledRun(run: SignalScoutRunSummary): boolean {
+    const status = normalizeRunStatus(run.status)
+    return status !== 'running' && status !== 'queued'
 }
 
 export function runDurationSeconds(run: SignalScoutRunSummary, now: Date): number | null {
@@ -288,6 +308,34 @@ function emptyRollup(): ScoutRollup {
 }
 
 /**
+ * Reuse the previous poll's object reference for any item whose content is unchanged. The runs
+ * endpoint returns freshly parsed objects on every 60s poll, so without this every run reference
+ * changes each poll and every memoized row re-renders even when nothing changed. Matching by id and
+ * reusing the old reference when deep-equal keeps identity stable through the rollup selectors, so
+ * `React.memo` on the rows can actually bite.
+ *
+ * Cost: O(n·fields) per call — one Map build + one deep-equal per matched pair. Fine for the
+ * runs window (≤100 items, 60s cadence); keep that in mind if pointed at a large, hot list.
+ */
+export function reconcileById<T>(
+    previous: T[],
+    next: T[],
+    getId: (item: T) => string,
+    // Items whose rendering depends on wall-clock time (e.g. a live run's ticking duration) must
+    // NOT be reused: a preserved reference lets a memoized row skip the poll's re-render and freeze.
+    isReusable: (item: T) => boolean = () => true
+): T[] {
+    if (previous.length === 0) {
+        return next
+    }
+    const previousById = new Map(previous.map((item) => [getId(item), item]))
+    return next.map((item) => {
+        const existing = previousById.get(getId(item))
+        return existing && isReusable(item) && objectsEqual(existing, item) ? existing : item
+    })
+}
+
+/**
  * Client-side rollup over the recent fleet runs, keyed by skill_name. The runs
  * endpoint has no per-scout filter or aggregate stats yet and caps at 100 rows,
  * so these numbers describe "the recent window we can see", not all time.
@@ -342,6 +390,9 @@ export interface FleetSummary {
     enabledCount: number
     runningCount: number
     emittedCount: number
+    /** Distinct reports the fleet touched via the report channel (authored or edited) in the window,
+     * deduped across runs, scouts, and channels — the report-side counterpart of `emittedCount`. */
+    touchedReportCount: number
     /** Completed / (completed + failed) over the window, or null when no finished runs. */
     successRate: number | null
     /** Share of runs in the window that produced output — a signal OR report-channel activity — or null
@@ -356,6 +407,7 @@ export function computeFleetSummary(configs: SignalScoutConfig[], rollups: Map<s
     let failedCount = 0
     let runCount = 0
     let emittedRunCount = 0
+    const touchedReportIds = new Set<string>()
     for (const rollup of rollups.values()) {
         if (rollup.runningRun) {
             runningCount += 1
@@ -364,6 +416,12 @@ export function computeFleetSummary(configs: SignalScoutConfig[], rollups: Map<s
         completedCount += rollup.completedCount
         failedCount += rollup.failedCount
         runCount += rollup.runCount
+        for (const reportId of rollup.authoredReportIds) {
+            touchedReportIds.add(reportId)
+        }
+        for (const reportId of rollup.editedReportIds) {
+            touchedReportIds.add(reportId)
+        }
         for (const run of rollup.runs) {
             // Output = a weak finding OR report-channel activity, consistent with `runMatchesFilter('emitted')`
             // so the fleet emit rate and the per-scout "Emitted" chip never disagree about the same runs.
@@ -378,6 +436,7 @@ export function computeFleetSummary(configs: SignalScoutConfig[], rollups: Map<s
         enabledCount: configs.filter((config) => config.enabled).length,
         runningCount,
         emittedCount,
+        touchedReportCount: touchedReportIds.size,
         successRate: finished > 0 ? completedCount / finished : null,
         emitRate: runCount > 0 ? emittedRunCount / runCount : null,
     }
@@ -400,6 +459,44 @@ export const RUN_INTERVAL_OPTIONS: RunIntervalOption[] = [
     { minutes: 1440, label: 'Daily' },
 ]
 
+export const SCOUT_DAILY_AT_SCHEDULE_MODE = 'daily_at'
+export const SCOUT_CUSTOM_CRON_SCHEDULE_MODE = 'custom_cron'
+export const DEFAULT_SCOUT_DAILY_TIME = '09:00'
+
+interface ScoutScheduleFields {
+    run_interval_minutes: number
+    run_cron_schedule?: string | null
+}
+
+export function getScoutScheduleMode(config: ScoutScheduleFields): string {
+    if (!config.run_cron_schedule) {
+        return String(config.run_interval_minutes)
+    }
+    return dailyCronToTime(config.run_cron_schedule) ? SCOUT_DAILY_AT_SCHEDULE_MODE : SCOUT_CUSTOM_CRON_SCHEDULE_MODE
+}
+
+export function getScoutScheduleOptions(config: ScoutScheduleFields): { value: string; label: string }[] {
+    const scheduleMode = getScoutScheduleMode(config)
+    const options = RUN_INTERVAL_OPTIONS.map((option) => ({
+        value: String(option.minutes),
+        label: option.label,
+    }))
+    if (!RUN_INTERVAL_OPTIONS.some((option) => option.minutes === config.run_interval_minutes)) {
+        options.push({
+            value: String(config.run_interval_minutes),
+            label: formatRunInterval(config.run_interval_minutes),
+        })
+    }
+    options.push({ value: SCOUT_DAILY_AT_SCHEDULE_MODE, label: 'Daily at a set time' })
+    if (scheduleMode === SCOUT_CUSTOM_CRON_SCHEDULE_MODE) {
+        options.push({
+            value: SCOUT_CUSTOM_CRON_SCHEDULE_MODE,
+            label: `Custom (${config.run_cron_schedule})`,
+        })
+    }
+    return options
+}
+
 export function formatRunInterval(minutes: number): string {
     const preset = RUN_INTERVAL_OPTIONS.find((option) => option.minutes === minutes)
     if (preset) {
@@ -412,6 +509,25 @@ export function formatRunInterval(minutes: number): string {
         return `Every ${minutes / 60} hours`
     }
     return `Every ${minutes} minutes`
+}
+
+/**
+ * "30 9 * * *" → "09:30" when the cron is a plain daily time (the shape the settings form
+ * writes). Anything richer (multiple slots, day-of-week restrictions) returns null and is
+ * displayed as the raw expression instead.
+ */
+export function dailyCronToTime(cron: string | null | undefined): string | null {
+    const match = cron?.trim().match(/^(\d{1,2}) (\d{1,2}) \* \* \*$/)
+    if (!match) {
+        return null
+    }
+    return `${match[2].padStart(2, '0')}:${match[1].padStart(2, '0')}`
+}
+
+/** "09:30" → "30 9 * * *" — the inverse of `dailyCronToTime` for the settings form's time picker. */
+export function timeToDailyCron(time: string): string {
+    const [hours, minutes] = time.split(':')
+    return `${Number(minutes)} ${Number(hours)} * * *`
 }
 
 /** Short form for row badges: "hourly", "every 3h". */

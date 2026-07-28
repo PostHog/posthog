@@ -195,9 +195,10 @@ def get_rows(
 
     restarts_remaining = MAX_CURSOR_RESTARTS
     while True:
-        # Square encodes the original query in the cursor, so subsequent pages are
-        # requested with the cursor alone — re-sending filters/sort can error.
-        params = {"cursor": cursor} if cursor else initial_params
+        # Square ties a cursor to the exact query it was issued for, so every follow-up
+        # request must repeat the original params and add the cursor. Sending the cursor
+        # alone drops sort/filter/limit, which Square rejects as an incompatible cursor.
+        params = {**initial_params, "cursor": cursor} if cursor else initial_params
         try:
             data = fetch_page(params)
         except SquareInvalidCursorError:

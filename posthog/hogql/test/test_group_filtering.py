@@ -6,6 +6,10 @@ from datetime import UTC, datetime
 
 from posthog.test.base import APIBaseTest
 
+from django.conf import settings
+
+from parameterized import parameterized
+
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.parser import parse_select
@@ -23,6 +27,9 @@ class TestGroupKeyFiltering(APIBaseTest):
         self.database = Database.create_for(team=self.team)
         self.context = HogQLContext(team=self.team, database=self.database, enable_select_queries=True)
 
+    def _events_from_sql(self) -> str:
+        return "events_json AS events" if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "events"
+
     def _create_mapping_and_rebuild(self, **kwargs):
         """Create a GroupTypeMapping, invalidate cache, and rebuild database."""
         create_group_type_mapping(**kwargs)
@@ -32,8 +39,15 @@ class TestGroupKeyFiltering(APIBaseTest):
         self.database = Database.create_for(team=self.team)
         self.context = HogQLContext(team=self.team, database=self.database, enable_select_queries=True)
 
-    def test_group_field_with_mapping_and_created_at(self):
-        """Test that $group_0 gets filtering when GroupTypeMapping exists with created_at"""
+    # The created_at cutoff must be printed as a timezone-aware constant: a naive string literal is
+    # parsed by ClickHouse in the project's timezone, shifting the cutoff by the project's UTC offset.
+    @parameterized.expand(
+        [
+            ("UTC", "toDateTime64('2023-01-15 12:00:00.000000', 6, 'UTC')"),
+            ("America/Mexico_City", "toDateTime64('2023-01-15 06:00:00.000000', 6, 'America/Mexico_City')"),
+        ]
+    )
+    def test_group_field_with_mapping_and_created_at(self, timezone: str, expected_cutoff: str):
         self._create_mapping_and_rebuild(
             team=self.team,
             project=self.team.project,
@@ -41,6 +55,8 @@ class TestGroupKeyFiltering(APIBaseTest):
             group_type_index=0,
             created_at=datetime(2023, 1, 15, 12, 0, 0, tzinfo=UTC),
         )
+        self.team.timezone = timezone
+        self.team.save()
         self._rebuild_database()
 
         query = "SELECT $group_0 FROM events"
@@ -49,7 +65,7 @@ class TestGroupKeyFiltering(APIBaseTest):
         sql, _ = prepare_and_print_ast(parsed, context=self.context, dialect="clickhouse")
 
         self.assertIn(
-            "SELECT if(less(toTimeZone(events.timestamp, %(hogql_val_0)s), %(hogql_val_1)s), %(hogql_val_2)s, events.`$group_0`) AS `$group_0` FROM events WHERE equals(events.team_id,",
+            f"SELECT if(less(toTimeZone(events.timestamp, %(hogql_val_0)s), {expected_cutoff}), %(hogql_val_1)s, events.`$group_0`) AS `$group_0` FROM {self._events_from_sql()} WHERE equals(events.team_id,",
             sql,
         )
 
@@ -63,7 +79,7 @@ class TestGroupKeyFiltering(APIBaseTest):
         sql, _ = prepare_and_print_ast(parsed, context=self.context, dialect="clickhouse")
 
         # Should return an empty string constant (parameterized)
-        self.assertIn("SELECT events.`$group_0` AS `$group_0` FROM events", sql)
+        self.assertIn(f"SELECT events.`$group_0` AS `$group_0` FROM {self._events_from_sql()}", sql)
 
     def test_multiple_group_fields(self):
         """Test filtering with multiple group type mappings"""
@@ -192,7 +208,7 @@ class TestGroupKeyFiltering(APIBaseTest):
         sql, _ = prepare_and_print_ast(parsed, context=self.context, dialect="clickhouse")
 
         self.assertIn(
-            "ON equals(if(less(toTimeZone(events.timestamp, %(hogql_val_2)s), %(hogql_val_3)s), %(hogql_val_4)s, events.`$group_0`), events__group_0.key)",
+            "ON equals(if(less(toTimeZone(events.timestamp, %(hogql_val_2)s), toDateTime64('2023-01-15 12:00:00.000000', 6, 'UTC')), %(hogql_val_3)s, events.`$group_0`), events__group_0.key)",
             sql,
         )
 
@@ -213,4 +229,7 @@ class TestGroupKeyFiltering(APIBaseTest):
         sql, _ = prepare_and_print_ast(parsed, context=self.context, dialect="clickhouse")
 
         self.assertIn("ON equals(if(less(toTimeZone(events.timestamp,", sql)
-        self.assertIn("), %(hogql_val_3)s), %(hogql_val_4)s, events.`$group_0`), events__group_0.key)", sql)
+        self.assertIn(
+            "toDateTime64('2023-01-15 12:00:00.000000', 6, 'UTC')), %(hogql_val_3)s, events.`$group_0`), events__group_0.key)",
+            sql,
+        )

@@ -215,7 +215,14 @@ def validate_credentials(
         return False, str(e)
 
     if response.is_redirect or response.is_permanent_redirect:
-        return False, HOST_NOT_ALLOWED_ERROR
+        # A redirect on the API request usually means the instance URL doesn't point directly at
+        # GitLab (a project/web page, a login/SSO gateway, or a proxy). We can't follow it — the
+        # target could be an internal address (SSRF) — so guide the user to the right URL.
+        return False, (
+            "The GitLab instance URL returned an unexpected redirect. Enter just your instance URL "
+            "(for example https://gitlab.com or https://gitlab.example.com) with no project path, and make sure "
+            "it points directly at GitLab rather than a login, SSO, or proxy page."
+        )
 
     if response.status_code == 200:
         return True, None
@@ -226,11 +233,26 @@ def validate_credentials(
     if response.status_code == 404:
         return False, f"Project '{project}' not found or not accessible with this token"
 
+    if response.status_code == 403:
+        # GitLab returns a raw OAuth-style JSON body (e.g. {"error":"insufficient_scope",...}) here,
+        # which has no "message" field and is meaningless to the user. Guide them to the scope needed.
+        return False, (
+            "Your GitLab personal access token doesn't have the required scope. Create a token with "
+            "the 'read_api' scope (or 'api') and access to this project, then try again."
+        )
+
+    # Surface GitLab's own error text only when it's a plain string; otherwise a generic message, so
+    # we never echo a raw JSON body (which can embed the request context) back to the user.
     try:
-        body = response.json()
-        return False, body.get("message", response.text)
+        message = response.json().get("message")
     except Exception:
-        return False, response.text
+        message = None
+    if isinstance(message, str) and message.strip():
+        return False, message
+    return False, (
+        f"GitLab rejected the connection (HTTP {response.status_code}). "
+        "Please check your GitLab host, token, and project, then try again."
+    )
 
 
 def _parse_retry_after(response: requests.Response) -> float | None:

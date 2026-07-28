@@ -12,7 +12,11 @@ from .utils import ShopifyGraphQLObject
 SHOPIFY_ACCESS_TOKEN_URL = "https://{}.myshopify.com/admin/oauth/access_token"
 SHOPIFY_ACCESS_SCOPES_URL = "https://{}.myshopify.com/admin/oauth/access_scopes.json"
 SHOPIFY_ACCESS_TOKEN_GRANT = "client_credentials"
-SHOPIFY_API_VERSION = "2025-10"
+# Shopify ships date-based quarterly API versions. One constant per supported version so the
+# source's version declaration (`ShopifySource.supported_versions`) and the request layer (the
+# version segment in the Admin API URL) share a single label — never parsed or ordered.
+SHOPIFY_API_VERSION_2025_10 = "2025-10"
+SHOPIFY_API_VERSION_2026_07 = "2026-07"
 SHOPIFY_API_URL = "https://{}.myshopify.com/admin/api/{}/graphql.json"
 SHOPIFY_DEFAULT_PAGE_SIZE = 100
 

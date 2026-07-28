@@ -7,7 +7,7 @@ import { logger } from '~/common/utils/logger'
 import {
     KafkaDownstreamProducerEnvConfig,
     getDefaultKafkaDownstreamProducerEnvConfig,
-} from '~/ingestion/common/producers'
+} from '~/ingestion/common/outputs/producers'
 import {
     SessionReplayOutputsConfig,
     type SessionReplayProducerName,
@@ -63,10 +63,17 @@ export function buildSessionReplayRedisPools(config: IngestionSessionReplayServe
         connection: config.POSTHOG_SESSION_RECORDING_REDIS_HOST
             ? {
                   url: config.POSTHOG_SESSION_RECORDING_REDIS_HOST,
-                  options: { port: config.POSTHOG_SESSION_RECORDING_REDIS_PORT ?? 6379 },
+                  options: {
+                      port: config.POSTHOG_SESSION_RECORDING_REDIS_PORT ?? 6379,
+                      commandTimeout: config.SESSION_RECORDING_REDIS_TIMEOUT_MS,
+                  },
                   name: 'session-recording-redis',
               }
-            : { url: config.REDIS_URL, name: 'session-recording-redis-fallback' },
+            : {
+                  url: config.REDIS_URL,
+                  options: { commandTimeout: config.SESSION_RECORDING_REDIS_TIMEOUT_MS },
+                  name: 'session-recording-redis-fallback',
+              },
         poolMinSize: config.REDIS_POOL_MIN_SIZE,
         poolMaxSize: config.REDIS_POOL_MAX_SIZE,
     })

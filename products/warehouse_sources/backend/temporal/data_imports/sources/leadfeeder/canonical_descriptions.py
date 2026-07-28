@@ -1,0 +1,71 @@
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
+
+# Descriptions taken from the public legacy Leadfeeder (Dealfront) API reference
+# (https://docs.leadfeeder.com/api/). Keyed by the endpoint names `get_schemas` returns.
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "accounts": {
+        "description": "Leadfeeder accounts (subscriptions) the API token can read.",
+        "docs_url": "https://docs.leadfeeder.com/api/",
+        "columns": {
+            "id": "Unique identifier of the Leadfeeder account.",
+            "type": "JSON:API resource type, always 'accounts'.",
+            "name": "Human-readable name of the account.",
+        },
+    },
+    "leads": {
+        "description": "Identified companies that visited the tracked website, one row per (account, company).",
+        "docs_url": "https://docs.leadfeeder.com/api/",
+        "columns": {
+            "id": "Unique identifier of the lead (company) within Leadfeeder.",
+            "type": "JSON:API resource type, always 'leads'.",
+            "account_id": "Identifier of the Leadfeeder account this lead belongs to.",
+            "name": "Company name.",
+            "industry": "Primary industry classification of the company.",
+            "industries": "All industry classifications of the company.",
+            "first_visit_date": "Date of the company's first recorded visit (yyyy-mm-dd).",
+            "last_visit_date": "Date of the company's most recent visit (yyyy-mm-dd).",
+            "status": "Lead status in Leadfeeder.",
+            "website_url": "Company website URL.",
+            "phone": "Company phone number.",
+            "linkedin_url": "Company LinkedIn profile URL.",
+            "twitter_handle": "Company Twitter/X handle.",
+            "facebook_url": "Company Facebook page URL.",
+            "employee_count": "Estimated number of employees.",
+            "employees_range": "Estimated employee count as a range bucket.",
+            "crm_lead_id": "Identifier of the linked lead in a connected CRM.",
+            "crm_organization_id": "Identifier of the linked organization in a connected CRM.",
+            "tags": "Tags applied to the lead.",
+            "logo_url": "URL of the company logo.",
+            "assignee": "User the lead is assigned to.",
+            "business_id": "Company business/registration identifier.",
+            "revenue": "Estimated company revenue.",
+            "quality": "Leadfeeder-computed lead quality score.",
+            "visits": "Number of visits attributed to the company in the queried window.",
+        },
+    },
+    "visits": {
+        "description": "Individual website visits across the account, one row per visit.",
+        "docs_url": "https://docs.leadfeeder.com/api/",
+        "columns": {
+            "id": "Unique identifier of the visit.",
+            "type": "JSON:API resource type, always 'visits'.",
+            "account_id": "Identifier of the Leadfeeder account this visit belongs to.",
+            "lead_id": "Identifier of the lead (company) the visit is attributed to.",
+            "started_at": "Timestamp the visit started, ISO 8601, rounded to minutes.",
+            "visit_length": "Duration of the visit in seconds.",
+            "source": "Traffic source of the visit.",
+            "medium": "Traffic medium of the visit.",
+            "campaign": "Marketing campaign associated with the visit.",
+            "referring_url": "URL that referred the visit.",
+            "landing_page_path": "Path of the first page viewed in the visit.",
+            "visit_route": "Sequence of pages viewed during the visit.",
+            "page_depth": "Number of pages viewed during the visit.",
+            "keyword": "Search keyword associated with the visit, when available.",
+            "query_term": "Site search query term, when available.",
+            "country_code": "ISO country code inferred for the visit.",
+            "device_type": "Device category used for the visit.",
+        },
+    },
+}

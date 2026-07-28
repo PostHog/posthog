@@ -2,10 +2,24 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from posthog.models.integration import Integration
+from django.test import TestCase, override_settings
+from django.test.client import RequestFactory
+from django.utils import timezone
 
+from parameterized import parameterized
+
+from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
+from posthog.models.comment import Comment
+from posthog.models.integration import Integration
+from posthog.models.organization import Organization
+from posthog.models.team.team import Team
+
+from products.conversations.backend.models.ticket import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.product_analytics.backend.models.insight import Insight
+from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+from products.slack_app.backend.models import SlackChannel
+from products.slack_app.backend.services.slack_auth import write_auth_state_ok
 from products.slack_app.backend.slack_link_unfurl import (
     _insight_resource_label,
     handle_posthog_link_unfurl,
@@ -31,6 +45,18 @@ class TestParsePosthogResourceLink:
 
     def test_skips_insight_new(self):
         assert parse_posthog_resource_link("https://x.com/project/1/insights/new") is None
+
+    def test_support_ticket_by_number(self):
+        assert parse_posthog_resource_link("https://us.posthog.com/project/42/support/tickets/123") == ("ticket", "123")
+
+    def test_support_ticket_by_uuid_ignores_fragment(self):
+        assert parse_posthog_resource_link("https://app.posthog.com/support/tickets/abc-uuid#panel=discussion") == (
+            "ticket",
+            "abc-uuid",
+        )
+
+    def test_skips_ticket_new(self):
+        assert parse_posthog_resource_link("https://x.com/support/tickets/new") is None
 
     def test_unrelated_url(self):
         assert parse_posthog_resource_link("https://example.com/foo") is None
@@ -179,3 +205,208 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         text = mock_client.chat_unfurl.call_args.kwargs["unfurls"][url]["blocks"][0]["text"]["text"]
         assert "Dashboard" in text
         assert "Main board" in text
+
+    @staticmethod
+    def _unfurl_text(unfurl: dict) -> str:
+        parts: list[str] = []
+        for block in unfurl["blocks"]:
+            if block["type"] == "section":
+                parts.append(block["text"]["text"])
+            elif block["type"] == "context":
+                parts.extend(element["text"] for element in block["elements"])
+        return "\n".join(parts)
+
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    def test_unfurls_ticket(self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock) -> None:
+        ticket = Ticket.objects.create(
+            team=self.team,
+            ticket_number=1,
+            widget_session_id="s1",
+            distinct_id="d1",
+            # Default display-name settings prefer email over name.
+            anonymous_traits={"name": "John Doe", "email": "john@example.com"},
+        )
+        mock_resolve.return_value = MagicMock(user=self.user)
+        mock_client = MagicMock()
+        mock_slack_integration_class.return_value.client = mock_client
+
+        url = f"http://testserver/project/{self.team.pk}/support/tickets/{ticket.ticket_number}"
+        handle_posthog_link_unfurl(
+            {"channel": "C1", "message_ts": "123.456", "user": "U1", "links": [{"url": url}]},
+            self.integration,
+        )
+
+        mock_client.chat_unfurl.assert_called_once()
+        text = self._unfurl_text(mock_client.chat_unfurl.call_args.kwargs["unfurls"][url])
+        assert "Support Ticket #1" in text
+        assert "Requested by:* john@example.com" in text
+        assert "New" in text  # default status, humanized
+
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    def test_skips_ticket_from_another_project(
+        self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
+    ) -> None:
+        # ticket_number is per-project — a link naming a different project must not resolve to our #1.
+        ticket = Ticket.objects.create(team=self.team, ticket_number=1, widget_session_id="s9", distinct_id="d9")
+        mock_resolve.return_value = MagicMock(user=self.user)
+        mock_client = MagicMock()
+        mock_slack_integration_class.return_value.client = mock_client
+
+        url = f"http://testserver/project/{self.team.pk + 1}/support/tickets/{ticket.ticket_number}"
+        handle_posthog_link_unfurl(
+            {"channel": "C1", "message_ts": "1.2", "user": "U1", "links": [{"url": url}]},
+            self.integration,
+        )
+
+        mock_client.chat_unfurl.assert_not_called()
+
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    def test_ticket_requester_follows_display_name_setting(
+        self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
+    ) -> None:
+        # A project that displays people by name should show the name, not the email.
+        self.team.person_display_name_properties = ["name", "email"]
+        self.team.save()
+        ticket = Ticket.objects.create(
+            team=self.team,
+            ticket_number=3,
+            widget_session_id="s3",
+            distinct_id="d3",
+            anonymous_traits={"name": "John Doe", "email": "john@example.com"},
+        )
+        mock_resolve.return_value = MagicMock(user=self.user)
+        mock_client = MagicMock()
+        mock_slack_integration_class.return_value.client = mock_client
+
+        url = f"http://testserver/support/tickets/{ticket.ticket_number}"
+        handle_posthog_link_unfurl(
+            {"channel": "C1", "message_ts": "1.2", "user": "U1", "links": [{"url": url}]},
+            self.integration,
+        )
+
+        text = self._unfurl_text(mock_client.chat_unfurl.call_args.kwargs["unfurls"][url])
+        assert "Requested by:* John Doe" in text
+
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    def test_unfurls_ticket_with_opening_message(
+        self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
+    ) -> None:
+        ticket = Ticket.objects.create(team=self.team, ticket_number=2, widget_session_id="s2", distinct_id="d2")
+        # bulk_create skips conversations' post_save signals — we only need the row for the lookup.
+        Comment.objects.bulk_create(
+            [
+                Comment(
+                    team=self.team, scope="conversations_ticket", item_id=str(ticket.id), content="App crashes on login"
+                )
+            ]
+        )
+        mock_resolve.return_value = MagicMock(user=self.user)
+        mock_client = MagicMock()
+        mock_slack_integration_class.return_value.client = mock_client
+
+        url = f"http://testserver/support/tickets/{ticket.ticket_number}"
+        handle_posthog_link_unfurl(
+            {"channel": "C1", "message_ts": "1.2", "user": "U1", "links": [{"url": url}]},
+            self.integration,
+        )
+
+        text = self._unfurl_text(mock_client.chat_unfurl.call_args.kwargs["unfurls"][url])
+        assert ">>> App crashes on login" in text
+
+    @parameterized.expand(
+        [
+            ("private_note", {"item_context": {"is_private": True}}),
+            ("soft_deleted", {"deleted": True}),
+        ]
+    )
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    def test_ticket_hidden_opening_message_not_surfaced(
+        self, _name: str, overrides: dict, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
+    ) -> None:
+        ticket = Ticket.objects.create(team=self.team, ticket_number=4, widget_session_id="s4", distinct_id="d4")
+        Comment.objects.bulk_create(
+            [
+                Comment(
+                    team=self.team,
+                    scope="conversations_ticket",
+                    item_id=str(ticket.id),
+                    content="internal only",
+                    **overrides,
+                )
+            ]
+        )
+        mock_resolve.return_value = MagicMock(user=self.user)
+        mock_client = MagicMock()
+        mock_slack_integration_class.return_value.client = mock_client
+
+        url = f"http://testserver/support/tickets/{ticket.ticket_number}"
+        handle_posthog_link_unfurl(
+            {"channel": "C1", "message_ts": "1.2", "user": "U1", "links": [{"url": url}]},
+            self.integration,
+        )
+
+        text = self._unfurl_text(mock_client.chat_unfurl.call_args.kwargs["unfurls"][url])
+        assert ">>>" not in text
+
+
+@override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+class TestLinkUnfurlChannelGate(TestCase):
+    SLACK_TEAM_ID = "TGate01"
+    CHANNEL_ID = "C_EXT"
+
+    def setUp(self) -> None:
+        self.factory = RequestFactory()
+        self.organization = Organization.objects.create(name="Gate Org")
+        self.team = Team.objects.create(organization=self.organization, name="Gate Team")
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id=self.SLACK_TEAM_ID,
+            config={"scope": ",".join(sorted(REQUIRED_SLACK_SCOPES))},
+            sensitive_config={"access_token": "xoxb-test"},
+        )
+        # load_integrations calls auth.test on cache miss; pre-seed ok so the resolver short-circuits.
+        write_auth_state_ok(self.integration.id, bot_user_id=None)
+
+    def _event(self) -> dict:
+        return {
+            "type": "link_shared",
+            "channel": self.CHANNEL_ID,
+            "user": "U_SHARER",
+            "message_ts": "1.2",
+            "links": [{"url": "https://us.posthog.com/support/tickets/1"}],
+        }
+
+    def _route(self, *, is_ext_shared_channel: bool) -> str:
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+        return route_posthog_code_event_to_relevant_region(
+            request, self._event(), self.SLACK_TEAM_ID, is_ext_shared_channel=is_ext_shared_channel
+        )
+
+    @parameterized.expand(
+        [
+            ("ext_unapproved", True, False, False),
+            ("ext_approved", True, True, True),
+            ("internal_channel", False, False, True),
+        ]
+    )
+    @patch("products.slack_app.backend.api.handle_posthog_link_unfurl")
+    def test_unfurl_gated_on_external_channel_approval(
+        self, _name: str, is_ext_shared: bool, approved: bool, expect_unfurled: bool, mock_unfurl: MagicMock
+    ) -> None:
+        if approved:
+            SlackChannel.objects.create(
+                slack_workspace_id=self.SLACK_TEAM_ID,
+                slack_channel_id=self.CHANNEL_ID,
+                approved_at=timezone.now(),
+            )
+
+        result = self._route(is_ext_shared_channel=is_ext_shared)
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        assert mock_unfurl.called is expect_unfurled

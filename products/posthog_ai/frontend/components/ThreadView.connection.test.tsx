@@ -22,7 +22,7 @@ describe('ThreadView connection state', () => {
         initKeaTests()
         logic = runStreamLogic(props)
         logic.mount()
-        // virtualized={false} so react-window rows render in document flow under jsdom.
+        // virtualized={false} so rows render in document flow under jsdom.
         render(
             <Provider>
                 <BindLogic logic={runStreamLogic} props={props}>

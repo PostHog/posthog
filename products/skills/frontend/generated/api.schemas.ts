@@ -7,17 +7,6 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-export interface LLMSkillOutlineEntryApi {
-    /**
-     * Markdown heading level (1-6).
-     * @minimum 1
-     * @maximum 6
-     */
-    level: number
-    /** Heading text. */
-    text: string
-}
-
 /**
  * * `engineering` - Engineering
  * * `data` - Data
@@ -73,6 +62,17 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+export interface LLMSkillOutlineEntryApi {
+    /**
+     * Markdown heading level (1-6).
+     * @minimum 1
+     * @maximum 6
+     */
+    level: number
+    /** Heading text. */
+    text: string
+}
+
 /**
  * Arbitrary key-value metadata.
  */
@@ -109,6 +109,8 @@ export interface LLMSkillListApi {
     metadata?: LLMSkillListApiMetadata
     /** Server-owned classification — set by the producing system (the Signals harness stamps "scout"), not writable via the API. Empty for an ordinary skill. Groups skills into their own surface (e.g. the Scouts tab) independently of the skill name. */
     readonly category: string
+    /** Users who own this skill, seed-creator first. Ownership is keyed on the logical skill (not a version), so it's stable across edits. Prefer this over created_by to learn who to route reviews or questions to. Set via the owners field on create/update (a list of user UUIDs). Empty for scout sandbox fetches of skills that haven't opted into the report channel. */
+    readonly owners: readonly UserBasicApi[]
     /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
     readonly outline: readonly LLMSkillOutlineEntryApi[]
     readonly version: number
@@ -152,7 +154,7 @@ export interface LLMSkillFileInputApi {
 }
 
 /**
- * Create serializer — accepts bundled files as write-only input on POST.
+ * Create serializer — accepts bundled files and owners as write-only input on POST.
  */
 export interface LLMSkillCreateApi {
     readonly id: string
@@ -166,6 +168,13 @@ export interface LLMSkillCreateApi {
      * @maxLength 4096
      */
     description: string
+    /** Total length of the full body in characters, independent of any body_offset/body_length paging. Compare against the length of the returned body to detect a truncated response. */
+    readonly body_total_length: number
+    /**
+     * When body_length paging stops before the end of the body, the character offset to request next (pass as body_offset). Null when the returned body reaches the end.
+     * @nullable
+     */
+    readonly body_next_offset: number | null
     /** The SKILL.md instruction content (markdown). */
     body: string
     /**
@@ -184,6 +193,11 @@ export interface LLMSkillCreateApi {
     metadata?: LLMSkillCreateApiMetadata
     /** Server-owned classification — set by the producing system (the Signals harness stamps "scout"), not writable via the API. Empty for an ordinary skill. Groups skills into their own surface (e.g. the Scouts tab) independently of the skill name. */
     readonly category: string
+    /**
+     * User UUIDs to set as the skill's owners. Each must be a member of this project. Defaults to the creating user when omitted; pass an empty list to create with no owners.
+     * @maxItems 25
+     */
+    owners?: string[]
     /** Bundled files to include with the initial version (scripts, references, assets). */
     files?: LLMSkillFileInputApi[]
     /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
@@ -197,11 +211,6 @@ export interface LLMSkillCreateApi {
     readonly latest_version: number
     readonly version_count: number
     readonly first_version_created_at: string
-}
-
-export interface LLMSkillImportApi {
-    /** A spec-compliant skill .zip (a SKILL.md plus optional bundled files under scripts/, references/, assets/). */
-    file: string
 }
 
 /**
@@ -228,6 +237,13 @@ export interface LLMSkillApi {
      * @maxLength 4096
      */
     description: string
+    /** Total length of the full body in characters, independent of any body_offset/body_length paging. Compare against the length of the returned body to detect a truncated response. */
+    readonly body_total_length: number
+    /**
+     * When body_length paging stops before the end of the body, the character offset to request next (pass as body_offset). Null when the returned body reaches the end.
+     * @nullable
+     */
+    readonly body_next_offset: number | null
     /** The SKILL.md instruction content (markdown). */
     body: string
     /**
@@ -246,6 +262,8 @@ export interface LLMSkillApi {
     metadata?: LLMSkillApiMetadata
     /** Server-owned classification — set by the producing system (the Signals harness stamps "scout"), not writable via the API. Empty for an ordinary skill. Groups skills into their own surface (e.g. the Scouts tab) independently of the skill name. */
     readonly category: string
+    /** Users who own this skill, seed-creator first. Ownership is keyed on the logical skill (not a version), so it's stable across edits. Prefer this over created_by to learn who to route reviews or questions to. Set via the owners field on create/update (a list of user UUIDs). Empty for scout sandbox fetches of skills that haven't opted into the report channel. */
+    readonly owners: readonly UserBasicApi[]
     /** Bundled files manifest. Each entry is path + content_type only; fetch content via /llm_skills/name/{name}/files/{path}/. */
     readonly files: readonly LLMSkillFileManifestApi[]
     /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
@@ -259,6 +277,11 @@ export interface LLMSkillApi {
     readonly latest_version: number
     readonly version_count: number
     readonly first_version_created_at: string
+}
+
+export interface LLMSkillImportApi {
+    /** A spec-compliant skill .zip (a SKILL.md plus optional bundled files under scripts/, references/, assets/). */
+    file: string
 }
 
 /**
@@ -387,7 +410,12 @@ export interface PatchedLLMSkillPublishApi {
     /** Per-file find/replace updates. Each entry targets one existing file by path and applies sequential edits to its content. Non-targeted files carry forward unchanged. Cannot add, remove, or rename files — use 'files' for that. Mutually exclusive with files. */
     file_edits?: LLMSkillFileEditApi[]
     /**
-     * Latest version you are editing from. Used for optimistic concurrency checks.
+     * Replace the skill's owners with these user UUIDs (each a member of this project). Omit to leave owners unchanged; pass an empty list to clear them. Owners are keyed on the logical skill, so setting them is independent of the version being published — a body edit alone never changes ownership.
+     * @maxItems 25
+     */
+    owners?: string[]
+    /**
+     * Latest version you are editing from. Used for optimistic concurrency checks. Required when publishing content changes; optional for an owner-only update (when omitted, owners are replaced without a concurrency check).
      * @minimum 1
      */
     base_version?: number
@@ -485,6 +513,16 @@ export type LlmSkillsListParams = {
 }
 
 export type LlmSkillsNameRetrieveParams = {
+    /**
+     * Maximum number of characters of the body to return starting at body_offset. Omit to return the whole body from the offset onwards. When the slice stops before the end, body_next_offset is the offset to request next.
+     * @minimum 1
+     */
+    body_length?: number
+    /**
+     * Zero-based character offset to start the returned body from. Use with body_length to page through a large body that a client would otherwise truncate. Compare the returned body length against body_total_length to detect truncation, then re-fetch from body_next_offset. Defaults to 0 (start of body).
+     * @minimum 0
+     */
+    body_offset?: number
     /**
      * Specific skill version to fetch. If omitted, the latest version is returned.
      * @minimum 1

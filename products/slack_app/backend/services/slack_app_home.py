@@ -30,7 +30,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.user_integration import UserIntegration
 from posthog.user_permissions import UserPermissions
 
-from products.slack_app.backend.feature_flags import is_slack_app_home_enabled, slack_oauth_link_enabled
+from products.slack_app.backend.feature_flags import is_slack_app_home_enabled, is_slack_app_oauth_enabled
 from products.slack_app.backend.models import SlackSettings, SlackUserProfileCache
 from products.slack_app.backend.services.slack_settings import (
     AIPreferences,
@@ -430,7 +430,7 @@ def _active_model_blocks(effective: AIPreferences, source: PreferenceSource) -> 
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": "Inheriting PostHog Code's default — pick personal or workspace settings to override.",
+                    "text": "Inheriting PostHog Desktop's default — pick personal or workspace settings to override.",
                 },
             },
             source_blurb,
@@ -527,7 +527,7 @@ def _project_section_blocks(state: ProjectState, *, is_admin: bool) -> list[dict
 def _account_section_blocks(account_state: AccountState) -> list[dict]:
     """Render the Sign-in-with-Slack account card.
 
-    Visible only when `slack_oauth_link_enabled` returned True. Linked
+    Visible only when `is_slack_app_oauth_enabled` returned True. Linked
     state mirrors the Claude home pattern: ✅ + email, with a danger-styled
     Disconnect button at the bottom.
     """
@@ -1123,7 +1123,7 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
         # Only act when the OAuth-link feature is on for this workspace —
         # otherwise the button shouldn't have been rendered, and a stale
         # cached view shouldn't be allowed to drive deletes.
-        if slack_oauth_link_enabled(integration, integration.integration_id):
+        if is_slack_app_oauth_enabled(integration, integration.integration_id):
             _unlink_user_account(integration, slack_user_id)
         _republish_home(integration, slack_user_id)
         return HttpResponse(status=200)
@@ -1217,7 +1217,6 @@ def handle_app_home_view_submission(payload: dict) -> HttpResponse | JsonRespons
 
 
 def _get_slack_integration(slack_team_id: str) -> Integration | None:
-
     if not slack_team_id:
         return None
     return (
@@ -1228,7 +1227,6 @@ def _get_slack_integration(slack_team_id: str) -> Integration | None:
 
 
 def _load_rows(integration: Integration, slack_user_id: str) -> tuple[SlackSettings | None, SlackSettings | None]:
-
     user_row = SlackSettings.objects.filter(
         slack_workspace_id=integration.integration_id,
         slack_user_id=slack_user_id,
@@ -1251,7 +1249,6 @@ def _row_to_settings(row: SlackSettings | None) -> AIPreferences:
 
 
 def _is_admin(slack: SlackIntegration, integration: Integration, slack_user_id: str) -> bool:
-
     try:
         return is_slack_workspace_admin(slack, integration, slack_user_id)
     except Exception:
@@ -1603,7 +1600,7 @@ def _read_tasks_filters_from_payload(payload: dict) -> tuple[str | None, str | N
 
 def _resolve_account_state(integration: Integration, slack_user_id: str) -> AccountState:
     slack_team_id = integration.integration_id
-    if not slack_oauth_link_enabled(integration, slack_team_id):
+    if not is_slack_app_oauth_enabled(integration, slack_team_id):
         return AccountState(enabled=False)
 
     candidate_org_ids = _workspace_org_ids(slack_team_id)

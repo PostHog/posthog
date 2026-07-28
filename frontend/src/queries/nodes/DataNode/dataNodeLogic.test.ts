@@ -335,6 +335,53 @@ describe('dataNodeLogic', () => {
         })
     })
 
+    it('can load next data for SessionQuery', async () => {
+        logic = dataNodeLogic({
+            key: testUniqueKey,
+            query: setLatestVersionsOnQuery({ kind: NodeKind.SessionQuery, sessionId: 'session-1' }),
+        })
+        const results = [{}, {}, {}]
+        mockedQuery.mockResolvedValueOnce({ results, hasMore: true })
+        logic.mount()
+        await expectLogic(logic)
+            .toMatchValues({ responseLoading: true, canLoadNextData: false, nextQuery: null, response: null })
+            .delay(0)
+        await expectLogic(logic).toMatchValues({
+            responseLoading: false,
+            canLoadNextData: true,
+            nextQuery: setLatestVersionsOnQuery({
+                kind: NodeKind.SessionQuery,
+                sessionId: 'session-1',
+                limit: 100,
+                offset: 3,
+            }),
+            response: partial({ results }),
+        })
+    })
+
+    it('can load next data for AccountsQuery', async () => {
+        logic = dataNodeLogic({
+            key: testUniqueKey,
+            query: setLatestVersionsOnQuery({ kind: NodeKind.AccountsQuery }),
+        })
+        const results = [[{}], [{}], [{}]]
+        mockedQuery.mockResolvedValueOnce({ results, hasMore: true })
+        logic.mount()
+        await expectLogic(logic)
+            .toMatchValues({ responseLoading: true, canLoadNextData: false, nextQuery: null, response: null })
+            .delay(0)
+        await expectLogic(logic).toMatchValues({
+            responseLoading: false,
+            canLoadNextData: true,
+            nextQuery: setLatestVersionsOnQuery({
+                kind: NodeKind.AccountsQuery,
+                limit: 100,
+                offset: 3,
+            }),
+            response: partial({ results }),
+        })
+    })
+
     it('can autoload new data for EventsQuery', async () => {
         const results = [
             [

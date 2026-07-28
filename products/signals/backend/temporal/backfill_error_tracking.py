@@ -1,6 +1,6 @@
-import json
 from dataclasses import dataclass
 from datetime import timedelta
+from uuid import UUID
 
 import posthoganalytics
 from temporalio import activity, workflow
@@ -8,6 +8,9 @@ from temporalio.common import RetryPolicy
 
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
+
+BACKFILL_WINDOW_DAYS = 30
+BACKFILL_ISSUE_LIMIT = 5
 
 
 @dataclass
@@ -33,59 +36,44 @@ class EmitBackfillSignalInput:
 @scoped_temporal()
 @close_db_connections
 async def fetch_error_tracking_issues_activity(input: BackfillErrorTrackingInput) -> list[ErrorTrackingIssueData]:
-    """Fetch the 100 most recent error tracking issues ordered by first seen."""
-    from posthog.schema import DateRange, ErrorTrackingQuery
+    """Fetch the most recently created error tracking issues from the last 30 days."""
+    from django.utils import timezone
 
-    from posthog.models import Team
     from posthog.sync import database_sync_to_async
 
-    from products.error_tracking.backend.facade.queries import ErrorTrackingQueryRunner
+    from products.error_tracking.backend.facade import api as error_tracking_api
 
-    team = await Team.objects.aget(id=input.team_id)
-
-    def _run_query():
-        runner = ErrorTrackingQueryRunner(
-            team=team,
-            query=ErrorTrackingQuery(
-                kind="ErrorTrackingQuery",
-                dateRange=DateRange(),
-                orderBy="first_seen",
-                orderDirection="DESC",
-                volumeResolution=1,
-                limit=100,
-                withFirstEvent=True,
-                withAggregations=False,
-            ),
+    def _fetch() -> list[ErrorTrackingIssueData]:
+        # Issue metadata and fingerprints both live in Postgres, so the backfill reads them
+        # directly instead of scanning events. The previous events scan also misattributed
+        # old issues with recent occurrences as newly created, and missed imported issues
+        # whose event timestamps predate the window.
+        previews = error_tracking_api.list_issues_created_since(
+            team_id=input.team_id,
+            since=timezone.now() - timedelta(days=BACKFILL_WINDOW_DAYS),
+            limit=BACKFILL_ISSUE_LIMIT,
         )
-        return runner.calculate()
+        if not previews:
+            return []
 
-    response = await database_sync_to_async(_run_query)()
-
-    issues: list[ErrorTrackingIssueData] = []
-    for result in response.results:
-        fingerprint = ""
-        if result.first_event and result.first_event.properties:
-            try:
-                props = (
-                    json.loads(result.first_event.properties)
-                    if isinstance(result.first_event.properties, str)
-                    else result.first_event.properties
-                )
-                fp = props.get("$exception_fingerprint", "")
-                fingerprint = fp if isinstance(fp, str) else str(fp)
-            except (json.JSONDecodeError, AttributeError):
-                pass
-
-        issues.append(
-            ErrorTrackingIssueData(
-                issue_id=result.id,
-                name=result.name or "Unknown",
-                description=result.description or "",
-                fingerprint=fingerprint,
+        first_fingerprints: dict[UUID, str] = {
+            fingerprint.issue_id: fingerprint.fingerprint
+            for fingerprint in error_tracking_api.list_first_fingerprints(
+                team_id=input.team_id, issue_ids=[preview.id for preview in previews]
             )
-        )
+        }
 
-    return issues
+        return [
+            ErrorTrackingIssueData(
+                issue_id=str(preview.id),
+                name=preview.name or "Unknown",
+                description=preview.description or "",
+                fingerprint=first_fingerprints.get(preview.id, ""),
+            )
+            for preview in previews
+        ]
+
+    return await database_sync_to_async(_fetch)()
 
 
 @activity.defn

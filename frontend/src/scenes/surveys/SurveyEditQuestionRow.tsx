@@ -27,7 +27,7 @@ import { NewSurvey, SCALE_OPTIONS, SURVEY_RATING_SCALE, SurveyQuestionLabel } fr
 import { HTMLEditor } from './SurveyAppearanceUtils'
 import { SurveyDragHandle } from './SurveyDragHandle'
 import { surveyLogic } from './surveyLogic'
-import { isThumbQuestion, splitChoicesOnPaste } from './utils'
+import { canQuestionSkipSubmitButton, isThumbQuestion, splitChoicesOnPaste } from './utils'
 
 type SurveyQuestionHeaderProps = {
     index: number
@@ -111,15 +111,6 @@ export function SurveyEditQuestionHeader({
                 )}
             </div>
         </div>
-    )
-}
-
-function canQuestionSkipSubmitButton(
-    question: SurveyQuestion
-): question is RatingSurveyQuestion | MultipleSurveyQuestion {
-    return (
-        question.type === SurveyQuestionType.Rating ||
-        (question.type === SurveyQuestionType.SingleChoice && !question.hasOpenChoice)
     )
 }
 

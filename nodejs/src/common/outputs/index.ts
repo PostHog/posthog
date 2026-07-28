@@ -34,3 +34,6 @@ export type TophogOutput = typeof TOPHOG_OUTPUT
 
 export const HOG_INVOCATION_RESULTS_OUTPUT = 'hog_invocation_results' as const
 export type HogInvocationResultsOutput = typeof HOG_INVOCATION_RESULTS_OUTPUT
+
+export const MESSAGE_ASSETS_OUTPUT = 'message_assets' as const
+export type MessageAssetsOutput = typeof MESSAGE_ASSETS_OUTPUT

@@ -1,7 +1,7 @@
 import { dimensions, makeSeries } from '../testing'
 import { computeBarAtIndex } from './bar-layout'
 import { createComboScales, isLineLike, partitionByType, resolveSeriesType } from './combo-scales'
-import { computeStackData } from './scales'
+import { computeDivergingStackData, computePercentStackData, computeStackData } from './scales'
 import type { Series, SeriesType } from './types'
 import { DEFAULT_Y_AXIS_ID } from './types'
 
@@ -130,6 +130,21 @@ describe('combo-scales', () => {
             expect(domainMax).toBeGreaterThanOrEqual(60)
         })
 
+        it('extends the domain below zero for a diverging stack (bottoms count too)', () => {
+            // A diverging stack's negative segments live in `bottom` — if only tops fed the
+            // domain, negative bars would render outside the plot.
+            const pos = makeSeries({ key: 'pos', data: [10, 20, 30], type: 'bar' })
+            const neg = makeSeries({ key: 'neg', data: [-40, -20, -10], type: 'bar' })
+            const scales = createComboScales([pos, neg], ['a', 'b', 'c'], dimensions, {
+                barLayout: 'stacked',
+                seriesTypeOf: typeOfWithDefault('line'),
+                barStackedData: computeDivergingStackData([pos, neg], ['a', 'b', 'c']),
+            })
+            const [domainMin, domainMax] = scales.y.domain()
+            expect(domainMin).toBeLessThanOrEqual(-40)
+            expect(domainMax).toBeGreaterThanOrEqual(30)
+        })
+
         it('keeps bar and line on the same axis under one value scale', () => {
             const bar = makeSeries({ key: 'b', data: [100], type: 'bar' })
             const line = makeSeries({ key: 'l', data: [200], type: 'line' })
@@ -151,6 +166,29 @@ describe('combo-scales', () => {
             expect(scales.yAxes.y1.position).toBe('right')
             const [, leftMax] = scales.yAxes[DEFAULT_Y_AXIS_ID].scale.domain()
             expect(leftMax).toBeLessThan(500)
+        })
+
+        it('pins a sole axis right when the axes override says so', () => {
+            const bar = makeSeries({ key: 'b', data: [1, 2], type: 'bar', yAxisId: 'right' })
+            const scales = createComboScales([bar], ['a', 'b'], dimensions, {
+                seriesTypeOf: typeOfWithDefault('bar'),
+                axes: [{ id: 'right', position: 'right' }],
+            })
+            expect(scales.yAxes.right.position).toBe('right')
+        })
+
+        it('floats a line-only axis with startAtZero false but keeps bar axes on a zero baseline', () => {
+            const bar = makeSeries({ key: 'bar', data: [800, 1000], type: 'bar' })
+            const line = makeSeries({ key: 'line', data: [800, 1000], type: 'line', yAxisId: 'right' })
+            const scales = createComboScales([bar, line], ['a', 'b'], dimensions, {
+                seriesTypeOf: typeOfWithDefault('line'),
+                axes: [
+                    { id: DEFAULT_Y_AXIS_ID, position: 'left', startAtZero: false },
+                    { id: 'right', position: 'right', startAtZero: false },
+                ],
+            })
+            expect(scales.yAxes[DEFAULT_Y_AXIS_ID].scale.domain()[0]).toBe(0)
+            expect(scales.yAxes.right.scale.domain()[0]).toBeGreaterThan(0)
         })
 
         it('points combo.y at the default axis when present', () => {
@@ -241,6 +279,52 @@ describe('combo-scales', () => {
             expect(bar!.y).toBeCloseTo(rightScale(3000), 0)
             // The left/primary scale (domain ~[0,10]) would place 3000 far off-plot — confirm it differs.
             expect(Math.abs(bar!.y - scales.y(3000))).toBeGreaterThan(1)
+        })
+    })
+
+    describe('createComboScales — percent-stack barLayout', () => {
+        it('clamps the y-scale domain to [0, 1] when barLayout is percent', () => {
+            const bar1 = makeSeries({ key: 'b1', data: [300], type: 'bar' })
+            const bar2 = makeSeries({ key: 'b2', data: [700], type: 'bar' })
+            const barStackedData = computePercentStackData([bar1, bar2], ['a'])
+            const scales = createComboScales([bar1, bar2], ['a'], dimensions, {
+                barLayout: 'percent',
+                seriesTypeOf: typeOfWithDefault('line'),
+                barStackedData,
+            })
+            const [domainMin, domainMax] = scales.y.domain()
+            expect(domainMin).toBeCloseTo(0, 1)
+            expect(domainMax).toBeCloseTo(1, 1)
+        })
+
+        it('bar series percent tops sum to 1 across the stack', () => {
+            const bar1 = makeSeries({ key: 'b1', data: [300], type: 'bar' })
+            const bar2 = makeSeries({ key: 'b2', data: [700], type: 'bar' })
+            const barStackedData = computePercentStackData([bar1, bar2], ['a'])
+            // b2 is the topmost bar — its cumulative top should be 1.0
+            expect(barStackedData.get('b2')?.top[0]).toBeCloseTo(1, 5)
+        })
+
+        it('does not clamp a line-only secondary axis to [0, 1] when the primary axis is percent-stacked', () => {
+            // Regression guard: percentStack must only clamp axes that actually carry bar series —
+            // a line explicitly routed to the right axis needs its own data-derived scale, not the
+            // bars' [0, 1] domain, or it renders off-plot.
+            const bar1 = makeSeries({ key: 'b1', data: [300], type: 'bar' })
+            const bar2 = makeSeries({ key: 'b2', data: [700], type: 'bar' })
+            const rightLine = makeSeries({ key: 'l1', data: [5000], type: 'line', yAxisId: 'right' })
+            const series = [bar1, bar2, rightLine]
+            const barStackedData = computePercentStackData([bar1, bar2], ['a'])
+            const scales = createComboScales(series, ['a'], dimensions, {
+                barLayout: 'percent',
+                seriesTypeOf: typeOfWithDefault('line'),
+                barStackedData,
+            })
+            const [leftMin, leftMax] = scales.yAxes[DEFAULT_Y_AXIS_ID].scale.domain()
+            expect(leftMin).toBeCloseTo(0, 1)
+            expect(leftMax).toBeCloseTo(1, 1)
+            const [, rightMax] = scales.yAxes.right.scale.domain()
+            expect(rightMax).toBeGreaterThan(1)
+            expect(scales.yAxes.right.scale(5000)).not.toBeCloseTo(scales.yAxes.right.scale(0), 0)
         })
     })
 

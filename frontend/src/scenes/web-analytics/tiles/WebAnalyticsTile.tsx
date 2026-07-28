@@ -353,6 +353,22 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
             return <>URL</>
         case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
             return <>Source / Medium / Campaign</>
+        case WebStatsBreakdown.FirstPageviewChannelType:
+            return <>Channel Type (First Pageview)</>
+        case WebStatsBreakdown.FirstPageviewReferringDomain:
+            return <>Referring Domain (First Pageview)</>
+        case WebStatsBreakdown.FirstPageviewUTMSource:
+            return <>UTM Source (First Pageview)</>
+        case WebStatsBreakdown.FirstPageviewUTMCampaign:
+            return <>UTM Campaign (First Pageview)</>
+        case WebStatsBreakdown.FirstPageviewUTMMedium:
+            return <>UTM Medium (First Pageview)</>
+        case WebStatsBreakdown.FirstPageviewUTMTerm:
+            return <>UTM Term (First Pageview)</>
+        case WebStatsBreakdown.FirstPageviewUTMContent:
+            return <>UTM Content (First Pageview)</>
+        case WebStatsBreakdown.FirstPageviewUTMSourceMediumCampaign:
+            return <>Source / Medium / Campaign (First Pageview)</>
         default:
             throw new UnexpectedNeverError(breakdownBy)
     }
@@ -477,6 +493,7 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
             }
             return <NotSetBreakdownLabel />
         case WebStatsBreakdown.InitialReferringDomain:
+        case WebStatsBreakdown.FirstPageviewReferringDomain:
             // NULL referrer is canonically "Direct" in PostHog (matches the channel-type
             // bucketing in sessions_v2). Keep that wording to stay consistent across tiles.
             if (value == null) {
@@ -500,6 +517,7 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
             }
             break
         case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
+        case WebStatsBreakdown.FirstPageviewUTMSourceMediumCampaign:
             if (typeof value === 'string') {
                 return <>{value.replace(BREAKDOWN_REFERRER_PREFIX, '')}</>
             }
@@ -509,6 +527,11 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
         case WebStatsBreakdown.InitialUTMCampaign:
         case WebStatsBreakdown.InitialUTMTerm:
         case WebStatsBreakdown.InitialUTMContent:
+        case WebStatsBreakdown.FirstPageviewUTMSource:
+        case WebStatsBreakdown.FirstPageviewUTMMedium:
+        case WebStatsBreakdown.FirstPageviewUTMCampaign:
+        case WebStatsBreakdown.FirstPageviewUTMTerm:
+        case WebStatsBreakdown.FirstPageviewUTMContent:
             return typeof value === 'string' ? <>{value}</> : <NotSetBreakdownLabel />
     }
 
@@ -953,12 +976,15 @@ export const WebStatsTableTile = ({
     attachTo,
     headerSlot,
     uniqueKey,
+    enablePagination,
 }: QueryWithInsightProps<DataTableNode> & {
     breakdownBy: WebStatsBreakdown
     control?: JSX.Element
     tileId: TileId
     headerSlot?: React.ReactNode
     uniqueKey: string
+    /** Show the "load more" footer so long-tail breakdowns can be paginated (used by the expanded modal). */
+    enablePagination?: boolean
 }): JSX.Element => {
     const { togglePropertyFilter } = useActions(webAnalyticsLogic)
     const { productTab } = useValues(webAnalyticsLogic)
@@ -1111,8 +1137,9 @@ export const WebStatsTableTile = ({
             insightProps,
             rowProps,
             compareFilter: 'compareFilter' in query.source ? query.source.compareFilter : undefined,
+            showLoadNextButton: enablePagination,
         }
-    }, [onClick, insightProps, breakdownBy, key, type, isCompoundBreakdown, query])
+    }, [onClick, insightProps, breakdownBy, key, type, isCompoundBreakdown, query, enablePagination])
 
     const numericColumns = PAGE_LIKE_BREAKDOWNS.has(breakdownBy) ? 3 : 2
     const dataNodeLogicProps = buildDataTableTileDataNodeLogicProps({
@@ -1470,12 +1497,15 @@ export const WebQuery = ({
     attachTo,
     uniqueKey,
     headerSlot,
+    enablePagination,
 }: QueryWithInsightProps<QuerySchema> & {
     showIntervalSelect?: boolean
     control?: JSX.Element
     tileId: TileId
     uniqueKey: string
     headerSlot?: React.ReactNode
+    /** Show the "load more" footer on breakdown tables (used by the expanded modal). */
+    enablePagination?: boolean
 }): JSX.Element => {
     const { productTab, shouldStripQueryParams: stripQueryParamsDashboard } = useValues(webAnalyticsLogic)
     const { stripQueryParams: stripQueryParamsPageReports } = useValues(pageReportsLogic)
@@ -1504,6 +1534,7 @@ export const WebQuery = ({
                 tileId={tileId}
                 headerSlot={headerSlot}
                 uniqueKey={uniqueKey}
+                enablePagination={enablePagination}
             />
         )
     }

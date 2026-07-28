@@ -125,18 +125,18 @@ class CustomOAuth2Integration(TeamScopedRootMixin, CreatedMetaFields, UpdatedMet
         if not expiry:
             return True
         token_expiry = datetime.fromisoformat(expiry)
-        # Cap the buffer at half the token's lifetime, matching OAuth2Auth._is_token_expired: a token
-        # whose whole TTL is <= the buffer would otherwise read as already-expired the instant it's
-        # minted, forcing a re-mint on every call. lifetime is derived from the data we already store —
-        # the absolute expiry and the mint timestamp (`refreshed_at`, unix seconds). When there's no
-        # mint timestamp the lifetime is unknown, so fall back to the flat buffer.
+        # Refresh proactively at the halfway point of the token's lifetime, mirroring
+        # OauthIntegration.access_token_expired (`expires_in / 2`). The engine no longer refreshes
+        # mid-sync (integration-backed sources seed a static bearer with manages_own_token=False), so this
+        # up-front refresh is the only one — refreshing at the midpoint gives each sync ample runway
+        # instead of handing over a token that's seconds from expiry. lifetime is derived from the data
+        # we already store: the absolute expiry and the mint timestamp (`refreshed_at`, unix seconds).
+        # With no mint timestamp the lifetime is unknown, so fall back to a flat buffer before expiry.
         refreshed_at = self.config.get("refreshed_at")
         if refreshed_at is None:
-            buffer = _TOKEN_EXPIRY_BUFFER
-        else:
-            lifetime = token_expiry - datetime.fromtimestamp(refreshed_at, UTC)
-            buffer = min(_TOKEN_EXPIRY_BUFFER, max(lifetime / 2, timedelta(0)))
-        return datetime.now(UTC) >= token_expiry - buffer
+            return datetime.now(UTC) >= token_expiry - _TOKEN_EXPIRY_BUFFER
+        lifetime = token_expiry - datetime.fromtimestamp(refreshed_at, UTC)
+        return datetime.now(UTC) >= token_expiry - max(lifetime / 2, timedelta(0))
 
     def get_access_token(self) -> str:
         """Reuse the stored token while it's valid; refresh + persist only when expired.

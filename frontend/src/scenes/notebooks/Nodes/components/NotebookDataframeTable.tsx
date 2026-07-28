@@ -1,4 +1,5 @@
-import { useMemo } from 'react'
+import clsx from 'clsx'
+import { useMemo, useState } from 'react'
 
 import { LemonButton, LemonSelect, LemonTable, Spinner } from '@posthog/lemon-ui'
 
@@ -11,6 +12,14 @@ type NotebookDataframeTableProps = {
     loading: boolean
     page: number
     pageSize: number
+    /** Unknown-total mode: when set, Next is driven by this flag and no total is shown
+     * (push-to-CH paging can't know the full count without an extra query). */
+    hasMore?: boolean
+    /** Disables all pagination controls, e.g. while a page fetch is already in flight. */
+    paginationDisabledReason?: string
+    /** Clamp long cell values to a single line (ellipsis); hover shows the full value, double-click
+     * expands it inline. Keeps a wide text column from blowing up row height. */
+    truncateCells?: boolean
     onNextPage: () => void
     onPreviousPage: () => void
     onPageSizeChange: (pageSize: number) => void
@@ -35,11 +44,34 @@ const formatCellValue = (value: unknown): string => {
     }
 }
 
+// A cell that stays on one line (ellipsis) until the user opens it. Hover surfaces the full value
+// as a native tooltip; double-click toggles the full value wrapped inline, so a long string doesn't
+// force the whole row tall by default.
+const TruncatableCell = ({ value }: { value: unknown }): JSX.Element => {
+    const [expanded, setExpanded] = useState(false)
+    const text = formatCellValue(value)
+    return (
+        <span
+            className={clsx(
+                'font-mono text-xs',
+                expanded ? 'whitespace-pre-wrap break-words select-text' : 'inline-block max-w-xs truncate align-bottom'
+            )}
+            title={!expanded && text ? text : undefined}
+            onDoubleClick={() => setExpanded((prev) => !prev)}
+        >
+            {text}
+        </span>
+    )
+}
+
 export const NotebookDataframeTable = ({
     result,
     loading,
     page,
     pageSize,
+    hasMore,
+    paginationDisabledReason,
+    truncateCells,
     onNextPage,
     onPreviousPage,
     onPageSizeChange,
@@ -50,10 +82,15 @@ export const NotebookDataframeTable = ({
                 title: column,
                 key: `${column}-${index}`,
                 dataIndex: column,
-                render: (value) => <span className="font-mono text-xs">{formatCellValue(value)}</span>,
+                render: (value) =>
+                    truncateCells ? (
+                        <TruncatableCell value={value} />
+                    ) : (
+                        <span className="font-mono text-xs">{formatCellValue(value)}</span>
+                    ),
             })) ?? []
         )
-    }, [result?.columns])
+    }, [result?.columns, truncateCells])
 
     const rowsWithIndex = useMemo(() => {
         const baseIndex = (page - 1) * pageSize
@@ -65,11 +102,19 @@ export const NotebookDataframeTable = ({
         )
     }, [page, pageSize, result?.rows])
 
+    const isUnknownTotal = hasMore !== undefined
     const rowCount = result?.rowCount ?? 0
-    const startIndex = rowCount > 0 ? (page - 1) * pageSize + 1 : 0
-    const endIndex = rowCount > 0 ? Math.min(page * pageSize, rowCount) : 0
+    const rowsShown = result?.rows.length ?? 0
+    const startIndex = rowsShown > 0 ? (page - 1) * pageSize + 1 : 0
+    const endIndex = isUnknownTotal
+        ? rowsShown > 0
+            ? startIndex + rowsShown - 1
+            : 0
+        : rowCount > 0
+          ? Math.min(page * pageSize, rowCount)
+          : 0
     const hasPrevious = page > 1
-    const hasNext = endIndex < rowCount
+    const hasNext = isUnknownTotal ? !!hasMore : endIndex < rowCount
     const isInitialLoading = loading && rowCount === 0
     const emptyState = isInitialLoading ? (
         <div className="flex items-center justify-center gap-2 py-6 text-xs text-muted">
@@ -101,6 +146,7 @@ export const NotebookDataframeTable = ({
                         size="small"
                         value={pageSize}
                         onChange={(value) => onPageSizeChange(value ?? pageSize)}
+                        disabledReason={paginationDisabledReason}
                         options={PAGE_SIZE_OPTIONS.map((option) => ({
                             label: option.toString(),
                             value: option,
@@ -108,18 +154,26 @@ export const NotebookDataframeTable = ({
                     />
                 </div>
                 <div className="flex items-center gap-2 pr-2">
-                    <span>{rowCount === 0 ? 'No rows' : `${startIndex}-${endIndex} of ${rowCount}`}</span>
+                    <span>
+                        {isUnknownTotal
+                            ? rowsShown === 0
+                                ? 'No rows'
+                                : `${startIndex}-${endIndex}`
+                            : rowCount === 0
+                              ? 'No rows'
+                              : `${startIndex}-${endIndex} of ${rowCount}`}
+                    </span>
                     <LemonButton
                         size="small"
                         onClick={onPreviousPage}
-                        disabledReason={hasPrevious ? undefined : 'No previous page'}
+                        disabledReason={paginationDisabledReason ?? (hasPrevious ? undefined : 'No previous page')}
                     >
                         Prev
                     </LemonButton>
                     <LemonButton
                         size="small"
                         onClick={onNextPage}
-                        disabledReason={hasNext ? undefined : 'No next page'}
+                        disabledReason={paginationDisabledReason ?? (hasNext ? undefined : 'No next page')}
                     >
                         Next
                     </LemonButton>

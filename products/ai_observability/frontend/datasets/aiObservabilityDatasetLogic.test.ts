@@ -86,8 +86,11 @@ describe('aiObservabilityDatasetLogic', () => {
 
         jest.spyOn(mockApi.datasets, 'create').mockResolvedValue(undefined as any)
         jest.spyOn(mockApi.datasets, 'update').mockResolvedValue(undefined as any)
-        jest.spyOn(mockApi.datasets, 'get').mockResolvedValue(undefined as any)
-        jest.spyOn(mockApi.datasets, 'list').mockResolvedValue(undefined as any)
+        // Mounting with an existing datasetId fires loadDataset/loadDatasetItems/loadDatasets;
+        // resolving undefined makes each loader reducer log a KEA error. Default to real shapes.
+        jest.spyOn(mockApi.datasets, 'get').mockResolvedValue(mockDataset as any)
+        jest.spyOn(mockApi.datasets, 'list').mockResolvedValue({ results: [], count: 0 } as any)
+        jest.spyOn(mockApi.datasetItems, 'list').mockResolvedValue({ results: [], count: 0, offset: 0 } as any)
     })
 
     describe('new dataset creation', () => {

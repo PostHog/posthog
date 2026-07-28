@@ -50,6 +50,7 @@ logger = structlog.get_logger(__name__)
 _FINGERPRINT_FIELDS = (
     "scanner_version",
     "sampling_rate",
+    "sampling_mode",
     "model",
     "provider",
     "query",
@@ -110,6 +111,7 @@ async def upsert_interval_schedule(
     inputs: BaseModel,
     interval: dt.timedelta,
     execution_timeout: dt.timedelta,
+    search_attributes: TypedSearchAttributes | None = None,
 ) -> None:
     """Create or update a singleton interval schedule with SKIP overlap; first creation triggers immediately."""
     schedule = Schedule(
@@ -125,9 +127,11 @@ async def upsert_interval_schedule(
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP, catchup_window=interval),
     )
     if await a_schedule_exists(client, schedule_id):
-        await a_update_schedule(client, schedule_id, schedule)
+        await a_update_schedule(client, schedule_id, schedule, search_attributes=search_attributes)
     else:
-        await a_create_schedule(client, schedule_id, schedule, trigger_immediately=True)
+        await a_create_schedule(
+            client, schedule_id, schedule, trigger_immediately=True, search_attributes=search_attributes
+        )
 
 
 async def a_upsert_scanner_schedule(scanner_id: UUID, team_id: int) -> None:

@@ -102,10 +102,23 @@ export function Navigation({
     const noPaddingScene = sceneConfig?.layout === 'app-raw-no-header' || sceneConfig?.layout === 'app-raw'
 
     if (mode !== 'full') {
+        const showMinimalNavigation = mode === 'minimal' || mode === 'zen'
         return (
             // eslint-disable-next-line react/forbid-dom-props
-            <div className="Navigation3000 flex-col" style={theme?.mainStyle}>
-                {(mode === 'minimal' || mode === 'zen') && <MinimalNavigation />}
+            <div
+                className="Navigation3000 flex-col"
+                style={
+                    {
+                        ...theme?.mainStyle,
+                        // The MinimalNavigation bar sits above the scene, so push the
+                        // settings scene's viewport-fixed nav down to clear it.
+                        ...(showMinimalNavigation && {
+                            '--settings-nav-top': 'calc(var(--minimal-navigation-height) + var(--scene-padding))',
+                        }),
+                    } as React.CSSProperties
+                }
+            >
+                {showMinimalNavigation && <MinimalNavigation />}
                 <main className={mode === 'zen' ? 'p-4' : undefined}>{children}</main>
             </div>
         )

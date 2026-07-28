@@ -372,6 +372,89 @@ export interface PaginatedMCPToolCallListApi {
     has_next: boolean
 }
 
+export interface MCPActivityStatsApi {
+    /** $mcp_tool_call events captured in the last 30 days. */
+    readonly total_calls: number
+    /** Distinct tools ($mcp_tool_name) called in the window. */
+    readonly distinct_tools: number
+    /** Distinct $session_ids seen on tool calls in the window. */
+    readonly distinct_sessions: number
+    /** Distinct agent clients ($mcp_client_name) seen in the window. */
+    readonly distinct_clients: number
+    /** Tool calls that carried an $mcp_intent, for intent-coverage checks. */
+    readonly calls_with_intent: number
+    /** Tool calls flagged as errors ($mcp_is_error) in the window. */
+    readonly error_calls: number
+    /** $mcp_missing_capability events captured in the window. */
+    readonly missing_capability_reports: number
+}
+
+export interface MCPActivityToolRowApi {
+    /** MCP tool name ($mcp_tool_name). */
+    readonly tool: string
+    /** Tool calls in the window. */
+    readonly calls: number
+    /** Of those calls, how many errored. */
+    readonly errors: number
+}
+
+export interface MCPActivityClientRowApi {
+    /** Agent client name ($mcp_client_name). Empty when the SDK did not capture it. */
+    readonly client: string
+    /** Tool calls from this client in the window. */
+    readonly calls: number
+}
+
+export interface MCPActivityRecentCallApi {
+    /** When the tool call was captured. */
+    readonly timestamp: string
+    /** Tool that was invoked ($mcp_tool_name). */
+    readonly tool: string
+    /**
+     * Agent intent for this tool call ($mcp_intent). Null when the SDK did not capture context.
+     * @nullable
+     */
+    readonly intent: string | null
+    /** Whether the tool call resulted in an error. */
+    readonly is_error: boolean
+    /**
+     * Human-readable error extracted from the tool's response when is_error is true, otherwise null.
+     * @nullable
+     */
+    readonly error_message: string | null
+    /**
+     * Duration of the tool call in milliseconds when captured.
+     * @nullable
+     */
+    readonly duration_ms: number | null
+    /**
+     * Agent client name ($mcp_client_name) when captured.
+     * @nullable
+     */
+    readonly client_name: string | null
+}
+
+export interface MCPActivityOverviewApi {
+    /** Aggregate counters over the last 30 days. */
+    readonly stats: MCPActivityStatsApi
+    /** Most-called tools in the window, top 5 by call count. */
+    readonly top_tools: readonly MCPActivityToolRowApi[]
+    /** Agent clients in the window, top 6 by call count. */
+    readonly clients: readonly MCPActivityClientRowApi[]
+    /** The 20 most recent tool calls, newest first. */
+    readonly recent_calls: readonly MCPActivityRecentCallApi[]
+}
+
+export interface MCPIntentDigestApi {
+    /**
+     * LLM-generated digest (at most three sentences) of what agents are trying to do with this MCP server, derived from the most recent recorded $mcp_intents across all sessions. Null when the project has no recorded intents yet.
+     * @nullable
+     */
+    readonly digest: string | null
+    /** How many recorded intents (the most recent, capped at 100) the digest was derived from. */
+    readonly intent_count: number
+}
+
 export type McpAnalyticsFeedbackListParams = {
     /**
      * Number of results to return per page.
@@ -433,15 +516,18 @@ export type McpAnalyticsSessionsGenerateIntentParams = {
 
 export type McpAnalyticsSessionsToolCallsParams = {
     /**
-     * Absolute ISO timestamp lower bound for the event scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted.
+     * Absolute ISO timestamp lower bound for the event scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted or unparseable.
      */
     date_from?: string
     /**
-     * Number of results to return per page.
+     * Maximum tool calls to return per page (1–500). Defaults to 500 — the whole page — so a session's calls come back in one request; pass a smaller value for a lighter response. Values above the cap are rejected.
+     * @minimum 1
+     * @maximum 500
      */
     limit?: number
     /**
-     * The initial index from which to return the results.
+     * Number of tool calls to skip before returning results. Combine with limit to page through a session's calls; the response's has_next flag indicates whether more remain.
+     * @minimum 0
      */
     offset?: number
 }

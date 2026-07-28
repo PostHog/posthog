@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, Optional
 import pytz
 
 from ..objects import is_hog_callable, is_hog_closure, is_hog_error, new_hog_error, to_hog_interval
-from ..utils import HogVMException, get_nested_value, like
+from ..utils import HogVMException, _require_string, get_nested_value, like
 from .crypto import md5, sha256, sha256HmacChain
 from .date import (
     formatDateTime,
@@ -38,6 +38,9 @@ class STLFunction:
     fn: Callable[[list[Any], Optional["Team"], list[str] | None, float], Any]
     minArgs: Optional[int] = None
     maxArgs: Optional[int] = None
+    # Blocks the thread on time or I/O the VM's cooperative timeout can't interrupt, so callers
+    # that run untrusted Hog on a request thread (e.g. HogQL placeholders) must refuse it.
+    is_blocking: bool = False
 
 
 def toString(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float):
@@ -116,7 +119,8 @@ def length(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]],
 
 
 def sleep(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float):
-    time.sleep(args[0])
+    # Clamp to the VM's remaining budget (`timeout`) so a script can't pin the thread past its cap.
+    time.sleep(max(0.0, min(args[0], timeout)))
     return None
 
 
@@ -965,6 +969,17 @@ def extractRegex(args: list[Any], team: Optional["Team"], stdout: Optional[list[
         return ""
 
 
+def match(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> bool:
+    if args[1] is None or args[0] is None:
+        return False
+    input_string = _require_string(args[0], "input", "match")
+    pattern = _require_string(args[1], "pattern", "match")
+    try:
+        return re.search(pattern, input_string) is not None
+    except re.error as e:
+        raise HogVMException(f"Invalid regex pattern: {e}") from e
+
+
 STL: dict[str, STLFunction] = {
     "concat": STLFunction(
         fn=lambda args, team, stdout, timeout: "".join(
@@ -973,13 +988,7 @@ STL: dict[str, STLFunction] = {
         minArgs=1,
         maxArgs=None,
     ),
-    "match": STLFunction(
-        fn=lambda args, team, stdout, timeout: (
-            False if args[1] is None or args[0] is None else bool(re.search(re.compile(args[1]), args[0]))
-        ),
-        minArgs=2,
-        maxArgs=2,
-    ),
+    "match": STLFunction(fn=match, minArgs=2, maxArgs=2),
     "extractRegex": STLFunction(fn=extractRegex, minArgs=2, maxArgs=2),
     "like": STLFunction(fn=lambda args, team, stdout, timeout: like(args[0], args[1]), minArgs=2, maxArgs=2),
     "ilike": STLFunction(fn=lambda args, team, stdout, timeout: like(args[0], args[1], True), minArgs=2, maxArgs=2),
@@ -1178,11 +1187,13 @@ STL: dict[str, STLFunction] = {
     "toYear": STLFunction(fn=toYear, minArgs=1, maxArgs=1),
     "today": STLFunction(fn=today, minArgs=0, maxArgs=0),
     # only in python, async function in nodejs
-    "sleep": STLFunction(fn=sleep, minArgs=1, maxArgs=1),
-    "run": STLFunction(fn=run, minArgs=1, maxArgs=1),
+    "sleep": STLFunction(fn=sleep, minArgs=1, maxArgs=1, is_blocking=True),
+    "run": STLFunction(fn=run, minArgs=1, maxArgs=1, is_blocking=True),
     "multiSearchAnyCaseInsensitive": STLFunction(
         fn=multiSearchAnyCaseInsensitive,
         minArgs=2,
         maxArgs=2,
     ),
 }
+
+BLOCKING_FUNCTIONS: frozenset[str] = frozenset(name for name, spec in STL.items() if spec.is_blocking)

@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, cast
 
 from django.conf import settings
@@ -10,7 +10,7 @@ from django.db.models.functions import Cast
 import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import PageNumberPagination
@@ -47,7 +47,11 @@ from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.temporal.common.client import sync_connect
 
 from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
-from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import (
+    DataModelingJob,
+    DataWarehouseSavedQuery,
+    DataWarehouseSavedQueryColumnAnnotation,
+)
 from products.data_tools.backend.facade.models import DataWarehouseJoin, DataWarehouseSavedQueryFolder
 from products.data_warehouse.backend.facade.api import (
     pause_saved_query_schedule,
@@ -55,6 +59,10 @@ from products.data_warehouse.backend.facade.api import (
     sync_saved_query_workflow,
     trigger_saved_query_schedule,
     unpause_saved_query_schedule,
+)
+from products.data_warehouse.backend.presentation.views.column_annotation_base import (
+    DESCRIPTION_HELP_TEXT,
+    upsert_annotation,
 )
 from products.warehouse_sources.backend.facade.hogql import (
     CLICKHOUSE_HOGQL_MAPPING,
@@ -67,6 +75,13 @@ from products.warehouse_sources.backend.facade.models import (
 )
 
 logger = structlog.get_logger(__name__)
+
+# A DataWarehouseSavedQuery's activity log also records materialization syncs and status
+# transitions (activity="sync_triggered", status changes) that advance the log without the query
+# being edited. Optimistic-concurrency ("modified by someone else") must key off the latest activity
+# that actually changed the query — otherwise every background sync of a materialized view looks
+# like a foreign edit and blocks the next save. This filter scopes activity lookups to query edits.
+QUERY_CHANGE_ACTIVITY_FILTER = {"detail__changes__contains": [{"field": "query"}]}
 
 # Cadences offered for view materialization. 15min is the fastest — sub-15min intervals
 # (1min, 5min) are source-only and not meaningful for materialized views, matching the
@@ -89,11 +104,60 @@ SYNC_FREQUENCY_CHOICES = [
 DEPRECATED_FAST_SYNC_FREQUENCIES = {"1min", "5min"}
 
 
+SYNC_FREQUENCY_MANAGED_BY_DAG_HELP_TEXT = (
+    "True when this team's DAG owns the materialization cadence through a single schedule, so "
+    "`sync_frequency` cannot be set per view and writes to it are rejected. False when per-node DAG "
+    "schedules are in use or the team is on the v1 backend. False does not on its own mean the "
+    "cadence is writable: a view belonging to a managed viewset rejects every update regardless, "
+    "which `managed_viewset_kind` reports."
+)
+
+
+def _node_frequency_targets(root: serializers.BaseSerializer, view: DataWarehouseSavedQuery) -> dict[str, timedelta]:
+    """Declared node targets for every view the root serializer renders, fetched once.
+
+    Resolved from the root's instance rather than the viewset context, because the context is
+    built without knowing which page of views is being serialized. Memoized on the root so a
+    `list` response costs one query instead of one per view.
+    """
+    cached = getattr(root, "_node_frequency_targets_cache", None)
+    if cached is not None:
+        return cached
+
+    from products.data_modeling.backend.facade.api import declared_targets_by_saved_query
+
+    instance = root.instance
+    if isinstance(instance, DataWarehouseSavedQuery):
+        views = [instance]
+    elif instance is None:
+        views = [view]
+    else:
+        views = list(instance)
+
+    targets = declared_targets_by_saved_query(view.team_id, [rendered.pk for rendered in views])
+    root._node_frequency_targets_cache = targets  # type: ignore[attr-defined]
+    return targets
+
+
+def resolve_sync_frequency(root: serializers.BaseSerializer, view: DataWarehouseSavedQuery) -> str | None:
+    """Cadence string for a view, preferring its DAG node's declared freshness target.
+
+    On tiered v2 teams the node target is the only store of cadence — reconcile deliberately NULLs
+    `sync_frequency_interval` so a stale v1 schedule can't be revived from it — so reading the
+    column alone reports "never" for every scheduled view. The column still covers v1 and
+    single-schedule v2 teams, which have no node target.
+    """
+    target = _node_frequency_targets(root, view).get(str(view.pk))
+    if target is not None:
+        return sync_frequency_interval_to_sync_frequency(target)
+    return sync_frequency_interval_to_sync_frequency(view.sync_frequency_interval)
+
+
 class SyncFrequencyField(serializers.ChoiceField):
     """Writable sync-cadence field for saved queries.
 
-    The cadence is stored on the model as a `sync_frequency_interval` duration, so reads derive
-    the cadence string from it; writes are validated against the choices and consumed by the
+    Reads resolve the cadence via `resolve_sync_frequency` (node target first, then the model's
+    `sync_frequency_interval`); writes are validated against the choices and consumed by the
     serializer's `update()`. Declaring it as a real (non read-only) field is what lets the
     cadence flow into the generated PATCH body and MCP tool schema.
     """
@@ -111,7 +175,7 @@ class SyncFrequencyField(serializers.ChoiceField):
         return super().to_internal_value(data)
 
     def get_attribute(self, instance: DataWarehouseSavedQuery) -> str | None:
-        return sync_frequency_interval_to_sync_frequency(instance.sync_frequency_interval)
+        return resolve_sync_frequency(self.root, instance)
 
 
 def delete_saved_query(saved_query: DataWarehouseSavedQuery) -> None:
@@ -140,6 +204,29 @@ def delete_saved_query(saved_query: DataWarehouseSavedQuery) -> None:
     saved_query.soft_delete()
 
 
+VIEW_DESCRIPTION_HELP_TEXT = (
+    "Semantic description of what this view represents, surfaced to AI agents. Set it to describe the "
+    "view; send an empty string to clear it. Per-column descriptions are read back in `columns` and set "
+    "via the saved-query column annotation endpoints. " + DESCRIPTION_HELP_TEXT
+)
+
+
+def view_annotation_map(view: DataWarehouseSavedQuery) -> dict[str, str]:
+    """`{column_name: description}` from a view's column annotations (``""`` = view-level)."""
+    return {a.column_name: a.description for a in view.column_annotations.all()}
+
+
+class ViewDescriptionField(serializers.CharField):
+    """View-level description, stored as a column annotation with an empty `column_name`.
+
+    Reads the annotation for display; on write the serializer's create/update upserts or clears it. The
+    view model has no `description` column, so the value is resolved here rather than bound to the model.
+    """
+
+    def get_attribute(self, instance: DataWarehouseSavedQuery) -> str | None:
+        return view_annotation_map(instance).get("")
+
+
 class DataWarehouseSavedQuerySerializerMixin:
     """Shared methods for DataWarehouseSavedQuery serializers.
 
@@ -159,7 +246,11 @@ class DataWarehouseSavedQuerySerializerMixin:
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_sync_frequency(self, schema: DataWarehouseSavedQuery):
-        return sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval)
+        return resolve_sync_frequency(self.root, schema)  # type: ignore[attr-defined]
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_sync_frequency_managed_by_dag(self, view: DataWarehouseSavedQuery) -> bool:
+        return bool(self.context.get("sync_frequency_managed_by_dag", False))  # type: ignore[attr-defined]
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_managed_viewset_kind(self, view: DataWarehouseSavedQuery) -> DataWarehouseManagedViewsetKind | None:
@@ -181,6 +272,7 @@ class DataWarehouseSavedQuerySerializerMixin:
 
         context = HogQLContext(team_id=team_id, database=database)
 
+        descriptions = view_annotation_map(view)
         fields = serialize_fields(view.hogql_definition().fields, context, view.name_chain, table_type="external")
         return [
             SerializedField(
@@ -191,6 +283,7 @@ class DataWarehouseSavedQuerySerializerMixin:
                 fields=field.fields,
                 table=field.table,
                 chain=field.chain,
+                description=descriptions.get(field.name),
             )
             for field in fields
         ]
@@ -203,7 +296,11 @@ class DataWarehouseSavedQueryMinimalSerializer(
 
     created_by = UserBasicSerializer(read_only=True)
     columns = serializers.SerializerMethodField(read_only=True)
+    description = ViewDescriptionField(read_only=True, help_text=VIEW_DESCRIPTION_HELP_TEXT)
     sync_frequency = serializers.SerializerMethodField()
+    sync_frequency_managed_by_dag = serializers.SerializerMethodField(
+        read_only=True, help_text=SYNC_FREQUENCY_MANAGED_BY_DAG_HELP_TEXT
+    )
     last_run_at = serializers.SerializerMethodField(read_only=True)
     managed_viewset_kind = serializers.SerializerMethodField(read_only=True)
     folder_id = serializers.UUIDField(source="folder.id", read_only=True, allow_null=True)
@@ -217,7 +314,9 @@ class DataWarehouseSavedQueryMinimalSerializer(
             "name",
             "created_by",
             "created_at",
+            "description",
             "sync_frequency",
+            "sync_frequency_managed_by_dag",
             "columns",
             "status",
             "last_run_at",
@@ -259,8 +358,13 @@ class DataWarehouseSavedQuerySerializer(
         help_text=(
             "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', "
             "'24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest "
-            "cadence available."
+            "cadence available. Null means no scheduled materialization. Read back after a write, this "
+            "reflects the stored cadence wherever it lives. On teams whose DAG schedules are managed "
+            "per-node, that is the view's DAG node rather than the view itself."
         ),
+    )
+    sync_frequency_managed_by_dag = serializers.SerializerMethodField(
+        read_only=True, help_text=SYNC_FREQUENCY_MANAGED_BY_DAG_HELP_TEXT
     )
     latest_history_id = serializers.SerializerMethodField(read_only=True)
     last_run_at = serializers.SerializerMethodField(read_only=True)
@@ -293,6 +397,9 @@ class DataWarehouseSavedQuerySerializer(
     dag_id = serializers.UUIDField(
         write_only=True, required=False, allow_null=True, help_text="Optional DAG to place this view into"
     )
+    description = ViewDescriptionField(
+        required=False, allow_blank=True, allow_null=True, help_text=VIEW_DESCRIPTION_HELP_TEXT
+    )
 
     class Meta:
         model = DataWarehouseSavedQuery
@@ -303,7 +410,9 @@ class DataWarehouseSavedQuerySerializer(
             "query",
             "created_by",
             "created_at",
+            "description",
             "sync_frequency",
+            "sync_frequency_managed_by_dag",
             "columns",
             "status",
             "last_run_at",
@@ -329,6 +438,7 @@ class DataWarehouseSavedQuerySerializer(
             "status",
             "last_run_at",
             "managed_viewset_kind",
+            "sync_frequency_managed_by_dag",
             "folder_name",
             "latest_error",
             "latest_history_id",
@@ -343,6 +453,22 @@ class DataWarehouseSavedQuerySerializer(
                 "help_text": "Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.",
             },
         }
+
+    def _write_view_description(self, view: DataWarehouseSavedQuery, description: str | None) -> None:
+        team_id = self.context["team_id"]
+        if description:
+            upsert_annotation(
+                DataWarehouseSavedQueryColumnAnnotation,
+                team_id,
+                parent_field="saved_query",
+                parent=view,
+                column_name="",
+                description=description,
+            )
+        else:
+            DataWarehouseSavedQueryColumnAnnotation.objects.for_team(team_id).filter(
+                saved_query=view, column_name=""
+            ).delete()
 
     @extend_schema_field(serializers.IntegerField(allow_null=True))
     def get_latest_history_id(self, view: DataWarehouseSavedQuery):
@@ -366,6 +492,8 @@ class DataWarehouseSavedQuerySerializer(
         validated_data["origin"] = DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE
         soft_update = validated_data.pop("soft_update", False)
         dag_id = validated_data.pop("dag_id", None)
+        has_description = "description" in validated_data
+        description = validated_data.pop("description", None)
         # Sync cadence is configured via materialization, not on creation — drop it so it
         # isn't passed to the model constructor.
         validated_data.pop("sync_frequency", None)
@@ -376,7 +504,7 @@ class DataWarehouseSavedQuerySerializer(
                 # The columns will be inferred from the query
                 client_types = self.context["request"].data.get("types", [])
                 if len(client_types) == 0:
-                    view.columns = view.get_columns()
+                    view.set_columns(view.get_columns(user=self.context["request"].user))
                 else:
                     columns = {
                         str(item[0]): {
@@ -386,14 +514,18 @@ class DataWarehouseSavedQuerySerializer(
                         }
                         for item in client_types
                     }
-                    view.columns = columns
+                    view.set_columns(columns)
 
                 view.external_tables = view.s3_tables
-            except Exception:
+            except Exception as e:
+                capture_exception(e)
+                logger.exception("Failed to retrieve types for view %s", view.name)
                 raise serializers.ValidationError("Failed to retrieve types for view")
 
         with transaction.atomic():
             view.save()
+            if has_description:
+                self._write_view_description(view, description)
             try:
                 view.setup_model_paths()
             except Exception:
@@ -448,6 +580,8 @@ class DataWarehouseSavedQuerySerializer(
 
     def update(self, instance: Any, validated_data: Any) -> Any:
         dag_id = validated_data.pop("dag_id", None)
+        has_description = "description" in validated_data
+        description = validated_data.pop("description", None)
 
         if instance.managed_viewset is not None:
             raise serializers.ValidationError("Cannot update a query from a managed viewset")
@@ -459,6 +593,7 @@ class DataWarehouseSavedQuerySerializer(
 
         sync_frequency = validated_data.pop("sync_frequency", None)
 
+        dag_managed_frequency = False
         if sync_frequency and posthoganalytics.feature_enabled(
             "data-modeling-backend-v2",
             str(instance.team.uuid),
@@ -467,7 +602,14 @@ class DataWarehouseSavedQuerySerializer(
                 "project": str(instance.team.id),
             },
         ):
-            raise serializers.ValidationError("Schedule is managed by the DAG. Edit the DAG schedule instead.")
+            from products.data_modeling.backend.facade.api import tiered_schedules_enabled
+
+            # On tiered v2 the frequency writes through to the DAG node's freshness target;
+            # on single-schedule v2 the DAG's one schedule owns cadence and per-query
+            # frequency edits are rejected.
+            if not tiered_schedules_enabled(instance.team):
+                raise serializers.ValidationError("Schedule is managed by the DAG. Edit the DAG schedule instead.")
+            dag_managed_frequency = True
 
         soft_update = validated_data.pop("soft_update", False)
 
@@ -479,7 +621,12 @@ class DataWarehouseSavedQuerySerializer(
             if validated_data.get("query", None) and not soft_update:
                 edited_history_id = self.context["request"].data.get("edited_history_id", None)
                 latest_activity_id = (
-                    ActivityLog.objects.filter(item_id=locked_instance.id, scope="DataWarehouseSavedQuery")
+                    ActivityLog.objects.filter(
+                        team_id=locked_instance.team_id,
+                        item_id=locked_instance.id,
+                        scope="DataWarehouseSavedQuery",
+                        **QUERY_CHANGE_ACTIVITY_FILTER,
+                    )
                     .order_by("-created_at")
                     .values_list("id", flat=True)
                     .first()
@@ -488,7 +635,13 @@ class DataWarehouseSavedQuerySerializer(
                 if str(edited_history_id) != str(latest_activity_id):
                     raise serializers.ValidationError("The query was modified by someone else.")
 
-            if sync_frequency == "never":
+            if dag_managed_frequency:
+                # Tiered v2: the node target is the only store of frequency intent. The
+                # interval column stays NULL so a stale v1 schedule can never be revived
+                # from it.
+                locked_instance.sync_frequency_interval = None
+                validated_data["sync_frequency_interval"] = None
+            elif sync_frequency == "never":
                 locked_instance.sync_frequency_interval = None
                 validated_data["sync_frequency_interval"] = None
             elif sync_frequency:
@@ -498,13 +651,38 @@ class DataWarehouseSavedQuerySerializer(
 
             view: DataWarehouseSavedQuery = super().update(locked_instance, validated_data)
 
+            if dag_managed_frequency:
+                from products.data_modeling.backend.facade.api import (
+                    UnsatisfiableFrequencyError,
+                    UnsupportedFrequencyTargetError,
+                    apply_saved_query_frequency_target,
+                )
+
+                target = (
+                    None if sync_frequency == "never" else sync_frequency_to_sync_frequency_interval(sync_frequency)
+                )
+                try:
+                    # Validates inside the transaction (a rejected frequency rolls the whole
+                    # update back) and queues the schedule reconcile for after commit.
+                    nodes_written = apply_saved_query_frequency_target(view, target)
+                except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError) as e:
+                    raise serializers.ValidationError(str(e))
+                if target is not None and nodes_written == 0:
+                    raise serializers.ValidationError(
+                        "Cannot set a materialization frequency: this view is not wired into the data "
+                        "modeling DAG yet. Re-save the view to create its node, then set the frequency."
+                    )
+
+            if has_description:
+                self._write_view_description(view, description)
+
             # Only update columns and status if the query has changed
             if "query" in validated_data:
                 try:
                     # The columns will be inferred from the query
                     client_types = self.context["request"].data.get("types", [])
                     if len(client_types) == 0:
-                        view.columns = view.get_columns()
+                        view.set_columns(view.get_columns(user=self.context["request"].user))
                     else:
                         columns = {
                             str(item[0]): {
@@ -514,12 +692,14 @@ class DataWarehouseSavedQuerySerializer(
                             }
                             for item in client_types
                         }
-                        view.columns = columns
+                        view.set_columns(columns)
 
                     view.external_tables = view.s3_tables
                 except RecursionError:
                     raise serializers.ValidationError("Model contains a cycle")
-                except Exception:
+                except Exception as e:
+                    capture_exception(e)
+                    logger.exception("Failed to retrieve types for view %s", view.name)
                     raise serializers.ValidationError("Failed to retrieve types for view")
 
                 view.status = DataWarehouseSavedQuery.Status.MODIFIED
@@ -559,28 +739,36 @@ class DataWarehouseSavedQuerySerializer(
             if activity_log:
                 self.context["activity_log"] = activity_log
             else:
-                # get latest activity log for this model
+                # get latest query-changing activity log for this model (see QUERY_CHANGE_ACTIVITY_FILTER)
                 latest_activity_log = (
-                    ActivityLog.objects.filter(item_id=locked_instance.id, scope="DataWarehouseSavedQuery")
+                    ActivityLog.objects.filter(
+                        team_id=locked_instance.team_id,
+                        item_id=locked_instance.id,
+                        scope="DataWarehouseSavedQuery",
+                        **QUERY_CHANGE_ACTIVITY_FILTER,
+                    )
                     .order_by("-created_at")
                     .first()
                 )
                 self.context["activity_log"] = latest_activity_log
-            # update the temporal schedule if it exists
-            temporal_schedule_exists = saved_query_workflow_exists(view)
-            if temporal_schedule_exists:
-                try:
-                    if sync_frequency == "never":
-                        pause_saved_query_schedule(view)
-                    elif sync_frequency:
-                        sync_saved_query_workflow(view, create=not temporal_schedule_exists)
-                except Exception as e:
-                    capture_exception(e)
-                    logger.exception(
-                        "Failed to update temporal schedule when updating view: view=%s sync_frequency=%s",
-                        view.name,
-                        sync_frequency,
-                    )
+            # Update the v1 temporal schedule if it exists. Skipped on the DAG-managed path even
+            # when a stale v1 schedule lingers from a half-finished migration — syncing it here
+            # would revive it alongside the DAG's schedules.
+            if not dag_managed_frequency:
+                temporal_schedule_exists = saved_query_workflow_exists(view)
+                if temporal_schedule_exists:
+                    try:
+                        if sync_frequency == "never":
+                            pause_saved_query_schedule(view)
+                        elif sync_frequency:
+                            sync_saved_query_workflow(view, create=not temporal_schedule_exists)
+                    except Exception as e:
+                        capture_exception(e)
+                        logger.exception(
+                            "Failed to update temporal schedule when updating view: view=%s sync_frequency=%s",
+                            view.name,
+                            sync_frequency,
+                        )
         # best effort sync to new data modeling DAG representation
         if "query" in validated_data:
             try:
@@ -602,7 +790,7 @@ class DataWarehouseSavedQuerySerializer(
                 detail=(
                     'Query must be a JSON object with a "query" key, '
                     f"got {type(query).__name__}. "
-                    'Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"}'
+                    'Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events WHERE timestamp >= now() - INTERVAL 7 DAY LIMIT 100"}'
                 )
             )
         if not isinstance(query.get("query"), str) or not query["query"].strip():
@@ -758,6 +946,10 @@ class DataWarehouseSavedQueryFolderViewSet(TeamAndOrgViewSetMixin, AccessControl
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class SavedQueryResumeSerializer(serializers.Serializer):
+    resumed = serializers.BooleanField(help_text="False when the query's materialization was not suspended.")
+
+
 class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete Warehouse Tables.
@@ -780,7 +972,26 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
 
         if should_include_database:
             context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
+        context["sync_frequency_managed_by_dag"] = self._sync_frequency_managed_by_dag()
         return context
+
+    def _sync_frequency_managed_by_dag(self) -> bool:
+        """Whether the DAG's single schedule owns cadence for this team.
+
+        On single-schedule v2 the DAG's one schedule owns cadence, so per-view frequency writes are
+        rejected; per-node (tiered) schedules and the v1 backend both accept them. This covers only
+        that one of `update()`'s rejections — it is team-scoped, so the per-view managed-viewset
+        rejection is not and cannot be reflected here.
+        """
+        from products.data_modeling.backend.facade.api import tiered_schedules_enabled
+
+        v2_enabled = posthoganalytics.feature_enabled(
+            "data-modeling-backend-v2",
+            str(self.team.uuid),
+            groups={"organization": str(self.team.organization_id), "project": str(self.team.id)},
+            send_feature_flag_events=False,
+        )
+        return bool(v2_enabled) and not tiered_schedules_enabled(self.team)
 
     def get_serializer_class(self):
         if self.action == "list":
@@ -792,6 +1003,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             queryset.prefetch_related(
                 "created_by",
                 "managed_viewset",
+                "column_annotations",
                 Prefetch(
                     "datamodelingjob_set", queryset=DataModelingJob.objects.order_by("-last_run_at")[:1], to_attr="jobs"
                 ),
@@ -831,12 +1043,14 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         # This avoids the annotation when we're getting a single object for update/create/etc.
         action = self.action if hasattr(self, "action") else None
         if action == "list" or action == "retrieve":
-            # Add latest activity id annotation to avoid N+1 queries
+            # Add latest query-changing activity id annotation to avoid N+1 queries. Scoped to query
+            # edits (see QUERY_CHANGE_ACTIVITY_FILTER) so materialization syncs don't advance the head.
             latest_activity = (
                 ActivityLog.objects.filter(
                     scope="DataWarehouseSavedQuery",
                     item_id=Cast(OuterRef("id"), output_field=TextField()),
                     team_id=self.team_id,
+                    **QUERY_CHANGE_ACTIVITY_FILTER,
                 )
                 .order_by("-created_at")
                 .values("id")[:1]
@@ -921,6 +1135,20 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
 
         return response.Response(status=status.HTTP_200_OK)
 
+    @extend_schema(request=None, responses={200: SavedQueryResumeSerializer})
+    @action(methods=["POST"], detail=True, required_scopes=["warehouse_view:write"])
+    def resume(self, request: request.Request, *args, **kwargs) -> response.Response:
+        """Resume materialization suspended after repeated failures.
+
+        Scheduled runs skip a suspended model and everything downstream of it, so it cannot succeed
+        its way back on its own.
+        """
+        from products.data_modeling.backend.facade.api import resume_saved_query
+
+        resumed = resume_saved_query(self.get_object())
+
+        return response.Response({"resumed": bool(resumed)}, status=status.HTTP_200_OK)
+
     @action(
         methods=["POST"],
         detail=True,
@@ -986,9 +1214,19 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         saved_query.is_materialized = True
         saved_query.save(update_fields=["sync_frequency_interval", "is_materialized"])
 
+        from products.data_modeling.backend.facade.api import (
+            UnsatisfiableFrequencyError,
+            UnsupportedFrequencyTargetError,
+        )
+
         # Enable materialization - this handles model path setup and schedule creation
         # If this fails, it will set is_materialized = False
-        saved_query.schedule_materialization(unpause=should_unpause)
+        try:
+            saved_query.schedule_materialization(unpause=should_unpause, trigger_immediate_run=True)
+        except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError) as e:
+            # The requested cadence can't be honored (e.g. finer than an upstream source
+            # delivers) — a request problem, not a server one.
+            raise serializers.ValidationError(str(e))
 
         # Refresh from DB to check if schedule_materialization set is_materialized = False on failure
         saved_query.refresh_from_db()

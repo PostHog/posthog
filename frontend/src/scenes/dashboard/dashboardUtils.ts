@@ -66,6 +66,7 @@ export function dashboardToSaveableTemplate(
                 }
                 if (tile.button_tile) {
                     return {
+                        type: 'BUTTON' as const,
                         button_tile: {
                             url: tile.button_tile.url,
                             text: tile.button_tile.text,
@@ -160,8 +161,6 @@ export const SEARCH_PARAM_FILTERS_KEY = 'query_filters'
 export const DEFAULT_AUTO_PREVIEW_TILE_LIMIT = 10
 
 const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
-
-export const QUICK_FILTER_DEBOUNCE_MS = 1500
 
 function staleAgeMinutes(effectiveLastRefresh: Dayjs | null): number | null {
     if (!effectiveLastRefresh) {

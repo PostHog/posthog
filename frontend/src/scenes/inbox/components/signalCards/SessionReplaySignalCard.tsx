@@ -17,7 +17,11 @@ import { humanFriendlyDuration, reverseColonDelimitedDuration } from 'lib/utils/
 import { teamLogic } from 'scenes/teamLogic'
 
 import { getExportsContentRetrieveUrl } from '~/generated/core/api'
-import type { SessionProblemEventEntry, SessionProblemSignalExtra } from '~/queries/schema/schema-signals'
+
+import type {
+    SessionProblemEventEntryApi,
+    SessionProblemSignalExtraApi,
+} from 'products/signals/frontend/generated/api.schemas'
 
 import { SignalCardShell } from './SignalCardShell'
 import type { SignalCardEntry, SignalCardProps } from './types'
@@ -25,7 +29,7 @@ import type { SignalCardEntry, SignalCardProps } from './types'
 /** How many timeline events to show before collapsing the rest behind a toggle. */
 const TIMELINE_PREVIEW_COUNT = 4
 
-const PROBLEM_TYPE_TAG: Record<SessionProblemSignalExtra['problem_type'], { label: string; type: LemonTagType }> = {
+const PROBLEM_TYPE_TAG: Record<SessionProblemSignalExtraApi['problem_type'], { label: string; type: LemonTagType }> = {
     blocking_exception: { label: 'Blocking exception', type: 'danger' },
     failure: { label: 'Failure', type: 'danger' },
     non_blocking_exception: { label: 'Exception', type: 'warning' },
@@ -34,9 +38,11 @@ const PROBLEM_TYPE_TAG: Record<SessionProblemSignalExtra['problem_type'], { labe
 }
 
 /** Narrows a raw `extra` payload to the live session-problem shape. */
-export function isSessionProblemExtra(
-    extra: Record<string, unknown>
-): extra is Record<string, unknown> & SessionProblemSignalExtra {
+export function isSessionProblemExtra(value: unknown): value is Record<string, unknown> & SessionProblemSignalExtraApi {
+    if (typeof value !== 'object' || value === null) {
+        return false
+    }
+    const extra = value as Record<string, unknown>
     return typeof extra.session_id === 'string' && 'problem_type' in extra
 }
 
@@ -53,7 +59,7 @@ function recordingSeekTime(sessionStartTime: string | undefined, offset: string 
 }
 
 /** Picks a glyph for a timeline event based on its interaction type. */
-function EventGlyph({ entry }: { entry: SessionProblemEventEntry }): JSX.Element {
+function EventGlyph({ entry }: { entry: SessionProblemEventEntryApi }): JSX.Element {
     const className = 'size-3.5 shrink-0 text-tertiary'
     switch (entry.event_type) {
         case 'click':
@@ -77,7 +83,7 @@ function TimelineRow({
     sessionId,
     sessionStartTime,
 }: {
-    entry: SessionProblemEventEntry
+    entry: SessionProblemEventEntryApi
     sessionId: string
     sessionStartTime: string | undefined
 }): JSX.Element {
@@ -109,7 +115,7 @@ export function SessionReplaySignalCard({ signal }: SignalCardProps): JSX.Elemen
     const [showAllEvents, setShowAllEvents] = useState(false)
     const [thumbnailFailed, setThumbnailFailed] = useState(false)
 
-    const extra = signal.extra as Record<string, unknown> & SessionProblemSignalExtra
+    const extra = signal.extra as Record<string, unknown> & SessionProblemSignalExtraApi
     const problemTag = PROBLEM_TYPE_TAG[extra.problem_type]
 
     const hasThumbnail = extra.exported_asset_id !== undefined && currentTeamId !== null && !thumbnailFailed
@@ -117,7 +123,7 @@ export function SessionReplaySignalCard({ signal }: SignalCardProps): JSX.Elemen
         ? getExportsContentRetrieveUrl(String(currentTeamId), extra.exported_asset_id as number)
         : undefined
 
-    const segmentSeekTime = recordingSeekTime(extra.session_start_time, extra.start_time)
+    const segmentSeekTime = recordingSeekTime(extra.session_start_time ?? undefined, extra.start_time)
 
     // Mirror ViewRecordingButton's `checkRecordingExists`: batch-check the recording so the play
     // affordance disables (rather than opening an empty player) when the recording wasn't captured.
@@ -219,7 +225,7 @@ export function SessionReplaySignalCard({ signal }: SignalCardProps): JSX.Elemen
                                 key={`${entry.timestamp}-${index}`}
                                 entry={entry}
                                 sessionId={extra.session_id}
-                                sessionStartTime={extra.session_start_time}
+                                sessionStartTime={extra.session_start_time ?? undefined}
                             />
                         ))}
                     </ul>

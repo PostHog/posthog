@@ -58,12 +58,12 @@ describe('RepositorySelector', () => {
 
         // Repo list still loading: the disabled fallback shows, not the interactive branch combobox.
         // (Quill's Button marks itself non-interactive with aria-disabled, not the native disabled attribute.)
-        expect(await screen.findByRole('button', { name: 'Branch' })).toHaveAttribute('aria-disabled', 'true')
+        expect(await screen.findByLabelText('Branch')).toHaveAttribute('aria-disabled', 'true')
         expect(screen.queryByTestId('branch-combobox')).not.toBeInTheDocument()
 
         // Repo list loaded: the interactive branch combobox replaces the fallback.
         releaseRepos()
         expect(await screen.findByTestId('branch-combobox')).toBeInTheDocument()
-        expect(screen.queryByRole('button', { name: 'Branch' })).not.toBeInTheDocument()
+        expect(screen.queryByLabelText('Branch')).not.toBeInTheDocument()
     })
 })

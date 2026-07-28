@@ -1,4 +1,11 @@
-import { CostableJob, RunCostSummary, computeFleetSummary, computeHealthSummary, summarizeRunCost } from './runHealth'
+import {
+    CostableJob,
+    RunCostSummary,
+    computeFleetSummary,
+    computeHealthSummary,
+    isNoOpRun,
+    summarizeRunCost,
+} from './runHealth'
 
 const at = (hour: number): string => `2026-06-24T${String(hour).padStart(2, '0')}:00:00Z`
 
@@ -61,6 +68,57 @@ describe('runHealth', () => {
         expect(summary.reruns).toBe(1)
     })
 
+    it.each([
+        ['seconds-long success (gate job, rest skipped) → no-op', 'success', 4, true],
+        ['seconds-long skipped run → no-op', 'skipped', 2, true],
+        ['seconds-long cancelled run (superseded) → no-op', 'cancelled', 3, true],
+        ['seconds-long failure is signal, not noise → kept', 'failure', 4, false],
+        ['seconds-long action_required needs attention → kept', 'action_required', 3, false],
+        ['at the threshold → kept', 'success', 10, false],
+        ['still running (no duration yet) → kept', null, null, false],
+    ])('flags no-op runs: %s', (_name, conclusion, durationSeconds, expected) => {
+        expect(isNoOpRun({ conclusion, durationSeconds })).toBe(expected)
+    })
+
+    it('keeps no-op runs in counts and pass rate but out of the duration percentiles', () => {
+        // A workflow dominated by no-op gate runs (e.g. a preview deploy that mostly decides "not
+        // eligible" in ~4s) must not read as having a ~4s median — that hides the real CI duration.
+        const summary = computeHealthSummary([
+            { conclusion: 'success', durationSeconds: 4, startedAt: at(9) },
+            { conclusion: 'success', durationSeconds: 4, startedAt: at(10) },
+            { conclusion: 'success', durationSeconds: 4, startedAt: at(11) },
+            { conclusion: 'success', durationSeconds: 600, startedAt: at(12) },
+            { conclusion: 'success', durationSeconds: 900, startedAt: at(13) },
+        ])
+        expect(summary.medianSeconds).toBe(600)
+        expect(summary.p95Seconds).toBe(900)
+        expect(summary.totalRuns).toBe(5)
+        expect(summary.completedRuns).toBe(5)
+        expect(summary.passRate).toBe(1)
+    })
+
+    it('falls back to every duration when a workflow is legitimately all-fast', () => {
+        // An intentionally quick workflow (a guard check finishing in seconds) has no "real" runs by
+        // the no-op definition — its median must come from what it has, not read as missing.
+        const summary = computeHealthSummary([
+            { conclusion: 'success', durationSeconds: 3, startedAt: at(9) },
+            { conclusion: 'success', durationSeconds: 4, startedAt: at(10) },
+            { conclusion: 'success', durationSeconds: 5, startedAt: at(11) },
+        ])
+        expect(summary.medianSeconds).toBe(4)
+    })
+
+    it('lets a lone real duration win over no-op noise', () => {
+        // With exactly one real execution among gate runs, falling back to all durations would let
+        // the no-ops drown it (~4s median) — the single real sample is the honest answer.
+        const summary = computeHealthSummary([
+            { conclusion: 'success', durationSeconds: 4, startedAt: at(9) },
+            { conclusion: 'success', durationSeconds: 4, startedAt: at(10) },
+            { conclusion: 'success', durationSeconds: 600, startedAt: at(11) },
+        ])
+        expect(summary.medianSeconds).toBe(600)
+    })
+
     const fleetRow = (
         latestRunFailed: boolean | null,
         successRate: number | null = 1,
@@ -86,15 +144,60 @@ describe('runHealth', () => {
         expect(computeFleetSummary(rows).state).toBe(expected)
     })
 
-    it('sums runs and cost across workflows', () => {
+    it('sums runs, re-runs, and cost across workflows', () => {
         const summary = computeFleetSummary([
-            { runCount: 10, successRate: 1, latestRunFailed: false, billableMinutes: 100, estimatedCostUsd: 4 },
+            {
+                runCount: 10,
+                successRate: 1,
+                latestRunFailed: false,
+                billableMinutes: 100,
+                estimatedCostUsd: 4,
+                rerunCycles: 3,
+            },
             { runCount: 5, successRate: 1, latestRunFailed: true, billableMinutes: 50, estimatedCostUsd: 2 },
         ])
         expect(summary.totalRuns).toBe(15)
         expect(summary.failingNow).toBe(1)
+        expect(summary.rerunCycles).toBe(3)
         expect(summary.estimatedCostUsd).toBe(6)
         expect(summary.billableMinutes).toBe(150)
+    })
+
+    it.each([
+        // Weighted by completed runs — an unweighted mean of per-row rates would say 0.75 here.
+        [
+            'weights the fleet rate by completed runs, not per-row average',
+            [
+                { runCount: 2, successRate: 1, latestRunFailed: false, buckets: [{ completed: 2, successes: 2 }] },
+                {
+                    runCount: 6,
+                    successRate: 0.5,
+                    latestRunFailed: true,
+                    buckets: [
+                        { completed: 3, successes: 2 },
+                        { completed: 3, successes: 1 },
+                    ],
+                },
+            ],
+            0.625,
+        ],
+        // Nothing settled anywhere → null, never a misleading 0%.
+        [
+            'null when nothing has completed',
+            [{ runCount: 3, successRate: null, latestRunFailed: null, buckets: [{ completed: 0, successes: 0 }] }],
+            null,
+        ],
+        // Rows without buckets (per-push rows) contribute nothing rather than crashing or zeroing the rate.
+        [
+            'rows without buckets are tolerated',
+            [
+                { runCount: 4, successRate: 0.5, latestRunFailed: false, buckets: [{ completed: 4, successes: 2 }] },
+                { runCount: 9, successRate: 1, latestRunFailed: false },
+            ],
+            0.5,
+        ],
+    ])('computes the fleet pass rate: %s', (_name, rows, expected) => {
+        expect(computeFleetSummary(rows).passRate).toBe(expected)
     })
 
     const job = (

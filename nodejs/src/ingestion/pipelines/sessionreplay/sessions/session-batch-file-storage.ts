@@ -1,3 +1,4 @@
+import { RetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
 import { TeamId } from '~/types'
 
 export interface WriteSessionData {
@@ -7,6 +8,9 @@ export interface WriteSessionData {
     sessionId: string
 
     teamId: TeamId
+
+    /** The session's retention period, resolved upstream — routes the block to the matching storage */
+    retentionPeriod: RetentionPeriod
 }
 
 export interface WriteSessionResult {

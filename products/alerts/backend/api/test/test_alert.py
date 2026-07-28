@@ -11,6 +11,7 @@ from rest_framework import status
 
 from posthog.schema import AlertCalculationInterval, AlertConditionType, AlertState, InsightThresholdType
 
+from posthog.constants import AvailableFeature
 from posthog.models import User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
@@ -158,7 +159,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert delete.status_code == status.HTTP_404_NOT_FOUND, delete.content
         assert [a["id"] for a in listed.json()["results"]] == []
 
-    def test_create_alert_on_funnel_insight_is_flag_gated(self) -> None:
+    def test_create_alert_on_funnel_insight(self) -> None:
         funnel_insight = self.client.post(
             f"/api/projects/{self.team.id}/insights",
             data={
@@ -181,15 +182,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "calculation_interval": "daily",
         }
 
-        # Flag off: the insight gate rejects funnel alerts.
-        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=False):
-            response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
-        assert "Funnel insight alerts are not enabled" in str(response.content)
-
-        # Flag on: the same request is accepted.
-        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
-            response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
+        response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
         assert response.status_code == status.HTTP_201_CREATED, response.content
 
     def test_create_threshold_alert_rejects_empty_bounds(self) -> None:
@@ -205,6 +198,45 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "At least one threshold bound" in str(response.json())
+
+    @parameterized.expand(
+        [
+            ("alert_name", "a" * 256, ""),
+            ("threshold_name", "alert name", "a" * 256),
+        ]
+    )
+    def test_create_alert_rejects_over_long_name(self, _name: str, alert_name: str, threshold_name: str) -> None:
+        # Over-long names used to sail past validation and 500 on the Postgres write
+        # (value too long for varchar(255)); the serializer must reject them with a 400.
+        creation_request: dict[str, Any] = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "name": alert_name,
+            "threshold": {
+                "name": threshold_name,
+                "configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}},
+            },
+            "calculation_interval": "daily",
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+    def test_patch_alert_rejects_over_long_name(self) -> None:
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "name": "alert name",
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+            "calculation_interval": "daily",
+        }
+        alert_id = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()["id"]
+        response = self.client.patch(f"/api/projects/{self.team.id}/alerts/{alert_id}", {"name": "a" * 256})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
 
     def test_patch_legacy_empty_bounds_alert_without_touching_threshold(self) -> None:
         threshold = Threshold.objects.create(
@@ -528,18 +560,17 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         }
         hogql_insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=hogql_insight_data).json()
 
-        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
-            alert = self.client.post(
-                f"/api/projects/{self.team.id}/alerts",
-                {
-                    "insight": hogql_insight["id"],
-                    "subscribed_users": [self.user.id],
-                    "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
-                    "config": {"type": "HogQLAlertConfig", "evaluation": "last_row"},
-                    "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
-                    "name": "sql alert",
-                },
-            ).json()
+        alert = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            {
+                "insight": hogql_insight["id"],
+                "subscribed_users": [self.user.id],
+                "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                "config": {"type": "HogQLAlertConfig", "evaluation": "last_row"},
+                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+                "name": "sql alert",
+            },
+        ).json()
 
         # The insight response must list the alert inline — the UI trusts this list on reload.
         insight_response = self.client.get(f"/api/projects/{self.team.id}/insights/{hogql_insight['id']}").json()
@@ -572,18 +603,17 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         }
         funnel_insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=funnel_insight_data).json()
 
-        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
-            alert = self.client.post(
-                f"/api/projects/{self.team.id}/alerts",
-                {
-                    "insight": funnel_insight["id"],
-                    "subscribed_users": [self.user.id],
-                    "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
-                    "config": {"type": "FunnelsAlertConfig", "metric": "conversion_from_start", "funnel_step": None},
-                    "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 50}}},
-                    "name": "funnel alert",
-                },
-            ).json()
+        alert = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            {
+                "insight": funnel_insight["id"],
+                "subscribed_users": [self.user.id],
+                "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                "config": {"type": "FunnelsAlertConfig", "metric": "conversion_from_start", "funnel_step": None},
+                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 50}}},
+                "name": "funnel alert",
+            },
+        ).json()
 
         # The insight response must list the alert inline — the UI trusts this list on reload.
         insight_response = self.client.get(f"/api/projects/{self.team.id}/insights/{funnel_insight['id']}").json()
@@ -603,47 +633,6 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         )
         response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
         assert response.status_code == status.HTTP_404_NOT_FOUND
-
-    def _create_hogql_insight(self) -> dict:
-        return self.client.post(
-            f"/api/projects/{self.team.id}/insights",
-            data={
-                "query": {
-                    "kind": "DataVisualizationNode",
-                    "source": {"kind": "HogQLQuery", "query": "select count() from events"},
-                }
-            },
-        ).json()
-
-    def test_hogql_flag_enforced_on_config_only_patch(self) -> None:
-        # A config-only PATCH (no `insight`) skips the field-level validate_insight, so the SQL-alert
-        # flag must be enforced in the object-level validate() — otherwise an existing SQL alert could
-        # be reconfigured in an account where the flag is no longer enabled.
-        hogql_insight = self._create_hogql_insight()
-        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
-            alert = self.client.post(
-                f"/api/projects/{self.team.id}/alerts",
-                {
-                    "insight": hogql_insight["id"],
-                    "subscribed_users": [self.user.id],
-                    "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
-                    "config": {"type": "HogQLAlertConfig", "evaluation": "last_row"},
-                    "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
-                    "name": "sql alert",
-                },
-            )
-            assert alert.status_code == status.HTTP_201_CREATED, alert.content
-            alert_id = alert.json()["id"]
-
-        config_patch = {"config": {"type": "HogQLAlertConfig", "evaluation": "first_row"}}
-        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=False):
-            blocked = self.client.patch(f"/api/projects/{self.team.id}/alerts/{alert_id}", config_patch)
-        assert blocked.status_code == status.HTTP_400_BAD_REQUEST, blocked.content
-        assert "SQL insight alerts are not enabled" in str(blocked.content)
-
-        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
-            allowed = self.client.patch(f"/api/projects/{self.team.id}/alerts/{alert_id}", config_patch)
-        assert allowed.status_code == status.HTTP_200_OK, allowed.content
 
     def test_alert_survives_switch_between_alertable_kinds(self) -> None:
         # Switching the insight to a different alertable kind (trends -> SQL) leaves the alert's config
@@ -666,59 +655,16 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         ).json()["id"]
 
         # Switch the insight from trends to SQL — a different alertable kind.
-        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
-            self.client.patch(
-                f"/api/projects/{self.team.id}/insights/{trends_insight['id']}",
-                data={
-                    "query": {
-                        "kind": "DataVisualizationNode",
-                        "source": {"kind": "HogQLQuery", "query": "select count() from events"},
-                    }
-                },
-            )
-        assert self.client.get(f"/api/projects/{self.team.id}/alerts/{alert_id}").status_code == status.HTTP_200_OK
-
-    def test_funnel_flag_enforced_on_config_only_patch(self) -> None:
-        # Object-level enforcement for the funnel flag, mirroring the SQL gate: a config-only PATCH
-        # (no `insight`) skips the field-level validate_insight, so validate() must re-check the flag.
-        funnel_insight = self.client.post(
-            f"/api/projects/{self.team.id}/insights",
+        self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{trends_insight['id']}",
             data={
                 "query": {
-                    "kind": "FunnelsQuery",
-                    "series": [
-                        {"kind": "EventsNode", "event": "$pageview"},
-                        {"kind": "EventsNode", "event": "$autocapture"},
-                    ],
+                    "kind": "DataVisualizationNode",
+                    "source": {"kind": "HogQLQuery", "query": "select count() from events"},
                 }
             },
-        ).json()
-        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
-            alert = self.client.post(
-                f"/api/projects/{self.team.id}/alerts",
-                {
-                    "insight": funnel_insight["id"],
-                    "subscribed_users": [self.user.id],
-                    "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
-                    "config": {"type": "FunnelsAlertConfig", "metric": "conversion_from_start", "funnel_step": None},
-                    "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 50}}},
-                    "name": "funnel alert",
-                },
-            )
-            assert alert.status_code == status.HTTP_201_CREATED, alert.content
-            alert_id = alert.json()["id"]
-
-        config_patch = {
-            "config": {"type": "FunnelsAlertConfig", "metric": "conversion_from_previous", "funnel_step": 1}
-        }
-        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=False):
-            blocked = self.client.patch(f"/api/projects/{self.team.id}/alerts/{alert_id}", config_patch)
-        assert blocked.status_code == status.HTTP_400_BAD_REQUEST, blocked.content
-        assert "Funnel insight alerts are not enabled" in str(blocked.content)
-
-        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
-            allowed = self.client.patch(f"/api/projects/{self.team.id}/alerts/{alert_id}", config_patch)
-        assert allowed.status_code == status.HTTP_200_OK, allowed.content
+        )
+        assert self.client.get(f"/api/projects/{self.team.id}/alerts/{alert_id}").status_code == status.HTTP_200_OK
 
     def test_alert_is_deleted_on_insight_soft_delete(self) -> None:
         another_insight = self.client.post(
@@ -858,6 +804,15 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                 "not compatible with non time series",
             ),
             (
+                "detector_on_non_time_series",
+                {
+                    "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                    "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                    "detector_config": {"type": "zscore", "threshold": 0.95, "window": 30},
+                },
+                "anomaly detection isn't supported for non time series trends",
+            ),
+            (
                 "absolute_with_percentage_threshold",
                 {
                     "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
@@ -882,7 +837,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         }
         response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
-        assert expected_error_fragment in str(response.content).lower()
+        assert expected_error_fragment in response.json()["detail"].lower()
 
     @parameterized.expand(
         [
@@ -921,6 +876,31 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         response = self.client.patch(f"/api/projects/{self.team.id}/alerts/{alert['id']}", overrides)
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert expected_error_fragment in str(response.content).lower()
+
+    def test_patch_alert_rejects_detector_for_non_time_series(self) -> None:
+        pie_insight_data = deepcopy(self.default_insight_data)
+        pie_insight_data["query"]["trendsFilter"]["display"] = "ActionsPie"
+        pie_insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=pie_insight_data).json()
+
+        alert = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            {
+                "insight": pie_insight["id"],
+                "subscribed_users": [self.user.id],
+                "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+                "name": "alert name",
+            },
+        ).json()
+        assert "id" in alert, alert
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{alert['id']}",
+            {"detector_config": {"type": "zscore", "threshold": 0.95, "window": 30}},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "anomaly detection isn't supported for non time series trends" in response.json()["detail"].lower()
 
     @parameterized.expand(
         [
@@ -1719,7 +1699,7 @@ class TestAlertListFilters(APIBaseTest):
         )
         assert all(a["name"] != "Totally unrelated" for a in results)
 
-    def test_list_filter_by_search_returns_exact_first_with_match_type(self) -> None:
+    def test_list_filter_by_search_hides_similar_matches_when_exact_matches_exist(self) -> None:
         for name in ("revenue spike", "spike in revenue", "reveneu drop", "Unrelated alert"):
             self._create_alert(name)
 
@@ -1730,11 +1710,7 @@ class TestAlertListFilters(APIBaseTest):
         assert match_type_by_name == {
             "revenue spike": "exact",
             "spike in revenue": "exact",
-            "reveneu drop": "similar",
-        }
-
-        match_types = [a["search_match_type"] for a in results]
-        assert match_types == ["exact", "exact", "similar"], f"exact matches must rank first, got {match_types}"
+        }, "similar matches must be hidden when exact matches exist"
 
     def test_list_filter_by_search_match_type_absent_without_search(self) -> None:
         self._create_alert("Revenue spike")
@@ -1890,3 +1866,152 @@ class TestAlertAPIKeyAccess(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_200_OK, response.content
+
+
+class TestAlertRealTimeInterval(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.default_insight_data: dict[str, Any] = {
+            "query": {
+                "kind": "TrendsQuery",
+                "series": [
+                    {
+                        "kind": "EventsNode",
+                        "event": "$pageview",
+                    }
+                ],
+                "trendsFilter": {"display": "BoldNumber"},
+            },
+        }
+        self.insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=self.default_insight_data).json()
+
+    def _creation_request(self, **overrides: Any) -> dict[str, Any]:
+        payload = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "name": "real time alert",
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"lower": 0}}},
+            "calculation_interval": AlertCalculationInterval.REAL_TIME,
+        }
+        payload.update(overrides)
+        return payload
+
+    def _enable_real_time_alerts(self, limit: int | None = None) -> None:
+        feature: dict[str, Any] = {"key": AvailableFeature.REAL_TIME_ALERTS, "name": "Real-time alerts"}
+        if limit is not None:
+            feature["limit"] = limit
+        self.organization.available_product_features = [
+            *(self.organization.available_product_features or []),
+            feature,
+        ]
+        self.organization.save()
+
+    def test_create_real_time_rejected_without_billing_entitlement(self) -> None:
+        response = self.client.post(f"/api/projects/{self.team.id}/alerts", self._creation_request())
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Scale or Enterprise" in str(response.json())
+
+    def test_create_real_time_succeeds_with_entitlement(self) -> None:
+        self._enable_real_time_alerts()
+        response = self.client.post(f"/api/projects/{self.team.id}/alerts", self._creation_request())
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        assert response.json()["calculation_interval"] == AlertCalculationInterval.REAL_TIME
+
+    def test_patch_real_time_succeeds_with_entitlement(self) -> None:
+        self._enable_real_time_alerts()
+        create_response = self.client.post(f"/api/projects/{self.team.id}/alerts", self._creation_request())
+        alert_id = create_response.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{alert_id}",
+            {"name": "updated real time alert"},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["name"] == "updated real time alert"
+        assert response.json()["calculation_interval"] == AlertCalculationInterval.REAL_TIME
+
+    def test_patch_existing_real_time_rejected_after_entitlement_removed(self) -> None:
+        self._enable_real_time_alerts()
+        create_response = self.client.post(f"/api/projects/{self.team.id}/alerts", self._creation_request())
+        alert_id = create_response.json()["id"]
+
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{alert_id}",
+            {"name": "still real time"},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Scale or Enterprise" in str(response.json())
+
+    def test_create_real_time_rejected_when_limit_reached(self) -> None:
+        self._enable_real_time_alerts(limit=1)
+        first = self.client.post(f"/api/projects/{self.team.id}/alerts", self._creation_request())
+        assert first.status_code == status.HTTP_201_CREATED, first.content
+
+        second = self.client.post(f"/api/projects/{self.team.id}/alerts", self._creation_request(name="second"))
+        assert second.status_code == status.HTTP_400_BAD_REQUEST
+        assert "limit of 1 real-time alerts" in str(second.json())
+
+    def test_real_time_limit_ignores_disabled_alerts(self) -> None:
+        self._enable_real_time_alerts(limit=1)
+        first = self.client.post(f"/api/projects/{self.team.id}/alerts", self._creation_request())
+        assert first.status_code == status.HTTP_201_CREATED, first.content
+
+        self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{first.json()['id']}",
+            {"enabled": False},
+        )
+
+        second = self.client.post(f"/api/projects/{self.team.id}/alerts", self._creation_request(name="second"))
+        assert second.status_code == status.HTTP_201_CREATED, second.content
+
+    def test_real_time_limit_ignores_other_intervals(self) -> None:
+        self._enable_real_time_alerts(limit=1)
+        daily = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            self._creation_request(name="daily", calculation_interval=AlertCalculationInterval.DAILY),
+        )
+        assert daily.status_code == status.HTTP_201_CREATED, daily.content
+
+        response = self.client.post(f"/api/projects/{self.team.id}/alerts", self._creation_request())
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+
+    def test_patch_to_real_time_rejected_when_limit_reached(self) -> None:
+        self._enable_real_time_alerts(limit=1)
+        real_time = self.client.post(f"/api/projects/{self.team.id}/alerts", self._creation_request())
+        assert real_time.status_code == status.HTTP_201_CREATED, real_time.content
+
+        daily = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            self._creation_request(name="daily", calculation_interval=AlertCalculationInterval.DAILY),
+        )
+        assert daily.status_code == status.HTTP_201_CREATED, daily.content
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{daily.json()['id']}",
+            {"calculation_interval": AlertCalculationInterval.REAL_TIME},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "limit of 1 real-time alerts" in str(response.json())
+
+    def test_enable_real_time_rejected_when_limit_reached(self) -> None:
+        self._enable_real_time_alerts(limit=1)
+        first = self.client.post(f"/api/projects/{self.team.id}/alerts", self._creation_request())
+        assert first.status_code == status.HTTP_201_CREATED, first.content
+
+        disabled = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            self._creation_request(name="disabled", enabled=False),
+        )
+        assert disabled.status_code == status.HTTP_201_CREATED, disabled.content
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{disabled.json()['id']}",
+            {"enabled": True},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "limit of 1 real-time alerts" in str(response.json())

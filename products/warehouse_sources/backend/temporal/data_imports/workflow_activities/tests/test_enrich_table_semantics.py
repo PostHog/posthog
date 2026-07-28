@@ -481,6 +481,41 @@ class TestEnrichTableSemanticsSync:
         assert annotations["amount"].description_source == WarehouseColumnAnnotation.DescriptionSource.CANONICAL
         assert annotations["amount"].ai_model is None
 
+    def test_renamed_columns_are_annotated_under_hogql_visible_name(self):
+        # Stripe's HogQL layer renames some raw columns (`created` -> `created_at`, `customer` ->
+        # `customer_id`). Canonical descriptions are keyed by the raw name, but `information_schema`
+        # and the AI agent read annotations back by the visible name — so the annotation (and the LLM
+        # ask for whatever has no canonical entry) must land on the visible name, not the raw one.
+        team = _team()
+        schema, table = _make_schema(
+            team,
+            columns=[
+                {"name": "created", "data_type": "Int64", "is_nullable": False},
+                {"name": "customer", "data_type": "String", "is_nullable": True},
+                {"name": "payment_method", "data_type": "String", "is_nullable": True},
+            ],
+        )
+        canonical = {"Charge": {"columns": {"created": "Unix creation time.", "customer": "Customer ID."}}}
+        generated = {"columns": {"payment_method_id": "Payment method used."}}
+        with (
+            patch.object(enrich, "enrichment_enabled", return_value=True),
+            patch.object(enrich, "get_canonical_descriptions_for_source", return_value=canonical),
+            patch.object(enrich, "_get_business_context", return_value=""),
+            patch.object(enrich, "_generate_descriptions", return_value=(generated, _USAGE)) as mock_llm,
+        ):
+            result = enrich_table_semantics_sync(team.pk, schema.id)
+
+        assert result["status"] == "done"
+        annotations = _annotations(team, table)
+        # Canonical descriptions land on the HogQL-visible names, not the raw `created` / `customer`.
+        assert annotations["created_at"].description == "Unix creation time."
+        assert annotations["customer_id"].description == "Customer ID."
+        assert "created" not in annotations
+        assert "customer" not in annotations
+        # The un-canonical column is asked of the LLM — and stored — under its visible name too.
+        assert mock_llm.call_args.kwargs["columns_needing_description"] == ["payment_method_id"]
+        assert annotations["payment_method_id"].description == "Payment method used."
+
     def test_ai_fills_columns_without_canonical_description(self):
         team = _team()
         schema, table = _make_schema(

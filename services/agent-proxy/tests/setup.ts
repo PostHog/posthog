@@ -42,6 +42,7 @@ vi.mock('@/hono/metrics.js', () => ({
     taskRunStreamResumeGapTotal: mockCounter,
     taskRunStreamConnectionsRejectedTotal: mockCounter,
     streamIngestEventsTotal: mockCounter,
+    ingestClientDisconnectsTotal: mockCounter,
     httpRequestsTotal: mockCounter,
     httpRequestDurationSeconds: mockHistogram,
     inflightRequests: mockGauge,
@@ -53,4 +54,5 @@ vi.mock('@/hono/metrics.js', () => ({
     observeStreamResumeGap: vi.fn(),
     observeStreamConnectionRejected: vi.fn(),
     observeStreamIngestEvents: vi.fn(),
+    observeIngestClientDisconnect: vi.fn(),
 }))

@@ -8,6 +8,8 @@ from unittest.mock import MagicMock, patch
 from django.contrib.admin.sites import AdminSite
 from django.db import IntegrityError
 
+from parameterized import parameterized
+
 from posthog.models import Team
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED
 from posthog.models.scoping.manager import TeamScopeError
@@ -150,11 +152,41 @@ class TestCustomOAuth2Integration(BaseTest):
         assert custom_oauth2_refresh_counter.labels("success")._value.get() == success_before + 1
         assert custom_oauth2_refresh_counter.labels("failed")._value.get() == failed_before + 1
 
+    @parameterized.expand([("before_midpoint", 20, False), ("after_midpoint", 40, True)])
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_get_access_token_refreshes_at_lifetime_midpoint(
+        self, _name: str, minutes_elapsed: int, expect_refresh: bool, mock_session: MagicMock
+    ):
+        # Proactive half-life refresh, mirroring OauthIntegration.access_token_expired: a 60-minute token
+        # is reused before its 30-minute midpoint and re-minted after it. A flat pre-expiry buffer would
+        # instead reuse it until the last minute — handing a long sync a near-dead token, since the engine
+        # no longer refreshes mid-sync and this up-front runway is all there is.
+        mock_session.return_value.post.return_value = _token_response(
+            payload={"access_token": "minted-fresh", "expires_in": 3600}
+        )
+        now = datetime.now(UTC)
+        integration = self._make_integration(
+            config={"refreshed_at": int((now - timedelta(minutes=minutes_elapsed)).timestamp())},
+            sensitive_config={
+                "access_token": "cached-token",
+                "token_expiry": (now + timedelta(minutes=60 - minutes_elapsed)).isoformat(),
+            },
+        )
+
+        token = integration.get_access_token()
+
+        if expect_refresh:
+            assert token == "minted-fresh"
+            mock_session.return_value.post.assert_called_once()
+        else:
+            assert token == "cached-token"
+            mock_session.return_value.post.assert_not_called()
+
     @patch(f"{AUTH_MODULE}.make_tracked_session")
     def test_short_lived_token_not_treated_as_expired_right_after_mint(self, mock_session):
-        # Capped buffer: a token whose whole TTL (30s) is under the flat 60s buffer would, with a flat
-        # buffer, read as already-expired the instant it's minted and re-mint on every call. With the
-        # buffer capped at lifetime/2 (15s), a freshly-minted token stays valid and is reused.
+        # Half-life refresh: a freshly-minted token sits at the very start of its lifetime, well before the
+        # midpoint, so it's reused rather than re-minted — even for a very short (30s) TTL, where a flat
+        # pre-expiry buffer would have read it as already-expired the instant it's minted.
         now = datetime.now(UTC)
         integration = self._make_integration(
             config={"refreshed_at": int(now.timestamp())},

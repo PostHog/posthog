@@ -10,14 +10,14 @@ from __future__ import annotations
 from typing import Any
 
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
-from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.location import (
+from products.warehouse_sources.backend.facade.source_management import (
+    SourceRegistry,
+    SQLSource,
     fill_missing_from_dotted_name,
     normalize_namespace,
 )
+from products.warehouse_sources.backend.facade.sources import NamingConvention
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
 def _source_has_optional_schema_field(source: Any) -> bool:

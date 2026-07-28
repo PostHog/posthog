@@ -4,6 +4,8 @@ import { ApiError } from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
 
+import { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+
 import { OriginProduct, Task, TaskRunEnvironment, TaskRunStatus } from '../types/taskTypes'
 import { taskLogic } from './taskLogic'
 import { tasksLogic } from './tasksLogic'
@@ -15,8 +17,10 @@ const createMockTask = (id: string): Task => ({
     title: `Task ${id}`,
     description: 'A test task',
     origin_product: OriginProduct.USER_CREATED,
+    runtime: RuntimeEnumApi.Acp,
     repository: 'test/repo',
     github_integration: null,
+    signal_report: null,
     json_schema: null,
     internal: false,
     latest_run: null,

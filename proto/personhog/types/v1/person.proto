@@ -142,10 +142,6 @@ message UpdatePersonPropertiesRequest {
   bytes set_once_properties = 5;
   // Property keys to remove from the person.
   repeated string unset_properties = 6;
-  // The partition this person belongs to, computed by the router via
-  // murmur2(team_id:person_id) % num_partitions. The leader uses this
-  // to look up the correct per-partition cache.
-  uint32 partition = 7;
 }
 
 message UpdatePersonPropertiesResponse {

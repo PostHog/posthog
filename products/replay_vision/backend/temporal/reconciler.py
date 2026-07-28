@@ -1,4 +1,4 @@
-"""Syncs per-scanner schedules with the ReplayScanner table on every tick."""
+"""Syncs per-scanner schedules with the ReplayScanner table on every tick, and reaps orphaned observations."""
 
 import asyncio
 from collections.abc import Awaitable, Callable
@@ -14,6 +14,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from products.replay_vision.backend.temporal.constants import (
     LIST_ENABLED_SCANNERS_TIMEOUT,
     LIST_SCANNER_SCHEDULES_TIMEOUT,
+    REAP_ORPHANED_OBSERVATIONS_TIMEOUT,
     RECONCILE_SCHEDULE_OP_TIMEOUT,
     RECONCILER_EXECUTION_TIMEOUT,
     RECONCILER_INTERVAL,
@@ -37,6 +38,7 @@ with workflow.unsafe.imports_passed_through():
         delete_scanner_schedule_activity,
         list_enabled_scanners_activity,
         list_scanner_schedules_activity,
+        reap_orphaned_observations_activity,
         upsert_scanner_schedule_activity,
     )
 
@@ -48,6 +50,16 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: ReconcileScannerSchedulesInputs) -> ReconcileScannerSchedulesResult:
+        # Best-effort and first: a schedule-sync failure below must not starve the reaper, and vice versa.
+        try:
+            await workflow.execute_activity(
+                reap_orphaned_observations_activity,
+                start_to_close_timeout=REAP_ORPHANED_OBSERVATIONS_TIMEOUT,
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        except Exception:
+            workflow.logger.exception("replay_vision.reap_orphaned_observations_failed")
+
         # A scanner toggled between the two listings recovers on the next tick.
         enabled_entries, existing_entries = await asyncio.gather(
             workflow.execute_activity(

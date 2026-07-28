@@ -31,9 +31,14 @@ class TestRedispatchOrphanedQueuedTaskRuns(TestCase):
             origin_product=Task.OriginProduct.USER_CREATED,
         )
 
-    def _queued_run(self, updated_age: datetime.timedelta) -> "TaskRun":
+    def _queued_run(self, updated_age: datetime.timedelta, environment: str | None = None) -> "TaskRun":
         TaskRun = apps.get_model("tasks", "TaskRun")
-        run = TaskRun.objects.create(task=self.task, team=self.team, status=TaskRun.Status.QUEUED)
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.QUEUED,
+            environment=environment or TaskRun.Environment.CLOUD,
+        )
         now = timezone.now()
         TaskRun.objects.filter(pk=run.pk).update(created_at=now - updated_age, updated_at=now - updated_age)
         return run
@@ -59,6 +64,20 @@ class TestRedispatchOrphanedQueuedTaskRuns(TestCase):
             redispatch_orphaned_queued_task_runs()
 
         mock_redispatch.assert_not_called()
+
+    def test_never_redispatches_local_environment_runs(self) -> None:
+        # Local (desktop-driven) runs sit in QUEUED by design while the desktop agent works;
+        # the reconciler once cloud-dispatched them, hijacking and failing live local sessions.
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        self._queued_run(datetime.timedelta(minutes=10), environment=TaskRun.Environment.LOCAL)
+        cloud_run = self._queued_run(datetime.timedelta(minutes=10))
+
+        with patch(
+            "products.tasks.backend.facade.api.redispatch_task_run", return_value="recovered"
+        ) as mock_redispatch:
+            redispatch_orphaned_queued_task_runs()
+
+        mock_redispatch.assert_called_once_with(cloud_run.id)
 
     def test_one_failure_does_not_block_the_sweep(self) -> None:
         self._queued_run(datetime.timedelta(minutes=10))

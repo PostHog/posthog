@@ -18,7 +18,7 @@ use crate::{
     },
     invocation_context::context,
     sourcemaps::{
-        args::{FileSelectionArgs, ReleaseArgs, UploadConflictArgs},
+        args::{FileSelectionArgs, ReleaseArgs, UploadConcurrencyArgs, UploadConflictArgs},
         content::MinifiedSourceFile,
         inject::get_release_for_maps,
         plain::inject::is_javascript_file,
@@ -52,6 +52,9 @@ pub struct Args {
 
     #[clap(flatten)]
     pub conflict: UploadConflictArgs,
+
+    #[clap(flatten)]
+    pub upload_concurrency: UploadConcurrencyArgs,
 
     /// DEPRECATED - this flag is a no-op. Use top-level `--skip-ssl-verification` instead.
     #[arg(long)]
@@ -147,12 +150,13 @@ pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
     );
 
     let started_at = Instant::now();
-    let upload_result = symbol_sets::upload_with_retry(
+    let upload_result = symbol_sets::upload_with_retry_and_concurrency(
         uploads,
         args.batch_size,
         args.release.skip_release_on_fail,
         args.conflict.force,
         args.conflict.skip_on_conflict,
+        args.upload_concurrency.concurrency,
     );
     let duration_ms = started_at.elapsed().as_millis();
 

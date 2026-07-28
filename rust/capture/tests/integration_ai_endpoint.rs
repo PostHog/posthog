@@ -7,7 +7,7 @@ use axum::Router;
 use axum_test_helper::TestClient;
 use capture::ai_s3::{BlobStorage, MockBlobStorage};
 use capture::api::CaptureError;
-use capture::config::CaptureMode;
+use capture::config::{AiRouting, CaptureMode};
 use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::router;
 use capture::sinks::Event;
@@ -193,10 +193,14 @@ fn setup_ai_test_router() -> Router {
         10 * 1024 * 1024,                 // capture_v1_max_compressed_body_bytes
         50 * 1024 * 1024,                 // capture_v1_max_decompressed_body_bytes
         None,                             // overflow_limiter
+        None,                             // ai_events_overflow_limiter
         None,                             // replay_overflow_limiter
         None,                             // v1_sink_router
         8,                                // capture_v1_scatter_gather_min_batch
         None,                             // ai_gateway_signing_secret
+        AiRouting::Primary,               // ai_routing
+        false,                            // ai_events_overflow_enabled
+        None,                             // ingestion_warning_emitter
     )
 }
 
@@ -1656,10 +1660,14 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         10 * 1024 * 1024,                 // capture_v1_max_compressed_body_bytes
         50 * 1024 * 1024,                 // capture_v1_max_decompressed_body_bytes
         None,                             // overflow_limiter
+        None,                             // ai_events_overflow_limiter
         None,                             // replay_overflow_limiter
         None,                             // v1_sink_router
         8,                                // capture_v1_scatter_gather_min_batch
         None,                             // ai_gateway_signing_secret
+        AiRouting::Primary,               // ai_routing
+        false,                            // ai_events_overflow_enabled
+        None,                             // ingestion_warning_emitter
     );
 
     (router, sink_clone)
@@ -2571,10 +2579,14 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         10 * 1024 * 1024,                 // capture_v1_max_compressed_body_bytes
         50 * 1024 * 1024,                 // capture_v1_max_decompressed_body_bytes
         None,                             // overflow_limiter
+        None,                             // ai_events_overflow_limiter
         None,                             // replay_overflow_limiter
         None,                             // v1_sink_router
         8,                                // capture_v1_scatter_gather_min_batch
         None,                             // ai_gateway_signing_secret
+        AiRouting::Primary,               // ai_routing
+        false,                            // ai_events_overflow_enabled
+        None,                             // ingestion_warning_emitter
     );
 
     (router, sink_clone)
@@ -2781,10 +2793,14 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         10 * 1024 * 1024,                 // capture_v1_max_compressed_body_bytes
         50 * 1024 * 1024,                 // capture_v1_max_decompressed_body_bytes
         None,                             // overflow_limiter
+        None,                             // ai_events_overflow_limiter
         None,                             // replay_overflow_limiter
         None,                             // v1_sink_router
         8,                                // capture_v1_scatter_gather_min_batch
         None,                             // ai_gateway_signing_secret
+        AiRouting::Primary,               // ai_routing
+        false,                            // ai_events_overflow_enabled
+        None,                             // ingestion_warning_emitter
     );
 
     (router, sink_clone)
@@ -2933,13 +2949,17 @@ fn setup_ai_test_router_with_overflow_limiter(
         Some(create_mock_blob_storage()),
         None,
         256,
-        10 * 1024 * 1024,       // capture_v1_max_compressed_body_bytes
-        50 * 1024 * 1024,       // capture_v1_max_decompressed_body_bytes
-        Some(overflow_limiter), // overflow_limiter
-        None,                   // replay_overflow_limiter
-        None,                   // v1_sink_router
-        8,                      // capture_v1_scatter_gather_min_batch
-        None,                   // ai_gateway_signing_secret
+        10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
+        50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
+        Some(overflow_limiter),
+        None,               // ai_events_overflow_limiter
+        None,               // replay_overflow_limiter
+        None,               // v1_sink_router
+        8,                  // capture_v1_scatter_gather_min_batch
+        None,               // ai_gateway_signing_secret
+        AiRouting::Primary, // ai_routing
+        false,              // ai_events_overflow_enabled
+        None,               // ingestion_warning_emitter
     );
 
     (router, sink_clone)
@@ -3075,10 +3095,14 @@ fn ai_router(
         10 * 1024 * 1024,
         50 * 1024 * 1024,
         None,
+        None, // ai_events_overflow_limiter
         None,
         None,
         8,
         Some(GW_SECRET.to_string()),
+        AiRouting::Primary, // ai_routing
+        false,              // ai_events_overflow_enabled
+        None,               // ingestion_warning_emitter
     );
     (router, sink_clone)
 }

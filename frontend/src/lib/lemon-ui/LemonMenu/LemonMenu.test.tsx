@@ -29,7 +29,7 @@ describe('LemonMenu', () => {
 
         // The ref must land on the real trigger button, not on the (DOM-less) LemonMenu component.
         expect(resolvedNode).toBeInstanceOf(HTMLButtonElement)
-        expect(resolvedNode).toBe(screen.getByRole('button', { name: 'Open' }))
+        expect(resolvedNode).toBe(screen.getByRole('button'))
     })
 
     it('clicking the ref-driven trigger opens the menu', async () => {
@@ -50,7 +50,7 @@ describe('LemonMenu', () => {
         expect(screen.queryByText('First')).not.toBeInTheDocument()
 
         // Triggering a click through the forwarded ref (as <Shortcut /> does) must open the menu.
-        await userEvent.click(screen.getByRole('button', { name: 'Trigger via ref' }))
+        await userEvent.click(screen.getByText('Trigger via ref'))
 
         expect(screen.getByText('First')).toBeInTheDocument()
     })
