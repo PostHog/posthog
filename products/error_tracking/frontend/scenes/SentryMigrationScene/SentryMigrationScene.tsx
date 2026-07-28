@@ -20,7 +20,7 @@ import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import type { ErrorTrackingSentryMigrationApi } from '../../generated/api.schemas'
+import type { ErrorTrackingMigrationApi } from '../../generated/api.schemas'
 import { sentryMigrationLogic } from './sentryMigrationLogic'
 
 export const scene: SceneExport = {
@@ -28,7 +28,7 @@ export const scene: SceneExport = {
     logic: sentryMigrationLogic,
 }
 
-const STATUS_LABELS: Record<ErrorTrackingSentryMigrationApi['status'], string> = {
+const STATUS_LABELS: Record<ErrorTrackingMigrationApi['status'], string> = {
     created: 'Starting',
     syncing: 'Syncing from Sentry',
     importing: 'Importing events',
@@ -38,7 +38,7 @@ const STATUS_LABELS: Record<ErrorTrackingSentryMigrationApi['status'], string> =
     cancelled: 'Cancelled',
 }
 
-const ACTIVE_STATUSES: ErrorTrackingSentryMigrationApi['status'][] = ['created', 'syncing', 'importing', 'finalizing']
+const ACTIVE_STATUSES: ErrorTrackingMigrationApi['status'][] = ['created', 'syncing', 'importing', 'finalizing']
 
 export function SentryMigrationScene(): JSX.Element {
     const enabled = useFeatureFlag('ERROR_TRACKING_SENTRY_MIGRATION')
@@ -152,7 +152,7 @@ function StartMigrationCard(): JSX.Element {
     )
 }
 
-function MigrationStatusCard({ migration }: { migration: ErrorTrackingSentryMigrationApi }): JSX.Element {
+function MigrationStatusCard({ migration }: { migration: ErrorTrackingMigrationApi }): JSX.Element {
     const { cancelMigration } = useActions(sentryMigrationLogic)
     const isActive = ACTIVE_STATUSES.includes(migration.status)
     const eventsTotal = migration.state.events_total ?? 0
@@ -163,7 +163,7 @@ function MigrationStatusCard({ migration }: { migration: ErrorTrackingSentryMigr
         <LemonCard className="flex flex-col gap-3" hoverEffect={false}>
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                    <h2 className="text-lg font-semibold mb-0">Import from {migration.org_slug}</h2>
+                    <h2 className="text-lg font-semibold mb-0">Import from {migration.config.org_slug ?? 'Sentry'}</h2>
                     <LemonTag
                         type={
                             migration.status === 'completed'
