@@ -5,10 +5,11 @@ from uuid import uuid4
 
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import SimpleTestCase
 
+import fakeredis
 import redis.exceptions as redis_exceptions
 from parameterized import parameterized
 
@@ -332,8 +333,9 @@ class TestRedisStream(BaseTest):
     @pytest.mark.asyncio
     async def test_write_to_stream_success(self):
         with patch.object(self.redis_stream, "_redis_client") as mock_client:
-            mock_client.xadd = AsyncMock()
-            mock_client.expire = AsyncMock()
+            pipe = MagicMock()
+            pipe.execute = AsyncMock()
+            mock_client.pipeline = MagicMock(return_value=pipe)
 
             # Create a test generator
             async def test_generator():
@@ -343,14 +345,17 @@ class TestRedisStream(BaseTest):
             await self.redis_stream.write_to_stream(test_generator())
 
             # Should call xadd 3 times: 2 data messages + 1 completion
-            self.assertEqual(mock_client.xadd.call_count, 3)
-            mock_client.expire.assert_called_once_with(self.stream_key, CONVERSATION_STREAM_TIMEOUT)
+            self.assertEqual(pipe.xadd.call_count, 3)
+            # TTL is set alongside every write, so it's refreshed once per entry
+            self.assertEqual(pipe.expire.call_count, 3)
+            pipe.expire.assert_called_with(self.stream_key, CONVERSATION_STREAM_TIMEOUT)
 
     @pytest.mark.asyncio
     async def test_write_to_stream_exception(self):
         with patch.object(self.redis_stream, "_redis_client") as mock_client:
-            mock_client.expire = AsyncMock()  # Allow expire to succeed
-            mock_client.xadd = AsyncMock(side_effect=Exception("Redis error"))
+            pipe = MagicMock()
+            pipe.execute = AsyncMock(side_effect=Exception("Redis error"))
+            mock_client.pipeline = MagicMock(return_value=pipe)
 
             async def test_generator():
                 yield (AssistantEventType.MESSAGE, AssistantMessage(content="test message"))
@@ -358,13 +363,15 @@ class TestRedisStream(BaseTest):
             with self.assertRaises(Exception):
                 await self.redis_stream.write_to_stream(test_generator())
 
-            self.assertEqual(mock_client.xadd.call_count, 2)
+            # First write flush fails; the error-status write then attempts its own flush.
+            self.assertEqual(pipe.execute.call_count, 2)
 
     @pytest.mark.asyncio
     async def test_write_to_stream_empty_generator(self):
         with patch.object(self.redis_stream, "_redis_client") as mock_client:
-            mock_client.xadd = AsyncMock()
-            mock_client.expire = AsyncMock()
+            pipe = MagicMock()
+            pipe.execute = AsyncMock()
+            mock_client.pipeline = MagicMock(return_value=pipe)
 
             async def empty_generator():
                 return
@@ -373,15 +380,16 @@ class TestRedisStream(BaseTest):
             await self.redis_stream.write_to_stream(empty_generator())
 
             # Should call xadd once for completion status
-            self.assertEqual(mock_client.xadd.call_count, 1)
-            mock_client.expire.assert_called_once_with(self.stream_key, CONVERSATION_STREAM_TIMEOUT)
+            self.assertEqual(pipe.xadd.call_count, 1)
+            pipe.expire.assert_called_once_with(self.stream_key, CONVERSATION_STREAM_TIMEOUT)
 
     @pytest.mark.asyncio
     async def test_serializer_integration(self):
         # Test that the serializer is properly integrated
         with patch.object(self.redis_stream, "_redis_client") as mock_client:
-            mock_client.xadd = AsyncMock()
-            mock_client.expire = AsyncMock()
+            pipe = MagicMock()
+            pipe.execute = AsyncMock()
+            mock_client.pipeline = MagicMock(return_value=pipe)
 
             # Test with a real serializer
             async def test_generator():
@@ -390,7 +398,7 @@ class TestRedisStream(BaseTest):
             await self.redis_stream.write_to_stream(test_generator())
 
             # Check that xadd was called with serialized data
-            calls = mock_client.xadd.call_args_list
+            calls = pipe.xadd.call_args_list
             self.assertEqual(len(calls), 2)  # 1 data + 1 completion
 
             # First call should be the data message
@@ -446,8 +454,9 @@ class TestRedisStream(BaseTest):
     async def test_write_to_stream_with_callback(self):
         """Test that callback is invoked after each message is written."""
         with patch.object(self.redis_stream, "_redis_client") as mock_client:
-            mock_client.xadd = AsyncMock()
-            mock_client.expire = AsyncMock()
+            pipe = MagicMock()
+            pipe.execute = AsyncMock()
+            mock_client.pipeline = MagicMock(return_value=pipe)
 
             # Track callback invocations
             callback_count = 0
@@ -467,7 +476,7 @@ class TestRedisStream(BaseTest):
             # Callback should be called for each message
             self.assertEqual(callback_count, 3)
             # xadd should be called 4 times (3 messages + 1 completion)
-            self.assertEqual(mock_client.xadd.call_count, 4)
+            self.assertEqual(pipe.xadd.call_count, 4)
 
     def test_serializer_ack_message_returns_none(self):
         """Test that ACK messages are not serialized."""
@@ -502,8 +511,9 @@ class TestRedisStream(BaseTest):
         """Test that ACK messages are not written to the stream."""
 
         with patch.object(self.redis_stream, "_redis_client") as mock_client:
-            mock_client.xadd = AsyncMock()
-            mock_client.expire = AsyncMock()
+            pipe = MagicMock()
+            pipe.execute = AsyncMock()
+            mock_client.pipeline = MagicMock(return_value=pipe)
 
             # Create a test generator with ACK message
             async def test_generator():
@@ -518,10 +528,10 @@ class TestRedisStream(BaseTest):
 
             # Check xadd calls - should only be called for non-ACK messages + completion
             # 2 regular messages + 1 completion = 3 calls
-            self.assertEqual(mock_client.xadd.call_count, 3)
+            self.assertEqual(pipe.xadd.call_count, 3)
 
             # Verify the ACK message was not written
-            calls = mock_client.xadd.call_args_list
+            calls = pipe.xadd.call_args_list
             for call in calls[:-1]:  # Exclude the completion message
                 data = call[0][1]
                 self.assertIn("data", data)
@@ -717,3 +727,21 @@ class TestConversationStreamSerializerJson(SimpleTestCase):
 
         assert result is not None
         self.assertEqual(result["data"][:1], b"{")
+
+
+class TestConversationStreamTTL(SimpleTestCase):
+    @pytest.mark.asyncio
+    async def test_write_to_stream_sets_a_ttl(self):
+        # Regression guard: EXPIRE used to run before the first XADD (a no-op on a missing key),
+        # so streams were created with no TTL and never self-expired.
+        stream = ConversationRedisStream(f"{CONVERSATION_STREAM_PREFIX}{uuid4()}")
+        stream._redis_client = fakeredis.FakeAsyncRedis()
+
+        async def gen():
+            yield (AssistantEventType.MESSAGE, AssistantMessage(content="hi"))
+
+        await stream.write_to_stream(gen())
+
+        ttl = await stream._redis_client.ttl(stream._stream_key)
+        self.assertGreater(ttl, 0)
+        self.assertLessEqual(ttl, CONVERSATION_STREAM_TIMEOUT)
