@@ -276,6 +276,19 @@ def _log_fan_out_failures(kind: str, report_ids: list[str], results: list) -> No
         )
 
 
+async def _update_report_schedule(report_id: str, period_end: str, generation_status: str) -> None:
+    await temporalio.workflow.execute_activity(
+        update_next_delivery_date_activity,
+        UpdateNextDeliveryDateInput(
+            report_id=report_id,
+            period_end=period_end,
+            generation_status=generation_status,
+        ),
+        start_to_close_timeout=UPDATE_SCHEDULE_ACTIVITY_TIMEOUT,
+        retry_policy=UPDATE_SCHEDULE_RETRY_POLICY,
+    )
+
+
 @temporalio.workflow.defn(name=GENERATE_EVAL_REPORT_WORKFLOW_NAME)
 class GenerateAndDeliverEvalReportWorkflow(PostHogWorkflow):
     """Per-report workflow: prepare context, run agent, store, deliver, update schedule."""
@@ -337,6 +350,10 @@ class GenerateAndDeliverEvalReportWorkflow(PostHogWorkflow):
             if temporalio.workflow.patched("eval-report-generation-status-2026-07")
             else "completed"
         )
+        generation_completed = generation_status == "completed"
+
+        if not inputs.manual and not generation_completed:
+            await _update_report_schedule(inputs.report_id, context.period_end, generation_status)
 
         # 3b. Emit a signal for this report run (fire-and-forget).
         # Runs on the same LLMA worker as the parent via LLMA_TASK_QUEUE; ABANDON
@@ -347,7 +364,7 @@ class GenerateAndDeliverEvalReportWorkflow(PostHogWorkflow):
         # Wrapped in workflow.patched so in-flight workflows started before this code
         # was deployed don't hit a nondeterminism error on replay — they'll skip the
         # child-workflow command entirely.
-        if generation_status == "completed" and temporalio.workflow.patched("eval-report-emit-signal-2026-04"):
+        if generation_completed and temporalio.workflow.patched("eval-report-emit-signal-2026-04"):
             try:
                 await temporalio.workflow.start_child_workflow(
                     EmitEvalReportSignalWorkflow.run,
@@ -391,14 +408,5 @@ class GenerateAndDeliverEvalReportWorkflow(PostHogWorkflow):
         )
 
         # 5. Update next delivery date (skip for manual runs to avoid disrupting schedule)
-        if not inputs.manual:
-            await temporalio.workflow.execute_activity(
-                update_next_delivery_date_activity,
-                UpdateNextDeliveryDateInput(
-                    report_id=inputs.report_id,
-                    period_end=context.period_end,
-                    generation_status=generation_status,
-                ),
-                start_to_close_timeout=UPDATE_SCHEDULE_ACTIVITY_TIMEOUT,
-                retry_policy=UPDATE_SCHEDULE_RETRY_POLICY,
-            )
+        if not inputs.manual and generation_completed:
+            await _update_report_schedule(inputs.report_id, context.period_end, generation_status)
