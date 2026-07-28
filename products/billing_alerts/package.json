@@ -1,6 +1,6 @@
 {
     "name": "@posthog/products-billing-alerts",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/test -v --tb=short"
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short || test $? -eq 5"
     }
 }
