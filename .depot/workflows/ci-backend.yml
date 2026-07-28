@@ -59,12 +59,9 @@
 #   .depot/workflows/ci-backend-update-test-timing.yml, so shard counts match GitHub Actions.
 #   Committed .test_durations is the fallback.
 # - Sharding-plan pinning: canonical snapshots the durations files as a run-scoped
-#   artifact in turbo-discover (plus a per-segment durations restore feeding it) and every
-#   test job applies that snapshot, so all shards of all attempts plan from identical
-#   timing data and a re-run shard re-collects the tests it failed with instead of
-#   resharding from a fresher cache entry. The shadow strips artifact uploads (above) and
-#   is a non-blocking timing trial, so it keeps plain floating cache restores; changes
-#   confined to that pinning need no depot bump.
+#   artifact and every test job applies it, so re-runs shard like attempt 1. The shadow
+#   strips artifact uploads (above), so it keeps floating restores; no depot bump needed
+#   for changes confined to that pinning.
 # - master (push) runs only check-migrations to prime the shared schema cache; the
 #   test matrices are skipped on master (canonical runs them). PRs and dispatches
 #   run the full graph — that is where the apples-to-apples comparison happens

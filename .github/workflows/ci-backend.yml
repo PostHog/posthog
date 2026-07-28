@@ -450,8 +450,7 @@ jobs:
                       posthog-test-durations-
 
             - name: Restore per-segment test durations from cache
-              # Restored here as well as in the Django job so the sharding-plan snapshot
-              # below covers the per-segment plan files the Core/Temporal shards read.
+              # Also restored here so the snapshot below covers the per-segment plan files.
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: |
@@ -462,19 +461,12 @@ jobs:
                       posthog-segment-durations-
 
             - name: Snapshot the sharding plan for this run
-              # The durations caches float to the newest entry (the timing-update workflow
-              # refreshes them every six hours), so two jobs restoring minutes apart, or a
-              # re-run days later, can shard from different timing data. Under "re-run
-              # failed jobs" only the failed shards re-execute, which means a reshard can
-              # move a test that failed earlier onto a shard that is not re-run: the test
-              # is then never re-executed, every job goes green, and the gate passes a
-              # still-broken PR. Snapshotting the plan inputs once per run lets every test
-              # job in every attempt plan from identical timing data, so a re-run shard
-              # re-collects the tests it failed with. overwrite covers "re-run all jobs",
-              # where this job re-executes and re-snapshots; a failed-jobs re-run keeps
-              # the last full attempt's snapshot because this job is not re-run.
-              # continue-on-error because consumers fall back to the floating caches, so
-              # a failed upload must not take down the run's root job.
+              # The timing caches float to their newest entry, so a re-run can shard
+              # differently from attempt 1 and, under "re-run failed jobs", a failing
+              # test can move to a shard that never re-runs while the gate goes green.
+              # Every test job applies this snapshot instead, so all attempts shard
+              # identically. Best-effort (consumers fall back to the floating caches);
+              # overwrite lets a "re-run all jobs" attempt re-snapshot.
               continue-on-error: true
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
@@ -485,10 +477,9 @@ jobs:
                       .test_durations.temporal
                   include-hidden-files: true
                   overwrite: true
-                  # The committed .test_durations always exists; the per-segment files are
-                  # cache-only and may legitimately be absent.
+                  # The per-segment files are cache-only and may legitimately be absent.
                   if-no-files-found: warn
-                  # Covers GitHub's 30-day re-run window so a late re-run still pins.
+                  # GitHub allows re-runs for 30 days.
                   retention-days: 30
 
             - name: Discover products to test
@@ -918,9 +909,7 @@ jobs:
                       posthog-test-durations-
 
             - name: Download the run's sharding plan snapshot
-              # Same pinning as the Django job, for products sharded with pytest-split
-              # (full rationale on turbo-discover's "Snapshot the sharding plan" step).
-              # Falls back to the floating cache when the snapshot is missing.
+              # Same pinning as the Django job; falls back to the floating cache.
               id: pinned-plan
               continue-on-error: true
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -2710,13 +2699,8 @@ jobs:
                       posthog-segment-durations-
 
             - name: Download the run's sharding plan snapshot
-              # Apply the plan snapshotted by turbo-discover so every shard of every
-              # attempt plans from identical timing data; the floating restores above can
-              # otherwise diverge between jobs and attempts, letting a partial re-run
-              # skip a test that failed earlier (full rationale on the "Snapshot the
-              # sharding plan" step). continue-on-error because a missing snapshot
-              # (turbo-discover failed, or the artifact expired) falls back to the
-              # floating caches above.
+              # Pin every attempt to the plan turbo-discover snapshotted (rationale on
+              # that step); a missing snapshot falls back to the floating caches above.
               id: pinned-plan
               continue-on-error: true
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -2732,8 +2716,7 @@ jobs:
                       echo "::warning::Sharding-plan snapshot is incomplete, keeping the floating cache restores"
                       exit 0
                   fi
-                  # Delete before copying so a per-segment file the snapshot lacks cannot
-                  # survive from a newer floating cache and diverge from the pinned union.
+                  # rm first so segment files the snapshot lacks don't survive the floating restore
                   rm -f .test_durations.core .test_durations.temporal
                   cp /tmp/test-durations-plan/.test_durations .test_durations
                   for f in .test_durations.core .test_durations.temporal; do
@@ -2742,9 +2725,6 @@ jobs:
                   echo "Sharding plan pinned to this run's snapshot"
 
             - name: Warn when a re-run reshards unpinned
-              # On attempt 1 the floating caches are the status quo, but a re-run without
-              # the snapshot loses the re-execution guarantee, which is worth surfacing
-              # on the run summary rather than only in a collapsed step log.
               if: github.run_attempt != '1' && steps.pinned-plan.outcome != 'success'
               shell: bash
               run: echo "::warning::Sharding-plan snapshot unavailable, this re-run reshards from the floating timing caches and may not re-execute tests that failed in earlier attempts"
