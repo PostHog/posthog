@@ -6,7 +6,7 @@ on:
     pull_request:
         # Draft PRs run build + unit tests only; the integration tests (which boot
         # the full PostHog backend and trigger on any non-pytest Python change) run
-        # when the PR is marked ready for review — that full run is the merge gate.
+        # when the PR is marked ready for review; that full run is the merge gate.
         # The `no-ci` label silences this workflow on a draft entirely (prototypes).
         # No labeled/unlabeled triggers here, so it takes effect from the next push.
         types: [opened, synchronize, reopened, ready_for_review]
@@ -106,24 +106,19 @@ jobs:
                         # CI config
                         - '.github/workflows/ci-mcp.yml'
                         - '.github/workflows/mcp-publish.yml'
-                        # The integration tests drive a running Django server over HTTP, so a
-                        # pytest module can't change the outcome of any job this filter gates
-                        # (build, unit tests, and the ~15-30 min backend boot). Three
-                        # deliberate narrowings, each of which a wider pattern would break:
-                        #  - pytest modules only, not whole test/ and tests/ directories.
-                        #    Those hold helpers runtime code imports, such as
-                        #    posthog/test/base.py via setup_test_environment and
-                        #    posthog/test/playwright_setup_functions.py via posthog/urls.py.
-                        #  - the '*_test.py' suffix is excluded only under products/*/backend,
-                        #    where it is the colocated-test convention. Under posthog/ it also
-                        #    names production code that this suite runs: ClickHouse migrations
-                        #    (0110_log_entries_v2_test.py), the DDL they import, and the
-                        #    aggregate_funnel_*_test.py UDF scripts copied into ClickHouse
-                        #    during setup.
-                        #  - each exclude is prefixed with its tree, because an exclude is
-                        #    tested against every file the filter sees, not just the include
-                        #    it was written for. A bare '!**/conftest.py' would also veto
-                        #    tools/hogli/tests/conftest.py, which tools/hogli/** includes.
+                        # The integration tests drive a running Django server over HTTP and
+                        # never import pytest modules, so exclude them. Narrow on purpose:
+                        #  - modules, not whole test/ dirs: those also hold runtime code, such
+                        #    as posthog/test/base.py, which the backend boot imports via
+                        #    setup_test_environment.
+                        #  - '*_test.py' only under products/*/backend, where it is the
+                        #    colocated-test convention. Under posthog/ that suffix names
+                        #    production code this suite runs (ClickHouse migrations, UDF
+                        #    scripts copied into ClickHouse during setup).
+                        #  - per-tree prefixes, because an exclude is tested against every file
+                        #    the filter sees, not just the include it sits next to: a bare
+                        #    '!**/conftest.py' would also veto tools/hogli/tests/conftest.py,
+                        #    which the tools/hogli/** include above covers.
                         - '!posthog/**/test_*.py'
                         - '!posthog/**/conftest.py'
                         - '!ee/**/test_*.py'
@@ -277,9 +272,9 @@ jobs:
         needs: changes
         timeout-minutes: 30
         # Skipped on drafts: these boot the full PostHog backend and trigger on any
-        # non-pytest Python change, so they're the expensive half of this workflow. Build and
-        # unit tests still run on drafts; the `MCP Tests Pass` aggregator treats
-        # skipped as success, and the ready-for-review run is the merge gate.
+        # non-pytest Python change, so they're the expensive half of this workflow.
+        # Build and unit tests still run on drafts; the `MCP Tests Pass` aggregator
+        # treats skipped as success, and the ready-for-review run is the merge gate.
         if: needs.changes.outputs.mcp == 'true' && github.event.pull_request.draft != true
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
