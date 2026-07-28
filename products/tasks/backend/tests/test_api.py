@@ -5084,7 +5084,12 @@ class TestTaskRunAPI(BaseTaskAPITest):
             message_id=None,
         )
 
-    def _pr_run_with_slack_and_github(self):
+    def _pr_run_with_slack_and_github(
+        self,
+        *,
+        pr_url: str = "https://github.com/posthog/posthog/pull/1",
+        pr_card_announced: bool = True,
+    ):
         from posthog.models.integration import Integration
 
         from products.slack_app.backend.models import SlackThreadTaskMapping
@@ -5094,11 +5099,16 @@ class TestTaskRunAPI(BaseTaskAPITest):
         task.github_integration = github_integration
         task.repository = "posthog/posthog"
         task.save(update_fields=["github_integration", "repository"])
+        # The CI-follow-up diversion only kicks in once the "PR opened" card has been announced to
+        # Slack — that's the line after which agent chatter is autonomous. Default to the announced
+        # state so the follow-up tests exercise the diversion; opt out for the still-in-turn case.
+        if pr_card_announced:
+            task.mark_slack_pr_notified(pr_url)
         run = TaskRun.objects.create(
             task=task,
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
-            output={"pr_url": "https://github.com/posthog/posthog/pull/1"},
+            output={"pr_url": pr_url},
         )
         slack_integration = Integration.objects.create(
             team=self.team, kind="slack", integration_id="T_SLACK", config={}
@@ -5140,6 +5150,28 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
     @patch("products.tasks.backend.facade.api.GitHubIntegration")
     @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
+    def test_relay_message_primary_answer_before_pr_card_stays_in_slack(self, mock_execute_relay, mock_github_class):
+        # The agent opens a PR and then posts its answer to the human's request in the same turn.
+        # ``output.pr_url`` is already set, but the "PR opened" card has NOT been announced to Slack
+        # yet, so this is still the human turn — the answer must reach Slack, not the PR.
+        task, run = self._pr_run_with_slack_and_github(pr_card_announced=False)
+        mock_github = MagicMock()
+        mock_github_class.return_value = mock_github
+        mock_execute_relay.return_value = "relay-1"
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/",
+            {"text": "Removed the offending line and opened a draft PR."},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"status": "accepted", "relay_id": "relay-1"})
+        mock_github.comment_on_pull_request_from_url.assert_not_called()
+        mock_execute_relay.assert_called_once()
+
+    @patch("products.tasks.backend.facade.api.GitHubIntegration")
+    @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
     def test_relay_message_reply_to_human_after_pr_stays_in_slack(self, mock_execute_relay, mock_github_class):
         task, run = self._pr_run_with_slack_and_github()
         mock_github = MagicMock()
@@ -5163,9 +5195,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self, mock_execute_relay, mock_github_class
     ):
         # pr_url is caller-writable; a PR outside the task's own repository must never be commented on.
-        task, run = self._pr_run_with_slack_and_github()
-        run.output = {"pr_url": "https://github.com/posthog/other-repo/pull/1"}
-        run.save(update_fields=["output"])
+        task, run = self._pr_run_with_slack_and_github(pr_url="https://github.com/posthog/other-repo/pull/1")
         mock_github = MagicMock()
         mock_github_class.return_value = mock_github
 
