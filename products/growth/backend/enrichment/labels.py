@@ -61,15 +61,22 @@ def verdict_field_key(config: EnrichmentPromptConfig) -> str | None:
 
 
 def to_domain(value: Any) -> Any:
-    """Reduce anything that looks like an email address to its domain.
+    """Reduce anything that looks like an email address to its domain, at any depth.
 
     Applied to every value on its way to the prompt, because the values also land in
     EnrichmentLabelResult.inputs and stay there: a provider field or a query column that happens
     to hold a personal address would otherwise be stored indefinitely. The local part carries no
     classification signal anyway - only the company domain does.
+
+    Recurses because the values are not all scalars: tagsV2 and funding.investors are lists, and
+    a HogQL column can be any JSON shape, so a top-level-only check leaves nested addresses through.
     """
-    if isinstance(value, str) and "@" in value:
-        return value.rsplit("@", 1)[1].lower()
+    if isinstance(value, str):
+        return value.rsplit("@", 1)[1].lower() if "@" in value else value
+    if isinstance(value, dict):
+        return {key: to_domain(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [to_domain(item) for item in value]
     return value
 
 

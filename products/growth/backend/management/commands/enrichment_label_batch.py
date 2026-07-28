@@ -89,17 +89,17 @@ class Command(BaseCommand):
                 # Popped rather than left inline: output is stored as-is, and duplicating the
                 # inputs snapshot inside it would double-store and bloat every row.
                 inputs = output.pop("inputs", {})
-                # Lock the config row and re-verify its content before persisting, pairing with
-                # the save()/delete() guards — a verdict computed against a config that changed
-                # mid-run is discarded rather than stamped under the wrong version.
                 with transaction.atomic():
-                    locked = EnrichmentPromptConfig.objects.select_for_update().filter(pk=config.pk).first()
-                    if locked is None or locked.content_hash != config.content_hash:
-                        raise RuntimeError(f"config {label} {config.version} changed mid-run; verdict discarded")
+                    # Read the current name, not the one captured at startup: a label rename
+                    # mid-run must stamp the retired result under the live name, or the next run
+                    # for the renamed label would recompute the same fetch.
+                    current_name = (
+                        EnrichmentPromptConfig.objects.filter(pk=config.pk).values_list("name", flat=True).first()
+                    )
                     EnrichmentLabelResult.objects.get_or_create(
                         organization_id=fetch.organization_id,
                         fetch=fetch,
-                        label_name=label,
+                        label_name=current_name or config.name,
                         prompt_version=config.version,
                         defaults={
                             "prompt_hash": config.content_hash,

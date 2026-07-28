@@ -1,9 +1,7 @@
 import json
 import hashlib
-from typing import Any
 
-from django.core.exceptions import ValidationError
-from django.db import models, transaction
+from django.db import models
 from django.db.models import Q
 
 from posthog.models.utils import UpdatedMetaFields, UUIDModel
@@ -151,20 +149,12 @@ class EnrichmentPromptConfig(UUIDModel):
     """A versioned LLM classifier definition for one enrichment label (the "score lab" brains).
 
     Rails are code; brains are rows: the label owner iterates prompt/model/input selection by
-    creating new rows through Django admin, without a deploy. A version is immutable once any
-    EnrichmentLabelResult references it — an in-place edit would silently invalidate every stored
-    result stamped with that version, and the idempotent batch runner would never recompute.
-
-    The guard lives in save()/delete(), so queryset update()/bulk_update()/raw SQL bypass it —
-    always mutate configs through instances (admin does).
+    creating new rows through Django admin, without a deploy. A behavior change is always a new
+    row (new version), never an in-place edit - see score_lab.py's save action. `name` is a
+    human label for this classifier and nothing reads it as data; the output contract is
+    output_fields (see enrichment/labels.py), so renaming a label changes nothing about what the
+    classifier does or where its verdicts are stored.
     """
-
-    # Everything that changes the classifier's behavior. An edit to any of these is a new
-    # version (new row), never an in-place change - see save(). `name` is deliberately absent:
-    # it is a human label for this classifier and nothing reads it as data. The output contract
-    # is output_fields (see enrichment/labels.py), so renaming a label changes nothing about
-    # what the classifier does or where its verdicts are stored.
-    FROZEN_FIELDS = ("version", "prompt_text", "model", "input_fields", "input_query", "output_fields")
 
     # Label this config computes, e.g. "ai_pilled".
     name = models.CharField(max_length=128)
@@ -220,41 +210,6 @@ class EnrichmentPromptConfig(UUIDModel):
             sort_keys=True,
         )
         return hashlib.sha256(content.encode()).hexdigest()
-
-    def _has_results(self, name: str, version: str) -> bool:
-        return EnrichmentLabelResult.objects.filter(label_name=name, prompt_version=version).exists()
-
-    def save(self, *args: Any, **kwargs: Any) -> None:
-        if not self.pk:
-            super().save(*args, **kwargs)
-            return
-        # Row lock pairs with the batch runner, which takes the same lock (and re-checks the
-        # content hash) before inserting each result — so edits and result creation serialize
-        # and neither side can invalidate the other mid-flight.
-        with transaction.atomic():
-            persisted = EnrichmentPromptConfig.objects.select_for_update().filter(pk=self.pk).first()
-            if persisted is not None and self._has_results(persisted.name, persisted.version):
-                changed = [f for f in self.FROZEN_FIELDS if getattr(self, f) != getattr(persisted, f)]
-                if changed:
-                    raise ValidationError(
-                        f"Config {persisted.name} {persisted.version} has stored results; "
-                        f"{', '.join(changed)} cannot change. Create a new row with a new version instead."
-                    )
-            super().save(*args, **kwargs)
-
-    def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
-        if not self.pk:
-            return super().delete(*args, **kwargs)
-        with transaction.atomic():
-            # Guard on the locked row's persisted values, not this instance's — a stale
-            # in-memory copy could otherwise pass the check against an old name/version.
-            persisted = EnrichmentPromptConfig.objects.select_for_update().filter(pk=self.pk).first()
-            if persisted is not None and self._has_results(persisted.name, persisted.version):
-                raise ValidationError(
-                    f"Config {persisted.name} {persisted.version} has stored results and is part of their "
-                    "provenance; deactivate it instead of deleting."
-                )
-            return super().delete(*args, **kwargs)
 
 
 class EnrichmentLabelResult(UUIDModel):

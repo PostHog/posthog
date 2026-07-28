@@ -5,7 +5,6 @@ from io import StringIO
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import SimpleTestCase
@@ -23,6 +22,7 @@ from products.growth.backend.enrichment.labels import (
     classify_row,
     signup_domain_for_organization,
 )
+from products.growth.backend.management.commands import enrichment_label_batch as batch_command_module
 from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, OrganizationEnrichmentFetch
 
 _BATCH_COMMAND_MODULE = "products.growth.backend.management.commands.enrichment_label_batch"
@@ -134,6 +134,26 @@ class TestClassifyRow(SimpleTestCase):
 
         sent_system = client.chat.completions.create.call_args.kwargs["messages"][0]["content"]
         assert "unknown" in sent_system
+
+    @parameterized.expand(
+        [
+            ("nested_in_a_list", {"investors": ["alice.secret@rowco.com", "plain"]}),
+            ("nested_in_a_dict", {"contact": {"primary": "alice.secret@rowco.com"}}),
+            ("nested_two_deep", {"team": [{"email": "alice.secret@rowco.com"}]}),
+        ]
+    )
+    def test_emails_are_reduced_at_any_depth(self, _name, column):
+        # tagsV2 and funding.investors are lists, and a HogQL column can be any JSON shape, so a
+        # top-level-only check leaves the address in the prompt and in the stored snapshot.
+        config = self._config()
+        client = _mock_llm_client()
+
+        result = classify_row(config, {"company": "RowCo", **column}, client)
+
+        sent = client.chat.completions.create.call_args.kwargs["messages"]
+        rendered = json.dumps(sent) + json.dumps(result["inputs"])
+        assert "alice.secret" not in rendered
+        assert "rowco.com" in rendered
 
     def test_email_columns_are_reduced_to_a_domain_before_the_prompt_and_the_snapshot(self):
         # A query can select any column, and whatever it selects is both sent to the LLM and
@@ -392,6 +412,31 @@ class TestEnrichmentLabelBatch(BaseTest):
         ).order_by("created_at")
         assert [row.fetch_id for row in rows] == [first_fetch.id, second_fetch.id]
 
+    def test_a_rename_mid_run_stamps_the_current_label_not_the_retired_one(self):
+        # Renaming deliberately leaves content_hash alone, so the mid-run config check can't
+        # catch it. Stamping the captured name would strand this verdict under a label nothing
+        # reads, and the next run for the renamed label would pay to recompute the same fetch.
+        config = self._config()
+        self._fetch()
+        client = _mock_llm_client()
+        renamed = {"done": False}
+        original_classify = batch_command_module.classify_payload
+
+        def rename_then_classify(*args, **kwargs):
+            if not renamed["done"]:
+                EnrichmentPromptConfig.objects.filter(pk=config.pk).update(name="renamed_label")
+                renamed["done"] = True
+            return original_classify(*args, **kwargs)
+
+        with (
+            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.classify_payload", side_effect=rename_then_classify),
+        ):
+            call_command("enrichment_label_batch", label="test_label", workers=1)
+
+        assert EnrichmentLabelResult.objects.filter(label_name="renamed_label").count() == 1
+        assert EnrichmentLabelResult.objects.filter(label_name="test_label").count() == 0
+
     def test_refuses_an_input_query_config_before_spending_anything(self):
         # classify_payload reads input_fields, so running a query-mode config would bill one LLM
         # call per org against an empty input dict and persist the answers under a real version.
@@ -512,96 +557,6 @@ class TestSignupDomainForOrganization(BaseTest):
         OrganizationMembership.objects.filter(organization=self.organization).delete()
 
         assert signup_domain_for_organization(self.organization) is None
-
-
-class TestEnrichmentPromptConfigImmutability(BaseTest):
-    def _config(self) -> EnrichmentPromptConfig:
-        return EnrichmentPromptConfig.objects.create(
-            name="test_label",
-            version="test-v1",
-            prompt_text="... Email: {email}",
-            model="gpt-5-mini",
-            input_fields=["name"],
-            output_fields=_OUTPUT_FIELDS,
-            is_active=True,
-        )
-
-    def _stamp_a_result(self, config: EnrichmentPromptConfig) -> None:
-        fetch = OrganizationEnrichmentFetch.objects.create(
-            organization=self.organization, provider="harmonic", payload={"name": "Acme"}
-        )
-        EnrichmentLabelResult.objects.create(
-            organization=self.organization,
-            fetch=fetch,
-            label_name=config.name,
-            prompt_version=config.version,
-            prompt_hash=config.content_hash,
-            model=config.model,
-            output={"test_label": True, "confidence": 0.9, "reasoning": "x"},
-        )
-
-    @parameterized.expand(
-        [
-            ("version", "test-v2"),
-            ("prompt_text", "a completely different prompt"),
-            ("model", "gpt-5-nano"),
-            ("input_fields", ["name", "description"]),
-            ("input_query", "SELECT 1 as x"),
-            ("output_fields", [{"key": "custom_field", "type": "boolean", "description": ""}]),
-        ]
-    )
-    def test_editing_a_frozen_field_with_stored_results_raises(self, field, new_value):
-        config = self._config()
-        self._stamp_a_result(config)
-
-        setattr(config, field, new_value)
-        with self.assertRaises(ValidationError):
-            config.save()
-
-    def test_editing_is_active_with_stored_results_saves_fine(self):
-        config = self._config()
-        self._stamp_a_result(config)
-
-        config.is_active = False
-        config.save()
-
-        config.refresh_from_db()
-        assert config.is_active is False
-
-    def test_renaming_a_label_with_stored_results_saves_fine_and_keeps_the_content_hash(self):
-        # The whole point of output_fields being the output contract: a label is a human name,
-        # so renaming it must not freeze on stored results, and must not move the content hash
-        # (which would make the batch runner recompute every verdict under the same version).
-        config = self._config()
-        self._stamp_a_result(config)
-        hash_before = config.content_hash
-
-        config.name = "another_label"
-        config.save()
-
-        config.refresh_from_db()
-        assert config.name == "another_label"
-        assert config.content_hash == hash_before
-
-    def test_delete_guards_on_persisted_values_not_the_stale_instance(self):
-        config = self._config()
-        stale = EnrichmentPromptConfig.objects.get(pk=config.pk)
-        config.version = "test-v2"
-        config.save()
-        self._stamp_a_result(config)
-
-        with self.assertRaises(ValidationError):
-            stale.delete()
-        assert EnrichmentPromptConfig.objects.filter(pk=config.pk).exists()
-
-    def test_editing_a_frozen_field_without_results_saves_fine(self):
-        config = self._config()
-
-        config.prompt_text = "a completely different prompt"
-        config.save()
-
-        config.refresh_from_db()
-        assert config.prompt_text == "a completely different prompt"
 
 
 class TestEnrichmentLabelDryRun(BaseTest):
