@@ -160,8 +160,7 @@ fi
 # signal), skip verification entirely. ~40 serial test-runs (~5 min) fits the slack left after
 # the main suite.
 MAX_TOTAL_TEST_RUNS=40
-total_test_runs=$((num_targeted_tests * REPEAT_COUNT))
-if ((total_test_runs > MAX_TOTAL_TEST_RUNS)); then
+if [ $((num_targeted_tests * REPEAT_COUNT)) -gt "$MAX_TOTAL_TEST_RUNS" ]; then
     echo "Skipping flake verification: $num_targeted_tests targeted test(s) × --repeat-each=$REPEAT_COUNT exceeds the ~${MAX_TOTAL_TEST_RUNS}-run time budget (broad change or a shared-scope edit in a large spec)"
     exit 0
 fi
