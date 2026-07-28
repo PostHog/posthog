@@ -1,4 +1,4 @@
-import { toDisplayOrderFrames } from './displayOrder'
+import { isStoredCrashFirst, toDisplayOrderFrames } from './displayOrder'
 import { ErrorTrackingStackFrame } from './types'
 
 describe('toDisplayOrderFrames', () => {
@@ -11,5 +11,25 @@ describe('toDisplayOrderFrames', () => {
         expect(display.map((f) => f.raw_id)).toEqual(['crash', 'handler', 'main'])
         // stored input is not mutated
         expect(stored.map((f) => f.raw_id)).toEqual(['main', 'handler', 'crash'])
+    })
+
+    it('keeps pre-normalization crash-first storage as-is', () => {
+        const stored = [frame('crash'), frame('handler'), frame('main')]
+        const display = toDisplayOrderFrames(stored, true)
+        expect(display.map((f) => f.raw_id)).toEqual(['crash', 'handler', 'main'])
+        expect(display).not.toBe(stored)
+    })
+})
+
+describe('isStoredCrashFirst', () => {
+    it.each([
+        ['posthog-go', '2026-07-01T00:00:00Z', true],
+        ['posthog-go', '2026-07-15T00:00:00Z', false],
+        ['posthog-python', '2026-07-01T00:00:00Z', false], // python frames were always bottom-up
+        ['web', '2026-07-01T00:00:00Z', false],
+        [undefined, '2026-07-01T00:00:00Z', false],
+        ['posthog-android', undefined, false],
+    ])('%s @ %s -> %s', (lib, timestamp, expected) => {
+        expect(isStoredCrashFirst(lib as string | undefined, timestamp as string | undefined)).toBe(expected)
     })
 })

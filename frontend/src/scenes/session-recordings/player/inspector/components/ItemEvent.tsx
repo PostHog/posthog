@@ -280,7 +280,13 @@ function SingleEventDetail({ item }: ItemEventProps): JSX.Element {
                             </>
                         )
                     case 'error_display':
-                        return <ErrorDisplay eventProperties={properties} eventId={idFrom(event as ErrorEventType)} />
+                        return (
+                            <ErrorDisplay
+                                eventProperties={properties}
+                                eventId={idFrom(event as ErrorEventType)}
+                                eventTimestamp={event.timestamp}
+                            />
+                        )
                     case 'properties':
                         return (
                             <SimpleKeyValueList

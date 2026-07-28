@@ -71,9 +71,13 @@ function GroupedStackTraceRenderer({
     renderFrame: (frame: ErrorTrackingStackFrame, record?: ErrorTrackingStackFrameRecord) => React.ReactNode
     renderVendorFrameGroup: (group: Extract<StackFrameGroup, { type: 'vendor' }>) => React.ReactNode
 }): JSX.Element {
+    const { framesStoredCrashFirst } = useValues(errorPropertiesLogic)
     const frameGroups = useMemo(
-        () => groupStackFrames(toDisplayOrderFrames(frames), exceptionId, { expandSingleVendorGroupByDefault }),
-        [exceptionId, expandSingleVendorGroupByDefault, frames]
+        () =>
+            groupStackFrames(toDisplayOrderFrames(frames, framesStoredCrashFirst), exceptionId, {
+                expandSingleVendorGroupByDefault,
+            }),
+        [exceptionId, expandSingleVendorGroupByDefault, frames, framesStoredCrashFirst]
     )
 
     return (
