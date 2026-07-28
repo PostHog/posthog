@@ -984,6 +984,18 @@ LOGGED_ONLY_BODY = """
     echo "build: ${{ needs.build.result }}"
 """
 
+# A job wired into `needs:` that the gate never tests. Judging only the results the
+# body mentions would approve the two assertions that are here and say nothing
+# about the dependency whose assertion was forgotten.
+UNTESTED_DEPENDENCY_GATE = (
+    _gate(SAFE_BODY)
+    .replace(
+        "      build:",
+        "      lint:\n        timeout-minutes: 5\n        steps:\n          - run: echo lint\n      build:",
+    )
+    .replace("needs: [changes, build]", "needs: [changes, build, lint]")
+)
+
 # ci-agents.yml maps results into env and loops over the variable names.
 ENV_LOOP_GATE = """
     name: ci-thing
@@ -1066,6 +1078,12 @@ class TestRequiredGateCheck:
         issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
         assert sorted(i.message.split("'")[1] for i in issues) == ["build", "changes"]
         assert all(expected in i.message for i in issues)
+
+    def test_flags_dependency_declared_in_needs_but_never_tested(self, tmp_path: Path) -> None:
+        _write(tmp_path, "ci-thing.yml", UNTESTED_DEPENDENCY_GATE)
+        issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
+        assert [i.message.split("'")[1] for i in issues] == ["lint"]
+        assert "never reaches" in issues[0].message
 
     def test_ignores_non_gate_jobs(self, tmp_path: Path) -> None:
         # Worker jobs *should* use !cancelled() so they stop when superseded;

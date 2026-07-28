@@ -112,8 +112,8 @@ Four rules for the gate body:
    What does not count is the allowlist words appearing without asserting anything, such as in a comment or an `echo`.
    A result whose test `WF007` cannot follow is reported rather than assumed safe, so an unusual routing may need the tests moved inline.
 
-`WF007` enforces 1, 4, and the `always()` condition.
-Rule 2 is not mechanically checkable, because "reporting job" and "coverage job" look identical to a linter. It is on you and the reviewer.
+`WF007` enforces 1, 4, and the `always()` condition, and it takes the dependency list from `needs:` as well as the step body, so a job you wired into `needs:` and then forgot to test is reported rather than silently trusted.
+The half of rule 2 it cannot check is whether you named the right jobs in `needs:` to begin with: "reporting job" and "coverage job" look identical to a linter, so that one is on you and the reviewer.
 
 ## Checkout / clone — shallow by default
 

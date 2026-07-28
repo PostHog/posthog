@@ -243,13 +243,27 @@ def _reachable(start: str, edges: dict[str, set[str]]) -> Iterable[str]:
                 queue.append(nxt)
 
 
+def _dependencies(job: Job) -> set[str]:
+    """Every dependency the gate is answerable for.
+
+    Taken from ``needs:`` as well as the step body, because a job wired into
+    ``needs:`` and then never tested is the drift this check exists to catch:
+    reading only the body would judge the assertions that were written and stay
+    silent about the one that was forgotten.
+    """
+    declared = job.raw.get("needs") or []
+    declared = [declared] if isinstance(declared, str) else declared
+    named = {dep for dep in declared if isinstance(dep, str)}
+    return named | set(READS_RESULT.findall(_bash(job)))
+
+
 def _problems(job: Job) -> Iterator[str]:
     if not ALWAYS.search(str(job.raw.get("if") or "")):
         yield "required-check gate must use `if: always()` so it always emits a verdict"
 
     literals, edges = _trace(job)
 
-    for dep in sorted(set(READS_RESULT.findall(_bash(job)))):
+    for dep in sorted(_dependencies(job)):
         compared: set[str] = set()
         for operand in _reachable(f"needs:{dep}", edges):
             compared |= literals.get(operand, set())
