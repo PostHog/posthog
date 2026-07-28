@@ -163,15 +163,19 @@ def get_email_footer_context(
     and customer_id (the billing customer). Absent values are omitted, so the footer
     renders only what's present.
 
-    organization_name goes through `sanitize_display_name` so this is the only org name a
-    sender needs: legacy org names that are URLs degrade to a placeholder rather than
-    rendering as a link target in the email body.
+    Both names go through `sanitize_display_name`, so this is the only project / org name a
+    sender needs: legacy names that are URLs degrade to a placeholder rather than rendering
+    as a link target in the email body.
     """
     if organization is None and team is not None:
         organization = team.organization
     context: dict[str, str] = {}
     if team is not None and team.name:
-        context["team_name"] = team.name
+        context["team_name"] = sanitize_display_name(
+            team.name,
+            fallback="your project",
+            context={"helper": "get_email_footer_context", "field": "team_name"},
+        )
     if organization is not None:
         if organization.name:
             context["organization_name"] = sanitize_display_name(
