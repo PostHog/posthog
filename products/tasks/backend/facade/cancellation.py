@@ -13,6 +13,7 @@ from posthog.temporal.common.client import sync_connect
 from products.tasks.backend import push_dispatcher
 from products.tasks.backend.metrics import observe_cancel_enqueue_failed
 from products.tasks.backend.models import TaskRun
+from products.tasks.backend.temporal.constants import LONGEST_BLOCKING_ACTIVITY_TIMEOUT
 from products.tasks.backend.temporal.process_task.activities.cleanup_sandbox import (
     CleanupSandboxInput,
     cleanup_sandbox_now,
@@ -27,10 +28,26 @@ from . import (
 
 logger = logging.getLogger(__name__)
 
-# How long a signaled cancellation gets to be applied by its own workflow before the
-# verification task terminalizes the run itself. Sits above the slowest healthy cancel
-# path (turn interrupt, resume snapshot, sandbox teardown) so the normal case is never raced.
+# How long a signaled cancellation gets before the verification task terminalizes the run itself.
+#
+# ProcessTaskWorkflow only observes `complete_task` at the `while not self._task_completed` check
+# in `run()`. A workflow parked in an inline `await` of a long activity (run_wizard,
+# send_followup_to_sandbox) never reaches that check until the activity returns, so how long a
+# healthy workflow needs depends entirely on whether we managed to end the agent turn first.
+#
+# Interrupt succeeded: the sandbox stops the turn, the in-flight activity returns promptly, the
+# loop observes the signal and terminalizes. Five minutes covers the rest of the healthy path
+# (resume snapshot, log read, sandbox teardown, Slack update) with room to spare.
 CANCEL_VERIFICATION_DELAY_SECONDS = 5 * 60
+
+# Interrupt failed or errored: nothing shortened the turn, so the only bound left is the activity
+# the workflow may be sitting in. Waiting it out plus the healthy-path budget is what keeps us from
+# terminating a workflow that is merely slow - terminate() skips its `finally`, which is where the
+# resume snapshot, the log read and the Slack update happen, so racing it costs the user real work.
+# Derived from the activity timeouts rather than asserted, so raising one moves this with it.
+CANCEL_VERIFICATION_UNINTERRUPTED_DELAY_SECONDS = (
+    int(LONGEST_BLOCKING_ACTIVITY_TIMEOUT.total_seconds()) + CANCEL_VERIFICATION_DELAY_SECONDS
+)
 
 
 def _signal_complete_task(
@@ -77,7 +94,13 @@ def _terminate_workflow(run: TaskRun, reason: str) -> Literal["terminated", "wor
         return "unavailable"
 
 
-def _interrupt_agent_turn(run: TaskRun, user_id: int | None, distinct_id: str | None) -> None:
+def _interrupt_agent_turn(run: TaskRun, user_id: int | None, distinct_id: str | None) -> bool:
+    """Ask the sandbox to end the agent's current turn. True only when it reported success.
+
+    The return value is what the cancellation deadline is picked from: a successful interrupt is
+    the reason the workflow's in-flight activity comes back quickly, so every path that does not
+    prove the turn was stopped has to report False.
+    """
     auth_token: str | None = None
     if user_id is not None and distinct_id:
         try:
@@ -88,8 +111,23 @@ def _interrupt_agent_turn(run: TaskRun, user_id: int | None, distinct_id: str | 
         result = tasks_api.send_cancel(run.id, auth_token=auth_token)
         if not getattr(result, "success", False):
             logger.info("Agent turn interrupt failed for task run %s; continuing with cancel", run.id)
+            return False
+        return True
     except Exception as error:
         logger.warning("Agent turn interrupt errored for task run %s: %s", run.id, error)
+        return False
+
+
+def _is_wizard_run(run: TaskRun) -> bool:
+    """Whether this run is a cloud setup-wizard run.
+
+    Keyed on the ``wizard_config`` state key, the same thing ``_run_wizard_if_configured`` gates
+    the wizard activity on and a key the run PATCH allowlist protects. ``origin_product ==
+    ONBOARDING`` is caller-settable and does not imply the workflow ran a wizard step, so the
+    facade's other wizard lookups filter on ``state__has_key="wizard_config"`` too. Presence, not
+    truthiness: an empty config dict still means this is a wizard run.
+    """
+    return "wizard_config" in (run.state or {})
 
 
 def _cleanup_run_without_workflow(run: TaskRun) -> None:
@@ -157,24 +195,38 @@ def _finalize_cancel_without_workflow(
     return dto, "accepted"
 
 
-def _schedule_cancel_verification(run: TaskRun, task_id: str | UUID, team_id: int, error_message: str) -> None:
+def _schedule_cancel_verification(
+    run: TaskRun,
+    task_id: str | UUID,
+    team_id: int,
+    error_message: str,
+    *,
+    turn_interrupted: bool,
+) -> None:
     """Arm the deadline for a cancellation the workflow may never apply.
 
     ``complete_task`` is a signal: reaching the workflow's queue is all a ``signaled`` outcome
     proves, and the caller gets its 202 straight away. A workflow whose event loop is wedged
     never applies it and nothing else re-checks the run, so the request would be lost silently.
+
+    ``turn_interrupted`` picks the deadline. Without a stopped agent turn a healthy workflow can
+    legitimately take as long as the activity it is parked in, so the short deadline would be
+    racing it rather than catching a wedged one.
     """
     from products.tasks.backend.facade.tasks import (  # noqa: PLC0415 - the celery module imports back into the facade
         verify_task_run_cancelled_task,
     )
 
     run_id = str(run.id)
+    countdown = (
+        CANCEL_VERIFICATION_DELAY_SECONDS if turn_interrupted else CANCEL_VERIFICATION_UNINTERRUPTED_DELAY_SECONDS
+    )
 
     def _enqueue() -> None:
         try:
             verify_task_run_cancelled_task.apply_async(
                 args=[run_id, str(task_id), team_id, error_message],
-                countdown=CANCEL_VERIFICATION_DELAY_SECONDS,
+                countdown=countdown,
             )
         except Exception:
             # Raising here cannot help: the cancellation was already signaled and committed, and
@@ -199,6 +251,12 @@ def force_terminalize_cancelled_run(
     outcome is ``not_needed`` on an already-terminal run. ``unavailable`` means work is still
     outstanding - an unreachable workflow, or a run that is CANCELLED with its stream still open -
     so the caller must re-attempt.
+
+    Scoped to wizard runs. Terminating a workflow skips its ``finally``, losing the resume
+    snapshot, the sandbox log read and the Slack update, which is only worth risking where a run
+    stuck non-terminal blocks the user outright: onboarding waits on its wizard run and offers no
+    way past it. Everywhere else an interactive run stays steerable and the inactivity timeout
+    eventually terminalizes it, so the safer failure is to leave the workflow alone.
     """
     run = tasks_api._get_visible_run(run_id, task_id, team_id)
     if run is None or run.environment != TaskRun.Environment.CLOUD:
@@ -207,8 +265,15 @@ def force_terminalize_cancelled_run(
     if run.is_terminal:
         # Whoever wrote the terminal status owns everything except the stream close, which is the
         # one step that can be left outstanding and is re-attemptable: its marker on the run says
-        # whether it is, and the publish is a no-op when it is not.
+        # whether it is, and the publish is a no-op when it is not. Not gated on the run being a
+        # wizard run: repairing a stream nothing else will close costs nothing and destroys nothing.
         return "not_needed" if _publish_cancel_fallback_completion(run) else "unavailable"
+
+    if not _is_wizard_run(run):
+        # Non-wizard runs are not worth the cost of terminate() skipping the workflow's cleanup:
+        # they stay steerable and their inactivity timeout terminalizes them, whereas a wizard run
+        # stuck non-terminal is a dead end for the user going through onboarding.
+        return "not_needed"
 
     terminate_outcome = _terminate_workflow(run, reason)
     if terminate_outcome == "unavailable":
@@ -268,7 +333,7 @@ def cancel_task_run(
     except Exception:
         logger.warning("Failed to record cancel request marker for task run %s", run.id, exc_info=True)
 
-    _interrupt_agent_turn(run, requested_by_user_id, requested_by_distinct_id)
+    turn_interrupted = _interrupt_agent_turn(run, requested_by_user_id, requested_by_distinct_id)
 
     signal_outcome = _signal_complete_task(run, TaskRun.Status.CANCELLED, error_message)
     if signal_outcome == "unavailable":
@@ -286,7 +351,7 @@ def cancel_task_run(
     else:
         push_dispatcher.notify_task_run_cancelled(run)
         dto = tasks_api._task_run_detail_to_dto(run)
-        _schedule_cancel_verification(run, task_id, team_id, error_message)
+        _schedule_cancel_verification(run, task_id, team_id, error_message, turn_interrupted=turn_interrupted)
 
     run.capture_event(
         "task_run_cancel_requested",

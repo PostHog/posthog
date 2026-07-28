@@ -77,6 +77,25 @@ MAX_CI_REPETITIONS = 3
 # transient failures; this is the outer cap.
 RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT = timedelta(hours=24)
 
+# Above WIZARD_RUN_TIMEOUT_SECONDS (45 min) so the wizard's own timeout bounds the run;
+# the headroom covers the sandbox lookup and writing the output log.
+RUN_WIZARD_START_TO_CLOSE_TIMEOUT = timedelta(minutes=50)
+
+# Outer cap on delivering one follow-up into the sandbox. The activity heartbeats while
+# blocked on the sync delivery call, so a worker restart is detected well before this;
+# reaching it means the agent turn itself ran that long.
+SEND_FOLLOWUP_START_TO_CLOSE_TIMEOUT = timedelta(minutes=35)
+
+# The longest a single inline `await` can park ProcessTaskWorkflow's coroutine. The
+# `complete_task` signal is only observed at the `while not self._task_completed` check
+# in `run()`, so while the workflow sits in one of these activities it cannot apply a
+# cancellation, however healthy it is. Derived, not asserted: raising either activity's
+# timeout must move anything that waits on the workflow to notice a cancellation.
+LONGEST_BLOCKING_ACTIVITY_TIMEOUT = max(
+    RUN_WIZARD_START_TO_CLOSE_TIMEOUT,
+    SEND_FOLLOWUP_START_TO_CLOSE_TIMEOUT,
+)
+
 # Delay before the first in-sandbox credential refresh, and the fallback cadence
 # when the refresh activity can't report a token-specific interval. Kept under
 # the ~1h GitHub installation-token TTL so the in-sandbox copy never lapses; the

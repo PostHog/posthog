@@ -73,6 +73,7 @@ from products.tasks.backend.presentation.serializers import (
     TASK_RUN_ARTIFACT_MAX_SIZE_BYTES,
     TASK_RUN_PDF_ARTIFACT_MAX_SIZE_BYTES,
 )
+from products.tasks.backend.temporal import constants as temporal_constants
 from products.tasks.backend.temporal.process_task.utils import get_cached_github_user_token
 
 
@@ -6860,18 +6861,53 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
     @patch("products.tasks.backend.facade.cancellation._signal_complete_task", return_value="signaled")
     @patch("products.tasks.backend.facade.tasks.verify_task_run_cancelled_task")
     def test_cancel_arms_verification_deadline_after_signaling(
-        self, mock_verify, _mock_signal, _mock_send_cancel, _mock_token
+        self, mock_verify, _mock_signal, mock_send_cancel, _mock_token
     ):
         task = self.create_task()
         run = self._create_run(task)
+        mock_send_cancel.return_value.success = True
 
         with self.captureOnCommitCallbacks(execute=True):
             response = self.client.post(self._cancel_url(task, run), {"reason": "changed my mind"}, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        # The interrupt stopped the agent turn, so the workflow's in-flight activity returns
+        # promptly and the short deadline is not racing a healthy cancel path.
         mock_verify.apply_async.assert_called_once_with(
             args=[str(run.id), str(task.id), self.team.id, "changed my mind"],
             countdown=tasks_cancellation.CANCEL_VERIFICATION_DELAY_SECONDS,
+        )
+
+    @parameterized.expand(
+        [
+            ("interrupt_reported_failure", {"return_value.success": False}),
+            ("interrupt_errored", {"side_effect": RuntimeError("sandbox unreachable")}),
+        ]
+    )
+    def test_cancel_waits_out_the_longest_activity_when_the_turn_was_not_interrupted(self, _name, send_cancel_config):
+        # Nothing shortened the agent turn, so a perfectly healthy workflow can still be parked in
+        # an inline activity await and unable to see the signal. Terminating it at 5 minutes would
+        # skip its finally and cost the user the resume snapshot.
+        task = self.create_task()
+        run = self._create_run(task)
+
+        with (
+            patch("products.tasks.backend.facade.api.create_sandbox_connection_token", return_value="token"),
+            patch("products.tasks.backend.facade.api.send_cancel", **send_cancel_config),
+            patch("products.tasks.backend.facade.cancellation._signal_complete_task", return_value="signaled"),
+            patch("products.tasks.backend.facade.tasks.verify_task_run_cancelled_task") as mock_verify,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.post(self._cancel_url(task, run), {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        mock_verify.apply_async.assert_called_once_with(
+            args=[str(run.id), str(task.id), self.team.id, "Stopped by user"],
+            countdown=tasks_cancellation.CANCEL_VERIFICATION_UNINTERRUPTED_DELAY_SECONDS,
+        )
+        self.assertGreater(
+            tasks_cancellation.CANCEL_VERIFICATION_UNINTERRUPTED_DELAY_SECONDS,
+            temporal_constants.LONGEST_BLOCKING_ACTIVITY_TIMEOUT.total_seconds(),
         )
 
     @patch("products.tasks.backend.facade.api.create_sandbox_connection_token", return_value="token")
@@ -6918,7 +6954,7 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
 
     def test_force_terminalize_cancels_run_the_workflow_never_acted_on(self):
         task = self.create_task()
-        run = self._create_run(task, state={"cancel_source": "api"})
+        run = self._create_run(task, state={"cancel_source": "api", "wizard_config": {}})
         handle = MagicMock()
         handle.terminate = AsyncMock()
 
@@ -6946,7 +6982,7 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
 
     def test_force_terminalize_leaves_the_run_alone_when_the_workflow_cannot_be_terminated(self):
         task = self.create_task()
-        run = self._create_run(task, state={"cancel_source": "api", "sandbox_id": "sandbox-1"})
+        run = self._create_run(task, state={"cancel_source": "api", "sandbox_id": "sandbox-1", "wizard_config": {}})
         handle = MagicMock()
         handle.terminate = AsyncMock(side_effect=RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b""))
 
@@ -6968,6 +7004,25 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
         self.assertEqual(outcome, "unavailable")
         mock_cleanup.assert_not_called()
         publish_complete.assert_not_called()
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.IN_PROGRESS)
+        self.assertIsNone(run.completed_at)
+
+    def test_force_terminalize_leaves_a_non_wizard_run_alone(self):
+        # terminate() skips the workflow's finally, so it costs the resume snapshot, the sandbox
+        # log read and the Slack update. Only a wizard run is worth that: onboarding has no way
+        # past a run stuck non-terminal, while any other run stays steerable and its inactivity
+        # timeout terminalizes it.
+        task = self.create_task()
+        run = self._create_run(task, state={"cancel_source": "api"})
+
+        with patch("products.tasks.backend.facade.cancellation.sync_connect") as mock_connect:
+            outcome = tasks_cancellation.force_terminalize_cancelled_run(
+                run.id, task.id, self.team.id, reason="Stopped by user"
+            )
+
+        self.assertEqual(outcome, "not_needed")
+        mock_connect.assert_not_called()
         run.refresh_from_db()
         self.assertEqual(run.status, TaskRun.Status.IN_PROGRESS)
         self.assertIsNone(run.completed_at)
@@ -7015,7 +7070,7 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
 
     def test_force_terminalize_reports_unavailable_when_the_stream_stays_open(self):
         task = self.create_task()
-        run = self._create_run(task, state={"cancel_source": "api"})
+        run = self._create_run(task, state={"cancel_source": "api", "wizard_config": {}})
         handle = MagicMock()
         handle.terminate = AsyncMock()
 
