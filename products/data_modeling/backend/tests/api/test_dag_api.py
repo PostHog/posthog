@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from posthog.test.base import APIBaseTest
 from unittest import mock
 
@@ -218,15 +220,18 @@ class TestDAGViewSet(APIBaseTest):
             "products.data_modeling.backend.presentation.views.dag.tiered_schedules_enabled",
             return_value=True,
         ):
+            # The frontend spreads the whole DAG into the PATCH, echoing the current
+            # sync_frequency back unchanged — that echo must not trip the tiered rejection.
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/data_modeling_dags/{dag.id}/",
-                {"name": "renamed", "description": "still editable"},
+                {"name": "renamed", "description": "still editable", "sync_frequency": "24hour"},
             )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         dag.refresh_from_db()
         self.assertEqual(dag.name, "renamed")
         self.assertEqual(dag.description, "still editable")
+        self.assertEqual(dag.sync_frequency_interval, timedelta(days=1))
 
     def test_can_set_sync_frequency_on_non_tiered_team(self):
         dag = DAG.objects.create(team=self.team, name="my_dag")

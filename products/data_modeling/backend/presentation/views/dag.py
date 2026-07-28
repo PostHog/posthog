@@ -110,10 +110,15 @@ class DAGSerializer(serializers.ModelSerializer):
         sync_frequency = validated_data.pop("sync_frequency", None)
         if sync_frequency is not None:
             if self.context.get("frequency_managed_by_nodes", False):
-                raise serializers.ValidationError(
-                    "Sync frequency is managed per model on this team. Edit each model's sync frequency instead."
-                )
-            validated_data["sync_frequency_interval"] = sync_frequency_to_sync_frequency_interval(sync_frequency)
+                # The frontend spreads the whole DAG into every PATCH, so an unchanged
+                # echo of the current frequency must pass; only a real change is rejected.
+                current = sync_frequency_interval_to_sync_frequency(instance.sync_frequency_interval)
+                if sync_frequency != current:
+                    raise serializers.ValidationError(
+                        "Sync frequency is managed per model on this team. Edit each model's sync frequency instead."
+                    )
+            else:
+                validated_data["sync_frequency_interval"] = sync_frequency_to_sync_frequency_interval(sync_frequency)
         return super().update(instance, validated_data)
 
 
