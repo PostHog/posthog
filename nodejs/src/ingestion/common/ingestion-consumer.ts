@@ -9,11 +9,10 @@ import { IngestionConsumerConfig } from '~/ingestion/config'
 import { BatchResult, FeedResult } from '~/ingestion/framework/batching-pipeline'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { OkResultWithContext } from '~/ingestion/framework/pipeline.interface'
-import { TopHog } from '~/ingestion/framework/tophog'
+import { TopHog, TopHogComponent } from '~/ingestion/framework/tophog'
 import { HealthCheckResult, PluginServerService } from '~/types'
 
 import { Scope, extend } from './scopes'
-import { TopHogComponent } from './tophog-component'
 import { KafkaConsumerComponent, KafkaConsumerInterface } from './utils/kafka-consumer'
 import { PromiseScheduler } from './utils/promise-scheduler'
 
