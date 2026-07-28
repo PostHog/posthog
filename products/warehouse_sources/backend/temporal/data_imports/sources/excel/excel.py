@@ -146,14 +146,21 @@ def dedupe_headers(header: tuple) -> list[str]:
     """
     names: list[str] = []
     used: set[str] = set()
+    # Restarting the suffix probe at 2 for every repeat is quadratic in the repeat count, which
+    # truncation makes reachable (2,000 headers differing only past the cap share one base) — so the
+    # next candidate suffix is carried per base and only ever moves forward.
+    next_suffix: dict[str, int] = {}
     for index, value in enumerate(header):
         base = str(value).strip() if value is not None and str(value).strip() else f"column_{index + 1}"
         base = base[:MAX_COLUMN_NAME_LENGTH]
         name = base
-        suffix = 2
-        while name in used:
+        if name in used:
+            suffix = next_suffix.get(base, 2)
             name = f"{base}_{suffix}"
-            suffix += 1
+            while name in used:
+                suffix += 1
+                name = f"{base}_{suffix}"
+            next_suffix[base] = suffix + 1
         used.add(name)
         names.append(name)
     return names
