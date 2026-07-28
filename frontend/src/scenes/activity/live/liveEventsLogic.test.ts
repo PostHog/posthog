@@ -83,6 +83,15 @@ describe('liveEventsLogic', () => {
     })
 
     describe('stream URL property filters', () => {
+        it('uses event types scoped by the consumer', () => {
+            logic.unmount()
+            logic = liveEventsLogic({ eventTypes: ['$mcp_initialize', '$mcp_tool_call'] })
+            logic.mount()
+            logic.actions.updateEventsConnection()
+
+            expect(lastStreamUrl().searchParams.get('eventType')).toBe('$mcp_initialize,$mcp_tool_call')
+        })
+
         it.each([
             {
                 label: 'emits legacy property= params and drops non-exact operators',

@@ -15,6 +15,7 @@ import type { LiveEvent } from '~/types'
 import { mcpAnalyticsOnboardingLogic } from '../mcpAnalyticsOnboardingLogic'
 
 export const MCP_ANALYTICS_DOCS_URL = 'https://posthog.com/docs/mcp-analytics'
+const MCP_ANALYTICS_EVENT_TYPES = ['$mcp_initialize', '$mcp_tool_call', '$mcp_missing_capability']
 
 export interface MCPAnalyticsLiveEventRow {
     uuid: string
@@ -23,11 +24,14 @@ export interface MCPAnalyticsLiveEventRow {
 }
 
 export function liveEventRows(events: LiveEvent[]): MCPAnalyticsLiveEventRow[] {
-    return events.slice(0, 5).map((event) => ({
-        uuid: event.uuid,
-        event: event.event,
-        receivedAt: dayjs(event.created_at || event.timestamp).format('HH:mm:ss'),
-    }))
+    return events
+        .filter((event) => event.event.startsWith('$mcp_'))
+        .slice(0, 5)
+        .map((event) => ({
+            uuid: event.uuid,
+            event: event.event,
+            receivedAt: dayjs(event.created_at || event.timestamp).format('HH:mm:ss'),
+        }))
 }
 
 export function useMCPAnalyticsWizardCommand(): { command: string; isCloudOrDev: boolean } {
@@ -102,7 +106,9 @@ export function MCPAnalyticsLiveEvents({ events }: { events: LiveEvent[] }): JSX
 
 export function MCPOnboardingLiveStatus(): JSX.Element {
     const { onboardingState } = useValues(mcpAnalyticsOnboardingLogic)
-    const { events } = useValues(liveEventsLogic({ showLiveStreamErrorToast: false }))
+    const { events } = useValues(
+        liveEventsLogic({ showLiveStreamErrorToast: false, eventTypes: MCP_ANALYTICS_EVENT_TYPES })
+    )
 
     return (
         <div className="flex w-full flex-col items-center gap-3">
