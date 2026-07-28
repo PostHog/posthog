@@ -388,6 +388,7 @@ export function TaxonomicFilterMenu({
             const mergedItem = extra
                 ? ({ ...(entry.item as unknown as object), ...extra } as unknown as TaxonomicDefinitionTypes)
                 : entry.item
+            // Curated groups can mix event and person properties, so consumers need the group declared by the item.
             const declaredGroupType =
                 mergedItem && typeof mergedItem === 'object' && 'group' in mergedItem ? mergedItem.group : undefined
             const committedGroup = groups.find((group) => group.type === declaredGroupType) ?? entry.group

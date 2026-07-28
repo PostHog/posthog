@@ -35,16 +35,10 @@ const GROUP_TYPES = [
     TaxonomicFilterGroupType.HogQLExpression,
 ]
 
-function renderInputTriggerMenu({
-    groupTypes = GROUP_TYPES,
-    onChange = jest.fn(),
-}: {
-    groupTypes?: TaxonomicFilterGroupType[]
-    onChange?: jest.Mock
-} = {}): ReturnType<typeof render> {
+function renderInputTriggerMenu(): ReturnType<typeof render> {
     return render(
         <Provider>
-            <TaxonomicFilterHeadless.Root taxonomicGroupTypes={groupTypes} onChange={onChange}>
+            <TaxonomicFilterHeadless.Root taxonomicGroupTypes={GROUP_TYPES} onChange={jest.fn()}>
                 <TaxonomicFilterMenu triggerVariant="input" />
             </TaxonomicFilterHeadless.Root>
         </Provider>
@@ -123,10 +117,19 @@ describe('TaxonomicFilterMenu input trigger', () => {
 
     it('commits curated properties through their declared canonical group', async () => {
         const onChange = jest.fn()
-        renderInputTriggerMenu({
-            groupTypes: [TaxonomicFilterGroupType.ErrorTrackingProperties, TaxonomicFilterGroupType.EventProperties],
-            onChange,
-        })
+        render(
+            <Provider>
+                <TaxonomicFilterHeadless.Root
+                    taxonomicGroupTypes={[
+                        TaxonomicFilterGroupType.ErrorTrackingProperties,
+                        TaxonomicFilterGroupType.EventProperties,
+                    ]}
+                    onChange={onChange}
+                >
+                    <TaxonomicFilterMenu triggerVariant="input" />
+                </TaxonomicFilterHeadless.Root>
+            </Provider>
+        )
 
         await userEvent.click(screen.getByTestId('taxonomic-filter-menu-input'))
         const searchInput = await screen.findByTestId('menu-filter-search')
