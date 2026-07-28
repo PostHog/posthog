@@ -98,6 +98,7 @@
         "@posthog/siphash": "1.1.1",
         "@pyroscope/nodejs": "^0.4.8",
         "@segment/action-destinations": "3.387.0",
+        "@smithy/node-http-handler": "4.4.9",
         "@temporalio/activity": "1.15.0",
         "@temporalio/client": "1.15.0",
         "@temporalio/common": "1.15.0",

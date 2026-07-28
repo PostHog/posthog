@@ -133,7 +133,6 @@ export enum Scene {
     PropertyDefinitions = 'PropertyDefinitions',
     PropertyDefinitionEdit = 'PropertyDefinitionEdit',
     QueryPerformance = 'QueryPerformance',
-    Quickstart = 'Quickstart',
     Replay = 'Replay',
     ReplayFilePlayback = 'ReplayFilePlayback',
     ReplayPlaylist = 'ReplayPlaylist',
@@ -346,6 +345,11 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     // Insights
     [Scene.Insight]: AccessControlResourceType.Insight,
     [Scene.SavedInsights]: AccessControlResourceType.Insight,
+
+    // Heatmaps
+    [Scene.Heatmaps]: AccessControlResourceType.Heatmap,
+    [Scene.Heatmap]: AccessControlResourceType.Heatmap,
+    [Scene.HeatmapNew]: AccessControlResourceType.Heatmap,
 
     // Notebooks
     [Scene.Notebook]: AccessControlResourceType.Notebook,

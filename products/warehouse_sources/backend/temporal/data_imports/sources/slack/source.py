@@ -324,10 +324,19 @@ Prefer a manifest? Paste this when creating the app — it wires the request URL
         try:
             access_token, _authed_user, _cache_id = self._resolve_access_token(config, team_id)
 
-            if validate_slack_credentials(access_token):
+            is_valid, error_code = validate_slack_credentials(access_token)
+            if is_valid:
                 return True, None
 
-            return False, "Invalid Slack credentials"
+            if error_code is None:
+                return False, "Couldn't reach Slack to verify your credentials. Please try again in a moment."
+
+            # Reuse the per-error copy already curated for the sync path so create-time and
+            # sync-time messages stay consistent (e.g. missing_scope is a re-auth, not a bad token).
+            message = self.get_non_retryable_errors().get(error_code)
+            if message:
+                return False, message
+            return False, f"Slack rejected the credentials ({error_code}). Please reconnect the source."
         except Exception as e:
             return False, f"Failed to validate Slack credentials: {str(e)}"
 

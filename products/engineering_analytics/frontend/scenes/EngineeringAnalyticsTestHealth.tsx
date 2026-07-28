@@ -42,11 +42,8 @@ import {
     QuarantineModeFilter,
     engineeringAnalyticsLogic,
     flakyEvidenceReason,
+    isTestRunner,
 } from './engineeringAnalyticsLogic'
-
-// Runners with an enforcement adapter; mirrors ADAPTED_RUNNERS in the quarantine
-// contract (tools/hogli-commands/hogli_commands/quarantine/core.py), which the frontend can't import.
-const ENFORCED_RUNNERS = ['pytest', 'jest', 'playwright']
 
 function relativeExpiry(daysUntilExpiry: number): string {
     if (daysUntilExpiry === 0) {
@@ -85,7 +82,7 @@ function ModeTag({ mode }: { mode: QuarantineEntryRow['mode'] }): JSX.Element {
         )
     }
     return (
-        <Tooltip title="Runs as xfail: the test still executes but cannot fail the suite.">
+        <Tooltip title="Runs: the test still executes but cannot fail the suite.">
             <LemonTag type="muted">Runs, can't fail</LemonTag>
         </Tooltip>
     )
@@ -358,7 +355,7 @@ const FLAKY_CLASSIFICATION: Record<FlakyTestClassification, { label: string; typ
     quarantined: {
         label: 'Quarantined, still failing',
         type: 'muted',
-        tooltip: 'Already masked as xfail in CI and still failing. Fix it, then remove the quarantine.',
+        tooltip: 'Already masked in CI with a tolerated failure recorded. Fix it, then remove the quarantine.',
     },
 }
 
@@ -402,9 +399,9 @@ function ActiveTestHealthQueue(): JSX.Element {
                         </span>
                     )}
                     {row.quarantinedFailedRunCount > 0 && (
-                        <span>Failed in {pluralize(row.quarantinedFailedRunCount, 'quarantined run')} (xfail)</span>
+                        <span>Failed in {pluralize(row.quarantinedFailedRunCount, 'quarantined run')}</span>
                     )}
-                    {/* An xfail row has no recovery question to answer: it is masked, not racing. */}
+                    {/* A quarantined row has no recovery question to answer: it is masked, not racing. */}
                     {row.classification !== 'quarantined' && (
                         <span className="text-secondary">
                             {row.sameCommitRecoveryRunCount > 0
@@ -445,6 +442,7 @@ function ActiveTestHealthQueue(): JSX.Element {
                             openQuarantineModal({
                                 action: 'quarantine',
                                 selector: row.selector,
+                                runner: row.runner,
                                 // The evidence is the reason; the cause is the tracking issue's job to find.
                                 reason: flakyEvidenceReason(row, flakyTestWindow),
                                 owner: '',
@@ -467,8 +465,8 @@ function ActiveTestHealthQueue(): JSX.Element {
                 <div className="flex flex-col gap-0.5">
                     <h3 className="m-0 text-base font-semibold">Active test health queue</h3>
                     <p className="m-0 text-xs text-tertiary">
-                        Backend tests worth acting on now, ranked by blast radius: how many PRs they broke and how often
-                        they broke master.
+                        CI tests worth acting on now, ranked by blast radius: how many PRs they broke and how often they
+                        broke master.
                     </p>
                 </div>
                 <LemonSegmentedButton
@@ -491,7 +489,7 @@ function ActiveTestHealthQueue(): JSX.Element {
                         size="small"
                         columns={columns}
                         dataSource={flakyTests?.rows ?? []}
-                        rowKey={(row) => row.nodeid}
+                        rowKey={(row) => `${row.runner}:${row.nodeid}`}
                         loading={flakyTestsLoading}
                         pagination={{ pageSize: 10 }}
                         useURLForSorting={false}
@@ -565,17 +563,30 @@ function QuarantineRegister(): JSX.Element {
     } = useActions(engineeringAnalyticsLogic)
 
     const openNewQuarantine = (): void =>
-        openQuarantineModal({ action: 'quarantine', selector: '', reason: '', owner: '', issue: '', mode: 'run' })
+        openQuarantineModal({
+            action: 'quarantine',
+            selector: '',
+            runner: 'pytest',
+            reason: '',
+            owner: '',
+            issue: '',
+            mode: 'run',
+        })
 
-    const openExtend = (row: QuarantineEntryRow): void =>
+    const openExtend = (row: QuarantineEntryRow): void => {
+        if (!isTestRunner(row.runner)) {
+            return
+        }
         openQuarantineModal({
             action: 'extend',
             selector: row.id,
+            runner: row.runner,
             reason: row.reason,
             owner: row.owner,
             issue: row.issue,
             mode: row.mode,
         })
+    }
 
     const confirmRemove = (row: QuarantineEntryRow): void => {
         LemonDialog.open({
@@ -653,7 +664,7 @@ function QuarantineRegister(): JSX.Element {
             title: 'Selector',
             key: 'id',
             render: (_, row) => {
-                const isEnforced = ENFORCED_RUNNERS.includes(row.runner)
+                const isEnforced = isTestRunner(row.runner)
                 return (
                     <div className="flex max-w-[28rem] flex-col gap-0.5">
                         <Tooltip title={row.id}>
@@ -759,7 +770,13 @@ function QuarantineRegister(): JSX.Element {
             render: (_, row) => (
                 <LemonMenu
                     items={[
-                        { label: 'Extend…', onClick: () => openExtend(row) },
+                        {
+                            label: 'Extend…',
+                            onClick: () => openExtend(row),
+                            disabledReason: isTestRunner(row.runner)
+                                ? undefined
+                                : `Runner '${row.runner}' is not supported here`,
+                        },
                         { label: 'Remove…', status: 'danger', onClick: () => confirmRemove(row) },
                         ...(row.issue ? [{ label: 'Open issue', to: row.issue, targetBlank: true }] : []),
                     ]}
