@@ -47,7 +47,7 @@ describe('AIObservabilityDigestScoutButton', () => {
             </Provider>
         )
 
-        expect(Boolean(screen.queryByRole('button', { name: 'Create daily digest' }))).toBe(visible)
+        expect(Boolean(screen.queryByText('Create daily digest'))).toBe(visible)
     })
 
     it('prefills a daily 9 a.m. scout that reviews canonical AI observability data and always produces one digest', () => {
