@@ -2,6 +2,8 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -30,8 +32,26 @@ describe('uiCustomizationLogic', () => {
             },
         })
         initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.UI_CUSTOMIZATION], {
+            [FEATURE_FLAGS.UI_CUSTOMIZATION]: true,
+        })
         logic = uiCustomizationLogic()
         logic.mount()
+    })
+
+    it('ignores stored configuration while the customization flag is off', () => {
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        seedUser({
+            version: 1,
+            sidebar: {
+                sections: { recents: { visible: false } },
+                items: { data: { visible: false } },
+            },
+        })
+
+        expect(logic.values.isSidebarItemShown('data')).toBe(true)
+        expect(logic.values.isSidebarSectionShown('recents')).toBe(true)
     })
 
     it('shows everything when the user has no configuration', () => {

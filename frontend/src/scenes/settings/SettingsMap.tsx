@@ -2026,6 +2026,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'user',
         id: 'user-navigation',
         title: 'Navigation',
+        flag: 'UI_CUSTOMIZATION',
         settings: [
             {
                 id: 'homepage',

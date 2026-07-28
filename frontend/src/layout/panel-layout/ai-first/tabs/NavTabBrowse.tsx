@@ -5,6 +5,7 @@ import { Fragment } from 'react'
 
 import {
     IconApps,
+    IconCheck,
     IconChevronRight,
     IconClock,
     IconDatabase,
@@ -13,6 +14,7 @@ import {
     IconGear,
     IconHome,
     IconNotification,
+    IconPencil,
     IconSearch,
     IconStar,
 } from '@posthog/icons'
@@ -36,6 +38,7 @@ import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { NavLink } from '~/layout/panel-layout/ai-first/NavLink'
 import { PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -48,6 +51,7 @@ import { ActivityTab } from '~/types'
 
 import { BrowserLikeMenuItems } from '../../ProjectTree/menus/BrowserLikeMenuItems'
 import { PanelIndicatorIcon, SectionTrigger } from '../Nav'
+import { editToolsLogic } from './editToolsLogic'
 import { navRecentsLogic } from './navRecentsLogic'
 
 const panelTriggerItems: {
@@ -174,7 +178,11 @@ export function NavTabBrowse(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
     const { recentItems, recentItemsLoading } = useValues(navRecentsLogic)
-    const { isSidebarSectionShown, isSidebarItemShown } = useValues(uiCustomizationLogic)
+    const { isSidebarSectionShown, isSidebarItemShown, uiCustomizationEnabled } = useValues(uiCustomizationLogic)
+    // Flag-off path: the pre-customization edit mode and home modal.
+    const { isEditMode, checkedTools } = useValues(editToolsLogic)
+    const { enterEditMode, saveAndExitEditMode, toggleTool } = useActions(editToolsLogic)
+    const { showConfigureHomeModal } = useActions(navigationLogic)
     const { toggleCommand } = useActions(commandLogic)
     const showToolsSearchRow = featureFlags[FEATURE_FLAGS.CMD_K_NAV_EXPERIMENT] === 'tools-row' && !isLayoutNavCollapsed
     const currentPath = removeProjectIdIfPresent(pathname)
@@ -227,7 +235,10 @@ export function NavTabBrowse(): JSX.Element {
                             data-attr="nav-item-home"
                             onClick={() => posthog.capture('nav item clicked', { item: 'home' })}
                             sideAction={{
-                                onClick: () => router.actions.push(urls.settings('user-navigation', 'homepage')),
+                                onClick: () =>
+                                    uiCustomizationEnabled
+                                        ? router.actions.push(urls.settings('user-navigation', 'homepage'))
+                                        : showConfigureHomeModal(),
                                 tooltip: 'Configure home',
                                 'data-attr': 'nav-configure-home',
                             }}
@@ -257,6 +268,8 @@ export function NavTabBrowse(): JSX.Element {
 
                     <div className={cn('flex flex-col gap-px', isLayoutNavCollapsed && 'items-center')}>
                         {panelTriggerItems
+                            // Starred only joined the trigger list with customization; keep the old layout without it.
+                            .filter((item) => uiCustomizationEnabled || item.configKey !== 'starred')
                             .filter((item) => projectSectionShown && isSidebarItemShown(item.configKey))
                             .map((item) => {
                                 const isActive =
@@ -418,29 +431,66 @@ export function NavTabBrowse(): JSX.Element {
                 >
                     <div className="relative">
                         <SectionTrigger icon={<IconApps />} label="My Tools" isCollapsed={isLayoutNavCollapsed} />
-                        {expandedNavSections.tools && (
-                            <Link
-                                to={urls.settings('user-navigation')}
-                                tooltip="Choose which tools to show in the sidebar"
-                                tooltipPlacement="top"
-                                onClick={() => posthog.capture('nav tools customize clicked')}
-                                buttonProps={{
-                                    iconOnly: true,
-                                    size: 'xs',
-                                    className: 'absolute right-1 top-0 bottom-0 my-auto rounded-[var(--radius)] z-5',
-                                }}
-                                data-attr="nav-tools-customize-button"
-                            >
-                                <IconGear className="size-3 text-secondary" />
-                            </Link>
-                        )}
+                        {expandedNavSections.tools &&
+                            (uiCustomizationEnabled ? (
+                                <Link
+                                    to={urls.settings('user-navigation')}
+                                    tooltip="Choose which tools to show in the sidebar"
+                                    tooltipPlacement="top"
+                                    onClick={() => posthog.capture('nav tools customize clicked')}
+                                    buttonProps={{
+                                        iconOnly: true,
+                                        size: 'xs',
+                                        className:
+                                            'absolute right-1 top-0 bottom-0 my-auto rounded-[var(--radius)] z-5',
+                                    }}
+                                    data-attr="nav-tools-customize-button"
+                                >
+                                    <IconGear className="size-3 text-secondary" />
+                                </Link>
+                            ) : (
+                                <ButtonPrimitive
+                                    iconOnly
+                                    size="xs"
+                                    tooltip={isEditMode ? 'Save' : 'Choose which tools to show in the sidebar'}
+                                    tooltipPlacement="top"
+                                    onClick={() => {
+                                        if (isEditMode) {
+                                            posthog.capture('nav tools edit saved')
+                                            saveAndExitEditMode()
+                                        } else {
+                                            posthog.capture('nav tools edit toggled', { is_editing: true })
+                                            enterEditMode()
+                                        }
+                                    }}
+                                    data-attr="nav-tools-edit-button"
+                                    className="absolute right-1 top-0 bottom-0 my-auto rounded-[var(--radius)] z-5"
+                                >
+                                    {isEditMode ? (
+                                        <IconCheck className="size-3 text-primary" />
+                                    ) : (
+                                        <IconPencil className="size-3 text-secondary" />
+                                    )}
+                                </ButtonPrimitive>
+                            ))}
                     </div>
                     <Collapsible.Panel className="-ml-2 pl-3 pr-1 w-[calc(100%+(var(--spacing)*4))]">
                         {(expandedNavSections.tools ?? false) && (
                             <ProjectTree
-                                root="custom-products://"
+                                root={!uiCustomizationEnabled && isEditMode ? 'products://' : 'custom-products://'}
                                 onlyTree
                                 treeSize={isLayoutNavCollapsed ? 'narrow' : 'default'}
+                                selectModeOverride={!uiCustomizationEnabled && isEditMode ? 'multi' : undefined}
+                                checkedItemsOverride={!uiCustomizationEnabled && isEditMode ? checkedTools : undefined}
+                                onItemCheckedOverride={
+                                    !uiCustomizationEnabled && isEditMode
+                                        ? (id) => {
+                                              // Tree item IDs for products:// are "products/{path}"
+                                              const toolPath = id.replace(/^products\//, '')
+                                              toggleTool(toolPath)
+                                          }
+                                        : undefined
+                                }
                             />
                         )}
                     </Collapsible.Panel>

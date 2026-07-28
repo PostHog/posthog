@@ -196,7 +196,7 @@ def default_ui_configuration_for_new_users() -> dict[str, Any]:
         "version": 1,
         "sidebar": {
             "items": {
-                "data": {"visible": False},
+                "files": {"visible": False},
                 "starred": {"visible": False},
             },
         },

@@ -4,10 +4,12 @@ import { LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
 
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { PRODUCT_BRANDING } from 'scenes/welcome/productBranding'
 
 import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
 import { getDefaultTreeProducts, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { getCategoryOrder } from '~/layout/panel-layout/ProjectTree/utils'
 import {
     SIDEBAR_CUSTOMIZABLE_FOOTER_ITEMS,
     SIDEBAR_CUSTOMIZABLE_SECTIONS,
@@ -72,6 +74,7 @@ export function SidebarItemsSetting(): JSX.Element {
             return (
                 <LemonSwitch
                     key={item.label}
+                    className="py-2"
                     checked={true}
                     disabledReason={`${item.label} always stays visible`}
                     label={<ItemLabel icon={item.icon} label={item.label} description={item.description} />}
@@ -84,6 +87,7 @@ export function SidebarItemsSetting(): JSX.Element {
         return (
             <LemonSwitch
                 key={key}
+                className="py-2"
                 checked={isSidebarItemShown(key)}
                 onChange={(checked) => setSidebarItemShown(key, checked)}
                 loading={userLoading}
@@ -106,6 +110,7 @@ export function SidebarItemsSetting(): JSX.Element {
                 return (
                     <div key={section.key} className="flex flex-col gap-2">
                         <LemonSwitch
+                            className="py-2"
                             checked={sectionShown}
                             onChange={(checked) => setSidebarSectionShown(section.key, checked)}
                             loading={userLoading}
@@ -148,9 +153,9 @@ export function SidebarMyToolsSetting(): JSX.Element {
     const { setToolEnabled } = useActions(customProductsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const products = getDefaultTreeProducts().filter(
-        (product) => !product.flag || (featureFlags as Record<string, boolean | string>)[product.flag]
-    )
+    const products = getDefaultTreeProducts()
+        .filter((product) => !product.flag || (featureFlags as Record<string, boolean | string>)[product.flag])
+        .filter((product) => !getProductAccessDisabledReason(product))
     const productsByCategory = new Map<string, FileSystemImport[]>()
     for (const product of products) {
         const category = product.category || 'Other'
@@ -159,16 +164,35 @@ export function SidebarMyToolsSetting(): JSX.Element {
         }
         productsByCategory.get(category)?.push(product)
     }
+    // Mirror the sidebar tree ordering: hardcoded category order, then visualOrder, then name.
+    const sortProducts = (a: FileSystemImport, b: FileSystemImport): number => {
+        if (a.visualOrder !== undefined && b.visualOrder !== undefined) {
+            return a.visualOrder - b.visualOrder
+        }
+        if (a.visualOrder !== undefined) {
+            return -1
+        }
+        if (b.visualOrder !== undefined) {
+            return 1
+        }
+        return (a.displayLabel ?? a.path).localeCompare(b.displayLabel ?? b.path, undefined, {
+            sensitivity: 'accent',
+        })
+    }
 
     return (
         // The colorful-product-icons group class turns on each tool's brand color, as in the navbar.
         <div className="flex flex-col gap-4 max-w-160 group/colorful-product-icons colorful-product-icons-true">
             {[...productsByCategory.entries()]
-                .sort((a, b) => a[0].localeCompare(b[0]))
+                .sort(
+                    (a, b) =>
+                        getCategoryOrder(a[0]) - getCategoryOrder(b[0]) ||
+                        a[0].localeCompare(b[0], undefined, { sensitivity: 'accent' })
+                )
                 .map(([category, categoryProducts]) => (
                     <div key={category} className="flex flex-col gap-2">
                         <LemonLabel>{category}</LemonLabel>
-                        {categoryProducts.map((product) => {
+                        {[...categoryProducts].sort(sortProducts).map((product) => {
                             const description: string | undefined = product.sceneKey
                                 ? productConfiguration[product.sceneKey]?.description
                                 : undefined
@@ -178,6 +202,7 @@ export function SidebarMyToolsSetting(): JSX.Element {
                             return (
                                 <LemonSwitch
                                     key={product.path}
+                                    className="py-2"
                                     checked={enabledToolPaths.has(product.path)}
                                     onChange={(checked) => setToolEnabled(product.path, checked)}
                                     loading={customProductsLoading}

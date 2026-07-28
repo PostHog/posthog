@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -81,6 +82,7 @@ export const customProductsLogic = kea<customProductsLogicType>([
     }),
     listeners(({ actions, values }) => ({
         setToolEnabled: async ({ productPath, enabled }) => {
+            posthog.capture('sidebar my tools changed', { product_path: productPath, enabled })
             // Optimistic update with a placeholder row, replaced by real server data below.
             const now = new Date().toISOString()
             const withoutTool = values.customProducts.filter((item) => item.product_path !== productPath)
