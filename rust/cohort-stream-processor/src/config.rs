@@ -276,8 +276,10 @@ pub struct Config {
     pub cohort_seed_live_lag_resume_ms: i64,
 
     /// Disk gate: pause all seed partitions once the store filesystem's used share reaches
-    /// this (%). `0` disables the trigger.
-    #[envconfig(from = "COHORT_SEED_DISK_PAUSE_PCT", default = "60")]
+    /// this (%). `0` (the default) disables the trigger: pausing seeds cannot shrink a store
+    /// grown by the live path, so a threshold below the steady-state footprint would engage and
+    /// never release. Opt in per deployment once the utilization gauge has baseline history.
+    #[envconfig(from = "COHORT_SEED_DISK_PAUSE_PCT", default = "0")]
     pub cohort_seed_disk_pause_pct: f64,
 
     /// Resume disk-paused seed partitions once the used share drops below this (%). Must be
@@ -728,7 +730,8 @@ impl Config {
         }
     }
 
-    /// Refuse unsafe durability startup combinations. Pure (no I/O), so unit-testable without a broker.
+    /// Refuse unsafe startup combinations (durability, reconcile, and pacing knobs). Pure
+    /// (no I/O), so unit-testable without a broker.
     ///
     /// Guards:
     /// - Reconcile scan and tick limits must be non-zero; a zero page would falsely certify an
@@ -737,7 +740,7 @@ impl Config {
     ///   on open, silently discarding the restore.
     /// - `durable_restore_enabled` + `cohort_cascade_enabled` requires `durable_restore_single_pod`
     ///   and a pod identity: `pod_identity()` alone is not a single-pod signal (set on every k8s pod).
-    pub fn validate_durability_startup(&self) -> anyhow::Result<()> {
+    pub fn validate_startup(&self) -> anyhow::Result<()> {
         ensure!(
             self.cohort_seed_reconcile_scan_page > 0,
             "COHORT_SEED_RECONCILE_SCAN_PAGE must be greater than zero.",
@@ -1150,7 +1153,7 @@ mod tests {
         let mut config = test_config();
         config.cohort_seed_reconcile_scan_page = 0;
         assert!(config
-            .validate_durability_startup()
+            .validate_startup()
             .unwrap_err()
             .to_string()
             .contains("COHORT_SEED_RECONCILE_SCAN_PAGE"),);
@@ -1158,7 +1161,7 @@ mod tests {
         config.cohort_seed_reconcile_scan_page = 1;
         config.cohort_seed_reconcile_tick_interval_ms = 0;
         assert!(config
-            .validate_durability_startup()
+            .validate_startup()
             .unwrap_err()
             .to_string()
             .contains("COHORT_SEED_RECONCILE_TICK_INTERVAL_MS"),);
@@ -1170,7 +1173,7 @@ mod tests {
         config.cohort_seed_reconcile_enabled = true;
         config.cohort_seed_consumer_enabled = false;
 
-        assert!(config.validate_durability_startup().is_ok());
+        assert!(config.validate_startup().is_ok());
     }
 
     /// A flapping (inverted/equal) threshold pair or a never-releasing resume must be refused at
@@ -1209,12 +1212,20 @@ mod tests {
         for (expected, mutate) in cases {
             let mut config = test_config();
             mutate(&mut config);
-            let err = config
-                .validate_durability_startup()
-                .unwrap_err()
-                .to_string();
+            let err = config.validate_startup().unwrap_err().to_string();
             assert!(err.contains(expected), "expected {expected:?} in {err:?}");
         }
+    }
+
+    /// The env defaults must ship the disk gate dark: it can engage on deployments that already
+    /// run the seed consumer, and a threshold below the store's steady-state footprint would
+    /// never release.
+    #[test]
+    fn seed_pacing_env_defaults_enable_live_lag_and_disable_disk() {
+        let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
+        let pacing = defaults.seed_pacing_config().unwrap();
+        assert!(pacing.live_lag.is_some());
+        assert!(pacing.disk.is_none());
     }
 
     #[test]
@@ -1229,7 +1240,7 @@ mod tests {
         let pacing = config.seed_pacing_config().unwrap();
         assert!(pacing.live_lag.is_none());
         assert!(pacing.disk.is_none());
-        assert!(config.validate_durability_startup().is_ok());
+        assert!(config.validate_startup().is_ok());
     }
 
     #[test]
@@ -1583,14 +1594,14 @@ mod tests {
 
     #[test]
     fn durability_startup_guard_passes_for_the_default_config() {
-        assert!(test_config().validate_durability_startup().is_ok());
+        assert!(test_config().validate_startup().is_ok());
     }
 
     #[test]
     fn durability_startup_guard_passes_for_a_plain_durable_restore() {
         let mut config = test_config();
         config.durable_restore_enabled = true;
-        assert!(config.validate_durability_startup().is_ok());
+        assert!(config.validate_startup().is_ok());
     }
 
     #[test]
@@ -1600,7 +1611,7 @@ mod tests {
         config.cohort_cascade_enabled = true;
         config.pod_name = Some("pod-0".to_string());
         let err = config
-            .validate_durability_startup()
+            .validate_startup()
             .expect_err("durable + cascade without the opt-in must be refused");
         assert!(
             err.to_string().contains("DURABLE_RESTORE_SINGLE_POD"),
@@ -1617,7 +1628,7 @@ mod tests {
         config.pod_name = None;
         config.pod_hostname = None;
         assert!(
-            config.validate_durability_startup().is_err(),
+            config.validate_startup().is_err(),
             "single-pod opt-in without a pod identity must still refuse the combo",
         );
     }
@@ -1630,7 +1641,7 @@ mod tests {
         config.durable_restore_single_pod = true;
         config.pod_name = Some("cohort-stream-processor-0".to_string());
         assert!(
-            config.validate_durability_startup().is_ok(),
+            config.validate_startup().is_ok(),
             "durable + cascade is allowed on a single-pod static-membership deploy",
         );
     }
@@ -1641,7 +1652,7 @@ mod tests {
         config.checkpoint_enabled = true;
         config.durable_restore_enabled = false;
         let err = config
-            .validate_durability_startup()
+            .validate_startup()
             .expect_err("checkpoint without durable restore must be refused");
         assert!(
             err.to_string().contains("DURABLE_RESTORE_ENABLED"),
@@ -1654,7 +1665,7 @@ mod tests {
         let mut config = test_config();
         config.checkpoint_enabled = true;
         config.durable_restore_enabled = true;
-        assert!(config.validate_durability_startup().is_ok());
+        assert!(config.validate_startup().is_ok());
     }
 
     #[test]

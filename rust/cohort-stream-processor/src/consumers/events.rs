@@ -1457,17 +1457,21 @@ pub(crate) async fn run_pauser_loop(
         let to_pause: Vec<i32> = target.iter().copied().collect();
         let to_resume: Vec<i32> = applied.difference(&target).copied().collect();
         // Run the blocking FFI off the worker threads, awaited serially so updates keep their
-        // order.
+        // order. `applied` advances only on success: a failed task means the resumes were never
+        // issued, and dropping those partitions from `applied` would exclude them from every
+        // future resume set.
         let ffi_pauser = pauser.clone();
         let applied_ffi = tokio::task::spawn_blocking(move || {
             ffi_pauser.pause(&to_pause);
             ffi_pauser.resume(&to_resume);
         })
         .await;
-        if let Err(err) = applied_ffi {
-            warn!(error = %err, "pauser task's blocking pause/resume panicked; the next target update re-asserts");
+        match applied_ffi {
+            Ok(()) => applied = target,
+            Err(err) => {
+                warn!(error = %err, "pauser task's blocking pause/resume panicked; retrying the delta on the next target update");
+            }
         }
-        applied = target;
     }
 }
 

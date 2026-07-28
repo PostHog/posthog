@@ -173,7 +173,8 @@ pub const STORE_ESTIMATE_NUM_KEYS: &str = "store_estimate_num_keys";
 pub const STORE_DISK_TOTAL_BYTES: &str = "store_disk_total_bytes";
 /// Bytes on the store filesystem available to unprivileged writes (`f_bavail`) (gauge).
 pub const STORE_DISK_AVAILABLE_BYTES: &str = "store_disk_available_bytes";
-/// Used share of the store filesystem, 0–100 (gauge). `f_bavail`-based, matching df/kubelet.
+/// Used share of the store filesystem, 0–100 (gauge). `f_bavail`-based like df, so it reads a
+/// few points above kubelet's used/capacity ratio on filesystems with a root reserve.
 /// **Alert on a sustained high level** — RocksDB compaction needs headroom well before disk-full.
 pub const STORE_DISK_UTILIZATION_PCT: &str = "store_disk_utilization_pct";
 /// Failed store-filesystem samples (counter). While failing, the seed disk gate reads no sample
@@ -472,8 +473,8 @@ pub const SEED_REKEY_HOP_CAPPED_TOTAL: &str = "cohort_seed_rekey_hop_capped_tota
 /// The seed commit floor pinned by a sticky offset hold, labelled by `partition` (gauge).
 /// **Alert on a sustained non-zero level.**
 pub const SEED_HELD_OFFSET_GAUGE: &str = "seed_held_offset";
-/// Seed partitions currently held by the fence or a full worker channel (gauge). Live-lag and
-/// disk-pressure holds appear only under [`SEED_PAUSED_PARTITIONS`]'s `cause` label, never here.
+/// Seed partitions currently held for any cause (gauge) — sustained non-zero means tiles are not
+/// landing. [`SEED_PAUSED_PARTITIONS`] carries the per-cause breakdown.
 pub const SEED_FENCED_PARTITIONS: &str = "cohort_seed_fenced_partitions";
 /// How far the watermark trails `s_chunk + margin` per fenced partition (gauge, ms).
 pub const SEED_FENCE_DEFICIT_MS: &str = "cohort_seed_fence_deficit_ms";
@@ -494,6 +495,14 @@ pub const SEED_NO_WATERMARK_PARTITIONS: &str = "cohort_seed_no_watermark_partiti
 /// (gauge, ms). During a long pause this — not the pause age — is the distance to the seed
 /// topic's retention cliff. A missing broker timestamp reads 0.
 pub const SEED_OLDEST_HELD_AGE_MS: &str = "cohort_seed_oldest_held_age_ms";
+/// Wall-clock duration of one idle-probe pass across all owned partitions (histogram, seconds).
+/// Quiet partitions' watermarks advance only per pass, so a slow pass delays fence opens and
+/// live-lag releases alike.
+pub const SEED_IDLE_PROBE_DURATION_SECONDS: &str = "cohort_seed_idle_probe_duration_seconds";
+/// Unix timestamp of the last completed idle-probe pass (gauge, seconds). **Alert on
+/// staleness** — quiet partitions' fences and the live-lag gate both stall when the probe stops.
+pub const SEED_IDLE_PROBE_LAST_PASS_TIMESTAMP_SECONDS: &str =
+    "cohort_seed_idle_probe_last_pass_timestamp_seconds";
 /// Reconcile jobs admitted to partition-local queues (counter).
 pub const RECONCILE_JOBS_ENQUEUED_TOTAL: &str = "cohort_reconcile_jobs_enqueued_total";
 /// Reconcile jobs that emitted their completion marker and released their seed floor (counter).
@@ -775,6 +784,14 @@ mod tests {
             "cohort_seed_no_watermark_partitions"
         );
         assert_eq!(SEED_OLDEST_HELD_AGE_MS, "cohort_seed_oldest_held_age_ms");
+        assert_eq!(
+            SEED_IDLE_PROBE_DURATION_SECONDS,
+            "cohort_seed_idle_probe_duration_seconds"
+        );
+        assert_eq!(
+            SEED_IDLE_PROBE_LAST_PASS_TIMESTAMP_SECONDS,
+            "cohort_seed_idle_probe_last_pass_timestamp_seconds"
+        );
         assert_eq!(
             RECONCILE_JOBS_ENQUEUED_TOTAL,
             "cohort_reconcile_jobs_enqueued_total"

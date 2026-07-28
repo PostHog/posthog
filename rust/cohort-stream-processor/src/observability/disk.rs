@@ -2,17 +2,20 @@
 //!
 //! The [`StoreStatsSweeper`](crate::observability::store_stats::StoreStatsSweeper) samples and
 //! publishes into a [`SharedDiskUtilization`]; the seed consumer reads the latest snapshot each
-//! cycle. `None` (no successful sample yet, or the last sample failed) is **fail-open**: absence
-//! can never pause — a broken probe must never wedge seeding.
+//! cycle. `None` (no successful sample yet, the last sample failed, or the last sample is older
+//! than the staleness bound) is **fail-open**: absence can never pause — a broken or wedged probe
+//! must never wedge seeding.
 
 use std::io;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use arc_swap::ArcSwapOption;
 
 /// One filesystem sample. `available_bytes` is `f_bavail`-based (bytes available to unprivileged
-/// writes), matching df and the kubelet's eviction accounting.
+/// writes), matching df. Kubelet's `used_bytes` is `f_bfree`-based, so on a filesystem with a
+/// root reserve this reads a few points higher than kubelet's used/capacity ratio.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct DiskUtilization {
     pub total_bytes: u64,
@@ -56,18 +59,49 @@ pub fn sample_store_filesystem(_path: &Path) -> io::Result<DiskUtilization> {
     ))
 }
 
-/// The latest disk sample: sweeper-written, seed-consumer-read.
-#[derive(Debug, Default)]
-pub struct SharedDiskUtilization(ArcSwapOption<DiskUtilization>);
+/// The latest disk sample: sweeper-written, seed-consumer-read. A sample older than
+/// `max_sample_age` reads as `None`, so a wedged sweep loop cannot latch the gate on a stale
+/// reading — staleness fails open like any other probe failure.
+#[derive(Debug)]
+pub struct SharedDiskUtilization {
+    sample: ArcSwapOption<StampedSample>,
+    max_sample_age: Duration,
+}
+
+#[derive(Debug)]
+struct StampedSample {
+    utilization: DiskUtilization,
+    sampled_at: Instant,
+}
 
 impl SharedDiskUtilization {
+    pub fn new(max_sample_age: Duration) -> Self {
+        Self {
+            sample: ArcSwapOption::empty(),
+            max_sample_age,
+        }
+    }
+
     /// Publish the newest sample; `None` records a failed sample (fail-open for the gate).
     pub fn publish(&self, sample: Option<DiskUtilization>) {
-        self.0.store(sample.map(Arc::new));
+        self.sample.store(sample.map(|utilization| {
+            Arc::new(StampedSample {
+                utilization,
+                sampled_at: Instant::now(),
+            })
+        }));
     }
 
     pub fn latest(&self) -> Option<DiskUtilization> {
-        self.0.load().as_deref().copied()
+        let sample = self.sample.load();
+        let sample = sample.as_deref()?;
+        (sample.sampled_at.elapsed() < self.max_sample_age).then_some(sample.utilization)
+    }
+}
+
+impl Default for SharedDiskUtilization {
+    fn default() -> Self {
+        Self::new(Duration::from_secs(600))
     }
 }
 
@@ -133,5 +167,17 @@ mod tests {
             None,
             "a failed sample returns to fail-open"
         );
+    }
+
+    /// A wedged sweep loop stops republishing; the last sample must expire into `None` rather
+    /// than latch the gate on a stale reading.
+    #[test]
+    fn a_sample_older_than_the_bound_reads_as_none() {
+        let shared = SharedDiskUtilization::new(Duration::ZERO);
+        shared.publish(Some(DiskUtilization {
+            total_bytes: 50,
+            available_bytes: 10,
+        }));
+        assert_eq!(shared.latest(), None, "at or past the bound is stale");
     }
 }

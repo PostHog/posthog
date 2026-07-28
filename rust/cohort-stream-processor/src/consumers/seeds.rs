@@ -29,6 +29,7 @@ use crate::observability::metrics::{
     COHORT_STREAM_KAFKA_RECV_ERRORS, COHORT_STREAM_SEEDS_CONSUMED,
     COHORT_STREAM_SEEDS_CONSUME_BATCH_SIZE, COHORT_STREAM_SEED_DESERIALIZE_ERRORS,
     LIVE_WATERMARK_AGE_MS, SEED_FENCED_PARTITIONS, SEED_FENCE_DEFICIT_MS,
+    SEED_IDLE_PROBE_DURATION_SECONDS, SEED_IDLE_PROBE_LAST_PASS_TIMESTAMP_SECONDS,
     SEED_NO_WATERMARK_PARTITIONS, SEED_OLDEST_HELD_AGE_MS, SEED_PAUSED_PARTITIONS,
     SEED_PAUSE_AGE_MS,
 };
@@ -438,6 +439,13 @@ fn run_admission_cycle(
         gauge!(SEED_PAUSE_AGE_MS, "partition" => label.clone()).set(0.0);
         gauge!(SEED_OLDEST_HELD_AGE_MS, "partition" => label).set(0.0);
     }
+    // A partition can stay held (live-lag/disk/channel-full) after its fence opens; nothing
+    // rewrites the deficit then, so clear it rather than pin the last fence-closed reading.
+    for &partition in &target {
+        if !pacing.ledger.has_cause(partition, PauseCause::Fence) {
+            gauge!(SEED_FENCE_DEFICIT_MS, "partition" => partition.to_string()).set(0.0);
+        }
+    }
     if (!target.is_empty() || !prev_paused_target.is_empty())
         && pause_tx.send(target.clone()).is_err()
     {
@@ -458,14 +466,7 @@ fn run_admission_cycle(
         gauge!(SEED_PAUSED_PARTITIONS, "cause" => cause.as_str())
             .set(pacing.ledger.count_with(cause) as f64);
     }
-    let fenced = target
-        .iter()
-        .filter(|&&partition| {
-            pacing.ledger.has_cause(partition, PauseCause::Fence)
-                || pacing.ledger.has_cause(partition, PauseCause::ChannelFull)
-        })
-        .count();
-    gauge!(SEED_FENCED_PARTITIONS).set(fenced as f64);
+    gauge!(SEED_FENCED_PARTITIONS).set(holdover.held_partition_count() as f64);
 
     *prev_paused_target = target;
 }
@@ -744,6 +745,7 @@ async fn run_idle_probe_loop(
                 let folded = dispatcher.events_tracker().committable_offsets();
                 let consumer = events_consumer.clone();
                 let topic = events_topic.clone();
+                let pass_started = Instant::now();
                 let probe = tokio::task::spawn_blocking(move || {
                     probe_idle_partitions(consumer.as_ref(), &topic, &owned, &folded)
                 });
@@ -756,7 +758,11 @@ async fn run_idle_probe_loop(
                 };
                 match probed {
                     Ok(idle_partitions) => {
+                        histogram!(SEED_IDLE_PROBE_DURATION_SECONDS)
+                            .record(pass_started.elapsed().as_secs_f64());
                         let now_ms = chrono::Utc::now().timestamp_millis();
+                        gauge!(SEED_IDLE_PROBE_LAST_PASS_TIMESTAMP_SECONDS)
+                            .set(now_ms as f64 / 1_000.0);
                         advance_probed_idle(
                             &dispatcher.merge_deps().live_watermarks,
                             &dispatcher.owned_set(),

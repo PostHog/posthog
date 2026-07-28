@@ -70,7 +70,7 @@ async fn async_main(config: Config) -> Result<()> {
     init_tracing();
     log_startup(&config);
 
-    config.validate_durability_startup()?;
+    config.validate_startup()?;
 
     let mut manager = Manager::builder(SERVICE_NAME)
         .with_global_shutdown_timeout(Duration::from_secs(90))
@@ -501,8 +501,11 @@ async fn async_main(config: Config) -> Result<()> {
 
     // Publish store cache/size metrics and the store filesystem's utilization via the sweep
     // machinery, and Tokio runtime metrics via a separate monitor. The disk snapshot feeds the
-    // seed consumer's disk-backpressure gate.
-    let disk_state = Arc::new(SharedDiskUtilization::default());
+    // seed consumer's disk-backpressure gate; a sample surviving four sweep ticks unrefreshed
+    // means the sweep is wedged, so it expires rather than latching the gate.
+    let disk_state = Arc::new(SharedDiskUtilization::new(
+        config.stats_publish_interval() * 4,
+    ));
     tokio::spawn(run_sweep_loop(
         StoreStatsSweeper::new(
             handle_for_stats,
