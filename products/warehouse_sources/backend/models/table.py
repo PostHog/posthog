@@ -750,8 +750,13 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 connection_metadata=self.external_data_source.connection_metadata,
             )
 
-        # Engine-keyed (no is_direct_clickhouse) to satisfy the source-agnostic guard.
-        if self.external_data_source and self.external_data_source.direct_engine == "clickhouse":
+        # Engine-keyed (no is_direct_clickhouse) to satisfy the source-agnostic guard, but still gated on the
+        # source being direct: ClickHouse is a synced connector too, and a synced source's rows are S3 copies.
+        if (
+            self.external_data_source
+            and self.external_data_source.is_direct_query
+            and self.external_data_source.direct_engine == "clickhouse"
+        ):
             job_inputs = self.external_data_source.job_inputs or {}
             clickhouse_database = (
                 self.options.get(DIRECT_CLICKHOUSE_DATABASE_OPTION)
