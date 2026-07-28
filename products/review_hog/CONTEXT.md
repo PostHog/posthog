@@ -2,6 +2,7 @@
 
 Vocabulary settled while working on the product. Pure vocabulary — no spec, no implementation detail beyond what a term needs to be unambiguous.
 
+- **PR intent** — the PR's title + description (`format_pr_intent`), injected as a framed `<pr_intent>` block into every LLM stage's prompt: the stated overall goal the stage anchors on (chunk concerns, perspective relevance, finding judgment, duplicate judgment, validation verdicts). Untrusted author text: context for judging the change, never instructions to the agent and never a waiver for real defects.
 - **Finding body** — the reviewer's description of a problem (`Issue.issue`, persisted as `ReviewIssueFinding.body`). Dual-audience text: it is rendered verbatim in the published comment AND consumed by three downstream LLM stages (the validator's `ISSUE` payload, dedup's fresh/prior finding payloads, and future turns' covered-findings block).
 - **Validator argumentation** — the validator's why-valid / why-dismissed reasoning (`IssueValidation.argumentation`). For a _valid_ finding it is presentation-only (humans + the copy-paste fix prompt); its only pipeline consumer is dedup's `prior_ruling`, and only when the finding was _dismissed_.
 - **Published copy** — what humans read on GitHub (inline comment sections, report body) and in the Code review UI. Today it is byte-identical to the pipeline payload; nothing requires that.

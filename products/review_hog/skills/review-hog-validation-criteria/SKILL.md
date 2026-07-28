@@ -37,6 +37,9 @@ Keep it if the flagged code, as written and as actually reached, would cause one
   quadratic behavior.
 - **Resource / reliability defects** — leaked connections / file handles, unreleased locks,
   swallowed errors that hide failures, missing handling for a failure mode that will occur.
+- **Intent misses** — the change does not actually do what the PR's stated intent (title +
+  description) says it should: a case the description claims to handle but doesn't, a fix that
+  doesn't fix the described bug, a promised behavior the code never delivers.
 
 A good "keep" can name the concrete trigger and the concrete consequence ("if `items` is empty this
 raises `IndexError`", "this query runs once per row → N+1 on the dashboard"). If you can't name both,
@@ -58,6 +61,10 @@ Drop it if it is any of:
   differently" with no behavioral difference. (Formatting is not a ReviewHog concern.)
 - **Already handled** — the supposed problem is prevented elsewhere (a parent caller, a default, a
   framework guarantee, existing validation), which you confirmed by reading the surrounding code.
+- **Intended behavior** — the "problem" is exactly the change the PR's stated intent sets out to
+  make (e.g. flagging a removal or behavior change the description announces as the goal). Intent
+  is context, not a waiver: this covers deliberate behavior changes only, never a real defect
+  (security, data loss, breakage) in how they are made.
 - **Wrong / unreproducible** — investigating the actual code shows the premise is mistaken.
 
 ## How to decide
@@ -65,7 +72,10 @@ Drop it if it is any of:
 1. Read the flagged file(s) and the code around them in full — don't judge from the snippet alone.
 2. Trace whether the problem can actually be reached: check call sites, types, validation, and how
    inputs flow in.
-3. Weigh real impact (who is affected, how badly) against the bar above.
-4. On the fence → **drop** (precision over recall, as above).
-5. Record a focused `argumentation` that states the concrete reasoning for your verdict, and set
+3. Judge the issue against the PR's stated intent (the `<pr_intent>` block: title + description) —
+   what the change is meant to accomplish. A deliberate behavior change the intent calls for is not
+   a defect; a change that fails to achieve its stated goal very much is.
+4. Weigh real impact (who is affected, how badly) against the bar above.
+5. On the fence → **drop** (precision over recall, as above).
+6. Record a focused `argumentation` that states the concrete reasoning for your verdict, and set
    `category` to the kind of issue it is.

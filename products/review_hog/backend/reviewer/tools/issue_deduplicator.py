@@ -13,7 +13,7 @@ from products.review_hog.backend.reviewer.models.issue_deduplicator import Issue
 from products.review_hog.backend.reviewer.models.issues_review import Issue, LineRange
 from products.review_hog.backend.reviewer.sandbox.direct_llm import run_oneshot_review
 from products.review_hog.backend.reviewer.sandbox.executor import run_sandbox_review
-from products.review_hog.backend.reviewer.tools.prompt_helpers import load_template_and_schema
+from products.review_hog.backend.reviewer.tools.prompt_helpers import format_pr_intent, load_template_and_schema
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +83,26 @@ def _prior_finding_payload(finding: ReviewIssueFinding, verdict: ValidationVerdi
     return payload
 
 
+def build_dedup_prompt(
+    *,
+    candidates: list[Issue],
+    pr_metadata: PRMetadata,
+    pr_comments: list[PRComment],
+    prior_findings: list[tuple[ReviewIssueFinding, ValidationVerdict | None]],
+) -> str:
+    """Render the dedup prompt over the positional candidates (the only issues the LLM sees)."""
+    template, schema = load_template_and_schema("issue_deduplicator")
+    return template.render(
+        CLAUDE_CODE_CONTEXT="",  # No specific code context needed for deduplication
+        PR_INTENT=format_pr_intent(pr_metadata),
+        PR_AUTHOR=pr_metadata.author,
+        PRIOR_COMMENTS_JSON=json.dumps([c.model_dump(mode="json") for c in pr_comments], indent=2),
+        PRIOR_FINDINGS_JSON=json.dumps([_prior_finding_payload(f, v) for f, v in prior_findings], indent=2),
+        ISSUES_JSON=json.dumps([issue.model_dump(mode="json") for issue in candidates], indent=2),
+        DEDUPLICATION_SCHEMA=schema.strip(),
+    )
+
+
 _SYSTEM_PROMPT = """You are a senior code reviewer removing duplicate findings from a pull-request review.
 A finding is a duplicate only when it raises the same concrete problem as another finding, a prior
 inline comment, or an earlier review turn's already-ruled-on finding — not merely because it shares a
@@ -135,14 +155,8 @@ async def deduplicate_issues(
         logger.info("No positional duplicate candidates; kept all issues")
         return issues
 
-    template, schema = load_template_and_schema("issue_deduplicator")
-    prompt = template.render(
-        CLAUDE_CODE_CONTEXT="",  # No specific code context needed for deduplication
-        PR_CONTEXT=json.dumps(pr_metadata.model_dump(mode="json"), indent=2),
-        PRIOR_COMMENTS_JSON=json.dumps([c.model_dump(mode="json") for c in pr_comments], indent=2),
-        PRIOR_FINDINGS_JSON=json.dumps([_prior_finding_payload(f, v) for f, v in prior_findings], indent=2),
-        ISSUES_JSON=json.dumps([issue.model_dump(mode="json") for issue in candidates], indent=2),
-        DEDUPLICATION_SCHEMA=schema.strip(),
+    prompt = build_dedup_prompt(
+        candidates=candidates, pr_metadata=pr_metadata, pr_comments=pr_comments, prior_findings=prior_findings
     )
 
     # Gate on the candidates actually sent to the LLM — `unique` issues are already excluded from

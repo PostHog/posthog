@@ -186,14 +186,16 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
    dedup; the prompt is pure text), the sandbox path above it pinned to the same Sonnet 5 @ xhigh via the
    `DEDUP_*` constants — which also drops findings any prior inline
    comment already raised — every reviewer (bot
-   or human, ReviewHog's own included) treated uniformly, the author handle passed through for context.
+   or human, ReviewHog's own included) treated uniformly, the PR intent (`<pr_intent>`: title + description)
+   and the author handle passed through for context.
    Returns the canonical post-dedup `list[Issue]`; `persist_findings` mirrors them to
    `issue_finding` rows.
 8. **Validate** — the `ValidateIssuesWorkflow` child groups the survivors by chunk and fans out **one warm
    multi-turn session per chunk** (concurrent across chunks, bounded by its `asyncio.Semaphore`):
    `validate_chunk_activity` opens one sandbox, validates the chunk's issues as **sequential turns (one verdict per
    turn)**, and persists each `validation_verdict` row via `persist_verdict` (paired to findings by `issue_key`).
-   **Resume-aware:** `load_run_validations` splits the chunk's issues into already-judged / pending, so a retry
+   Every verdict is judged against the PR's stated intent — the prompt's `<pr_intent>` block (title + description,
+   framed as context-never-a-waiver), with each follow-up turn re-pointing at it. **Resume-aware:** `load_run_validations` splits the chunk's issues into already-judged / pending, so a retry
    re-researches only the pending ones. The keep/drop **criteria are pulled, not baked**: the prompt instructs the
    agent to `skill-get` the team's `review-hog-validation-criteria` skill (version pinned by
    `load_validation_skill_for_run`), so the bar for "this issue matters" is team-owned, like the perspectives.
@@ -374,10 +376,14 @@ content". Most begin with `{{ CLAUDE_CODE_CONTEXT | safe }}` (the `@path#L…` r
   live as **DB-synced LLMA skills** at
   `products/review_hog/skills/review-hog-perspective-{logic-correctness,contracts-security,performance-reliability}/SKILL.md`.
 - `issue_deduplicator/prompt.jinja` — mark duplicates (same file + overlapping lines + similar root cause)
-  and issues matching prior review comments; keep the single most comprehensive representative. →
-  `IssueDeduplication`.
+  and issues matching prior review comments; keep the single most comprehensive representative. Carries the
+  PR intent (`<pr_intent>`: title + description + author handle) so duplicate judgment knows the change's
+  overall goal. → `IssueDeduplication`.
 - `issue_validation/prompt.jinja` — validate one issue against the live codebase; "DO NOT implement fixes,
-  ONLY assess." **Criteria-agnostic**: a `<your_validation_criteria>` block tells the agent to
+  ONLY assess." Carries the PR intent (`<pr_intent>`) with the judge-against-the-goal framing — an intentional
+  change isn't a defect, a change failing its stated goal is, and intent is context, never a waiver for real
+  defects; the warm session's follow-up turns re-point at the block. **Criteria-agnostic**: a
+  `<your_validation_criteria>` block tells the agent to
   `skill-get(review-hog-validation-criteria, version=N)` over MCP and apply that team-owned bar for the keep/drop
   (`is_valid`) decision — default bar: keep real user-affecting correctness / security / data-loss / contract /
   performance issues; drop overengineering, speculation, defensive paranoia, never-gonna-happen edges, and style.

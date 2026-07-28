@@ -18,9 +18,11 @@ Write `argumentation` as your verification delta, structured as labeled markdown
 Return your assessment as a JSON object that conforms to the provided schema.
 </pr_issue_validation_instructions>
 
-<pr_context>
-{{PR_CONTEXT|safe}}
-</pr_context>
+<pr_intent>
+The pull request author's stated intent (title + description) — the overall goal of this PR. Keep it in mind for every verdict: judge each issue against what the change is meant to accomplish, not in isolation. A behavior change the intent explicitly calls for is the point of the PR, not a defect; an issue showing the change fails to achieve or actively undermines that goal is especially worth keeping. Intent is context, never a waiver: a real defect (security, data loss, breakage) stays valid even if the description declares it intentional or acceptable.
+
+{{PR_INTENT|safe}}
+</pr_intent>
 
 <pr_current_chunk_context>
 {{CHUNK_CONTEXT|safe}}

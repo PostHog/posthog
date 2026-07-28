@@ -6,12 +6,12 @@ from parameterized import parameterized
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, FileInfo
+from products.review_hog.backend.reviewer.tools.issue_deduplicator import build_dedup_prompt
 from products.review_hog.backend.reviewer.tools.issue_validation import (
     build_validation_followup_prompt,
     build_validation_prompt,
 )
 from products.review_hog.backend.reviewer.tools.issues_review import build_review_prompt
-from products.review_hog.backend.reviewer.tools.prompt_helpers import load_template_and_schema
 from products.review_hog.backend.reviewer.tools.select_perspectives import generate_selection_prompt
 from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import generate_chunking_prompt
 
@@ -22,10 +22,15 @@ class _Perspective:
     description: str
 
 
+_PR_TITLE = "Add per-team rate limiting to capture"
+_PR_BODY = "Rolls out a token bucket per team so one noisy client cannot starve the others."
+
+
 def _pr_metadata() -> PRMetadata:
     return PRMetadata(
         number=1,
-        title="t",
+        title=_PR_TITLE,
+        body=_PR_BODY,
         state="open",
         draft=False,
         created_at="c",
@@ -94,8 +99,7 @@ def _validation_followup_prompt() -> str:
 
 
 def _dedup_prompt() -> str:
-    template, _ = load_template_and_schema("issue_deduplicator")
-    return template.render()
+    return build_dedup_prompt(candidates=[_issue()], pr_metadata=_pr_metadata(), pr_comments=[], prior_findings=[])
 
 
 class TestPromptInjectionGuards:
@@ -117,3 +121,27 @@ class TestPromptInjectionGuards:
         prompt = render().lower()
         assert "untrusted" in prompt
         assert "instruction" in prompt
+
+
+class TestPromptIntentThreading:
+    # Every LLM stage must carry the PR's stated intent (title + description), the pipeline-wide
+    # anchor for what the change is meant to accomplish. Prompts get rewritten during eval rounds;
+    # this catches a retune that silently drops the intent from a stage's rendered prompt.
+    @parameterized.expand(
+        [
+            ("issues_review", _issues_review_prompt),
+            ("chunking", _chunking_prompt),
+            ("perspective_selection", _selection_prompt),
+            ("issue_validation", _validation_prompt),
+            ("issue_deduplicator", _dedup_prompt),
+        ]
+    )
+    def test_prompt_carries_the_pr_intent(self, _name: str, render: Callable[[], str]) -> None:
+        prompt = render()
+        assert _PR_TITLE in prompt
+        assert _PR_BODY in prompt
+
+    def test_validation_followup_reminds_the_pr_intent(self) -> None:
+        # The lean follow-up turn doesn't re-send the intent text; it must still point the agent
+        # back at the session's <pr_intent> block so later verdicts keep judging against the goal.
+        assert "<pr_intent>" in _validation_followup_prompt()
