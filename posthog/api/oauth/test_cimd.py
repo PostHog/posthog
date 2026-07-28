@@ -66,6 +66,10 @@ def _metadata_for_auth(with_jwks: bool) -> dict:
     return _make_metadata(token_endpoint_auth_method="private_key_jwt", jwks_uri=CIMD_JWKS_URI)
 
 
+def _captured_events(mock_capture) -> list:
+    return [call.kwargs.get("event") for call in mock_capture.call_args_list]
+
+
 def _register_provisioning_partner(url: str = VALID_CIMD_URL) -> OAuthApplication:
     """Register a CIMD app and opt it into provisioning, the way client_registration does."""
     app = fetch_and_upsert_cimd_application(url)
@@ -594,19 +598,36 @@ class TestApplyProvisioningDefaults(APIBaseTest):
             CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT,
         )
 
+    @patch("posthog.api.oauth.cimd.posthoganalytics.capture")
     @patch("posthog.api.oauth.cimd.requests.Session.get")
-    def test_disabled_partner_is_not_re_enabled(self, mock_get, _url_mock):
+    def test_registration_event_fires_once_on_the_transition(self, mock_get, mock_capture, _url_mock):
+        mock_get.return_value = _mock_response(_make_metadata(), headers={})
+        existing = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+        assert existing is not None
+
+        apply_provisioning_defaults(existing)
+        self.assertIn("cimd_provisioning_partner_registered", _captured_events(mock_capture))
+
+        mock_capture.reset_mock()
+        apply_provisioning_defaults(existing)
+        self.assertNotIn("cimd_provisioning_partner_registered", _captured_events(mock_capture))
+
+    @patch("posthog.api.oauth.cimd.posthoganalytics.capture")
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_disabled_partner_is_not_re_enabled(self, mock_get, mock_capture, _url_mock):
         mock_get.return_value = _mock_response(_make_metadata(), headers={})
         existing = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
         assert existing is not None
         existing.provisioning_disabled = True
         existing.save(update_fields=["provisioning_disabled"])
+        mock_capture.reset_mock()
 
         app = apply_provisioning_defaults(existing)
 
         self.assertFalse(app.is_provisioning_partner)
         app.refresh_from_db()
         self.assertFalse(app.is_provisioning_partner)
+        self.assertNotIn("cimd_provisioning_partner_registered", _captured_events(mock_capture))
 
 
 @patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("93.184.216.34")})

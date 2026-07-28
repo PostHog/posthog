@@ -851,8 +851,26 @@ def apply_provisioning_defaults(app: OAuthApplication) -> OAuthApplication:
     rather than re-enabling a partner an admin has explicitly disabled."""
     if app.provisioning_disabled:
         return app
+    became_partner = not app.is_provisioning_partner
     defaults = _cimd_provisioning_defaults_for(app)
     for field, value in defaults.items():
         setattr(app, field, value)
     app.save(update_fields=list(defaults.keys()))
+
+    # A partner appearing without an admin creating it is the event worth watching for abuse,
+    # so it fires on the transition only - re-running the defaults over an existing partner is
+    # not a new partner.
+    if became_partner:
+        posthoganalytics.capture(
+            distinct_id=app.cimd_metadata_url or str(app.pk),
+            event="cimd_provisioning_partner_registered",
+            properties={
+                "cimd_url": app.cimd_metadata_url,
+                "client_name": app.name,
+                "app_id": str(app.pk),
+                "account_requests_rate_limit": app.provisioning_rate_limit_account_requests,
+                "is_verified": app.organization_id is not None,
+                "organization_id": str(app.organization_id) if app.organization_id else None,
+            },
+        )
     return app
