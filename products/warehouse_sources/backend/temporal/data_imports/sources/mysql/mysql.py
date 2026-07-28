@@ -462,6 +462,26 @@ def _is_transient_connect_reset(e: BaseException) -> bool:
     return _CONNECTION_RESET_TOKEN in " ".join(str(arg) for arg in e.args)
 
 
+# EPIPE at connect time: pymysql wraps a write to an already-closed socket — e.g. sending the
+# auth packet or the TLS handshake — as the 2003 "Can't connect to MySQL server on '<host>'
+# ([Errno 32] Broken pipe)" failure. It is the write-side sibling of the `Connection reset by
+# peer` case above (which fires on the read side): the peer, often a TCP proxy or load balancer
+# in front of the DB, accepted the connection then closed it while pymysql was still writing —
+# an overloaded server, a proxy idle cull, or a backend cycling. A fresh attempt usually reaches
+# a healthy backend. Match the stable strerror phrase, not the volatile host.
+_BROKEN_PIPE_TOKEN = "Broken pipe"
+
+
+def _is_transient_connect_broken_pipe(e: BaseException) -> bool:
+    """Return True if writing to the peer failed with a broken pipe during connect — a transient blip."""
+    if not isinstance(e, pymysql.err.OperationalError):
+        return False
+    code = e.args[0] if e.args else None
+    if code != _CANT_CONNECT_CODE:
+        return False
+    return _BROKEN_PIPE_TOKEN in " ".join(str(arg) for arg in e.args)
+
+
 # pymysql raises this `InternalError` from `_read_packet` when an incoming packet's
 # sequence number doesn't match the expected one (it `_force_close()`s the socket first).
 _PACKET_SEQUENCE_ERROR_PHRASE = "Packet sequence number wrong"
@@ -523,6 +543,7 @@ def _connect_with_transient_retry(kwargs: dict[str, Any]) -> pymysql.Connection:
                 or _is_transient_connect_timeout(e)
                 or _is_transient_connect_dns_failure(e)
                 or _is_transient_connect_reset(e)
+                or _is_transient_connect_broken_pipe(e)
                 or _is_transient_packet_sequence_error(e)
                 or _is_transient_vitess_dial_timeout(e)
             ):

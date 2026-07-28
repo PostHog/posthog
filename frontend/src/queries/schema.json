@@ -1555,6 +1555,10 @@
                     "description": "Replace null aggregation results with zero.",
                     "type": "boolean"
                 },
+                "showTotalRow": {
+                    "description": "Show a total summing all Y series. Applies to line, bar, and area charts.",
+                    "type": "boolean"
+                },
                 "showValuesOnSeries": {
                     "description": "Render each data point's value as a label directly on the series.",
                     "type": "boolean"
@@ -1654,10 +1658,6 @@
                         "type": "string"
                     },
                     "type": "array"
-                },
-                "showTotalRow": {
-                    "description": "Show a total row at the bottom of the table.",
-                    "type": "boolean"
                 },
                 "transpose": {
                     "description": "Transpose rows and columns.",
@@ -14112,6 +14112,10 @@
                             "description": "Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false.",
                             "type": "boolean"
                         },
+                        "counts_as_revenue": {
+                            "description": "Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false.",
+                            "type": "boolean"
+                        },
                         "custom_name": {
                             "type": "string"
                         },
@@ -14202,6 +14206,10 @@
                             "description": "Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false.",
                             "type": "boolean"
                         },
+                        "counts_as_revenue": {
+                            "description": "Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false.",
+                            "type": "boolean"
+                        },
                         "custom_name": {
                             "type": "string"
                         },
@@ -14279,6 +14287,10 @@
                         },
                         "counts_as_customer": {
                             "description": "Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false.",
+                            "type": "boolean"
+                        },
+                        "counts_as_revenue": {
+                            "description": "Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false.",
                             "type": "boolean"
                         },
                         "custom_name": {
@@ -23903,7 +23915,12 @@
                 "Vturb",
                 "Meltwater",
                 "UserCom",
-                "Latitude"
+                "Latitude",
+                "Workato",
+                "SideShift",
+                "DuckLake",
+                "Starburst",
+                "Easybill"
             ],
             "type": "string"
         },
@@ -28693,6 +28710,10 @@
                 "orderBy": {
                     "$ref": "#/definitions/LogsOrderBy"
                 },
+                "personId": {
+                    "description": "Show logs for a given person",
+                    "type": "string"
+                },
                 "resourceFingerprint": {
                     "type": "string"
                 },
@@ -30798,7 +30819,7 @@
             "type": "object"
         },
         "MarketingAnalyticsDrillDownLevel": {
-            "enum": ["channel", "source", "campaign", "ad_group", "ad", "medium", "content", "term"],
+            "enum": ["channel", "channel_source", "source", "campaign", "ad_group", "ad", "medium", "content", "term"],
             "type": "string"
         },
         "MarketingAnalyticsItem": {
@@ -34773,6 +34794,7 @@
                 "selected connector",
                 "sql editor empty state",
                 "data warehouse sources table",
+                "managed warehouse provisioned",
                 "experiment created",
                 "experiment analyzed",
                 "experiment view recordings",
@@ -34941,6 +34963,7 @@
                 "llm_evaluations",
                 "llm_prompts",
                 "logs",
+                "managed_warehouse",
                 "marketing_analytics",
                 "max",
                 "mcp_analytics",
@@ -45261,6 +45284,7 @@
                 "canvases:write",
                 "channels:manage",
                 "commands",
+                "files:read",
                 "files:write",
                 "im:history",
                 "mpim:history",
@@ -50602,6 +50626,14 @@
                 "InitialUTMTerm",
                 "InitialUTMContent",
                 "InitialUTMSourceMediumCampaign",
+                "FirstPageviewChannelType",
+                "FirstPageviewReferringDomain",
+                "FirstPageviewUTMSource",
+                "FirstPageviewUTMCampaign",
+                "FirstPageviewUTMMedium",
+                "FirstPageviewUTMTerm",
+                "FirstPageviewUTMContent",
+                "FirstPageviewUTMSourceMediumCampaign",
                 "Browser",
                 "OS",
                 "Viewport",

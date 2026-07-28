@@ -31,7 +31,7 @@ const ingestionWarningsList = (): ToolBase<
                 until: params.until,
             },
         })
-        return await withPostHogUrl(context, result, '/data-management/ingestion-warnings-v2')
+        return await withPostHogUrl(context, result, '/data-management/ingestion-warnings')
     },
 })
 

@@ -118,6 +118,8 @@ function MasterFailuresSection(): JSX.Element {
         <Section id="now" title={`Failing on ${currentDefaultBranch}`} note="Last 24 hours">
             <LemonCard hoverEffect={false} className="overflow-hidden p-0">
                 <LemonTable<MasterFailureGroupApi>
+                    // Namespaces the page/order search params so paging can't move other tables sharing this URL.
+                    id="master-failures"
                     dataSource={masterFailures}
                     loading={masterFailuresLoading}
                     embedded
@@ -218,6 +220,7 @@ function MasterFailuresSection(): JSX.Element {
                             ),
                         },
                     ]}
+                    pagination={{ pageSize: 10 }}
                     emptyState={`Nothing failing on ${currentDefaultBranch} in the last 24 hours.`}
                     nouns={['failure group', 'failure groups']}
                 />

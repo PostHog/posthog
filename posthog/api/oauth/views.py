@@ -448,7 +448,7 @@ class OAuthValidator(OAuth2Validator):
           response carries the actual (narrowed) `scope`, so this stays spec-valid.
 
         `*` is still accepted verbatim under an empty ceiling here (legacy PostHog
-        Code CLI) but never on the provisioning paths — see the flag.
+        Desktop CLI) but never on the provisioning paths — see the flag.
         """
         app_scopes = getattr(client, "ceiling_scopes", None) or []
         requested = set(scopes or [])
@@ -1361,12 +1361,12 @@ class OAuthTokenView(TokenView):
                     scoped_teams = list(access_token.scoped_teams or [])
                     scoped_organizations = list(access_token.scoped_organizations or [])
 
-                    # First-party clients (PostHog Code) read scoped_teams from /oauth/token
+                    # First-party clients (PostHog Desktop) read scoped_teams from /oauth/token
                     # to populate the project selector. When the app is org-scoped only,
                     # access_token.scoped_teams is empty in the DB by design — derive teams
                     # from scoped_organizations so clients keep working without weakening
                     # the stored token scope.
-                    # TODO(@charlesvien): remove this after a migration period in PostHog Code.
+                    # TODO(@charlesvien): remove this after a migration period in PostHog Desktop.
                     if (
                         not scoped_teams
                         and scoped_organizations

@@ -103,6 +103,12 @@ def save_file_to_uploaded_media(
     return uploaded_media.get_absolute_url()
 
 
+def attachment_link_label(attachment: dict[str, Any]) -> str:
+    """Link text for a file attachment. Flags the ones that still live in Slack."""
+    name = attachment.get("name") or "attachment"
+    return f"{name} (open in Slack)" if attachment.get("unavailable") else name
+
+
 def build_content_with_images(
     cleaned_text: str,
     rich_content: dict[str, Any] | None,
@@ -122,7 +128,7 @@ def build_content_with_images(
     if images:
         parts.append("\n".join(f"![{img['name']}]({img['url']})" for img in images))
     if files:
-        parts.append("\n".join(f"[{f['name']}]({f['url']})" for f in files))
+        parts.append("\n".join(f"[{attachment_link_label(f)}]({f['url']})" for f in files))
     content = "\n\n".join(parts)
 
     if not isinstance(rich_content, dict):
@@ -151,7 +157,7 @@ def build_content_with_images(
                 "content": [
                     {
                         "type": "text",
-                        "text": f.get("name", "attachment"),
+                        "text": attachment_link_label(f),
                         "marks": [{"type": "link", "attrs": {"href": f["url"]}}],
                     }
                 ],

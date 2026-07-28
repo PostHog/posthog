@@ -180,6 +180,7 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
                     AccessControlResourceType.ExternalDataSource,
                     AccessControlResourceType.WarehouseObjects,
                     AccessControlResourceType.FeatureFlag,
+                    AccessControlResourceType.Heatmap,
                     AccessControlResourceType.Insight,
                     AccessControlResourceType.LlmAnalytics,
                     AccessControlResourceType.McpAnalytics,
@@ -196,6 +197,7 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
                     AccessControlResourceType.Survey,
                     AccessControlResourceType.WebAnalytics,
                     AccessControlResourceType.Toolbar,
+                    AccessControlResourceType.LlmPlayground,
                     AccessControlResourceType.Workflow,
                     AccessControlResourceType.Tracing,
                 ]

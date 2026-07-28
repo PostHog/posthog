@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
@@ -6,7 +6,11 @@ import { IconFlask, IconGraph, IconMessage, IconPeople, IconRocket, IconToggle }
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { MarkdownNotebook, parseMarkdownNotebook } from 'lib/components/MarkdownNotebook'
+import {
+    MarkdownNotebook,
+    NotebookComponentRunStatusContext,
+    parseMarkdownNotebook,
+} from 'lib/components/MarkdownNotebook'
 import type {
     InsertCommand,
     MarkdownNotebookAskAIRequest,
@@ -36,6 +40,7 @@ import {
 import { MarkdownNotebookExperimentPicker } from './MarkdownNotebookExperimentPicker'
 import { InlineAIAssistantMessage, InlineAICompletion, InlineNotebookAIRunner } from './MarkdownNotebookInlineAI'
 import { getMarkdownRegistryForFeatureFlags } from './markdownNotebookRegistry'
+import { useNotebookComponentRunStatusResolver } from './markdownNotebookRunStatus'
 import {
     InlineNotebookAIRequest,
     MarkdownNotebookRuntimeContext,
@@ -80,10 +85,12 @@ type MarkdownNotebookEntityPickerKind =
     | 'cohort'
 
 export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNotebookV2Props): JSX.Element {
+    const mountedNotebookLogic = useMountedLogic(notebookLogic)
     const { isEditable, notebook, markdownEditorValue, markdownEditorInteractionActive, markdownRemoteCarets } =
         useValues(notebookLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const markdownRegistry = useMemo(() => getMarkdownRegistryForFeatureFlags(featureFlags), [featureFlags])
+    const resolveComponentRunStatus = useNotebookComponentRunStatusResolver(mountedNotebookLogic.props.shortId)
     const {
         handleMarkdownEditorChange,
         setMarkdownEditorInteractionActive,
@@ -729,32 +736,34 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
 
     return (
         <MarkdownNotebookRuntimeContext.Provider value={runtimeContext}>
-            <MarkdownNotebook
-                value={markdownEditorValue}
-                remoteValue={remoteMarkdown}
-                remoteVersion={notebook?.version}
-                mode={isEditable ? 'edit' : 'view'}
-                registry={markdownRegistry}
-                extraInsertCommands={isEditable ? buildExtraInsertCommands : undefined}
-                onChange={isEditable ? handleMarkdownNotebookChange : undefined}
-                onConflict={reportMarkdownMergeConflicts}
-                remoteCarets={remoteCarets}
-                onCaretChange={isEditable ? publishMarkdownCaret : undefined}
-                onAskAI={isEditable ? handleAskAI : undefined}
-                convertExternalDataTransferToNodes={isEditable ? convertExternalDataTransferToNodes : undefined}
-                isAskAIDisabled={inlineAIRequests.length > 0}
-                createAIConversationId={uuid}
-                deferRemoteValue={markdownEditorInteractionActive}
-                onInteractionStateChange={setMarkdownEditorInteractionActive}
-                className="Notebook__markdown-v2"
-                data-attr="notebook-markdown-v2"
-                autoFocus={isEditable}
-                showDebug={isEditable}
-                debugOpen={isDebugOpen}
-                onDebugOpenChange={handleDebugOpenChange}
-                focusAIPromptRequest={focusAIPromptRequest}
-                aiWritingNodeIndexes={aiWritingNodeIndexes}
-            />
+            <NotebookComponentRunStatusContext.Provider value={resolveComponentRunStatus}>
+                <MarkdownNotebook
+                    value={markdownEditorValue}
+                    remoteValue={remoteMarkdown}
+                    remoteVersion={notebook?.version}
+                    mode={isEditable ? 'edit' : 'view'}
+                    registry={markdownRegistry}
+                    extraInsertCommands={isEditable ? buildExtraInsertCommands : undefined}
+                    onChange={isEditable ? handleMarkdownNotebookChange : undefined}
+                    onConflict={reportMarkdownMergeConflicts}
+                    remoteCarets={remoteCarets}
+                    onCaretChange={isEditable ? publishMarkdownCaret : undefined}
+                    onAskAI={isEditable ? handleAskAI : undefined}
+                    convertExternalDataTransferToNodes={isEditable ? convertExternalDataTransferToNodes : undefined}
+                    isAskAIDisabled={inlineAIRequests.length > 0}
+                    createAIConversationId={uuid}
+                    deferRemoteValue={markdownEditorInteractionActive}
+                    onInteractionStateChange={setMarkdownEditorInteractionActive}
+                    className="Notebook__markdown-v2"
+                    data-attr="notebook-markdown-v2"
+                    autoFocus={isEditable}
+                    showDebug={isEditable}
+                    debugOpen={isDebugOpen}
+                    onDebugOpenChange={handleDebugOpenChange}
+                    focusAIPromptRequest={focusAIPromptRequest}
+                    aiWritingNodeIndexes={aiWritingNodeIndexes}
+                />
+            </NotebookComponentRunStatusContext.Provider>
             {inlineAIRequests.map((request) => (
                 <InlineNotebookAIRunner
                     key={request.conversationId}

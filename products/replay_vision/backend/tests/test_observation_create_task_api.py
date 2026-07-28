@@ -53,7 +53,7 @@ class TestObservationCreateTask(_VisionAPITestCase):
         self.assertIn("sess-1", kwargs["description"])
 
     def test_requires_tasks_access(self) -> None:
-        # Without PostHog Code access the endpoint must refuse and create nothing, or any observation
+        # Without PostHog Desktop access the endpoint must refuse and create nothing, or any observation
         # reader could mint tasks.
         with patch(_HAS_ACCESS, return_value=False), patch(_CREATE) as create:
             resp = self.client.post(self._url(), format="json")

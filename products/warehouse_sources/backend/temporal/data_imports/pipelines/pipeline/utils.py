@@ -23,6 +23,7 @@ from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from structlog.types import FilteringBoundLogger
 
 from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
@@ -63,8 +64,10 @@ type SupportedDltDataType = Literal["text", "bigint", "bool", "timestamp", "json
 type DecimalInput = decimal.Decimal | float | str | tuple[int, Sequence[int], int]
 
 
-class BillingLimitsWillBeReachedException(Exception):
-    pass
+class BillingLimitsWillBeReachedException(NonReportableError):
+    """The sync was intentionally halted because the account will cross its Data Warehouse billing
+    limit. Expected control flow, not a defect: the workflow marks the job BILLING_LIMIT_TOO_LOW,
+    and subclassing NonReportableError keeps it out of error tracking."""
 
 
 class DuplicatePrimaryKeysException(Exception):
@@ -292,7 +295,7 @@ def evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sche
             else:
                 try:
                     casted_column = incoming_column.cast(delta_field.type).combine_chunks()
-                except pa.ArrowInvalid as e:
+                except (pa.ArrowInvalid, pa.ArrowNotImplementedError) as e:
                     # Reaching this cast already means the incoming type differs from the stored
                     # Delta type (see the guard above) and the timestamp path didn't apply, so a
                     # failure here is a deterministic, unretryable incompatibility: the source
@@ -300,12 +303,13 @@ def evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sche
                     # shapes are an integer column widened upstream (Postgres `integer` → `bigint`),
                     # an integer-created column now receiving fractional values ("Float value 19.99
                     # was truncated converting to int64"), non-numeric text arriving for a numeric
-                    # column ("Failed to parse string: '80-150' as a scalar of type int32"), or a
-                    # value that overflows the stored decimal precision. delta-rs cannot change a
-                    # column's type in place, so retrying is futile — surface an actionable error
-                    # telling the user to reset and fully re-sync. Lossless widening (e.g. a
-                    # whole-valued float into an integer column) still casts fine and never reaches
-                    # here.
+                    # column ("Failed to parse string: '80-150' as a scalar of type int32"), a
+                    # value that overflows the stored decimal precision, or a cast pyarrow has no
+                    # kernel for at all (e.g. `time64` → `double`, raised as ArrowNotImplementedError
+                    # rather than ArrowInvalid). delta-rs cannot change a column's type in place, so
+                    # retrying is futile — surface an actionable error telling the user to reset and
+                    # fully re-sync. Lossless widening (e.g. a whole-valued float into an integer
+                    # column) still casts fine and never reaches here.
                     raise SchemaColumnTypeChangedException(
                         f"Source column type changed: '{delta_field.name}' has values that no longer "
                         f"fit its stored type {delta_field.type} (incoming data is now "
@@ -1180,8 +1184,14 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
                     return None
 
                 if isinstance(x, str):
-                    # Non-numeric value in a column imported as a number; the caller adds column context.
-                    raise TypeError("must be real number, not str")
+                    stripped = x.strip()
+                    if stripped == "":
+                        return None
+                    try:
+                        x = decimal.Decimal(stripped)
+                    except decimal.InvalidOperation:
+                        # A genuinely non-numeric value in a column imported as a number; the caller adds column context.
+                        raise TypeError("must be real number, not str")
 
                 if (
                     math.isnan(x)
@@ -1200,7 +1210,13 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
                     return None
 
                 if isinstance(x, str):
-                    raise TypeError("must be real number, not str")
+                    stripped = x.strip()
+                    if stripped == "":
+                        return None
+                    try:
+                        x = float(stripped)
+                    except ValueError:
+                        raise TypeError("must be real number, not str")
 
                 if math.isnan(x) or np.isinf(x):
                     return None

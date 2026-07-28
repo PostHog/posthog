@@ -5,6 +5,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
+personhog-common = { path = "../personhog-common" }
 personhog-proto = { path = "../personhog-proto" }
 common-metrics = { path = "../common/metrics" }
 personhog-coordination = { path = "../personhog-coordination" }
@@ -18,6 +19,8 @@ clap = { workspace = true, features = ["derive", "env"] }
 futures = { workspace = true }
 hdrhistogram = { workspace = true }
 humantime = { workspace = true }
+k8s-openapi = { version = "0.24", features = ["latest"] }
+kube = { version = "0.98", features = ["client"] }
 rand = { workspace = true }
 rdkafka = { workspace = true }
 serde_json = { workspace = true }
