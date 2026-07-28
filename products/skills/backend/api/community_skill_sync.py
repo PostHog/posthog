@@ -17,6 +17,7 @@ from .skill_services import MAX_SKILL_BODY_BYTES, MAX_SKILL_FILE_BYTES, MAX_SKIL
 logger = structlog.get_logger(__name__)
 
 _VALID_TRUST_TIERS = set(CommunitySkillTrustTier.values)
+DEFAULT_FILE_CONTENT_TYPE = "text/plain"
 # CharField columns that raise DataError past their max_length — checked before persisting.
 _CHECKED_CHAR_FIELDS = (
     "slug",
@@ -28,6 +29,23 @@ _CHECKED_CHAR_FIELDS = (
     "github_url",
     "source_sha",
 )
+
+
+def _text(container: dict[str, Any], key: str, label: str, default: str = "") -> str:
+    """Read a text field, rejecting non-strings before any default is applied.
+
+    An `or <default>` fallback masks a *falsy* non-string (``False``, ``0``, ``[]``): it satisfies
+    a later isinstance check as ``""`` while the raw value is what reaches the column, and
+    Char/TextField stores its repr (``"False"``, ``"0"``, ``"[]"``). Both validation and
+    persistence go through here so they can't disagree about what the value is. Absent and
+    explicit-null both mean "use the default".
+    """
+    raw = container.get(key)
+    if raw is None:
+        return default
+    if not isinstance(raw, str):
+        raise ValueError(f"{label} must be a string")
+    return raw
 
 
 def _field_max_length(model: type[Model], field_name: str) -> int | None:
@@ -94,16 +112,12 @@ def _validate_entry_within_caps(entry: dict[str, Any]) -> None:
     DataError/IntegrityError mid-loop — aborting the whole sync and skipping the soft-delete
     reconciliation. Raising ValueError here keeps that failure isolated to the one bad entry.
     """
-    body = entry.get("body", "") or ""
+    body = _text(entry, "body", "body")
     if len(body.encode("utf-8")) > MAX_SKILL_BODY_BYTES:
         raise ValueError(f"body exceeds the {MAX_SKILL_BODY_BYTES} byte limit")
 
     for field in _CHECKED_CHAR_FIELDS:
-        value = entry.get(field, "") or ""
-        # Type before length: a list/dict has a len() but CharField would persist its repr, so an
-        # unchecked non-string lands as corrupt catalog text while counting as a healthy entry.
-        if not isinstance(value, str):
-            raise ValueError(f"'{field}' must be a string")
+        value = _text(entry, field, f"'{field}'")
         max_length = _field_max_length(CommunitySkill, field)
         if max_length is not None and len(value) > max_length:
             raise ValueError(f"'{field}' exceeds the {max_length} character limit")
@@ -114,9 +128,7 @@ def _validate_entry_within_caps(entry: dict[str, Any]) -> None:
     path_max = _field_max_length(CommunitySkillFile, "path")
     seen_paths: set[str] = set()
     for f in files:
-        raw_path = f.get("path", "") or ""
-        if not isinstance(raw_path, str):
-            raise ValueError("file path must be a string")
+        raw_path = _text(f, "path", "file path")
         # Same invariant the skill create/import paths enforce: traversal, absolute, reserved and
         # backslash spellings produce corrupt git/export trees. Normalizing here also means dedup
         # compares canonical paths, so `references\g.md` and `references/g.md` can't both land.
@@ -129,21 +141,23 @@ def _validate_entry_within_caps(entry: dict[str, Any]) -> None:
         if path in seen_paths:
             raise ValueError(f"duplicate file path '{path}'")
         seen_paths.add(path)
-        content_type = f.get("content_type", "text/plain") or "text/plain"
+        content_type = _text(f, "content_type", f"file '{path}' content_type", DEFAULT_FILE_CONTENT_TYPE)
         ct_max = _field_max_length(CommunitySkillFile, "content_type")
         if ct_max is not None and len(content_type) > ct_max:
             raise ValueError(f"file '{path}' content_type exceeds the {ct_max} character limit")
-        content = f.get("content", "") or ""
+        content = _text(f, "content", f"file '{path}' content")
         if len(content.encode("utf-8")) > MAX_SKILL_FILE_BYTES:
-            raise ValueError(f"file '{f.get('path')}' exceeds the {MAX_SKILL_FILE_BYTES} byte limit")
+            raise ValueError(f"file '{path}' exceeds the {MAX_SKILL_FILE_BYTES} byte limit")
 
 
 def _upsert_community_skill(entry: dict[str, Any]) -> bool:
     """Upsert a single registry entry. Returns True if the row was created or updated."""
     slug = entry["slug"]
-    source_sha = entry.get("source_sha", "")
     _validate_entry_shape(entry)
     _validate_entry_within_caps(entry)
+    # Read through _text after validation so the value compared against the stored sha (and every
+    # value persisted below) is the same coerced string the caps check approved.
+    source_sha = _text(entry, "source_sha", "'source_sha'")
 
     existing = CommunitySkill.objects.filter(slug=slug).first()
     if existing is not None and existing.source_sha and existing.source_sha == source_sha and not existing.deleted:
@@ -157,19 +171,21 @@ def _upsert_community_skill(entry: dict[str, Any]) -> bool:
         trust_tier = CommunitySkillTrustTier.COMMUNITY.value
 
     defaults: dict[str, Any] = {
+        # name/description stay subscripted: they're required, and a missing one must raise
+        # KeyError so the entry is isolated rather than persisted with empty visible text.
         "name": entry["name"],
         "description": entry["description"],
-        "body": entry.get("body") or "",
-        "license": entry.get("license", ""),
-        "compatibility": entry.get("compatibility", ""),
+        "body": _text(entry, "body", "body"),
+        "license": _text(entry, "license", "'license'"),
+        "compatibility": _text(entry, "compatibility", "'compatibility'"),
         # `or <empty>` rather than a .get default: an explicitly-null field in the registry makes
         # .get return None, which these non-nullable JSON columns reject at insert time.
         "allowed_tools": entry.get("allowed_tools") or [],
         "metadata": entry.get("metadata") or {},
         "tags": entry.get("tags") or [],
         "trust_tier": trust_tier,
-        "author_handle": entry.get("author_handle", ""),
-        "github_url": entry.get("github_url", ""),
+        "author_handle": _text(entry, "author_handle", "'author_handle'"),
+        "github_url": _text(entry, "github_url", "'github_url'"),
         "source_sha": source_sha,
         "deleted": False,
     }
@@ -188,10 +204,10 @@ def _upsert_community_skill(entry: dict[str, Any]) -> bool:
                 [
                     CommunitySkillFile(
                         # Store the canonical form the caps check produced, not the raw spelling.
-                        path=validate_skill_file_path(f["path"]),
+                        path=validate_skill_file_path(_text(f, "path", "file path")),
                         skill=skill,
-                        content=f.get("content", ""),
-                        content_type=f.get("content_type", "text/plain"),
+                        content=_text(f, "content", "file content"),
+                        content_type=_text(f, "content_type", "file content_type", DEFAULT_FILE_CONTENT_TYPE),
                     )
                     for f in files
                 ]

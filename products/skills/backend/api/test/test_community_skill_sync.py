@@ -160,6 +160,15 @@ class TestCommunitySkillSync(APIBaseTest):
             # CharField would persist its repr as the catalog's visible text.
             ("non_string_name", {"name": ["Bad", "skill"]}),
             ("non_string_source_sha", {"source_sha": {"sha": "abc"}}),
+            # Falsy non-strings are the sharper case: an `or ""` fallback coerces them to "" for
+            # the length check while the raw value is what reaches the column, so Char/TextField
+            # persists "False" / "0" / "[]" as the catalog's visible text.
+            ("false_name", {"name": False}),
+            ("zero_description", {"description": 0}),
+            ("empty_list_source_sha", {"source_sha": []}),
+            ("non_string_content_type", {"files": [{"path": "a.md", "content": "x", "content_type": ["text/md"]}]}),
+            ("falsy_non_string_content_type", {"files": [{"path": "a.md", "content": "x", "content_type": 0}]}),
+            ("falsy_non_string_file_content", {"files": [{"path": "a.md", "content": False}]}),
             # `$` matches before a trailing newline, so a match-only check would let the newline
             # into the slug — the URL segment and the default installed-skill name.
             ("trailing_newline_slug", {"slug": "bad-skill\n"}),
