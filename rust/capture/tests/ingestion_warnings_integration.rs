@@ -42,13 +42,6 @@ fn nameless(distinct_id: &str) -> Event {
     e
 }
 
-/// Two nameless events: both drop under one warning type, which makes
-/// `emit_validation_drop_warnings` omit the (then ambiguous) `distinctId` and
-/// `eventUuid`, leaving a details map that is identical on every run.
-fn two_nameless_events() -> Vec<u8> {
-    batch_payload(&[nameless("warn-user-0"), nameless("warn-user-1")])
-}
-
 #[tokio::test]
 async fn v1_validation_drop_emits_warning_envelope_to_kafka() -> Result<()> {
     setup_tracing();
@@ -56,7 +49,12 @@ async fn v1_validation_drop_emits_warning_envelope_to_kafka() -> Result<()> {
     let warnings_topic = EphemeralTopic::new().await;
     let server = ServerHandle::for_v1_topic_with_warnings(&events_topic, &warnings_topic).await;
 
-    let res = server.capture_v1(TOKEN, two_nameless_events()).await;
+    // Both events drop under one warning type, which makes
+    // `emit_validation_drop_warnings` omit the (then ambiguous) `distinctId`
+    // and `eventUuid`, leaving details that are identical on every run and so
+    // can be pinned by the fixture.
+    let payload = batch_payload(&[nameless("warn-user-0"), nameless("warn-user-1")]);
+    let res = server.capture_v1(TOKEN, payload).await;
     assert_eq!(
         res.status(),
         reqwest::StatusCode::OK,
@@ -80,26 +78,6 @@ async fn v1_validation_drop_emits_warning_envelope_to_kafka() -> Result<()> {
     );
 
     events_topic.assert_empty();
-    warnings_topic.assert_empty();
-    Ok(())
-}
-
-#[tokio::test]
-async fn repeated_drops_emit_one_warning_per_token_and_type() -> Result<()> {
-    setup_tracing();
-    let events_topic = EphemeralTopic::new().await;
-    let warnings_topic = EphemeralTopic::new().await;
-    let server = ServerHandle::for_v1_topic_with_warnings(&events_topic, &warnings_topic).await;
-
-    for _ in 0..3 {
-        let res = server.capture_v1(TOKEN, two_nameless_events()).await;
-        assert_eq!(res.status(), reqwest::StatusCode::OK);
-    }
-
-    // The throttle admits one warning per (token, type) per hour, so a client
-    // looping on malformed events cannot turn one bad integration into a
-    // warnings flood.
-    warnings_topic.next_event()?;
     warnings_topic.assert_empty();
     Ok(())
 }

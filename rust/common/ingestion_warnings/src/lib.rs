@@ -66,13 +66,14 @@ pub const INGESTION_WARNINGS_THROTTLE_KEYS: &str = "ingestion_warnings_throttle_
 
 /// Gauge reporting whether a process that *wants* an emitter actually built
 /// one: `1` healthy, `0` enabled-but-failed. Deliberately unset when warnings
-/// are disabled, so absence means "off" and `0` means "broken" — otherwise a
-/// misconfigured pod is indistinguishable from an intentionally quiet one.
+/// are disabled, because otherwise a misconfigured pod reporting `0` would be
+/// indistinguishable from an intentionally quiet one. Absence means "off",
+/// `0` means "broken".
 ///
 /// Emitter construction is one-shot (`create_threaded_kafka_producer` fetches
 /// metadata once, with no retry), so a broker blip at boot mutes that process
-/// for its entire life with no other symptom than lower-than-expected warning
-/// volume — unobservable without a baseline. Alert on `min() == 0`.
+/// for its entire life. The only other symptom is lower-than-expected warning
+/// volume, which is unobservable without a baseline. Alert on `min() == 0`.
 pub const INGESTION_WARNINGS_EMITTER_ENABLED: &str = "ingestion_warnings_emitter_enabled";
 
 /// Identifies which service — and which code path within it — produced a
