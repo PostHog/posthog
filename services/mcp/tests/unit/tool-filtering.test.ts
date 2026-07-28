@@ -818,10 +818,11 @@ describe('Tool Filtering - Feature Flags', () => {
                 'stamphog',
                 'product-data-catalog',
                 'loops',
+                'review-hog',
                 'warehouse-person-properties',
             ])
         )
-        expect(flags).toHaveLength(23)
+        expect(flags).toHaveLength(24)
     })
 
     it('every loops tool is gated on the loops flag', () => {

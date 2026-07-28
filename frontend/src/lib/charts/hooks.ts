@@ -9,7 +9,7 @@ import { themeLogic } from 'lib/logic/themeLogic'
 
 import { buildTheme } from './utils/theme'
 
-const REFRESHED_CONFIG_DEFAULTS = {
+const CHART_CONFIG_DEFAULTS = {
     curve: 'monotone',
     showAxisLines: true,
     showTickMarks: true,
@@ -18,7 +18,7 @@ const REFRESHED_CONFIG_DEFAULTS = {
     barCornerRadius: 4,
 } as const
 
-function refreshedThemeOverrides(isDarkModeOn: boolean): Partial<ChartTheme> {
+function chartThemeDefaults(isDarkModeOn: boolean): Partial<ChartTheme> {
     return {
         gridColor: isDarkModeOn ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
         gridDashPattern: [3, 3],
@@ -28,23 +28,12 @@ function refreshedThemeOverrides(isDarkModeOn: boolean): Partial<ChartTheme> {
     }
 }
 
-export function useChartStyleRefreshEnabled(): boolean {
-    const { featureFlags } = useValues(featureFlagLogic)
-    return !!featureFlags[FEATURE_FLAGS.QUILL_CHART_STYLE_REFRESH]
-}
-
 /** Theme for app quill charts. `buildTheme()` reads CSS variables from the DOM, so the memo keys on
- *  `isDarkModeOn` to re-read them when the app theme flips. Behind `QUILL_CHART_STYLE_REFRESH` it
- *  also applies the refreshed chart colors (faint dashed grid, muted axis lines); caller `overrides`
- *  win over both. Pass a stable (memoized or module-level) `overrides` object — a fresh object every
- *  render defeats the memo. */
+ *  `isDarkModeOn` to re-read them when the app theme flips. Pass a stable (memoized or module-level)
+ *  `overrides` object — a fresh object every render defeats the memo. */
 export function useChartTheme(overrides?: Partial<ChartTheme>): ChartTheme {
     const { isDarkModeOn } = useValues(themeLogic)
-    const refreshEnabled = useChartStyleRefreshEnabled()
-    return useMemo(
-        () => buildTheme({ ...(refreshEnabled ? refreshedThemeOverrides(isDarkModeOn) : {}), ...overrides }),
-        [isDarkModeOn, refreshEnabled, overrides]
-    )
+    return useMemo(() => buildTheme({ ...chartThemeDefaults(isDarkModeOn), ...overrides }), [isDarkModeOn, overrides])
 }
 
 /** The single rollout gate for chart drag-to-zoom, applied inside `useDateRangeZoom` so every
@@ -82,21 +71,18 @@ export function useDateRangeZoom(
     return enabled && dates?.length && onZoom ? handler : undefined
 }
 
-/** Drop-in replacement for the `useMemo` that builds a chart's config object. On top of memoizing,
- *  it applies app-level rendering defaults — currently the refreshed style (monotone curve, axis
- *  lines, tick marks, crosshair, grid) behind `QUILL_CHART_STYLE_REFRESH`. Keys the config sets
- *  explicitly (non-undefined) always win over the defaults. */
+/** Builds a chart's config object, memoized on `deps`, applying `CHART_CONFIG_DEFAULTS` for any
+ *  key the factory leaves undefined. Keys the factory sets explicitly always win over the defaults. */
 export function useChartConfig<T extends object>(factory: () => T, deps: DependencyList): T
 export function useChartConfig<T extends object>(factory: () => T | undefined, deps: DependencyList): T | undefined
 export function useChartConfig<T extends object>(factory: () => T | undefined, deps: DependencyList): T | undefined {
-    const refreshEnabled = useChartStyleRefreshEnabled()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    const config = useMemo(factory, deps)
     return useMemo(() => {
-        if (!refreshEnabled || !config) {
+        const config = factory()
+        if (!config) {
             return config
         }
         const defined = Object.fromEntries(Object.entries(config).filter(([, value]) => value !== undefined))
-        return { ...REFRESHED_CONFIG_DEFAULTS, ...defined } as T
-    }, [refreshEnabled, config])
+        return { ...CHART_CONFIG_DEFAULTS, ...defined } as T
+    }, deps)
 }
