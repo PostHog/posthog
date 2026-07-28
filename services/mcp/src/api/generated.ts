@@ -22528,7 +22528,12 @@ export namespace Schemas {
        * * `Vturb` - Vturb
        * * `Meltwater` - Meltwater
        * * `UserCom` - UserCom
-       * * `Latitude` - Latitude */
+       * * `Latitude` - Latitude
+       * * `Workato` - Workato
+       * * `SideShift` - SideShift
+       * * `DuckLake` - DuckLake
+       * * `Starburst` - Starburst
+       * * `Easybill` - Easybill */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
