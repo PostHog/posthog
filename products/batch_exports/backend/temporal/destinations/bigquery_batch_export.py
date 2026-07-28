@@ -454,6 +454,7 @@ def _make_requests_session() -> "requests.Session":
         connect=5,  # Retry on connection errors
         status=5,  # Retry on statuses matching the ones below
         status_forcelist=[429, 500, 502, 503],
+        allowed_methods=(*Retry.DEFAULT_ALLOWED_METHODS, "POST"),
     )
 
     session = requests.Session()
