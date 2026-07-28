@@ -152,6 +152,12 @@ pub struct PodConfig {
     /// truth path the router's reconcile pass provides. Runs as an arm
     /// of the watch loop, serialized with event-driven convergence.
     pub reconcile_interval: Duration,
+    /// How many consecutive reconcile failures to tolerate before
+    /// failing the run. Same reasoning as the router's budget: a failed
+    /// pass only means staleness equal to one tick, brief etcd blips
+    /// must not restart the fleet, and sustained outage self-fences
+    /// through the lease keepalive.
+    pub reconcile_failure_budget: u32,
     /// `host:port` where this pod's gRPC server is reachable; registered
     /// so routers can dial the pod through the routing table.
     pub advertise_address: Option<String>,
@@ -167,6 +173,7 @@ impl Default for PodConfig {
             heartbeat_interval: Duration::from_secs(10),
             drain_timeout: Duration::from_secs(30),
             reconcile_interval: Duration::from_secs(5),
+            reconcile_failure_budget: 12,
             advertise_address: None,
         }
     }
@@ -677,11 +684,38 @@ impl PodHandle {
             tokio::time::Instant::now() + self.config.reconcile_interval,
             self.config.reconcile_interval,
         );
+        let mut consecutive_reconcile_failures: u32 = 0;
         loop {
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
                 _ = reconcile_tick.tick() => {
-                    self.reconcile_all().await?;
+                    // Tolerated for the same reason as the router's
+                    // reconcile arm: a failed pass leaves the pod as
+                    // stale as one tick ago and the next success fully
+                    // compensates, so a brief etcd blip must not take
+                    // the data plane down with it. The budget bounds
+                    // the reads-failing-while-lease-healthy mode.
+                    match self.reconcile_all().await {
+                        Ok(_) => consecutive_reconcile_failures = 0,
+                        Err(e) => {
+                            consecutive_reconcile_failures += 1;
+                            counter!(
+                                "personhog_coordination_reconcile_failures_total",
+                                "component" => "pod"
+                            )
+                            .increment(1);
+                            tracing::warn!(
+                                pod = %self.config.pod_name,
+                                error = %e,
+                                consecutive = consecutive_reconcile_failures,
+                                budget = self.config.reconcile_failure_budget,
+                                "pod reconcile failed; continuing on last-known state"
+                            );
+                            if consecutive_reconcile_failures >= self.config.reconcile_failure_budget {
+                                return Err(e);
+                            }
+                        }
+                    }
                 }
                 msg = stream.message() => {
                     let resp = msg?.ok_or_else(|| Error::invalid_state("handoff watch stream ended".to_string()))?;

@@ -1861,6 +1861,192 @@ async fn the_reconcile_pass_reasserts_freeze_acks() {
     cancel.cancel();
 }
 
+/// A cutover handler whose `begin_stash` fails while the flag is set —
+/// the injection point for reconcile-pass failures, since the pass calls
+/// it for every non-terminal handoff before writing the freeze ack.
+struct FlakyCutoverHandler {
+    events: Arc<Mutex<Vec<CutoverEvent>>>,
+    fail: Arc<std::sync::atomic::AtomicBool>,
+}
+
+#[async_trait]
+impl StashHandler for FlakyCutoverHandler {
+    async fn begin_stash(&self, partition: u32, new_owner: &str) -> Result<()> {
+        if self.fail.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(personhog_coordination::error::Error::invalid_state(
+                "injected begin_stash failure".to_string(),
+            ));
+        }
+        self.events.lock().await.push(CutoverEvent::StashBegan {
+            partition,
+            new_owner: new_owner.to_string(),
+        });
+        Ok(())
+    }
+
+    async fn drain_stash(
+        &self,
+        partition: u32,
+        target: &str,
+        _cancel: CancellationToken,
+    ) -> Result<()> {
+        self.events.lock().await.push(CutoverEvent::StashDrained {
+            partition,
+            target: target.to_string(),
+        });
+        Ok(())
+    }
+}
+
+/// Start a router over the standard fixture (assignment for partition 0,
+/// Freezing handoff) with a failure-injectable handler and the given
+/// reconcile failure budget.
+async fn start_flaky_router(
+    store: &Arc<PersonhogStore>,
+    router_name: &str,
+    budget: u32,
+) -> (Arc<std::sync::atomic::AtomicBool>, CancellationToken) {
+    assert!(store
+        .create_assignments_and_handoffs(
+            &[PartitionAssignment {
+                partition: 0,
+                owner: "pod-old".to_string(),
+                status: AssignmentStatus::Active,
+                advertise_address: None,
+            }],
+            &[],
+            &[],
+        )
+        .await
+        .expect("write assignment"));
+    put_handoff(store, 0, Some("pod-old"), "pod-new", HandoffPhase::Freezing).await;
+
+    let router = RoutingTable::new(
+        Arc::clone(store),
+        RoutingTableConfig {
+            router_name: router_name.to_string(),
+            reconcile_interval: Duration::from_millis(200),
+            reconcile_failure_budget: budget,
+            ..RoutingTableConfig::default()
+        },
+    );
+    let fail = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let handler = FlakyCutoverHandler {
+        events: Arc::new(Mutex::new(Vec::new())),
+        fail: Arc::clone(&fail),
+    };
+    let cancel = CancellationToken::new();
+    let token = cancel.child_token();
+    tokio::spawn(async move { router.run(token, Arc::new(handler)).await });
+    (fail, cancel)
+}
+
+/// Reconcile-pass failures within the budget must not kill the run: the
+/// router stays registered while passes fail, and the first successful
+/// pass afterward heals what went unrepaired in the meantime (here, a
+/// freeze ack deleted out-of-protocol). Without tolerance, a brief etcd
+/// blip observed by the 5-second tick would restart every router in the
+/// fleet simultaneously.
+#[tokio::test]
+async fn reconcile_failures_within_budget_are_tolerated_and_heal() {
+    let (store, prefix) = test_store_with_prefix("reconcile-tolerates-failures").await;
+    let (fail, cancel) = start_flaky_router(&store, "rtf-router", 12).await;
+
+    let ack_present = |store: Arc<PersonhogStore>| async move {
+        store
+            .list_freeze_acks(0)
+            .await
+            .expect("list acks")
+            .iter()
+            .any(|a| a.router_name == "rtf-router")
+    };
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        ack_present(Arc::clone(&store))
+    })
+    .await;
+
+    // Break the handler and delete the ack out-of-protocol. Reconcile is
+    // the only healer (no new events arrive), and its passes now fail
+    // before reaching the ack write, so the ack must stay absent while
+    // the run survives the failures.
+    fail.store(true, std::sync::atomic::Ordering::SeqCst);
+    let mut raw = etcd_client::Client::connect(["http://localhost:2379"], None)
+        .await
+        .expect("raw client");
+    raw.delete(format!("{prefix}freeze_acks/0/rtf-router"), None)
+        .await
+        .expect("delete ack");
+
+    // Observe at least four failed ticks' worth of time.
+    tokio::time::sleep(Duration::from_millis(900)).await;
+    assert!(
+        !ack_present(Arc::clone(&store)).await,
+        "failing passes must not have healed the ack"
+    );
+    let registered = store
+        .list_routers()
+        .await
+        .expect("list routers")
+        .iter()
+        .any(|r| r.router_name == "rtf-router");
+    assert!(
+        registered,
+        "the run must survive reconcile failures within the budget"
+    );
+
+    // Recovery: the next successful pass re-asserts the ack.
+    fail.store(false, std::sync::atomic::Ordering::SeqCst);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        ack_present(Arc::clone(&store))
+    })
+    .await;
+
+    cancel.cancel();
+}
+
+/// Past the consecutive-failure budget the run must fail — the escape
+/// hatch for the partial mode where snapshot reads fail while the lease
+/// stays healthy, which unbounded tolerance would hide forever. Failing
+/// the run deregisters the router so it restarts as a healthy
+/// participant.
+#[tokio::test]
+async fn reconcile_failures_past_the_budget_fail_the_run() {
+    let store = test_store("reconcile-budget-exhaustion").await;
+    let (fail, cancel) = start_flaky_router(&store, "rbe-router", 3).await;
+
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&store);
+        async move {
+            store
+                .list_routers()
+                .await
+                .expect("list routers")
+                .iter()
+                .any(|r| r.router_name == "rbe-router")
+        }
+    })
+    .await;
+
+    fail.store(true, std::sync::atomic::Ordering::SeqCst);
+
+    // Three failed passes exhaust the budget; the run's teardown
+    // deregisters the router.
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&store);
+        async move {
+            !store
+                .list_routers()
+                .await
+                .expect("list routers")
+                .iter()
+                .any(|r| r.router_name == "rbe-router")
+        }
+    })
+    .await;
+
+    cancel.cancel();
+}
+
 /// A cutover handler whose stash has fully settled: `stash_pending`
 /// reports no entry, the way the router does once a drain has evicted
 /// the partition from its stash table.

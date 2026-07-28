@@ -680,6 +680,7 @@ async fn statefulset_rollout_pod_skips_drain() {
         heartbeat_interval: Duration::from_secs(3),
         drain_timeout: Duration::from_secs(30),
         reconcile_interval: Duration::from_secs(86_400),
+        reconcile_failure_budget: 12,
         advertise_address: None,
     };
     let (_pod_events, pod_handle) = start_pod_k8s(

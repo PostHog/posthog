@@ -174,6 +174,17 @@ pub struct RoutingTableConfig {
     /// itself, so the routing table keeps a single writer and the stall
     /// watchdog supervises it too.
     pub reconcile_interval: Duration,
+    /// How many consecutive reconcile-pass failures to tolerate before
+    /// failing the run. A failed pass leaves the router exactly as
+    /// stale as the previous tick — the watch-driven steady state — so
+    /// a single failure carries no safety content and brief etcd blips
+    /// must not restart the fleet; sustained outage already self-fences
+    /// through the lease keepalive. The budget bounds the partial mode
+    /// where snapshot reads fail while the lease stays healthy, which
+    /// would otherwise silently stall the healing the pass provides
+    /// (freeze-ack re-assertion, yielded-drain re-requests, address
+    /// refresh).
+    pub reconcile_failure_budget: u32,
 }
 
 impl Default for RoutingTableConfig {
@@ -188,6 +199,7 @@ impl Default for RoutingTableConfig {
             heartbeat_interval: Duration::from_secs(3),
             participant_stall_threshold: Some(Duration::from_secs(60)),
             reconcile_interval: Duration::from_secs(5),
+            reconcile_failure_budget: 12,
         }
     }
 }
@@ -375,6 +387,7 @@ impl RoutingTable {
             let lanes = Arc::new(DrainLanes::new(lanes_cancel.clone()));
             let last_progress = Arc::clone(&last_progress);
             let reconcile_interval = self.config.reconcile_interval;
+            let reconcile_failure_budget = self.config.reconcile_failure_budget;
             let token = cancel.child_token();
             tasks.spawn(async move {
                 Self::watch_handoffs_loop(
@@ -390,6 +403,7 @@ impl RoutingTable {
                     progress_epoch,
                     stamp_interval,
                     reconcile_interval,
+                    reconcile_failure_budget,
                 )
                 .await
             });
@@ -564,7 +578,9 @@ impl RoutingTable {
         progress_epoch: Instant,
         stamp_interval: Duration,
         reconcile_interval: Duration,
+        reconcile_failure_budget: u32,
     ) -> Result<()> {
+        let mut consecutive_reconcile_failures: u32 = 0;
         // The stamp arm can only run while the loop is free to iterate —
         // an event handler stuck in an inline await freezes the stamp,
         // which is exactly what the watchdog listens for.
@@ -591,7 +607,16 @@ impl RoutingTable {
                     );
                 }
                 _ = reconcile_tick.tick() => {
-                    Self::reconcile_pass(
+                    // A failed pass is tolerated: the router is exactly
+                    // as stale as one tick ago (the watch-driven steady
+                    // state), and the next successful pass compensates
+                    // fully. Making single failures fatal would let a
+                    // brief etcd blip restart every router in the fleet
+                    // simultaneously; sustained outage is the lease
+                    // keepalive's job. The consecutive budget bounds the
+                    // partial-failure mode where reads fail while the
+                    // lease stays healthy.
+                    match Self::reconcile_pass(
                         &store,
                         &table,
                         &addresses,
@@ -599,7 +624,28 @@ impl RoutingTable {
                         &lanes,
                         &router_name,
                     )
-                    .await?;
+                    .await
+                    {
+                        Ok(()) => consecutive_reconcile_failures = 0,
+                        Err(e) => {
+                            consecutive_reconcile_failures += 1;
+                            metrics::counter!(
+                                "personhog_coordination_reconcile_failures_total",
+                                "component" => "router"
+                            )
+                            .increment(1);
+                            tracing::warn!(
+                                router = %router_name,
+                                error = %e,
+                                consecutive = consecutive_reconcile_failures,
+                                budget = reconcile_failure_budget,
+                                "reconcile pass failed; continuing on last-known state"
+                            );
+                            if consecutive_reconcile_failures >= reconcile_failure_budget {
+                                return Err(e);
+                            }
+                        }
+                    }
                 }
                 msg = stream.message() => {
                     let resp = msg?.ok_or_else(|| Error::invalid_state("handoff watch stream ended".to_string()))?;
