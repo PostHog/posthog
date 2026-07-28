@@ -283,6 +283,7 @@ the row lists both.
 | groq                             | HTTP                        | requests                                                        | ✅                          |
 | guardian                         | HTTP                        | requests                                                        | ✅                          |
 | guru                             | HTTP                        | requests                                                        | ✅                          |
+| gusto                            | HTTP                        | requests                                                        | ✅                          |
 | harvey                           | HTTP                        | requests                                                        | ✅                          |
 | hatchet                          | HTTP                        | requests                                                        | ✅                          |
 | healthchecks                     | HTTP                        | requests                                                        | ✅                          |
@@ -998,7 +999,6 @@ doesn't conflict with concurrent PRs.
 - guesty
 - gumloop
 - gumroad
-- gusto
 - harness
 - harness_ccm
 - harness_sei
