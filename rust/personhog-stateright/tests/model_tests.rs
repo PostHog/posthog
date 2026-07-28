@@ -41,6 +41,7 @@ fn base() -> HandoffModel {
         rejoins: 0,
         router_joins: 0,
         zombie_window: 0,
+        cancels: 0,
         probes: false,
     }
 }
@@ -558,4 +559,89 @@ fn state_space_report() {
             start.elapsed()
         );
     }
+}
+
+/// Deadline cancellation as atomic replacement, with no failures in the
+/// mix: any in-flight handoff may be cancelled at any moment (the model
+/// has no clock, so this covers every production deadline policy). The
+/// budget of two lets the checker cancel a successor produced by an
+/// earlier cancellation. Every safety property must hold across the
+/// replacement interleavings — including a cancellation racing parked
+/// stash requests — and every full run must still converge with empty
+/// stashes.
+#[test]
+fn deadline_cancellation_by_replacement_is_safe_and_live() {
+    HandoffModel {
+        cancels: 2,
+        ..base()
+    }
+    .checker()
+    .spawn_bfs()
+    .join()
+    .assert_properties();
+}
+
+/// The reaffirm arm: cancelling a move handoff whose old owner is alive
+/// must resolve as a Complete toward that owner — the pod re-derives
+/// Serving and unfences, routers drain home. Manufacturing a move whose
+/// old owner survives takes a crash and a rejoin (a fresh handoff has no
+/// old owner, and a crashed owner is dead): the pod dies, its partition
+/// moves, it rejoins, and the rebalance that moves a partition back is
+/// the reaffirmable handoff. Two partitions so the sticky strategy has a
+/// move to make at rejoin.
+#[test]
+fn cancellation_with_live_owner_reaffirms_and_resumes() {
+    HandoffModel {
+        partitions: 2,
+        crashes: 1,
+        rejoins: 1,
+        cancels: 1,
+        // One write keeps the workload probes reachable while holding
+        // the state space down — this test's subject is the control
+        // plane's reaffirm resolution, not the data path.
+        writes: 1,
+        reads: 0,
+        ..base()
+    }
+    .checker()
+    .spawn_bfs()
+    .join()
+    .assert_properties();
+}
+
+/// The successor arm under failure: the owner dies while its handoff is
+/// in flight, and the cancellation replaces the record with the
+/// successor in one transaction — the stash never observes a gap between
+/// attempts. The dead-new-owner arm is exercised in the same space (a
+/// cancellation's successor can itself target a pod that then dies).
+#[test]
+fn cancellation_with_dead_owner_replaces_atomically() {
+    HandoffModel {
+        crashes: 1,
+        cancels: 1,
+        ..base()
+    }
+    .checker()
+    .spawn_bfs()
+    .join()
+    .assert_properties();
+}
+
+/// Isolation probe for the stale-warm counterexample: the same
+/// crash+rejoin+two-partition space with cancellation disabled. If this
+/// fails too, the loss mechanism predates cancellation-by-replacement.
+#[test]
+fn rejoin_two_partitions_without_cancellation() {
+    HandoffModel {
+        partitions: 2,
+        crashes: 1,
+        rejoins: 1,
+        writes: 1,
+        reads: 0,
+        ..base()
+    }
+    .checker()
+    .spawn_bfs()
+    .join()
+    .assert_properties();
 }
