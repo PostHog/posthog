@@ -85,13 +85,21 @@ describe('wizardInstallStepLogic', () => {
         expect(logic.values.escapeHatchTrigger).toBe('timeout')
     })
 
-    it('disarming cancels the pending timeout', () => {
-        // Installation completing disarms the hatch; a live timer would still reveal it afterwards.
+    it('disarming cancels the pending timeout and a later re-arm starts a fresh window', () => {
+        // Installation completing disarms the hatch; a live timer would still reveal it afterwards,
+        // and a deadline kept across the disarm would make a later re-arm fire early or instantly.
         logic.actions.armEscapeHatch()
+        jest.advanceTimersByTime(ESCAPE_HATCH_TIMEOUT_MS - 1)
         logic.actions.disarmEscapeHatch()
         jest.advanceTimersByTime(ESCAPE_HATCH_TIMEOUT_MS * 2)
-
         expect(logic.values.escapeHatchRevealed).toBe(false)
+
+        logic.actions.armEscapeHatch()
+        jest.advanceTimersByTime(ESCAPE_HATCH_TIMEOUT_MS - 1)
+        expect(logic.values.escapeHatchRevealed).toBe(false)
+
+        jest.advanceTimersByTime(1)
+        expect(logic.values.escapeHatchTrigger).toBe('timeout')
     })
 
     it.each([
