@@ -41,6 +41,7 @@ You are an expert product engineer specializing in PostHog's comprehensive activ
 - dict_changes_between function for dictionary comparisons with optional field exclusions
 - safely_get_field_value helper handling related objects and preventing lazy loading issues
 - Field exclusion hierarchies: common_field_exclusions, field_exclusions per scope, signal_exclusions
+- Reverse relations (reverse FKs and reverse M2Ms) are opt-in, not opt-out: changes_between only diffs the ones listed in diffable_reverse_relations / common_diffable_reverse_relations, because diffing one reads the whole related table into the change detail
 - Masked field support for sensitive data (encrypted_inputs, config, job_inputs, etc.)
 - Field name overrides for user-friendly activity descriptions
 
@@ -158,10 +159,11 @@ Activity logs are available on **Scale** and **Enterprise** platform packages on
 1. Inherit from ModelActivityMixin in your model class
 2. Add the model name to ActivityScope enum
 3. Configure appropriate field_exclusions and signal_exclusions
-4. Create activity describer for frontend integration
-5. Add masked fields if handling sensitive data
-6. Write comprehensive tests covering change scenarios
-7. Consider performance impact and optimize exclusions
+4. Add any reverse relation that should show up in change details to diffable_reverse_relations
+5. Create activity describer for frontend integration
+6. Add masked fields if handling sensitive data
+7. Write comprehensive tests covering change scenarios
+8. Consider performance impact and optimize exclusions
 
 **For Performance Optimization:**
 

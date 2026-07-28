@@ -1,7 +1,14 @@
+from posthog.test.base import BaseTest
+from unittest.mock import patch
+
+from django.db import ProgrammingError
+from django.db.models.sql.compiler import SQLCompiler
+
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, User
-from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.activity_logging.activity_log import ActivityLog, Change, changes_between
 from posthog.models.organization import OrganizationMembership
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.test.activity_log_utils import ActivityLogTestHelper
@@ -393,3 +400,31 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
         assert logo_removal is not None
         self.assertEqual(logo_removal["action"], "deleted")
         self.assertEqual(logo_removal["before"]["id"], str(media.id))
+
+
+class TestOrganizationRelationDiffing(BaseTest):
+    def test_reverse_relations_are_not_diffed_unless_they_are_allowlisted(self):
+        previous = Organization.objects.create(name="Reverse Relation Org")
+        current = Organization.objects.create(name="Reverse Relation Org")
+        OrganizationDomain.objects.create(organization=current, domain="posthog.com")
+
+        changed_fields = [c.field for c in changes_between("Organization", previous=previous, current=current)]
+
+        assert "domains" not in changed_fields
+
+    def test_a_database_error_while_reading_a_related_row_does_not_abort_the_diff(self):
+        previous = Organization.objects.create(name="Before")
+        current = Organization.objects.create(name="After")
+        for organization in (previous, current):
+            organization.logo_media = UploadedMedia.objects.create(
+                media_location=f"{organization.name}.png", team_id=self.team.id, created_by=self.user
+            )
+
+        with patch.object(SQLCompiler, "execute_sql", side_effect=ProgrammingError("relation does not exist")):
+            changes = changes_between("Organization", previous=previous, current=current)
+
+        assert (
+            Change(type="Organization", field="organization name", action="changed", before="Before", after="After")
+            in changes
+        )
+        assert "logo_media" not in [c.field for c in changes]

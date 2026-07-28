@@ -8,7 +8,7 @@ from django.contrib.auth.models import AnonymousUser
 from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import FieldDoesNotExist, ObjectDoesNotExist
 from django.core.paginator import Paginator
-from django.db import models, transaction
+from django.db import DatabaseError, InterfaceError, models, transaction
 from django.db.models import QuerySet
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
@@ -772,6 +772,35 @@ field_exclusions: dict[AuditableScope, list[str]] = {
     ],
 }
 
+# Reverse relations are opt-in, unlike everything else in `changes_between`, which is opt-out via
+# `field_exclusions`. `_meta.get_fields()` returns every relation pointing *at* the model — reverse
+# foreign keys, reverse one-to-ones and reverse many-to-manys — and diffing one means reading the
+# whole related table and stringifying every row into the change detail. That read is unbounded and
+# can fail the save it only meant to describe, so a new foreign key to an audited model has to be
+# listed here before it shows up in change details.
+diffable_reverse_relations: dict[AuditableScope, list[str]] = {
+    "Insight": [
+        # An insight's dashboards live on the join table, so the tiles *are* the change.
+        "dashboards",
+        "dashboard_tiles",
+    ],
+}
+
+# Tags hang off `TaggedItem` for every taggable scope and are reported as `tags` (see the rename in
+# `changes_between`), so allow them everywhere rather than repeating them per scope.
+common_diffable_reverse_relations: list[str] = ["tagged_items"]
+
+
+def _should_diff(field: Any, excluded_fields: list[str], allowed_reverse_relations: set[str]) -> bool:
+    if field.name in excluded_fields:
+        return False
+
+    # `ForeignObjectRel` is the base class of every reverse relation Django reports.
+    if isinstance(field, models.ForeignObjectRel):
+        return field.name in allowed_reverse_relations
+
+    return True
+
 
 def describe_change(m: Any) -> Union[str, dict]:
     # Use lazy imports to avoid circular dependencies
@@ -837,6 +866,19 @@ def safely_get_field_value(instance: models.Model | None, field: str):
     except (ObjectDoesNotExist, FieldDoesNotExist):
         return None
 
+    # A failure to read a related row — e.g. its table doesn't exist on this database yet — degrades
+    # to no detail rather than raising into the save that triggered the log. Note that a read which
+    # fails inside an open transaction still aborts that transaction; this only keeps the diff itself
+    # from turning a describe failure into a hard error.
+    except (DatabaseError, InterfaceError):
+        logger.warning(
+            "activity_log_field_read_failed",
+            field=field,
+            model=instance._meta.label,
+            exc_info=True,
+        )
+        return None
+
 
 def changes_between(
     model_type: AuditableScope,
@@ -857,8 +899,11 @@ def changes_between(
     if previous is not None:
         fields = current._meta.get_fields() if current is not None else []
         excluded_fields = field_exclusions.get(model_type, []) + common_field_exclusions
+        allowed_reverse_relations = set(
+            diffable_reverse_relations.get(model_type, []) + common_diffable_reverse_relations
+        )
         masked_fields = field_with_masked_contents.get(model_type, [])
-        filtered_fields = [f for f in fields if f.name not in excluded_fields]
+        filtered_fields = [f for f in fields if _should_diff(f, excluded_fields, allowed_reverse_relations)]
         filtered_field_names = [f.name for f in filtered_fields]
 
         for field in filtered_fields:
