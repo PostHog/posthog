@@ -106,7 +106,6 @@ export function EndpointsUsageTrendsChart({
     }, [labels, series.length, scale, timezone])
 
     return (
-        // Quill charts fill a flex parent, so the sized container must be a flex column.
         <div className="border rounded bg-bg-light p-2 h-60 flex flex-col">
             <TimeSeriesLineChart series={series} labels={labels} theme={theme} config={config} />
         </div>
