@@ -676,9 +676,9 @@ That read is pinned to the writer (`using("default")`), because it runs immediat
 Withholding new emissions is not sufficient on its own, because a report can be embedded while safe and only later be judged unsafe.
 Three paths therefore **retract** an existing vector by re-emitting the row with `metadata.deleted = true`, preserving `created_at` so it replaces the live row in the same partition:
 
-- **Deletion** — the report-level counterpart to `soft_delete_report_signals`. Both the soft path, where `delete_report_activity` flips status to `DELETED`, and a hard `delete()` of the row, which is what `delete_team_reports_activity` and the `cleanup_signals` command issue. The hard path matters most: once the row is gone, no later write can retract the vector.
-- **A later unsafe verdict** — the summary workflow re-judges safety on every run, and a READY report re-researches whenever new signals join it.
-- **An unreviewed edit** — the `PATCH` endpoint and the scout `edit_report` channel supply text the judge has never seen, so the report is retracted and left unindexed until the pipeline writes judged text again.
+- **Deletion**: the report-level counterpart to `soft_delete_report_signals`. Both the soft path, where `delete_report_activity` flips status to `DELETED`, and a hard `delete()` of the row, which is what `delete_team_reports_activity` and the `cleanup_signals` command issue. The hard path matters most: once the row is gone, no later write can retract the vector.
+- **A later unsafe verdict**: the summary workflow re-judges safety on every run, and a READY report re-researches whenever new signals join it.
+- **An unreviewed edit**: the `PATCH` endpoint and the scout `edit_report` channel supply text the judge has never seen, so the report is retracted and left unindexed until the pipeline writes judged text again.
 
 Tombstones carry fixed placeholder content (`TOMBSTONE_CONTENT`) rather than the report's own text.
 Content is not part of the `ReplacingMergeTree` key, so a placeholder supersedes a live row just as well, and it means a tombstone can be emitted without first knowing whether a live row exists, which is the question none of these paths can answer cheaply.
