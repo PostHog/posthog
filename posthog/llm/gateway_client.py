@@ -219,22 +219,16 @@ def ai_product_headers(ai_product: str | None) -> dict[str, str] | None:
     return _ai_property_headers(ai_product=ai_product)
 
 
-# Namespace the Python LLM gateway hashes non-UUID trace identifiers under, duplicated from
-# services/llm-gateway/src/llm_gateway/callbacks/posthog.py. Both must stay equal so a team's
-# generations carry one trace id whichever gateway serves them. TestTeamTraceId pins the
-# derivation against ids observed on captured events.
+# Mirrors the namespace in services/llm-gateway/src/llm_gateway/callbacks/posthog.py. Both must
+# stay equal or a team's trace id changes with whichever gateway serves it.
 _TEAM_TRACE_ID_NAMESPACE = UUID("8d4f6b7e-6a3e-4f3a-9f3b-3b6f4d2e8a1a")
 
 
 def team_trace_id(team_id: int | None) -> str | None:
-    """Deterministic ``$ai_trace_id`` for a team's generations, or None when unattributed.
+    """Deterministic ``$ai_trace_id`` for a team, or None when unattributed.
 
-    The Python gateway derives this itself, hashing the ``metadata.user_id`` callers set to
-    ``team-<id>``. The Go gateway derives nothing: absent an ``X-PostHog-Trace-Id`` header it
-    stamps a fresh id per request, leaving every generation in a single-event trace. Sending
-    this keeps one team's generations on one trace id whichever gateway serves them.
-
-    The grouping is per team, not per pipeline run: every generation a team makes shares an id.
+    Absent an ``X-PostHog-Trace-Id`` header the Go gateway stamps a fresh id per request, leaving
+    every generation in its own trace. Grouping is per team, not per pipeline run.
     """
     if team_id is None:
         return None
@@ -242,10 +236,7 @@ def team_trace_id(team_id: int | None) -> str | None:
 
 
 def _ai_trace_headers(team_id: int | None) -> dict[str, str]:
-    """``X-PostHog-Trace-Id`` header for a team, empty when the call is unattributed.
-
-    Empty rather than None so callers can merge it into the properties header dict.
-    """
+    """``X-PostHog-Trace-Id`` header for a team; empty (not None) so callers can splat it."""
     trace_id = team_trace_id(team_id)
     return {"X-PostHog-Trace-Id": trace_id} if trace_id else {}
 
@@ -318,9 +309,8 @@ def build_async_anthropic_client(
     over to Bedrock on its own via the host breaker and reads no opt-in header. trust_env=False
     keeps the in-cluster call off the egress proxy.
 
-    An attributed call also carries ``X-PostHog-Trace-Id`` (see :func:`team_trace_id`) so the Go
-    gateway groups the team's generations under the same id the Python gateway derives. The
-    Python-gateway path derives it internally and needs no header.
+    An attributed call also carries ``X-PostHog-Trace-Id`` (see :func:`team_trace_id`); the
+    Python-gateway fallback derives the same id internally and needs no header.
     """
     gateway = resolve_ai_gateway_config()
     if gateway:

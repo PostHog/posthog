@@ -265,9 +265,8 @@ class TestBuildAsyncOpenAIClient:
 
 
 class TestTeamTraceId:
-    # Expected ids are not recomputed from the helper: each is a $ai_trace_id observed on events
-    # the Python gateway captured for that team, so a changed namespace or key format fails here
-    # rather than agreeing with itself.
+    # Expected ids are $ai_trace_id values observed on captured events, not recomputed from the
+    # helper: recomputing would make the test agree with itself and miss a namespace change.
     @pytest.mark.parametrize(
         "team_id,expected",
         [
@@ -317,7 +316,6 @@ class TestBuildAsyncAnthropicClient:
     @patch("posthog.llm.gateway_client.httpx.AsyncClient")
     @patch("posthog.llm.gateway_client.AsyncAnthropic")
     def test_gateway_mode_omits_trace_header_when_team_id_unset(self, mock_anthropic, mock_httpx):
-        # Unattributed calls have no team to key the trace on, so the gateway stamps its own id.
         build_async_anthropic_client("signals", ai_product="signals_grouping", ai_stage="match")
 
         _, kwargs = mock_anthropic.call_args
@@ -327,8 +325,8 @@ class TestBuildAsyncAnthropicClient:
     @patch("posthog.llm.gateway_client.httpx.AsyncClient")
     @patch("posthog.llm.gateway_client.AsyncAnthropic")
     def test_gateway_mode_sends_trace_header_alongside_properties(self, mock_anthropic, mock_httpx):
-        # The trace rides its own header, so it must not displace the properties blob (which the
-        # emission path replaces per call) nor be folded into it as a reserved $-prefixed key.
+        # The emission path replaces the properties blob per call and the gateway strips
+        # $-prefixed keys, so the trace has to ride its own header.
         build_async_anthropic_client("signals", team_id=42)
 
         _, kwargs = mock_anthropic.call_args
