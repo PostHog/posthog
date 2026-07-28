@@ -37,7 +37,7 @@ from posthog.models.oauth import (
 from posthog.ph_client import ph_scoped_capture
 from posthog.rate_limit import IPThrottle
 from posthog.scopes import filter_to_unprivileged_scopes
-from posthog.security.pinned_requests import PinnedIPAdapter
+from posthog.security.pinned_requests import PinnedIPAdapter, select_pinned_ip
 from posthog.security.url_validation import is_url_allowed, validate_url_and_pin_ips
 
 from .client_name import sanitize_client_name, validate_client_name
@@ -290,8 +290,9 @@ def fetch_client_json_document(
 
     adapter = PinnedIPAdapter()
     hostname = (urlparse(url).hostname or "").lower()
-    if pinned_ips:
-        adapter.pin(hostname, next(iter(pinned_ips)))
+    chosen_ip = select_pinned_ip(pinned_ips)
+    if chosen_ip is not None:
+        adapter.pin(hostname, chosen_ip)
 
     # Validation above rejects any non-HTTPS URL, so only the https adapter is mounted.
     session = requests.Session()
