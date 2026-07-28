@@ -4,6 +4,7 @@ from enum import StrEnum
 from typing import Optional
 
 from clickhouse_driver.errors import ServerException
+from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.hogql.errors import ExposedHogQLError
 
@@ -225,6 +226,11 @@ def classify_query_error(e: Exception) -> QueryErrorCategory:
         return QueryErrorCategory.QUERY_PERFORMANCE_ERROR
 
     if isinstance(e, ExposedHogQLError):
+        return QueryErrorCategory.USER_ERROR
+
+    # DRF ValidationError raised during query building reflects invalid user input
+    # (e.g. a funnel step referencing a deleted action), not a platform failure.
+    if isinstance(e, DRFValidationError):
         return QueryErrorCategory.USER_ERROR
 
     return QueryErrorCategory.ERROR
