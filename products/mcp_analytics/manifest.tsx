@@ -59,7 +59,6 @@ export const manifest: ProductManifest = {
     },
     setupProbe: {
         productKey: ProductKey.MCP_ANALYTICS,
-        eventDefinitionSearch: '$mcp_',
         hasDataEvents: ['$mcp_tool_call'],
         waitingEvents: ['$mcp_initialize'],
         featureFlag: FEATURE_FLAGS.MCP_ANALYTICS,

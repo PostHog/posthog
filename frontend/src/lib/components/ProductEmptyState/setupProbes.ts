@@ -18,8 +18,6 @@ import type { ProductSetupStatus } from './types'
  */
 export interface ProductSetupProbe {
     productKey: ProductKey
-    /** Limits the event-definition lookup to this product's events. */
-    eventDefinitionSearch: string
     /** Any of these event definitions existing means the product has real data. */
     hasDataEvents: string[]
     /** Any of these existing (without `hasDataEvents`) means instrumented but no traffic yet. */

@@ -1,11 +1,11 @@
 import { MakeLogicType, actions, afterMount, connect, isBreakpoint, kea, listeners, path } from 'kea'
 
-import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { productSetupProbes } from '~/products'
-import { EventDefinitionType } from '~/types'
+
+import { eventDefinitionsList } from 'products/event_definitions/frontend/generated/api'
 
 import type { FeatureFlagsSet } from '../../logic/featureFlagLogic'
 import { productSetupStatusLogic } from './productSetupStatusLogic'
@@ -70,21 +70,17 @@ export const productSetupPreloadLogic = kea<productSetupPreloadLogicType>([
                 return
             }
 
-            let definitionsByProbe: Map<ProductSetupProbe, Set<string>>
+            const eventNames = [
+                ...new Set(probes.flatMap((probe) => [...probe.hasDataEvents, ...(probe.waitingEvents ?? [])])),
+            ]
+
+            let existingEventNames: Set<string>
             try {
-                definitionsByProbe = new Map(
-                    await Promise.all(
-                        probes.map(async (probe) => {
-                            const response = await api.eventDefinitions.list({
-                                teamId,
-                                event_type: EventDefinitionType.EventPostHog,
-                                search: probe.eventDefinitionSearch,
-                                limit: 100,
-                            })
-                            return [probe, new Set(response.results.map(({ name }) => name))] as const
-                        })
-                    )
-                )
+                const response = await eventDefinitionsList(String(teamId), {
+                    names: eventNames,
+                    limit: eventNames.length,
+                })
+                existingEventNames = new Set(response.results.map(({ name }) => name))
             } catch (error) {
                 if (error instanceof Error && isBreakpoint(error)) {
                     throw error
@@ -100,7 +96,7 @@ export const productSetupPreloadLogic = kea<productSetupPreloadLogicType>([
 
             for (const probe of probes) {
                 seeded.add(`${teamId}:${probe.productKey}`)
-                seedProbeStatus(probe, definitionsByProbe.get(probe) ?? new Set(), cache)
+                seedProbeStatus(probe, existingEventNames, cache)
             }
         },
         // Covers login and project switches that happen after mount.

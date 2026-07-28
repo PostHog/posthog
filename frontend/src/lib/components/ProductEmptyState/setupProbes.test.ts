@@ -5,7 +5,6 @@ import { statusFromProbeDefinitions, type ProductSetupProbe } from './setupProbe
 describe('statusFromProbeDefinitions', () => {
     const probe: ProductSetupProbe = {
         productKey: ProductKey.MCP_ANALYTICS,
-        eventDefinitionSearch: '$mcp_',
         hasDataEvents: ['$mcp_tool_call'],
         waitingEvents: ['$mcp_initialize'],
     }
@@ -24,7 +23,6 @@ describe('statusFromProbeDefinitions', () => {
     it('never reports waiting-for-data for probes without waitingEvents', () => {
         const binaryProbe: ProductSetupProbe = {
             productKey: ProductKey.MCP_ANALYTICS,
-            eventDefinitionSearch: '$exception',
             hasDataEvents: ['$exception'],
         }
         expect(statusFromProbeDefinitions(binaryProbe, new Set(['$mcp_initialize']))).toBe('needs-setup')
