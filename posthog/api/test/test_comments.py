@@ -698,6 +698,38 @@ class TestCommentsTicketAccessControl(APIBaseTest):
         own_comment.refresh_from_db()
         assert own_comment.scope == "Notebook"
 
+    def _deny_ticket_resource(self) -> None:
+        AccessControl.objects.filter(resource_id=str(self.ticket.id)).delete()
+        AccessControl.objects.create(
+            resource="ticket",
+            resource_id=None,
+            organization_member=self.member.organization_memberships.get(organization=self.organization),
+            team=self.team,
+            access_level="none",
+        )
+
+    def test_member_denied_ticket_resource_cannot_list_messages_across_tickets(self) -> None:
+        self._deny_ticket_resource()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/comments?scope=conversations_ticket")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"] == []
+
+    def test_member_denied_ticket_resource_still_lists_messages_of_specifically_granted_ticket(self) -> None:
+        self._deny_ticket_resource()
+        AccessControl.objects.create(
+            resource="ticket",
+            resource_id=str(self.ticket.id),
+            organization_member=self.member.organization_memberships.get(organization=self.organization),
+            team=self.team,
+            access_level="viewer",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/comments?scope=conversations_ticket")
+
+        assert [result["content"] for result in response.json()["results"]] == ["a private message"]
+
     def test_viewer_cannot_complete_ticket_task(self) -> None:
         AccessControl.objects.filter(resource_id=str(self.ticket.id)).update(access_level="viewer")
         task = Comment.objects.create(

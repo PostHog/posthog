@@ -293,6 +293,14 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
                 return queryset.none()
             return queryset
 
+        # filter_queryset_by_access_level trusts the view to have enforced resource-level access
+        # already, and this view is authorized as `comment` — so a caller denied the ticket resource
+        # would otherwise get the unfiltered ticket queryset back here.
+        if not self.user_access_control.check_access_level_for_resource(
+            "ticket", "viewer"
+        ) and not self.user_access_control.has_any_specific_access_for_resource("ticket", "viewer"):
+            return queryset.none()
+
         visible_ticket_ids = self.user_access_control.filter_queryset_by_access_level(
             Ticket.objects.filter(team_id=self.team_id)
         ).values_list("id", flat=True)

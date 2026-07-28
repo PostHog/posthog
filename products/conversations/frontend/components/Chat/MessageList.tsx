@@ -136,6 +136,7 @@ export function MessageList({
                             showAiReplyFeedback && message.id === latestAiMessageId && message.authorType === 'AI'
                         }
                         aiReplyFeedbackRating={feedbackByMessageId[message.id] ?? null}
+                        aiReplyFeedbackDisabledReason={aiReplyFeedbackDisabledReason}
                         onSubmitAiReplyFeedback={
                             onSubmitAiReplyFeedback
                                 ? (rating, feedbackText) => onSubmitAiReplyFeedback(message.id, rating, feedbackText)
