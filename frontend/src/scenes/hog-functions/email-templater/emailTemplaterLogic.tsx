@@ -155,7 +155,6 @@ export interface emailTemplaterLogicValues {
     isEmailTemplateValid: boolean
     isModalOpen: boolean
     isSaveTemplateModalOpen: boolean
-    isTemplatePickerExpanded: boolean
     logicProps: EmailTemplaterLogicProps
     mergeTags: UnlayerMergeTags
     personPropertyDefinitions: PropertyDefinition[]
@@ -175,6 +174,9 @@ export interface emailTemplaterLogicActions {
         template: MessageTemplate
     }
     closeWithConfirmation: () => {
+        value: true
+    }
+    designLoaded: () => {
         value: true
     }
     designUpdated: () => {
@@ -273,9 +275,6 @@ export interface emailTemplaterLogicActions {
     submitEmailTemplateSuccess: (emailTemplate: EmailTemplate) => {
         emailTemplate: EmailTemplate
     }
-    toggleTemplatePicker: () => {
-        value: true
-    }
     touchEmailTemplateField: (key: string) => {
         key: string
     }
@@ -312,7 +311,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         setIsSaveTemplateModalOpen: (isOpen: boolean) => ({ isOpen }),
         applyTemplate: (template: MessageTemplate) => ({ template }),
         designUpdated: true,
-        toggleTemplatePicker: true,
+        designLoaded: true,
         closeWithConfirmation: true,
         setTemplatingEngine: (templating: 'hog' | 'liquid') => ({ templating }),
         saveAsTemplate: (name: string, description: string) => ({ name, description }),
@@ -344,13 +343,6 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             false,
             {
                 setIsSaveTemplateModalOpen: (_, { isOpen }) => isOpen,
-            },
-        ],
-        isTemplatePickerExpanded: [
-            false,
-            {
-                toggleTemplatePicker: (state) => !state,
-                applyTemplate: () => false,
             },
         ],
         appliedTemplate: [
@@ -518,13 +510,26 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             }
             if (props.layout === 'inline') {
                 values.emailEditorRef?.editor?.addEventListener('design:updated', () => actions.designUpdated())
+                values.emailEditorRef?.editor?.addEventListener('design:loaded', () => actions.designLoaded())
             }
         },
 
+        designLoaded: async (_, breakpoint) => {
+            // Re-baseline off the editor's own normalized export: unlayer rewrites loaded JSON
+            // (defaults, ids), so comparing raw stored designs against later exports would flag
+            // every load echo as an edit and falsely dirty the parent form.
+            const editor = values.emailEditorRef?.editor
+            if (!editor || props.layout !== 'inline') {
+                return
+            }
+            const htmlData: { design: JSONTemplate } = await new Promise<any>((res) => editor.exportHtml(res))
+            breakpoint()
+            cache.lastEditorDesign = htmlData.design
+        },
+
         designUpdated: async (_, breakpoint) => {
-            // A programmatic loadDesign fires design:updated too, and unlayer normalizes the loaded
-            // JSON, so re-exporting right after a load would push a cosmetically-different design to
-            // the parent and falsely dirty its form. Ignore events on the heels of a load.
+            // A programmatic loadDesign fires design:updated too; give designLoaded a beat to set
+            // the normalized baseline before treating events as user edits.
             if (cache.designLoadedAt && Date.now() - cache.designLoadedAt < 1000) {
                 return
             }
@@ -541,12 +546,12 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             ])
             breakpoint()
 
-            cache.lastEditorDesign = htmlData.design
-            // A programmatic loadDesign can fire design:updated too - exporting the same design the
-            // parent already holds would only mark its form dirty, so propagate real edits only.
-            if (objectsEqual(htmlData.design, props.value?.design)) {
+            // Only real changes propagate - an export identical to the last known editor state is a
+            // load echo, and pushing it would only mark the parent form dirty.
+            if (objectsEqual(htmlData.design, cache.lastEditorDesign)) {
                 return
             }
+            cache.lastEditorDesign = htmlData.design
             props.onChange({
                 ...values.emailTemplate,
                 html: ['native_email', 'native_email_template'].includes(props.type)

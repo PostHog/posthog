@@ -1,7 +1,16 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonBanner, LemonButton, LemonDivider, Spinner, SpinnerOverlay } from '@posthog/lemon-ui'
+import { IconPlus } from '@posthog/icons'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCard,
+    LemonDivider,
+    LemonModal,
+    Spinner,
+    SpinnerOverlay,
+} from '@posthog/lemon-ui'
 
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -15,6 +24,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
+import { MessageTemplateCard } from './MessageTemplateCard'
 import { messageTemplateLogic } from './messageTemplateLogic'
 import { MessageTemplateSceneLogicProps, messageTemplateSceneLogic } from './messageTemplateSceneLogic'
 
@@ -39,6 +49,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         deleteTemplate,
         loadTemplate,
         setExternallyEdited,
+        setTemplatePickerOpen,
     } = useActions(logic)
     const {
         template,
@@ -48,10 +59,11 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         messageLoading,
         externallyEdited,
         isSyncingExternalEdit,
+        templatePickerOpen,
     } = useValues(logic)
 
-    const { toggleTemplatePicker, setIsSaveTemplateModalOpen } = useActions(emailTemplaterLogic)
-    const { templates, isTemplatePickerExpanded } = useValues(emailTemplaterLogic)
+    const { applyTemplate, setIsSaveTemplateModalOpen } = useActions(emailTemplaterLogic)
+    const { templates } = useValues(emailTemplaterLogic)
 
     // Attach template logic to scene logic so it persists across tab switches
     useAttachedLogic(logic, sceneLogic)
@@ -75,35 +87,46 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                     description={template.description}
                     resourceType={{ type: 'template' }}
                     canEdit
+                    descriptionAlwaysVisible
                     isLoading={messageLoading}
                     onNameChange={(name) => setTemplateValue('name', name)}
                     onDescriptionChange={(description) => setTemplateValue('description', description)}
                     actions={
                         <>
-                            {templates.length > 0 && (
+                            <LemonDivider vertical />
+                            {templateChanged && (
                                 <LemonButton
-                                    data-attr="start-from-template"
+                                    data-attr="cancel-message-template"
                                     type="secondary"
+                                    onClick={() => resetTemplate(originalTemplate)}
                                     size="small"
-                                    active={isTemplatePickerExpanded}
-                                    onClick={() => toggleTemplatePicker()}
                                 >
-                                    Start from template
+                                    Discard changes
                                 </LemonButton>
                             )}
                             <LemonButton
-                                data-attr="save-as-new-template"
-                                type="secondary"
+                                type="primary"
+                                htmlType="submit"
+                                form="template"
+                                onClick={submitTemplate}
+                                loading={isTemplateSubmitting}
+                                disabledReason={templateChanged ? undefined : 'No changes to save'}
                                 size="small"
-                                onClick={() => setIsSaveTemplateModalOpen(true)}
                             >
-                                Save as new template
+                                {props.id === 'new' ? 'Create' : 'Save'}
                             </LemonButton>
-                            {props.id !== 'new' && (
-                                <>
-                                    <More
-                                        size="small"
-                                        overlay={
+                            <More
+                                size="small"
+                                overlay={
+                                    <>
+                                        <LemonButton
+                                            data-attr="save-as-new-template"
+                                            fullWidth
+                                            onClick={() => setIsSaveTemplateModalOpen(true)}
+                                        >
+                                            Save as new template
+                                        </LemonButton>
+                                        {props.id !== 'new' && (
                                             <>
                                                 <LemonButton
                                                     data-attr="duplicate-message-template"
@@ -127,35 +150,43 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                                     Delete
                                                 </LemonButton>
                                             </>
-                                        }
-                                    />
-                                    <LemonDivider vertical />
-                                </>
-                            )}
-                            {templateChanged && (
-                                <LemonButton
-                                    data-attr="cancel-message-template"
-                                    type="secondary"
-                                    onClick={() => resetTemplate(originalTemplate)}
-                                    size="small"
-                                >
-                                    Discard changes
-                                </LemonButton>
-                            )}
-                            <LemonButton
-                                type="primary"
-                                htmlType="submit"
-                                form="template"
-                                onClick={submitTemplate}
-                                loading={isTemplateSubmitting}
-                                disabledReason={templateChanged ? undefined : 'No changes to save'}
-                                size="small"
-                            >
-                                {props.id === 'new' ? 'Create' : 'Save'}
-                            </LemonButton>
+                                        )}
+                                    </>
+                                }
+                            />
                         </>
                     }
                 />
+
+                <LemonModal
+                    isOpen={templatePickerOpen}
+                    onClose={() => setTemplatePickerOpen(false)}
+                    title="Choose a starting point"
+                    width={880}
+                >
+                    <div className="flex flex-wrap gap-3">
+                        <LemonCard
+                            className="w-48 h-56 flex flex-col gap-2 items-center justify-center cursor-pointer"
+                            onClick={() => setTemplatePickerOpen(false)}
+                            data-attr="template-picker-blank"
+                        >
+                            <IconPlus className="text-2xl" />
+                            <span>Blank template</span>
+                        </LemonCard>
+                        {templates.map((pickableTemplate, index) => (
+                            <div key={pickableTemplate.id} className="w-48 h-56">
+                                <MessageTemplateCard
+                                    template={pickableTemplate}
+                                    index={index}
+                                    onClick={() => {
+                                        applyTemplate(pickableTemplate)
+                                        setTemplatePickerOpen(false)
+                                    }}
+                                />
+                            </div>
+                        ))}
+                    </div>
+                </LemonModal>
 
                 <div className="flex flex-col flex-1 gap-2 min-h-0 relative">
                     {isSyncingExternalEdit && <SpinnerOverlay />}

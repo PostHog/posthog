@@ -19,6 +19,7 @@ import { ComposerModelEffortPickers } from '../../../components/composer/Compose
 import { ComposerModePicker } from '../../../components/composer/ComposerModePicker'
 import { ComposerModeShortcut } from '../../../components/composer/ComposerModeShortcut'
 import { useDebouncedDraft } from '../../../components/composer/useDebouncedDraft'
+import { welcomeHeadlineLogic } from '../../../logics/welcomeHeadlineLogic'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
 import { RepositorySelector } from './RepositorySelector'
 
@@ -27,6 +28,8 @@ export function TaskComposer(): JSX.Element {
         useActions(taskTrackerSceneLogic)
     const { newTaskData, isSubmittingTask, activeSuggestionGroup, headline, consentBlocked } =
         useValues(taskTrackerSceneLogic)
+    // The surface a chat sits next to can suggest a contextual headline (e.g. the template editor).
+    const { overrideHeadline } = useValues(welcomeHeadlineLogic)
 
     // Buffer the description locally and debounce the write to kea so each keystroke is a cheap, isolated
     // re-render instead of a store dispatch. `Composer.Root` already blocks send on an empty `draft.value`
@@ -45,7 +48,7 @@ export function TaskComposer(): JSX.Element {
     return (
         <div className="flex flex-col h-full min-h-0 items-center justify-center overflow-y-auto p-4">
             <div className="w-full max-w-2xl flex flex-col items-center gap-4">
-                <Welcome headline={headline} />
+                <Welcome headline={overrideHeadline ?? headline} />
 
                 <Suggestions.Root
                     activeGroup={activeSuggestionGroup}

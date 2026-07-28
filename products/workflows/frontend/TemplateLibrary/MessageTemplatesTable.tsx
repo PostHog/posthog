@@ -13,7 +13,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import MaxTool from 'scenes/max/MaxTool'
+import { useMaxTool } from 'scenes/max/useMaxTool'
 import { urls } from 'scenes/urls'
 
 import { MessageTemplateCard } from './MessageTemplateCard'
@@ -28,6 +28,16 @@ export function MessageTemplatesTable(): JSX.Element {
         useActions(messageTemplatesLogic)
 
     const showProductIntroduction = !templatesLoading && templates.length === 0
+
+    // Registers the legacy assistant tool without MaxTool's floating CTA, which rendered as a stray
+    // purple rule over the grid.
+    useMaxTool({
+        identifier: 'create_message_template',
+        context: {},
+        callback: (toolOutput: any) => {
+            createTemplate({ template: JSON.parse(toolOutput) })
+        },
+    })
 
     return (
         <div className="templates-section" data-attr="message-templates-table">
@@ -44,15 +54,6 @@ export function MessageTemplatesTable(): JSX.Element {
                     isEmpty
                 />
             )}
-            <MaxTool
-                identifier="create_message_template"
-                context={{}}
-                callback={(toolOutput: any) => {
-                    createTemplate({ template: JSON.parse(toolOutput) })
-                }}
-            >
-                <div className="relative" />
-            </MaxTool>
             <div className="flex items-center gap-2 mb-4">
                 <LemonInput
                     type="search"

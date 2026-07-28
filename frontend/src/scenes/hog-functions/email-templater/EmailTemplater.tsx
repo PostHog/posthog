@@ -16,7 +16,7 @@ import {
     IconPlus,
     IconX,
 } from '@posthog/icons'
-import { LemonButton, LemonLabel, LemonModal, LemonSelect, LemonTabs } from '@posthog/lemon-ui'
+import { LemonButton, LemonLabel, LemonModal, LemonSegmentedButton, LemonSelect, LemonTabs } from '@posthog/lemon-ui'
 
 import { CyclotronJobTemplateSuggestionsButton } from 'lib/components/CyclotronJob/CyclotronJobTemplateSuggestions'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -380,15 +380,12 @@ function TemplateSlider({
     templates,
     onSelect,
     onSaveAsTemplate,
-    showHeader = true,
 }: {
     templates: any[]
     onSelect: (template: any) => void
     onSaveAsTemplate?: () => void
-    /** With the header hidden the slider renders expanded; the caller owns visibility. */
-    showHeader?: boolean
 }): JSX.Element {
-    const [expanded, setExpanded] = useState(!showHeader)
+    const [expanded, setExpanded] = useState(false)
     const [page, setPage] = useState(0)
     const [pageSize, setPageSize] = useState(5)
     const containerRef = useRef<HTMLDivElement>(null)
@@ -419,27 +416,25 @@ function TemplateSlider({
 
     return (
         <div className="border-b">
-            {showHeader && (
-                <div
-                    className="flex gap-2 items-center px-2 py-1 cursor-pointer select-none"
-                    onClick={() => setExpanded(!expanded)}
-                >
-                    <IconChevronDown className={clsx('w-4 h-4 transition-transform', !expanded && '-rotate-90')} />
-                    <span className="flex-1 text-sm text-secondary">Start from a template (optional)</span>
-                    {onSaveAsTemplate && (
-                        <LemonButton
-                            size="xsmall"
-                            type="secondary"
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                onSaveAsTemplate()
-                            }}
-                        >
-                            Save as new template
-                        </LemonButton>
-                    )}
-                </div>
-            )}
+            <div
+                className="flex gap-2 items-center px-2 py-1 cursor-pointer select-none"
+                onClick={() => setExpanded(!expanded)}
+            >
+                <IconChevronDown className={clsx('w-4 h-4 transition-transform', !expanded && '-rotate-90')} />
+                <span className="flex-1 text-sm text-secondary">Start from a template (optional)</span>
+                {onSaveAsTemplate && (
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            onSaveAsTemplate()
+                        }}
+                    >
+                        Save as new template
+                    </LemonButton>
+                )}
+            </div>
             {expanded && (
                 <div ref={containerRef} className="flex items-center gap-1 px-1 pb-2">
                     <LemonButton
@@ -484,15 +479,8 @@ function NativeEmailTemplaterForm({
     fieldsHidden?: boolean
     onSaveAsTemplate?: () => void
 }): JSX.Element {
-    const {
-        unlayerEditorProjectId,
-        logicProps,
-        templates,
-        mergeTags,
-        activeContentTab,
-        visibleFields,
-        isTemplatePickerExpanded,
-    } = useValues(emailTemplaterLogic)
+    const { unlayerEditorProjectId, logicProps, templates, mergeTags, activeContentTab, visibleFields } =
+        useValues(emailTemplaterLogic)
     const {
         setEmailEditorRef,
         onEmailEditorReady,
@@ -500,9 +488,17 @@ function NativeEmailTemplaterForm({
         applyTemplate,
         setActiveContentTab,
         hideAdvancedField,
+        revealAdvancedField,
     } = useActions(emailTemplaterLogic)
 
     const [previewTemplate, setPreviewTemplate] = useState<(typeof templates)[0] | null>(null)
+
+    // The template editor has only subject + preheader, so they share one row with the
+    // visual/plain-text switch to keep vertical space for the canvas.
+    const compactHeader = logicProps.type === 'native_email_template' && mode === 'full'
+    const preheaderVisible = visibleFields.some((field) => field.key === 'preheader')
+    // Preheaders see almost no use, so don't advertise the field unless this team already uses it.
+    const offerPreheader = templates.some((template) => !!template.content?.email?.preheader)
 
     return (
         <>
@@ -513,90 +509,147 @@ function NativeEmailTemplaterForm({
                 formKey="emailTemplate"
             >
                 <div className={fieldsHidden ? 'h-0 overflow-hidden' : ''}>
-                    {visibleFields.map((field) => (
-                        <LemonField
-                            key={field.key}
-                            name={field.key}
-                            className="gap-1 pl-2 border-b shrink-0"
-                            // We will handle the error display ourselves
-                            renderError={() => null}
-                            showOptional={field.optional}
-                        >
-                            {({ value, onChange, error }: ChildFunctionProps) => (
-                                <div className="flex gap-2 items-center">
-                                    <LemonLabel
-                                        className={error ? 'text-danger' : ''}
-                                        info={field.helpText}
-                                        showOptional={field.optional}
-                                    >
-                                        {field.label}
-                                    </LemonLabel>
-                                    {field.key === 'from' ? (
-                                        <NativeEmailIntegrationChoice value={value} onChange={onChange} />
-                                    ) : field.key === 'to' ? (
-                                        /**
-                                         * In email inputs, "to" maps to { email: string; name: string; },
-                                         * whereas other fields map directly to their string value
-                                         */
-                                        <LiquidSupportedText
-                                            value={value?.email}
-                                            onChange={(email) => onChange({ ...value, email })}
-                                            globals={logicProps.variables}
-                                        />
-                                    ) : (
+                    {compactHeader ? (
+                        <div className="flex gap-2 items-center pl-2 pr-1 py-0.5 border-b shrink-0">
+                            <LemonField name="subject" className="flex-2 min-w-40" renderError={() => null}>
+                                {({ value, onChange, error }: ChildFunctionProps) => (
+                                    <div className="flex gap-2 items-center flex-1">
+                                        <LemonLabel className={error ? 'text-danger' : ''}>Subject</LemonLabel>
                                         <LiquidSupportedText
                                             value={value}
                                             onChange={onChange}
                                             globals={logicProps.variables}
                                         />
+                                    </div>
+                                )}
+                            </LemonField>
+                            {preheaderVisible ? (
+                                <LemonField name="preheader" className="flex-1 min-w-40" renderError={() => null}>
+                                    {({ value, onChange }: ChildFunctionProps) => (
+                                        <div className="flex gap-2 items-center flex-1">
+                                            <LemonLabel info="This is the preview text that appears below the subject line in an inbox.">
+                                                Preheader
+                                            </LemonLabel>
+                                            <LiquidSupportedText
+                                                value={value}
+                                                onChange={onChange}
+                                                globals={logicProps.variables}
+                                            />
+                                            <LemonButton
+                                                size="xsmall"
+                                                type="tertiary"
+                                                icon={<IconX />}
+                                                onClick={() => {
+                                                    onChange('')
+                                                    hideAdvancedField('preheader')
+                                                }}
+                                                tooltip="Remove field"
+                                            />
+                                        </div>
                                     )}
-                                    {field.isAdvancedField && (
-                                        <LemonButton
-                                            size="xsmall"
-                                            type="tertiary"
-                                            icon={<IconX />}
-                                            className="mr-2"
-                                            onClick={() => {
-                                                onChange('')
-                                                hideAdvancedField(field.key)
-                                            }}
-                                            tooltip="Remove field"
-                                        />
-                                    )}
-                                </div>
-                            )}
-                        </LemonField>
-                    ))}
-
-                    <AddAdvancedFieldButtons />
-
-                    {mode === 'full' &&
-                        templates.length > 0 &&
-                        (logicProps.layout === 'inline' ? (
-                            // Inline: the scene's top bar owns the toggle and the save-as-template button.
-                            isTemplatePickerExpanded && (
-                                <TemplateSlider templates={templates} onSelect={applyTemplate} showHeader={false} />
-                            )
-                        ) : (
-                            <TemplateSlider
-                                templates={templates}
-                                onSelect={applyTemplate}
-                                onSaveAsTemplate={onSaveAsTemplate}
+                                </LemonField>
+                            ) : offerPreheader ? (
+                                <LemonButton
+                                    size="xsmall"
+                                    type="secondary"
+                                    icon={<IconPlus />}
+                                    onClick={() => revealAdvancedField('preheader')}
+                                >
+                                    Preheader
+                                </LemonButton>
+                            ) : null}
+                            <LemonSegmentedButton
+                                size="xsmall"
+                                value={activeContentTab}
+                                onChange={(tab) => setActiveContentTab(tab as 'visual' | 'plaintext')}
+                                options={[
+                                    { value: 'visual', label: 'Visual' },
+                                    { value: 'plaintext', label: 'Plain text' },
+                                ]}
                             />
-                        ))}
+                        </div>
+                    ) : (
+                        visibleFields.map((field) => (
+                            <LemonField
+                                key={field.key}
+                                name={field.key}
+                                className="gap-1 pl-2 border-b shrink-0"
+                                // We will handle the error display ourselves
+                                renderError={() => null}
+                                showOptional={field.optional}
+                            >
+                                {({ value, onChange, error }: ChildFunctionProps) => (
+                                    <div className="flex gap-2 items-center">
+                                        <LemonLabel
+                                            className={error ? 'text-danger' : ''}
+                                            info={field.helpText}
+                                            showOptional={field.optional}
+                                        >
+                                            {field.label}
+                                        </LemonLabel>
+                                        {field.key === 'from' ? (
+                                            <NativeEmailIntegrationChoice value={value} onChange={onChange} />
+                                        ) : field.key === 'to' ? (
+                                            /**
+                                             * In email inputs, "to" maps to { email: string; name: string; },
+                                             * whereas other fields map directly to their string value
+                                             */
+                                            <LiquidSupportedText
+                                                value={value?.email}
+                                                onChange={(email) => onChange({ ...value, email })}
+                                                globals={logicProps.variables}
+                                            />
+                                        ) : (
+                                            <LiquidSupportedText
+                                                value={value}
+                                                onChange={onChange}
+                                                globals={logicProps.variables}
+                                            />
+                                        )}
+                                        {field.isAdvancedField && (
+                                            <LemonButton
+                                                size="xsmall"
+                                                type="tertiary"
+                                                icon={<IconX />}
+                                                className="mr-2"
+                                                onClick={() => {
+                                                    onChange('')
+                                                    hideAdvancedField(field.key)
+                                                }}
+                                                tooltip="Remove field"
+                                            />
+                                        )}
+                                    </div>
+                                )}
+                            </LemonField>
+                        ))
+                    )}
+
+                    {!compactHeader && <AddAdvancedFieldButtons />}
+
+                    {/* Inline layout replaces the slider with the scene's template picker modal. */}
+                    {mode === 'full' && templates.length > 0 && logicProps.layout !== 'inline' && (
+                        <TemplateSlider
+                            templates={templates}
+                            onSelect={applyTemplate}
+                            onSaveAsTemplate={onSaveAsTemplate}
+                        />
+                    )}
                 </div>
 
                 {mode === 'full' ? (
                     <>
-                        <LemonTabs
-                            activeKey={activeContentTab}
-                            onChange={(key) => setActiveContentTab(key as 'visual' | 'plaintext')}
-                            tabs={[
-                                { key: 'visual', label: 'Visual' },
-                                { key: 'plaintext', label: 'Plain text' },
-                            ]}
-                            className="px-2 shrink-0 border-b"
-                        />
+                        {!compactHeader && (
+                            <LemonTabs
+                                activeKey={activeContentTab}
+                                onChange={(key) => setActiveContentTab(key as 'visual' | 'plaintext')}
+                                tabs={[
+                                    { key: 'visual', label: 'Visual' },
+                                    { key: 'plaintext', label: 'Plain text' },
+                                ]}
+                                className="px-2 shrink-0 border-b"
+                            />
+                        )}
                         <div className="relative flex flex-col flex-1">
                             <div
                                 className={clsx(

@@ -148,8 +148,10 @@ describe('emailTemplaterLogic - design re-hydration', () => {
         ({
             editor: {
                 loadDesign,
-                addEventListener: (_event: string, callback: () => void) => {
-                    designUpdatedCallback = callback
+                addEventListener: (event: string, callback: () => void) => {
+                    if (event === 'design:updated') {
+                        designUpdatedCallback = callback
+                    }
                 },
                 exportHtml: (callback: (data: any) => void) =>
                     callback({ html: '<p>edited</p>', design: exportedDesign() }),
@@ -193,8 +195,10 @@ describe('emailTemplaterLogic - design re-hydration', () => {
 
         // A user edit in the canvas debounce-exports to the parent...
         editorDesign = { body: { id: 'c', rows: [{ id: 'r3' }] } }
-        // Fake timers only around the debounce so mount-time loaders keep real timers.
+        // Fake timers only around the debounce so mount-time loaders keep real timers. Step past
+        // the post-load echo cooldown first so the event counts as a user edit.
         jest.useFakeTimers()
+        jest.advanceTimersByTime(1500)
         designUpdatedCallback?.()
         await jest.advanceTimersByTimeAsync(500)
         jest.useRealTimers()

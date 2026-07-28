@@ -27,6 +27,9 @@ export { resolveEffortForModel, DEFAULT_COMPOSER_MODEL, DEFAULT_COMPOSER_EFFORT 
 // trusted/untrusted context blocks. `useAttachedContext` registers a provider for the lifetime of a mount.
 export { attachedContextLogic } from '../logics/attachedContextLogic'
 export { useAttachedContext } from '../hooks/useAttachedContext'
+
+// Lets the surface a chat is embedded next to suggest the welcome headline; last registration wins.
+export { welcomeHeadlineLogic } from '../logics/welcomeHeadlineLogic'
 export type { UseAttachedContextOptions } from '../hooks/useAttachedContext'
 export { attachedContextItemKey } from '../types/contextTypes'
 // The standing "act via tool calls" instruction the sidebar surfaces attach while the user watches a
