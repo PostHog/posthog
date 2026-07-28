@@ -16,5 +16,7 @@ pub mod tile;
 
 pub use decode::{decode_seed, DecodedSeed};
 pub use ids::{ClaimEpoch, ConditionHash, ConditionHashError, RunId, SChunkMs};
-pub use reconcile::{BehavioralShapeHash, BehavioralShapeHashError, ReconcileTile};
+pub use reconcile::{
+    BehavioralShapeHash, BehavioralShapeHashError, ReconcileCompleteMarker, ReconcileTile,
+};
 pub use tile::SeedTile;

@@ -697,6 +697,66 @@ class TestQueueOperationTimeouts:
             consumer._shutdown.set()
             await asyncio.wait_for(run_task, timeout=5.0)
 
+    @pytest.mark.asyncio
+    async def test_poll_timeout_wrapped_as_operational_error_is_not_reported(self):
+        # psycopg's async wait loop can catch the CancelledError that
+        # asyncio.timeout() raises on expiry and re-raise it as a generic
+        # OperationalError ("consuming input failed: server closed the
+        # connection unexpectedly") instead of letting TimeoutError propagate.
+        # This is still the designed poll-timeout path, not a queue-DB outage,
+        # so it must not be reported to error tracking.
+        config = ConsumerConfig(
+            database_url="postgres://unused:unused@localhost/unused",
+            poll_interval_seconds=0.01,
+            poll_timeout_seconds=0.05,
+        )
+        consumer = BatchConsumer(config=config, process_batch=AsyncMock())
+
+        second_poll_started = asyncio.Event()
+        fetch_calls = 0
+
+        async def fetch_wraps_cancellation_as_operational_error(*args: Any, **kwargs: Any) -> list[PendingBatch]:
+            nonlocal fetch_calls
+            fetch_calls += 1
+            if fetch_calls >= 2:
+                second_poll_started.set()
+                return []
+            try:
+                await asyncio.sleep(3600)
+            except asyncio.CancelledError:
+                raise psycopg.OperationalError(
+                    "consuming input failed: server closed the connection unexpectedly"
+                ) from None
+            return []
+
+        with (
+            patch.object(
+                consumer, "_connect", new_callable=AsyncMock, side_effect=lambda **kwargs: _make_healthy_conn()
+            ),
+            patch.object(consumer, "_install_signal_handlers"),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_stale_executing",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_unprocessed_and_lock",
+                side_effect=fetch_wraps_cancellation_as_operational_error,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.release_all_owned_leases",
+                new_callable=AsyncMock,
+            ),
+            patch(f"{batch_consumer_module.__name__}.capture_exception") as mock_capture,
+        ):
+            run_task = asyncio.create_task(consumer.run())
+            # A second poll can only start if the wrapped timeout was treated as recoverable.
+            await asyncio.wait_for(second_poll_started.wait(), timeout=2.0)
+            consumer._shutdown.set()
+            await asyncio.wait_for(run_task, timeout=5.0)
+
+        mock_capture.assert_not_called()
+
 
 class TestPollFailureLiveness:
     def test_withholds_liveness_after_threshold_consecutive_failures(self):

@@ -81,6 +81,7 @@ class ReasoningEffort(StrEnum):
     HIGH = "high"
     XHIGH = "xhigh"
     MAX = "max"
+    ULTRACODE = "ultracode"
 
 
 PUBLIC_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
@@ -89,7 +90,11 @@ PUBLIC_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
     ReasoningEffort.HIGH,
     ReasoningEffort.XHIGH,
     ReasoningEffort.MAX,
+    ReasoningEffort.ULTRACODE,
 )
+
+
+CONTEXT_WINDOW_CHOICES: tuple[str, ...] = ("200k", "1m")
 
 
 RUNTIME_PROVIDER_BY_ADAPTER: dict[RuntimeAdapter, LLMProvider] = {
@@ -124,6 +129,7 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.HIGH,
         ReasoningEffort.XHIGH,
         ReasoningEffort.MAX,
+        ReasoningEffort.ULTRACODE,
     ),
     "claude-opus-4-8": (
         ReasoningEffort.LOW,
@@ -131,6 +137,7 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.HIGH,
         ReasoningEffort.XHIGH,
         ReasoningEffort.MAX,
+        ReasoningEffort.ULTRACODE,
     ),
     "claude-opus-5": (
         ReasoningEffort.LOW,
@@ -138,6 +145,7 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.HIGH,
         ReasoningEffort.XHIGH,
         ReasoningEffort.MAX,
+        ReasoningEffort.ULTRACODE,
     ),
     "claude-fable-5": (
         ReasoningEffort.LOW,
@@ -145,6 +153,7 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.HIGH,
         ReasoningEffort.XHIGH,
         ReasoningEffort.MAX,
+        ReasoningEffort.ULTRACODE,
     ),
     "claude-sonnet-5": (
         ReasoningEffort.LOW,
@@ -152,6 +161,7 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.HIGH,
         ReasoningEffort.XHIGH,
         ReasoningEffort.MAX,
+        ReasoningEffort.ULTRACODE,
     ),
     "claude-sonnet-4-6": (
         ReasoningEffort.LOW,
@@ -308,6 +318,8 @@ class RunState(BaseModel, extra="allow"):
     provider: LLMProvider | None = None
     model: str | None = None
     reasoning_effort: ReasoningEffort | None = None
+    context_window: str | None = None
+    fast_mode: bool | None = None
     resume_from_run_id: str | None = None
     handoff_resumed: bool = False
     snapshot_external_id: str | None = None

@@ -272,7 +272,7 @@ class TestGetPersonIdRangesPageActivity:
                 side_effect=fake_compile,
             ),
             patch(
-                "posthog.temporal.messaging.backfill_precalculated_person_properties_coordinator_workflow.get_client",
+                "posthog.temporal.messaging.clickhouse_concurrency.get_client",
                 return_value=_AsyncClientContextManager(mock_client),
             ),
             patch("temporalio.activity.heartbeat"),
@@ -310,7 +310,7 @@ class TestGetPersonIdRangesPageActivity:
                 side_effect=fake_compile,
             ),
             patch(
-                "posthog.temporal.messaging.backfill_precalculated_person_properties_coordinator_workflow.get_client",
+                "posthog.temporal.messaging.clickhouse_concurrency.get_client",
                 return_value=_AsyncClientContextManager(mock_client),
             ),
             patch("temporalio.activity.heartbeat"),
@@ -342,7 +342,7 @@ class TestGetPersonIdRangesPageActivity:
                 side_effect=fake_compile,
             ),
             patch(
-                "posthog.temporal.messaging.backfill_precalculated_person_properties_coordinator_workflow.get_client",
+                "posthog.temporal.messaging.clickhouse_concurrency.get_client",
                 return_value=_AsyncClientContextManager(mock_client),
             ),
             patch("temporalio.activity.heartbeat"),
@@ -378,7 +378,10 @@ class TestPageActivityRowConsumption:
         module = "posthog.temporal.messaging.backfill_precalculated_person_properties_coordinator_workflow"
         with (
             patch(f"{module}.compile_hogql_for_streaming", side_effect=lambda node, *, team_id: ("SELECT 1", {})),
-            patch(f"{module}.get_client", return_value=_AsyncClientContextManager(mock_client)),
+            patch(
+                "posthog.temporal.messaging.clickhouse_concurrency.get_client",
+                return_value=_AsyncClientContextManager(mock_client),
+            ),
             patch("temporalio.activity.heartbeat"),
         ):
             result = await get_person_id_ranges_page_activity(
@@ -396,7 +399,10 @@ class TestPageActivityRowConsumption:
         module = "posthog.temporal.messaging.backfill_precalculated_person_properties_coordinator_workflow"
         with (
             patch(f"{module}.compile_hogql_for_streaming", side_effect=lambda node, *, team_id: ("SELECT 1", {})),
-            patch(f"{module}.get_client", return_value=_AsyncClientContextManager(mock_client)),
+            patch(
+                "posthog.temporal.messaging.clickhouse_concurrency.get_client",
+                return_value=_AsyncClientContextManager(mock_client),
+            ),
             patch("temporalio.activity.heartbeat"),
         ):
             result = await get_person_id_ranges_page_activity(
