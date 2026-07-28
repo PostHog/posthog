@@ -54,3 +54,30 @@ export function executeBatch(
     events: unknown[],
     options?: ExecuteBatchOptions
 ): Promise<HogExecResult[]>
+
+/**
+ * Validate and token-decode a program once, returning a handle for `executeRegisteredSync`, so a
+ * program executed repeatedly isn't re-marshalled and re-decoded per call. Invalid bytecode still
+ * gets a handle — executions through it report the validation error.
+ */
+export function registerProgram(program: unknown[]): number
+
+/**
+ * Drop a registered program and free its slot for reuse. Releasing an unknown or already-released
+ * handle is a no-op. A handle must not be executed after it is released.
+ */
+export function releaseProgram(handle: number): void
+
+/** `executeSync` against a program registered with `registerProgram`. */
+export function executeRegisteredSync(
+    handle: number,
+    globals: unknown,
+    options?: ExecuteSyncOptions
+): HogExecResult
+
+/** Batch variant: one napi crossing for many events, amortizing the marshalling overhead. */
+export function executeRegisteredBatchSync(
+    handle: number,
+    events: unknown[],
+    options?: ExecuteSyncOptions
+): HogExecResult[]

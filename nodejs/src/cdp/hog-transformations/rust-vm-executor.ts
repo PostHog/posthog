@@ -1,3 +1,4 @@
+import { LRUCache } from 'lru-cache'
 import { DateTime } from 'luxon'
 import { Counter, Histogram } from 'prom-client'
 
@@ -63,10 +64,18 @@ export class RustVmExecutor {
     /**
      * Registered-program handles, keyed by hog function id. `updatedAt` is the version guard: a
      * function whose bytecode was edited must not keep executing the handle registered for its
-     * previous version. Map iteration order is insertion order, which makes the oldest entry the
-     * eviction candidate once the cache is full.
+     * previous version.
+     *
+     * LRU rather than insertion-ordered: a process that sees more than `max` distinct functions
+     * should evict the one it hasn't run in longest, not the one registered longest ago. Evicting
+     * by registration order would drop a function that runs on every event just because it was
+     * seen early, then re-register and re-evict it on a loop.
+     *
+     * `dispose` is the single owner of releasing handles — it fires for eviction and for the
+     * explicit delete in `handleFor` — so no caller releases directly and a handle can't be
+     * released twice.
      */
-    private handles = new Map<string, { updatedAt: string; handle: number }>()
+    private handles: LRUCache<string, { updatedAt: string; handle: number }>
 
     constructor(private options: { mmdbPath: string }) {
         this.scheduler = new RustVmBatchScheduler((program, events) => {
@@ -76,6 +85,10 @@ export class RustVmExecutor {
                 return Promise.reject(new Error('Rust HogVM native module unavailable'))
             }
             return module_.executeBatch(program, events, { parallel: true, maxSteps: RUST_MAX_STEPS })
+        })
+        this.handles = new LRUCache({
+            max: MAX_REGISTERED_PROGRAMS,
+            dispose: (entry) => this.getModule()?.releaseProgram(entry.handle),
         })
     }
 
@@ -100,22 +113,18 @@ export class RustVmExecutor {
             return null
         }
 
+        // `get` is what marks this function as recently used, so a hot function stays resident.
         const cached = this.handles.get(hogFunction.id)
         if (cached && cached.updatedAt === hogFunction.updated_at) {
             return cached.handle
         }
 
+        // Delete rather than overwrite: `dispose` then releases the superseded handle on a path
+        // that doesn't depend on whether the cache fires it for an in-place `set`.
         if (cached) {
-            module_.releaseProgram(cached.handle)
             this.handles.delete(hogFunction.id)
         }
         rustVmProgramRegistrations.inc({ reason: cached ? 'version_changed' : 'new' })
-
-        if (this.handles.size >= MAX_REGISTERED_PROGRAMS) {
-            const [oldestId, oldest] = this.handles.entries().next().value!
-            module_.releaseProgram(oldest.handle)
-            this.handles.delete(oldestId)
-        }
 
         const handle = module_.registerProgram(hogFunction.bytecode)
         this.handles.set(hogFunction.id, { updatedAt: hogFunction.updated_at, handle })

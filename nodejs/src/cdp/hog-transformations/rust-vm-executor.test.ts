@@ -32,7 +32,9 @@ describe('RustVmExecutor', () => {
         resetHogvmNodeModuleCacheForTests()
         executor = new RustVmExecutor({ mmdbPath: '/dev/null' })
         // Fixtures without an `updated_at` take the unregistered `executeSync` path; the
-        // registered path has its own cases below.
+        // registered path has its own cases below. Handles restart at 0 per test so cases that
+        // assert on a specific handle don't depend on how many ran before them.
+        nextHandle = 0
         mockHogvmNode.registerProgram.mockImplementation(() => nextHandle++)
         mockHogvmNode.executeRegisteredSync.mockReturnValue(rustResult())
     })
@@ -234,7 +236,7 @@ describe('RustVmExecutor', () => {
             })
         })
 
-        it('releases the oldest handle once the cache is full so the rust registry stays bounded', () => {
+        it('releases a handle once the cache is full so the rust registry stays bounded', () => {
             for (let i = 0; i < MAX_REGISTERED_PROGRAMS; i++) {
                 executor.execute(versioned({ id: `fn-${i}` }), [])
             }
@@ -243,7 +245,31 @@ describe('RustVmExecutor', () => {
             executor.execute(versioned({ id: 'one-too-many' }), [])
 
             expect(mockHogvmNode.releaseProgram).toHaveBeenCalledTimes(1)
-            expect(mockHogvmNode.releaseProgram).toHaveBeenCalledWith(0)
+        })
+
+        it('evicts the least recently used function, keeping a hot one registered', () => {
+            // Evicting by registration order instead would drop the function that runs on every
+            // event just because it was registered first, then re-register and re-evict it in a
+            // loop for as long as the process keeps seeing new functions.
+            const hot = versioned({ id: 'fn-0' })
+            for (let i = 0; i < MAX_REGISTERED_PROGRAMS; i++) {
+                executor.execute(versioned({ id: `fn-${i}` }), [])
+            }
+            const hotHandle = mockHogvmNode.executeRegisteredSync.mock.calls[0][0]
+
+            executor.execute(hot, []) // hot is now the most recently used, fn-1 the least
+            executor.execute(versioned({ id: 'one-too-many' }), [])
+
+            expect(mockHogvmNode.releaseProgram).toHaveBeenCalledTimes(1)
+            expect(mockHogvmNode.releaseProgram).not.toHaveBeenCalledWith(hotHandle)
+
+            // ...and the hot function still executes on its original handle, with no re-registration.
+            mockHogvmNode.registerProgram.mockClear()
+            executor.execute(hot, [])
+            expect(mockHogvmNode.registerProgram).not.toHaveBeenCalled()
+            expect(mockHogvmNode.executeRegisteredSync).toHaveBeenLastCalledWith(hotHandle, expect.anything(), {
+                maxSteps: 1_000_000,
+            })
         })
 
         it('executes unregistered when the function carries no version to key the cache by', () => {
