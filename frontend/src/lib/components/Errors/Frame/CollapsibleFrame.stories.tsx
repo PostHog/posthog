@@ -10,7 +10,8 @@ import { CollapsibleFrame, CollapsibleFrameProps } from './CollapsibleFrame'
 
 const frameContext: ErrorTrackingStackFrameContext = {
     before: [
-        { number: 7, line: '    const displayFrames = showAllFrames ? frames : frames.filter((f) => f.in_app)' },
+        { number: 6, line: '    "use strict"' },
+        { number: 7, line: '    const MAX_RETRIES = null' },
         { number: 8, line: '' },
         { number: 9, line: '    useEffect(() => {' },
     ],
@@ -109,6 +110,15 @@ export function InAppWithContext(): JSX.Element {
 
 export function InitiallyExpanded(): JSX.Element {
     return <Wrapper frame={baseFrame} record={baseRecord} initialExpanded />
+}
+InitiallyExpanded.parameters = { testOptions: { skipDarkMode: true } }
+
+export function InitiallyExpandedDark(): JSX.Element {
+    return <Wrapper frame={baseFrame} record={baseRecord} initialExpanded />
+}
+InitiallyExpandedDark.globals = { theme: 'dark' }
+InitiallyExpandedDark.parameters = {
+    testOptions: { skipLightMode: true, waitForSelector: "[theme='dark'] .hljs" },
 }
 
 export function VendorFrame(): JSX.Element {
