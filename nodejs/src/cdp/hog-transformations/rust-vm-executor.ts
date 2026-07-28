@@ -88,7 +88,7 @@ export class RustVmExecutor {
         })
         this.handles = new LRUCache({
             max: MAX_REGISTERED_PROGRAMS,
-            dispose: (entry) => this.getModule()?.releaseProgram(entry.handle),
+            dispose: (entry) => this.getModule()?.releaseProgram?.(entry.handle),
         })
     }
 
@@ -109,6 +109,13 @@ export class RustVmExecutor {
         module_: HogvmNodeModule,
         hogFunction: { id: string; updated_at?: string; bytecode: unknown[] }
     ): number | null {
+        // The addon is built and shipped separately from this code, so a binary that predates the
+        // registry bindings simply won't have them. Fall back to unregistered execution instead of
+        // throwing — and therefore falling back to the Node VM — on every single invocation.
+        if (typeof module_.registerProgram !== 'function') {
+            return null
+        }
+
         if (!hogFunction.updated_at) {
             return null
         }
@@ -181,7 +188,7 @@ export class RustVmExecutor {
         try {
             const handle = this.handleFor(module_, invocation.hogFunction)
             rust =
-                handle === null
+                handle === null || !module_.executeRegisteredSync
                     ? module_.executeSync(invocation.hogFunction.bytecode, invocation.state.globals, {
                           maxSteps: RUST_MAX_STEPS,
                       })

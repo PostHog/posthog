@@ -59,13 +59,18 @@ export interface HogvmNodeModule {
         options?: { parallel?: boolean; maxSteps?: number }
     ): Promise<RustExecResult[]>
     /**
+     * The registry API is optional: the addon is a separately built native binary, so a
+     * deployment running one that predates these bindings won't have them. Callers must feature
+     * check before use and fall back to `executeSync`, rather than throwing on every invocation.
+     */
+    /**
      * Validate and token-decode a program once, returning a handle for `executeRegisteredSync`.
      * Invalid bytecode still gets a handle — executions through it report the validation error.
      */
-    registerProgram(program: unknown[]): number
+    registerProgram?(program: unknown[]): number
     /** Drop a registered program and free its slot. Releasing an unknown handle is a no-op. */
-    releaseProgram(handle: number): void
-    executeRegisteredSync(handle: number, globals: unknown, options?: { maxSteps?: number }): RustExecResult
+    releaseProgram?(handle: number): void
+    executeRegisteredSync?(handle: number, globals: unknown, options?: { maxSteps?: number }): RustExecResult
 }
 
 let cachedModule: HogvmNodeModule | null | undefined = undefined

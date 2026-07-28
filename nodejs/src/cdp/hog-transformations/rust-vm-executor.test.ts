@@ -37,6 +37,11 @@ describe('RustVmExecutor', () => {
         nextHandle = 0
         mockHogvmNode.registerProgram.mockImplementation(() => nextHandle++)
         mockHogvmNode.executeRegisteredSync.mockReturnValue(rustResult())
+        // `clearMocks` only clears call data, not implementations, so a case that makes `init` or
+        // `executeSync` throw would otherwise leak into every case declared after it. Re-establish
+        // the working defaults here; the cases that need failures still install their own.
+        mockHogvmNode.init.mockImplementation(() => {})
+        mockHogvmNode.executeSync.mockReturnValue(rustResult())
     })
 
     it('executes the invocation bytecode against its globals and returns a finished result', () => {
@@ -270,6 +275,24 @@ describe('RustVmExecutor', () => {
             expect(mockHogvmNode.executeRegisteredSync).toHaveBeenLastCalledWith(hotHandle, expect.anything(), {
                 maxSteps: 1_000_000,
             })
+        })
+
+        it('executes unregistered when the addon predates the registry bindings', () => {
+            // The addon is a separately built native binary. If it lacks registerProgram we must
+            // execute unregistered, not throw and fall back to the node vm on every invocation.
+            const registerProgram = mockHogvmNode.registerProgram
+            // @ts-expect-error - simulating an older addon build that has no registry API
+            delete mockHogvmNode.registerProgram
+            try {
+                const result = executor.execute(versioned(), [])
+
+                expect(result).not.toBeNull()
+                expect(result!.error).toBeUndefined()
+                expect(mockHogvmNode.executeSync).toHaveBeenCalledTimes(1)
+                expect(mockHogvmNode.executeRegisteredSync).not.toHaveBeenCalled()
+            } finally {
+                mockHogvmNode.registerProgram = registerProgram
+            }
         })
 
         it('executes unregistered when the function carries no version to key the cache by', () => {
