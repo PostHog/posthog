@@ -33,21 +33,9 @@ import {
 import type { TaskRunConnectionStatus } from './taskRunStreamLogic'
 import { isSessionActive, wizardActiveSessionDetectorLogic } from './wizardActiveSessionDetectorLogic'
 import { wizardDashboardLogic } from './wizardDashboardLogic'
+import { POSTHOG_INTEGRATION_WORKFLOW_ID, resolveWorkflowId } from './workflows'
 
-// The wizard session stream the local CLI publishes to — and the channel a cloud wizard reports its
-// own sub-progress on. The CLI sends its program id as `workflow_id`, so each wizard program is its
-// own channel: `posthog-integration` for the SDK install, `self-driving` for `wizard self-driving`.
-export const POSTHOG_INTEGRATION_WORKFLOW_ID = 'posthog-integration'
-/** `wizard self-driving` — the program the self-driving onboarding runs. */
-export const SELF_DRIVING_WORKFLOW_ID = 'self-driving'
-
-/**
- * Which wizard program a surface is tracking. Defaulted rather than required so every existing
- * consumer keeps watching the SDK install without passing anything.
- */
-export function resolveWorkflowId(props: Pick<InstallationProgressLogicProps, 'workflowId'>): string {
-    return props.workflowId ?? POSTHOG_INTEGRATION_WORKFLOW_ID
-}
+export { POSTHOG_INTEGRATION_WORKFLOW_ID, resolveWorkflowId, SELF_DRIVING_WORKFLOW_ID } from './workflows'
 
 // A session counts as "current" if it was updated within the last 10 minutes. Lets the install step
 // ignore stale terminal sessions left over from previous runs / test data when a user lands on the

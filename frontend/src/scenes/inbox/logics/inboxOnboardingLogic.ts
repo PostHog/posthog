@@ -1,5 +1,8 @@
 import { MakeLogicType, actions, connect, kea, path, reducers, selectors } from 'kea'
 
+import { wizardActiveSessionDetectorLogic } from 'scenes/onboarding/shared/wizard-sync/wizardActiveSessionDetectorLogic'
+import { SELF_DRIVING_WORKFLOW_ID } from 'scenes/onboarding/shared/wizard-sync/workflows'
+
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
 
 import { signalSourcesLogic } from '../signalSourcesLogic'
@@ -21,6 +24,8 @@ export interface OnboardingModeInputs {
     hasExistingWork: boolean
     /** The banner was dismissed this session. */
     bannerDismissed: boolean
+    /** A self-driving wizard run is in flight, so setup is already under way elsewhere. */
+    isWizardRunning: boolean
 }
 
 /**
@@ -37,7 +42,13 @@ export function computeOnboardingMode({
     areCountsResolved,
     hasExistingWork,
     bannerDismissed,
+    isWizardRunning,
 }: OnboardingModeInputs): InboxOnboardingMode {
+    // A run in flight is setup in progress: sources and scouts land as it goes, so telling the user
+    // to go and run the wizard would contradict the progress widget already showing it running.
+    if (isWizardRunning) {
+        return 'none'
+    }
     // Until the config check resolves we don't know the verdict – stay on the normal inbox skeleton.
     if (!isSetupLoaded) {
         return 'none'
@@ -67,11 +78,13 @@ export interface inboxOnboardingLogicValues {
     scoutConfigs: SignalScoutConfig[] | null // scoutFleetLogic
     enabledSourcesCount: number // signalSourcesLogic
     sourceConfigs: SignalSourceConfig[] | null // signalSourcesLogic
+    activeWorkflowId: string | null // wizardActiveSessionDetectorLogic
     areCountsResolved: boolean
     bannerDismissed: boolean
     hasExistingWork: boolean
     isSelfDrivingSetUp: boolean
     isSetupLoaded: boolean
+    isWizardRunning: boolean
     onboardingMode: InboxOnboardingMode
 }
 
@@ -141,6 +154,9 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
             ['count as pullsCount', 'countLoading as pullsCountLoading'],
             reportListLogic({ tabKey: 'reports', listParams: INBOX_FLAT_TAB_LIST_PARAMS.reports }),
             ['count as reportsCount', 'countLoading as reportsCountLoading'],
+            // Already mounted app-wide by the sync widget; connecting here just reads its verdict.
+            wizardActiveSessionDetectorLogic,
+            ['activeWorkflowId'],
         ],
     })),
 
@@ -189,14 +205,26 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
             (pullsCount: number | null, reportsCount: number | null): boolean =>
                 (pullsCount ?? 0) + (reportsCount ?? 0) > 0,
         ],
+        isWizardRunning: [
+            (s) => [s.activeWorkflowId],
+            (activeWorkflowId: string | null): boolean => activeWorkflowId === SELF_DRIVING_WORKFLOW_ID,
+        ],
         onboardingMode: [
-            (s) => [s.isSetupLoaded, s.isSelfDrivingSetUp, s.areCountsResolved, s.hasExistingWork, s.bannerDismissed],
+            (s) => [
+                s.isSetupLoaded,
+                s.isSelfDrivingSetUp,
+                s.areCountsResolved,
+                s.hasExistingWork,
+                s.bannerDismissed,
+                s.isWizardRunning,
+            ],
             (
                 isSetupLoaded: boolean,
                 isSelfDrivingSetUp: boolean,
                 areCountsResolved: boolean,
                 hasExistingWork: boolean,
-                bannerDismissed: boolean
+                bannerDismissed: boolean,
+                isWizardRunning: boolean
             ): InboxOnboardingMode =>
                 computeOnboardingMode({
                     isSetupLoaded,
@@ -204,6 +232,7 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
                     areCountsResolved,
                     hasExistingWork,
                     bannerDismissed,
+                    isWizardRunning,
                 }),
         ],
     }),
