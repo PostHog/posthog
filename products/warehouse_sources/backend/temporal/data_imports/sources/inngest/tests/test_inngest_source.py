@@ -139,6 +139,32 @@ class TestInngestSource:
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2026-07-01T00:00:00Z"
 
+    def test_defaults_new_sources_to_v2(self) -> None:
+        # New sources are stamped with default_version; this locks the bump to v2 (the generic
+        # registry invariant only checks default == supported_versions[-1], so a revert to v1
+        # would pass it).
+        assert self.source.supported_versions == ("v1", "v2")
+        assert self.source.default_version == "v2"
+
+    @parameterized.expand(
+        [
+            ("no_pin_resolves_to_default", None, "v2"),
+            ("v1_pin_honored", "v1", "v1"),
+            ("v2_pin_honored", "v2", "v2"),
+        ]
+    )
+    def test_source_for_pipeline_threads_the_resolved_api_version(
+        self, _name: str, pin: Optional[str], expected: str
+    ) -> None:
+        # A pinned source must sync under its own version, not the default — dropping the resolve
+        # would silently read version-mobile tables (webhooks) from the wrong API version.
+        config = InngestSourceConfig(signing_key="signkey-prod-test")
+        inputs = _source_inputs("webhooks")
+        inputs.api_version = pin
+        with patch.object(source_module, "inngest_source") as mock_source:
+            self.source.source_for_pipeline(config, MagicMock(), inputs)
+        assert mock_source.call_args.kwargs["api_version"] == expected
+
     def test_source_for_pipeline_normalizes_blank_environment_to_none(self) -> None:
         # An empty-string environment must not be sent as an X-Inngest-Env header — the API would
         # try to resolve a branch environment named "".

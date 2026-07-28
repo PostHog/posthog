@@ -52,12 +52,14 @@ from .linkedin_ads import (
 
 # LinkedIn's Marketing API uses monthly date-based versioning (YYYYMM) sent as a request header.
 LINKEDIN_ADS_VERSION_202606 = "202606"
+LINKEDIN_ADS_VERSION_202607 = "202607"
 
 # Opaque source version label -> LinkedIn API version header. The legacy `v1` pin keeps sending the
 # header it always has (`API_VERSION`), so existing syncs are byte-for-byte unchanged.
 _API_HEADER_BY_VERSION = {
     UNVERSIONED_API_VERSION: API_VERSION,
     LINKEDIN_ADS_VERSION_202606: LINKEDIN_ADS_VERSION_202606,
+    LINKEDIN_ADS_VERSION_202607: LINKEDIN_ADS_VERSION_202607,
 }
 
 
@@ -65,8 +67,8 @@ _API_HEADER_BY_VERSION = {
 class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResumeConfig], OAuthMixin):
     api_docs_url = "https://learn.microsoft.com/en-us/linkedin/marketing/versioning"
 
-    supported_versions = (UNVERSIONED_API_VERSION, LINKEDIN_ADS_VERSION_202606)
-    default_version = LINKEDIN_ADS_VERSION_202606
+    supported_versions = (UNVERSIONED_API_VERSION, LINKEDIN_ADS_VERSION_202606, LINKEDIN_ADS_VERSION_202607)
+    default_version = LINKEDIN_ADS_VERSION_202607
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

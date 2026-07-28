@@ -34,7 +34,7 @@ import posthoganalytics
 
 from posthog.event_usage import groups
 from posthog.models import Team, User
-from posthog.models.integration import Integration
+from posthog.models.integration import GitHubIntegration, Integration
 
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
@@ -2906,6 +2906,39 @@ def _pick_relay_text(*, text: str, text_parts: list[str] | None) -> str:
     return text
 
 
+def _post_ci_followup_as_github_comment(run: TaskRun, pr_url: str, body: str) -> None:
+    """Best-effort: post a run follow-up message as a comment on its already-opened PR.
+
+    ``pr_url`` comes from caller-writable run output, so it's validated against the task's own
+    repository before we comment with the team GitHub App — otherwise a same-team caller could
+    set an arbitrary ``pr_url`` and post as the app on any repo the installation can reach.
+
+    Failures (no/mismatched repository, no GitHub integration, or the GitHub API rejecting the
+    comment) are logged and swallowed. The caller drops the message from Slack regardless — a
+    failed comment must not resurface autonomous CI noise in the thread.
+    """
+    if not _is_github_pull_request_url_for_repository(pr_url, run.task.repository):
+        logger.warning(
+            "task_run_ci_followup_comment_repo_mismatch",
+            extra={"run_id": str(run.id), "repository": run.task.repository},
+        )
+        return
+    integration = run.task.github_integration
+    if integration is None:
+        logger.warning("task_run_ci_followup_comment_no_integration", extra={"run_id": str(run.id)})
+        return
+    try:
+        result = GitHubIntegration(integration).comment_on_pull_request_from_url(pr_url, body)
+    except Exception:
+        logger.exception("task_run_ci_followup_comment_failed", extra={"run_id": str(run.id)})
+        return
+    if not result.get("success"):
+        logger.warning(
+            "task_run_ci_followup_comment_rejected",
+            extra={"run_id": str(run.id), "error": result.get("error")},
+        )
+
+
 def relay_task_run_message(
     run_id: str | UUID,
     task_id: str | UUID,
@@ -2920,7 +2953,8 @@ def relay_task_run_message(
 
     Returns ``(status, relay_id)`` where status is ``"accepted"`` (relay_id set), ``"skipped"``
     (run not found / terminal / no Slack mapping / empty text / streamed inline under the
-    agent-design flag), or ``"failed"``.
+    agent-design flag / posted as a GitHub comment because it's an autonomous follow-up on an
+    already-opened PR), or ``"failed"``.
 
     When ``text_parts`` is provided the last non-empty entry is used — it's the
     post-last-tool-use answer, and posting only that keeps the interim narration
@@ -2950,10 +2984,22 @@ def relay_task_run_message(
         return "skipped", None
 
     if bool((run.state or {}).get(AGENT_DESIGN_STATE_KEY)):
+        # Agent-design runs stream inline into the plan block — keep that delivery even after a PR
+        # is open, so this must win over the CI-follow-up diversion below.
         try:
             signal_agent_text_delta(run.workflow_id, trimmed)
         except Exception:
             logger.exception("task_run_relay_text_signal_failed", extra={"run_id": str(run.id)})
+        return "skipped", None
+
+    # Once the run has opened a PR, autonomous CI/review follow-ups (the agent re-triggered by
+    # the CI loop, not by a person) belong on the PR, not trailing behind the "PR opened" card in
+    # Slack. A reply to a human's thread message carries that message's id — those stay in Slack so
+    # the conversation isn't diverted. Autonomous follow-ups have no answering message_id: comment
+    # on the PR best-effort and drop the message from Slack either way — never fall back to Slack.
+    pr_url = (run.output or {}).get("pr_url")
+    if pr_url and message_id is None:
+        _post_ci_followup_as_github_comment(run, pr_url, trimmed)
         return "skipped", None
 
     try:
