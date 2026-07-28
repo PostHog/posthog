@@ -250,6 +250,23 @@ export function __clearTaxonomicResourceCache(): void {
     cache.clear()
 }
 
+/**
+ * Clear the error on every entry that has one, so the mounted consumers' auto-fetch
+ * effect (which halts while `entry.error` is set) fires again. Backs the retry
+ * affordance in the failure state: the failing keys aren't known at the button, and a
+ * failed search must not be left reading as "no matches".
+ */
+export function retryFailedTaxonomicResources(): void {
+    for (const entry of cache.values()) {
+        if (entry.error === undefined) {
+            continue
+        }
+        entry.ts = 0
+        entry.error = undefined
+        notify(entry)
+    }
+}
+
 /** Imperatively invalidate (mark stale) a single key. Clears any prior error. */
 export function invalidateTaxonomicResource(key: ReadonlyArray<unknown>): void {
     const entry = cache.get(hashKey(key))

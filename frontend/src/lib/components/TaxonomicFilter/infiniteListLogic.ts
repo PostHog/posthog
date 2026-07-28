@@ -308,6 +308,7 @@ export interface infiniteListLogicValues {
     rawLocalItems: (CohortType | EventDefinition)[]
     remoteEndpoint: string | null
     remoteFetchFailed: string | null
+    remoteFetchFailedForCurrentQuery: boolean
     remoteItems: ListStorage
     remoteItemsLoading: boolean
     remoteResultsAreFresh: boolean
@@ -541,12 +542,18 @@ export interface infiniteListLogicMeta {
             searchQuery: string,
             remoteFetchFailed: string | null
         ) => boolean
+        remoteFetchFailedForCurrentQuery: (
+            hasRemoteDataSource: boolean,
+            searchQuery: string,
+            remoteFetchFailed: string | null
+        ) => boolean
         showNonCapturedEventOption: (
             allowNonCapturedEvents: boolean,
             listGroupType: TaxonomicFilterGroupType,
             searchQuery: string,
             isLoading: boolean,
-            results: QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[]
+            results: QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[],
+            remoteFetchFailedForCurrentQuery: boolean
         ) => boolean
         suggestedFiltersSettling: (
             isSuggestedFilters: boolean,
@@ -562,7 +569,8 @@ export interface infiniteListLogicMeta {
             hasRemoteDataSource: boolean,
             showNonCapturedEventOption: boolean,
             needsMoreSearchCharacters: boolean,
-            remoteResultsAreFresh: boolean
+            remoteResultsAreFresh: boolean,
+            remoteFetchFailedForCurrentQuery: boolean
         ) => boolean
         showLoadingState: (
             isLoading: boolean,
@@ -1225,14 +1233,30 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 return isLocalOnly || currentQueryFailed || currentQuerySettled
             },
         ],
+        // The fetch for the query the user is looking at right now errored. Views read this to offer
+        // a retry instead of "No results": a failed request says nothing about whether the thing
+        // they typed exists, and telling them it doesn't is the wrong answer.
+        remoteFetchFailedForCurrentQuery: [
+            (s) => [s.hasRemoteDataSource, s.searchQuery, s.remoteFetchFailed],
+            (hasRemoteDataSource: boolean, searchQuery: string, remoteFetchFailed: string | null): boolean =>
+                hasRemoteDataSource && remoteFetchFailed !== null && remoteFetchFailed === searchQuery,
+        ],
         showNonCapturedEventOption: [
-            (s) => [s.allowNonCapturedEvents, s.listGroupType, s.searchQuery, s.isLoading, s.results],
+            (s) => [
+                s.allowNonCapturedEvents,
+                s.listGroupType,
+                s.searchQuery,
+                s.isLoading,
+                s.results,
+                s.remoteFetchFailedForCurrentQuery,
+            ],
             (
                 allowNonCapturedEvents: boolean,
                 listGroupType: TaxonomicFilterGroupType,
                 searchQuery: string,
                 isLoading: boolean,
-                results: TaxonomicDefinitionTypes[]
+                results: TaxonomicDefinitionTypes[],
+                remoteFetchFailedForCurrentQuery: boolean
             ): boolean => {
                 if (!allowNonCapturedEvents) {
                     return false
@@ -1244,6 +1268,11 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     return false
                 }
                 if (searchQuery.trim().length === 0 || isLoading) {
+                    return false
+                }
+                // A failed search can't tell us the event hasn't been captured, so don't offer the
+                // "not seen yet" escape hatch on it — the failure state's retry belongs there instead.
+                if (remoteFetchFailedForCurrentQuery) {
                     return false
                 }
                 // Keyword-shortcut QuickFilterItems don't represent captured events — ignore them
@@ -1277,6 +1306,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 s.showNonCapturedEventOption,
                 s.needsMoreSearchCharacters,
                 s.remoteResultsAreFresh,
+                s.remoteFetchFailedForCurrentQuery,
             ],
             (
                 totalListCount: number,
@@ -1286,7 +1316,8 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 hasRemoteDataSource: boolean,
                 showNonCapturedEventOption: boolean,
                 needsMoreSearchCharacters: boolean,
-                remoteResultsAreFresh: boolean
+                remoteResultsAreFresh: boolean,
+                remoteFetchFailedForCurrentQuery: boolean
             ): boolean =>
                 (totalListCount === 0 &&
                     !isLoading &&
@@ -1296,7 +1327,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     // Hold "No results" back while the aggregated All tab is still settling (see
                     // `suggestedFiltersSettling`).
                     !suggestedFiltersSettling &&
-                    (!!searchQuery || !hasRemoteDataSource) &&
+                    // A remote group with no query normally renders nothing rather than an empty state,
+                    // but a failed load leaves a silently blank list, so let the failure state through.
+                    (!!searchQuery || !hasRemoteDataSource || remoteFetchFailedForCurrentQuery) &&
                     !showNonCapturedEventOption) ||
                 needsMoreSearchCharacters,
         ],

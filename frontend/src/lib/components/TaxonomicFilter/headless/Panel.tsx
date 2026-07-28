@@ -1,6 +1,15 @@
 import { ReactNode, useEffect, useRef } from 'react'
 
-import { Empty, EmptyHeader, EmptyTitle, ItemMenuItem, Spinner } from '@posthog/quill'
+import {
+    Button,
+    Empty,
+    EmptyContent,
+    EmptyDescription,
+    EmptyHeader,
+    EmptyTitle,
+    ItemMenuItem,
+    Spinner,
+} from '@posthog/quill'
 
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 
@@ -98,6 +107,28 @@ function TaxonomicFilterActivePanel({
                         </EmptyHeader>
                     </Empty>
                 )}
+            </div>
+        )
+    }
+
+    // A failed request says nothing about whether a match exists, so it gets its own state with a
+    // retry rather than falling through to "No results".
+    if (list.fetchFailed && !list.needsMoreSearchCharacters) {
+        return (
+            <div className={className}>
+                <Empty>
+                    <EmptyHeader>
+                        <EmptyTitle>Couldn't load results</EmptyTitle>
+                        <EmptyDescription>
+                            The request failed, so we can't tell whether there's a match.
+                        </EmptyDescription>
+                    </EmptyHeader>
+                    <EmptyContent>
+                        <Button variant="outline" onClick={() => list.refetch()}>
+                            Try again
+                        </Button>
+                    </EmptyContent>
+                </Empty>
             </div>
         )
     }

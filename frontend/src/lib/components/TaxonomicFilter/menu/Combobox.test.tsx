@@ -143,6 +143,36 @@ describe('MenuFilterCombobox', () => {
         expect(within(screen.getByTestId('menu-filter-empty')).getByText(/No "Cohorts" found/)).toBeInTheDocument()
     })
 
+    it('offers a retry when the fetch errors, rather than "No Cohorts found"', async () => {
+        // `useTaxonomicResource` halts auto-fetch on error, so without a retry affordance the
+        // rebuild's dead end is permanent — and reading as "no matches" is the wrong answer.
+        let cohortsFetchFails = true
+        apiGet.mockImplementation((url: string) => {
+            if (!url.includes('cohorts')) {
+                return emptyPaginated()
+            }
+            return cohortsFetchFails
+                ? Promise.reject(new Error('server error'))
+                : Promise.resolve({ results: [{ id: 1, name: 'Power users' }], count: 1 })
+        })
+
+        renderCombobox()
+
+        await waitFor(() => {
+            expect(screen.getByTestId('menu-filter-fetch-failed')).toBeInTheDocument()
+        })
+        expect(screen.queryByText(/No "Cohorts" found/)).not.toBeInTheDocument()
+        expect(captureMock).toHaveBeenCalledWith('taxonomic filter fetch failed', expect.anything())
+
+        cohortsFetchFails = false
+        await userEvent.click(screen.getByTestId('menu-filter-retry-failed-search'))
+
+        await waitFor(() => {
+            expect(rowTexts().join(' ')).toContain('Power users')
+        })
+        expect(screen.queryByTestId('menu-filter-fetch-failed')).not.toBeInTheDocument()
+    })
+
     it('renders results once the fetch resolves with items', async () => {
         apiGet.mockResolvedValue({
             results: [

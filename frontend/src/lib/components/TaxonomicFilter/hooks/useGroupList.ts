@@ -108,6 +108,9 @@ export interface UseGroupListResult {
     showEmptyState: boolean
     showLoadingState: boolean
     showNonCapturedEventOption: boolean
+    /** A remote fetch backing this group errored. Views must offer a retry rather than
+     *  render `showEmptyState` as "no results" — the search never reached us. */
+    fetchFailed: boolean
 
     isExpandable: boolean
     isExpanded: boolean
@@ -428,6 +431,10 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
     const isLoading = remote.isLoading || (serverSearchEnabled && serverSearch.isLoading)
     const isFetching = remote.isFetching || (serverSearchEnabled && serverSearch.isFetching)
 
+    // `useTaxonomicResource` halts auto-fetch once an entry errors, so a failure sticks until
+    // something calls refetch. Surfacing it is what lets the view offer that retry.
+    const fetchFailed = remote.error !== undefined || (serverSearchEnabled && serverSearch.error !== undefined)
+
     const showNonCapturedEventOption = useMemo(() => {
         if (!allowNonCapturedEvents) {
             return false
@@ -438,15 +445,25 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         if (!trimmedSearch || isLoading) {
             return false
         }
+        // A failed search can't tell us the event hasn't been captured, so don't offer the
+        // "not seen yet" escape hatch on it — the failure state's retry belongs there instead.
+        if (fetchFailed) {
+            return false
+        }
         const realResults = items.filter((item) => !isQuickFilterItem(item))
         return realResults.length === 0
-    }, [allowNonCapturedEvents, group.type, trimmedSearch, isLoading, items])
+    }, [allowNonCapturedEvents, group.type, trimmedSearch, isLoading, items, fetchFailed])
 
     // Empty / loading state checks read array length, not the API-reported
     // total — a remote tab can have count > 0 while still loading its first
     // page, and we don't want to flash an empty state during that window.
+    // A remote group with no query normally renders nothing rather than an empty state, but a
+    // failed load leaves a silently blank list, so let the failure state through.
     const showEmptyState =
-        (items.length === 0 && !isLoading && (!!searchQuery || !hasRemoteDataSource) && !showNonCapturedEventOption) ||
+        (items.length === 0 &&
+            !isLoading &&
+            (!!searchQuery || !hasRemoteDataSource || fetchFailed) &&
+            !showNonCapturedEventOption) ||
         needsMoreSearchCharacters
 
     const showLoadingState = isLoading && items.length === 0
@@ -493,11 +510,15 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         showEmptyState,
         showLoadingState,
         showNonCapturedEventOption,
+        fetchFailed,
         isExpandable,
         isExpanded,
         expand,
         refetch: () => {
-            remote.refetch()
+            void remote.refetch()
+            if (serverSearchEnabled) {
+                void serverSearch.refetch()
+            }
         },
     }
 }

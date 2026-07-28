@@ -16,6 +16,7 @@ import { getMCPPropertyFilterOptions } from 'lib/components/TaxonomicFilter/util
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -581,6 +582,72 @@ describe('taxonomicFilterLogic', () => {
             await expectLogic(eventsListLogic).toDispatchActions(['loadRemoteItemsSuccess'])
             await expectLogic(barrierLogic).toDispatchActions(['openRevealBarrier']).delay(1)
             expect(barrierLogic.values.revealBarrierOpen).toBe(true)
+        })
+    })
+
+    describe('failed group searches are retryable', () => {
+        // The aggregated "All" tab runs no fetch of its own, so a sibling group's failure only
+        // reaches it (and its retry affordance) through these two.
+        let retryLogic: ReturnType<typeof taxonomicFilterLogic.build>
+        let eventDefinitionRequests: number
+
+        beforeEach(silenceKeaLoadersErrors)
+        afterEach(resumeKeaLoadersErrors)
+
+        beforeEach(() => {
+            eventDefinitionRequests = 0
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': ({ request }) => {
+                        const search = new URL(request.url).searchParams.get('search') ?? ''
+                        if (search !== 'user_signed_up') {
+                            return [200, { results: [], count: 0 }]
+                        }
+                        eventDefinitionRequests += 1
+                        // The event exists, but the first search for it errors.
+                        return eventDefinitionRequests === 1
+                            ? [500, { detail: 'server error' }]
+                            : [200, { results: [{ ...mockEventDefinitions[0], name: 'user_signed_up' }], count: 1 }]
+                    },
+                },
+            })
+            initKeaTests()
+            const logicProps: TaxonomicFilterLogicProps = {
+                taxonomicFilterLogicKey: 'testRetryFailedSearches',
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
+            }
+            retryLogic = taxonomicFilterLogic(logicProps)
+            retryLogic.mount()
+            for (const listGroupType of logicProps.taxonomicGroupTypes) {
+                infiniteListLogic({ ...logicProps, listGroupType }).mount()
+            }
+        })
+
+        afterEach(() => {
+            retryLogic.unmount()
+        })
+
+        it('reports the failure to the aggregate and re-runs the search on retry', async () => {
+            const eventsListLogic = infiniteListLogic({
+                ...retryLogic.props,
+                listGroupType: TaxonomicFilterGroupType.Events,
+            })
+
+            retryLogic.actions.setSearchQuery('user_signed_up')
+            await expectLogic(eventsListLogic).toDispatchActions(['loadRemoteItemsFailure']).toFinishAllListeners()
+            expect(retryLogic.values.anyGroupFetchFailed).toBe(true)
+
+            await expectLogic(retryLogic, () => {
+                retryLogic.actions.retryFailedGroupSearches()
+            })
+                .toFinishAllListeners()
+                .delay(1)
+            await expectLogic(eventsListLogic).toFinishAllListeners()
+
+            expect(retryLogic.values.anyGroupFetchFailed).toBe(false)
+            expect(eventsListLogic.values.remoteItems.results).toEqual([
+                expect.objectContaining({ name: 'user_signed_up' }),
+            ])
         })
     })
 

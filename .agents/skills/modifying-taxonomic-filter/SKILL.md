@@ -98,10 +98,17 @@ Shared events both surfaces emit (keep these comparable across arms):
 - `taxonomic filter item selected` — `surface`, `groupType`,
   `sourceGroupType`, `wasFromRecents`, `wasFromPinnedList`, `wasQuickFilter`,
   `hadSearchInput`, `position`, `query`, `wasStale`
+- `taxonomic filter empty result` — `surface`, `groupType`, `searchQuery`
+  (the rebuild sends `groupType: undefined` on the meta scopes)
+- `taxonomic filter fetch failed` — `surface`, `groupType`, `searchQuery`.
+  Deduped per group+query. Pairs with `taxonomic filter empty result`: a dead
+  end is a genuine no-match only if no fetch-failed event accompanies it
+- `taxonomic filter fetch retried` — `surface`, `groupType`, `searchQuery`
+  (legacy also sends `groupTypesRetried`). Fired when the user clicks the
+  failure state's retry, so the recovery rate is measurable
 
 Legacy-only: `taxonomic_filter_search_query`
 (`searchQuery`, `groupType`, `inputMode`, `pastedFraction`),
-`taxonomic filter empty result` (`groupType`, `searchQuery`),
 `taxonomic filter include stale toggled`,
 `taxonomic filter category dropdown opened` (pill only).
 
@@ -153,15 +160,16 @@ the same concern lives in two files. There is **no lint rule or test**
 enforcing parity — the only guard is "Mirrors the legacy…" comments. When
 you change one, change the other (or flag to the human that you can't).
 
-| Concern                                                  | Legacy                                                               | Rebuild                                                                           |
-| -------------------------------------------------------- | -------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| Group definitions (endpoint, excluded props, group meta) | `taxonomicFilterLogic.tsx` `taxonomicGroups` selector                | `utils/buildTaxonomicGroups.tsx`                                                  |
-| Group ordering + SuggestedFilters injection              | `taxonomicFilterLogic.tsx` `taxonomicGroupTypes` selector            | `hooks/useTaxonomicFilter.ts` `resolveTaxonomicGroupTypes`                        |
-| Per-tab fetch / pagination / min-query-length            | `infiniteListLogic.ts`                                               | `hooks/useGroupList.ts` + `useTaxonomicResource.ts` + `fetchTaxonomicListPage.ts` |
-| Data-warehouse config flow                               | inline in `InfiniteList.tsx`                                         | `menu/DwhFlow.tsx`                                                                |
-| `taxonomic filter item selected` / `closed` telemetry    | `taxonomicFilterLogic.tsx`                                           | `menu/TaxonomicFilterMenu.tsx`                                                    |
-| New `TaxonomicFilterGroupType` enum value                | `types.ts` (shared) — then add group config in **both** tables above |                                                                                   |
-| Logic-backed group data (Actions, Dashboards, …)         | already in kea                                                       | also register in `hooks/useTaxonomicLocalOverrides.ts`                            |
+| Concern                                                  | Legacy                                                                   | Rebuild                                                                              |
+| -------------------------------------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| Group definitions (endpoint, excluded props, group meta) | `taxonomicFilterLogic.tsx` `taxonomicGroups` selector                    | `utils/buildTaxonomicGroups.tsx`                                                     |
+| Group ordering + SuggestedFilters injection              | `taxonomicFilterLogic.tsx` `taxonomicGroupTypes` selector                | `hooks/useTaxonomicFilter.ts` `resolveTaxonomicGroupTypes`                           |
+| Per-tab fetch / pagination / min-query-length            | `infiniteListLogic.ts`                                                   | `hooks/useGroupList.ts` + `useTaxonomicResource.ts` + `fetchTaxonomicListPage.ts`    |
+| Failed-search state + retry                              | `infiniteListLogic.ts` + `taxonomicFilterLogic.tsx` + `InfiniteList.tsx` | `hooks/useGroupList.ts` (`fetchFailed`) + `menu/Combobox.tsx` + `headless/Panel.tsx` |
+| Data-warehouse config flow                               | inline in `InfiniteList.tsx`                                             | `menu/DwhFlow.tsx`                                                                   |
+| `taxonomic filter item selected` / `closed` telemetry    | `taxonomicFilterLogic.tsx`                                               | `menu/TaxonomicFilterMenu.tsx`                                                       |
+| New `TaxonomicFilterGroupType` enum value                | `types.ts` (shared) — then add group config in **both** tables above     |                                                                                      |
+| Logic-backed group data (Actions, Dashboards, …)         | already in kea                                                           | also register in `hooks/useTaxonomicLocalOverrides.ts`                               |
 
 **Genuinely shared — change once:** `types.ts` (the enum),
 `utils/promoteProperties.ts` (`PROMOTED_PROPERTIES_BY_SEARCH_TERM`),

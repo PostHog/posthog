@@ -432,6 +432,7 @@ describe('useTaxonomicFilter', () => {
             showEmptyState: false,
             showLoadingState: false,
             showNonCapturedEventOption: false,
+            fetchFailed: false,
             isExpandable: false,
             isExpanded: false,
             expand: jest.fn(),

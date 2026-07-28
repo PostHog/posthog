@@ -354,6 +354,7 @@ export interface taxonomicFilterLogicValues {
     activeTab: TaxonomicFilterGroupType
     activeTaxonomicGroup: TaxonomicFilterGroup | undefined
     allowNonCapturedEvents: boolean
+    anyGroupFetchFailed: boolean
     anyGroupLoading: boolean
     anyGroupStale: boolean
     currentTabIndex: number
@@ -455,6 +456,9 @@ export interface taxonomicFilterLogicActions {
     }
     recordPaste: (pastedLength: number) => {
         pastedLength: number
+    }
+    retryFailedGroupSearches: () => {
+        value: true
     }
     selectItem: (
         group: TaxonomicFilterGroup,
@@ -594,6 +598,7 @@ export interface taxonomicFilterLogicMeta {
         ) => Record<string, BuiltLogic<infiniteListLogicType>>
         anyGroupLoading: (arg: boolean) => boolean
         anyGroupStale: (arg: boolean) => boolean
+        anyGroupFetchFailed: (arg: boolean) => boolean
         loadingGroupTypes: (arg: string) => TaxonomicFilterGroupType[]
         infiniteListCounts: (arg: { [k: string]: number }) => {
             [k: string]: number
@@ -698,6 +703,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             items,
         }),
         openRevealBarrier: true,
+        retryFailedGroupSearches: true,
         setIncludeStaleEvents: (includeStaleEvents: boolean) => ({ includeStaleEvents }),
     })),
     reducers(({ props }) => ({
@@ -2167,6 +2173,24 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ],
             (anyGroupStale: boolean) => anyGroupStale,
         ],
+        // A sibling group's search errored for the current query. The aggregated SuggestedFilters
+        // tab runs no fetch of its own, so a failure only reaches it through its siblings — without
+        // this it renders those failures as "No results", same as a genuine no-match.
+        anyGroupFetchFailed: [
+            (s) => [
+                (state, props) => {
+                    const logics = s.infiniteListLogics(state, props)
+                    const meta = s.metaGroupTypes(state, props)
+                    return Object.entries(logics).some(
+                        ([type, logic]) =>
+                            !meta.has(type) &&
+                            logic.isMounted() &&
+                            logic.selectors.remoteFetchFailedForCurrentQuery(state, logic.props)
+                    )
+                },
+            ],
+            (anyGroupFetchFailed: boolean) => anyGroupFetchFailed,
+        ],
         loadingGroupTypes: [
             (s) => [
                 (state, props) => {
@@ -2583,6 +2607,28 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             posthog.capture('taxonomic filter include stale toggled', {
                 includeStaleEvents,
                 groupType: values.activeTab,
+                searchQuery: values.searchQuery || undefined,
+            })
+        },
+
+        retryFailedGroupSearches: () => {
+            // Re-run every group whose search errored for the query on screen, not just the active
+            // tab: the aggregated "All" tab shows a single failure state covering all its siblings.
+            const groupTypesRetried: string[] = []
+            Object.entries(values.infiniteListLogics).forEach(([groupType, logic]) => {
+                if (values.metaGroupTypes.has(groupType) || !logic.isMounted()) {
+                    return
+                }
+                if (!logic.values.remoteFetchFailedForCurrentQuery) {
+                    return
+                }
+                groupTypesRetried.push(groupType)
+                logic.actions.loadRemoteItems({ offset: 0, limit: logic.values.limit })
+            })
+            posthog.capture('taxonomic filter fetch retried', {
+                surface: legacyTaxonomicSurface(values.featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]),
+                groupType: values.activeTab,
+                groupTypesRetried,
                 searchQuery: values.searchQuery || undefined,
             })
         },

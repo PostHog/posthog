@@ -6,7 +6,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { CSSProperties, useEffect, useState } from 'react'
 import { List, useListRef } from 'react-window'
 
-import { IconArchive, IconCheck, IconPin, IconPinFilled, IconPlus, IconSearch } from '@posthog/icons'
+import { IconArchive, IconCheck, IconPin, IconPinFilled, IconPlus, IconSearch, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonTag } from '@posthog/lemon-ui'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
@@ -707,12 +707,23 @@ function InfiniteListEmptyState(): JSX.Element {
         infiniteListCounts,
         infiniteListResultCounts,
         eventNames,
+        anyGroupFetchFailed,
     } = useValues(taxonomicFilterLogic)
-    const { setIncludeStaleEvents, setActiveTab } = useActions(taxonomicFilterLogic)
+    const { setIncludeStaleEvents, setActiveTab, retryFailedGroupSearches } = useActions(taxonomicFilterLogic)
     const { reportTaxonomicFilterCategorySelected } = useActions(eventUsageLogic)
 
-    const { group, needsMoreSearchCharacters, minSearchQueryLength, isSuggestedFilters, listGroupType } =
-        useValues(infiniteListLogic)
+    const {
+        group,
+        needsMoreSearchCharacters,
+        minSearchQueryLength,
+        isSuggestedFilters,
+        listGroupType,
+        remoteFetchFailedForCurrentQuery,
+    } = useValues(infiniteListLogic)
+
+    // The search errored rather than came back empty. The aggregated "All" tab has no fetch of its
+    // own, so it reads its siblings' failures instead.
+    const fetchFailed = isSuggestedFilters ? anyGroupFetchFailed : remoteFetchFailedForCurrentQuery
 
     const emptySearchQuery = searchQuery.trim().length === 0
     const suggestedFiltersBeforeSearching = isSuggestedFilters && emptySearchQuery
@@ -762,6 +773,30 @@ function InfiniteListEmptyState(): JSX.Element {
                     <span className="text-center text-secondary italic">
                         Type at least {minSearchQueryLength} characters to search
                     </span>
+                </>
+            ) : fetchFailed ? (
+                <>
+                    <IconWarning className="text-5xl text-warning" />
+                    <span>
+                        {emptySearchQuery ? (
+                            "Couldn't load results"
+                        ) : (
+                            <>
+                                Couldn't search for "<strong>{searchQuery}</strong>"
+                            </>
+                        )}
+                    </span>
+                    <span className="text-secondary text-center">
+                        The request failed, so we can't tell whether there's a match.
+                    </span>
+                    <LemonButton
+                        type="secondary"
+                        size="xsmall"
+                        data-attr="taxonomic-retry-failed-search"
+                        onClick={() => retryFailedGroupSearches()}
+                    >
+                        Try again
+                    </LemonButton>
                 </>
             ) : (
                 <>

@@ -8,6 +8,7 @@ import posthog from 'posthog-js'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { MockResolverInfo } from '~/mocks/utils'
 import { actionsModel } from '~/models/actionsModel'
@@ -16,6 +17,7 @@ import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
 import {
     mockActionDefinition,
+    mockEventDefinitions,
     mockEventPropertyDefinition,
     mockGetEventDefinitions,
     mockGetPropertyDefinitions,
@@ -424,6 +426,54 @@ describe('TaxonomicFilter', () => {
             })
             // ...but the render-backed SQL expression tab is not.
             expect(screen.queryByTestId('taxonomic-switch-to-hogql_expression')).not.toBeInTheDocument()
+        })
+    })
+
+    describe('failed search', () => {
+        // A failed request used to render as `No results for "<query>"`, telling people their event
+        // does not exist when it was never looked up. Users bounced to the Activity tab to check.
+        beforeEach(silenceKeaLoadersErrors)
+        afterEach(resumeKeaLoadersErrors)
+
+        // Recent / Pinned render their own (hidden) lists, so scope assertions to the visible tab.
+        const inVisibleTab = (elements: HTMLElement[]): HTMLElement | undefined =>
+            elements.find((el) => !el.closest('.hidden'))
+
+        it('reports the failure and finds the event on retry', async () => {
+            let failNextSearch = true
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': ({ request }) => {
+                        const search = new URL(request.url).searchParams.get('search') ?? ''
+                        if (search !== 'user_signed_up') {
+                            return [200, { results: [], count: 0 }]
+                        }
+                        if (failNextSearch) {
+                            failNextSearch = false
+                            return [500, { detail: 'server error' }]
+                        }
+                        return [200, { results: [{ ...mockEventDefinitions[0], name: 'user_signed_up' }], count: 1 }]
+                    },
+                },
+            })
+            renderFilter({ taxonomicGroupTypes: [TaxonomicFilterGroupType.Events] })
+
+            await withoutDebounceDelay((user) =>
+                user.type(screen.getByTestId('taxonomic-filter-searchfield'), 'user_signed_up')
+            )
+
+            await waitFor(() => {
+                expect(screen.getByTestId('taxonomic-retry-failed-search')).toBeInTheDocument()
+            })
+            expect(inVisibleTab(screen.getAllByText(/Couldn't search for/))).toBeTruthy()
+            expect(inVisibleTab(screen.queryAllByText(/No results for/))).toBeFalsy()
+
+            await userEvent.click(screen.getByTestId('taxonomic-retry-failed-search'))
+
+            await waitFor(() => {
+                expect(inVisibleTab(screen.getAllByText('user_signed_up'))).toBeTruthy()
+            })
+            expect(screen.queryByTestId('taxonomic-retry-failed-search')).not.toBeInTheDocument()
         })
     })
 

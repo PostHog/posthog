@@ -563,6 +563,9 @@ describe('infiniteListLogic', () => {
                 .toMatchValues({
                     showLoadingState: false,
                     showEmptyState: true,
+                    // What the view keys the failure state off. Without it the list renders the
+                    // failure as "No results", telling the user their event doesn't exist.
+                    remoteFetchFailedForCurrentQuery: true,
                 })
 
             // The failure lands on the same empty state as a genuine no-match, so telemetry is
@@ -574,6 +577,43 @@ describe('infiniteListLogic', () => {
                 groupType: TaxonomicFilterGroupType.Events,
                 searchQuery: 'user_signed_up',
             })
+        })
+
+        it('stops flagging a failure once a later query lands', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': ({ request }) => {
+                        const search = new URL(request.url).searchParams.get('search') ?? ''
+                        return search === 'user_signed_up'
+                            ? [500, { detail: 'server error' }]
+                            : [200, { results: [], count: 0 }]
+                    },
+                },
+            })
+            initKeaTests()
+            const raceLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'raceList',
+                listGroupType: TaxonomicFilterGroupType.Events,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                showNumericalPropsOnly: false,
+            })
+            raceLogic.mount()
+
+            await expectLogic(raceLogic, () => {
+                raceLogic.actions.setSearchQuery('user_signed_up')
+            })
+                .toDispatchActions(['loadRemoteItemsFailure'])
+                .toFinishAllListeners()
+                .toMatchValues({ remoteFetchFailedForCurrentQuery: true })
+
+            // The next query succeeds, so the failure must not follow it — otherwise a single blip
+            // would paint the retry state over results the user can actually pick from.
+            await expectLogic(raceLogic, () => {
+                raceLogic.actions.setSearchQuery('other_event')
+            })
+                .toDispatchActions(['loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+                .toMatchValues({ remoteFetchFailedForCurrentQuery: false })
         })
     })
 

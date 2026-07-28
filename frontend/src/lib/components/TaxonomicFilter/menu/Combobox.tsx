@@ -44,6 +44,7 @@ import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 
 import { useTaxonomicFilterContext } from '../headless/context'
 import { useGroupList } from '../hooks/useGroupList'
+import { retryFailedTaxonomicResources } from '../hooks/useTaxonomicResource'
 import {
     OPEN_AS_SELF_ON_REOPEN,
     TaxonomicDefinitionTypes,
@@ -235,6 +236,9 @@ export function MenuFilterCombobox({
     // `loadingByType` which is `loading && no-items-yet`). Drives the reveal
     // barrier so kept-previous-data refetches still hold the list.
     const [fetchingByType, setFetchingByType] = useState<Record<string, boolean>>({})
+    // Per-group fetch-failure flags. A failed search is not an empty search, so the empty state
+    // must not read as "nothing matched" when a request errored.
+    const [failedByType, setFailedByType] = useState<Record<string, boolean>>({})
     // Only engages while actively searching a fetching scope. Recent/Pinned
     // drills read pre-resolved `drillItems` (no fetch) so they're never gated.
     const searching = !drillItems && !!searchQuery.trim()
@@ -282,6 +286,10 @@ export function MenuFilterCombobox({
 
     const reportFetching = useCallback((type: string, fetching: boolean): void => {
         setFetchingByType((prev) => (prev[type] === fetching ? prev : { ...prev, [type]: fetching }))
+    }, [])
+
+    const reportFetchFailed = useCallback((type: string, failed: boolean): void => {
+        setFailedByType((prev) => (prev[type] === failed ? prev : { ...prev, [type]: failed }))
     }, [])
 
     // Chips show only when `drillTo='all'` — drilled scopes lock to one
@@ -652,6 +660,15 @@ export function MenuFilterCombobox({
         return targetGroups.some((g) => loadingByType[g.type])
     }, [drillItems, targetGroups, loadingByType])
 
+    // A visible group's search errored. The failure state replaces the empty state, since a
+    // request that never landed can't tell the user whether their event exists.
+    const anyFetchFailed = useMemo(() => {
+        if (drillItems) {
+            return false
+        }
+        return targetGroups.some((g) => failedByType[g.type])
+    }, [drillItems, targetGroups, failedByType])
+
     // ---- Reveal barrier ----------------------------------------------------
     // Close synchronously the instant the query changes (React "adjust state
     // while rendering" pattern) so a stale list never paints between keystroke
@@ -796,6 +813,37 @@ export function MenuFilterCombobox({
             searchQuery: trimmed,
         })
     }, [emptyState, searchQuery, telemetryGroupType])
+
+    // `taxonomic filter fetch failed` — mirrors the legacy `infiniteListLogic` capture so a
+    // failed search is distinguishable from a genuine dead end in both arms. Deduped per
+    // scope+query like the empty-result capture above.
+    const lastFetchFailedKeyRef = useRef<string | null>(null)
+    useEffect(() => {
+        if (!anyFetchFailed) {
+            lastFetchFailedKeyRef.current = null
+            return
+        }
+        const trimmed = searchQuery.trim()
+        const key = `${telemetryGroupType ?? 'all'}::${trimmed}`
+        if (lastFetchFailedKeyRef.current === key) {
+            return
+        }
+        lastFetchFailedKeyRef.current = key
+        posthog.capture('taxonomic filter fetch failed', {
+            surface: TAXONOMIC_FILTER_SURFACE,
+            groupType: telemetryGroupType,
+            searchQuery: trimmed || undefined,
+        })
+    }, [anyFetchFailed, searchQuery, telemetryGroupType])
+
+    const handleRetryFailedSearch = useCallback((): void => {
+        retryFailedTaxonomicResources()
+        posthog.capture('taxonomic filter fetch retried', {
+            surface: TAXONOMIC_FILTER_SURFACE,
+            groupType: telemetryGroupType,
+            searchQuery: searchQuery.trim() || undefined,
+        })
+    }, [telemetryGroupType, searchQuery])
 
     // Offered in the empty state whenever an event/custom-event group is among
     // the visible targets (drilled Events/CustomEvents, or the merged All surface
@@ -1034,6 +1082,7 @@ export function MenuFilterCombobox({
                                     onItems={reportItems}
                                     onLoadingChange={reportLoading}
                                     onFetchingChange={reportFetching}
+                                    onFetchFailedChange={reportFetchFailed}
                                 />
                             ))}
                         <ScrollArea className="flex-1 min-h-0 scroll-py-8" alwaysShowScrollbars>
@@ -1041,6 +1090,24 @@ export function MenuFilterCombobox({
                                 <Autocomplete.Empty className="empty:hidden">
                                     {isAnyLoading || barrierClosed ? (
                                         <LoadingRows />
+                                    ) : anyFetchFailed && !emptyState?.body ? (
+                                        <div
+                                            data-attr="menu-filter-fetch-failed"
+                                            className="flex flex-col items-center gap-2 px-4 py-8 text-center"
+                                        >
+                                            <div className="text-sm font-semibold">Couldn't load results</div>
+                                            <div className="text-xs text-secondary leading-relaxed">
+                                                The request failed, so we can't tell whether there's a match.
+                                            </div>
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                data-attr="menu-filter-retry-failed-search"
+                                                onClick={handleRetryFailedSearch}
+                                            >
+                                                Try again
+                                            </Button>
+                                        </div>
                                     ) : (
                                         emptyState && (
                                             <div
@@ -1366,6 +1433,7 @@ function Fetcher({
     onItems,
     onLoadingChange,
     onFetchingChange,
+    onFetchFailedChange,
 }: {
     group: TaxonomicFilterGroup
     /** Hide stale event definitions (event / custom-event groups only). */
@@ -1377,6 +1445,8 @@ function Fetcher({
     /** Reports `isFetching` (true during background refetches too) so the
      *  parent's reveal barrier holds the list until every group settles. */
     onFetchingChange: (type: string, fetching: boolean) => void
+    /** Reports a fetch error so the parent can offer a retry instead of an empty state. */
+    onFetchFailedChange: (type: string, failed: boolean) => void
 }): null {
     const { getGroupListInput } = useTaxonomicFilterContext()
     const list = useGroupList({ ...getGroupListInput(group), excludeStale })
@@ -1389,6 +1459,9 @@ function Fetcher({
     useEffect(() => {
         onFetchingChange(group.type, list.isFetching)
     }, [group.type, list.isFetching, onFetchingChange])
+    useEffect(() => {
+        onFetchFailedChange(group.type, list.fetchFailed)
+    }, [group.type, list.fetchFailed, onFetchFailedChange])
     // Make sure we flip back to "not loading"/"not fetching" when this group
     // unmounts — otherwise a stale `true` from a previously-active chip would
     // keep the skeleton (or the reveal barrier) stuck after we switch scope.
@@ -1396,8 +1469,9 @@ function Fetcher({
         return () => {
             onLoadingChange(group.type, false)
             onFetchingChange(group.type, false)
+            onFetchFailedChange(group.type, false)
         }
-    }, [group.type, onLoadingChange, onFetchingChange])
+    }, [group.type, onLoadingChange, onFetchingChange, onFetchFailedChange])
     return null
 }
 

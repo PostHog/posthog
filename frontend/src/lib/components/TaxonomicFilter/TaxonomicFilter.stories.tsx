@@ -603,6 +603,42 @@ export const RenamedSeriesSelectedPill: Story = {
     },
 }
 
+export const FailedEventSearch: Story = {
+    render: (args) => {
+        useMountedLogic(actionsModel)
+        const { setSearchQuery } = useActions(
+            taxonomicFilterLogic({ ...args, taxonomicFilterLogicKey: args.taxonomicFilterLogicKey as string })
+        )
+
+        useOnMountEffect(() => setSearchQuery('user_signed_up'))
+
+        return (
+            <div className="w-fit border rounded p-2 bg-surface-primary">
+                <TaxonomicFilter {...args} />
+            </div>
+        )
+    },
+    args: {
+        taxonomicFilterLogicKey: 'events-failed-search',
+        taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/event_definitions': () => [500, { detail: 'server error' }],
+            },
+        }),
+    ],
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="taxonomic-retry-failed-search"]' },
+        docs: {
+            description: {
+                story: 'When the search request itself fails, the list says so and offers a retry. It must not report "No results", which would tell the user their event does not exist.',
+            },
+        },
+    },
+}
+
 export const EmptyEventsWithStaleToggle: Story = {
     render: (args) => {
         useMountedLogic(actionsModel)

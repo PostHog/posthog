@@ -186,6 +186,23 @@ describe('useGroupList', () => {
             expect(result.current.rowCount).toBe(2) // results + expand button
         })
 
+        it('flags a failed fetch and clears it once a retry lands', async () => {
+            // `useTaxonomicResource` halts auto-fetch on error, so without this flag the panel
+            // renders "No results" indefinitely and never tells the user the search failed.
+            apiGet
+                .mockRejectedValueOnce(new Error('server error'))
+                .mockResolvedValueOnce({ results: [{ name: 'user_signed_up' }], count: 1 })
+            const group = makeGroup({ endpoint: 'api/projects/1/event_definitions' })
+            const { result } = renderHook(() => useGroupList({ group, searchQuery: '' }))
+
+            await waitFor(() => expect(result.current.fetchFailed).toBe(true))
+            expect(result.current.showEmptyState).toBe(true)
+
+            act(() => result.current.refetch())
+            await waitFor(() => expect(result.current.totalResultCount).toBe(1))
+            expect(result.current.fetchFailed).toBe(false)
+        })
+
         it('expand() switches to the unscoped endpoint and refetches', async () => {
             apiGet
                 // initial scoped: 1 result
