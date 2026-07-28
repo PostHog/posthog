@@ -134,6 +134,9 @@ export class CdpApi {
     // middleware): Django mints per-call JWTs pinned to a team + workflow. Null when the key
     // isn't provisioned — the route then fails closed.
     private rescheduleJwt: JWT | null
+    // Scoped auth for the manual_invocations route — a separate per-purpose key from reschedule, so
+    // a leak is confined to one audience. Null when unprovisioned; the route then fails closed.
+    private manualInvocationJwt: JWT | null
 
     constructor(
         private config: PluginsServerConfig,
@@ -193,6 +196,9 @@ export class CdpApi {
         )
         this.rescheduleJwt = config.WORKFLOWS_RESCHEDULE_JWT_SECRET
             ? new JWT(config.WORKFLOWS_RESCHEDULE_JWT_SECRET)
+            : null
+        this.manualInvocationJwt = config.WORKFLOWS_MANUAL_INVOCATION_JWT_SECRET
+            ? new JWT(config.WORKFLOWS_MANUAL_INVOCATION_JWT_SECRET)
             : null
     }
 
@@ -761,13 +767,36 @@ export class CdpApi {
     // On-demand "run this workflow now" against a caller-synthesized event (e.g. a support agent
     // running a workflow against a ticket). Unlike the scheduled/webhook paths this is not gated on
     // trigger type — any active workflow can be run — but it still queues the full graph through the
-    // same cyclotron queue, so waits/delays/branches all work. Django gates auth/team-scoping.
+    // same cyclotron queue, so waits/delays/branches all work.
+    //
+    // Auth: a scoped JWT minted by Django per call, pinned to this team + workflow — NOT the fleet-
+    // wide internal secret (the route is exempted from that middleware). This route runs an arbitrary
+    // active workflow with its stored secrets, so a leaked token must be confined to one workflow.
+    // Fails closed when the key isn't provisioned.
     private postHogflowManualInvocation = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
         try {
             const { id, team_id } = req.params
             const { variables } = req.body
 
             logger.info('⚡️', 'Received hogflow manual invocation', { id, team_id })
+
+            if (!this.manualInvocationJwt) {
+                return res.status(503).json({
+                    error: 'Manual invocation auth not configured (WORKFLOWS_MANUAL_INVOCATION_JWT_SECRET unset)',
+                })
+            }
+            const authHeader = req.headers['authorization']
+            const token =
+                typeof authHeader === 'string' && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : undefined
+            const claims = token
+                ? (this.manualInvocationJwt.verify(token, PosthogJwtAudience.WORKFLOWS_MANUAL_INVOCATION, {
+                      ignoreVerificationErrors: true,
+                  }) as { team_id?: number; hog_flow_id?: string } | undefined)
+                : undefined
+            // The claims pin the token to one team + workflow, so a leaked token can't run anything else.
+            if (!claims || claims.team_id !== parseInt(team_id) || claims.hog_flow_id !== id) {
+                return res.status(401).json({ error: 'Unauthorized: Invalid manual invocation token' })
+            }
 
             const team = await this.deps.teamManager.getTeam(parseInt(team_id)).catch(() => null)
             if (!team) {
@@ -783,9 +812,15 @@ export class CdpApi {
                 return res.status(400).json({ error: 'Workflow must be active' })
             }
 
-            // Match the pipeline's safety gates: don't run a flow the watcher circuit breaker has
-            // disabled, and don't execute billable actions for a quota-limited team. This path
-            // enqueues directly (bypassing HogFlowInvocationPipeline), so re-apply them here.
+            // This path enqueues directly (bypassing HogFlowInvocationPipeline), so re-apply the
+            // pipeline's safety gates: don't run a flow the watcher circuit breaker has disabled, and
+            // don't execute billable actions for a quota-limited team.
+            //
+            // Deliberately NOT re-applied, because a manual run is an explicit "run this now":
+            //   - Trigger filters: the run is unconditional by design (the pipeline's filter stage
+            //     decides whether an *event* should trigger a flow; here the caller already decided).
+            //   - Masking/dedup suppression: a manual run should fire even if an event-driven run was
+            //     recently masked, so we don't consult the masking store.
             const watcherState = await this.hogWatcher.getEffectiveState(hogFlow.id)
             if (watcherState.state === HogWatcherState.disabled) {
                 return res.status(400).json({ error: 'Workflow is disabled due to repeated failures' })
@@ -804,6 +839,12 @@ export class CdpApi {
             const isPlainObject = (value: unknown): value is Record<string, any> =>
                 typeof value === 'object' && value !== null && !Array.isArray(value)
 
+            // Bound caller-supplied objects that pass through into the durably-enqueued invocation.
+            // Everything else on the event is rebuilt or bounded below; these two are the only fields
+            // taken (mostly) as-is, so cap them here rather than trusting the caller to stay small.
+            const MAX_PASSTHROUGH_BYTES = 128_000
+            const exceedsCap = (value: unknown): boolean => JSON.stringify(value ?? {}).length > MAX_PASSTHROUGH_BYTES
+
             const rawGlobals = req.body.globals
             const rawEvent = rawGlobals?.event
             if (!rawEvent || typeof rawEvent.event !== 'string') {
@@ -812,7 +853,9 @@ export class CdpApi {
             if (rawEvent.properties !== undefined && !isPlainObject(rawEvent.properties)) {
                 return res.status(400).json({ error: 'event.properties must be an object' })
             }
-
+            if (rawEvent.properties !== undefined && exceedsCap(rawEvent.properties)) {
+                return res.status(400).json({ error: 'event.properties is too large' })
+            }
             // Rebuild the event server-side rather than trusting the caller's shape verbatim: this
             // payload is durably enqueued, and a malformed event (e.g. null properties) would
             // poison the shared hogflow queue and crash-loop the worker for the whole partition.
@@ -839,6 +882,11 @@ export class CdpApi {
             }
 
             const resolvedVariables = variables ?? rawGlobals?.variables ?? {}
+            // `variables` can arrive top-level or nested in globals; bound whichever we resolved,
+            // since it flows through mergedVariables into the durably-enqueued invocation.
+            if (!isPlainObject(resolvedVariables) || exceedsCap(resolvedVariables)) {
+                return res.status(400).json({ error: 'variables must be an object within the size limit' })
+            }
             const triggerGlobals: HogFunctionInvocationGlobals = {
                 event,
                 person,

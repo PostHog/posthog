@@ -170,6 +170,11 @@ export type CdpConfig = ClickhouseConfig & {
     // newest first (first signs, all verify). Deliberately NOT the fleet-wide INTERNAL_API_SECRET
     // (see .agents/security.md): empty in prod means the route fails closed until provisioned.
     WORKFLOWS_RESCHEDULE_JWT_SECRET: string
+    // Scoped JWT keys for the manual_invocations route (Django mints, verified here) — comma-
+    // separated, newest first (first signs, all verify). Deliberately NOT the fleet-wide
+    // INTERNAL_API_SECRET (see .agents/security.md): a leaked token must be confined to one
+    // workflow. Empty in prod means the route fails closed until provisioned.
+    WORKFLOWS_MANUAL_INVOCATION_JWT_SECRET: string
     CYCLOTRON_NODE_RESCHEDULE_FLOOR_SECONDS: number
     CYCLOTRON_NODE_RESCHEDULE_WAKE_RATE_PER_SECOND: number
     CYCLOTRON_NODE_RESCHEDULE_MIN_WINDOW_SECONDS: number
@@ -338,6 +343,9 @@ export function getDefaultCdpConfig(): CdpConfig {
         // mass wake, so wakes are trickled (500k parked @ 200/s ≈ 42 min spread).
         // Dev/test default must match Django's (posthog/settings/data_stores.py).
         WORKFLOWS_RESCHEDULE_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflows-reschedule-jwt' : '',
+        // Dev/test default must match Django's (posthog/settings/data_stores.py).
+        WORKFLOWS_MANUAL_INVOCATION_JWT_SECRET:
+            isTestEnv() || isDevEnv() ? 'local-dev-workflows-manual-invocation-jwt' : '',
         CYCLOTRON_NODE_RESCHEDULE_FLOOR_SECONDS: 600,
         CYCLOTRON_NODE_RESCHEDULE_WAKE_RATE_PER_SECOND: 200,
         CYCLOTRON_NODE_RESCHEDULE_MIN_WINDOW_SECONDS: 300,

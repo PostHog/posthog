@@ -1193,6 +1193,11 @@ describe('CDP API', () => {
             event: { event: '$conversation_quick_action_triggered', properties: { ticket_id: 'abc' } },
         }
 
+        // Mirrors Django's mint (posthog/plugins/plugin_server_api.py) with the shared dev/test key.
+        const authFor = (teamId: number, hogFlowId: string) => ({
+            Authorization: `Bearer ${jwt.sign({ team_id: teamId, hog_flow_id: hogFlowId }, 'local-dev-workflows-manual-invocation-jwt', { audience: 'posthog:workflows:manual_invocation', expiresIn: '2m' })}`,
+        })
+
         beforeEach(() => {
             mockQueueInvocations = jest.fn().mockResolvedValue(undefined)
             api['hogflowQueue'] = { queueInvocations: mockQueueInvocations } as any
@@ -1209,6 +1214,7 @@ describe('CDP API', () => {
             const hogFlow = await insertHogFlow(activeEventHogFlow())
             const res = await supertest(app)
                 .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/manual_invocations`)
+                .set(authFor(hogFlow.team_id, hogFlow.id))
                 .send({ globals })
 
             expect(res.status).toEqual(200)
@@ -1220,6 +1226,7 @@ describe('CDP API', () => {
             const hogFlow = await insertHogFlow({ ...activeEventHogFlow(), status: 'draft' })
             const res = await supertest(app)
                 .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/manual_invocations`)
+                .set(authFor(hogFlow.team_id, hogFlow.id))
                 .send({ globals })
 
             expect(res.status).toEqual(400)
@@ -1231,6 +1238,7 @@ describe('CDP API', () => {
             const hogFlow = await insertHogFlow(activeEventHogFlow())
             const res = await supertest(app)
                 .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/manual_invocations`)
+                .set(authFor(hogFlow.team_id, hogFlow.id))
                 .send({})
 
             expect(res.status).toEqual(400)
@@ -1244,6 +1252,7 @@ describe('CDP API', () => {
             const hogFlow = await insertHogFlow(activeEventHogFlow())
             const res = await supertest(app)
                 .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/manual_invocations`)
+                .set(authFor(hogFlow.team_id, hogFlow.id))
                 .send({ globals: { event: { event: 'x', properties: null }, groups: { org: 'g' } } })
 
             expect(res.status).toEqual(400)
@@ -1261,6 +1270,7 @@ describe('CDP API', () => {
 
             const res = await supertest(app)
                 .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/manual_invocations`)
+                .set(authFor(hogFlow.team_id, hogFlow.id))
                 .send({ globals })
 
             expect(res.status).toEqual(429)
@@ -1275,10 +1285,35 @@ describe('CDP API', () => {
 
             const res = await supertest(app)
                 .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/manual_invocations`)
+                .set(authFor(hogFlow.team_id, hogFlow.id))
                 .send({ globals })
 
             expect(res.status).toEqual(400)
             expect(res.body.error).toEqual('Workflow is disabled due to repeated failures')
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
+        })
+
+        it('rejects a request with no scoped token', async () => {
+            // Running a workflow executes its stored-secret actions, so the route must not fall back
+            // to the shared internal secret — an unauthenticated call has to 401.
+            const hogFlow = await insertHogFlow(activeEventHogFlow())
+            const res = await supertest(app)
+                .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/manual_invocations`)
+                .send({ globals })
+
+            expect(res.status).toEqual(401)
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
+        })
+
+        it('rejects a token minted for a different workflow', async () => {
+            // The claims pin the token to one team + workflow; a token for flow A must not run flow B.
+            const hogFlow = await insertHogFlow(activeEventHogFlow())
+            const res = await supertest(app)
+                .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/manual_invocations`)
+                .set(authFor(hogFlow.team_id, new UUIDT().toString()))
+                .send({ globals })
+
+            expect(res.status).toEqual(401)
             expect(mockQueueInvocations).not.toHaveBeenCalled()
         })
     })
