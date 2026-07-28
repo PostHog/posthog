@@ -214,10 +214,15 @@ export interface SessionRow {
     last_seen: string
 }
 
-export type NotableRule = 'worst_error_rate' | 'all_fail' | 'most_exploratory' | 'exemplar' | 'high_activity' | 'recent'
+export type NotableRule = 'worst_error_rate' | 'all_fail' | 'most_exploratory' | 'exemplar' | 'high_activity'
 
-// Fill the table out to this many rows: the rule-based picks first, then the busiest remaining sessions.
-const NOTABLE_SESSION_TARGET = 8
+// High activity is measured against the account's own median, with a floor so that a median of one or
+// two calls cannot make a barely-larger session look like an outlier.
+const OUTLIER_MULTIPLE = 2
+const MIN_OUTLIER_CALLS = 5
+
+// Below this, a session is an ordinary task rather than an exploration.
+const MIN_JOURNEY_TOOLS = 4
 
 export interface NotableSession {
     rule: NotableRule
@@ -1003,8 +1008,8 @@ function median(values: number[]): number {
     return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
 }
 
-// Pick at most one session per rule. Thresholds relax automatically when the
-// data is small so something demo-worthy always shows.
+// Pick at most one session per rule, so every row has a reason to be there. Deliberately returns
+// short, or empty, when nothing qualifies.
 export function pickNotableSessions(rows: SessionRow[]): NotableSession[] {
     if (rows.length === 0) {
         return []
@@ -1040,11 +1045,12 @@ export function pickNotableSessions(rows: SessionRow[]): NotableSession[] {
         [...allFail].sort((a, b) => b.tool_calls - a.tool_calls)[0]
     )
 
-    // 3. Most exploratory — highest distinct_tools count (multi-step journey)
+    // 3. Most exploratory — highest distinct_tools count, among sessions that are journeys at all
+    const journeys = rows.filter((r) => r.distinct_tools >= MIN_JOURNEY_TOOLS)
     take(
         'most_exploratory',
         'Most exploratory journey',
-        [...rows].sort((a, b) => b.distinct_tools - a.distinct_tools || b.tool_calls - a.tool_calls)[0]
+        [...journeys].sort((a, b) => b.distinct_tools - a.distinct_tools || b.tool_calls - a.tool_calls)[0]
     )
 
     // 4. Exemplar — zero errors, above-median calls, faster than median duration
@@ -1053,24 +1059,12 @@ export function pickNotableSessions(rows: SessionRow[]): NotableSession[] {
     )
     take('exemplar', 'Concise success', [...exemplars].sort((a, b) => b.tool_calls - a.tool_calls)[0])
 
-    // Top up to the target so the table reads as a fuller list rather than a sparse handful. Only
-    // sessions that clear the same volume bar rules 1 and 4 use may claim high activity; anything
-    // below it is filled in as recent context, because on a small account the busiest remaining
-    // session can be a single tool call and labelling that "High activity" is wrong.
-    const byVolume = [...rows].sort((a, b) => b.tool_calls - a.tool_calls)
-    for (const candidate of byVolume) {
-        if (picked.length >= NOTABLE_SESSION_TARGET || candidate.tool_calls < busyThreshold) {
-            break
-        }
-        take('high_activity', 'High activity', candidate)
-    }
-
-    const byRecency = [...rows].sort((a, b) => b.last_seen.localeCompare(a.last_seen))
-    for (const candidate of byRecency) {
-        if (picked.length >= NOTABLE_SESSION_TARGET) {
-            break
-        }
-        take('recent', 'Recent session', candidate)
+    // 5. High activity — the busiest session, but only when it is an outlier. Being merely the
+    // largest of a small set is not notable: on a quiet account that can be a single tool call.
+    const outlierThreshold = Math.max(medianCalls * OUTLIER_MULTIPLE, MIN_OUTLIER_CALLS)
+    const busiest = [...rows].sort((a, b) => b.tool_calls - a.tool_calls)[0]
+    if (busiest && busiest.tool_calls >= outlierThreshold) {
+        take('high_activity', 'High activity', busiest)
     }
 
     return picked
