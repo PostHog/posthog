@@ -1,8 +1,11 @@
+import hmac
 import uuid
 from datetime import datetime, timedelta
+from hashlib import sha256
 from typing import Literal
 from zoneinfo import ZoneInfo
 
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
@@ -37,6 +40,22 @@ SlackSnoozeOutcome = Literal["snoozed", "no_access", "disabled", "not_found", "i
 # Mirrors the in-app SnoozeButton's DateFilter max — Slack's datetimepicker has no bounds of
 # its own, so the cap has to live here.
 SLACK_SNOOZE_MAX_DAYS = 31
+
+
+def sign_insight_alert_id(alert_id: str) -> str:
+    """Server-side signature binding a snooze action to its alert.
+
+    The alert id in a Slack snooze option comes from hog-function block config, which any project
+    member can edit — without this, an author could hide a different alert's id behind innocuous
+    option text and trick a user into snoozing it. The signature is emitted alongside the id at
+    notification time (trigger_alert_hog_functions) and verified on the interaction, so a forged
+    id for which the author can't produce a matching signature is rejected.
+    """
+    return hmac.new(settings.SECRET_KEY.encode(), f"insight_alert_snooze:{alert_id}".encode(), sha256).hexdigest()[:32]
+
+
+def verify_insight_alert_id(alert_id: str, signature: str) -> bool:
+    return hmac.compare_digest(sign_insight_alert_id(alert_id), signature)
 
 
 def get_alert_team_id(alert_id: uuid.UUID) -> int | None:
@@ -136,6 +155,8 @@ __all__ = [
     "AlertDestinationValidationError",
     "DestinationType",
     "SLACK_SNOOZE_MAX_DAYS",
+    "sign_insight_alert_id",
+    "verify_insight_alert_id",
     "SlackSnoozeOutcome",
     "build_alert_destination_config",
     "create_alert_destination_hog_functions",

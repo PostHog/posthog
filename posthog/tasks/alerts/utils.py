@@ -12,7 +12,7 @@ from posthog.cdp.internal_events import InternalEventEvent, produce_internal_eve
 from posthog.exceptions_capture import capture_exception
 from posthog.tasks.alerts.schedule_restriction import snap_candidate_utc_to_schedule_restriction
 
-from products.alerts.backend.facade.api import send_alert_email
+from products.alerts.backend.facade.api import send_alert_email, sign_insight_alert_id
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, derive_detector_event_fields
 from products.alerts.backend.scheduling import (
     EVERY_15_MINUTES_CADENCE_MINUTES as EVERY_15_MINUTES_CADENCE_MINUTES,
@@ -132,6 +132,9 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> 
     try:
         props = {
             "alert_id": str(alert.id),
+            # Binds the Slack snooze action to this alert so a hog-function author can't hide a
+            # different alert's id behind an innocuous option and trick a user into snoozing it.
+            "alert_id_sig": sign_insight_alert_id(str(alert.id)),
             "alert_name": alert.name,
             "project_name": alert.team.name,
             "insight_name": alert.insight.name,

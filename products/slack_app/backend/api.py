@@ -3364,14 +3364,24 @@ def _insight_alert_snooze_action(payload: dict) -> dict | None:
 
 def _parse_insight_alert_snooze_value(value: str) -> tuple[uuid.UUID, str] | None:
     parts = value.split("|")
-    if len(parts) != 2:
+    if len(parts) != 3:
         return None
-    alert_uuid_str, duration = parts
+    alert_uuid_str, signature, duration = parts
     if duration not in INSIGHT_ALERT_SNOOZE_DURATION_LABELS and duration != INSIGHT_ALERT_SNOOZE_CUSTOM_TOKEN:
         return None
     try:
         alert_uuid = uuid.UUID(alert_uuid_str)
     except (ValueError, AttributeError, TypeError):
+        return None
+
+    from products.alerts.backend.facade.api import (  # noqa: PLC0415 — cross-product call kept off the slack import path
+        verify_insight_alert_id,
+    )
+
+    # The alert id and signature ride in hog-function block config an author can edit. The
+    # signature is server-emitted (trigger_alert_hog_functions), so a forged id the author
+    # can't sign is rejected here — see verify_insight_alert_id.
+    if not verify_insight_alert_id(alert_uuid_str, signature):
         return None
     return alert_uuid, duration
 

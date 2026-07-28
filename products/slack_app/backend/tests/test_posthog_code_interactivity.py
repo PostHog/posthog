@@ -24,6 +24,7 @@ from posthog.models.user import User
 from posthog.schema_enums import AlertState
 from posthog.utils import relative_date_parse
 
+from products.alerts.backend.facade.api import sign_insight_alert_id
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.product_analytics.backend.models.insight import Insight
 from products.slack_app.backend.api import (
@@ -40,6 +41,11 @@ else:
         from ee.models.rbac.access_control import AccessControl
     except ImportError:
         AccessControl = None
+
+
+def _signed_snooze_value(alert_id, token: str) -> str:
+    aid = str(alert_id)
+    return f"{aid}|{sign_insight_alert_id(aid)}|{token}"
 
 
 class TestPostHogCodeInteractivityHandler(TestCase):
@@ -1074,7 +1080,9 @@ class TestInsightAlertSnooze(TestCase):
         expected_snoozed_until = relative_date_parse(
             duration_token, ZoneInfo("UTC"), increase=True, always_truncate=True
         )
-        response = self._post_interactivity(self._snooze_select_payload(f"{self.alert.id}|{duration_token}"))
+        response = self._post_interactivity(
+            self._snooze_select_payload(_signed_snooze_value(self.alert.id, duration_token))
+        )
 
         assert response.status_code == 200
         self.alert.refresh_from_db()
@@ -1107,7 +1115,7 @@ class TestInsightAlertSnooze(TestCase):
         mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
         mock_is_org_member.return_value = self.user
 
-        response = self._post_interactivity(self._snooze_payload(f"{self.alert.id}|1d"))
+        response = self._post_interactivity(self._snooze_payload(_signed_snooze_value(self.alert.id, "1d")))
 
         assert response.status_code == 200
         self.alert.refresh_from_db()
@@ -1168,7 +1176,7 @@ class TestInsightAlertSnooze(TestCase):
         mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
         mock_is_org_member.return_value = None
 
-        response = self._post_interactivity(self._snooze_payload(f"{self.alert.id}|1d"))
+        response = self._post_interactivity(self._snooze_payload(_signed_snooze_value(self.alert.id, "1d")))
 
         assert response.status_code == 200
         self.alert.refresh_from_db()
@@ -1190,7 +1198,7 @@ class TestInsightAlertSnooze(TestCase):
         OrganizationMembership.objects.create(user=inactive_user, organization=self.organization)
         mock_get_email.return_value = inactive_user.email
 
-        response = self._post_interactivity(self._snooze_payload(f"{self.alert.id}|1d"))
+        response = self._post_interactivity(self._snooze_payload(_signed_snooze_value(self.alert.id, "1d")))
 
         assert response.status_code == 200
         self.alert.refresh_from_db()
@@ -1206,7 +1214,7 @@ class TestInsightAlertSnooze(TestCase):
         self.integration.save(update_fields=["team"])
         mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
 
-        response = self._post_interactivity(self._snooze_payload(f"{self.alert.id}|1d"))
+        response = self._post_interactivity(self._snooze_payload(_signed_snooze_value(self.alert.id, "1d")))
 
         assert response.status_code == 200
         self.alert.refresh_from_db()
@@ -1237,7 +1245,7 @@ class TestInsightAlertSnooze(TestCase):
             level=OrganizationMembership.Level.MEMBER
         )
 
-        response = self._post_interactivity(self._snooze_payload(f"{self.alert.id}|1d"))
+        response = self._post_interactivity(self._snooze_payload(_signed_snooze_value(self.alert.id, "1d")))
 
         assert response.status_code == 200
         self.alert.refresh_from_db()
@@ -1269,7 +1277,7 @@ class TestInsightAlertSnooze(TestCase):
             access_level="none",
         )
 
-        response = self._post_interactivity(self._snooze_payload(f"{self.alert.id}|1d"))
+        response = self._post_interactivity(self._snooze_payload(_signed_snooze_value(self.alert.id, "1d")))
 
         assert response.status_code == 200
         self.alert.refresh_from_db()
@@ -1286,7 +1294,7 @@ class TestInsightAlertSnooze(TestCase):
         self.alert.enabled = False
         self.alert.save(update_fields=["enabled"])
 
-        response = self._post_interactivity(self._snooze_payload(f"{self.alert.id}|1d"))
+        response = self._post_interactivity(self._snooze_payload(_signed_snooze_value(self.alert.id, "1d")))
 
         assert response.status_code == 200
         self.alert.refresh_from_db()
@@ -1308,6 +1316,29 @@ class TestInsightAlertSnooze(TestCase):
         response = self._post_interactivity(self._snooze_payload("not-a-valid-value"))
 
         assert response.status_code == 200
+        mock_requests_post.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("forged_signature", "|deadbeefdeadbeefdeadbeefdeadbeef|1d"),
+            ("unsigned_legacy_two_part", "|1d"),
+        ]
+    )
+    @patch("products.slack_app.backend.api._is_org_member")
+    @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_snooze_rejects_bad_signature(self, _name, suffix, mock_config, mock_requests_post, mock_is_org_member):
+        # An author who hardcodes a foreign alert id can't produce its server-side signature, so
+        # a value whose signature doesn't verify must not snooze — even for a real, accessible alert.
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_is_org_member.return_value = self.user
+
+        response = self._post_interactivity(self._snooze_select_payload(f"{self.alert.id}{suffix}"))
+
+        assert response.status_code == 200
+        self.alert.refresh_from_db()
+        assert self.alert.state == AlertState.FIRING
+        assert self.alert.snoozed_until is None
         mock_requests_post.assert_not_called()
 
 
@@ -1351,7 +1382,7 @@ class TestHandleInsightAlertSnoozeGuards(TestCase):
             ("no_pipe", "not-a-valid-value"),
             ("non_uuid_alert_id", "not-a-uuid|1d"),
             ("unknown_duration", f"{uuid.uuid4()}|1y"),
-            ("unknown_alert", f"{uuid.uuid4()}|1d"),
+            ("unknown_alert", _signed_snooze_value(uuid.uuid4(), "1d")),
         ]
     )
     @patch("products.slack_app.backend.api._is_org_member")
@@ -1398,7 +1429,7 @@ class TestExtractAlertSnoozeHints(TestCase):
 
     def test_returns_uuid_for_valid_payload(self):
         alert_id = uuid.uuid4()
-        result = _extract_alert_snooze_hints(self._payload(f"{alert_id}|1d"))
+        result = _extract_alert_snooze_hints(self._payload(_signed_snooze_value(alert_id, "1d")))
         assert result == alert_id
 
     @parameterized.expand(
@@ -1439,7 +1470,12 @@ class TestInsightAlertSnoozeModal(TestCase):
             "trigger_id": "trig.123",
             "channel": {"id": "C1"},
             "message": {"ts": "111.222"},
-            "actions": [{"action_id": "insight_alert_snooze", "selected_option": {"value": f"{self.alert.id}|custom"}}],
+            "actions": [
+                {
+                    "action_id": "insight_alert_snooze",
+                    "selected_option": {"value": _signed_snooze_value(self.alert.id, "custom")},
+                }
+            ],
         }
 
     def _modal_submit_payload(self, selected_date: str, selected_time: str, *, alert_id=None) -> dict:
