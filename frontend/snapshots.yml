@@ -6439,9 +6439,9 @@ snapshots:
     scenes-app-mcp-analytics--dashboard--light:
         hash: v1.k794b7964.49f850b518aa783296b3d178c4335a14048651a65980d230e22f2d140176b149.GdW1N70CXyKtRCe88ML3fwlrrHTXrIJ58dXsp7VIN6g
     scenes-app-mcp-analytics--dashboard-with-menu-bar--dark:
-        hash: v1.k794b7964.ec3c0249491cc08c6b3e36e6a6f8a237e16a0742a26bec7bf5ec94cc658071e7.ttVOYlABA3PeTBJKCxXvYWlrLij8JlGo50fy0kJSC1A
+        hash: v1.k794b7964.f63d8772f7410e4065ac9a8ee9306c79d1fb3134209487ef591303a9d1ea0440.VdOMnTgvJfutwOLw66yEukrkA4AJhyjqzWGVgI-USj8
     scenes-app-mcp-analytics--dashboard-with-menu-bar--light:
-        hash: v1.k794b7964.64aa035890ac3ad11d7c4d7a7edcd9fd677462780b05db60c1777ced89c90371.M9V8SQPjfYBEjJfl54ow7GhayKAiOaPoGE-j1ZU3ouI
+        hash: v1.k794b7964.0f359fcdf0a972c5b0d3cbcbd78a85fa8c9c6566a88f9c837ab50e43b943de56.GkvbpbIp2w0itq_jj4opjc9-TYiLI-CR5HiCZKA46nY
     scenes-app-mcp-analytics--intent-clustering--dark:
         hash: v1.k794b7964.93cb428637db03234a4d0d09b51ef886d95ab801bb3e4dc6ca0f1ba3824b9fe3.JeUzojRsSPumu87KUEx7WXtojxL5GEF98Ps9CVS7WAY
     scenes-app-mcp-analytics--intent-clustering--light:
@@ -6467,9 +6467,9 @@ snapshots:
     scenes-app-mcp-analytics-dashboard-cards--error-rate-by-tool--light:
         hash: v1.k794b7964.fb19ba2710284a3445ca8b3fd35276da7ed57ca13d22470ae362e1a7789bc032.BN2AkhljnBC-tp086Cjl4KxQATZ2wivmeSPAthlLtoQ
     scenes-app-mcp-analytics-dashboard-cards--flagged-sessions--dark:
-        hash: v1.k794b7964.dc02dfd2e4364ca89f870b23872f749248a128f7f6b55d5ad862dfa63840d419.Q8O9ETB70piBnPcnMZe4xey80IEDXeeG8sqyFYg4Dlg
+        hash: v1.k794b7964.d3f4ab762ad6e50234a032dc3912ddad0792b64bffa8c236bedb03c5e6e91416.OJfegOAGDyyHGvjiPacJqKP7m3_q-azP9GVbQfVta34
     scenes-app-mcp-analytics-dashboard-cards--flagged-sessions--light:
-        hash: v1.k794b7964.594333649b8b6be4e2af262bb606f164e5ed9b72271f7226668af76653013150.BYJ6q_JJ2ZGGSCxOs4SoGDb1E9BNWRk9Yo5lrIFdzW8
+        hash: v1.k794b7964.2df0892a30e3bd13942ef30abc61e1ef094cde73028eccb5f94f2964c563e0f9.ybT8Hty9V0j8OB1T431TxBH-AwznCNplBoiIOl_BI6Y
     scenes-app-mcp-analytics-dashboard-cards--key-metrics--dark:
         hash: v1.k794b7964.c43bf4fc139c60f91e2bbe9f160077ebe7678b23bfbb86cc23ffb7e610cf510a.cYi4muc-vdYm66DM_ooUC9daJDJ7FJlH9dgETasyR68
     scenes-app-mcp-analytics-dashboard-cards--key-metrics--light:
