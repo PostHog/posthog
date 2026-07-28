@@ -31,7 +31,7 @@ export interface disableDataWarehouseManagedViewsetModalLogicActions {
         value: true
     }
     openModal: (kind: DataWarehouseManagedViewsetKind) => {
-        kind: 'revenue_analytics' | 'engineering_analytics'
+        kind: DataWarehouseManagedViewsetKind
     }
     openModalFailure: (
         error: string,
@@ -43,12 +43,12 @@ export interface disableDataWarehouseManagedViewsetModalLogicActions {
     openModalSuccess: (
         views: DataWarehouseManagedViewsetSavedQuery[],
         payload?: {
-            kind: 'revenue_analytics' | 'engineering_analytics'
+            kind: DataWarehouseManagedViewsetKind
         }
     ) => {
         views: DataWarehouseManagedViewsetSavedQuery[]
         payload?: {
-            kind: 'revenue_analytics' | 'engineering_analytics'
+            kind: DataWarehouseManagedViewsetKind
         }
     }
     setConfirmationInput: (confirmationInput: string) => {
