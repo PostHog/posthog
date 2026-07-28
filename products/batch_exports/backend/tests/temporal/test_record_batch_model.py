@@ -10,7 +10,6 @@ from products.batch_exports.backend.service import BatchExportModel
 from products.batch_exports.backend.temporal.record_batch_model import (
     HogQLQueryRecordBatchModel,
     SessionsRecordBatchModel,
-    append_settings_to_query,
     resolve_batch_exports_model,
 )
 
@@ -100,7 +99,7 @@ class TestSessionsRecordBatchModel:
         model = SessionsRecordBatchModel(
             team_id=ateam.id,
         )
-        printed_query, query_parameters = await model.as_insert_into_s3_query_with_parameters(
+        printed_query, _ = await model.as_insert_into_s3_query_with_parameters(
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
             s3_folder="https://test-bucket.s3.amazonaws.com/test-prefix",
@@ -129,10 +128,11 @@ class TestSessionsRecordBatchModel:
             "greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus("
             in printed_query
         )
-
-        # check that we have a log_comment set (we pass this in as a query parameter)
-        assert "log_comment={log_comment}" in printed_query
-        assert "log_comment" in query_parameters
+        # the sessions query carries its settings on the AST, so the printer renders them
+        assert "SETTINGS" in printed_query
+        assert "optimize_aggregation_in_order=1" in printed_query
+        # this model needs no request settings: the printer already emitted them
+        assert model.get_clickhouse_request_settings() == {}
 
     async def test_as_insert_into_s3_query_with_parameters_keyless_auth(
         self, ateam, data_interval_start, data_interval_end
@@ -189,35 +189,24 @@ class TestHogQLQueryRecordBatchModel:
         assert "https://test-bucket.s3.amazonaws.com/test-prefix/export_{{_partition_id}}.arrow" in printed_query
         assert "PARTITION BY rand() %% 5" in printed_query
         assert f"equals(events.team_id, {ateam.id})" in printed_query
-        assert " SETTINGS " in printed_query
-        assert "optimize_aggregation_in_order=1" in printed_query
-        assert "max_bytes_before_external_sort=" in printed_query
-        assert "max_bytes_before_external_group_by=" in printed_query
-        assert "log_comment={log_comment}" in printed_query
-        assert "log_comment" in query_parameters
+        # the user's query is wrapped as-is: settings are sent as query parameters, so we never write a
+        # SETTINGS clause into the query
+        assert "SETTINGS" not in printed_query
 
-    @pytest.mark.parametrize(
-        "printed_query,expected_settings_count",
-        [
-            ("SELECT event FROM events", 1),
-            # the printer merges table-required settings into the printed query; ours
-            # must extend that clause, not open a second one
-            ("SELECT event FROM some_table SETTINGS join_algorithm='hash'", 1),
-            # a SETTINGS clause inside a subquery (e.g. a lazy table expansion) is not a
-            # top-level clause: appending to it with a comma would be a syntax error
-            ("SELECT event FROM (SELECT event FROM some_table SETTINGS join_algorithm='hash') AS sub", 2),
-        ],
-        ids=["without-settings", "with-trailing-settings", "with-subquery-settings"],
-    )
-    def test_append_settings_to_query(self, printed_query, expected_settings_count):
-        result = append_settings_to_query(
-            printed_query, ["optimize_aggregation_in_order=1", "log_comment={log_comment}"]
-        )
+    async def test_get_clickhouse_request_settings(self):
+        """Batch export settings are sent as query parameters rather than a SETTINGS clause.
 
-        assert result.upper().count("SETTINGS") == expected_settings_count
-        assert result.startswith(printed_query)
-        assert "optimize_aggregation_in_order=1" in result
-        assert "log_comment={log_comment}" in result
+        Values are rendered the way the HogQL printer renders them (bools as 1/0), so a
+        setting reads the same in query_log however it was applied. ClickHouse rejects
+        unknown setting names outright, so a typo here fails the export.
+        """
+        model = HogQLQueryRecordBatchModel(team_id=1, hogql_query="SELECT event AS event FROM events")
+
+        assert model.get_clickhouse_request_settings() == {
+            "optimize_aggregation_in_order": "1",
+            "max_bytes_before_external_sort": "50000000000",
+            "max_bytes_before_external_group_by": "50000000000",
+        }
 
     @pytest.mark.parametrize(
         "hogql_query,expected_message",

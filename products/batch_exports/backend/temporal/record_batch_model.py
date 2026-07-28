@@ -1,9 +1,9 @@
-import re
 import abc
 import uuid
 import typing
 import datetime as dt
 
+from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.hogql import ast
@@ -30,29 +30,12 @@ QueryParameters = dict[str, typing.Any]
 BatchExportDateRange = tuple[dt.datetime | None, dt.datetime]
 
 
-def _print_setting_value(value: typing.Any) -> str:
-    """Render a setting value the same way the HogQL printer does."""
-    if isinstance(value, bool):
-        return "1" if value else "0"
-    return str(value)
-
-
-# A SETTINGS clause at the very end of the query, i.e. at the top level: anything after
-# a subquery's SETTINGS clause includes at least its closing parenthesis.
-TRAILING_SETTINGS_CLAUSE = re.compile(r"\bSETTINGS\s+[^()]*$", re.IGNORECASE)
-
-
-def append_settings_to_query(printed_query: str, settings_pairs: list[str]) -> str:
-    """Append a `SETTINGS` clause (given as `name=value` strings) to a printed query.
-
-    If the query already ends in a top-level SETTINGS clause (the printer merges in
-    settings required by some tables), extend it rather than open a second one. A
-    SETTINGS clause inside a subquery (e.g. from a lazy table expansion) doesn't count.
-    """
-    if not settings_pairs:
-        return printed_query
-    separator = ", " if TRAILING_SETTINGS_CLAUSE.search(printed_query) else " SETTINGS "
-    return printed_query + separator + ", ".join(settings_pairs)
+def _as_clickhouse_request_settings(query_settings: HogQLQuerySettings) -> dict[str, str]:
+    """Render HogQL query settings as ClickHouse HTTP-interface settings."""
+    return {
+        name: "1" if value is True else "0" if value is False else str(value)
+        for name, value in query_settings.model_dump(exclude_none=True).items()
+    }
 
 
 class RecordBatchModel(abc.ABC):
@@ -80,6 +63,11 @@ class RecordBatchModel(abc.ABC):
             team_id=team.id,
             enable_select_queries=True,
             limit_top_select=False,
+            # A bit of a hack: the query references neither half of this, but both are required:
+            # - we need to call `get_log_comment` in order to tag the queries
+            # - we need to pass non-empty `values` to `ClickHouseClient.prepare_query` to avoid it returning
+            # early and not resolving the `{{_partition_id}}` and `%%` escapes in the s3 function
+            # call.
             values={
                 "log_comment": self.get_log_comment(),
             },
@@ -89,6 +77,11 @@ class RecordBatchModel(abc.ABC):
         return context
 
     def get_log_comment(self) -> str:
+        """Tag this export's queries, and return the tags as a log comment.
+
+        The ClickHouse client reads these tags back to set `log_comment` on the requests
+        it sends, which is what ties a row in `system.query_log` to its batch export.
+        """
         tags = query_tagging.get_query_tags()
         tags.team_id = self.team_id
         if self.batch_export_id:
@@ -104,15 +97,14 @@ class RecordBatchModel(abc.ABC):
         """Return the HogQL query to export, scoped to the given data interval."""
         raise NotImplementedError
 
-    def _get_insert_settings(self) -> list[str]:
-        """Extra `SETTINGS` (as `name=value` strings) to string-append to the INSERT query.
+    def get_clickhouse_request_settings(self) -> dict[str, str]:
+        """ClickHouse settings to apply to this model's queries.
 
-        Models that bake their settings onto the query AST return an empty list; models
-        whose query can lack an AST settings slot (e.g. a UNION, which parses to an
-        `ast.SelectSetQuery`) append them here. The log comment is always appended on
-        top of these.
+        These are sent as query parameters rather than written into the query, so
+        we avoid having to manipulate a `SETTINGS` clause as a string. Models that bake
+        their settings onto the query AST (letting the printer render them) need none.
         """
-        return []
+        return {}
 
     async def _print_query(
         self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime, output_format: str | None
@@ -151,7 +143,6 @@ class RecordBatchModel(abc.ABC):
     ) -> tuple[Query, QueryParameters]:
         """Produce an `INSERT INTO FUNCTION s3(...)` query and its ClickHouse parameters."""
         printed, parameters = await self._print_query(data_interval_start, data_interval_end, output_format=None)
-        printed = append_settings_to_query(printed, [*self._get_insert_settings(), "log_comment={log_comment}"])
         s3_function = sql.get_s3_function_call(s3_folder, s3_key, s3_secret, num_partitions)
         insert_query = f"""
 INSERT INTO FUNCTION {s3_function}
@@ -348,14 +339,11 @@ class HogQLQueryRecordBatchModel(RecordBatchModel):
         """
         return parse_hogql_select_for_batch_export(self.hogql_query)
 
-    def _get_insert_settings(self) -> list[str]:
-        # The user query may not parse to a simple `ast.SelectQuery` (e.g. a UNION parses
-        # to an `ast.SelectSetQuery`, which has no `settings` field to attach these to), so
-        # we append them to the printed SQL as a string, which works for either shape.
-        return [
-            f"{name}={_print_setting_value(value)}"
-            for name, value in sql.HogQLQueryBatchExportSettings().model_dump(exclude_none=True).items()
-        ]
+    def get_clickhouse_request_settings(self) -> dict[str, str]:
+        # Sent with the request instead of set on the query AST, because the user query may
+        # not parse to a simple `ast.SelectQuery` (e.g. a UNION parses to an
+        # `ast.SelectSetQuery`, which has no `settings` field to attach these to).
+        return _as_clickhouse_request_settings(sql.HogQLQueryBatchExportSettings())
 
 
 def resolve_batch_exports_model(
