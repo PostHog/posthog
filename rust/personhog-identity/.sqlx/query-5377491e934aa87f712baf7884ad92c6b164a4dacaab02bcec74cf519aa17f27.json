@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE posthog_personlessdistinctid pl\n            SET is_merged = false\n            FROM unnest($1::int[], $2::text[]) AS u(t, d)\n            WHERE pl.team_id = u.t AND pl.distinct_id = u.d\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4Array",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5377491e934aa87f712baf7884ad92c6b164a4dacaab02bcec74cf519aa17f27"
+}

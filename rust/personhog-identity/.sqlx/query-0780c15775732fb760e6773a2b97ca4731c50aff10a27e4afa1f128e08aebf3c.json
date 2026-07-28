@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM posthog_personlessdistinctid pl\n            USING unnest($1::int[], $2::text[]) AS u(t, d)\n            WHERE pl.team_id = u.t AND pl.distinct_id = u.d\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4Array",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0780c15775732fb760e6773a2b97ca4731c50aff10a27e4afa1f128e08aebf3c"
+}
