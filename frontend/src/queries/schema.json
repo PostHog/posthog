@@ -1555,6 +1555,10 @@
                     "description": "Replace null aggregation results with zero.",
                     "type": "boolean"
                 },
+                "showTotalRow": {
+                    "description": "Show a total summing all Y series. Applies to line, bar, and area charts.",
+                    "type": "boolean"
+                },
                 "showValuesOnSeries": {
                     "description": "Render each data point's value as a label directly on the series.",
                     "type": "boolean"
@@ -1654,10 +1658,6 @@
                         "type": "string"
                     },
                     "type": "array"
-                },
-                "showTotalRow": {
-                    "description": "Show a total row at the bottom of the table.",
-                    "type": "boolean"
                 },
                 "transpose": {
                     "description": "Transpose rows and columns.",
