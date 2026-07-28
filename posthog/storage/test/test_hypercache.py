@@ -243,6 +243,38 @@ class TestHyperCacheUpdateCache(HyperCacheTestBase):
         assert result is False
 
 
+class TestHyperCacheUpdateCacheRedisTransientFailure(HyperCacheTestBase):
+    """A transient Redis blip on the write degrades quietly instead of filing an error-tracking
+    issue, mirroring the read path — the write already keeps the existing entry and returns False."""
+
+    @parameterized.expand(
+        [
+            ("connection_interrupted", ConnectionInterrupted(connection=None)),
+            ("redis_connection_error", redis.exceptions.ConnectionError("Error 111 connecting to redis:6379")),
+            ("timeout_error", redis.exceptions.TimeoutError()),
+            (
+                "dns_resolution_error",
+                ConnectionError("Error -3 connecting to redis:6379. Temporary failure in name resolution"),
+            ),
+        ]
+    )
+    def test_update_cache_degrades_quietly_on_transient_redis_error(self, _name, exception):
+        hc = self.hypercache
+
+        with (
+            patch.object(hc.cache_client, "set", side_effect=exception),
+            patch("posthog.storage.hypercache.capture_exception") as mock_capture,
+            patch("posthog.storage.hypercache.HYPERCACHE_REBUILD_SKIPPED_COUNTER") as mock_skipped,
+        ):
+            result = hc.update_cache(self.team_id)
+
+        assert result is False
+        # Self-recovering blip: not reported as a bug, just counted as a skipped rebuild
+        mock_capture.assert_not_called()
+        mock_skipped.labels.assert_called_once_with(namespace="test_namespace", reason="redis_transient")
+        mock_skipped.labels.return_value.inc.assert_called_once()
+
+
 class TestHyperCacheDependencyUnavailable(HyperCacheTestBase):
     """A load_fn raising HyperCacheDependencyUnavailable skips the write and returns a
     miss without caching a sentinel."""

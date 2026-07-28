@@ -21,10 +21,11 @@ from posthog.storage.object_storage import ObjectStorageError
 
 logger = structlog.get_logger(__name__)
 
-# Redis/transport failures the primary cache read degrades on, mirroring the S3/load_fn tiers below.
+# Transient Redis/transport failures the cache degrades on rather than reporting as bugs.
+# Reads fall through to the S3/load_fn tiers; writes keep the existing entry and skip quietly.
 # django-redis wraps the underlying redis error in ConnectionInterrupted; we also catch the raw redis
 # errors (and the builtin socket errors under OSError) in case a backend surfaces them directly.
-_REDIS_READ_ERRORS = (
+_REDIS_TRANSIENT_ERRORS = (
     ConnectionInterrupted,
     redis.exceptions.RedisError,
     ConnectionError,
@@ -262,7 +263,7 @@ class HyperCache:
         cache_key = self.get_cache_key(key)
         try:
             data = self.cache_client.get(cache_key)
-        except _REDIS_READ_ERRORS as e:
+        except _REDIS_TRANSIENT_ERRORS as e:
             # A Redis outage on the primary read must degrade to the S3/DB tiers below, never
             # bubble a 500 up to the request handler. Capture it for visibility, the way the S3
             # branch does, then fall through as a cache miss.
@@ -347,7 +348,7 @@ class HyperCache:
 
         try:
             cached_values = self.cache_client.get_many(cache_keys + etag_keys)
-        except _REDIS_READ_ERRORS as e:
+        except _REDIS_TRANSIENT_ERRORS as e:
             # Degrade a Redis outage to an all-miss result rather than raising; there is no
             # S3/DB fallback in batch mode, so every team resolves to a clean "miss" below.
             capture_exception(e)
@@ -390,7 +391,7 @@ class HyperCache:
             return None
         try:
             return self.cache_client.get(self.get_etag_key(key))
-        except _REDIS_READ_ERRORS as e:
+        except _REDIS_TRANSIENT_ERRORS as e:
             # Degrade a Redis outage to a missing ETag rather than raising; callers treat a
             # None ETag as a miss/mismatch and fall back to the full response.
             capture_exception(e)
@@ -487,6 +488,19 @@ class HyperCache:
             logger.warning(
                 f"Skipping {self.namespace} cache sync for team {key}: dependency unavailable",
                 namespace=self.namespace,
+            )
+            return False
+        except _REDIS_TRANSIENT_ERRORS as e:
+            # A transient Redis/transport blip on the write (e.g. a brief DNS failure) degrades
+            # exactly like the read path: the existing entry is kept and the next sync retries.
+            # These are self-recovering, so count the skip and log at warning rather than filing
+            # an error-tracking issue via capture_exception.
+            HYPERCACHE_REBUILD_SKIPPED_COUNTER.labels(namespace=self.namespace, reason="redis_transient").inc()
+            logger.warning(
+                f"Skipping {self.namespace} cache sync for team {key}: transient Redis failure",
+                namespace=self.namespace,
+                error=str(e),
+                error_type=type(e).__name__,
             )
             return False
         except Exception as e:
