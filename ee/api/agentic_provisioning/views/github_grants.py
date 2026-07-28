@@ -2,6 +2,11 @@
 OAuth code, we exchange and hold the user tokens server-side, and the partner
 only ever sees an opaque grant_id. No region proxy: grants are region-local
 (the partner must call the region that minted the grant).
+
+Grant creation enforces its partner quota inline rather than through
+``partner_throttle_classes``, so the capability check runs first: a partner
+without ``provisioning_can_create_accounts`` is refused for free instead of
+burning its hourly grant budget on requests it can never complete.
 """
 
 from __future__ import annotations
@@ -19,19 +24,19 @@ from ee.api.agentic_provisioning import github_grants
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
 from ee.api.agentic_provisioning.serializers import GitHubGrantCreateSerializer
-from ee.api.agentic_provisioning.throttling import GitHubGrantsThrottle, GrantPollThrottle
+from ee.api.agentic_provisioning.throttling import GrantPollThrottle, enforce_partner_rate_limit
 from ee.api.agentic_provisioning.views.base import ConfidentialPartnerAPIView
 
 
 class GitHubGrantsCreateView(ConfidentialPartnerAPIView):
-    partner_throttle_classes = [GitHubGrantsThrottle]
-
     def post(self, request: Request) -> Response:
         partner = cast(OAuthApplication, request.auth)
 
         if not partner.provisioning_can_create_accounts:
             capture_provisioning_event("github_grant", "error", partner=partner, error_code="account_creation_disabled")
             raise ProvisioningError("forbidden", "Account creation is not enabled for this partner", status=403)
+
+        enforce_partner_rate_limit(partner, "github_grants")
 
         data = self.validated_body(GitHubGrantCreateSerializer, request, context={"partner": partner})
         code = data["code"]

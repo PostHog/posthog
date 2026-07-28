@@ -217,6 +217,20 @@ class TestGitHubGrants(ProvisioningTestBase):
         assert second.status_code == 429
         assert second["Retry-After"]
 
+    def test_capability_refusal_does_not_spend_grant_budget(self):
+        self.partner.provisioning_rate_limit_github_grants = 1
+        self.partner.provisioning_can_create_accounts = False
+        self.partner.save()
+
+        for _ in range(3):
+            refused = self._post_grants({"code": "gh_code"})
+            assert refused.status_code == 403
+            assert refused.json()["error"]["code"] == "forbidden"
+
+        self.partner.provisioning_can_create_accounts = True
+        self.partner.save()
+        assert self._create_grant_via_api().status_code == 200
+
     def test_repositories_happy_path(self):
         base_url = "/api/agentic/provisioning/github/grants"
         grant = github_grants.create_grant(self.partner, AUTHORIZATION, "octocat@example.com")

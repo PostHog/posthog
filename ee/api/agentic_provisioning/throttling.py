@@ -8,11 +8,13 @@ Fixed-window cache counters over one set of keys, reachable two ways:
   grant id in the URL, a client_id in the body. The base view runs these on
   top of ``DEFAULT_THROTTLE_CLASSES`` and renders rejections in the view's
   wire envelope rather than DRF's ``{"detail": ...}``.
-- ``enforce_*`` helpers, for limits whose key only exists partway through the
-  handler: the token endpoint learns the partner by decoding an auth code or
-  refresh token, account_requests must validate the body and the partner's
-  capability *before* spending quota, and the wizard budget is shared with the
-  bundled account_requests wizard block, which runs outside any view dispatch.
+- ``enforce_*`` helpers, for limits that can't be spent as early as
+  ``check_throttles`` runs: the token endpoint learns the partner only by
+  decoding an auth code or refresh token; account_requests and github_grants
+  must clear the partner's capability *before* charging quota, so a partner
+  that is refused outright keeps its budget; and the wizard budget is shared
+  with the bundled account_requests wizard block, which runs outside any view
+  dispatch.
 - :class:`RegionProxyThrottle`, checked by the region proxy in ``dispatch``,
   before DRF has authenticated the caller and before either of the above can
   run at all.
@@ -177,11 +179,6 @@ class ResourceCreatesThrottle(PartnerRateThrottle):
         if partner is None or not partner.provisioning_partner_type:
             return None
         return partner
-
-
-class GitHubGrantsThrottle(PartnerRateThrottle):
-    endpoint = "github_grants"
-    error_message = "Rate limit exceeded for this partner (github_grants). Try again later."
 
 
 class GrantPollThrottle(BaseThrottle):
