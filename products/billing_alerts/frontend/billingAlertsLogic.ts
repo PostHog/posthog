@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -9,7 +9,14 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 import type { OrganizationType } from '~/types'
 
 import { billingAlertsCheckNowCreate, billingAlertsDestroy, billingAlertsList } from './generated/api'
-import type { BillingAlertConfigurationApi } from './generated/api.schemas'
+import type { BillingAlertConfigurationApi, PaginatedBillingAlertConfigurationListApi } from './generated/api.schemas'
+
+const EMPTY_ALERTS_PAGE: PaginatedBillingAlertConfigurationListApi = {
+    count: 0,
+    next: null,
+    previous: null,
+    results: [],
+}
 
 function errorMessage(error: unknown): string {
     if (error instanceof ApiError) {
@@ -21,8 +28,9 @@ function errorMessage(error: unknown): string {
 export interface billingAlertsLogicValues {
     canAccessBilling: boolean
     currentOrganization: OrganizationType | null
+    alertsPage: PaginatedBillingAlertConfigurationListApi
+    alertsPageLoading: boolean
     alerts: BillingAlertConfigurationApi[]
-    alertsLoading: boolean
     selectedAlert: BillingAlertConfigurationApi | null
     isEditorOpen: boolean
     checkingAlertId: string | null
@@ -31,8 +39,15 @@ export interface billingAlertsLogicValues {
 
 export interface billingAlertsLogicActions {
     loadAlerts: () => void
-    loadAlertsSuccess: (alerts: BillingAlertConfigurationApi[]) => { alerts: BillingAlertConfigurationApi[] }
+    loadAlertsSuccess: (alertsPage: PaginatedBillingAlertConfigurationListApi) => {
+        alertsPage: PaginatedBillingAlertConfigurationListApi
+    }
     loadAlertsFailure: (error: string, errorObject?: unknown) => { error: string; errorObject?: unknown }
+    loadMoreAlerts: () => void
+    loadMoreAlertsSuccess: (alertsPage: PaginatedBillingAlertConfigurationListApi) => {
+        alertsPage: PaginatedBillingAlertConfigurationListApi
+    }
+    loadMoreAlertsFailure: (error: string, errorObject?: unknown) => { error: string; errorObject?: unknown }
     createAlert: () => { value: true }
     editAlert: (alert: BillingAlertConfigurationApi) => { alert: BillingAlertConfigurationApi }
     closeEditor: () => { value: true }
@@ -83,22 +98,44 @@ export const billingAlertsLogic = kea<billingAlertsLogicType>([
             },
         ],
     }),
-    loaders(({ values }) => ({
+    selectors({
         alerts: [
-            [] as BillingAlertConfigurationApi[],
+            (selectors) => [selectors.alertsPage],
+            (alertsPage: PaginatedBillingAlertConfigurationListApi): BillingAlertConfigurationApi[] =>
+                alertsPage.results,
+        ],
+    }),
+    loaders(({ values }) => ({
+        alertsPage: [
+            EMPTY_ALERTS_PAGE,
             {
                 loadAlerts: async () => {
                     if (!values.currentOrganization?.id || !values.canAccessBilling) {
-                        return []
+                        return EMPTY_ALERTS_PAGE
                     }
-                    const response = await billingAlertsList(values.currentOrganization.id, { limit: 100 })
-                    return response.results
+                    return billingAlertsList(values.currentOrganization.id, { limit: 30 })
+                },
+                loadMoreAlerts: async () => {
+                    if (!values.currentOrganization?.id || !values.alertsPage.next) {
+                        return values.alertsPage
+                    }
+                    const nextPage = await billingAlertsList(values.currentOrganization.id, {
+                        limit: 30,
+                        offset: values.alertsPage.results.length,
+                    })
+                    return {
+                        ...nextPage,
+                        results: [...values.alertsPage.results, ...nextPage.results],
+                    }
                 },
             },
         ],
     })),
     listeners(({ actions, values }) => ({
         loadAlertsFailure: ({ error, errorObject }) => {
+            lemonToast.error(errorMessage(errorObject ?? error))
+        },
+        loadMoreAlertsFailure: ({ error, errorObject }) => {
             lemonToast.error(errorMessage(errorObject ?? error))
         },
         checkNow: async ({ alert }) => {

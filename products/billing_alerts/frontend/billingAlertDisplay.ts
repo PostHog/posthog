@@ -4,8 +4,8 @@ import type {
     NotificationDestinationTypeEnumApi,
 } from './generated/api.schemas'
 
-export function metricLabel(metric: BillingAlertMetricEnumApi | undefined): string {
-    return metric === 'usage' ? 'Usage' : 'Spend'
+export function metricLabel(_metric: BillingAlertMetricEnumApi | undefined): string {
+    return 'Spend'
 }
 
 export function formatBillingValue(

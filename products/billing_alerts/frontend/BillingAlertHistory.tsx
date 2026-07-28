@@ -1,6 +1,6 @@
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 
-import { LemonTable, LemonTableColumns, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTableColumns, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
@@ -16,25 +16,37 @@ import { formatBillingValue } from './billingAlertDisplay'
 import { billingAlertHistoryLogic } from './billingAlertHistoryLogic'
 import type { BillingAlertConfigurationApi, BillingAlertEventApi } from './generated/api.schemas'
 
-function eventValue(alert: BillingAlertConfigurationApi, event: BillingAlertEventApi): number | null {
+export function eventValue(alert: BillingAlertConfigurationApi, event: BillingAlertEventApi): number | null {
     const value =
         alert.threshold_type === 'relative_increase'
             ? event.relative_delta_percentage
             : alert.threshold_type === 'absolute_increase'
               ? event.absolute_delta
               : event.current_value
+    if (value === null || value === undefined) {
+        return null
+    }
     const parsed = Number(value)
     return Number.isFinite(parsed) ? parsed : null
 }
 
-function wouldFire(alert: BillingAlertConfigurationApi, event: BillingAlertEventApi): boolean {
+export function wouldFire(alert: BillingAlertConfigurationApi, event: BillingAlertEventApi): boolean {
+    if (event.current_value === null || event.current_value === undefined) {
+        return false
+    }
     const current = Number(event.current_value)
     const minimum = Number(alert.minimum_value ?? 0)
-    if (alert.threshold_type === 'relative_increase') {
-        return current >= minimum && Number(event.relative_delta_percentage) >= Number(alert.threshold_percentage ?? 0)
+    if (!Number.isFinite(current) || current < minimum) {
+        return false
     }
-    const value = alert.threshold_type === 'absolute_increase' ? event.absolute_delta : event.current_value
-    return Number(value) >= Number(alert.threshold_value ?? 0)
+    const value = eventValue(alert, event)
+    if (value === null) {
+        return false
+    }
+    const threshold = Number(
+        alert.threshold_type === 'relative_increase' ? alert.threshold_percentage : alert.threshold_value
+    )
+    return Number.isFinite(threshold) && value >= threshold
 }
 
 function chartThreshold(alert: BillingAlertConfigurationApi): AlertEvaluationThreshold[] {
@@ -90,15 +102,14 @@ export function BillingAlertHistory({ alert }: { alert: BillingAlertConfiguratio
 
 function BillingAlertHistoryContent({ alert }: { alert: BillingAlertConfigurationApi }): JSX.Element {
     const { eventsPage, eventsPageLoading } = useValues(billingAlertHistoryLogic)
-    const points = chartPoints(alert, eventsPage.results)
+    const { loadMoreEvents } = useActions(billingAlertHistoryLogic)
+    const points = chartPoints(alert, eventsPage.results.slice(0, 50))
     const valueLabel =
         alert.threshold_type === 'relative_increase'
             ? 'Increase'
             : alert.threshold_type === 'absolute_increase'
               ? 'Increase over baseline'
-              : alert.metric === 'spend'
-                ? 'Spend'
-                : 'Usage'
+              : 'Spend'
     const formatter = (value: number): string =>
         alert.threshold_type === 'relative_increase'
             ? `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}%`
@@ -148,6 +159,13 @@ function BillingAlertHistoryContent({ alert }: { alert: BillingAlertConfiguratio
                     size="small"
                     emptyState="No evaluations yet."
                 />
+                {eventsPage.next ? (
+                    <div className="flex justify-center">
+                        <LemonButton type="secondary" loading={eventsPageLoading} onClick={loadMoreEvents}>
+                            Load older evaluations
+                        </LemonButton>
+                    </div>
+                ) : null}
             </div>
         </AlertEditorSection>
     )

@@ -21,6 +21,17 @@ import { billingAlertNotificationLogic } from './billingAlertNotificationLogic'
 import { BillingAlertNotifications } from './BillingAlertNotifications'
 import { billingAlertsLogic } from './billingAlertsLogic'
 
+const CHECK_INTERVAL_OPTIONS = [
+    { value: 1 as const, label: 'Every hour' },
+    { value: 2 as const, label: 'Every 2 hours' },
+    { value: 3 as const, label: 'Every 3 hours' },
+    { value: 4 as const, label: 'Every 4 hours' },
+    { value: 6 as const, label: 'Every 6 hours' },
+    { value: 8 as const, label: 'Every 8 hours' },
+    { value: 12 as const, label: 'Every 12 hours' },
+    { value: 24 as const, label: 'Every 24 hours' },
+]
+
 export function BillingAlertEditor(props: BillingAlertFormLogicProps): JSX.Element {
     const notificationProps = { alert: props.alert }
 
@@ -55,7 +66,7 @@ function BillingAlertEditorContent(props: BillingAlertFormLogicProps): JSX.Eleme
         >
             <AlertEditor
                 title={props.alert ? 'Edit billing alert' : 'New billing alert'}
-                description="Billing alerts evaluate organization spend or usage against a daily threshold."
+                description="Billing alerts evaluate organization spend against a daily threshold."
                 onBack={closeEditor}
                 isEditing={props.alert !== null}
                 isSubmitting={isAlertFormSubmitting}
@@ -68,6 +79,13 @@ function BillingAlertEditorContent(props: BillingAlertFormLogicProps): JSX.Eleme
                             icon={<IconPlay />}
                             onClick={() => checkNow(props.alert!)}
                             loading={checkingAlertId === props.alert.id}
+                            disabledReason={
+                                alertFormChanged || pendingDestinations.length > 0
+                                    ? 'Save your changes before checking.'
+                                    : isAlertFormSubmitting
+                                      ? 'Wait for the alert to finish saving.'
+                                      : undefined
+                            }
                             data-attr="billing-alert-check-now"
                         >
                             Check now
@@ -91,16 +109,7 @@ function BillingAlertEditorContent(props: BillingAlertFormLogicProps): JSX.Eleme
                     >
                         <div className="space-y-4" data-attr="billing-alert-definition">
                             <AlertDefinitionRow label="Alert on">
-                                <LemonSelect
-                                    value={alertForm.metric}
-                                    onChange={(metric) => setAlertFormValue('metric', metric)}
-                                    options={[
-                                        { value: 'spend', label: 'Spend' },
-                                        { value: 'usage', label: 'Usage' },
-                                    ]}
-                                    size="small"
-                                    data-attr="billing-alert-metric"
-                                />
+                                <span className="text-sm font-medium">Spend</span>
                                 <span className="text-sm">when it</span>
                                 <LemonSelect
                                     value={alertForm.thresholdType}
@@ -134,7 +143,7 @@ function BillingAlertEditorContent(props: BillingAlertFormLogicProps): JSX.Eleme
                                             min={0}
                                             value={alertForm.thresholdValue}
                                             onChange={(value) => setAlertFormValue('thresholdValue', value ?? 0)}
-                                            prefix={alertForm.metric === 'spend' ? <span>$</span> : undefined}
+                                            prefix={<span>$</span>}
                                             className="w-32"
                                             size="small"
                                             data-attr="billing-alert-threshold-value"
@@ -160,7 +169,7 @@ function BillingAlertEditorContent(props: BillingAlertFormLogicProps): JSX.Eleme
                             ) : null}
                             <AlertNextEvaluationStatus loading={false}>
                                 {props.alert?.next_check_at
-                                    ? dayjs(props.alert.next_check_at).format('MMM D, HH:mm [UTC]')
+                                    ? dayjs.utc(props.alert.next_check_at).format('MMM D, HH:mm [UTC]')
                                     : 'after the alert is created'}
                             </AlertNextEvaluationStatus>
                         </div>
@@ -181,7 +190,7 @@ function BillingAlertEditorContent(props: BillingAlertFormLogicProps): JSX.Eleme
                                     min={0}
                                     value={alertForm.minimumValue}
                                     onChange={(value) => setAlertFormValue('minimumValue', value ?? 0)}
-                                    prefix={alertForm.metric === 'spend' ? <span>$</span> : undefined}
+                                    prefix={<span>$</span>}
                                 />
                             </LemonField>
                             <LemonField name="evaluationDelayHours" label="Evaluation delay">
@@ -195,13 +204,11 @@ function BillingAlertEditorContent(props: BillingAlertFormLogicProps): JSX.Eleme
                                 />
                             </LemonField>
                             <LemonField name="checkIntervalHours" label="Check interval">
-                                <LemonInput
-                                    type="number"
-                                    min={1}
-                                    max={24}
+                                <LemonSelect
+                                    fullWidth
                                     value={alertForm.checkIntervalHours}
-                                    onChange={(value) => setAlertFormValue('checkIntervalHours', value ?? 1)}
-                                    suffix={<span>hours</span>}
+                                    onChange={(value) => setAlertFormValue('checkIntervalHours', value)}
+                                    options={CHECK_INTERVAL_OPTIONS}
                                 />
                             </LemonField>
                             <LemonField name="cooldownHours" label="Notification cooldown">
