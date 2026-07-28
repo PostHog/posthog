@@ -1105,6 +1105,18 @@ Report ↔ task relationships are recorded as `task_run` artefacts (see `SignalR
 
 Auto-start dedup is separate from this freeform log: `maybe_autostart_implementation_task()` (`backend/auto_start.py`) gates on a legacy `SignalReportTask` implementation row, checked inside the report-row `select_for_update`, so concurrent evaluations can't double-start. Both the auto-start and the manual tasks-API path go through `record_implementation_task`, which dual-writes that gate row and the `implementation` `task_run` artefact — the transitional arrangement until the backfill lets the gate move to artefacts (see `SignalReportTask`).
 
+### Syncing reviewers to the implementation PR
+
+A report's suggested reviewers (the latest `suggested_reviewers` artefact) are mirrored onto its implementation PR as GitHub review requests, so a report that names reviewers no longer opens a PR with nobody assigned.
+`sync_reviewers_to_github_for_report` (`backend/implementation_pr.py`) is the shared entrypoint, run on a worker via the `sync_report_reviewers_to_github` task.
+Two triggers converge on it:
+
+- **Reviewers change** — a `post_save` receiver on `SignalReportArtefact` (`backend/receivers.py`) fires for every `suggested_reviewers` write, whether an append or an in-place `update_content` edit, so any reviewer edit reaches the PR through the same single choke point the dismissal-close receiver uses.
+- **PR first opened** — reviewers are usually set before a PR exists (auto-start requires them), so no artefact write happens when the PR opens; the tasks GitHub `pull_request` `opened` webhook (`products/tasks/backend/webhooks.py`) enqueues the sync for each linked report to catch that case up.
+
+The sync is additive and idempotent: it acts only on an open PR, requests only the logins the PR is missing (diffing against GitHub's current requested reviewers), and never removes a request — so a review request a human added on GitHub is left intact.
+Only the `github_login` stored on each reviewer entry is sent; GitHub silently drops any login it can't resolve to a repo collaborator (one such login would otherwise 422 the whole batch, so the request fans out per-login on 422 — "to the extent we know the profile").
+
 ### Eval-signal summarization (`backend/temporal/emit_eval_signal.py`)
 
 Separate from report generation, the `emit-eval-signal` workflow uses `call_llm()` with extended thinking to turn an LLMA evaluation result into a signal-sized description plus significance score. Low-significance eval results are dropped before calling `emit_signal()`.

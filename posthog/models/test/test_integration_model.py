@@ -1847,6 +1847,58 @@ class TestGitHubIntegrationModel(BaseTest):
         assert result["success"] is True
         assert mock_post.call_args.args[0] == "https://api.github.com/repos/PostHog/posthog/issues/42/comments"
 
+    def test_request_pull_request_reviewers_posts_to_requested_reviewers_endpoint(self):
+        # Wiring guard for the endpoint path and body shape — both are easy to get subtly wrong.
+        integration = self.create_integration(
+            config={"account": {"name": "PostHog"}}, sensitive_config={"access_token": "ACCESS_TOKEN"}
+        )
+        github = GitHubIntegration(integration)
+        with patch.object(github, "_installation_authenticated_post", return_value=MagicMock(status_code=201)) as m:
+            result = github.request_pull_request_reviewers("PostHog/posthog", 42, ["octocat", "hubber"])
+        assert result == {"success": True, "requested": ["octocat", "hubber"], "rejected": []}
+        assert m.call_args.args[0] == "https://api.github.com/repos/PostHog/posthog/pulls/42/requested_reviewers"
+        assert m.call_args.kwargs["json_body"] == {"reviewers": ["octocat", "hubber"]}
+
+    def test_request_pull_request_reviewers_fans_out_on_422_keeping_valid_logins(self):
+        # One unrequestable login (e.g. a non-collaborator) makes GitHub 422 the whole batch and add
+        # no one; the fan-out must salvage the logins it can and drop only the rejected one.
+        integration = self.create_integration(
+            config={"account": {"name": "PostHog"}}, sensitive_config={"access_token": "ACCESS_TOKEN"}
+        )
+        github = GitHubIntegration(integration)
+        responses = [
+            MagicMock(status_code=422, text="Reviews may only be requested from collaborators"),  # batch
+            MagicMock(status_code=201),  # octocat alone
+            MagicMock(status_code=422, text="not a collaborator"),  # stranger alone
+        ]
+        with patch.object(github, "_installation_authenticated_post", side_effect=responses):
+            result = github.request_pull_request_reviewers("PostHog/posthog", 42, ["octocat", "stranger"])
+        assert result == {"success": True, "requested": ["octocat"], "rejected": ["stranger"]}
+
+    def test_request_pull_request_reviewers_no_logins_is_a_noop(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        with patch.object(github, "_installation_authenticated_post") as m:
+            result = github.request_pull_request_reviewers("PostHog/posthog", 42, ["", "  "])
+        assert result == {"success": True, "requested": [], "rejected": []}
+        m.assert_not_called()
+
+    def test_get_requested_reviewer_logins_lowercases_and_ignores_teams(self):
+        # The reviewer diff relies on lowercased logins, so a case mismatch would re-request everyone.
+        integration = self.create_integration(
+            config={"account": {"name": "PostHog"}}, sensitive_config={"access_token": "ACCESS_TOKEN"}
+        )
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=200)
+        mock_response.json.return_value = {
+            "users": [{"login": "Octocat"}, {"login": "hubber"}],
+            "teams": [{"slug": "x"}],
+        }
+        with patch.object(github, "_installation_authenticated_get", return_value=mock_response) as m:
+            result = github.get_requested_reviewer_logins("PostHog/posthog", 42)
+        assert result == {"success": True, "logins": ["octocat", "hubber"]}
+        assert m.call_args.args[0] == "https://api.github.com/repos/PostHog/posthog/pulls/42/requested_reviewers"
+
     @parameterized.expand(
         [
             (

@@ -18,7 +18,11 @@ from posthog.ph_client import ph_scoped_capture
 from posthog.scoping_audit import skip_team_scope_audit
 
 from products.signals.backend.billing import current_billing_period_bounds
-from products.signals.backend.implementation_pr import PrCloseReason, close_implementation_pr_for_report
+from products.signals.backend.implementation_pr import (
+    PrCloseReason,
+    close_implementation_pr_for_report,
+    sync_reviewers_to_github_for_report,
+)
 from products.signals.backend.models import (
     SignalReport,
     SignalReportRefund,
@@ -79,6 +83,16 @@ _SCOUT_SLACK_DELIVERABLE_REPORT_STATUSES = frozenset((SignalReport.Status.READY,
 @with_team_scope()
 def close_dismissed_report_pr(report_id: str, team_id: int, reason: PrCloseReason = "suppressed") -> None:
     close_implementation_pr_for_report(team_id, report_id, reason=reason)
+
+
+@shared_task(
+    name="products.signals.backend.tasks.sync_report_reviewers_to_github",
+    ignore_result=True,
+    max_retries=0,
+)
+@with_team_scope()
+def sync_report_reviewers_to_github(report_id: str, team_id: int) -> None:
+    sync_reviewers_to_github_for_report(team_id, report_id)
 
 
 def _slack_retry_after_seconds(exc: Exception) -> int | None:

@@ -794,6 +794,55 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
         self.report.refresh_from_db()
         self.assertEqual(self.report.status, expected_status)
 
+    def _post_internal_pr_webhook(self, action: str, merged: bool = False):
+        payload = {
+            "action": action,
+            "pull_request": {
+                "html_url": "https://github.com/posthog/posthog/pull/42",
+                "merged": merged,
+                "head": {"ref": "signals/fix", "repo": {"full_name": "posthog/posthog"}},
+            },
+            "repository": {"full_name": "posthog/posthog"},
+        }
+        payload_bytes = json.dumps(payload).encode("utf-8")
+        signature = generate_github_signature(payload_bytes, self.webhook_secret)
+        return self.client.post(
+            "/webhooks/github/pr/",
+            data=payload_bytes,
+            content_type="application/json",
+            HTTP_X_HUB_SIGNATURE_256=signature,
+            HTTP_X_GITHUB_EVENT="pull_request",
+        )
+
+    @parameterized.expand([("opened", "opened", True), ("merged_close", "closed", False)])
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_reviewer_sync_enqueued_only_when_pr_opens(
+        self, _name, action, expect_enqueue, _mock_capture, mock_get_secret
+    ):
+        # The report's reviewers are set before the PR exists, so opening the PR is the moment to
+        # request them on GitHub; other PR events (merge/close) must not re-enqueue the sync.
+        mock_get_secret.return_value = self.webhook_secret
+        with patch("products.signals.backend.tasks.sync_report_reviewers_to_github") as mock_task:
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self._post_internal_pr_webhook(action=action, merged=(action == "closed"))
+        self.assertEqual(response.status_code, 200)
+        if expect_enqueue:
+            mock_task.delay.assert_called_once_with(report_id=str(self.report.id), team_id=self.team.id)
+        else:
+            mock_task.delay.assert_not_called()
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_reviewer_sync_skips_suppressed_report(self, _mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+        self.report.status = SignalReport.Status.SUPPRESSED
+        self.report.save(update_fields=["status"])
+        with patch("products.signals.backend.tasks.sync_report_reviewers_to_github") as mock_task:
+            with self.captureOnCommitCallbacks(execute=True):
+                self._post_internal_pr_webhook(action="opened")
+        mock_task.delay.assert_not_called()
+
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_merge_on_task_without_linked_report_is_a_noop(self, _mock_capture, mock_get_secret):

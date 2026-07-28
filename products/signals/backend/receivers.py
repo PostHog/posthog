@@ -26,7 +26,7 @@ from products.signals.backend.report_embeddings import (
     emit_report_tombstone,
     render_report_document,
 )
-from products.signals.backend.tasks import close_dismissed_report_pr
+from products.signals.backend.tasks import close_dismissed_report_pr, sync_report_reviewers_to_github
 
 logger = structlog.get_logger(__name__)
 
@@ -399,6 +399,34 @@ def _reconcile_report_embedding_with_verdict(instance: SignalReportArtefact) -> 
             )
 
     transaction.on_commit(_emit)
+
+
+@receiver(post_save, sender=SignalReportArtefact)
+def sync_reviewers_to_github_on_reviewers_change(
+    sender: type[SignalReportArtefact],
+    instance: SignalReportArtefact,
+    created: bool,
+    **kwargs: Any,
+) -> None:
+    """Push a report's reviewers to its implementation PR whenever they change.
+
+    The single choke point for keeping the GitHub PR's requested reviewers in step with the
+    report: every producer of a `suggested_reviewers` change ends in a save of this artefact —
+    the research pipeline and scout appends, and the reviewers PUT / artefact PATCH edits. Not
+    gated on `created`, because `update_content` edits the latest row in place (an append is
+    `created=True`, an edit is `created=False`); both change the canonical reviewer set.
+
+    The PR-first-opened case (reviewers set before any PR existed) is caught separately, off the
+    GitHub `pull_request` opened webhook, since no artefact write happens then.
+
+    Best-effort on a worker, after commit so the new reviewers are visible and a rolled-back write
+    never requests anyone.
+    """
+    if instance.type != SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS:
+        return
+    team_id = instance.team_id
+    report_id = str(instance.report_id)
+    transaction.on_commit(lambda: sync_report_reviewers_to_github.delay(report_id=report_id, team_id=team_id))
 
 
 @receiver(post_save, sender=SignalReportArtefact)

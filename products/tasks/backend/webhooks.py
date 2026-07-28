@@ -184,6 +184,10 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
     )
     if task_run is not None and is_internal_branch:
         _record_run_pr_url(task_run, pr_url)
+        # A signals report's reviewers are usually set before its PR exists (auto-start requires
+        # them), so no artefact write fires when the PR opens — sync them onto the fresh PR here.
+        if action == "opened":
+            _sync_signal_report_reviewers_on_pr_open(task_run.task_id)
 
     # Deterministic UUID dedupes duplicate webhook deliveries of the same PR action.
     event_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{pr_url}:{analytics_event}"))
@@ -427,6 +431,38 @@ def _resolve_external_team(payload: dict) -> Team | None:
         .first()
     )
     return integration.team if integration else None
+
+
+def _sync_signal_report_reviewers_on_pr_open(task_id: uuid.UUID) -> None:
+    """Request each linked signal report's reviewers on the PR that just opened for this task.
+
+    Kept tolerant: the reviewer request is best-effort and must not fail the webhook (GitHub
+    retries 5xx, and the PR event is already handled).
+    """
+    # Lazy import: signals.tasks pulls in the reviewer-sync chain, and importing it at module load
+    # would couple the webhook module to it; the enqueue is a rare, per-PR-open side effect.
+    from products.signals.backend.tasks import sync_report_reviewers_to_github  # noqa: PLC0415
+
+    report_rows = (
+        SignalReport.objects.filter(SignalReport.reports_for_task_filter(task_id))
+        .exclude(status__in=[SignalReport.Status.DELETED, SignalReport.Status.SUPPRESSED])
+        .values_list("id", "team_id")
+        .distinct()
+    )
+    for report_id, team_id in report_rows:
+        try:
+            transaction.on_commit(
+                lambda report_id=report_id, team_id=team_id: sync_report_reviewers_to_github.delay(
+                    report_id=str(report_id), team_id=team_id
+                )
+            )
+        except Exception:
+            logger.warning(
+                "github_pr_webhook_reviewer_sync_enqueue_failed",
+                report_id=str(report_id),
+                task_id=str(task_id),
+                exc_info=True,
+            )
 
 
 def _resolve_signal_reports_for_task(task_id: uuid.UUID, pr_url: str) -> None:

@@ -8,7 +8,10 @@ import structlog
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration
 
-from products.signals.backend.models import SignalReport
+from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.report_generation.resolve_reviewers import (
+    normalized_github_logins_from_suggested_reviewer_artefacts,
+)
 from products.signals.backend.task_run_artefacts import SIGNALS_PRODUCT, TASK_RUN_TYPE_IMPLEMENTATION
 from products.tasks.backend.facade import api as tasks_facade
 
@@ -162,4 +165,91 @@ def close_implementation_pr_for_report(
         return True
     except Exception:
         logger.exception("close_implementation_pr_unexpected_error", report_id=str(report_id))
+        return False
+
+
+def _latest_report_reviewer_logins(team_id: int, report_id: str) -> frozenset[str]:
+    """The github logins on the report's current (latest) `suggested_reviewers` artefact."""
+    latest = (
+        SignalReportArtefact.objects.filter(
+            team_id=team_id,
+            report_id=report_id,
+            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+        )
+        .order_by("-created_at")
+        .first()
+    )
+    if latest is None:
+        return frozenset()
+    return normalized_github_logins_from_suggested_reviewer_artefacts([latest])
+
+
+def sync_reviewers_to_github_for_report(team_id: int, report_id: str) -> bool:
+    """Best-effort: request the report's current reviewers on its open implementation PR.
+
+    Run whenever a report's reviewers change and when its PR is first opened, so the GitHub PR's
+    requested reviewers track the reviewers shown on the report — reports were surfacing reviewers
+    that were never requested on the PR, so nobody got pinged.
+
+    Additive and idempotent: only reviewers the PR is missing are requested, so re-running is a
+    no-op and a review request a human added on GitHub is never removed. Only logins we actually
+    have (the `github_login` on each reviewer entry) are sent, and GitHub silently drops any it
+    can't resolve to a collaborator — "to the extent we know the profile". Acts only on an open
+    PR: a merged or closed PR is left alone. Returns True when reviewers were requested. Never
+    raises: it hangs off a report write and must never fail it.
+    """
+    try:
+        pr = fetch_implementation_pr_state_for_reports([str(report_id)]).get(str(report_id))
+        if pr is None or pr.merged:
+            return False
+
+        desired = _latest_report_reviewer_logins(team_id, str(report_id))
+        if not desired:
+            return False
+
+        parsed = GitHubIntegrationBase.parse_pull_request_url(pr.url)
+        if parsed is None:
+            logger.warning("sync_reviewers_unparseable_url", report_id=str(report_id), pr_url=pr.url)
+            return False
+        owner, repo, pr_number = parsed
+        repository = f"{owner}/{repo}"
+
+        github = GitHubIntegration.first_for_team_repository(team_id, repository)
+        if github is None:
+            logger.info("sync_reviewers_no_integration", report_id=str(report_id), repository=repository)
+            return False
+
+        # The facade's merge flag comes from the webhook and can lag; confirm the PR is open before
+        # requesting, so a PR closed without merging doesn't get review requests.
+        pr_status = github.get_pull_request(repository, pr_number)
+        if not pr_status.get("success") or pr_status.get("state") != "open" or pr_status.get("merged"):
+            return False
+
+        already = github.get_requested_reviewer_logins(repository, pr_number)
+        already_logins = set(already.get("logins", [])) if already.get("success") else set()
+        # Case-insensitive diff: desired logins are already lowercased, and get_requested lowercases too.
+        missing = sorted(desired - already_logins)
+        if not missing:
+            return True
+
+        outcome = github.request_pull_request_reviewers(repository, pr_number, missing)
+        if not outcome.get("success"):
+            logger.warning(
+                "sync_reviewers_request_failed",
+                report_id=str(report_id),
+                pr_url=pr.url,
+                rejected=outcome.get("rejected"),
+                error=outcome.get("error"),
+            )
+            return False
+        logger.info(
+            "sync_reviewers_requested",
+            report_id=str(report_id),
+            pr_url=pr.url,
+            requested=outcome.get("requested"),
+            rejected=outcome.get("rejected"),
+        )
+        return True
+    except Exception:
+        logger.exception("sync_reviewers_unexpected_error", report_id=str(report_id))
         return False

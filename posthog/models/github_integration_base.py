@@ -993,6 +993,87 @@ class GitHubIntegrationBase:
         owner, repo, pr_number = parsed
         return self.comment_on_pull_request(f"{owner}/{repo}", pr_number, body)
 
+    def get_requested_reviewer_logins(self, repository: str, pr_number: int) -> dict[str, Any]:
+        """The GitHub logins already requested for review on a PR (lowercased).
+
+        Only individual users are returned — team review requests aren't reconciled here.
+        Returns ``{"success": True, "logins": [...]}`` or a ``{"success": False, ...}`` error dict.
+        """
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+
+        response = self._installation_authenticated_get(
+            f"https://api.github.com/repos/{repo_path}/pulls/{pr_number}/requested_reviewers",
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/requested_reviewers",
+        )
+        if response is None:
+            return {"success": False, "error": "Network error fetching requested reviewers"}
+        if response.status_code != 200:
+            return {
+                "success": False,
+                "error": f"Failed to fetch requested reviewers: {response.text}",
+                "status_code": response.status_code,
+            }
+        try:
+            body = response.json()
+        except Exception:
+            return {"success": False, "error": "Failed to parse requested reviewers JSON"}
+        users = body.get("users") if isinstance(body, dict) else None
+        logins = [
+            user["login"].strip().lower()
+            for user in (users or [])
+            if isinstance(user, dict) and isinstance(user.get("login"), str) and user["login"].strip()
+        ]
+        return {"success": True, "logins": logins}
+
+    def request_pull_request_reviewers(
+        self, repository: str, pr_number: int, reviewer_logins: list[str]
+    ) -> dict[str, Any]:
+        """Request reviews from the given GitHub logins on a PR.
+
+        Additive: GitHub adds logins that aren't already requested and never removes existing
+        requests, so a reviewer a human added on GitHub is left intact.
+
+        A login GitHub can't request — most often someone who isn't a collaborator on the repo —
+        makes it reject the *whole* batch with 422 and add no one. So on 422 we retry each login on
+        its own and keep the ones GitHub accepts, honouring "to the extent we know the profile"
+        rather than letting one unknown login drop everyone. ``repository`` is ``owner/repo`` or a
+        bare repo. Returns ``{"success", "requested", "rejected"}``.
+        """
+        logins = [login for login in dict.fromkeys(login.strip() for login in reviewer_logins) if login]
+        if not logins:
+            return {"success": True, "requested": [], "rejected": []}
+
+        outcome = self._post_review_request(repository, pr_number, logins)
+        if outcome.get("success"):
+            return {"success": True, "requested": logins, "rejected": []}
+        if outcome.get("status_code") != 422 or len(logins) == 1:
+            return {"success": False, "requested": [], "rejected": logins, "error": outcome.get("error")}
+
+        # 422 on the batch tells us at least one login is unrequestable but not which, so fan out.
+        requested: list[str] = []
+        rejected: list[str] = []
+        for login in logins:
+            single = self._post_review_request(repository, pr_number, [login])
+            (requested if single.get("success") else rejected).append(login)
+        return {"success": bool(requested), "requested": requested, "rejected": rejected}
+
+    def _post_review_request(self, repository: str, pr_number: int, reviewer_logins: list[str]) -> dict[str, Any]:
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        response = self._installation_authenticated_post(
+            f"https://api.github.com/repos/{repo_path}/pulls/{pr_number}/requested_reviewers",
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/requested_reviewers",
+            json_body={"reviewers": reviewer_logins},
+        )
+        if response is None:
+            return {"success": False, "error": "Network error requesting reviewers"}
+        if response.status_code != 201:
+            return {
+                "success": False,
+                "error": f"Failed to request reviewers: {response.text}",
+                "status_code": response.status_code,
+            }
+        return {"success": True}
+
     def get_pull_request_checks(self, repository: str, pr_number: int) -> dict[str, Any]:
         """Fetch the CI status for a PR — GitHub Actions check runs plus commit statuses from external
         CI and GitHub Apps, merged into one normalized list (mirrors the checks GitHub shows on the PR page).
