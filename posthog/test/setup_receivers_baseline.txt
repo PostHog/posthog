@@ -91,6 +91,7 @@ post_delete:products.feature_flags.backend.local_evaluation.feature_flag_changed
 post_delete:products.feature_flags.backend.models.feature_flag.refresh_flag_cache_on_updates
 post_delete:products.slack_app.backend.signals.invalidate_repo_list_on_user_github_change
 post_delete:products.surveys.backend.models.survey_changed
+post_delete:products.tasks.backend.models.delete_task_session_object
 post_delete:products.workflows.backend.models.hog_flow.hog_flow.hog_flow_deleted
 post_init:posthog.storage.gateway_credential_signal_handlers._snapshot_oauth
 post_init:posthog.storage.gateway_credential_signal_handlers._snapshot_secret_key

@@ -4870,19 +4870,20 @@ def run_task(
         cache_github_user_token(str(task_run.id), github_user_token)
 
     logger.info("Triggering workflow for task %s, run %s", task.id, task_run.id)
-    initial_message = None
     if is_pi_task:
         initial_message = (
             pending_user_message if resume_from_run_id else pending_user_message or task.description or None
         )
-    _trigger_task_processing_workflow(
-        task,
-        task_run,
-        user_id,
-        initial_message=initial_message,
-        initial_artifact_ids=pending_user_artifact_ids if is_pi_task else None,
-        raise_on_error=False,
-    )
+        _trigger_task_processing_workflow(
+            task,
+            task_run,
+            user_id,
+            initial_message=initial_message,
+            initial_artifact_ids=pending_user_artifact_ids,
+            raise_on_error=False,
+        )
+    else:
+        _trigger_task_processing_workflow(task, task_run, user_id, raise_on_error=False)
 
     return contracts.TaskRunResult(task=get_task_detail(task.id, team_id, user_id))
 

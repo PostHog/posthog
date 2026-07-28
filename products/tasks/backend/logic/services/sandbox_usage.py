@@ -62,14 +62,6 @@ def open_sandbox_session(
                 .only("id", "team_id", "state", "task__origin_product")
                 .get(id=run_id)
             )
-            SandboxSession.objects.for_team(run.team_id).filter(
-                task_run_id=run.id,
-                ended_at__isnull=True,
-            ).exclude(sandbox_id=sandbox_id).update(
-                ended_at=timezone.now(),
-                ended_reason=SandboxSession.EndedReason.CLEANUP,
-            )
-
             state = run.state or {}
             created_at = sandbox_created_at or timezone.now()
             shape = {

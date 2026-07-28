@@ -131,9 +131,11 @@ class OctetStreamParser(BaseParser):
     def parse(self, stream, media_type=None, parser_context=None):
         request = (parser_context or {}).get("request")
         raw_content_length = request.META.get("CONTENT_LENGTH") if request is not None else None
+        if not isinstance(raw_content_length, str):
+            raise ParseError("A valid Content-Length header is required")
         try:
             content_length = int(raw_content_length)
-        except (TypeError, ValueError) as error:
+        except ValueError as error:
             raise ParseError("A valid Content-Length header is required") from error
         if content_length < 0 or content_length > tasks_facade.TASK_SESSION_MAX_SIZE_BYTES:
             raise ParseError("The task session content size is invalid")

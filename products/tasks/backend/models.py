@@ -2285,13 +2285,6 @@ class SandboxSession(TeamScopedRootMixin, UUIDModel):
 
     class Meta:
         db_table = "posthog_task_sandbox_session"
-        constraints = [
-            models.UniqueConstraint(
-                fields=["task_run"],
-                condition=models.Q(ended_at__isnull=True),
-                name="sandbox_session_one_open_per_run",
-            ),
-        ]
         indexes = [
             # The usage report scans sessions overlapping the period instance-wide:
             # closed recently (ended_at > begin) or open and not yet past their TTL
