@@ -42,7 +42,7 @@ from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
 LOGGER = get_logger(__name__)
 DUCKLAKE_DATA_IMPORTS_REGISTRATION_WORKFLOW_FLAG = "ducklake-data-imports-registration-workflow"
-DATA_IMPORTS_LANDING_PREFIX = "data_imports"
+DATA_IMPORTS_GENERATIONS_PREFIX = "_imports"
 
 
 @dataclasses.dataclass
@@ -145,9 +145,13 @@ async def prepare_ducklake_data_imports_registration_activity(
         return None
 
     prepared_source_uri = f"{settings.BUCKET_URL}/{schema.folder_path()}/{inputs.prepared_queryable_folder}"
+    ducklake_schema_name = await database_sync_to_async(duckgres_data_imports_schema)(inputs.team_id)
+    ducklake_table_name = duckgres_data_imports_table_name(schema)
     landing_uri = await database_sync_to_async(_resolve_data_imports_landing_uri)(
         team_id=inputs.team_id,
-        schema_id=str(inputs.schema_id),
+        ducklake_schema_name=ducklake_schema_name,
+        ducklake_table_name=ducklake_table_name,
+        source_schema_id=str(inputs.schema_id),
         job_id=inputs.job_id,
     )
     return DuckLakeRegisterDataImportsMetadata(
@@ -155,8 +159,8 @@ async def prepare_ducklake_data_imports_registration_activity(
         prepared_queryable_folder=inputs.prepared_queryable_folder,
         prepared_source_uri=prepared_source_uri,
         landing_uri=landing_uri,
-        ducklake_schema_name=await database_sync_to_async(duckgres_data_imports_schema)(inputs.team_id),
-        ducklake_table_name=duckgres_data_imports_table_name(schema),
+        ducklake_schema_name=ducklake_schema_name,
+        ducklake_table_name=ducklake_table_name,
     )
 
 
@@ -234,7 +238,14 @@ def _is_valid_queryable_folder(queryable_folder: str) -> bool:
     return bool(queryable_folder) and "/" not in queryable_folder and queryable_folder not in {".", ".."}
 
 
-def _resolve_data_imports_landing_uri(*, team_id: int, schema_id: str, job_id: str) -> str:
+def _resolve_data_imports_landing_uri(
+    *,
+    team_id: int,
+    ducklake_schema_name: str,
+    ducklake_table_name: str,
+    source_schema_id: str,
+    job_id: str,
+) -> str:
     if is_dev_mode():
         bucket = get_config().get("DUCKLAKE_BUCKET")
     else:
@@ -244,7 +255,10 @@ def _resolve_data_imports_landing_uri(*, team_id: int, schema_id: str, job_id: s
         raise ApplicationError(f"No S3 bucket configured for team {team_id}", non_retryable=True)
 
     safe_job_id = re.sub(r"[^A-Za-z0-9_-]", "_", str(job_id))
-    return f"s3://{bucket}/{DATA_IMPORTS_LANDING_PREFIX}/{team_id}/{schema_id}/{safe_job_id}"
+    return (
+        f"s3://{bucket}/{ducklake_schema_name}/{ducklake_table_name}/"
+        f"{DATA_IMPORTS_GENERATIONS_PREFIX}/{source_schema_id}/{safe_job_id}"
+    )
 
 
 def _copy_prepared_parquet_files(source_uri: str, landing_uri: str) -> list[str]:

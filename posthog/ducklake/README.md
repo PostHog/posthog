@@ -68,7 +68,7 @@ Every copy is written to a deterministic schema inside DuckLake. Each workflow n
 - **Schema**: `posthog_data_imports_team_<team_id>`
 - **Table**: `<source_type>_<prefix>_<normalized_name>` (prefix is user-defined on the external data source)
 - **Example**: `ducklake.posthog_data_imports_team_123.stripe_prod_invoices`
-- **Registered files**: `s3://<ducklake-bucket>/data_imports/<team_id>/<schema_id>/<job_id>/<prepared-relative-path>`
+- **Registered files**: `s3://<ducklake-bucket>/<ducklake-schema>/<ducklake-table>/_imports/<source-schema-id>/<job-id>/<prepared-relative-path>`
 
 Each completed import creates a timestamped prepared Parquet snapshot in the data warehouse bucket. The registration workflow copies those objects directly into the DuckLake bucket, preserving Hive partition directories, registers the destination objects with `ducklake_add_data_files`, and swaps a shadow table into the stable table name through the Duckgres PostgreSQL connection. Each import job gets its own object prefix and child workflow ID, so a later sync does not append into the previous snapshot.
 

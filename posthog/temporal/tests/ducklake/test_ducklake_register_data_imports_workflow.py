@@ -108,7 +108,9 @@ async def test_prepare_registration_pins_the_import_jobs_prepared_generation(ate
     assert metadata is not None
     folder_path = await database_sync_to_async(schema.folder_path)()
     assert metadata.prepared_source_uri.endswith(f"/{folder_path}/{prepared_queryable_folder}")
-    assert metadata.landing_uri == f"s3://ducklake-dev/data_imports/{ateam.id}/{schema.id}/job-123"
+    assert metadata.landing_uri == (
+        f"s3://ducklake-dev/posthog_data_imports_team_{ateam.id}/postgres_customers/_imports/{schema.id}/job-123"
+    )
     assert metadata.ducklake_schema_name == f"posthog_data_imports_team_{ateam.id}"
     assert metadata.ducklake_table_name == "postgres_customers"
 
@@ -154,11 +156,13 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     assert s3.copies == [
         (
             "source/team/customers__query/_ph_partition_key=2026-07/a.parquet",
-            "ducklake/data_imports/1/schema/job/_ph_partition_key=2026-07/a.parquet",
+            "ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job/"
+            "_ph_partition_key=2026-07/a.parquet",
         ),
         (
             "source/team/customers__query/_ph_partition_key=2026-08/b.parquet",
-            "ducklake/data_imports/1/schema/job/_ph_partition_key=2026-08/b.parquet",
+            "ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job/"
+            "_ph_partition_key=2026-08/b.parquet",
         ),
     ]
     executed = [str(call.args[0]) for call in conn.execute.call_args_list]
@@ -215,7 +219,7 @@ def _activity_inputs() -> DuckLakeRegisterDataImportsActivityInputs:
             source_schema_id="schema",
             prepared_queryable_folder="customers__query",
             prepared_source_uri="s3://source/team/customers__query",
-            landing_uri="s3://ducklake/data_imports/1/schema/job",
+            landing_uri="s3://ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job",
             ducklake_schema_name="posthog_data_imports_team_1",
             ducklake_table_name="postgres_customers",
         ),
