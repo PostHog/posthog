@@ -1,5 +1,6 @@
 import json
 
+import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
 from parameterized import parameterized
@@ -374,6 +375,42 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         assert validated["A"].get("bytecode") is None
         assert validated["A"].get("transpiled") is None
         assert validated["A"].get("value") == "{inputs.X} + A"
+
+    @parameterized.expand(
+        [
+            ("string_input", "string", "Hey {{ person.properties.name }}"),
+            (
+                "email_object_input",
+                "native_email",
+                {
+                    "to": "{{ person.properties.email }}",
+                    "from": "hi@posthog.com",
+                    "subject": "Hello",
+                    "html": "<p>hi</p>",
+                },
+            ),
+        ]
+    )
+    def test_liquid_syntax_in_hog_templated_input_names_the_expected_syntax(self, _name, item_type, value):
+        # Liquid-style {{ ... }} in a hog-templated field is the dominant authoring mistake
+        # behind template errors, and the transpiler's own message ("Placeholders are not
+        # allowed in this context") never names it - agents bisect blind on it. The error
+        # must state the expected single-curly syntax and call out Liquid.
+        inputs_schema = [{"key": "field", "type": item_type, "required": True}]
+        inputs = {"field": {"value": value}}
+
+        with pytest.raises(ValidationError) as ctx:
+            validate_inputs(inputs_schema, inputs)
+        message = str(ctx.value.detail)
+        assert "{person.properties.email}" in message
+        assert "Liquid" in message
+
+    def test_liquid_templated_input_still_accepts_liquid_syntax(self):
+        inputs_schema = [{"key": "field", "type": "string", "required": True, "templating": "liquid"}]
+        inputs = {"field": {"value": "Hey {{ person.properties.name }}"}}
+
+        validated = validate_inputs(inputs_schema, inputs)
+        assert validated["field"]["value"] == "Hey {{ person.properties.name }}"
 
     @parameterized.expand(
         [

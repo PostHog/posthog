@@ -214,7 +214,7 @@ function ItemMedia({
     )
 }
 
-const itemContentVariants = cva('quill-item__content flex flex-1 flex-col gap-0.5', {
+const itemContentVariants = cva('quill-item__content flex flex-1 flex-col gap-1', {
     variants: {
         variant: {
             default: '',

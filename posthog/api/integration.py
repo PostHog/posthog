@@ -1,7 +1,8 @@
 import os
 import re
 import json
-from typing import Any, cast
+from collections.abc import Iterable
+from typing import Any, Protocol, cast
 from urllib.parse import urlencode
 
 from django.conf import settings
@@ -94,6 +95,7 @@ from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.tasks.email import send_integration_access_request
 from posthog.utils import is_relative_url
 
+from products.batch_exports.backend.models.batch_export import get_batch_exports_using_integration
 from products.cdp.backend.services.integration_usage import get_enabled_hog_functions_using_integration
 from products.tasks.backend.facade.api import count_in_progress_runs_for_github_integration
 from products.workflows.backend.services.integration_usage import get_active_hog_flows_using_integration
@@ -101,6 +103,15 @@ from products.workflows.backend.services.integration_usage import get_active_hog
 logger = structlog.get_logger(__name__)
 
 GITHUB_REPOSITORY_NAME_RE = re.compile(r"[A-Za-z0-9_.\-]+")
+
+
+def _github_account_type(owner_type: str | None) -> str | None:
+    """Normalize GitHub's account ``type`` ("Organization" / "User") to org vs personal."""
+    if owner_type == "Organization":
+        return "organization"
+    if owner_type == "User":
+        return "personal"
+    return None
 
 
 def validate_github_repository_name(repo: str) -> str:
@@ -136,7 +147,7 @@ def _verify_stripe_install_signature(state: str, user_id: str, account_id: str, 
         separators=(",", ":"),
     )
     try:
-        # 300s tolerance matches the agentic-provisioning HMAC check at ee/api/agentic_provisioning/signature.py.
+        # 300s tolerance matches the Stripe provisioning HMAC check at ee/partners/stripe/api/provisioning/signature.py.
         stripe.WebhookSignature.verify_header(payload, install_signature, settings.STRIPE_SIGNING_SECRET, tolerance=300)
         return True
     except stripe.SignatureVerificationError:
@@ -166,6 +177,17 @@ def _ensure_oauth_token_valid(instance: Integration) -> None:
                 "This integration's authentication token could not be refreshed. "
                 "Please reconnect or disconnect this integration and connect a different account."
             )
+
+
+class _HasNameOrId(Protocol):
+    id: Any
+
+    @property
+    def name(self) -> str | None: ...
+
+
+def _concat_names_or_ids(items: Iterable[_HasNameOrId]) -> str:
+    return ", ".join(sorted(it.name or str(it.id) for it in items))
 
 
 class NativeEmailIntegrationSerializer(serializers.Serializer):
@@ -410,10 +432,17 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 self.context["request"].user, self.context["get_team"]()
             ):
                 raise PermissionDenied("Editing an existing integration requires project admin access.")
+        report_properties: dict[str, Any] = {"integration_kind": kind, "is_overwrite": is_overwrite}
+        if kind == "github":
+            # Surface whether the connected GitHub account is an org or a personal one, mirroring the
+            # account_type we attach to PR webhook events. GitHub reports "Organization" / "User".
+            owner_type = ((instance.config or {}).get("account") or {}).get("type")
+            report_properties["repo_owner_type"] = owner_type
+            report_properties["account_type"] = _github_account_type(owner_type)
         report_user_action(
             self.context["request"].user,
             "integration created",
-            {"integration_kind": kind, "is_overwrite": is_overwrite},
+            report_properties,
             team=self.context["get_team"](),
         )
         return instance
@@ -826,7 +855,7 @@ class GitHubPrepareCallbackRequestSerializer(serializers.Serializer):
     next = serializers.CharField(
         required=False,
         allow_blank=True,
-        help_text="Relative URL to redirect to after GitHub setup completes (e.g. account-connected for PostHog Code).",
+        help_text="Relative URL to redirect to after GitHub setup completes (e.g. account-connected for PostHog Desktop).",
     )
     installation_id = serializers.CharField(
         required=False,
@@ -962,15 +991,24 @@ class IntegrationViewSet(
         functions_using_integration = get_enabled_hog_functions_using_integration(
             team_id=instance.team_id, integration_id=instance.id
         )
+        batch_exports_using_integration = get_batch_exports_using_integration(
+            team_id=instance.team_id, integration_id=instance.id
+        )
+
         used_by = []
+
         if flows_using_integration:
-            flow_names = ", ".join(sorted(flow.name or str(flow.id) for flow in flows_using_integration))
+            flow_names = _concat_names_or_ids(flows_using_integration)
             used_by.append(f"active workflows: {flow_names}")
+
         if functions_using_integration:
-            function_names = ", ".join(
-                sorted(function.name or str(function.id) for function in functions_using_integration)
-            )
+            function_names = _concat_names_or_ids(functions_using_integration)
             used_by.append(f"enabled data pipelines: {function_names}")
+
+        if batch_exports_using_integration:
+            batch_export_names = _concat_names_or_ids(batch_exports_using_integration)
+            used_by.append(f"batch exports: {batch_export_names}")
+
         if used_by:
             raise ValidationError(
                 f"This integration is used by {' and '.join(used_by)}. "

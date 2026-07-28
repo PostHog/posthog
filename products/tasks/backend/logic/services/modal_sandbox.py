@@ -36,6 +36,7 @@ from posthog.settings import CLOUD_DEPLOYMENT
 
 from products.tasks.backend.constants import (
     ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS,
+    POSTHOG_EXEC_PERMISSION_REGEX,
     SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS,
     SNAPSHOT_KIND_DIRECTORY,
     SNAPSHOT_KIND_FILESYSTEM,
@@ -54,8 +55,8 @@ from products.tasks.backend.exceptions import (
 from products.tasks.backend.logic.services.agentsh import (
     AGENTSH_DAEMON_PORT,
     BASH_ENV_SCRIPT,
-    ENV_FILE,
     ENV_WRAPPER_SCRIPT,
+    GH_GUARD_INSTALL_PATH,
     SESSION_ID_FILE,
     _hostname_from_url,
     build_exec_prefix,
@@ -64,6 +65,7 @@ from products.tasks.backend.logic.services.agentsh import (
     generate_config_yaml,
     generate_env_wrapper,
     generate_policy_yaml,
+    read_gh_guard_script,
 )
 from products.tasks.backend.logic.services.local_packages import (
     get_local_package_runtime_dependencies,
@@ -185,6 +187,7 @@ LOCAL_MODAL_DOCKERFILES = {
 }
 LOCAL_MODAL_INSTALL_SKILLS_SCRIPT = Path("products/tasks/backend/sandbox/images/install-skills.sh")
 LOCAL_MODAL_GIT_GUARD_SCRIPT = Path("products/tasks/backend/sandbox/images/git-guard.sh")
+LOCAL_MODAL_GH_GUARD_SCRIPT = Path("products/tasks/backend/sandbox/images/gh-guard.sh")
 
 
 _image_ref_cache: TTLCache = TTLCache(maxsize=3, ttl=300)
@@ -398,7 +401,10 @@ def get_template_base_image(template: SandboxTemplate) -> modal.Image:
     if settings.DEBUG:
         dockerfile_path, context_dir = _prepare_local_modal_build_context(template)
         return modal.Image.from_dockerfile(dockerfile_path, context_dir=context_dir, ignore=[])
-    return modal.Image.from_registry(_get_sandbox_image_reference(registry_image))
+    image_reference = resolve_template_base_image_reference(template)
+    if image_reference is None:
+        raise ValueError(f"Template does not use a registry image: {template}")
+    return modal.Image.from_registry(image_reference)
 
 
 def _get_template_image(template: SandboxTemplate) -> modal.Image:
@@ -409,6 +415,21 @@ def resolve_template_base_image(template: SandboxTemplate) -> modal.Image:
     # Undecorated import surface: the @cached wrapper on get_template_base_image trips
     # mypy's cross-module attribute resolution intermittently, so external callers import this.
     return get_template_base_image(template)
+
+
+def resolve_template_base_image_reference(template: SandboxTemplate) -> str | None:
+    if settings.DEBUG:
+        return None
+
+    registry_image = {
+        SandboxTemplate.DEFAULT_BASE: SANDBOX_BASE_IMAGE,
+        SandboxTemplate.NOTEBOOK_BASE: SANDBOX_NOTEBOOK_IMAGE,
+        SandboxTemplate.VM_BASE: SANDBOX_VM_IMAGE,
+        SandboxTemplate.STREAMLIT_BASE: SANDBOX_STREAMLIT_IMAGE,
+    }.get(template)
+    if registry_image is None:
+        raise ValueError(f"Template does not use a registry image: {template}")
+    return _get_sandbox_image_reference(registry_image)
 
 
 @lru_cache(maxsize=3)
@@ -427,11 +448,14 @@ def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, 
     destination_dockerfile_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source_dockerfile_path, destination_dockerfile_path)
 
-    # Both base and notebook Dockerfiles COPY the git guard, so include it in
-    # every local build context.
+    # Both base and notebook Dockerfiles COPY the git and gh guards, so include
+    # them in every local build context.
     destination_git_guard_path = context_dir / LOCAL_MODAL_GIT_GUARD_SCRIPT
     destination_git_guard_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(base_dir / LOCAL_MODAL_GIT_GUARD_SCRIPT, destination_git_guard_path)
+    destination_gh_guard_path = context_dir / LOCAL_MODAL_GH_GUARD_SCRIPT
+    destination_gh_guard_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(base_dir / LOCAL_MODAL_GH_GUARD_SCRIPT, destination_gh_guard_path)
 
     if template == SandboxTemplate.DEFAULT_BASE:
         source_install_script_path = base_dir / LOCAL_MODAL_INSTALL_SKILLS_SCRIPT
@@ -925,6 +949,8 @@ class ModalSandbox(SandboxBase):
         provider: str | None = None,
         model: str | None = None,
         reasoning_effort: str | None = None,
+        context_window: str | None = None,
+        fast_mode: bool | None = None,
         initial_permission_mode: str | None = None,
         mcp_servers_arg: str = "",
         relay_mcp_servers_arg: str = "",
@@ -934,6 +960,7 @@ class ModalSandbox(SandboxBase):
         event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
         rtk_enabled: bool = True,
+        posthog_exec_permission_regex: str | None = None,
     ) -> str:
         env_prefix = build_agent_runtime_env_prefix(
             interaction_origin=interaction_origin,
@@ -941,6 +968,8 @@ class ModalSandbox(SandboxBase):
             provider=provider,
             model=model,
             reasoning_effort=reasoning_effort,
+            context_window=context_window,
+            fast_mode=fast_mode,
             initial_permission_mode=initial_permission_mode,
             event_ingest_token=event_ingest_token,
             event_ingest_url=event_ingest_url,
@@ -955,6 +984,11 @@ class ModalSandbox(SandboxBase):
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
         domains_flag = f" --allowedDomains {shlex.quote(','.join(allowed_domains))}" if allowed_domains else ""
         repo_ready_flag = f" --repoReadyFile {shlex.quote(repo_ready_file)}" if repo_ready_file else ""
+        exec_permission_flag = (
+            f" --posthogExecPermissionRegex {shlex.quote(posthog_exec_permission_regex)}"
+            if posthog_exec_permission_regex
+            else ""
+        )
         # Scope BASH_ENV to the agent-server process (not the container env) so only the
         # agent's per-command tool shells re-source the refreshed token. Backend maintenance
         # execs (clone/checkout/token injection) must not source it — the script could be
@@ -965,7 +999,7 @@ class ModalSandbox(SandboxBase):
             f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
             f"{create_pr_flag}{auto_publish_flag}{branch_flag}{mcp_servers_arg}{relay_mcp_servers_arg}"
-            f"{domains_flag}{repo_ready_flag}"
+            f"{domains_flag}{repo_ready_flag}{exec_permission_flag}"
         )
 
         if repo_ready_file:
@@ -975,14 +1009,15 @@ class ModalSandbox(SandboxBase):
             server_cmd = f"bash -c {shlex.quote(wait_for_repo)}"
 
         inner = f"cd /scripts && {server_cmd} > /tmp/agent-server.log 2>&1"
+        initialize_env_file = f"bash {shlex.quote(BASH_ENV_SCRIPT)}"
 
         if allowed_domains is not None:
             return (
-                f"cd /scripts && env -0 > {ENV_FILE} && "
-                f"{build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} &"
+                f"cd /scripts && {initialize_env_file} && "
+                f"({build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} &)"
             )
         else:
-            return f"cd /scripts && env -0 > {ENV_FILE} && nohup {server_cmd} > /tmp/agent-server.log 2>&1 &"
+            return f"cd /scripts && {initialize_env_file} && (nohup {server_cmd} > /tmp/agent-server.log 2>&1 &)"
 
     def _diagnose_startup_failure(self, allowed_domains: list[str] | None) -> dict[str, str]:
         diagnostics: dict[str, str] = {}
@@ -1045,6 +1080,8 @@ class ModalSandbox(SandboxBase):
         provider: str | None = None,
         model: str | None = None,
         reasoning_effort: str | None = None,
+        context_window: str | None = None,
+        fast_mode: bool | None = None,
         initial_permission_mode: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
         relayed_mcp_servers: list[str] | None = None,
@@ -1076,6 +1113,11 @@ class ModalSandbox(SandboxBase):
             repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
         self.write_file(BASH_ENV_SCRIPT, generate_bash_env_script().encode())
+        # Install the gh shim at runtime too (see agentsh.GH_GUARD_INSTALL_PATH): a resume from a
+        # pre-shim filesystem snapshot — or any window where the base image lags this backend —
+        # would otherwise leave gh with no token once the frozen launch-env token is unset.
+        self.write_file(GH_GUARD_INSTALL_PATH, read_gh_guard_script())
+        self.execute(f"chmod +x {shlex.quote(GH_GUARD_INSTALL_PATH)}", timeout_seconds=30)
 
         if allowed_domains is not None:
             self._setup_agentsh(WORKING_DIR, allowed_domains)
@@ -1093,6 +1135,14 @@ class ModalSandbox(SandboxBase):
             logger.warning(f"Installed agent-server in sandbox {self.id} predates --autoPublish; starting review-first")
             auto_publish = False
 
+        exec_permission_regex: str | None = POSTHOG_EXEC_PERMISSION_REGEX
+        if not self.agent_server_supports_exec_permission_regex():
+            logger.warning(
+                f"Installed agent-server in sandbox {self.id} predates --posthogExecPermissionRegex; "
+                "exec sub-tools will not prompt"
+            )
+            exec_permission_regex = None
+
         command = self._build_agent_server_command(
             repo_path,
             task_id,
@@ -1106,15 +1156,18 @@ class ModalSandbox(SandboxBase):
             provider,
             model,
             reasoning_effort,
-            initial_permission_mode,
-            mcp_servers_arg,
-            relay_mcp_servers_arg,
+            context_window=context_window,
+            fast_mode=fast_mode,
+            initial_permission_mode=initial_permission_mode,
+            mcp_servers_arg=mcp_servers_arg,
+            relay_mcp_servers_arg=relay_mcp_servers_arg,
             allowed_domains=allowed_domains,
             event_ingest_token=event_ingest_token,
             event_ingest_url=event_ingest_url,
             event_ingest_keep_stream_open=event_ingest_keep_stream_open,
             repo_ready_file=repo_ready_file,
             rtk_enabled=rtk_enabled,
+            posthog_exec_permission_regex=exec_permission_regex,
         )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")

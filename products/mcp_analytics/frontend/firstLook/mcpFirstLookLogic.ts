@@ -44,7 +44,7 @@ export interface mcpFirstLookLogicValues {
 export interface mcpFirstLookLogicActions {
     updateHasSeenProductIntroFor: (
         productKey: ProductKey,
-        value?: boolean
+        value?: boolean | undefined
     ) => {
         productKey: ProductKey
         value: boolean

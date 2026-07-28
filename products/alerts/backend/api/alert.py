@@ -112,10 +112,6 @@ def _enforce_alert_feature_flags(context: dict[str, Any], insight: Insight) -> N
     kind = insight.alertable_query_kind
     if kind is None:
         raise ValidationError("Alerts are not supported for this insight.")
-    if kind == NodeKind.HOG_QL_QUERY and not _insight_alert_flag_enabled(context, "hogql-insight-alerts"):
-        raise ValidationError("SQL insight alerts are not enabled for your account.")
-    if kind == NodeKind.FUNNELS_QUERY and not _insight_alert_flag_enabled(context, "funnel-insight-alerts"):
-        raise ValidationError("Funnel insight alerts are not enabled for your account.")
     # Gated on the Metrics product flag itself: anyone who can see the product can alert on it.
     if kind == NodeKind.METRICS_QUERY and not _insight_alert_flag_enabled(context, "metrics"):
         raise ValidationError("Metrics insight alerts are not enabled for your account.")
@@ -360,7 +356,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
     investigation_inconclusive_action = serializers.ChoiceField(
         choices=[("notify", "Notify"), ("suppress", "Suppress")],
         required=False,
-        help_text="How to handle an 'inconclusive' verdict when notifications are gated. 'notify' is the safe default — an agent that can't be sure is itself useful signal.",
+        help_text="How to handle an 'inconclusive' verdict: whether gated notifications fire and whether the investigation surfaces in the Signals inbox. 'notify' is the safe default — an agent that can't be sure is itself useful signal. False positives never reach the inbox regardless of this setting.",
     )
     state = serializers.CharField(
         read_only=True,

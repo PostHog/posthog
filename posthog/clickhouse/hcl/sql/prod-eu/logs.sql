@@ -17,7 +17,7 @@ CREATE TABLE posthog.kafka_logs_avro (
   event_name String,
   attributes Map(LowCardinality(String), String),
   bytes_uncompressed Int64
-) ENGINE = Kafka() SETTINGS kafka_broker_list = 'warpstream_logs', kafka_format = 'kafka_format = \'Avro\'', kafka_group_name = 'kafka_group_name = \'clickhouse-logs-avro-new\'', kafka_num_consumers = 8, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 3000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'kafka_topic_list = \'clickhouse_logs\'';
+) ENGINE = Kafka() SETTINGS kafka_broker_list = 'warpstream_logs', kafka_format = 'kafka_format = \'Avro\'', kafka_group_name = 'kafka_group_name = \'clickhouse-logs-avro-new\'', kafka_num_consumers = 16, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 3000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'kafka_topic_list = \'clickhouse_logs\'';
 CREATE TABLE posthog.kafka_metrics_avro (
   uuid String,
   trace_id String,

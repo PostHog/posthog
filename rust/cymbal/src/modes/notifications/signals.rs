@@ -6,7 +6,7 @@ use tracing::warn;
 use crate::metric_consts::{SIGNAL_EMITTED, SIGNAL_EMIT_FAILED, SIGNAL_EMIT_RESPONSE};
 use crate::modes::notifications::stacktrace::print_stacktrace;
 use crate::modes::notifications::types::NotificationIssue;
-use crate::types::OutputErrProps;
+use crate::types::ProcessedExceptionProperties;
 
 /// Signal payload matching the Django internal API contract.
 #[derive(Serialize)]
@@ -22,7 +22,7 @@ pub struct EmitSignalRequest {
 /// Context for building a signal from an issue + its error properties.
 pub struct IssueSignalContext<'a, I: NotificationIssue> {
     pub issue: &'a I,
-    pub props: &'a OutputErrProps,
+    pub props: &'a ProcessedExceptionProperties,
     pub source_type: &'static str,
     /// Brief LLM-facing explanation of what this signal means, e.g. "New issue" or "Issue reopened".
     pub preamble: String,
@@ -80,7 +80,7 @@ impl SignalClient {
     pub async fn emit_issue_created<I: NotificationIssue>(
         &self,
         issue: &I,
-        props: &OutputErrProps,
+        props: &ProcessedExceptionProperties,
     ) {
         let request = EmitSignalRequest::from(IssueSignalContext {
             issue,
@@ -89,7 +89,7 @@ impl SignalClient {
             preamble: "New error tracking issue created - this particular exception was observed for the first time".to_string(),
             weight: 1.0,
             extra: serde_json::json!({
-                "fingerprint": props.fingerprint,
+                "fingerprint": props.fingerprint(),
             }),
         });
         self.send(issue.team_id(), request).await;
@@ -98,7 +98,7 @@ impl SignalClient {
     pub async fn emit_issue_reopened<I: NotificationIssue>(
         &self,
         issue: &I,
-        props: &OutputErrProps,
+        props: &ProcessedExceptionProperties,
     ) {
         let request = EmitSignalRequest::from(IssueSignalContext {
             issue,
@@ -107,7 +107,7 @@ impl SignalClient {
             preamble: "Previously resolved error tracking issue has reappeared - this particular exception was observed previously, and thought to be resolved, but has reappeared".to_string(),
             weight: 1.0,
             extra: serde_json::json!({
-                "fingerprint": props.fingerprint,
+                "fingerprint": props.fingerprint(),
             }),
         });
         self.send(issue.team_id(), request).await;
@@ -116,7 +116,7 @@ impl SignalClient {
     pub async fn emit_issue_spiking<I: NotificationIssue>(
         &self,
         issue: &I,
-        props: &OutputErrProps,
+        props: &ProcessedExceptionProperties,
         computed_baseline: f64,
         current_bucket_value: f64,
     ) {
@@ -132,7 +132,7 @@ impl SignalClient {
             preamble,
             weight: 1.0,
             extra: serde_json::json!({
-                "fingerprint": props.fingerprint,
+                "fingerprint": props.fingerprint(),
             }),
         });
         self.send(issue.team_id(), request).await;
@@ -184,7 +184,7 @@ impl MaybeSignalClient {
         Self(Some(Arc::new(client)))
     }
 
-    pub fn emit_issue_created<I>(&self, issue: &I, props: &OutputErrProps)
+    pub fn emit_issue_created<I>(&self, issue: &I, props: &ProcessedExceptionProperties)
     where
         I: NotificationIssue + Clone + Send + Sync + 'static,
     {
@@ -197,7 +197,7 @@ impl MaybeSignalClient {
         }
     }
 
-    pub fn emit_issue_reopened<I>(&self, issue: &I, props: &OutputErrProps)
+    pub fn emit_issue_reopened<I>(&self, issue: &I, props: &ProcessedExceptionProperties)
     where
         I: NotificationIssue + Clone + Send + Sync + 'static,
     {
@@ -213,7 +213,7 @@ impl MaybeSignalClient {
     pub fn emit_issue_spiking<I>(
         &self,
         issue: &I,
-        props: &OutputErrProps,
+        props: &ProcessedExceptionProperties,
         computed_baseline: f64,
         current_bucket_value: f64,
     ) where

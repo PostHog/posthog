@@ -30,7 +30,13 @@ def test_discover_finds_the_blind_spots_skill() -> None:
 class TestLoadBlindSpotsSkillForRun(BaseTest):
     def _author_custom(self) -> None:
         LLMSkill.objects.create(
-            team=self.team, name=_CUSTOM, description="custom sweep", body="x" * 250, version=1, is_latest=True
+            team=self.team,
+            name=_CUSTOM,
+            description="custom sweep",
+            body="x" * 250,
+            version=1,
+            is_latest=True,
+            created_by=self.user,
         )
 
     def test_cold_user_gets_the_canonical_pinned(self) -> None:

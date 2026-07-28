@@ -23,6 +23,7 @@ import { ReactElement, useMemo, useState } from 'react'
 
 import { IconChevronDown, IconFilter } from '@posthog/icons'
 
+import { SeriesRename, getSeriesRename } from 'lib/components/EntityFilterInfo'
 import { TaxonomicFilterHeadless } from 'lib/components/TaxonomicFilter/headless'
 import { MenuFilterEntry, TaxonomicFilterMenu } from 'lib/components/TaxonomicFilter/menu'
 import { MenuInputTrigger } from 'lib/components/TaxonomicFilter/menu/InputTrigger'
@@ -42,6 +43,7 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 
 import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
+import { ActionFilter, EntityFilter } from '~/types'
 
 import { TaxonomicMenuToggle } from './TaxonomicMenuToggle'
 
@@ -67,6 +69,8 @@ type TriggerButtonProps = Pick<
 export interface TaxonomicPopoverMenuProps<ValueType extends TaxonomicFilterValue = TaxonomicFilterValue> {
     groupType: TaxonomicFilterGroupType
     value?: ValueType | null
+    /** The series/entity filter being edited — surfaces its rename on the committed selection. */
+    filter?: EntityFilter | ActionFilter
     groupTypes?: TaxonomicFilterGroupType[]
     /** The 4th arg is the orchestrator's resolved group — consumers that
      *  need the full `TaxonomicFilterGroup` (not just its type) can use it. */
@@ -206,6 +210,7 @@ export function TaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Ta
 function ArmedTaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = TaxonomicFilterValue>({
     groupType,
     value,
+    filter,
     groupTypes,
     onChange,
     renderValue,
@@ -278,6 +283,10 @@ function ArmedTaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Taxo
         } as unknown as MenuFilterEntry
     }, [value, selectedGroupType, dataWarehouseTablesMap])
 
+    // A renamed series doesn't reveal the thing it queries — surface the rename on the
+    // committed selection's row so the user can connect it to the series they clicked.
+    const selectedRename = useMemo<SeriesRename | null>(() => getSeriesRename(filter), [filter])
+
     return (
         <TaxonomicFilterHeadless.Root
             // `display: contents` — the Root wrapper div must not affect
@@ -316,6 +325,7 @@ function ArmedTaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Taxo
         >
             <TaxonomicFilterMenu
                 selected={selected}
+                selectedRename={selectedRename}
                 dataWarehousePopoverFields={dataWarehousePopoverFields}
                 fullWidthTrigger={!!triggerButtonProps?.fullWidth}
                 triggerAccessory={<TaxonomicMenuToggle />}

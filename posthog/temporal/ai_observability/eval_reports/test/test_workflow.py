@@ -1,8 +1,11 @@
+import asyncio
+
 import pytest
 from unittest.mock import patch
 
 from posthog.temporal.ai_observability.eval_reports.types import (
     CheckCountTriggeredEvalReportOutput,
+    CheckCountTriggeredEvalReportsBatchOutput,
     GenerateAndDeliverEvalReportWorkflowInput,
     PrepareReportContextOutput,
     RunEvalReportAgentInput,
@@ -12,6 +15,7 @@ from posthog.temporal.ai_observability.eval_reports.types import (
 from posthog.temporal.ai_observability.eval_reports.workflow import (
     GenerateAndDeliverEvalReportWorkflow,
     _check_count_triggered_eval_report_candidates,
+    _check_count_triggered_eval_report_candidates_batched,
 )
 
 
@@ -114,3 +118,81 @@ async def test_count_triggered_report_check_continues_after_activity_failure() -
             "skipped_not_deliverable": 1,
         },
     )
+
+
+@pytest.mark.asyncio
+async def test_batched_count_check_aggregates_across_groups_and_isolates_group_failure() -> None:
+    # One failing group activity must not sink the others: every report in it is recorded as
+    # failed, while due/skipped reports from the surviving groups still aggregate correctly.
+    async def fake_execute_activity(_activity, inputs, **_kwargs):
+        if any(report_id.startswith("boom") for report_id in inputs.report_ids):
+            raise RuntimeError("clickhouse at capacity")
+        return CheckCountTriggeredEvalReportsBatchOutput(
+            results=[
+                CheckCountTriggeredEvalReportOutput(
+                    report_id=report_id,
+                    due=report_id == "due",
+                    skipped_reason="cooldown" if report_id == "skip" else None,
+                )
+                for report_id in inputs.report_ids
+            ]
+        )
+
+    with (
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.execute_activity",
+            new=fake_execute_activity,
+        ),
+        patch("posthog.temporal.ai_observability.eval_reports.workflow.record_coordinator_reports_found") as record,
+        patch("posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.logger") as logger,
+    ):
+        report_ids = await _check_count_triggered_eval_report_candidates_batched([["due", "skip"], ["boom1", "boom2"]])
+
+    assert report_ids == ["due"]
+    record.assert_called_once_with(1, "count_triggered")
+    logger.warning.assert_called_once()
+    assert logger.warning.call_args.kwargs["extra"]["failed_count"] == 2
+    logger.info.assert_called_once_with(
+        "llma_eval_reports_coordinator_count_triggered_poll",
+        extra={
+            "reports_found": 1,
+            "total_checked": 4,
+            "skipped_cooldown": 1,
+            "skipped_daily_cap": 0,
+            "skipped_not_deliverable": 0,
+        },
+    )
+
+
+@pytest.mark.asyncio
+async def test_batched_count_check_caps_concurrent_group_activities() -> None:
+    # The window must keep at most COUNT_TRIGGER_MAX_CONCURRENT_CHECKS count queries in
+    # flight; losing it would fire every team's query at once — the exact ClickHouse
+    # capacity pressure this path exists to avoid.
+    active = 0
+    max_active = 0
+
+    async def fake_execute_activity(_activity, inputs, **_kwargs):
+        nonlocal active, max_active
+        active += 1
+        max_active = max(max_active, active)
+        await asyncio.sleep(0)
+        active -= 1
+        return CheckCountTriggeredEvalReportsBatchOutput(
+            results=[
+                CheckCountTriggeredEvalReportOutput(report_id=report_id, due=False) for report_id in inputs.report_ids
+            ]
+        )
+
+    with (
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.execute_activity",
+            new=fake_execute_activity,
+        ),
+        patch("posthog.temporal.ai_observability.eval_reports.workflow.COUNT_TRIGGER_MAX_CONCURRENT_CHECKS", 2),
+        patch("posthog.temporal.ai_observability.eval_reports.workflow.record_coordinator_reports_found"),
+        patch("posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.logger"),
+    ):
+        await _check_count_triggered_eval_report_candidates_batched([[f"report-{index}"] for index in range(5)])
+
+    assert max_active == 2

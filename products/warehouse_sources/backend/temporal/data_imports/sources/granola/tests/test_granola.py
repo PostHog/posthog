@@ -5,7 +5,7 @@ from typing import Any, Optional
 import pytest
 from unittest import mock
 
-import structlog
+from requests import HTTPError, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.granola.granola import (
     GRANOLA_BASE_URL,
@@ -14,39 +14,63 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.granola.gr
     _build_initial_params,
     _build_url,
     _format_timestamp,
-    get_rows,
     granola_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.granola.settings import GRANOLA_ENDPOINTS
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.granola.granola"
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
 
 
-def _response(status: int = 200, body: Optional[dict[str, Any]] = None) -> mock.MagicMock:
+def _mock_response(status: int = 200) -> mock.MagicMock:
     resp = mock.MagicMock()
     resp.status_code = status
-    resp.ok = 200 <= status < 300
-    resp.json.return_value = body or {}
-    resp.text = json.dumps(body or {})
     return resp
 
 
-class _StubManager:
-    """Minimal stand-in for ResumableSourceManager that records saved state."""
+def _response(body: dict[str, Any], status: int = 200) -> Response:
+    resp = Response()
+    resp.status_code = status
+    resp._content = json.dumps(body).encode()
+    resp.url = f"{GRANOLA_BASE_URL}/v1/notes"
+    return resp
 
-    def __init__(self, resume_state: Optional[GranolaResumeConfig] = None) -> None:
-        self._resume_state = resume_state
-        self.saved: list[GranolaResumeConfig] = []
 
-    def can_resume(self) -> bool:
-        return self._resume_state is not None
+def _make_manager(resume_state: Optional[GranolaResumeConfig] = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
 
-    def load_state(self) -> Optional[GranolaResumeConfig]:
-        return self._resume_state
 
-    def save_state(self, data: GranolaResumeConfig) -> None:
-        self.saved.append(data)
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    """Wire a mock session and capture each request's url + params AT SEND TIME.
+
+    The client mutates a single ``Request`` object in place across pages, so inspecting it after the
+    run shows only the final state — snapshot a copy when each request is prepared instead.
+    """
+    session.headers = {}
+    seen: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        seen.append({"url": request.url, "params": dict(request.params or {})})
+        prepared = mock.MagicMock()
+        prepared.url = request.url
+        return prepared
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return seen
+
+
+def _pages(source_response) -> list[list[dict[str, Any]]]:
+    return list(source_response.items())
+
+
+def _rows(source_response) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
 
 
 class TestFormatTimestamp:
@@ -127,7 +151,7 @@ class TestValidateCredentials:
     )
     def test_status_mapping(self, status, schema_name, expected_valid) -> None:
         with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _response(status)
+            mock_session.return_value.get.return_value = _mock_response(status)
 
             is_valid, _ = validate_credentials("grn_test", schema_name)
 
@@ -153,7 +177,7 @@ class TestValidateCredentials:
     )
     def test_probes_path_matching_schema(self, schema_name, expected_path) -> None:
         with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _response(200)
+            mock_session.return_value.get.return_value = _mock_response(200)
 
             validate_credentials("grn_test", schema_name)
 
@@ -162,83 +186,132 @@ class TestValidateCredentials:
         assert called_url.startswith(f"{GRANOLA_BASE_URL}{expected_path}?")
 
 
-class TestGetRows:
-    def _run(self, manager: _StubManager, pages: list[dict[str, Any]], **kwargs: Any) -> list[list[dict[str, Any]]]:
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.side_effect = [_response(200, page) for page in pages]
-            return list(
-                get_rows(
-                    api_key="grn_test",
-                    endpoint="notes",
-                    logger=structlog.get_logger(),
-                    resumable_source_manager=manager,  # type: ignore[arg-type]
-                    **kwargs,
-                )
-            )
+class TestPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_paginates_and_yields_each_page(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response({"notes": [{"id": "not_1"}, {"id": "not_2"}], "hasMore": True, "cursor": "c1"}),
+                _response({"notes": [{"id": "not_3"}], "hasMore": False, "cursor": None}),
+            ],
+        )
 
-    def test_paginates_and_yields_each_page(self) -> None:
-        manager = _StubManager()
-        pages = [
-            {"notes": [{"id": "not_1"}, {"id": "not_2"}], "hasMore": True, "cursor": "c1"},
-            {"notes": [{"id": "not_3"}], "hasMore": False, "cursor": None},
-        ]
+        pages = _pages(
+            granola_source("grn_test", "notes", team_id=1, job_id="j", resumable_source_manager=_make_manager())
+        )
 
-        batches = self._run(manager, pages)
+        assert pages == [[{"id": "not_1"}, {"id": "not_2"}], [{"id": "not_3"}]]
 
-        assert batches == [[{"id": "not_1"}, {"id": "not_2"}], [{"id": "not_3"}]]
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_saves_state_after_yielding_each_page(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response({"notes": [{"id": "not_1"}], "hasMore": True, "cursor": "c1"}),
+                _response({"notes": [{"id": "not_2"}], "hasMore": False, "cursor": None}),
+            ],
+        )
 
-    def test_saves_state_after_yielding_each_page(self) -> None:
-        manager = _StubManager()
-        pages = [
-            {"notes": [{"id": "not_1"}], "hasMore": True, "cursor": "c1"},
-            {"notes": [{"id": "not_2"}], "hasMore": False, "cursor": None},
-        ]
-
-        self._run(manager, pages)
+        manager = _make_manager()
+        _rows(granola_source("grn_test", "notes", team_id=1, job_id="j", resumable_source_manager=manager))
 
         # Only one checkpoint - the final page has no next cursor.
-        assert len(manager.saved) == 1
-        assert "cursor=c1" in manager.saved[0].next_url
+        manager.save_state.assert_called_once()
+        saved = manager.save_state.call_args.args[0]
+        assert isinstance(saved, GranolaResumeConfig)
+        assert "cursor=c1" in saved.next_url
 
-    def test_stops_when_cursor_missing_even_if_has_more(self) -> None:
-        manager = _StubManager()
-        pages = [{"notes": [{"id": "not_1"}], "hasMore": True, "cursor": None}]
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_stops_when_cursor_missing_even_if_has_more(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"notes": [{"id": "not_1"}], "hasMore": True, "cursor": None})])
 
-        batches = self._run(manager, pages)
+        manager = _make_manager()
+        rows = _rows(granola_source("grn_test", "notes", team_id=1, job_id="j", resumable_source_manager=manager))
 
-        assert batches == [[{"id": "not_1"}]]
-        assert manager.saved == []
+        assert rows == [{"id": "not_1"}]
+        assert session.send.call_count == 1
+        manager.save_state.assert_not_called()
 
-    def test_resumes_from_saved_url(self) -> None:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_url(self, MockSession) -> None:
+        session = MockSession.return_value
         resume_url = f"{GRANOLA_BASE_URL}/v1/notes?page_size=30&cursor=resume_token"
-        manager = _StubManager(resume_state=GranolaResumeConfig(next_url=resume_url))
+        seen = _wire(session, [_response({"notes": [{"id": "not_9"}], "hasMore": False, "cursor": None})])
 
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.side_effect = [
-                _response(200, {"notes": [{"id": "not_9"}], "hasMore": False, "cursor": None})
-            ]
-            list(
-                get_rows(
-                    api_key="grn_test",
-                    endpoint="notes",
-                    logger=structlog.get_logger(),
-                    resumable_source_manager=manager,  # type: ignore[arg-type]
-                )
+        manager = _make_manager(GranolaResumeConfig(next_url=resume_url))
+        _rows(granola_source("grn_test", "notes", team_id=1, job_id="j", resumable_source_manager=manager))
+
+        assert seen[0]["url"] == resume_url
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_first_page_carries_page_size(self, MockSession) -> None:
+        session = MockSession.return_value
+        seen = _wire(session, [_response({"notes": [{"id": "not_1"}], "hasMore": False, "cursor": None})])
+
+        _rows(granola_source("grn_test", "notes", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
+
+        assert seen[0]["params"]["page_size"] == PAGE_SIZE
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_incremental_filter_in_first_request_and_next_url(self, MockSession) -> None:
+        session = MockSession.return_value
+        seen = _wire(
+            session,
+            [
+                _response({"notes": [{"id": "not_1"}], "hasMore": True, "cursor": "c1"}),
+                _response({"notes": [{"id": "not_2"}], "hasMore": False, "cursor": None}),
+            ],
+        )
+
+        manager = _make_manager()
+        _rows(
+            granola_source(
+                "grn_test",
+                "notes",
+                team_id=1,
+                job_id="j",
+                resumable_source_manager=manager,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2026, 1, 27, 15, 30, 0, tzinfo=UTC),
+                incremental_field="updated_at",
             )
+        )
 
-            called_url = mock_session.return_value.get.call_args[0][0]
+        # Server-side filter is present on the initial request...
+        assert seen[0]["params"]["updated_after"] == "2026-01-27T15:30:00Z"
+        # ...and persists into the self-contained next-page URL so it isn't dropped after page 1.
+        saved = manager.save_state.call_args.args[0]
+        assert "updated_after=2026-01-27T15%3A30%3A00Z" in saved.next_url
 
-        assert called_url == resume_url
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_missing_data_key_yields_no_rows(self, MockSession) -> None:
+        session = MockSession.return_value
+        # A body without the wrapper key is treated as an empty page (not a hard error).
+        _wire(session, [_response({"hasMore": False, "cursor": None})])
+
+        rows = _rows(
+            granola_source("grn_test", "notes", team_id=1, job_id="j", resumable_source_manager=_make_manager())
+        )
+
+        assert rows == []
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_forbidden_status_raises_loudly(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"error": "forbidden"}, status=403)])
+
+        with pytest.raises(HTTPError):
+            _rows(granola_source("grn_test", "notes", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
 
 
 class TestGranolaSource:
-    def test_notes_response_has_datetime_partition(self) -> None:
-        response = granola_source(
-            api_key="grn_test",
-            endpoint="notes",
-            logger=structlog.get_logger(),
-            resumable_source_manager=mock.MagicMock(),
-        )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_notes_response_has_datetime_partition(self, MockSession) -> None:
+        response = granola_source("grn_test", "notes", team_id=1, job_id="j", resumable_source_manager=_make_manager())
 
         assert response.name == "notes"
         assert response.primary_keys == ["id"]
@@ -248,12 +321,10 @@ class TestGranolaSource:
         assert response.partition_keys == ["created_at"]
         assert response.partition_format == "week"
 
-    def test_folders_response_has_no_partition(self) -> None:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_folders_response_has_no_partition(self, MockSession) -> None:
         response = granola_source(
-            api_key="grn_test",
-            endpoint="folders",
-            logger=structlog.get_logger(),
-            resumable_source_manager=mock.MagicMock(),
+            "grn_test", "folders", team_id=1, job_id="j", resumable_source_manager=_make_manager()
         )
 
         assert response.name == "folders"

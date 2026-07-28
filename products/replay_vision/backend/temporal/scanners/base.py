@@ -162,12 +162,23 @@ class BaseScanner(BaseModel, frozen=True):
         """Scanner-type-specific template variables. Subclasses override to inject their per-instance config."""
         return {}
 
-    def preamble(self, *, team_name: str, session_metadata: dict[str, Any] | None = None) -> str:
-        """The conversation's shared opening: framing, footer, events tool, calibration, and session metadata."""
+    def preamble(
+        self,
+        *,
+        team_name: str,
+        session_metadata: dict[str, Any] | None = None,
+        navigation: list[dict[str, Any]] | None = None,
+        navigation_dropped: int = 0,
+    ) -> str:
+        """The conversation's shared opening: framing, footer, events tool, calibration, navigation timeline, and
+        session metadata. `navigation` takes dumped `NavigationEntry` dicts (plain dicts keep this module free of a
+        `types.py` import, which would close an import cycle)."""
         return render_prompt(
             self.preamble_template,
             team_name=team_name,
             session_metadata=session_metadata or {},
+            navigation=navigation or [],
+            navigation_dropped=navigation_dropped,
         )
 
     def core_steps(self) -> list[MissionStep]:

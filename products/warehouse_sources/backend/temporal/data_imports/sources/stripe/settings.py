@@ -178,4 +178,15 @@ APPEND_ONLY_INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
             "field_type": IncrementalFieldType.Integer,
         }
     ],
+    # Discount objects expose `start`/`end`, not `created`. Without this entry the partition key
+    # falls back to "created" (stripe_source), which Discount rows lack, so a KeyError kills the
+    # sync as soon as real customer.discount.* webhook events arrive.
+    DISCOUNT_RESOURCE_NAME: [
+        {
+            "label": "start",
+            "type": IncrementalFieldType.DateTime,
+            "field": "start",
+            "field_type": IncrementalFieldType.Integer,
+        }
+    ],
 }

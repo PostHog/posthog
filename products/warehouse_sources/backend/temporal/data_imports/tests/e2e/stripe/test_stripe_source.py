@@ -14,7 +14,7 @@ from posthog.models.integration import Integration
 
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import StripeSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stripe import StripeSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     ACCOUNT_RESOURCE_NAME,
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,

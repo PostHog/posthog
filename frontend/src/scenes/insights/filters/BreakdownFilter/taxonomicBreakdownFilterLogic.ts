@@ -121,6 +121,7 @@ export interface taxonomicBreakdownFilterLogicValues {
         | TaxonomicFilterGroupType.Replay
         | TaxonomicFilterGroupType.ReplaySavedFilters
         | TaxonomicFilterGroupType.RevenueAnalyticsProperties
+        | TaxonomicFilterGroupType.AccountCustomProperties
         | TaxonomicFilterGroupType.Resources
         | TaxonomicFilterGroupType.ErrorTrackingProperties
         | TaxonomicFilterGroupType.ActivityLogProperties
@@ -284,6 +285,7 @@ export interface taxonomicBreakdownFilterLogicMeta {
             | TaxonomicFilterGroupType.Replay
             | TaxonomicFilterGroupType.ReplaySavedFilters
             | TaxonomicFilterGroupType.RevenueAnalyticsProperties
+            | TaxonomicFilterGroupType.AccountCustomProperties
             | TaxonomicFilterGroupType.Resources
             | TaxonomicFilterGroupType.ErrorTrackingProperties
             | TaxonomicFilterGroupType.ActivityLogProperties

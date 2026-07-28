@@ -315,6 +315,8 @@
          "posthog_externaldatasource"."created_via",
          "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."direct_query_enabled",
+         "posthog_externaldatasource"."auto_sync_new_schemas",
+         "posthog_externaldatasource"."auto_sync_schema_patterns",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -655,6 +657,8 @@
          "posthog_externaldatasource"."created_via",
          "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."direct_query_enabled",
+         "posthog_externaldatasource"."auto_sync_new_schemas",
+         "posthog_externaldatasource"."auto_sync_schema_patterns",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -2407,6 +2411,16 @@
                   "table": null,
                   "type": "integer"
               },
+              "product": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "product",
+                  "id": null,
+                  "name": "product",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "read_rows": {
                   "chain": null,
                   "fields": null,
@@ -2752,6 +2766,19 @@
                   "name": "custom_properties",
                   "schema_valid": true,
                   "table": "account_custom_properties",
+                  "type": "lazy_table"
+              },
+              "custom_properties_history": {
+                  "chain": null,
+                  "fields": [
+                      "account_id",
+                      "values"
+                  ],
+                  "hogql_value": "custom_properties_history",
+                  "id": "custom_properties_history",
+                  "name": "custom_properties_history",
+                  "schema_valid": true,
+                  "table": "account_custom_properties_history",
                   "type": "lazy_table"
               },
               "relationships": {
@@ -11172,6 +11199,16 @@
                   "table": null,
                   "type": "integer"
               },
+              "product": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "product",
+                  "id": null,
+                  "name": "product",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "read_rows": {
                   "chain": null,
                   "fields": null,
@@ -11517,6 +11554,19 @@
                   "name": "custom_properties",
                   "schema_valid": true,
                   "table": "account_custom_properties",
+                  "type": "lazy_table"
+              },
+              "custom_properties_history": {
+                  "chain": null,
+                  "fields": [
+                      "account_id",
+                      "values"
+                  ],
+                  "hogql_value": "custom_properties_history",
+                  "id": "custom_properties_history",
+                  "name": "custom_properties_history",
+                  "schema_valid": true,
+                  "table": "account_custom_properties_history",
                   "type": "lazy_table"
               },
               "relationships": {

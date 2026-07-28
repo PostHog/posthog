@@ -93,7 +93,7 @@
             "bin/hogli format:js",
             "sh -c 'pnpm build:products && git add frontend/src/products.tsx frontend/src/productScenes.tsx frontend/src/products.json'"
         ],
-        "!(**/.sqlx/**|products/review_hog/backend/reviewer/prompts/*/schema.json)*.{json,yaml,yml}": "bin/hogli format:yaml",
+        "!(**/.sqlx/**|products/review_hog/backend/reviewer/prompts/*/schema.json|**/chart/*/templates/**|products/metrics/agent/tests/**/golden/**)*.{json,yaml,yml}": "bin/hogli format:yaml",
         "*.{css,scss}": "bin/hogli format:css",
         "frontend/src/lib/constants.tsx": [
             "bin/hogli lint:feature-flags:fix",
@@ -107,8 +107,7 @@
             "bin/hogli format:python",
             "uv run --no-sync ty check"
         ],
-        "*.{md,mdx}": "bin/hogli format:markdown",
-        "products/agent_platform/**/*.{ts,py}": "products/agent_platform/bin/coherence-precommit"
+        "*.{md,mdx}": "bin/hogli format:markdown"
     },
     "browserslist": {
         "development": [
@@ -196,7 +195,8 @@
         "patchedDependencies": {
             "heatmap.js@2.0.5": "patches/heatmap.js@2.0.5.patch",
             "dayjs@1.11.11": "patches/dayjs@1.11.11.patch",
-            "chartjs-plugin-crosshair@2.0.0": "patches/chartjs-plugin-crosshair@2.0.0.patch"
+            "chartjs-plugin-crosshair@2.0.0": "patches/chartjs-plugin-crosshair@2.0.0.patch",
+            "kea@4.0.0-pre.6": "patches/kea@4.0.0-pre.6.patch"
         },
         "// Known dependencies that we need preinstall scripts for, add new ones with caution": "",
         "onlyBuiltDependencies": [

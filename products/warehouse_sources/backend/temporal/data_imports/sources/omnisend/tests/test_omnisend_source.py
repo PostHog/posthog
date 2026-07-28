@@ -10,7 +10,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     SourceResponse,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import OmnisendSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.omnisend import (
+    OmnisendSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.omnisend.omnisend import OmnisendResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.omnisend.source import OmnisendSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -120,4 +122,6 @@ class TestOmnisendSource:
         _, kwargs = mock_source.call_args
         assert kwargs["api_key"] == "test-key"
         assert kwargs["endpoint"] == "orders"
+        assert kwargs["team_id"] == 1
+        assert kwargs["job_id"] == "job-1"
         assert kwargs["resumable_source_manager"] is manager

@@ -1,7 +1,7 @@
 import time
 import datetime
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
     from posthog.event_usage import AnalyticsProps
@@ -15,6 +15,7 @@ import requests
 from celery import shared_task
 from prometheus_client import Counter, Gauge
 from redis import Redis
+from rest_framework.exceptions import APIException
 from structlog import get_logger
 
 from posthog.hogql.constants import LimitContext
@@ -22,7 +23,8 @@ from posthog.hogql.constants import LimitContext
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud
-from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorTooManySimultaneousQueries
+from posthog.errors import CH_TRANSIENT_ERRORS
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.metrics import pushed_metrics_registry
 from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
@@ -341,15 +343,46 @@ def redis_heartbeat() -> None:
     get_client().set("POSTHOG_HEARTBEAT", int(time.time()))
 
 
+def _process_query_task_failure(
+    self: Any, exc: Exception, task_id: str, args: tuple[Any, ...], kwargs: dict[str, Any], einfo: Any
+) -> None:
+    # Transient errors (capacity/concurrency) clear the stored completion flags so each
+    # retry re-runs the query. Once Celery gives up, mark the status errored here so
+    # clients don't poll a forever-pending status until it expires.
+    from posthog.clickhouse.client.execute_async import QueryNotFoundError, QueryStatusManager
+
+    bound = dict(zip(("team_id", "user_id", "query_id"), args))
+    bound.update(kwargs)
+    team_id = bound.get("team_id")
+    query_id = bound.get("query_id")
+    if team_id is None or query_id is None:
+        return
+
+    manager = QueryStatusManager(query_id, team_id)
+    try:
+        query_status = manager.get_query_status()
+    except QueryNotFoundError:
+        return
+
+    query_status.complete = True
+    query_status.error = True
+    if isinstance(exc, APIException):
+        # User-safe message (e.g. ClickHouseAtCapacity's "try again later" copy)
+        query_status.error_message = str(exc.detail)
+    query_status.end_time = datetime.datetime.now(datetime.UTC)
+    manager.store_query_status(query_status)
+
+
 @shared_task(
     ignore_result=True,
     queue=CeleryQueue.ANALYTICS_QUERIES.value,
     acks_late=True,
     autoretry_for=(
         # Important: Only retry for things that might be okay on the next try
-        CHQueryErrorTooManySimultaneousQueries,
+        ClickHouseAtCapacity,
         ConcurrencyLimitExceeded,
     ),
+    on_failure=_process_query_task_failure,
     retry_backoff=1,
     retry_backoff_max=10,
     max_retries=10,
@@ -945,7 +978,14 @@ def find_flags_with_enriched_analytics() -> None:
     end = datetime.now()
     begin = end - timedelta(hours=12)
 
-    find_flags_with_enriched_analytics(begin, end)
+    try:
+        find_flags_with_enriched_analytics(begin, end)
+    except Exception as e:
+        logger.exception("Find flags with enriched analytics failed", error=e)
+        capture_exception(
+            e, additional_properties={"feature": "feature_flags", "task": "find_flags_with_enriched_analytics"}
+        )
+        raise
 
 
 @shared_task(ignore_result=True)
@@ -1028,16 +1068,6 @@ def clickhouse_send_license_usage() -> None:
             from ee.tasks.send_license_usage import send_license_usage
 
             send_license_usage()
-    except ImportError:
-        pass
-
-
-@shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS.value)
-def check_flags_to_rollback() -> None:
-    try:
-        from ee.tasks.auto_rollback_feature_flag import check_flags_to_rollback
-
-        check_flags_to_rollback()
     except ImportError:
         pass
 
@@ -1180,6 +1210,8 @@ def _queue_delete_team_recordings(team_ids: list[int], deleted_by: str) -> None:
     base=PushGatewayTask,
     ignore_result=True,
     queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value,
+    # sync_execute wraps TOO_MANY_SIMULTANEOUS_QUERIES/CANNOT_SCHEDULE_TASK into
+    # ClickHouseAtCapacity, which CH_TRANSIENT_ERRORS includes.
     autoretry_for=CH_TRANSIENT_ERRORS,
     retry_backoff=30,
     retry_backoff_max=120,
@@ -1381,11 +1413,13 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
             )
             return
 
-        # Build lookup map from merged results
+        # Build lookup map from merged results. Skip flag keys containing NUL bytes:
+        # Postgres can't store them, so they can never match a real FeatureFlag.key,
+        # and passing one into the key__in query below raises psycopg.DataError.
         flag_updates: dict[tuple[int, str], datetime] = {}
-        for key, (ts, _count) in merged_results.items():
-            if ts is not None:
-                flag_updates[key] = ts
+        for (team_id, flag_key), (ts, _count) in merged_results.items():
+            if ts is not None and "\x00" not in flag_key:
+                flag_updates[(team_id, flag_key)] = ts
 
         if not flag_updates:
             redis_client.set(FEATURE_FLAG_LAST_CALLED_SYNC_KEY, current_sync_timestamp.isoformat())

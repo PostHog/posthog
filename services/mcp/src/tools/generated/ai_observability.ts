@@ -650,6 +650,12 @@ const llmaEvaluationTestHog = (): ToolBase<typeof LlmaEvaluationTestHogSchema, S
         if (params.conditions !== undefined) {
             body['conditions'] = params.conditions
         }
+        if (params.target !== undefined) {
+            body['target'] = params.target
+        }
+        if (params.target_config !== undefined) {
+            body['target_config'] = params.target_config
+        }
         const result = await context.api.request<Schemas.TestHogResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/evaluations/test_hog/`,
@@ -798,6 +804,7 @@ const llmaPromptGet = (): ToolBase<typeof LlmaPromptGetSchema, Schemas.LLMPrompt
             path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_prompts/name/${encodeURIComponent(String(params.prompt_name))}/`,
             query: {
                 content: params.content,
+                label: params.label,
                 version: params.version,
             },
         })
@@ -868,9 +875,9 @@ const llmaPromptList = (): ToolBase<
     },
 })
 
-const LlmaPromptUpdateSchema = LlmPromptsNamePartialUpdateParams.omit({ project_id: true }).extend(
-    LlmPromptsNamePartialUpdateBody.shape
-)
+const LlmaPromptUpdateSchema = LlmPromptsNamePartialUpdateParams.omit({ project_id: true })
+    .extend(LlmPromptsNamePartialUpdateBody.shape)
+    .extend({ base_version: LlmPromptsNamePartialUpdateBody.shape['base_version'].unwrap() })
 
 const llmaPromptUpdate = (): ToolBase<typeof LlmaPromptUpdateSchema, Schemas.LLMPrompt> => ({
     name: 'llma-prompt-update',

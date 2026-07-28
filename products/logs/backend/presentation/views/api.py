@@ -51,6 +51,7 @@ from products.logs.backend.count_ranges_query_runner import (
 from products.logs.backend.group_by_query_runner import (
     DEFAULT_GROUP_LIMIT,
     GROUP_SOURCES,
+    MAX_GROUP_DIMENSIONS,
     MAX_GROUP_LIMIT,
     ORDER_FIELDS,
     LogsGroupByQueryRunner,
@@ -69,12 +70,20 @@ from products.logs.backend.pattern_diff import run_patterns_diff
 from products.logs.backend.patterns_query_runner import PatternsQueryRunner
 from products.logs.backend.presentation.views.alerts_api import LogsAlertViewSet
 from products.logs.backend.presentation.views.explain import LogExplainViewSet
+from products.logs.backend.presentation.views.metric_rules_api import LogsMetricRuleViewSet
 from products.logs.backend.presentation.views.sampling_api import LogsSamplingRuleViewSet
 from products.logs.backend.presentation.views.views_api import LogsViewViewSet
 from products.logs.backend.services_query_runner import ServicesQueryRunner
 from products.logs.backend.sparkline_query_runner import SparklineQueryRunner
 
-__all__ = ["LogsViewSet", "LogExplainViewSet", "LogsAlertViewSet", "LogsSamplingRuleViewSet", "LogsViewViewSet"]
+__all__ = [
+    "LogsViewSet",
+    "LogExplainViewSet",
+    "LogsAlertViewSet",
+    "LogsMetricRuleViewSet",
+    "LogsSamplingRuleViewSet",
+    "LogsViewViewSet",
+]
 
 tracer = trace.get_tracer(__name__)
 LOGS_MAX_EXPORT_ROWS = 10_000
@@ -280,6 +289,13 @@ class _LogsQueryBodySerializer(serializers.Serializer):
             "Values come back on each result row keyed by the aliases echoed in the response `columns` field."
         ),
     )
+    personId = serializers.CharField(
+        required=False,
+        help_text=(
+            "Scope results to one person (UUID or numeric ID). Expanded server-side to the person's "
+            "distinct IDs and matched against the team's configured distinct-id log attribute keys."
+        ),
+    )
 
 
 class _LogsQueryRequestSerializer(serializers.Serializer):
@@ -314,6 +330,13 @@ class _LogsSparklineBodySerializer(serializers.Serializer):
         choices=["severity", "service"],
         required=False,
         help_text='Break down sparkline by "severity" (default) or "service".',
+    )
+    personId = serializers.CharField(
+        required=False,
+        help_text=(
+            "Scope results to one person (UUID or numeric ID). Expanded server-side to the person's "
+            "distinct IDs and matched against the team's configured distinct-id log attribute keys."
+        ),
     )
 
 
@@ -403,6 +426,13 @@ class _LogsFacetValuesBodySerializer(serializers.Serializer):
         required=False,
         default=list,
         help_text="Property filters for the query.",
+    )
+    personId = serializers.CharField(
+        required=False,
+        help_text=(
+            "Scope counts to one person (UUID or numeric ID). Expanded server-side to the person's "
+            "distinct IDs and matched against the team's configured distinct-id log attribute keys."
+        ),
     )
 
 
@@ -921,6 +951,24 @@ class _LogsPatternsDiffResponseSerializer(serializers.Serializer):
     )
 
 
+class _LogsGroupByDimensionSerializer(serializers.Serializer):
+    key = serializers.CharField(
+        help_text=(
+            'The key this dimension groups by — an attribute key (e.g. "session_id", "service.name") '
+            'or, when source is "column", one of the top-level log fields: '
+            '"severity_level", "trace_id", "span_id".'
+        ),
+    )
+    source = serializers.ChoiceField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
+        choices=list(GROUP_SOURCES),
+        default="log",
+        help_text=(
+            'Where this dimension\'s key lives: "log" for log-level attributes, "resource" for '
+            'resource-level attributes, "column" for top-level log fields.'
+        ),
+    )
+
+
 class _LogsGroupByBodySerializer(serializers.Serializer):
     dateRange = _DateRangeSerializer(
         required=False,
@@ -948,10 +996,11 @@ class _LogsGroupByBodySerializer(serializers.Serializer):
         help_text="Property filters applied before grouping. Same shape as the query-logs endpoint.",
     )
     groupBy = serializers.CharField(
+        required=False,
         help_text=(
             'The key to group logs by — an attribute key (e.g. "session_id", "service.name") or, '
             'when groupBySource is "column", one of the top-level log fields: '
-            '"severity_level", "trace_id", "span_id".'
+            '"severity_level", "trace_id", "span_id". Ignored when groupBys is provided.'
         ),
     )
     groupBySource = serializers.ChoiceField(
@@ -959,7 +1008,18 @@ class _LogsGroupByBodySerializer(serializers.Serializer):
         default="log",
         help_text=(
             'Where the grouping key lives: "log" for log-level attributes, "resource" for '
-            'resource-level attributes, "column" for top-level log fields.'
+            'resource-level attributes, "column" for top-level log fields. Ignored when groupBys is provided.'
+        ),
+    )
+    groupBys = serializers.ListField(
+        child=_LogsGroupByDimensionSerializer(),
+        required=False,
+        min_length=1,
+        max_length=MAX_GROUP_DIMENSIONS,
+        help_text=(
+            "Ordered group-by dimensions to combine (a group is one combination of per-dimension "
+            f"values), up to {MAX_GROUP_DIMENSIONS}. Takes precedence over groupBy/groupBySource; "
+            "one of the two must be provided."
         ),
     )
     orderGroupsBy = serializers.ChoiceField(
@@ -984,7 +1044,13 @@ class _LogsGroupByRequestSerializer(serializers.Serializer):
 
 
 class _LogsGroupByGroupSerializer(serializers.Serializer):
-    value = serializers.CharField(help_text="The grouped attribute value identifying this group.")
+    value = serializers.CharField(
+        help_text="The first dimension's grouped value. Kept for single-dimension callers; prefer `values`."
+    )
+    values = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="This group's values, one per requested dimension, in request order.",
+    )
     log_count = serializers.IntegerField(help_text="Number of matching logs in this group.")
     error_count = serializers.IntegerField(
         help_text='Number of matching logs in this group at severity "error" or "fatal".',
@@ -1135,6 +1201,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             "searchTerm": query_data.get("searchTerm", None),
             "filterGroup": self._normalize_filter_group(query_data.get("filterGroup", None)),
             "resourceFingerprint": query_data.get("resourceFingerprint", None),
+            "personId": query_data.get("personId", None),
             "limit": requested_limit + 1,  # Fetch limit plus 1 to see if theres another page
             "excludeAttributes": query_data.get("excludeAttributes", False),
             "customColumns": custom_columns,
@@ -1228,6 +1295,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             searchTerm=query_data.get("searchTerm", None),
             filterGroup=self._normalize_filter_group(query_data.get("filterGroup", None)),
             resourceFingerprint=query_data.get("resourceFingerprint", None),
+            personId=query_data.get("personId", None),
             sparklineBreakdownBy=query_data.get("sparklineBreakdownBy"),
         )
 
@@ -1276,6 +1344,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             serviceNames=query_data.get("serviceNames", []),
             searchTerm=query_data.get("searchTerm", None),
             filterGroup=self._normalize_filter_group(query_data.get("filterGroup", None)),
+            personId=query_data.get("personId", None),
         )
 
         runner = LogFacetValuesQueryRunner(
@@ -1491,12 +1560,23 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
         query = self._filtered_logs_query(query_data)
 
+        raw_dimensions = query_data.get("groupBys")
+        if raw_dimensions is not None:
+            # The dimension serializer is the request contract; running it here keeps the
+            # enforced shape (required key, source vocabulary, defaults) identical to the
+            # published schema instead of hand-rolling a second definition.
+            dimension_serializer = _LogsGroupByDimensionSerializer(data=raw_dimensions, many=True)
+            if not dimension_serializer.is_valid():
+                return Response({"error": str(dimension_serializer.errors)}, status=status.HTTP_400_BAD_REQUEST)
+            group_bys = [(d["key"], d["source"]) for d in dimension_serializer.validated_data]
+        else:
+            group_bys = [(query_data.get("groupBy", ""), query_data.get("groupBySource", "log"))]
+
         try:
             runner = LogsGroupByQueryRunner(
                 team=self.team,
                 query=query,
-                group_by=query_data.get("groupBy", ""),
-                group_by_source=query_data.get("groupBySource", "log"),
+                group_bys=group_bys,
                 order_groups_by=query_data.get("orderGroupsBy", "log_count"),
                 group_limit=int(query_data.get("limit", DEFAULT_GROUP_LIMIT)),
             )
@@ -1512,7 +1592,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             request.user,
             "logs group by queried",
             {
-                "group_by_source": query_data.get("groupBySource", "log"),
+                "group_by_source": group_bys[0][1],
+                "group_dimensions": len(group_bys),
                 "order_groups_by": query_data.get("orderGroupsBy", "log_count"),
                 "groups_count": len(results.get("groups", [])),
                 "truncated": results.get("truncated"),

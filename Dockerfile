@@ -188,7 +188,6 @@ COPY manage.py manage.py
 COPY common/esbuilder common/esbuilder
 COPY common/hogvm common/hogvm/
 COPY common/migration_utils common/migration_utils/
-COPY common/alerting common/alerting/
 COPY posthog posthog/
 COPY products/ products/
 COPY ee ee/
@@ -407,8 +406,12 @@ COPY --chown=posthog:posthog posthog posthog/
 COPY --chown=posthog:posthog ee ee/
 COPY --chown=posthog:posthog common/hogvm common/hogvm/
 COPY --chown=posthog:posthog common/migration_utils common/migration_utils/
-COPY --chown=posthog:posthog common/alerting common/alerting/
 COPY --chown=posthog:posthog products products/
+# Stamphog ships the review engine + owners resolver from this checkout into its sandbox at
+# runtime (products/stamphog/backend/temporal/activities.py), so both must exist in the image.
+COPY --chown=posthog:posthog tools/pr-approval-agent tools/pr-approval-agent/
+COPY --chown=posthog:posthog tools/owners tools/owners/
+RUN test -f tools/pr-approval-agent/review_local.py && test -d tools/owners/posthog_owners
 # Generated MCP tool catalog, read at runtime from BASE_DIR by the OAuth consent page
 # (posthog/api/oauth/mcp_resource_scopes.py) and the tasks permission broker. The rest of
 # services/ is a Node build (Dockerfile.node) and deliberately stays out of this image.

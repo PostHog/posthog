@@ -10,7 +10,7 @@ import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { escapeHogQLString, hogql } from '~/queries/utils'
-import { LogEntryLevel, PersonType } from '~/types'
+import { HogFunctionTypeType, LogEntryLevel, PersonType } from '~/types'
 
 import { hogFunctionsRerunCreate } from 'products/cdp/frontend/generated/api'
 import type { HogInvocationRerunFilterStatusEnumApi } from 'products/cdp/frontend/generated/api.schemas'
@@ -30,6 +30,18 @@ export type RunRowKind = 'hog_function' | 'hog_flow' | 'hog_function_rerun' | 'h
 
 export const isRerunWrapperKind = (kind: RunRowKind): boolean =>
     kind === 'hog_function_rerun' || kind === 'hog_flow_rerun'
+
+/**
+ * Hog function types a cyclotron worker executes, so a re-run (which re-enqueues onto the
+ * cyclotron hog queue) can actually run. Other types run elsewhere — source webhooks inline
+ * in the cdp-api HTTP handler, transformations during ingestion, site_* as client-side JS —
+ * so a re-enqueued invocation would never drain and wedges the partition. Mirror of the
+ * backend `TYPES_THAT_CAN_RERUN` allowlist; the API rejects a re-run of a non-rerunnable type.
+ */
+export const RERUNNABLE_HOG_FUNCTION_TYPES: HogFunctionTypeType[] = ['destination', 'internal_destination']
+
+export const isRerunnableHogFunctionType = (type?: HogFunctionTypeType | null): boolean =>
+    !!type && RERUNNABLE_HOG_FUNCTION_TYPES.includes(type)
 
 const rerunWrapperKindFor = (kind: HogInvocationsFunctionKind): RunRowKind =>
     kind === 'hog_flow' ? 'hog_flow_rerun' : 'hog_function_rerun'
@@ -94,6 +106,18 @@ export interface HogInvocationsLogicProps {
     /** HogFunction.id or HogFlow.id */
     id: string
     functionKind: HogInvocationsFunctionKind
+    /**
+     * Scope the list to invocations spawned by a single parent run. Batch-triggered
+     * workflows fan out one child invocation per person, each tagged with the batch
+     * job's id as `parent_run_id` — passing it here renders that broadcast's runs on
+     * their own, so the batch scene can group runs by job (see `WorkflowBatchInvocations`).
+     */
+    parentRunId?: string
+    /**
+     * Override the default date window (`-24h`). The per-job batch view anchors this to
+     * the job's creation time so a broadcast's runs are in range no matter how old it is.
+     */
+    defaultDateFrom?: string
 }
 
 export interface SparklineSeries {
@@ -327,6 +351,16 @@ export const kindClauseFor = (
 }
 
 /**
+ * Optional predicate scoping the list to one parent run (a batch job). Empty when
+ * `parentRunId` isn't set, so the flat list is unchanged. Placement depends on the query:
+ * put it in WHERE when it reads the physical `parent_run_id` column, but in HAVING when the
+ * SELECT aliases `parent_run_id` to `argMax(parent_run_id, version)` — there the name
+ * resolves to that aggregate alias, which ClickHouse rejects in WHERE.
+ */
+export const parentClauseFor = (props: HogInvocationsLogicProps): ReturnType<typeof hogql.raw> =>
+    props.parentRunId ? hogql.raw(`AND parent_run_id = ${escapeHogQLString(props.parentRunId)}`) : hogql.raw('')
+
+/**
  * Optional predicate restricting to invocations that logged an error/warning entry. Uses a
  * `log_entries` subquery (resolved server-side, so no client-side id list) keyed by the same
  * source the per-row logs use. Deliberately not date-scoped: a bounce/complaint can land after
@@ -480,6 +514,7 @@ async function fetchSparkline(props: HogInvocationsLogicProps, filters: HogInvoc
             FROM posthog.hog_invocation_results
             WHERE ${kindClause}
               AND function_id = ${props.id}
+              ${parentClauseFor(props)}
               ${dateClause}
             GROUP BY invocation_id, function_kind
             HAVING argMax(is_deleted, version) = 0
@@ -581,6 +616,7 @@ async function fetchRunsPage(
           ${dateClause}
         GROUP BY invocation_id, function_kind
         HAVING argMax(is_deleted, version) = 0
+           ${parentClauseFor(props)}
            ${optionalStatusClause}
            ${optionalErrorKindClause}
            ${buildSearchClause(props, filters)}
@@ -914,7 +950,7 @@ export type hogInvocationsLogicType = MakeLogicType<
 export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
     path((id) => ['scenes', 'hog-functions', 'invocations', 'hogInvocationsLogic', id]),
     props({} as HogInvocationsLogicProps),
-    key((props) => `${props.functionKind}:${props.id}`),
+    key((props) => `${props.functionKind}:${props.id}${props.parentRunId ? `:${props.parentRunId}` : ''}`),
 
     actions({
         setFilters: (filters: Partial<HogInvocationsFilters>) => ({ filters }),
@@ -935,70 +971,75 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
         setPickedPerson: (person: PersonType | null) => ({ person }),
     }),
 
-    reducers({
-        filters: [
-            DEFAULT_FILTERS,
-            {
-                setFilters: (state, { filters }) => ({ ...state, ...filters }),
-                resetFilters: () => DEFAULT_FILTERS,
-            },
-        ],
-        selectedIds: [
-            {} as Record<string, boolean>,
-            {
-                toggleSelected: (state, { invocationId }) => {
-                    const next = { ...state }
-                    if (next[invocationId]) {
-                        delete next[invocationId]
-                    } else {
-                        next[invocationId] = true
-                    }
-                    return next
+    reducers(({ props }) => {
+        const defaultFilters: HogInvocationsFilters = props.defaultDateFrom
+            ? { ...DEFAULT_FILTERS, date_from: props.defaultDateFrom }
+            : DEFAULT_FILTERS
+        return {
+            filters: [
+                defaultFilters,
+                {
+                    setFilters: (state, { filters }) => ({ ...state, ...filters }),
+                    resetFilters: () => defaultFilters,
                 },
-                clearSelected: () => ({}),
-                setSelectedIds: (_, { ids }) => Object.fromEntries(ids.map((id) => [id, true])),
-            },
-        ],
-        expandedIds: [
-            {} as Record<string, boolean>,
-            {
-                setExpanded: (state, { invocationId, expanded }) => {
-                    const next = { ...state }
-                    if (expanded) {
-                        next[invocationId] = true
-                    } else {
-                        delete next[invocationId]
-                    }
-                    return next
+            ],
+            selectedIds: [
+                {} as Record<string, boolean>,
+                {
+                    toggleSelected: (state, { invocationId }) => {
+                        const next = { ...state }
+                        if (next[invocationId]) {
+                            delete next[invocationId]
+                        } else {
+                            next[invocationId] = true
+                        }
+                        return next
+                    },
+                    clearSelected: () => ({}),
+                    setSelectedIds: (_, { ids }) => Object.fromEntries(ids.map((id) => [id, true])),
                 },
-            },
-        ],
-        hasMore: [
-            false,
-            {
-                setHasMore: (_, { hasMore }) => hasMore,
-                setFilters: () => false,
-                resetFilters: () => false,
-            },
-        ],
-        hasLoadedOnce: [
-            false,
-            {
-                setHasMore: () => true,
-            },
-        ],
-        pickedPerson: [
-            null as PersonType | null,
-            {
-                setPickedPerson: (_, { person }) => person,
-                // A URL-driven filter change without a matching pickedPerson means we came in
-                // from a shared link — clear the stale display until the hydrator populates it.
-                // `person.uuid` is the actual UUID; `person.id` is Django's numeric PK.
-                setFilters: (state, { filters }) =>
-                    'person_uuid' in filters && filters.person_uuid !== state?.uuid ? null : state,
-                resetFilters: () => null,
-            },
-        ],
+            ],
+            expandedIds: [
+                {} as Record<string, boolean>,
+                {
+                    setExpanded: (state, { invocationId, expanded }) => {
+                        const next = { ...state }
+                        if (expanded) {
+                            next[invocationId] = true
+                        } else {
+                            delete next[invocationId]
+                        }
+                        return next
+                    },
+                },
+            ],
+            hasMore: [
+                false,
+                {
+                    setHasMore: (_, { hasMore }) => hasMore,
+                    setFilters: () => false,
+                    resetFilters: () => false,
+                },
+            ],
+            hasLoadedOnce: [
+                false,
+                {
+                    setHasMore: () => true,
+                },
+            ],
+            pickedPerson: [
+                null as PersonType | null,
+                {
+                    setPickedPerson: (_, { person }) => person,
+                    // A URL-driven filter change without a matching pickedPerson means we came in
+                    // from a shared link — clear the stale display until the hydrator populates it.
+                    // `person.uuid` is the actual UUID; `person.id` is Django's numeric PK.
+                    setFilters: (state, { filters }) =>
+                        'person_uuid' in filters && filters.person_uuid !== state?.uuid ? null : state,
+                    resetFilters: () => null,
+                },
+            ],
+        }
     }),
 
     loaders(({ props, values, actions, cache }) => ({
@@ -1332,7 +1373,12 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
         },
     })),
 
-    actionToUrl(({ values }) => {
+    actionToUrl(({ values, props }) => {
+        // Per-job scoped tables (batch view) don't own the URL — several can mount on one
+        // scene and they'd clobber the shared `inv_*` params. Only the flat list syncs.
+        if (props.parentRunId) {
+            return {}
+        }
         const buildUrl = (): [
             string,
             Record<string, string | undefined>,
@@ -1350,8 +1396,13 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
         }
     }),
 
-    urlToAction(({ actions, values }) => {
+    urlToAction(({ actions, values, props }) => {
         const handleSearch = (_: any, searchParams: Record<string, string | undefined>): void => {
+            // Per-job scoped tables (batch view) don't own the URL — several can mount on one
+            // scene and they'd clobber the shared `inv_*` params. Only the flat list syncs.
+            if (props.parentRunId) {
+                return
+            }
             const next = searchParamsToFilters(searchParams)
             // Diff against current state to avoid looping with actionToUrl.
             const changed = Object.entries(next).some(

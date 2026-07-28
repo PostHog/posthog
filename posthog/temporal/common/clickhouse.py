@@ -892,6 +892,7 @@ class ClickHouseClient:
         *data,
         query_parameters=None,
         query_id: str | None = None,
+        on_schema: collections.abc.Callable[[pa.Schema], None] | None = None,
     ) -> typing.AsyncGenerator[pa.RecordBatch]:
         """Execute the given query in ClickHouse and stream back the response as Arrow record batches.
 
@@ -899,6 +900,8 @@ class ClickHouseClient:
         """
         async with self.apost_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
             reader = asyncpa.AsyncRecordBatchReader(ChunkBytesAsyncStreamIterator(response.content))
+            if on_schema is not None:
+                on_schema(await reader.get_schema())
             async for batch in reader:
                 yield batch
 

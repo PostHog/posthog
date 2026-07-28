@@ -170,12 +170,19 @@ class ImpersonatedContext:
         from posthog.helpers.impersonation import is_impersonated  # noqa: PLC0415
 
         self.was_impersonated = is_impersonated(request)
+        self.previous = False
 
     def __enter__(self):
         if self.was_impersonated:
+            # Save and restore rather than clear on exit, so this context can't erase an
+            # impersonation flag set for the whole request (by middleware or bearer auth).
+            self.previous = activity_storage.get_was_impersonated()
             activity_storage.set_was_impersonated(True)
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
         if self.was_impersonated:
-            activity_storage.clear_was_impersonated()
+            if self.previous:
+                activity_storage.set_was_impersonated(True)
+            else:
+                activity_storage.clear_was_impersonated()

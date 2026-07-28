@@ -4,7 +4,9 @@ from parameterized import parameterized
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import NorthflankSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.northflank import (
+    NorthflankSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.northflank.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.northflank.source import NorthflankSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType

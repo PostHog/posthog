@@ -1,3 +1,5 @@
+import { PropertyFilterType, PropertyOperator } from '~/types'
+
 import { ACCOUNTS_HOGQL_DEFAULT_SELECT } from './accountsColumnConfigLogic'
 import {
     deserializeAccountsView,
@@ -56,13 +58,25 @@ describe('serializeAccountsView / deserializeAccountsView', () => {
                 unassigned: false,
                 assignedTo: [1, 2, 3],
                 tileFilter: { tileId: 't1', expression: 'mrr > 100' },
+                customProperties: [
+                    {
+                        type: PropertyFilterType.AccountCustomProperty as const,
+                        key: '11111111-2222-3333-4444-555555555555',
+                        operator: PropertyOperator.Exact,
+                        value: 'Enterprise',
+                        label: 'Tier',
+                    },
+                ],
             },
             tiles: [{ id: 't1', label: 'Accounts', metric: { type: 'count' as const } }],
+            columnDisplay: {
+                '11111111-2222-3333-4444-555555555555': { mode: 'sparkline' as const, window_days: 30 },
+            },
         }
         const payload = serializeAccountsView(state)
         expect(payload.order_by).toEqual(['csm DESC'])
         expect(payload.columns).toEqual(['name', 'csm'])
-        expect(payload.properties).toEqual({ tiles: state.tiles })
+        expect(payload.properties).toEqual({ tiles: state.tiles, column_display: state.columnDisplay })
         expect(deserializeAccountsView(payload)).toEqual(state)
     })
 
@@ -76,11 +90,14 @@ describe('serializeAccountsView / deserializeAccountsView', () => {
                 unassigned: false,
                 assignedTo: [],
                 tileFilter: null,
+                customProperties: [],
             },
             tiles: [...DEFAULT_TILES],
+            columnDisplay: {},
         })
         expect(payload.filters).toEqual({})
         expect(payload.order_by).toEqual([])
+        expect(payload.properties).toEqual({ tiles: DEFAULT_TILES })
     })
 
     it('treats a legacy columns-only row (filters [], no properties) as defaults', () => {
@@ -91,9 +108,11 @@ describe('serializeAccountsView / deserializeAccountsView', () => {
             unassigned: false,
             assignedTo: [],
             tileFilter: null,
+            customProperties: [],
         })
         expect(state.tiles).toEqual(DEFAULT_TILES)
         expect(state.sortOrder).toBeNull()
+        expect(state.columnDisplay).toEqual({})
     })
 
     it('falls back to default columns when a row has none', () => {
