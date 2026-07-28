@@ -1287,7 +1287,11 @@ const TreeNode = React.memo(function TraceNode({
                 {totalCost != null && formatLLMCost(totalCost)}
             </span>
         ),
-        attachedFeedback.length > 0 && <AttachedFeedbackPills key="attached-feedback" events={attachedFeedback} />,
+        attachedFeedback.length > 0 && (
+            <span key="attached-feedback" onClick={(e) => e.stopPropagation()}>
+                <AttachedFeedbackPills events={attachedFeedback} />
+            </span>
+        ),
     ]
     const hasChildren = children.some((child) => !!child)
 
