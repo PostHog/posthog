@@ -160,8 +160,11 @@ class EnrichmentPromptConfig(UUIDModel):
     """
 
     # Everything that changes the classifier's behavior. An edit to any of these is a new
-    # version (new row), never an in-place change — see save().
-    FROZEN_FIELDS = ("name", "version", "prompt_text", "model", "input_fields", "input_query", "output_fields")
+    # version (new row), never an in-place change - see save(). `name` is deliberately absent:
+    # it is a human label for this classifier and nothing reads it as data. The output contract
+    # is output_fields (see enrichment/labels.py), so renaming a label changes nothing about
+    # what the classifier does or where its verdicts are stored.
+    FROZEN_FIELDS = ("version", "prompt_text", "model", "input_fields", "input_query", "output_fields")
 
     # Label this config computes, e.g. "ai_pilled".
     name = models.CharField(max_length=128)
@@ -175,10 +178,10 @@ class EnrichmentPromptConfig(UUIDModel):
     # set, each result row becomes one classification input (see enrichment/input_query.py);
     # when null, the input_fields path against the archived Harmonic payload applies as before.
     input_query = models.TextField(null=True, blank=True)
-    # Configurable output schema: list of {"key", "type" ("boolean"|"number"|"string"),
-    # "description"}. Empty (the default) means the legacy output shape
-    # ({<name>: boolean, "confidence": number 0-1, "reasoning": string}) — see
-    # enrichment/labels.py's build_messages / _call_and_parse.
+    # The classifier's entire output contract: list of {"key", "type"
+    # ("boolean"|"number"|"string"), "description"}. These are the keys the prompt asks for and
+    # the only keys a stored verdict carries — see enrichment/labels.py's build_messages /
+    # _parse_custom_output. `name` is never one of them.
     output_fields = models.JSONField(default=list)
     # The version the batch runner computes; at most one active row per label (enforced below).
     is_active = models.BooleanField(default=False)
@@ -282,7 +285,8 @@ class EnrichmentLabelResult(UUIDModel):
     # even if the config row is deleted.
     prompt_hash = models.CharField(max_length=64)
     model = models.CharField(max_length=128)
-    # {"ai_pilled": true|false|"unknown", "confidence": float, "reasoning": str}
+    # The config's output_fields keys and their values, e.g. {"ai_pilled": true|false|"unknown",
+    # "confidence": float, "reasoning": str}, plus a "meta" provenance key.
     output = models.JSONField(default=dict)
     # The rendered classifier inputs (extracted payload fields + signup domain) at compute
     # time: the domain derives from current org membership and drifts as members leave, so

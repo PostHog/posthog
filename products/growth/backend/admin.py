@@ -16,6 +16,7 @@ from posthog.admin.inline_registry import register_admin_inline
 from posthog.models.organization import Organization
 from posthog.schema_enums import ProductKey
 
+from products.growth.backend.enrichment.labels import RESERVED_OUTPUT_FIELD_KEYS, UNKNOWN
 from products.growth.backend.models import EnrichmentLabelResult, ProductPushCampaign
 from products.growth.backend.product_push.selection import select_next_product
 from products.growth.backend.product_push.service import cancel_campaigns, get_eligible_organization_queryset
@@ -311,4 +312,9 @@ class EnrichmentLabelResultAdmin(admin.ModelAdmin):
 
     @admin.display(description="Verdict")
     def verdict(self, result: EnrichmentLabelResult) -> str:
-        return str(result.output.get(result.label_name, "?"))
+        # Read out of the stored output rather than looking the config up per row: label_name is
+        # a human name, never an output key, and the output's key order follows output_fields.
+        for key, value in result.output.items():
+            if key not in RESERVED_OUTPUT_FIELD_KEYS and (isinstance(value, bool) or value == UNKNOWN):
+                return f"{key}={str(value).lower()}"
+        return "?"

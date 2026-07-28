@@ -9,18 +9,28 @@ from parameterized import parameterized
 from rest_framework import status
 
 from products.growth.backend.enrichment import lab as lab_module
-from products.growth.backend.enrichment.lab import GATEWAY_MODEL_CHOICES
 from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, OrganizationEnrichmentFetch
 
 
 def _mock_llm_client(
-    verdict: bool = True, confidence: float = 0.9, reasoning: str = "builds ai software", label: str = "test_label"
+    verdict: bool = True, confidence: float = 0.9, reasoning: str = "builds ai software", verdict_key: str = "is_ai"
 ) -> MagicMock:
     client = MagicMock()
     response = MagicMock()
-    response.choices[0].message.content = json.dumps({label: verdict, "confidence": confidence, "reasoning": reasoning})
+    response.choices[0].message.content = json.dumps(
+        {verdict_key: verdict, "confidence": confidence, "reasoning": reasoning}
+    )
     client.chat.completions.create.return_value = response
     return client
+
+
+# Deliberately unlike any label name used below: output keys come from output_fields, never
+# from the label, and a fixture that reuses the label name would hide a regression to that.
+_OUTPUT_FIELDS = [
+    {"key": "is_ai", "type": "boolean", "description": ""},
+    {"key": "confidence", "type": "number", "description": ""},
+    {"key": "reasoning", "type": "string", "description": ""},
+]
 
 
 async def _drain(agen) -> bytes:
@@ -52,6 +62,7 @@ class TestScoreLabAPI(APIBaseTest):
             name=label,
             version=version,
             prompt_text="judge it. Email: {email}",
+            output_fields=_OUTPUT_FIELDS,
             model="gpt-5-mini",
             input_fields=["name"],
             is_active=is_active,
@@ -62,6 +73,7 @@ class TestScoreLabAPI(APIBaseTest):
         [
             ("labels", "get", "/api/growth_score_lab/labels/"),
             ("models", "get", "/api/growth_score_lab/models/"),
+            ("input_fields", "get", "/api/growth_score_lab/input_fields/"),
             ("configs", "get", "/api/growth_score_lab/configs/?label=test_label"),
             ("run", "post", "/api/growth_score_lab/run/"),
             ("save", "post", "/api/growth_score_lab/save/"),
@@ -122,10 +134,7 @@ class TestScoreLabAPI(APIBaseTest):
             organization=self.organization, provider="harmonic", payload={"name": "Acme"}
         )
 
-        with patch(
-            "products.growth.backend.api.score_lab.get_llm_client",
-            return_value=_mock_llm_client(label="unsaved_label"),
-        ):
+        with patch("products.growth.backend.api.score_lab.get_llm_client", return_value=_mock_llm_client()):
             response = self.client.post(
                 "/api/growth_score_lab/run/",
                 {
@@ -133,6 +142,7 @@ class TestScoreLabAPI(APIBaseTest):
                     "prompt_text": "a draft prompt. Email: {email}",
                     "model": "gpt-5-mini",
                     "input_fields": ["name"],
+                    "output_fields": _OUTPUT_FIELDS,
                     "sample": 10,
                 },
                 format="json",
@@ -145,7 +155,9 @@ class TestScoreLabAPI(APIBaseTest):
 
         self.assertEqual(len(verdict_rows), 1)
         self.assertEqual(verdict_rows[0]["company"], "Acme")
-        self.assertEqual(verdict_rows[0]["verdict"], "true")
+        self.assertEqual(
+            verdict_rows[0]["outputs"], {"is_ai": True, "confidence": 0.9, "reasoning": "builds ai software"}
+        )
         self.assertEqual(summary_row["summary"], {"classified": 1, "unknown": 0, "errors": 0})
         # "unsaved_label" must never touch the DB - run classifies an in-memory config only.
         self.assertEqual(EnrichmentPromptConfig.objects.filter(name="unsaved_label").count(), 0)
@@ -156,7 +168,13 @@ class TestScoreLabAPI(APIBaseTest):
         # before any candidates are fetched or any LLM client is built.
         response = self.client.post(
             "/api/growth_score_lab/run/",
-            {"label": "test_label", "prompt_text": "x", "model": "gpt-5-mini", "sample": 101},
+            {
+                "label": "test_label",
+                "prompt_text": "x",
+                "model": "gpt-5-mini",
+                "output_fields": _OUTPUT_FIELDS,
+                "sample": 101,
+            },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -165,50 +183,110 @@ class TestScoreLabAPI(APIBaseTest):
     def test_save_creates_exactly_the_submitted_bytes(self):
         payload = {
             "label": "new_label",
-            "version": "v1",
             "prompt_text": "a brand new experimental prompt. Email: {email}",
             "model": "gpt-5-nano",
             "input_fields": ["name", "description"],
+            "output_fields": _OUTPUT_FIELDS,
         }
 
         response = self.client.post("/api/growth_score_lab/save/", payload, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        config = EnrichmentPromptConfig.objects.get(name="new_label", version="v1")
+        config = EnrichmentPromptConfig.objects.get(name="new_label")
         self.assertEqual(config.prompt_text, payload["prompt_text"])
         self.assertEqual(config.model, payload["model"])
         self.assertEqual(config.input_fields, payload["input_fields"])
+        self.assertEqual(config.output_fields, payload["output_fields"])
         self.assertFalse(config.is_active)
         self.assertEqual(config.created_by, self.user)
         self.assertEqual(response.json()["id"], str(config.id))
 
-    @parameterized.expand(
-        [
-            ("duplicate_label_version", True, {"label": "test_label", "version": "test-v1"}, "version"),
-            ("invalid_new_label_slug", False, {"label": "Not-Valid-Slug", "version": "v1"}, "label"),
-            ("invalid_model", False, {"model": "not-a-real-gateway-model"}, "model"),
-        ]
-    )
-    def test_save_rejects_invalid_payload_with_400(self, _name, seed_existing, overrides, expected_attr):
-        if seed_existing:
-            self._config(label="test_label", version="test-v1")
+    def test_save_assigns_the_version_and_ignores_a_client_supplied_one(self):
+        # Versions are system-generated identity; a client-chosen one is what let a rename
+        # collide with, or silently overwrite, an existing version.
         payload = {
-            "label": "test_label",
-            "version": "test-v1",
+            "label": "seq_label",
+            "prompt_text": "x",
+            "model": "gpt-5-mini",
+            "output_fields": _OUTPUT_FIELDS,
+            "version": "hand-picked",
+        }
+
+        first = self.client.post("/api/growth_score_lab/save/", payload, format="json")
+        second = self.client.post("/api/growth_score_lab/save/", payload, format="json")
+
+        self.assertEqual(first.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(second.status_code, status.HTTP_201_CREATED)
+        self.assertEqual([first.json()["version"], second.json()["version"]], ["v1", "v2"])
+
+    def test_save_never_reuses_a_retired_version_string(self):
+        # Counting rows instead of reading the highest suffix would hand out v2 again here, and
+        # every verdict already stamped v2 would then read as this new prompt's output.
+        self._config(label="seq_label", version="v1", is_active=False)
+        self._config(label="seq_label", version="v2", is_active=False)
+        EnrichmentPromptConfig.objects.filter(name="seq_label", version="v1").delete()
+
+        response = self.client.post(
+            "/api/growth_score_lab/save/",
+            {"label": "seq_label", "prompt_text": "x", "model": "gpt-5-mini", "output_fields": _OUTPUT_FIELDS},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["version"], "v3")
+
+    def test_save_rejects_a_payload_path_outside_the_allow_list(self):
+        # Every selected path is sent to the LLM and then stored on the result indefinitely, so
+        # an arbitrary dotted path is an open channel for whatever the provider returned.
+        response = self.client.post(
+            "/api/growth_score_lab/save/",
+            {
+                "label": "leaky_label",
+                "prompt_text": "x",
+                "model": "gpt-5-mini",
+                "input_fields": ["contact.primaryEmail"],
+                "output_fields": _OUTPUT_FIELDS,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(EnrichmentPromptConfig.objects.filter(name="leaky_label").count(), 0)
+
+    def test_input_fields_serves_the_allow_list_the_save_endpoint_enforces(self):
+        response = self.client.get("/api/growth_score_lab/input_fields/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        served = {row["value"] for row in response.json()["results"]}
+        self.assertIn("funding.fundingStage", served)
+
+        accepted = self.client.post(
+            "/api/growth_score_lab/save/",
+            {
+                "label": "allowed_label",
+                "prompt_text": "x",
+                "model": "gpt-5-mini",
+                "input_fields": sorted(served),
+                "output_fields": _OUTPUT_FIELDS,
+            },
+            format="json",
+        )
+        self.assertEqual(accepted.status_code, status.HTTP_201_CREATED)
+
+    def test_save_rejects_an_invalid_new_label_slug(self):
+        payload = {
+            "label": "Not-Valid-Slug",
             "prompt_text": "x",
             "model": "gpt-5-mini",
             "input_fields": [],
+            "output_fields": _OUTPUT_FIELDS,
         }
-        payload.update(overrides)
-        count_before = EnrichmentPromptConfig.objects.count()
 
         response = self.client.post("/api/growth_score_lab/save/", payload, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["attr"], expected_attr)
-        # A rejected save must never create a row, whether it's the duplicate-version case
-        # (nothing new) or the invalid-slug/model cases (seed_existing is False, so still 0).
-        self.assertEqual(EnrichmentPromptConfig.objects.count(), count_before)
+        self.assertEqual(response.json()["attr"], "label")
+        self.assertEqual(EnrichmentPromptConfig.objects.filter(name="Not-Valid-Slug").count(), 0)
 
     def test_activate_flips_active_flag_and_deactivates_previous(self):
         old_active = self._config(label="test_label", version="test-v1", is_active=True)
@@ -238,13 +316,13 @@ class TestScoreLabAPI(APIBaseTest):
         ids = {row["id"] for row in response.json()["results"]}
         self.assertEqual(ids, {"gpt-5.2", "claude-fable-5"})
 
-    def test_models_falls_back_to_curated_list_on_gateway_exception(self):
+    def test_models_returns_empty_rather_than_a_stale_list_when_the_gateway_is_down(self):
         with patch("products.growth.backend.enrichment.lab.get_llm_client", side_effect=RuntimeError("gateway down")):
             response = self.client.get("/api/growth_score_lab/models/")
 
+        # No curated mirror: a hand-maintained fallback goes stale silently.
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        ids = {row["id"] for row in response.json()["results"]}
-        self.assertEqual(ids, set(GATEWAY_MODEL_CHOICES))
+        self.assertEqual(response.json()["results"], [])
 
     def test_run_builds_rows_from_input_query_instead_of_archived_fetches(self):
         OrganizationEnrichmentFetch.objects.create(
@@ -254,10 +332,7 @@ class TestScoreLabAPI(APIBaseTest):
 
         with (
             patch("products.growth.backend.api.score_lab.run_input_query", return_value=canned_rows) as run_query_mock,
-            patch(
-                "products.growth.backend.api.score_lab.get_llm_client",
-                return_value=_mock_llm_client(label="row_query_label"),
-            ),
+            patch("products.growth.backend.api.score_lab.get_llm_client", return_value=_mock_llm_client()),
         ):
             response = self.client.post(
                 "/api/growth_score_lab/run/",
@@ -266,6 +341,7 @@ class TestScoreLabAPI(APIBaseTest):
                     "prompt_text": "judge it. Email: {email}",
                     "model": "gpt-5-mini",
                     "input_query": "SELECT 1 as x",
+                    "output_fields": _OUTPUT_FIELDS,
                     "sample": 10,
                 },
                 format="json",
@@ -277,7 +353,7 @@ class TestScoreLabAPI(APIBaseTest):
         self.assertEqual(len(verdict_rows), 1)
         self.assertEqual(verdict_rows[0]["company"], "RowCo")
         self.assertEqual(verdict_rows[0]["domain"], "rowco.com")
-        self.assertEqual(verdict_rows[0]["verdict"], "true")
+        self.assertEqual(verdict_rows[0]["outputs"]["is_ai"], True)
         run_query_mock.assert_called_once_with("SELECT 1 as x", 10)
 
     def test_run_rejects_syntax_error_input_query(self):
@@ -288,6 +364,7 @@ class TestScoreLabAPI(APIBaseTest):
                 "prompt_text": "x",
                 "model": "gpt-5-mini",
                 "input_query": "SELEC nonsense !!! FRM",
+                "output_fields": _OUTPUT_FIELDS,
             },
             format="json",
         )
@@ -303,7 +380,13 @@ class TestScoreLabAPI(APIBaseTest):
     def test_save_rejects_invalid_input_query(self, _name, query):
         response = self.client.post(
             "/api/growth_score_lab/save/",
-            {"label": "iq_label", "version": "v1", "prompt_text": "x", "model": "gpt-5-mini", "input_query": query},
+            {
+                "label": "iq_label",
+                "prompt_text": "x",
+                "model": "gpt-5-mini",
+                "input_query": query,
+                "output_fields": _OUTPUT_FIELDS,
+            },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -313,7 +396,6 @@ class TestScoreLabAPI(APIBaseTest):
     def test_save_persists_input_query_and_output_fields_and_configs_endpoint_returns_them(self):
         payload = {
             "label": "iq_schema_label",
-            "version": "v1",
             "prompt_text": "x",
             "model": "gpt-5-mini",
             "input_query": "SELECT 1 as x",
@@ -337,6 +419,9 @@ class TestScoreLabAPI(APIBaseTest):
             ("bad_type", [{"key": "ok_key", "type": "float", "description": ""}]),
             ("duplicate_key", [{"key": "a", "type": "boolean"}, {"key": "a", "type": "number"}]),
             ("reserved_key", [{"key": "meta", "type": "boolean"}]),
+            # output_fields is the whole output contract, so an empty one is a config that
+            # asks the model for nothing and stores nothing.
+            ("empty", []),
         ]
     )
     def test_save_rejects_invalid_output_fields_schema(self, _name, output_fields):
@@ -344,7 +429,6 @@ class TestScoreLabAPI(APIBaseTest):
             "/api/growth_score_lab/save/",
             {
                 "label": "schema_label",
-                "version": "v1",
                 "prompt_text": "x",
                 "model": "gpt-5-mini",
                 "output_fields": output_fields,
@@ -352,10 +436,12 @@ class TestScoreLabAPI(APIBaseTest):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["attr"], "output_fields")
+        # Per-item errors attribute to output_fields, the list-level empty check to
+        # output_fields__non_field_errors.
+        self.assertTrue(response.json()["attr"].startswith("output_fields"), response.json())
         self.assertEqual(EnrichmentPromptConfig.objects.filter(name="schema_label").count(), 0)
 
-    def test_run_with_custom_output_fields_emits_outputs_shape_and_prompts_the_configured_keys(self):
+    def test_run_coerces_output_values_and_prompts_exactly_the_configured_keys(self):
         output_fields = [
             {"key": "is_enterprise", "type": "boolean", "description": "Is this an enterprise company?"},
             {"key": "employee_estimate", "type": "number", "description": "Estimated headcount"},

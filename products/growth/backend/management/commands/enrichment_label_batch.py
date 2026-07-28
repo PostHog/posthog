@@ -51,6 +51,13 @@ class Command(BaseCommand):
         config = get_active_config(label)
         if config is None:
             raise CommandError(f"No active EnrichmentPromptConfig for label {label!r}")
+        # classify_payload below reads config.input_fields, so a query-mode config would bill one
+        # LLM call per org against an empty input dict and persist the answers under a real version.
+        if config.input_query:
+            raise CommandError(
+                f"Config {label} {config.version} uses a HogQL input_query, which the batch runner does not "
+                "support yet. Only the archived-payload path is wired through."
+            )
         # A custom output schema's pass/fail key differs from `label` - see
         # verdict_field_key's docstring. Resolved once since config doesn't change mid-run.
         verdict_key = verdict_field_key(config)
@@ -151,9 +158,22 @@ class Command(BaseCommand):
                 while pending:
                     pending.popleft().result()
 
+        # succeeded/attempted rather than a raw count: an alert can fire on the ratio, and on a
+        # run that attempted nothing at all, which is what a silently broken input source looks like.
+        success_rate = counts["succeeded"] / counts["attempted"] if counts["attempted"] else None
         summary = (
             f"attempted {counts['attempted']}, succeeded {counts['succeeded']}, "
             f"skipped_existing {counts['skipped_existing']}, unknown {counts['unknown']}, failures {counts['failures']}"
         )
-        self.stdout.write(self.style.SUCCESS(summary) if counts["failures"] == 0 else self.style.WARNING(summary))
-        logger.info("enrichment_label_batch_complete", label=label, prompt_version=config.version, **counts)
+        logger.info(
+            "enrichment_label_batch_complete",
+            label=label,
+            prompt_version=config.version,
+            success_rate=success_rate,
+            **counts,
+        )
+        if counts["failures"]:
+            # Exiting 0 on a run where every item failed is indistinguishable from a clean run to
+            # anything scheduling this.
+            raise CommandError(summary)
+        self.stdout.write(self.style.SUCCESS(summary))

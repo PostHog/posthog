@@ -19,21 +19,37 @@ from products.growth.backend.enrichment.labels import (
     signup_domain_for_organization,
     verdict_field_key,
 )
-from products.growth.backend.models import EnrichmentLabelResult
+from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig
 
 _COMPANY_WIDTH = 30
 _DOMAIN_WIDTH = 24
-_VERDICT_WIDTH = 8
-_CONF_WIDTH = 6
-_REASONING_WIDTH = 60
+_MISSING = "-"
+# Per output type, since a boolean verdict and a paragraph of reasoning need very different room.
+_VALUE_WIDTHS = {"boolean": 8, "number": 6, "string": 40}
 
 
 def _truncate(value: str, width: int) -> str:
     return value if len(value) <= width else value[: width - 1] + "…"
 
 
-def _verdict_str(value: Any) -> str:
-    return "unknown" if value == UNKNOWN else str(bool(value)).lower()
+def _cell(output: dict[str, Any], field: dict[str, str]) -> str:
+    """Render one output key. A key the model never returned prints as absent rather than as a
+    confident zero or empty string, which is what hardcoded key names used to produce."""
+    if field["key"] not in output:
+        return _MISSING
+    value = output[field["key"]]
+    if value == UNKNOWN:
+        return "unknown"
+    if value is None:
+        return _MISSING
+    if field["type"] == "boolean":
+        return str(bool(value)).lower()
+    if field["type"] == "number":
+        try:
+            return f"{float(value):.2f}"
+        except (TypeError, ValueError):
+            return str(value)
+    return str(value)
 
 
 class Command(BaseCommand):
@@ -71,13 +87,25 @@ class Command(BaseCommand):
         # verdict_field_key's docstring.
         verdict_key = verdict_field_key(config)
 
+        # Columns come from the schema, not from hardcoded key names: a config whose keys aren't
+        # named confidence/reasoning used to print 0.00 and blanks as if they were the answer.
+        compare_config: EnrichmentPromptConfig | None = None
+        if compare_version:
+            compare_config = EnrichmentPromptConfig.objects.filter(name=label, version=compare_version).first()
+            if compare_config is None:
+                raise CommandError(f"No config {compare_version!r} for label {label!r} to compare against")
+
         ordered_fetches = list(recent_latest_fetches_qs().select_related("organization")[:sample])
 
-        column_widths = [_COMPANY_WIDTH, _DOMAIN_WIDTH, _VERDICT_WIDTH, _CONF_WIDTH, _REASONING_WIDTH]
-        headers = ["Company", "Domain", "Verdict", "Conf", "Reasoning"]
-        if compare_version:
-            column_widths += [_VERDICT_WIDTH, _CONF_WIDTH]
-            headers += ["Prev", "PrevConf"]
+        column_widths = [_COMPANY_WIDTH, _DOMAIN_WIDTH]
+        headers = ["Company", "Domain"]
+        for field in config.output_fields:
+            column_widths.append(_VALUE_WIDTHS.get(field["type"], _VALUE_WIDTHS["string"]))
+            headers.append(field["key"])
+        if compare_config is not None:
+            for field in compare_config.output_fields:
+                column_widths.append(_VALUE_WIDTHS.get(field["type"], _VALUE_WIDTHS["string"]))
+                headers.append(f"prev.{field['key']}")
         row_fmt = "  ".join(f"{{:<{width}}}" for width in column_widths)
 
         self.stdout.write(f"Prompt version: {display_version}")
@@ -88,35 +116,28 @@ class Command(BaseCommand):
             company = fetch.payload.get("name") or fetch.organization.name
             try:
                 signup_domain = signup_domain_for_organization(fetch.organization)
-                verdict = classify_payload(config, fetch.payload, signup_domain, client)
+                output = classify_payload(config, fetch.payload, signup_domain, client)
             except Exception as e:
                 errors += 1
-                row: list[str] = [
-                    _truncate(company, _COMPANY_WIDTH),
-                    "-",
-                    "ERROR",
-                    "-",
-                    _truncate(str(e), _REASONING_WIDTH),
-                ]
-                if compare_version:
-                    row += ["-", "-"]
+                row = [_truncate(company, _COMPANY_WIDTH), _MISSING, f"ERROR: {_truncate(str(e), 40)}"]
+                row += [_MISSING] * (len(headers) - len(row))
                 self.stdout.write(row_fmt.format(*row))
                 continue
 
-            label_verdict = verdict.get(verdict_key) if verdict_key is not None else None
-            if label_verdict == UNKNOWN:
+            if verdict_key is not None and output.get(verdict_key) == UNKNOWN:
                 unknown += 1
             else:
                 classified += 1
 
             row = [
                 _truncate(company, _COMPANY_WIDTH),
-                _truncate(signup_domain, _DOMAIN_WIDTH) if signup_domain else "-",
-                _verdict_str(label_verdict),
-                f"{verdict.get('confidence', 0.0):.2f}",
-                _truncate(str(verdict.get("reasoning", "")), _REASONING_WIDTH),
+                _truncate(signup_domain, _DOMAIN_WIDTH) if signup_domain else _MISSING,
             ]
-            if compare_version:
+            row += [
+                _truncate(_cell(output, field), _VALUE_WIDTHS.get(field["type"], _VALUE_WIDTHS["string"]))
+                for field in config.output_fields
+            ]
+            if compare_config is not None:
                 prior = (
                     EnrichmentLabelResult.objects.filter(
                         organization_id=fetch.organization_id, label_name=label, prompt_version=compare_version
@@ -124,10 +145,11 @@ class Command(BaseCommand):
                     .order_by("-created_at")
                     .first()
                 )
-                if prior is not None:
-                    row += [_verdict_str(prior.output.get(label)), f"{prior.output.get('confidence', 0.0):.2f}"]
-                else:
-                    row += ["-", "-"]
+                prior_output = prior.output if prior is not None else {}
+                row += [
+                    _truncate(_cell(prior_output, field), _VALUE_WIDTHS.get(field["type"], _VALUE_WIDTHS["string"]))
+                    for field in compare_config.output_fields
+                ]
             self.stdout.write(row_fmt.format(*row))
 
         summary = f"classified {classified}, unknown {unknown}, errors {errors}"

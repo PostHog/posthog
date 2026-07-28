@@ -1,43 +1,59 @@
 """Staff-only DRF API for the enrichment "score lab": list labels, list a label's prompt
 config versions, dry-run a draft config against recent archived orgs, save a new immutable
-version, and flip which version is active.
+version, rename a label, and flip which version is active.
 
 Shaped around config version + input rows + verdict rows, not around enrichment orgs, so the
 same contract can host a future team-scoped customer-facing product without a rewrite. Reuses
-the classification runner in products.growth.backend.enrichment.lab - the same module the
-admin lab UI (products/growth/backend/admin.py) is built on - so the two surfaces can never
-drift on how a verdict is computed.
+the classification runner in products.growth.backend.enrichment.lab - the same module the batch
+runner is built on - so a dry run and a shadow run can never drift on how a verdict is computed.
+
+Serializers live in score_lab_serializers.py.
 """
 
+import re
 import json
 from collections.abc import AsyncIterator
 from typing import Any, cast
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Count, Q
 from django.http.response import HttpResponseBase
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field, extend_schema_serializer
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import renderers, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.throttling import UserRateThrottle
 
 from posthog.api.mixins import validated_request
 from posthog.api.streaming import streaming_response
 from posthog.api.utils import ErrorResponseSerializer
+from posthog.exceptions import Conflict
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.llm.gateway_client import get_llm_client
 from posthog.models import User
 from posthog.permissions import IsStaffUser
+from posthog.renderers import SafeJSONRenderer
 
-from products.growth.backend.enrichment.input_query import InputQueryError, parse_input_query, run_input_query
+from products.growth.backend.api.score_lab_serializers import (
+    ActivateRequestSerializer,
+    ConfigListResponseSerializer,
+    ConfigsQuerySerializer,
+    ConfigVersionSerializer,
+    GatewayModelListResponseSerializer,
+    InputFieldListResponseSerializer,
+    LabelListResponseSerializer,
+    RenameRequestSerializer,
+    RunRequestSerializer,
+    SaveRequestSerializer,
+)
+from products.growth.backend.enrichment.input_query import InputQueryError, run_input_query
 from products.growth.backend.enrichment.lab import (
-    DEFAULT_SAMPLE_SIZE,
-    GATEWAY_MODEL_CHOICES,
-    LABEL_SLUG_RE,
+    HARMONIC_INPUT_FIELDS,
     MAX_SAMPLE_SIZE,
     RunClassifyFn,
     classify_fetch_for_run,
@@ -47,9 +63,6 @@ from products.growth.backend.enrichment.lab import (
     stream_run_classifications,
 )
 from products.growth.backend.enrichment.labels import (
-    OUTPUT_FIELD_KEY_RE,
-    OUTPUT_FIELD_TYPES,
-    RESERVED_OUTPUT_FIELD_KEYS,
     UNKNOWN,
     recent_latest_fetches_qs,
     signup_domain_for_organization,
@@ -59,302 +72,43 @@ from products.growth.backend.models import EnrichmentLabelResult, EnrichmentProm
 
 logger = structlog.get_logger(__name__)
 
+# (items, how to classify one of them, source name for logging). The archived-fetch source
+# yields (fetch, signup_domain) pairs, the HogQL source yields plain result rows.
+RunInputs = tuple[list[Any], RunClassifyFn, str]
 
-_OUTPUT_FIELDS_SCHEMA = {
-    "type": "array",
-    "items": {
-        "type": "object",
-        "properties": {
-            "key": {
-                "type": "string",
-                "description": "Output key, e.g. ai_pilled. Must match ^[a-z][a-z0-9_]*$, be unique, and not "
-                "be 'meta' or 'inputs' (reserved for provenance).",
-            },
-            "type": {
-                "type": "string",
-                "enum": list(OUTPUT_FIELD_TYPES),
-                "description": "Value type the LLM must return for this key.",
-            },
-            "description": {
-                "type": "string",
-                "description": "Shown to the LLM to describe what this key means. Optional.",
-            },
-        },
-        "required": ["key", "type"],
-    },
-}
+# Server-assigned version identity. Legacy hand-written versions (ai-pilled-clay-v1) don't match
+# and are simply skipped when picking the next one.
+_VERSION_SUFFIX_RE = re.compile(r"v(\d+)")
 
 
-@extend_schema_field(_OUTPUT_FIELDS_SCHEMA)
-class OutputFieldsField(serializers.JSONField):
-    pass
+def _next_version(label: str) -> str:
+    """The label's next `v<n>`, from the highest suffix already used rather than a row count.
 
-
-def _validate_output_fields(value: Any) -> list[dict[str, str]]:
-    """Shared by RunRequestSerializer and SaveRequestSerializer - a plain function (not a mixin
-    validate_output_fields) so both can call it with the same error shape from validate()."""
-    if not value:
-        return []
-    if not isinstance(value, list):
-        raise serializers.ValidationError("output_fields must be a list of {key, type, description} objects.")
-    seen_keys: set[str] = set()
-    cleaned: list[dict[str, str]] = []
-    for item in value:
-        if not isinstance(item, dict):
-            raise serializers.ValidationError("Each output field must be an object with key/type/description.")
-        key = item.get("key")
-        field_type = item.get("type")
-        if not isinstance(key, str) or not OUTPUT_FIELD_KEY_RE.match(key):
-            raise serializers.ValidationError(
-                f"{key!r} is not a valid output field key (lowercase, starts with a letter, "
-                "letters/digits/underscore only)."
-            )
-        if key in RESERVED_OUTPUT_FIELD_KEYS:
-            raise serializers.ValidationError(f"{key!r} is a reserved key and cannot be used as an output field.")
-        if key in seen_keys:
-            raise serializers.ValidationError(f"Duplicate output field key {key!r}.")
-        if field_type not in OUTPUT_FIELD_TYPES:
-            raise serializers.ValidationError(
-                f"{field_type!r} is not a valid output field type (must be one of {', '.join(OUTPUT_FIELD_TYPES)})."
-            )
-        seen_keys.add(key)
-        cleaned.append({"key": key, "type": field_type, "description": str(item.get("description") or "")})
-    return cleaned
-
-
-def _validate_input_query(value: str | None) -> str | None:
-    if not value:
-        return None
-    try:
-        parse_input_query(value)
-    except InputQueryError as e:
-        raise serializers.ValidationError(str(e))
-    return value
-
-
-def _valid_models_for_label(label: str) -> set[str]:
-    """A model is acceptable on run/save if it's curated, gateway-listed right now, or already
-    persisted on some version of this label (a legacy model the gateway later dropped must stay
-    runnable for whichever version already used it)."""
-    persisted = set(EnrichmentPromptConfig.objects.filter(name=label).values_list("model", flat=True))
-    return persisted | set(GATEWAY_MODEL_CHOICES) | set(list_gateway_models())
-
-
-class LabelSummarySerializer(serializers.Serializer):
-    label = serializers.CharField(help_text="Label name computed by one or more prompt config versions.")  # type: ignore[assignment]  # DRF Field.label collides with a field named label
-    version_count = serializers.IntegerField(help_text="Number of prompt config versions saved for this label.")
-    active_version = serializers.CharField(
-        allow_null=True, help_text="Version string the batch runner currently computes for this label, or null."
+    Counting recycles a version string after any row is removed, which would silently
+    reattribute every verdict stamped with it to a prompt that never produced it. Must be called
+    inside a transaction: the row lock is what stops two concurrent saves picking the same n.
+    """
+    existing = EnrichmentPromptConfig.objects.select_for_update().filter(name=label)
+    highest = max(
+        (int(match.group(1)) for config in existing if (match := _VERSION_SUFFIX_RE.fullmatch(config.version))),
+        default=0,
     )
+    return f"v{highest + 1}"
 
 
-@extend_schema_serializer(many=False)
-class LabelListResponseSerializer(serializers.Serializer):
-    results = LabelSummarySerializer(many=True, help_text="Distinct labels, alphabetical.")
+def _build_run_inputs(data: dict[str, Any]) -> RunInputs:
+    """All the ORM/ClickHouse work a run needs, done up front on the request thread: workers
+    only make LLM calls (see stream_run_classifications), so no query runs mid-stream."""
+    if data["input_query"]:
+        return run_input_query(data["input_query"], data["sample"]), classify_row_for_run, "query"
 
-
-class GatewayModelSerializer(serializers.Serializer):
-    id = serializers.CharField(help_text="Gateway model id, usable as `model` on run/save.")
-
-
-@extend_schema_serializer(many=False)
-class GatewayModelListResponseSerializer(serializers.Serializer):
-    results = GatewayModelSerializer(
-        many=True,
-        help_text="Models the gateway currently lists (cached for 5 minutes), or the curated "
-        "fallback list if the gateway is unreachable.",
-    )
-
-
-class ConfigVersionSerializer(serializers.Serializer):
-    id = serializers.UUIDField(help_text="Prompt config row id.")
-    name = serializers.CharField(help_text="Label this config computes, e.g. ai_pilled.")
-    version = serializers.CharField(help_text="Human-readable classifier version, e.g. ai-pilled-clay-v1.")
-    prompt_text = serializers.CharField(
-        help_text="System prompt; {email} is replaced with the signup email domain at runtime."
-    )
-    model = serializers.CharField(help_text="Gateway model id this version was authored against.")
-    input_fields = serializers.ListField(
-        child=serializers.CharField(),
-        help_text="Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. "
-        "Ignored when input_query is set.",
-    )
-    input_query = serializers.CharField(
-        allow_null=True,
-        help_text="HogQL SELECT defining classifier input rows, an alternative to input_fields. Null when "
-        "input_fields is used instead. Each result row becomes one classification input; a 'company' or "
-        "'domain' column (if present) is used for display, and every column is passed to the prompt as the "
-        "Company data JSON keyed by column name.",
-    )
-    output_fields = OutputFieldsField(
-        help_text="Configurable output schema: list of {key, type, description}. type is 'boolean', 'number', "
-        "or 'string'. Empty (the default) means the legacy output shape "
-        "({<name>: boolean, confidence: number 0-1, reasoning: string})."
-    )
-    is_active = serializers.BooleanField(help_text="Whether the batch runner currently computes this version.")
-    created_by_email = serializers.SerializerMethodField(
-        help_text="Email of the staff user who created this version, or null for system-seeded rows."
-    )
-    created_at = serializers.DateTimeField(help_text="When this version was created.")
-    has_results = serializers.SerializerMethodField(
-        help_text="Whether any EnrichmentLabelResult rows reference this version. Once true the version is "
-        "frozen - prompt_text, model, input_fields, input_query, and output_fields can never change "
-        "(FROZEN_FIELDS immutability)."
-    )
-
-    @extend_schema_field(serializers.EmailField(allow_null=True))
-    def get_created_by_email(self, obj: EnrichmentPromptConfig) -> str | None:
-        return obj.created_by.email if obj.created_by else None
-
-    @extend_schema_field(serializers.BooleanField())
-    def get_has_results(self, obj: EnrichmentPromptConfig) -> bool:
-        return obj.version in self.context.get("versions_with_results", set())
-
-
-@extend_schema_serializer(many=False)
-class ConfigListResponseSerializer(serializers.Serializer):
-    results = ConfigVersionSerializer(many=True, help_text="Versions for the requested label, newest first.")
-
-
-class ConfigsQuerySerializer(serializers.Serializer):
-    label = serializers.CharField(help_text="Label name to list prompt config versions for.")  # type: ignore[assignment]  # DRF Field.label collides with a field named label
-
-
-class RunRequestSerializer(serializers.Serializer):
-    label = serializers.CharField(  # type: ignore[assignment]
-        max_length=128,
-        help_text="Label this config computes, e.g. ai_pilled. Need not already exist - run classifies "
-        "against an in-memory config only and persists nothing.",
-    )
-    prompt_text = serializers.CharField(
-        help_text="System prompt; {email} is replaced with the signup email domain at runtime."
-    )
-    model = serializers.CharField(
-        max_length=128,
-        help_text="Gateway model to classify with, routed through the LLM gateway. Must be a curated model "
-        "(see GET /models/), a model the gateway currently lists, or one already persisted on this label.",
-    )
-    input_fields = serializers.ListField(
-        child=serializers.CharField(),
-        required=False,
-        default=list,
-        help_text="Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. "
-        "Ignored when input_query is set.",
-    )
-    input_query = serializers.CharField(
-        required=False,
-        allow_null=True,
-        allow_blank=True,
-        default=None,
-        help_text="HogQL SELECT defining classifier input rows, an alternative to input_fields. When set, rows "
-        "are built from this query (capped at `sample` rows) instead of recently archived orgs; 'contains' is "
-        "ignored. Parsed and validated on submit but never executed until /run/ actually runs.",
-    )
-    output_fields = OutputFieldsField(
-        required=False,
-        default=list,  # type: ignore[arg-type]  # drf-stubs types JSONField.default as Mapping-only
-        help_text="Configurable output schema: list of {key, type, description}. type is 'boolean', 'number', "
-        "or 'string'. Empty (the default) means the legacy output shape "
-        "({<label>: boolean, confidence: number 0-1, reasoning: string}). Keys must match ^[a-z][a-z0-9_]*$, "
-        "be unique, and not be 'meta' or 'inputs'.",
-    )
-    sample = serializers.IntegerField(
-        required=False,
-        default=DEFAULT_SAMPLE_SIZE,
-        min_value=1,
-        max_value=MAX_SAMPLE_SIZE,
-        help_text=f"Number of rows to classify (1-{MAX_SAMPLE_SIZE}): recent archived orgs, or HogQL query rows "
-        "when input_query is set. Each sampled row costs one LLM call, so keep this bounded during iteration.",
-    )
-    contains = serializers.CharField(
-        required=False,
-        default="",
-        allow_blank=True,
-        help_text="Optional case-insensitive substring filter on the archived company or organization name. "
-        "Ignored when input_query is set.",
-    )
-
-    def validate_input_query(self, value: str | None) -> str | None:
-        return _validate_input_query(value)
-
-    def validate_output_fields(self, value: Any) -> list[dict[str, str]]:
-        return _validate_output_fields(value)
-
-    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        model = attrs["model"]
-        if model not in _valid_models_for_label(attrs["label"]):
-            raise serializers.ValidationError({"model": f"{model!r} is not a valid gateway model."})
-        return attrs
-
-
-class SaveRequestSerializer(serializers.Serializer):
-    label = serializers.CharField(max_length=128, help_text="Label this config computes, e.g. ai_pilled.")  # type: ignore[assignment]  # DRF Field.label collides with a field named label
-    version = serializers.CharField(
-        max_length=128,
-        help_text="Human-readable classifier version, e.g. ai-pilled-clay-v2. Must be unique per label.",
-    )
-    prompt_text = serializers.CharField(
-        help_text="System prompt; {email} is replaced with the signup email domain at runtime."
-    )
-    model = serializers.CharField(
-        max_length=128,
-        help_text="Gateway model to classify with, routed through the LLM gateway. Must be a curated model "
-        "(see GET /models/), a model the gateway currently lists, or one already persisted on this label.",
-    )
-    input_fields = serializers.ListField(
-        child=serializers.CharField(),
-        required=False,
-        default=list,
-        help_text="Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. "
-        "Ignored when input_query is set.",
-    )
-    input_query = serializers.CharField(
-        required=False,
-        allow_null=True,
-        allow_blank=True,
-        default=None,
-        help_text="HogQL SELECT defining classifier input rows, an alternative to input_fields. Parsed and "
-        "validated on save but never executed - execution only happens on /run/.",
-    )
-    output_fields = OutputFieldsField(
-        required=False,
-        default=list,  # type: ignore[arg-type]  # drf-stubs types JSONField.default as Mapping-only
-        help_text="Configurable output schema: list of {key, type, description}. type is 'boolean', 'number', "
-        "or 'string'. Empty (the default) means the legacy output shape "
-        "({<label>: boolean, confidence: number 0-1, reasoning: string}). Keys must match ^[a-z][a-z0-9_]*$, "
-        "be unique, and not be 'meta' or 'inputs'.",
-    )
-
-    def validate_input_query(self, value: str | None) -> str | None:
-        return _validate_input_query(value)
-
-    def validate_output_fields(self, value: Any) -> list[dict[str, str]]:
-        return _validate_output_fields(value)
-
-    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        label = attrs["label"]
-        version = attrs["version"]
-        # This endpoint only ever creates rows (FROZEN_FIELDS immutability - see
-        # EnrichmentPromptConfig docstring): an existing (label, version) pair is always
-        # rejected, never updated in place.
-        if EnrichmentPromptConfig.objects.filter(name=label, version=version).exists():
-            raise serializers.ValidationError({"version": f"Version {version!r} already exists for {label!r}."})
-        is_new_label = not EnrichmentPromptConfig.objects.filter(name=label).exists()
-        if is_new_label and not LABEL_SLUG_RE.match(label):
-            raise serializers.ValidationError(
-                {
-                    "label": f"{label!r} is not a valid label slug (lowercase, starts with a letter, "
-                    "letters/digits/underscore only)."
-                }
-            )
-        model = attrs["model"]
-        if model not in _valid_models_for_label(label):
-            raise serializers.ValidationError({"model": f"{model!r} is not a valid gateway model."})
-        return attrs
-
-
-class ActivateRequestSerializer(serializers.Serializer):
-    config_id = serializers.UUIDField(help_text="Prompt config id to activate for its label.")
+    candidates = recent_latest_fetches_qs()
+    contains = data["contains"].strip()
+    if contains:
+        candidates = candidates.filter(Q(payload__name__icontains=contains) | Q(organization__name__icontains=contains))
+    fetches = list(candidates.select_related("organization")[: data["sample"]])
+    items = [(fetch, signup_domain_for_organization(fetch.organization)) for fetch in fetches]
+    return items, classify_fetch_for_run, "archived_fetch"
 
 
 class NDJSONRenderer(renderers.BaseRenderer):
@@ -366,6 +120,15 @@ class NDJSONRenderer(renderers.BaseRenderer):
 
     def render(self, data: Any, accepted_media_type: str | None = None, renderer_context: Any = None) -> bytes:
         return json.dumps(data).encode()
+
+
+class ScoreLabRunThrottle(UserRateThrottle):
+    """The global throttles are PersonalApiKeyRateThrottle subclasses, which pass straight through
+    for a session-authenticated request with no personal API key - so this endpoint would otherwise
+    have no limit at all. Each allowed call can cost up to MAX_SAMPLE_SIZE LLM completions."""
+
+    scope = "score_lab_run"
+    rate = "20/hour"
 
 
 class ScoreLabViewSet(viewsets.ViewSet):
@@ -411,6 +174,11 @@ class ScoreLabViewSet(viewsets.ViewSet):
         results = [{"id": model_id} for model_id in list_gateway_models()]
         return response.Response(GatewayModelListResponseSerializer({"results": results}).data)
 
+    @validated_request(responses={200: OpenApiResponse(response=InputFieldListResponseSerializer)})
+    @action(methods=["GET"], detail=False, url_path="input_fields")
+    def input_fields(self, request: request.Request, **kwargs: Any) -> response.Response:
+        return response.Response(InputFieldListResponseSerializer({"results": HARMONIC_INPUT_FIELDS}).data)
+
     @validated_request(
         query_serializer=ConfigsQuerySerializer,
         responses={200: OpenApiResponse(response=ConfigListResponseSerializer)},
@@ -442,15 +210,19 @@ class ScoreLabViewSet(viewsets.ViewSet):
         responses={(200, "application/x-ndjson"): OpenApiTypes.STR},
         summary="Stream classifier verdicts for an unsaved draft config against recent archived orgs or a "
         "HogQL input query.",
-        description="One JSON object per line: a verdict row as each LLM call completes, then a final "
-        "{summary: {classified, unknown, errors}} line. A legacy config (no output_fields) emits "
-        "{company, domain, verdict, confidence, reasoning} rows; a configurable output schema (output_fields "
-        "set) emits {company, domain, outputs: {<key>: value, ...}} rows instead. When input_query is set, "
-        "rows are built from that HogQL query (capped at `sample`) instead of recently archived orgs. "
-        "Persists nothing - spends real LLM money, so sample is capped at "
-        f"{MAX_SAMPLE_SIZE}.",
+        description="One JSON object per line: a {company, domain, outputs: {<key>: value, ...}} row as each "
+        "LLM call completes, keyed by the submitted output_fields, then a final "
+        "{summary: {classified, unknown, errors}} line. A run that fails partway ends with "
+        "{error, aborted: true} instead of a summary. When input_query is set, rows are built from that "
+        "HogQL query (capped at `sample`) instead of recently archived orgs. Persists nothing - spends real "
+        f"LLM money, so sample is capped at {MAX_SAMPLE_SIZE} and the endpoint is rate limited.",
     )
-    @action(methods=["POST"], detail=False, renderer_classes=[renderers.JSONRenderer, NDJSONRenderer])
+    @action(
+        methods=["POST"],
+        detail=False,
+        throttle_classes=[ScoreLabRunThrottle],
+        renderer_classes=[SafeJSONRenderer, NDJSONRenderer],
+    )
     def run(self, request: request.Request, **kwargs: Any) -> HttpResponseBase:
         serializer = RunRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -468,26 +240,12 @@ class ScoreLabViewSet(viewsets.ViewSet):
             output_fields=data["output_fields"],
         )
 
-        # All ORM/ClickHouse work happens here on the request thread; workers only make LLM
-        # calls - see stream_run_classifications.
-        items: list[Any]
-        classify_one: RunClassifyFn
-        if data["input_query"]:
-            items = run_input_query(data["input_query"], data["sample"])
-            classify_one = classify_row_for_run
-            input_source = "query"
-        else:
-            candidates = recent_latest_fetches_qs()
-            contains = data["contains"].strip()
-            if contains:
-                candidates = candidates.filter(
-                    Q(payload__name__icontains=contains) | Q(organization__name__icontains=contains)
-                )
-            fetches = list(candidates.select_related("organization")[: data["sample"]])
-            items = [(fetch, signup_domain_for_organization(fetch.organization)) for fetch in fetches]
-            classify_one = classify_fetch_for_run
-            input_source = "archived_fetch"
-
+        try:
+            items, classify_one, input_source = _build_run_inputs(data)
+        except InputQueryError as e:
+            # A query can parse at save time and still fail to execute (unresolved placeholder,
+            # unknown column). That's bad input from the query box, not a server fault.
+            raise serializers.ValidationError({"input_query": str(e)})
         client = get_llm_client(product="growth")
 
         logger.info(
@@ -502,22 +260,38 @@ class ScoreLabViewSet(viewsets.ViewSet):
         )
 
         verdict_key = verdict_field_key(draft_config)
+        label = data["label"]
 
         # No ORM work happens inside the stream (items are prefetched above), so the
         # request-thread connections can be released before streaming starts.
         async def _stream() -> AsyncIterator[bytes]:
             classified = unknown = errors = 0
-            async for company, domain, output, error in stream_run_classifications(
-                draft_config, items, classify_one, client
-            ):
-                if error is not None:
-                    errors += 1
-                elif verdict_key is not None and output is not None and output.get(verdict_key) == UNKNOWN:
-                    unknown += 1
-                else:
-                    classified += 1
-                row = format_run_row(draft_config, company, domain, output, error)
-                yield (json.dumps(row) + "\n").encode()
+            try:
+                async for company, domain, output, error in stream_run_classifications(
+                    draft_config, items, classify_one, client
+                ):
+                    if error is not None:
+                        errors += 1
+                    elif verdict_key is not None and output is not None and output.get(verdict_key) == UNKNOWN:
+                        unknown += 1
+                    else:
+                        classified += 1
+                    row = format_run_row(draft_config, company, domain, output, error)
+                    yield (json.dumps(row) + "\n").encode()
+            except Exception as e:
+                # The response is already 200 with rows sent, so the only way to tell the client
+                # apart from a completed run is a terminal line it can look for.
+                capture_exception(e, {"label": label})
+                yield (json.dumps({"error": f"{type(e).__name__}: run failed", "aborted": True}) + "\n").encode()
+                return
+            logger.info(
+                "growth_score_lab_run_complete",
+                label=label,
+                model=draft_config.model,
+                classified=classified,
+                unknown=unknown,
+                errors=errors,
+            )
             summary = {"summary": {"classified": classified, "unknown": unknown, "errors": errors}}
             yield (json.dumps(summary) + "\n").encode()
 
@@ -525,23 +299,34 @@ class ScoreLabViewSet(viewsets.ViewSet):
 
     @validated_request(
         request_serializer=SaveRequestSerializer,
-        responses={201: OpenApiResponse(response=ConfigVersionSerializer)},
+        responses={
+            201: OpenApiResponse(response=ConfigVersionSerializer),
+            409: OpenApiResponse(
+                response=ErrorResponseSerializer, description="A concurrent save took this version. Retry."
+            ),
+        },
     )
     @action(methods=["POST"], detail=False)
     def save(self, request: request.Request, **kwargs: Any) -> response.Response:
         data = request.validated_data
-        # IsAuthenticated + IsStaffUser guarantee a real User here.
-        config = EnrichmentPromptConfig.objects.create(
-            name=data["label"],
-            version=data["version"],
-            prompt_text=data["prompt_text"],
-            model=data["model"],
-            input_fields=data["input_fields"],
-            input_query=data["input_query"],
-            output_fields=data["output_fields"],
-            is_active=False,
-            created_by=cast(User, request.user),
-        )
+        try:
+            # IsAuthenticated + IsStaffUser guarantee a real User here.
+            with transaction.atomic():
+                config = EnrichmentPromptConfig.objects.create(
+                    name=data["label"],
+                    version=_next_version(data["label"]),
+                    prompt_text=data["prompt_text"],
+                    model=data["model"],
+                    input_fields=data["input_fields"],
+                    input_query=data["input_query"],
+                    output_fields=data["output_fields"],
+                    is_active=False,
+                    created_by=cast(User, request.user),
+                )
+        except IntegrityError:
+            # A brand-new label has no rows for _next_version to lock, so two concurrent first
+            # saves can both pick v1. Retrying is the caller's move; this must not be a 500.
+            raise Conflict("Another save for this label landed first. Try again.")
 
         logger.info(
             "growth_score_lab_save",
@@ -585,6 +370,45 @@ class ScoreLabViewSet(viewsets.ViewSet):
             version=config.version,
         )
 
+        has_results = EnrichmentLabelResult.objects.filter(
+            label_name=config.name, prompt_version=config.version
+        ).exists()
+        serializer = ConfigVersionSerializer(
+            config, context={"versions_with_results": {config.version} if has_results else set()}
+        )
+        return response.Response(serializer.data)
+
+    @validated_request(
+        request_serializer=RenameRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=ConfigVersionSerializer),
+            404: OpenApiResponse(response=ErrorResponseSerializer, description="Config not found."),
+        },
+    )
+    @action(methods=["POST"], detail=False)
+    def rename(self, request: request.Request, **kwargs: Any) -> response.Response:
+        """Rename a label. Purely cosmetic: the classifier's output contract is output_fields,
+        so no stored verdict changes meaning and no config's content_hash moves."""
+        data = request.validated_data
+        config = EnrichmentPromptConfig.objects.filter(pk=data["config_id"]).first()
+        if config is None:
+            raise NotFound(f"Config {data['config_id']} not found.")
+
+        new_label = data["label"]
+        old_label = config.name
+        with transaction.atomic():
+            # A label is shared by all of its versions, and the batch runner looks work up by
+            # label name, so every sibling moves too or the label silently splits in two.
+            EnrichmentPromptConfig.objects.filter(name=old_label).update(name=new_label)
+            EnrichmentLabelResult.objects.filter(label_name=old_label).update(label_name=new_label)
+
+        config.refresh_from_db()
+        logger.info(
+            "growth_score_lab_rename",
+            staff_user_id=request.user.id,
+            was_impersonated=is_impersonated(request),
+            label=config.name,
+        )
         has_results = EnrichmentLabelResult.objects.filter(
             label_name=config.name, prompt_version=config.version
         ).exists()
