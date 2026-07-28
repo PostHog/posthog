@@ -62,7 +62,7 @@ class Command(BaseCommand):
                 ],
             },
             # Google Ads API v21 sunsets 2026-08-05 (VERSION_SUNSET). Bump the pinned version in
-            # existing destinations to v24 (current major, sunsets ~2026-05). Covers the whole stale
+            # existing destinations to v24 (current major, sunsets ~2027-05). Covers the whole stale
             # range v18-v23 since destinations carry whatever version the template pinned when created;
             # only one matches per destination, and a v24 no-op is skipped.
             "google-ads-api-version-update": {
