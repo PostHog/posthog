@@ -206,6 +206,16 @@ class TestWorkbookBudgets(SimpleTestCase):
                 list_sheets(team_id=1, upload_id="u1", filename="book.xlsx")
         assert "too many internal parts" in str(ctx.exception)
 
+    def test_rejects_a_workbook_with_too_many_columns_across_sheets(self) -> None:
+        # The per-sheet cap alone multiplies across thousands of sheets; the aggregate budget bounds
+        # what discovery renders and what the memo retains per entry.
+        data = _workbook_bytes({"S1": [["a", "b"], [1, 2]], "S2": [["c", "d"], [3, 4]]})
+        with patch(f"{MODULE}.MAX_TOTAL_COLUMNS", 3):
+            with patch(f"{MODULE}.get_s3_client", return_value=_FakeS3(data)):
+                with self.assertRaises(ExcelReadError) as ctx:
+                    list_sheets(team_id=1, upload_id="u1", filename="book.xlsx")
+        assert "too many columns across its sheets" in str(ctx.exception)
+
     def test_rejects_a_sheet_with_too_many_columns(self) -> None:
         data = _workbook_bytes({"Wide": [["a", "b", "c"], [1, 2, 3]]})
         with patch(f"{MODULE}.MAX_COLUMNS_PER_SHEET", 2):

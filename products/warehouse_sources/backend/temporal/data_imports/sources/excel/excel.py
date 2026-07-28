@@ -46,6 +46,11 @@ MAX_ZIP_MEMBERS = 10_000
 # they're useful, and a bomb can declare them for free.
 MAX_COLUMNS_PER_SHEET = 2000
 
+# Workbook-wide budget on discovered columns, so the per-sheet cap can't be multiplied across
+# thousands of sheets — that aggregate is what the schema UI must render and what the discovery memo
+# retains per entry. Real workbooks are dozens of sheets times dozens of columns.
+MAX_TOTAL_COLUMNS = 20_000
+
 
 class ExcelReadError(Exception):
     """The workbook couldn't be read. The message is safe to surface to the user."""
@@ -148,7 +153,7 @@ def dedupe_headers(header: tuple) -> list[str]:
     return names
 
 
-@lru_cache(maxsize=128)
+@lru_cache(maxsize=8)
 def list_sheets(team_id: int, upload_id: str, filename: str) -> list[tuple[str, list[str]]]:
     """Every sheet in the workbook as ``(sheet_name, column_names)``.
 
@@ -156,20 +161,28 @@ def list_sheets(team_id: int, upload_id: str, filename: str) -> list[tuple[str, 
     column-selection picker. A sheet with no usable header row is skipped rather than surfaced as an
     unimportable table.
 
-    Memoized per process: an upload is immutable (replacing the file mints a new upload_id), the
-    result is a few column names, and discovery runs in web requests that call this twice each
-    (credential validation, then the schema list) — without the cache every call re-downloads and
-    re-parses a workbook of up to 50 MB. Callers must not mutate the returned value.
+    Memoized per process: an upload is immutable (replacing the file mints a new upload_id), and
+    discovery runs in web requests that call this twice each (credential validation, then the schema
+    list) — without the cache every call re-downloads and re-parses a workbook of up to 50 MB. The
+    retained footprint is bounded: each entry is capped by MAX_TOTAL_COLUMNS, and discovery is a
+    bursty setup activity so a handful of recent workbooks per worker is plenty. Callers must not
+    mutate the returned value.
     """
     workbook = _open_workbook(_uploaded_workbook_bytes(team_id, upload_id, filename))
     try:
         sheets: list[tuple[str, list[str]]] = []
+        total_columns = 0
         for worksheet in workbook.worksheets:
             header = next(worksheet.iter_rows(values_only=True), None)
             if not header or not any(cell is not None and str(cell).strip() for cell in header):
                 continue
             if len(header) > MAX_COLUMNS_PER_SHEET:
                 raise ExcelReadError(f"Sheet '{worksheet.title}' has too many columns (max {MAX_COLUMNS_PER_SHEET:,}).")
+            total_columns += len(header)
+            if total_columns > MAX_TOTAL_COLUMNS:
+                raise ExcelReadError(
+                    f"The workbook has too many columns across its sheets (max {MAX_TOTAL_COLUMNS:,})."
+                )
             sheets.append((worksheet.title, dedupe_headers(header)))
         return sheets
     finally:
