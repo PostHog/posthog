@@ -456,7 +456,11 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
                 return value
         return None
 
-    def get_connection_metadata(self, config: ClickHouseSourceConfig, team_id: int) -> dict[str, object]:
+    def get_connection_metadata(
+        self, config: ClickHouseSourceConfig, team_id: int, require_ssl: bool = False
+    ) -> dict[str, object]:
+        # `require_ssl` keeps signature parity with Postgres; ClickHouse transport SSL is governed by
+        # `config.secure`/`config.verify` below.
         with self.with_ssh_tunnel(config, team_id) as (host, port):
             return get_clickhouse_connection_metadata(
                 host=host,

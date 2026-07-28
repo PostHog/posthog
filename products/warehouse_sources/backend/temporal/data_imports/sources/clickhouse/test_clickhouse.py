@@ -39,6 +39,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ColumnTypeCategory,
     ValidatedRowFilter,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clickhouse import (
+    ClickHouseSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
 
 
@@ -1386,3 +1389,32 @@ class TestInternalHostTeamAllowlist:
 
         with patch.object(mixins, "get_instance_region", return_value=region):
             assert mixins.is_team_allowlisted_for_internal_hosts(team_id) is expected
+
+
+class TestGetConnectionMetadata:
+    # Direct-query setup calls this via `get_direct_connection_metadata` with a `require_ssl=`
+    # keyword, matching the Postgres/MySQL/Redshift/Snowflake signatures. ClickHouse shipped without
+    # the parameter, so every direct-query connection raised TypeError and silently fell back to
+    # empty metadata. Lock the keyword in.
+    def test_accepts_require_ssl_keyword(self):
+        config = ClickHouseSourceConfig(
+            host="ch.example.com",
+            database="default",
+            user="reader",
+            port=8443,
+            password="secret",
+        )
+        tunnel_cm = MagicMock()
+        tunnel_cm.__enter__.return_value = ("ch.example.com", 8443)
+        with (
+            patch.object(ClickHouseSource, "with_ssh_tunnel", return_value=tunnel_cm),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.source.get_clickhouse_connection_metadata",
+                return_value={"engine": "clickhouse", "database": "default"},
+            ) as mock_metadata,
+        ):
+            metadata = ClickHouseSource().get_connection_metadata(config, team_id=1, require_ssl=True)
+
+        assert metadata == {"engine": "clickhouse", "database": "default"}
+        # Accepted for parity but not forwarded — ClickHouse SSL is governed by `config.secure`/`config.verify`.
+        assert "require_ssl" not in mock_metadata.call_args.kwargs
