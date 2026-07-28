@@ -1047,13 +1047,13 @@ class TestInsightAlertSnooze(TestCase):
 
     def _post_interactivity(self, payload: dict) -> Any:
         body_str = f"payload={json.dumps(payload)}"
-        signature, ts = sign_slack_request(body_str.encode(), self.signing_secret)
+        signed = sign_slack_request(body_str.encode(), self.signing_secret)
         return self.client.post(
             "/slack/interactivity-callback/",
             data=body_str,
             content_type="application/x-www-form-urlencoded",
-            HTTP_X_SLACK_SIGNATURE=signature,
-            HTTP_X_SLACK_REQUEST_TIMESTAMP=ts,
+            HTTP_X_SLACK_SIGNATURE=signed.signature,
+            HTTP_X_SLACK_REQUEST_TIMESTAMP=signed.timestamp,
         )
 
     @parameterized.expand(["1h", "6h", "1d", "1w"])
