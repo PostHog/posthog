@@ -198,6 +198,72 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ BUILT 2026-07-27 — reviews surface exposed as MCP tools (grantable `review_hog` scope)
+
+Agents needed to drive ReviewHog over MCP — kick off a review, poll progress, pull the finished findings
+([PR #72917](https://github.com/PostHog/posthog/pull/72917)). The capabilities already existed as the reviews
+viewset behind the Code review UI; the blocker was auth: the viewset was `scope_object = "INTERNAL"`
+(session-only), unreachable with the personal API key / OAuth token MCP authenticates with. Decisions:
+
+- **A grantable `review_hog` scope, not a widened INTERNAL.** The viewset moves to `scope_object = "review_hog"`
+  with `trigger` behind `review_hog:write` and `perspective_stats` behind `review_hog:read` (`list` / `retrieve`
+  map to `review_hog:read` by default). Session UI access is unchanged — this only adds token access. The scope
+  is mirrored across the standard lists (`posthog/scopes.py`, the frontend `API_SCOPE_OBJECTS` array + the PAK
+  modal in `scopes.tsx`, the generated agent / OAuth scope lists, the MCP guard lists).
+- **Three thin tools over the existing surface** (`products/review_hog/mcp/tools.yaml`):
+  `review-hog-reviews-trigger` (write), `review-hog-reviews-list` (status polling — running turns first with the
+  `progress` stage / counters), `review-hog-reviews-get` (validated + dismissed findings, published body). All
+  three are gated on the `review-hog` feature flag — the same flag that gates the Code review menu entry —
+  evaluated fail-closed at MCP init. The other scaffolded operations (settings, perspectives, validators, blind
+  spots, perspective stats) stay `enabled: false` until an agent job needs them.
+- **Identity + gates inherited, not widened:** an MCP-triggered review runs under the token's user — the same
+  "requester is both run user and acting user" rule as the UI trigger — and the trigger action keeps the
+  `REVIEWHOG_TEAM_ID` dogfood gate and its synchronous URL / App-access / fork / open-state checks regardless of
+  caller.
+
+### ✅ BUILT 2026-07-21 — held-back reviews reach PR authors (deep links, authored-PRs scope, truthful drawer + comment)
+
+Dogfooding surfaced a dead-end: a review triggered from the Code review scene runs under the **requester's**
+`urgency_threshold` ("requester wins" — deliberate, unchanged), and when every finding fell below it, publish
+self-skipped and the findings were effectively invisible to the PR author — not in their "For you" tab (which
+matched `acting_user` only), no way to link to the report (drawer state was kea-only), the status comment
+blamed "the author's … ReviewHog settings" for a threshold that wasn't theirs, and the drawer's "Published (N)"
+tab claimed publication for findings computed against the _viewer's current_ threshold. Decisions:
+
+- **Report deep links**: `/code_review?review=<report UUID>`, mirrored both ways by the existing URL sync in
+  `reviewHogSettingsLogic` (`replace`, never `push`, so drawer open/close doesn't stack history). The status
+  comment's held-back sentence links here ("View them in PostHog", auth-gated — same posture as Slack links),
+  which makes the param a **permanent public contract**. A deep link has no list row, so the drawer renders
+  entirely from the loaded detail (skeletons until then) via an id-only `openReviewDetailById` action.
+- **`ReviewReport.author_login`** (nullable, refreshed from `pr_metadata.author` every turn at upsert): the
+  "For you" scope becomes `acting_user = me OR author_login ~= my linked GitHub login` — the reverse of the
+  author→user mapping the reviewer already uses. Chosen over joining the snapshot jsonb (per-row parse on a
+  list endpoint) and over resolving login→user at write time (the mapping can change; the login is the stable
+  fact). No backfill: old rows stay null and re-stamp organically on their next turn. Accepted limit: authors
+  without a linked GitHub identity only get the PR-comment link.
+- **`ReviewReport.run_urgency_threshold`**, stamped at **finalize** (with `run_count` / `completed_head_sha`)
+  from the same snapshot the body renderer and publish gate consumed — NOT at resolve, which describes the
+  _next_ turn and would drift mid re-review under a different acting user. The drawer buckets by it; the
+  viewer-settings proxy survives only as the fallback for pre-column rows. "Published (N)" now reads "Kept (N)"
+  unless the review actually posted (`published_head_sha` set).
+- **Default-fallback threshold guard**: a default-resolved run (label trigger, unmapped author) now gates at
+  `DEFAULT_URGENCY_THRESHOLD` instead of the borrowed run user's saved threshold — the same "borrowed settings
+  must not leak into someone else's PR" rule that already forced `review_labeled_prs=True`. Applied where
+  `ResolveActingUserResult` is built so publish, the comment, and the finalize stamp agree. Consequence: a
+  default-resolved run gates at `consider`, so its held-back count is always 0 and the comment's "the default"
+  wording variant is defensive-only (kept + render-tested anyway).
+- **Bot-author guard on `_review_already_posted`**: the publish idempotency marker scan now requires
+  `user.type == "Bot"` like the status comment's `_find_marker_comment` always did — on a public repo anyone
+  can paste the marker, and a spoofed match silently suppressed the publish.
+- **Deferred residual (2026-07-24, pre-merge safety review):** the drawer's published flag is
+  report-lifetime, not per-turn — `published` = `published_head_sha IS NOT NULL`, while the drawer buckets
+  the latest completed turn. A once-published report whose later turn finalizes without posting (store-only
+  re-run, or publish failure past retries — finalize stamps before publish by design) shows that turn's
+  never-posted findings under "Published". Deferred as a follow-up with the user: the edge needs a
+  once-published report plus a never-posting later turn, and store-only re-runs are currently internal
+  experiments. Fix sketch in ARCHITECTURE.md's known issues (per-turn `published_head_sha ==
+completed_head_sha` on the detail payload).
+
 ### ✅ BUILT 2026-07-17 — one-shot LLM stages retry across provider overload spells
 
 First cross-repo dogfood run (a `PostHog/billing` PR via the Stage 5c UI trigger) died in dedup on
@@ -224,6 +290,20 @@ Badge alt text is the raw enum value (`![should_fix](…)`) so the priority stil
 Helpers `_shields_badge` / `_finding_badge_line` + `_PRIORITY_BADGE` carry the label/color map.
 Color mechanism was a user decision (badge images, Greptile-style, accepting the external-image dependency) over the GitHub-native emoji/alert alternative.
 An earlier iteration also surfaced the problem/fix inline and un-collapsed two sections; that was reverted — the collapsed structure is intentional and stays.
+
+### ✅ BUILT 2026-07-17 — comment readability: bulleted validator verdicts, shown first in the comment
+
+Grilled with the user 2026-07-17 (vocabulary in `CONTEXT.md`). Problem: published findings are meaningful but read as prose blobs.
+Constraint: zero quality loss for the validator and for anything reading validator output downstream.
+Key facts driving the design: the finding body is dual-audience (rendered verbatim on GitHub AND consumed by the validator's `ISSUE` payload, dedup's fresh/prior payloads, and future turns' covered-findings block), while the validator's `argumentation` is presentation-only for _valid_ findings (its sole pipeline consumer is dedup's `prior_ruling`, dismissed findings only) — and the full body always travels with the argumentation, in the same comment or payload.
+So the risk is **compression** (dropping information), not **structure** (same facts as labeled bullets); restructuring the validator's output is safe without an e2e round.
+
+What shipped (all prompt/template-level, reversible — no ADR):
+
+- **Verify, don't restate — the validator's `argumentation` is now labeled bullets** (Checked / Found / Impact / Priority): the verification delta only, never a restatement of the body's claim — restatement is where most of the bloat lived (real comments restated nearly every fact). Changed together: the field description (`models/issue_validation.py`), `prompts/issue_validation/prompt.jinja`, and the checked-in `schema.json` (hand-synced; `generate_all_schemas()` re-emits it at run start anyway). Not yet observed live — check the argumentation shape on the next dogfood run.
+- **Validation-first comment layout.** The argumentation is human-facing, so its `<details>` block moved to FIRST under the title + badge line — reading order: claim (title) → why it's real (validation bullets) → description / suggested fix / AI-fix prompt for whoever wants more. Applied in both renderers: `_format_issue_comment` (`publish_review.py`) and the body's off-diff section (`prepare_validation_markdown.py`). Everything stays collapsed (user choice — compact scan on multi-finding reviews).
+- **Reviewer finding body stays prose — deliberately not restructured.** It feeds three LLM stages (validator, dedup, covered-findings), so a shape change there would need e2e parity verification; the user dropped that thread (and the staged/eval-plan drafted earlier the same day) as not worth the runs right now. If ever revisited: 4-arm matrix (control / reviewer-only / validator-only / both) on the frozen-PR protocol.
+- Rejected alternatives: additive TL;DR field (blob remains when expanded — the actual pain), render-time compression pass (lossy rewriting on the published text humans act on, plus an extra LLM call per finding).
 
 ### ✅ BUILT 2026-07-15 — reviewing-stage progress copy: "Reviewing chunks" → "Running review passes"
 
@@ -681,6 +761,35 @@ The 5-row cap became the first page: the list grows by a page per "Show more" cl
 - Tests: BE — envelope + limit growth + has_more boundary at exact count + out-of-range 400s (wiring guard);
   jest — grow/collapse cycle (instant collapse, has_more preserved, scope flip resets the limit).
   Full suite: 503 backend + 3 jest green; `hogli build:openapi` regenerated cleanly (list function keeps its `reviewHogReviewsList` name).
+
+#### ✅ BUILT 2026-07-17 — page-level scope: the stats follow the "For you / Entire project" switch
+
+Supersedes the 2026-07-15 note that "`perspective_stats` stays personal": the split turned out to be
+the confusing part — flipping the list to Entire project left the hero and effectiveness cards
+silently personal, so the page showed one scope's list over another scope's numbers. One page-level
+switch now governs both. User decisions (grilled 2026-07-17): scope stays **project** (team), not
+org-wide; the switch moved to the **top of the page** (hero overline row), the Recent reviews
+section lost its local copy; project-scope effectiveness rows show **every** skill that raised
+findings (incl. teammates' customs — their names already surfaced via the everyone-scope detail
+drawer, and hero totals must equal the sum of rows); **all four** stat surfaces flip (hero proof
+card, Perspectives, Blind-spot, Validation criteria). Skill lists and toggles stay per-user — maybe
+skills follow later, deliberately not in this iteration.
+
+- **BE:** `GET reviews/perspective_stats/?scope=mine|everyone` (`PerspectiveStatsParamsSerializer`,
+  default `mine`) — `everyone` reuses the list's `_reports` scope plumbing; aggregation unchanged.
+- **Logic:** `loadPerspectiveStats` threads `values.reviewsScope` + takes a `breakpoint()`;
+  the scope listeners reload stats alongside the list, and `perspectiveStats → null` /
+  `recentReviewsPage → null` reducers on scope change drop the old data synchronously so the page
+  skeletons consistently instead of showing the wrong scope's stats or rows (the list half was a
+  PR-review finding: a failed reload would have stranded the other scope's rows on screen).
+  Persisted `reviewsScope` / URL `?reviews_scope=` / auto-default semantics untouched.
+- **UI:** `PageScopeSwitch` in the hero overline row; scope-aware copy — "findings worth the
+  team's time" / "This project's last N reviews" / validator card reads "Validation · dismissed by
+  validation" on project scope (the aggregate spans every author's active validator, so "your
+  quality bar" would lie).
+- Tests: BE — everyone-scope aggregation folds a teammate's report in + bad scope 400s (params-serializer
+  wiring guard), extended into the existing stats test; jest — scope flip rescopes the stats request and
+  nulls the stale value.
 
 #### ✅ BUILT 2026-07-02 — authoring guide moved to a canonical skill (`review-hog-authoring`)
 
@@ -1994,7 +2103,7 @@ fixes via a companion PR, maximum reuse of a verified engine), skip B.**
 
 #### Conversational / control surface (optional; channel-agnostic)
 
-Per the maintainer the **interaction channel is pluggable** (Slack, GitHub comments, PostHog Code, …) and out of
+Per the maintainer the **interaction channel is pluggable** (Slack, GitHub comments, PostHog Desktop, …) and out of
 scope — design the durable part, leave the UI a thin adapter. **Must-have (ships with Variant A):** `@workflow.query`
 for live state (stage, findings-so-far, lifecycle counts, watermarks — zero history cost; copy `get_buffer_size` /
 `get_paused_state`) and `@workflow.signal` for inject-context / pause / cancel / force-turn (copy `submit_signal` /
@@ -3305,7 +3414,7 @@ reasoning_effort}]` → `get_task_processing_context` reads it back → `start_a
   `build_agent_runtime_env_prefix` (`logic/services/sandbox.py`) emits `env POSTHOG_CODE_{RUNTIME_ADAPTER,PROVIDER,MODEL,
 REASONING_EFFORT}=…` prefixed onto the agent launch command (guarded by `test_agentsh.py`).
 
-**`@posthog/agent` — where they are consumed + applied (the PostHog Code monorepo, _not_ this repo).** Clone via
+**`@posthog/agent` — where they are consumed + applied (the PostHog Desktop monorepo, _not_ this repo).** Clone via
 `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` (legacy alias `LOCAL_TWIG_MONOREPO_ROOT`); package `packages/agent`
 (npm `@posthog/agent`, baked into `Dockerfile.sandbox-base`).
 

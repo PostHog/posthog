@@ -10,7 +10,7 @@ import { TeamManager } from '~/common/utils/team-manager'
 import { UUIDT } from '~/common/utils/utils'
 import { ChunkProcessingStep } from '~/ingestion/framework/base-chunk-pipeline'
 import { createOkContext } from '~/ingestion/framework/helpers'
-import { dlq, drop, isDropResult, isOkResult, ok, redirect } from '~/ingestion/framework/results'
+import { PipelineResult, dlq, drop, isDropResult, isOkResult, ok, redirect } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { PluginEvent } from '~/plugin-scaffold'
 import { createTestTeam } from '~/tests/helpers/team'
@@ -637,6 +637,106 @@ describe('CommonIngestionPipelineBuilder', () => {
         ])
     })
 
+    it('fans out through the skeleton and hands the fanned-in value to subsequent team-aware steps', async () => {
+        const log: string[] = []
+        const merged: string[] = []
+
+        interface EventPart {
+            distinctId: string
+            index: number
+        }
+
+        // user-0 fans out to three parts (one of which the sub-step drops);
+        // user-1 fans out to nothing and completes via fanIn(input, []).
+        function splitPartsFanOut(input: { event: PluginEvent }): EventPart[] {
+            const count = input.event.distinct_id === 'user-0' ? 3 : 0
+            return Array.from({ length: count }, (_, index) => ({ distinctId: input.event.distinct_id, index }))
+        }
+
+        function processPartStep(part: EventPart): Promise<PipelineResult<EventPart>> {
+            if (part.index === 1) {
+                return Promise.resolve(drop('skipped part'))
+            }
+            log.push(`part:${part.distinctId}:${part.index}`)
+            return Promise.resolve(ok(part))
+        }
+
+        function collectPartsFanIn<T extends { event: PluginEvent }>(original: T, parts: EventPart[]): T {
+            return {
+                ...original,
+                event: {
+                    ...original.event,
+                    properties: {
+                        ...original.event.properties,
+                        part_indexes: parts.map((part) => part.index).sort(),
+                    },
+                },
+            }
+        }
+
+        const pipeline = newCommonIngestionPipeline<MessageOnly, MessageOnly>(config)
+            .parseHeaders()
+            .parseMessage()
+            .resolveTeam()
+            .pipe(teamLogStep(log, 'A'))
+            .fanOut(splitPartsFanOut)
+            .via((sub) => sub.concurrently((b) => b.pipe(processPartStep)))
+            .fanIn(collectPartsFanIn)
+            .pipe(function recordMergedStep(input) {
+                merged.push(`${input.event.distinct_id}:${JSON.stringify(input.event.properties!.part_indexes)}`)
+                return Promise.resolve(ok(input))
+            })
+            .build()
+
+        const batches = await runPipeline(pipeline, [createMessage('user-0'), createMessage('user-1')])
+
+        // The open sequential block (A) was committed before the fan-out stage.
+        expect(log).toEqual(['A:user-0', 'A:user-1', 'part:user-0:0', 'part:user-0:2'])
+        // Downstream team-aware steps see the fanned-in values: user-0 keeps
+        // the surviving parts (the dropped one excluded), user-1 fans in empty.
+        expect(merged.sort()).toEqual(['user-0:[0,2]', 'user-1:[]'])
+        expect(okValues(batches)).toHaveLength(2)
+    })
+
+    it('routes warnings from fan-out sub-steps to the warnings output with the resolved team', async () => {
+        interface EventPart {
+            distinctId: string
+        }
+
+        function splitSingleFanOut(input: { event: PluginEvent }): EventPart[] {
+            return [{ distinctId: input.event.distinct_id }]
+        }
+
+        function warnPartStep(part: EventPart): Promise<PipelineResult<EventPart>> {
+            return Promise.resolve(
+                ok(part, [], [{ type: 'client_ingestion_warning', details: { marker: 'sub-step' }, alwaysSend: true }])
+            )
+        }
+
+        function keepOriginalFanIn<T>(original: T): T {
+            return original
+        }
+
+        const pipeline = newCommonIngestionPipeline<MessageOnly, MessageOnly>(config)
+            .parseHeaders()
+            .parseMessage()
+            .resolveTeam()
+            .fanOut(splitSingleFanOut)
+            .via((sub) => sub.concurrently((b) => b.pipe(warnPartStep)))
+            .fanIn(keepOriginalFanIn)
+            .build()
+
+        await runPipeline(pipeline, [createMessage('user-0')])
+
+        // The stage sits inside the team-aware warning scope: a warning raised
+        // on a sub-element lands on the parent and routes with the resolved team.
+        const warnings = warningsProduced()
+        expect(warnings).toHaveLength(1)
+        expect(warnings[0].team_id).toBe(42)
+        expect(warnings[0].type).toBe('client_ingestion_warning')
+        expect(parseJSON(warnings[0].details).marker).toBe('sub-step')
+    })
+
     it('applies the resolveTeam wrap decorator around team resolution', async () => {
         const wrapObserved: string[] = []
         const pipeline = newCommonIngestionPipeline<MessageOnly, MessageOnly>(config)
@@ -735,6 +835,33 @@ describe('CommonIngestionPipelineBuilder', () => {
             narrowed.pipe(teamDependentStep)
 
             expect(narrowed).toBeDefined()
+        })
+
+        it('rejects an unclosed fan-out stage at compile time', () => {
+            const teamStage = newCommonIngestionPipeline<MessageOnly, MessageOnly>(config)
+                .parseHeaders()
+                .parseMessage()
+                .resolveTeam()
+
+            const opened = teamStage.fanOut(function splitFanOut(input) {
+                return [input.team.id]
+            })
+
+            // @ts-expect-error fanIn is only available after via()
+            const _noEarlyFanIn = opened.fanIn
+            // @ts-expect-error an unclosed fan-out stage cannot be built
+            const _noFanOutBuild = opened.build
+            // @ts-expect-error an unclosed fan-out stage cannot register afterBatch hooks
+            const _noFanOutAfterBatch = opened.afterBatch
+
+            const routed = opened.via((sub) => sub)
+
+            // @ts-expect-error only fanIn can close the stage
+            const _noFanInBuild = routed.build
+            // @ts-expect-error only fanIn can close the stage
+            const _noFanInAfterBatch = routed.afterBatch
+
+            expect(routed).toBeDefined()
         })
     })
 })

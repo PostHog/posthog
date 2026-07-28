@@ -59,7 +59,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ColumnTypeCategory,
     ValidatedRowFilter,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bigquery import (
     BigQueryDatasetProjectConfig,
     BigQueryKeyFileConfig,
     BigQuerySourceConfig,
@@ -302,6 +302,67 @@ def test_bigquery_build_pipeline_resolves_dataset_routing(
     assert mock_build.call_args.kwargs["bq_destination_table_id"] == expected_table_id
 
     assert mock_delete.call_args.kwargs["table_id"] == expected_table_id
+
+
+def test_bigquery_build_pipeline_swallows_transient_cleanup_refresh_error():
+    """A transient token-refresh failure (e.g. a 502 from Google's OAuth endpoint) while deleting
+    the run's own destination table must not turn an otherwise-successful sync into a failure —
+    retrying the whole sync just to retry this delete is wasteful."""
+    config = _make_config()
+    logger = mock.MagicMock()
+    inputs = _make_inputs(logger=logger)
+    build_result = mock.MagicMock()
+
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.delete_all_temp_destination_tables",
+        ),
+        mock.patch.object(BigQueryImplementation, "_build_source_response", return_value=build_result),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.delete_table",
+            side_effect=RefreshError(
+                "<!DOCTYPE html><html><head><title>Error 502 (Server Error)</title></head></html>"
+            ),
+        ),
+    ):
+        result = BigQuerySource().source_for_pipeline(config, inputs)
+
+    assert result is build_result
+    logger.warning.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "exception",
+    [
+        # A genuine permission denial must keep propagating: this table holds a real materialized
+        # copy of the customer's data, so swallowing it here would let readable copies accumulate
+        # on every run instead of the sync failing via the "Access Denied:" non-retryable key.
+        Forbidden("Access Denied: Permission bigquery.tables.delete denied on table"),
+        # `invalid_grant` (rejected credentials) is not transient and must reach the sync-path
+        # classifier rather than being silently swallowed as a routine refresh hiccup.
+        RefreshError(("invalid_grant: Invalid JWT Signature.", {"error": "invalid_grant"})),
+        RuntimeError("boom"),
+    ],
+)
+def test_bigquery_build_pipeline_propagates_unexpected_cleanup_errors(exception):
+    """Only a transient (non-`invalid_grant`) `RefreshError` is treated as best-effort during
+    destination-table cleanup — anything else, including permission denials and rejected
+    credentials, must still surface."""
+    config = _make_config()
+    inputs = _make_inputs()
+
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.delete_all_temp_destination_tables",
+        ),
+        mock.patch.object(BigQueryImplementation, "_build_source_response", return_value=mock.MagicMock()),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.delete_table",
+            side_effect=exception,
+        ),
+        pytest.raises(type(exception)),
+    ):
+        BigQuerySource().source_for_pipeline(config, inputs)
 
 
 @pytest.mark.parametrize(
@@ -1307,6 +1368,27 @@ def test_has_duplicate_primary_keys_skips_resource_exceeded_quietly(exception):
     mock_capture.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "exception",
+    [
+        BadRequest(
+            "Name is_qualified not found inside visit; failed to parse view 'my_dataset.my_view' at [5:19]; "
+            "reason: invalidQuery, location: query, message: Name is_qualified not found inside visit; "
+            "failed to parse view 'my_dataset.my_view' at [5:19]"
+        ),
+        BadRequest("Invalid table-valued function EXTERNAL_QUERY; failed to parse view 'my_dataset.my_view' at [1:1]"),
+    ],
+)
+def test_has_duplicate_primary_keys_skips_view_parse_failure_quietly(exception):
+    """A `failed to parse view` BigQuery error during the best-effort duplicate-key probe must NOT
+    be captured to error tracking — the probed table is itself a broken view, a customer-side
+    problem that otherwise fires on every sync of that table."""
+    result, mock_capture = _run_has_duplicate_primary_keys(exception)
+
+    assert result is False
+    mock_capture.assert_not_called()
+
+
 def test_has_duplicate_primary_keys_captures_unexpected_bad_request():
     """A non-resource BadRequest (e.g. a genuinely malformed probe query) is still captured so we
     don't lose visibility into real bugs."""
@@ -1742,3 +1824,40 @@ def test_bigquery_resources_exceeded_is_non_retryable():
 
     assert matching, "resourcesExceeded query failure should be recognised as non-retryable"
     assert all(non_retryable_errors[key] is not None for key in matching)
+
+
+def test_bigquery_source_declares_v2_as_default():
+    # The core of this PR: v2 is a supported version and the default for new sources, while the
+    # legacy label stays supported so existing pins keep resolving. Guards a revert of the default
+    # bump or an accidental drop of a supported label (base-class pin resolution itself is already
+    # covered by the registry-invariant suite).
+    source = BigQuerySource()
+    assert source.supported_versions == ("v1", "v2")
+    assert source.default_version == "v2"
+
+
+@pytest.mark.parametrize("pin,expected_segment", [("v1", "v2"), ("v2", "v2"), (None, "v2"), ("v99", "v2")])
+def test_bigquery_rest_api_version_maps_labels_to_v2(pin, expected_segment):
+    # Both supported labels (and any fallback) resolve to BigQuery's single stable REST path
+    # segment — a wrong mapping would point the client at a nonexistent /bigquery/<x>/ endpoint.
+    assert bq_module._bigquery_rest_api_version(pin) == expected_segment
+
+
+@pytest.mark.parametrize("pin", ["v1", "v2"])
+def test_bigquery_build_pipeline_threads_resolved_rest_api_version(pin):
+    # The source's version pin must reach the request layer (the REST segment the read/query
+    # clients run under); dropping it would stop a future version from dispatching.
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.delete_all_temp_destination_tables",
+        ),
+        mock.patch.object(
+            BigQueryImplementation, "_build_source_response", return_value=mock.MagicMock()
+        ) as mock_build,
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.delete_table",
+        ),
+    ):
+        BigQuerySource().source_for_pipeline(_make_config(), _make_inputs(api_version=pin))
+
+    assert mock_build.call_args.kwargs["rest_api_version"] == "v2"

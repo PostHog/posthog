@@ -145,7 +145,7 @@ def _verify_stripe_install_signature(state: str, user_id: str, account_id: str, 
         separators=(",", ":"),
     )
     try:
-        # 300s tolerance matches the agentic-provisioning HMAC check at ee/api/agentic_provisioning/signature.py.
+        # 300s tolerance matches the Stripe provisioning HMAC check at ee/partners/stripe/api/provisioning/signature.py.
         stripe.WebhookSignature.verify_header(payload, install_signature, settings.STRIPE_SIGNING_SECRET, tolerance=300)
         return True
     except stripe.SignatureVerificationError:
@@ -842,7 +842,7 @@ class GitHubPrepareCallbackRequestSerializer(serializers.Serializer):
     next = serializers.CharField(
         required=False,
         allow_blank=True,
-        help_text="Relative URL to redirect to after GitHub setup completes (e.g. account-connected for PostHog Code).",
+        help_text="Relative URL to redirect to after GitHub setup completes (e.g. account-connected for PostHog Desktop).",
     )
     installation_id = serializers.CharField(
         required=False,

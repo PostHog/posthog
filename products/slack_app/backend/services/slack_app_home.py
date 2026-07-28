@@ -430,7 +430,7 @@ def _active_model_blocks(effective: AIPreferences, source: PreferenceSource) -> 
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": "Inheriting PostHog Code's default — pick personal or workspace settings to override.",
+                    "text": "Inheriting PostHog Desktop's default — pick personal or workspace settings to override.",
                 },
             },
             source_blurb,
@@ -1217,7 +1217,6 @@ def handle_app_home_view_submission(payload: dict) -> HttpResponse | JsonRespons
 
 
 def _get_slack_integration(slack_team_id: str) -> Integration | None:
-
     if not slack_team_id:
         return None
     return (
@@ -1228,7 +1227,6 @@ def _get_slack_integration(slack_team_id: str) -> Integration | None:
 
 
 def _load_rows(integration: Integration, slack_user_id: str) -> tuple[SlackSettings | None, SlackSettings | None]:
-
     user_row = SlackSettings.objects.filter(
         slack_workspace_id=integration.integration_id,
         slack_user_id=slack_user_id,
@@ -1251,7 +1249,6 @@ def _row_to_settings(row: SlackSettings | None) -> AIPreferences:
 
 
 def _is_admin(slack: SlackIntegration, integration: Integration, slack_user_id: str) -> bool:
-
     try:
         return is_slack_workspace_admin(slack, integration, slack_user_id)
     except Exception:

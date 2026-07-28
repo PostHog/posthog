@@ -699,7 +699,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             }
             eventUsageLogic.actions.reportSubscribedDuringOnboarding(productKey)
         },
-        completeOnboarding: ({ redirectUrlOverride }) => {
+        completeOnboarding: async ({ redirectUrlOverride }) => {
             // Idempotency guard. Without this, a double-click on Finish, a re-render
             // calling advance() twice, or back-then-forward into the last step plus
             // pressing Finish again all fire duplicate product-intent writes,
@@ -775,9 +775,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
                     tickedTaskIds.add(id)
                 }
             }
-            if (setup && tickedTaskIds.size > 0) {
-                setup.actions.markTaskAsCompleted(Array.from(tickedTaskIds))
-            }
             for (const productKey of visitedProducts) {
                 actions.recordProductIntentOnboardingComplete({ product_type: productKey as ProductKey })
             }
@@ -785,7 +782,22 @@ export const onboardingLogic = kea<onboardingLogicType>([
             for (const productKey of visitedProducts) {
                 completedMap[productKey] = true
             }
-            teamLogic.actions.updateCurrentTeam({ has_completed_onboarding_for: completedMap })
+            try {
+                // Keep both completion signals in sync so every bootstrapped team shape prevents
+                // sceneLogic from redirecting a completed user back into onboarding after refresh.
+                await teamLogic.asyncActions.updateCurrentTeam({
+                    completed_snippet_onboarding: true,
+                    has_completed_onboarding_for: completedMap,
+                })
+                // Tick setup tasks only after the completion PATCH has committed. Firing this
+                // concurrently raced two team PATCHes against each other, and the stale
+                // onboarding_tasks write could erase the just-saved completion fields.
+                if (setup && tickedTaskIds.size > 0) {
+                    setup.actions.markTaskAsCompleted(Array.from(tickedTaskIds))
+                }
+            } catch {
+                lemonToast.error("Couldn't save onboarding progress. Please try again.")
+            }
         },
         completeContextOnboarding: async () => {
             // Idempotency guard — Finish can fire twice on a double-click.
@@ -812,16 +824,17 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 actions.reportContextOnboardingCompleted(productKey)
                 actions.recordProductIntentOnboardingComplete({ product_type: productKey })
             }
-            // Populating has_completed_onboarding_for flips teamLogic.hasOnboardedAnyProduct true, so
-            // sceneLogic stops redirecting back into onboarding. Await the PATCH before navigating —
-            // updateCurrentTeam is NOT optimistic, so leaving early would race a still-stale currentTeam
-            // and sceneLogic could bounce a not-yet-ingested team straight back here.
+            // Persist both completion signals before navigating. updateCurrentTeam is not optimistic,
+            // so leaving early would race stale state and bounce a not-yet-ingested team back here.
             const completedMap: Record<string, boolean> = { ...team?.has_completed_onboarding_for }
             for (const productKey of products) {
                 completedMap[productKey] = true
             }
             try {
-                await teamLogic.asyncActions.updateCurrentTeam({ has_completed_onboarding_for: completedMap })
+                await teamLogic.asyncActions.updateCurrentTeam({
+                    completed_snippet_onboarding: true,
+                    has_completed_onboarding_for: completedMap,
+                })
                 router.actions.push(
                     getRelativeNextPath(router.values.searchParams['next'], window.location) ?? urls.default()
                 )

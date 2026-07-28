@@ -6,7 +6,7 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SquareSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.square import SquareSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.square.settings import ENDPOINTS, SQUARE_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.square.source import SquareSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.square.square import SquareResumeConfig

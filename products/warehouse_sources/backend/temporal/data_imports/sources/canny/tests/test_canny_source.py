@@ -10,7 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.canny.cann
 from products.warehouse_sources.backend.temporal.data_imports.sources.canny.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.canny.source import CannySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CannySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.canny import CannySourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -126,7 +126,8 @@ class TestCannySource:
         mock_source.assert_called_once_with(
             api_key="test-key",
             endpoint="comments",
-            logger=inputs.logger,
+            team_id=99,
+            job_id="job-xyz",
             resumable_source_manager=manager,
         )
 

@@ -14,7 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ColumnTypeCategory,
     ValidatedRowFilter,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RedshiftSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.redshift import (
+    RedshiftSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift import (
     RedshiftColumn,
     RedshiftImplementation,

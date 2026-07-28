@@ -1,51 +1,49 @@
-import base64
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests.auth import HTTPBasicAuth
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resources,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
+    JSONResponseCursorPaginator,
+    OffsetPaginator,
+    SinglePagePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    Endpoint,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.env0.settings import (
     ENV0_ENDPOINTS,
     Env0EndpointConfig,
 )
 
 ENV0_BASE_URL = "https://api.env0.com"
-# Environments/deployments list endpoints cap pages at 100 items.
+# Environments/deployments/teams list endpoints cap pages at 100 items.
 PAGE_SIZE = 100
-REQUEST_TIMEOUT_SECONDS = 60
-# env0 rate-limits at 1,000 requests / 60s per IP+method+URI; exponential backoff on 429 suffices.
-MAX_RETRIES = 5
-
-
-class Env0RetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
 class Env0ResumeConfig:
-    # Stable parent-id bookmark (organization or environment id, per the endpoint's scope; None
-    # for root endpoints) — not a positional index, so parents added/removed between a crash and
-    # the retry can't resume us into the wrong parent.
+    # Legacy fields from the hand-rolled fan-out (a parent bookmark plus a per-parent offset). Kept
+    # (now with defaults) so state written by the previous implementation still deserializes via
+    # `ResumableSourceManager._load_json`.
     parent_id: str | None = None
-    # Position within the bookmarked parent's page chain: a numeric offset for limit/offset
-    # endpoints, or the teams endpoint's nextPageKey. None means "start at the first page".
     offset: str | None = None
-
-
-def _get_headers(api_key_id: str, api_key_secret: str) -> dict[str, str]:
-    basic_token = base64.b64encode(f"{api_key_id}:{api_key_secret}".encode("ascii")).decode("ascii")
-    return {
-        "Authorization": f"Basic {basic_token}",
-        "Accept": "application/json",
-    }
+    # Framework paginator / fan-out resume snapshot for the current endpoint. When only the legacy
+    # fields are present (old saved state) this is None and the sync restarts from the first page —
+    # a re-fetch, which the merge dedupes on the primary key.
+    paginator_state: Optional[dict[str, Any]] = None
 
 
 def _format_date_window_value(value: Any) -> Optional[str]:
@@ -91,232 +89,172 @@ def _build_date_window_params(
     return {"fromDate": from_date, "toDate": _format_date_window_value(datetime.now(UTC)) or ""}
 
 
-def _build_url(config: Env0EndpointConfig, parent_id: str | None, params: dict[str, Any]) -> str:
-    path = config.path.format(parent_id=parent_id) if parent_id is not None else config.path
-    clean_params = {key: value for key, value in params.items() if value is not None}
-    if not clean_params:
-        return f"{ENV0_BASE_URL}{path}"
-    return f"{ENV0_BASE_URL}{path}?{urlencode(clean_params)}"
-
-
-def _build_params(
-    config: Env0EndpointConfig,
-    parent_id: str | None,
-    offset: str | None,
-    date_window_params: dict[str, str],
-) -> dict[str, Any]:
-    params: dict[str, Any] = dict(config.params)
-    if config.org_id_param and parent_id is not None:
-        params[config.org_id_param] = parent_id
+def _paginator_for(config: Env0EndpointConfig) -> BasePaginator:
+    if config.data_key:
+        # Teams returns {"teams": [...], "nextPageKey": ...}; the next request sends the returned
+        # nextPageKey back as the `offset` query param.
+        return JSONResponseCursorPaginator(cursor_path="nextPageKey", cursor_param="offset")
     if config.paginated:
-        params["limit"] = PAGE_SIZE
-        if offset is not None:
-            params["offset"] = offset
-    params.update(date_window_params)
-    return params
+        # env0 has no top-level total; termination is a short/empty page (OffsetPaginator default).
+        return OffsetPaginator(limit=PAGE_SIZE, total_path=None)
+    return SinglePagePaginator()
 
 
-def validate_credentials(api_key_id: str, api_key_secret: str) -> bool:
-    """Confirm the API key pair is valid. /organizations is a cheap authenticated probe that
-    works for both organization and personal API keys."""
-    try:
-        response = make_tracked_session().get(
-            f"{ENV0_BASE_URL}/organizations",
-            headers=_get_headers(api_key_id, api_key_secret),
-            timeout=10,
-        )
-        return response.status_code == 200
-    except Exception:
-        return False
+def _row_transform(
+    config: Env0EndpointConfig, parent_resource_name: Optional[str]
+) -> Optional[Callable[[dict[str, Any]], dict[str, Any]]]:
+    """Per-item reshape matching the old `_normalize_row`: drop huge free-text blobs and
+    secret-bearing fields, and rename the injected parent id to its documented column."""
+    strip = set(config.strip_fields)
+    rename_to = config.inject_parent_id_field
+    injected_key = f"_{parent_resource_name}_id" if (rename_to and parent_resource_name) else None
+    if not strip and injected_key is None:
+        return None
+
+    def _transform(row: dict[str, Any]) -> dict[str, Any]:
+        out = {key: value for key, value in row.items() if key not in strip}
+        if injected_key is not None and rename_to is not None and injected_key in out:
+            out[rename_to] = out.pop(injected_key)
+        return out
+
+    return _transform
 
 
-@retry(
-    retry=retry_if_exception_type((Env0RetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(MAX_RETRIES),
-    wait=wait_exponential_jitter(initial=1, max=60),
-    reraise=True,
-)
-def _fetch_page(session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> Any:
-    response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
-
-    if response.status_code == 429 or response.status_code >= 500:
-        raise Env0RetryableError(f"env0 API error (retryable): status={response.status_code}, url={url}")
-
-    if not response.ok:
-        # 404s during the per-environment fan-out (environment deleted mid-sync, or cost
-        # monitoring not configured) are handled by the caller.
-        log = logger.warning if response.status_code == 404 else logger.error
-        log(f"env0 API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
-
-    return response.json()
+def _organizations_parent() -> EndpointResource:
+    """Organizations list used only to resolve org ids for the organization/environment fan-out."""
+    return {
+        "name": "organizations",
+        "endpoint": {"path": ENV0_ENDPOINTS["organizations"].path, "paginator": SinglePagePaginator()},
+    }
 
 
-def _extract_items(
-    data: Any, config: Env0EndpointConfig, offset: str | None
-) -> tuple[list[dict[str, Any]], str | None]:
-    """Pull the item list out of a response and compute the next-page offset (None = done).
-
-    Most env0 list endpoints return a bare JSON array; paginated arrays advance a numeric
-    offset until a short page. Teams returns {"teams": [...], "nextPageKey": ...} where the
-    next request's offset is the returned nextPageKey.
-    """
-    if isinstance(data, dict):
-        items = data.get(config.data_key or "items", []) or []
-        next_page_key = data.get("nextPageKey")
-        return items, str(next_page_key) if next_page_key else None
-
-    items = data or []
-    if config.paginated and len(items) == PAGE_SIZE:
-        return items, str(int(offset or 0) + len(items))
-    return items, None
+def _environments_parent() -> EndpointResource:
+    """Environments list (one request chain per organization) used only to resolve environment ids
+    for the environment-level fan-out. The nested latest deployment is excluded to keep enumeration
+    light, mirroring the old `_list_environment_ids`."""
+    env_config = ENV0_ENDPOINTS["environments"]
+    return {
+        "name": "environments",
+        "endpoint": {
+            "path": f"{env_config.path}?{env_config.org_id_param}={{org_id}}",
+            "params": {
+                "org_id": {"type": "resolve", "resource": "organizations", "field": "id"},
+                **env_config.params,
+            },
+            "paginator": OffsetPaginator(limit=PAGE_SIZE, total_path=None),
+        },
+    }
 
 
-def _normalize_row(item: dict[str, Any], config: Env0EndpointConfig, parent_id: str | None) -> dict[str, Any]:
-    row = {key: value for key, value in item.items() if key not in config.strip_fields}
-    if config.inject_parent_id_field and parent_id is not None:
-        row[config.inject_parent_id_field] = parent_id
-    return row
+def _target_resource(
+    config: Env0EndpointConfig, parent_resource_name: Optional[str], extra_params: dict[str, str]
+) -> EndpointResource:
+    params: dict[str, Any] = {**config.params, **extra_params}
 
+    if parent_resource_name == "organizations" and config.org_id_param:
+        # Org id rides in a query param; embed the placeholder in the path so the resolve binding
+        # lands in the query string (the resolve mechanism only substitutes into the path).
+        path = f"{config.path}?{config.org_id_param}={{org_id}}"
+        params["org_id"] = {"type": "resolve", "resource": "organizations", "field": "id"}
+    elif parent_resource_name == "organizations":
+        # Teams embeds the org id directly in its path (/teams/organizations/{parent_id}).
+        path = config.path
+        params["parent_id"] = {"type": "resolve", "resource": "organizations", "field": "id"}
+    elif parent_resource_name == "environments":
+        path = config.path
+        params["parent_id"] = {"type": "resolve", "resource": "environments", "field": "id"}
+    else:
+        path = config.path
 
-def _list_organization_ids(
-    session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger
-) -> list[str]:
-    data = _fetch_page(session, f"{ENV0_BASE_URL}/organizations", headers, logger)
-    return [org["id"] for org in data or []]
-
-
-def _list_environment_ids(
-    session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger
-) -> list[str]:
-    """Enumerate every environment id across all accessible organizations, paging through the
-    environments list. The nested latest deployment is excluded to keep enumeration light."""
-    environment_ids: list[str] = []
-    for organization_id in _list_organization_ids(session, headers, logger):
-        offset = 0
-        while True:
-            query = urlencode(
-                {
-                    "organizationId": organization_id,
-                    "limit": PAGE_SIZE,
-                    "offset": offset,
-                    "excludeFields": "latestDeploymentLog",
-                }
-            )
-            data = _fetch_page(session, f"{ENV0_BASE_URL}/environments?{query}", headers, logger)
-            items = data or []
-            environment_ids.extend(item["id"] for item in items)
-            if len(items) < PAGE_SIZE:
-                break
-            offset += len(items)
-    return environment_ids
-
-
-def _list_parents(
-    session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger, config: Env0EndpointConfig
-) -> list[str | None]:
-    if config.scope == "organization":
-        return list(_list_organization_ids(session, headers, logger))
+    endpoint: Endpoint = {"path": path, "params": params, "paginator": _paginator_for(config)}
+    if config.data_key:
+        endpoint["data_selector"] = config.data_key
     if config.scope == "environment":
-        return list(_list_environment_ids(session, headers, logger))
-    return [None]
+        # A 404 during the per-environment fan-out means the environment was deleted mid-sync or
+        # (for costs) cost monitoring isn't configured — skip it rather than failing the sync.
+        endpoint["response_actions"] = [{"status_code": 404, "action": "ignore"}]
+
+    resource: EndpointResource = {"name": config.name, "endpoint": endpoint}
+    if config.inject_parent_id_field and parent_resource_name:
+        resource["include_from_parent"] = ["id"]
+    transform = _row_transform(config, parent_resource_name)
+    if transform is not None:
+        resource["data_map"] = transform
+    return resource
 
 
-def get_rows(
-    api_key_id: str,
-    api_key_secret: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[Env0ResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-) -> Iterator[list[dict[str, Any]]]:
-    config = ENV0_ENDPOINTS[endpoint]
-    headers = _get_headers(api_key_id, api_key_secret)
-    # One session reused across every page and fan-out parent so urllib3 keeps the connection
-    # alive instead of re-handshaking per request.
-    #
-    # capture=False: sample capture records raw response bodies before _normalize_row strips
-    # deployment secrets (variable `value`s, injected `oidcToken`/`vcsAccessToken`), and the
-    # name-based scrubbers don't recognise those keys. The environment fan-out also enumerates
-    # /environments through this session, whose rows can carry those same secrets nested under
-    # latestDeploymentLog if the API ignores excludeFields. Requests stay metered and logged.
-    session = make_tracked_session(capture=False)
-
-    date_window_params = _build_date_window_params(
-        config, should_use_incremental_field, db_incremental_field_last_value
-    )
-
-    parents = _list_parents(session, headers, logger, config)
-
-    # Resolve the saved parent bookmark to the slice of parents still to process. If the
-    # bookmarked parent no longer exists (deleted between runs), start over from the first —
-    # merge dedupes the re-pulled rows on the primary key.
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    remaining = parents
-    resume_offset: str | None = None
-    if resume is not None and resume.parent_id in parents:
-        remaining = parents[parents.index(resume.parent_id) :]
-        resume_offset = resume.offset
-        logger.debug(f"env0: resuming {endpoint} from parent_id={resume.parent_id}, offset={resume_offset}")
-
-    for index, parent_id in enumerate(remaining):
-        offset = resume_offset
-        resume_offset = None  # only the resumed-into parent uses the saved offset
-
-        try:
-            while True:
-                params = _build_params(config, parent_id, offset, date_window_params)
-                url = _build_url(config, parent_id, params)
-                data = _fetch_page(session, url, headers, logger)
-                items, next_offset = _extract_items(data, config, offset)
-
-                rows = [_normalize_row(item, config, parent_id) for item in items]
-                if rows:
-                    yield rows
-
-                if next_offset is None:
-                    break
-                # Save AFTER yielding so a crash re-yields the last page rather than skipping
-                # it — merge dedupes on the primary key.
-                resumable_source_manager.save_state(Env0ResumeConfig(parent_id=parent_id, offset=next_offset))
-                offset = next_offset
-        except requests.HTTPError as exc:
-            # During the per-environment fan-out, a 404 means the environment was deleted
-            # mid-sync or (for costs) cost monitoring isn't configured for it. Skip it rather
-            # than failing the whole sync; any other HTTP error is re-raised.
-            if config.scope == "environment" and exc.response is not None and exc.response.status_code == 404:
-                logger.warning(f"env0: {endpoint} returned 404 for environment {parent_id}, skipping")
-            else:
-                raise
-
-        # Advance the bookmark to the next parent so a crash between parents resumes correctly.
-        if index + 1 < len(remaining):
-            resumable_source_manager.save_state(Env0ResumeConfig(parent_id=remaining[index + 1], offset=None))
+def _build_resources(config: Env0EndpointConfig, date_window_params: dict[str, str]) -> list[EndpointResource | str]:
+    if config.scope == "organization":
+        return [_organizations_parent(), _target_resource(config, "organizations", {})]
+    if config.scope == "environment":
+        return [
+            _organizations_parent(),
+            _environments_parent(),
+            _target_resource(config, "environments", date_window_params),
+        ]
+    return [_target_resource(config, None, {})]
 
 
 def env0_source(
     api_key_id: str,
     api_key_secret: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[Env0ResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = ENV0_ENDPOINTS[endpoint]
 
+    date_window_params = _build_date_window_params(
+        config, should_use_incremental_field, db_incremental_field_last_value
+    )
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": ENV0_BASE_URL,
+            "headers": {"Accept": "application/json"},
+            # Auth (Basic) is supplied via the framework config so the secret is redacted from raised
+            # errors; only the non-secret Accept header is set above.
+            "auth": {"type": "http_basic", "username": api_key_id, "password": api_key_secret},
+            "paginator": SinglePagePaginator(),
+            # capture=False: response bodies carry deployment secrets (variable `value`s, injected
+            # oidcToken/vcsAccessToken) that the name-based scrubbers don't recognise, and the
+            # environments enumeration can carry the same secrets nested under latestDeploymentLog.
+            # Keep them out of sample capture; requests stay metered and logged.
+            "session": make_tracked_session(capture=False),
+        },
+        "resource_defaults": {},
+        "resources": _build_resources(config, date_window_params),
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.paginator_state is not None:
+            initial_paginator_state = resume.paginator_state
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # The framework saves AFTER a page is yielded so a crash re-yields the last page (merge
+        # dedupes on the primary key) rather than skipping it. Multi-level (environment) fan-out
+        # disables resume entirely, so this is never called for those endpoints.
+        if state:
+            resumable_source_manager.save_state(Env0ResumeConfig(paginator_state=state))
+
+    resources = rest_api_resources(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+    target = next(resource for resource in resources if resource.name == endpoint)
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key_id=api_key_id,
-            api_key_secret=api_key_secret,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ),
+        items=lambda: target,
         primary_keys=config.primary_keys,
         # env0 doesn't document list ordering and the deployments endpoint fans out per
         # environment, so the incremental watermark must only persist at successful job end —
@@ -327,4 +265,16 @@ def env0_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="week" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
+        column_hints=target.column_hints,
     )
+
+
+def validate_credentials(api_key_id: str, api_key_secret: str) -> bool:
+    """Confirm the API key pair is valid. /organizations is a cheap authenticated probe that
+    works for both organization and personal API keys."""
+    ok, _status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key_secret,)),
+        f"{ENV0_BASE_URL}/organizations",
+        auth=HTTPBasicAuth(api_key_id, api_key_secret),
+    )
+    return ok

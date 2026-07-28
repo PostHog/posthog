@@ -1,7 +1,8 @@
 """Activities for evaluation reports workflow."""
 
 import datetime as dt
-from typing import TYPE_CHECKING
+from collections import defaultdict
+from typing import TYPE_CHECKING, NamedTuple
 from zoneinfo import ZoneInfo
 
 import temporalio.activity
@@ -12,6 +13,7 @@ from posthog.hogql import ast
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.sync import database_sync_to_async
+from posthog.temporal.ai_observability.eval_reports.constants import COUNT_TRIGGER_QUERY_WIDTH
 from posthog.temporal.ai_observability.eval_reports.output_types import get_outcome_definition
 from posthog.temporal.ai_observability.eval_reports.targets import (
     GENERATION_TARGET,
@@ -21,6 +23,8 @@ from posthog.temporal.ai_observability.eval_reports.targets import (
 from posthog.temporal.ai_observability.eval_reports.types import (
     CheckCountTriggeredEvalReportInput,
     CheckCountTriggeredEvalReportOutput,
+    CheckCountTriggeredEvalReportsBatchInput,
+    CheckCountTriggeredEvalReportsBatchOutput,
     CheckCountTriggeredReportsWorkflowInputs,
     DeliverReportInput,
     FetchDueEvalReportsOutput,
@@ -36,6 +40,8 @@ from posthog.temporal.ai_observability.eval_reports.types import (
 from posthog.temporal.common.heartbeat import Heartbeater
 
 if TYPE_CHECKING:
+    from posthog.models import Team
+
     from products.ai_observability.backend.models.evaluation_reports import EvaluationReport
 
 logger = get_logger(__name__)
@@ -77,13 +83,15 @@ async def fetch_due_eval_reports_activity(
 async def fetch_count_triggered_eval_report_candidates_activity(
     inputs: CheckCountTriggeredReportsWorkflowInputs,
 ) -> FetchDueEvalReportsOutput:
-    """Return count-triggered report IDs that need an independent count check."""
+    """Return count-triggered report IDs that need an independent count check, grouped
+    one team per group so each check activity runs a single shared count query."""
 
     @database_sync_to_async(thread_sensitive=False)
-    def get_report_ids() -> list[str]:
-        return _fetch_count_triggered_eval_report_candidate_ids()
+    def get_report_id_groups() -> list[list[str]]:
+        return _fetch_count_triggered_eval_report_candidate_groups()
 
-    report_ids = await get_report_ids()
+    report_id_groups = await get_report_id_groups()
+    report_ids = [report_id for group in report_id_groups for report_id in group]
     await logger.ainfo(
         "llma_eval_reports_coordinator_count_triggered_candidates_poll",
         total_checked=len(report_ids),
@@ -91,14 +99,18 @@ async def fetch_count_triggered_eval_report_candidates_activity(
     from posthog.temporal.ai_observability.eval_reports.metrics import record_coordinator_check_count
 
     record_coordinator_check_count(len(report_ids), "count_triggered")
-    return FetchDueEvalReportsOutput(report_ids=report_ids)
+    return FetchDueEvalReportsOutput(report_ids=report_ids, report_id_groups=report_id_groups)
 
 
 @temporalio.activity.defn
 async def check_count_triggered_eval_report_activity(
     inputs: CheckCountTriggeredEvalReportInput,
 ) -> CheckCountTriggeredEvalReportOutput:
-    """Check one count-triggered report against its threshold."""
+    """Check one count-triggered report against its threshold.
+
+    Superseded by check_count_triggered_eval_reports_activity (batched). Kept registered
+    so coordinator workflows started before the batched path was deployed can finish.
+    """
 
     @database_sync_to_async(thread_sensitive=False)
     def check_report() -> CheckCountTriggeredEvalReportOutput:
@@ -107,27 +119,44 @@ async def check_count_triggered_eval_report_activity(
     return await check_report()
 
 
-def _fetch_count_triggered_eval_report_candidate_ids() -> list[str]:
+@temporalio.activity.defn
+async def check_count_triggered_eval_reports_activity(
+    inputs: CheckCountTriggeredEvalReportsBatchInput,
+) -> CheckCountTriggeredEvalReportsBatchOutput:
+    """Check a batch of count-triggered reports, sharing one ClickHouse query per team."""
+
+    @database_sync_to_async(thread_sensitive=False)
+    def check_reports() -> list[CheckCountTriggeredEvalReportOutput]:
+        return _check_count_triggered_eval_reports_batch(inputs.report_ids)
+
+    results = await check_reports()
+    return CheckCountTriggeredEvalReportsBatchOutput(results=results)
+
+
+def _fetch_count_triggered_eval_report_candidate_groups() -> list[list[str]]:
+    """Return candidate report ids grouped one team per group, each group at most
+    COUNT_TRIGGER_QUERY_WIDTH wide, so one check activity runs exactly one ClickHouse
+    count query under its own timeout and retry policy."""
     from products.ai_observability.backend.models.evaluation_reports import EvaluationReport
 
-    return [
-        str(pk)
-        for pk in EvaluationReport.objects.deliverable()
+    ids_by_team: dict[int, list[str]] = defaultdict(list)
+    for pk, team_id in (
+        EvaluationReport.objects.deliverable()
         .filter(
             frequency=EvaluationReport.Frequency.EVERY_N,
             trigger_threshold__isnull=False,
         )
-        .values_list("id", flat=True)
-    ]
+        .order_by("team_id", "id")
+        .values_list("id", "team_id")
+    ):
+        ids_by_team[team_id].append(str(pk))
+    return [chunk for ids in ids_by_team.values() for chunk in _chunk(ids, COUNT_TRIGGER_QUERY_WIDTH)]
 
 
-def _check_count_triggered_eval_report_sync(
-    report_id: str,
-    now: dt.datetime | None = None,
-) -> CheckCountTriggeredEvalReportOutput:
-    from products.ai_observability.backend.models.evaluation_reports import EvaluationReport, EvaluationReportRun
+def _load_count_triggered_report(report_id: str) -> "EvaluationReport | None":
+    from products.ai_observability.backend.models.evaluation_reports import EvaluationReport
 
-    report = (
+    return (
         EvaluationReport.objects.deliverable()
         .filter(
             id=report_id,
@@ -137,14 +166,23 @@ def _check_count_triggered_eval_report_sync(
         .select_related("evaluation", "team")
         .first()
     )
-    if report is None:
-        return CheckCountTriggeredEvalReportOutput(report_id=report_id, due=False, skipped_reason="not_deliverable")
 
-    now = now or dt.datetime.now(tz=dt.UTC)
+
+def _count_triggered_pg_gate(
+    report: "EvaluationReport",
+    now: dt.datetime,
+) -> tuple[str | None, dt.datetime | None]:
+    """Postgres-only eligibility checks shared by the single and batched count paths.
+
+    Returns (skipped_reason, since). When skipped_reason is None the report is eligible
+    for a count check and `since` is the lower bound of its count window.
+    """
+    from products.ai_observability.backend.models.evaluation_reports import EvaluationReportRun
+
     if report.last_delivered_at:
         cooldown_delta = dt.timedelta(minutes=report.cooldown_minutes)
         if (now - report.last_delivered_at) < cooldown_delta:
-            return CheckCountTriggeredEvalReportOutput(report_id=report_id, due=False, skipped_reason="cooldown")
+            return "cooldown", None
 
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     today_runs = EvaluationReportRun.objects.filter(
@@ -152,13 +190,110 @@ def _check_count_triggered_eval_report_sync(
         created_at__gte=today_start,
     ).count()
     if today_runs >= report.daily_run_cap:
-        return CheckCountTriggeredEvalReportOutput(report_id=report_id, due=False, skipped_reason="daily_cap")
+        return "daily_cap", None
 
     since = report.last_delivered_at or report.starts_at or report.created_at
+    return None, since
+
+
+def _check_count_triggered_eval_report_sync(
+    report_id: str,
+    now: dt.datetime | None = None,
+) -> CheckCountTriggeredEvalReportOutput:
+    report = _load_count_triggered_report(report_id)
+    if report is None:
+        return CheckCountTriggeredEvalReportOutput(report_id=report_id, due=False, skipped_reason="not_deliverable")
+
+    now = now or dt.datetime.now(tz=dt.UTC)
+    skipped_reason, since = _count_triggered_pg_gate(report, now)
+    if skipped_reason is not None:
+        return CheckCountTriggeredEvalReportOutput(report_id=report_id, due=False, skipped_reason=skipped_reason)
+
+    assert since is not None
     count = _count_eval_results_for_report(report, since)
 
     assert report.trigger_threshold is not None
     return CheckCountTriggeredEvalReportOutput(report_id=report_id, due=count >= report.trigger_threshold)
+
+
+def _chunk(items: list, size: int) -> list[list]:
+    return [items[index : index + size] for index in range(0, len(items), size)]
+
+
+def _check_count_triggered_eval_reports_batch(
+    report_ids: list[str],
+    now: dt.datetime | None = None,
+) -> list[CheckCountTriggeredEvalReportOutput]:
+    """Check a group of count-triggered reports, sharing one ClickHouse count query per team.
+
+    The input is normally one team's reports (the fetch activity groups candidates that way),
+    but multi-team input is handled by grouping — one query per team-chunk. The Postgres
+    gating (deliverability, cooldown, daily cap) and the `count >= threshold` decision are
+    identical to the single-report path — only the count query is shared.
+
+    A ClickHouse failure propagates and fails the whole activity, which normally spans just
+    one team's chunk — Temporal retries it under the activity's retry policy.
+    """
+    from products.ai_observability.backend.models.evaluation_reports import EvaluationReport
+
+    now = now or dt.datetime.now(tz=dt.UTC)
+
+    reports = {
+        str(report.id): report
+        for report in EvaluationReport.objects.deliverable()
+        .filter(
+            id__in=report_ids,
+            frequency=EvaluationReport.Frequency.EVERY_N,
+            trigger_threshold__isnull=False,
+        )
+        .select_related("evaluation", "team")
+    }
+
+    outputs: dict[str, CheckCountTriggeredEvalReportOutput] = {}
+    # team_id -> list of (report_id, report, since) for reports that passed the Postgres gate
+    survivors: dict[int, list[tuple[str, EvaluationReport, dt.datetime]]] = defaultdict(list)
+
+    for report_id in report_ids:
+        report = reports.get(report_id)
+        if report is None:
+            outputs[report_id] = CheckCountTriggeredEvalReportOutput(
+                report_id=report_id, due=False, skipped_reason="not_deliverable"
+            )
+            continue
+        skipped_reason, since = _count_triggered_pg_gate(report, now)
+        if skipped_reason is not None:
+            outputs[report_id] = CheckCountTriggeredEvalReportOutput(
+                report_id=report_id, due=False, skipped_reason=skipped_reason
+            )
+            continue
+        assert since is not None
+        survivors[report.team_id].append((report_id, report, since))
+
+    for entries in survivors.values():
+        team = entries[0][1].team
+        # Cap the per-query width so a team with many reports doesn't build one giant query.
+        for chunk in _chunk(entries, COUNT_TRIGGER_QUERY_WIDTH):
+            counts = _count_eval_results_for_reports(
+                team,
+                [
+                    _CountEntry(
+                        key=report_id,
+                        evaluation_id=str(report.evaluation_id),
+                        since=since,
+                        event_predicate=get_outcome_definition(report.evaluation.output_type).event_predicate,
+                        target_predicate=target_event_predicate(report.evaluation.target),
+                    )
+                    for report_id, report, since in chunk
+                ],
+            )
+            for report_id, report, _since in chunk:
+                assert report.trigger_threshold is not None
+                outputs[report_id] = CheckCountTriggeredEvalReportOutput(
+                    report_id=report_id, due=counts.get(report_id, 0) >= report.trigger_threshold
+                )
+
+    # Preserve input order so the workflow's aggregation and logging stay deterministic.
+    return [outputs[report_id] for report_id in report_ids]
 
 
 def _count_eval_results_for_report(report: "EvaluationReport", since: dt.datetime) -> int:
@@ -197,6 +332,75 @@ def _count_eval_results_for_report(report: "EvaluationReport", since: dt.datetim
     if not rows:
         return 0
     return int(rows[0][0] or 0)
+
+
+class _CountEntry(NamedTuple):
+    key: str
+    evaluation_id: str
+    since: dt.datetime
+    event_predicate: str
+    target_predicate: str
+
+
+def _count_eval_results_for_reports(
+    team: "Team",
+    entries: list[_CountEntry],
+) -> dict[str, int]:
+    """Count `$ai_evaluation` events for many reports in a single ClickHouse query.
+
+    We emit one `countIf` column per entry, each carrying the exact per-report predicate
+    (evaluation_id + output-type `event_predicate` + `target_predicate` + `timestamp >=
+    since`), so every count equals what the single-report query would return. The shared
+    WHERE only narrows the scan (its `IN` set and `min(since)` never exclude a row any
+    countIf would have counted). Returns {key: count}.
+    """
+    from posthog.hogql.parser import parse_expr, parse_select
+    from posthog.hogql.query import execute_hogql_query
+
+    from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+
+    if not entries:
+        return {}
+
+    # evaluation_id and since go in as ast.Constant placeholders (no interpolation to audit);
+    # `since` stays a datetime so HogQL prints toDateTime64(..., 6, <team_tz>) — a bare string
+    # would shift by the team's offset. The predicates are trusted internal output-type and
+    # target definitions (never user input), interpolated to match the single-report query
+    # exactly. Columns are read positionally below, so no aliases are needed.
+    select_columns: list[ast.Expr] = [
+        # nosemgrep: hogql-fstring-audit (the predicates come from fixed internal definitions)
+        parse_expr(
+            f"countIf(properties.$ai_evaluation_id = {{evaluation_id}}"
+            f" AND {entry.event_predicate} AND {entry.target_predicate} AND timestamp >= {{since}})",
+            placeholders={
+                "evaluation_id": ast.Constant(value=entry.evaluation_id),
+                "since": ast.Constant(value=entry.since),
+            },
+        )
+        for entry in entries
+    ]
+
+    unique_evaluation_ids = list(dict.fromkeys(entry.evaluation_id for entry in entries))
+    query = parse_select(
+        "SELECT 1 FROM events WHERE event = '$ai_evaluation' "
+        "AND properties.$ai_evaluation_id IN {evaluation_ids} AND timestamp >= {min_since}",
+        placeholders={
+            "evaluation_ids": ast.Tuple(exprs=[ast.Constant(value=e) for e in unique_evaluation_ids]),
+            "min_since": ast.Constant(value=min(entry.since for entry in entries)),
+        },
+    )
+    assert isinstance(query, ast.SelectQuery)
+    # Replace the placeholder projection with the per-entry count columns.
+    query.select = select_columns
+
+    with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.ENRICHMENT, team_id=team.pk):
+        result = execute_hogql_query(query=query, team=team, workload=Workload.OFFLINE)
+
+    rows = result.results or []
+    if not rows:
+        return {entry.key: 0 for entry in entries}
+    row = rows[0]
+    return {entries[index].key: int(row[index] or 0) for index in range(len(entries))}
 
 
 def _find_nth_eval_timestamp(

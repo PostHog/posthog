@@ -30,7 +30,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.eventbrite
     INCREMENTAL_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import EventbriteSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.eventbrite import (
+    EventbriteSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -83,6 +85,7 @@ The token needs read access to your organizations, events, orders, and attendees
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -114,7 +117,11 @@ The token needs read access to your organizations, events, orders, and attendees
         }
 
     def validate_credentials(
-        self, config: EventbriteSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: EventbriteSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_eventbrite_credentials(config.api_token):
             return True, None
@@ -133,7 +140,8 @@ The token needs read access to your organizations, events, orders, and attendees
         return eventbrite_source(
             api_token=config.api_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

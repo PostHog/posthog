@@ -296,6 +296,18 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
                 )
             }
             dashboard_properties = dashboard_filters.pop("properties") if dashboard_filters.get("properties") else None
+            # `dashboard_properties` may be stored (or supplied via ?filters_override=) as a
+            # PropertyGroupFilter dict ({"type": ..., "values": [...]}) rather than a flat list of
+            # leaves. The merge below wraps it as {"type": "AND", "values": dashboard_properties},
+            # so a dict would make `values` a dict and silently drop the filters. Flatten to leaves.
+            # Imported lazily — this model loads during django.setup(), and the apply_dashboard_filters
+            # module pulls in the query_runner import graph.
+            if isinstance(dashboard_properties, list) or (
+                isinstance(dashboard_properties, dict) and "values" in dashboard_properties
+            ):
+                from posthog.hogql_queries.apply_dashboard_filters import flatten_property_leaves  # noqa: PLC0415
+
+                dashboard_properties = flatten_property_leaves(dashboard_properties)
             insight_date_from = self.filters.get("date_from", None)
             insight_date_to = self.filters.get("date_to", None)
             dashboard_date_from = dashboard_filters.get("date_from", None)

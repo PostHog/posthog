@@ -1,3 +1,4 @@
+import re
 from typing import cast
 
 from django.db.models import Count
@@ -12,6 +13,9 @@ from products.warehouse_sources.backend.facade.models import (
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
 )
+
+# C0 controls, DEL, C1 controls, and the Unicode line/paragraph separators.
+CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
 
 
 class DAGSerializer(serializers.ModelSerializer):
@@ -58,6 +62,11 @@ class DAGSerializer(serializers.ModelSerializer):
         return value
 
     def validate_name(self, value: str) -> str:
+        # DAG names are echoed into management-command output, the confirmation prompt of
+        # destructive fleet tooling, and logs. A control character there can erase or rewrite the
+        # surrounding text, so reject it at the boundary rather than escaping at each display site.
+        if CONTROL_CHARACTERS.search(value):
+            raise serializers.ValidationError("Name cannot contain control characters.")
         is_rename = self.instance is not None and value != self.instance.name
         if is_rename:
             instance = cast(DAG, self.instance)

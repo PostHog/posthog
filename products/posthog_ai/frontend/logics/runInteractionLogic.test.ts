@@ -8,9 +8,11 @@ import { initKeaTests } from '~/test/init'
 
 import { tasksRunCreate, tasksRunsCommandCreate } from 'products/tasks/frontend/generated/api'
 
+import { contextItemLine } from '../utils/posthogContextBlock'
 import { attachedContextLogic } from './attachedContextLogic'
 import { runInteractionLogic } from './runInteractionLogic'
 import { runStreamLogic } from './runStreamLogic'
+import { toolStreamEventsLogic } from './toolStreamEventsLogic'
 
 // Minimal kea stub for the shared sandbox stream logic — gives the test full control over the busy gate
 // (`isThinking`) and `currentRunStatus`, and lets us fire `markTurnComplete` and observe `pushHumanMessage`
@@ -90,6 +92,7 @@ describe('runInteractionLogic', () => {
     let logic: ReturnType<typeof runInteractionLogic.build>
     let stream: ReturnType<typeof runStreamLogic.build>
     let project: ReturnType<typeof projectLogic.build>
+    let toolEvents: ReturnType<typeof toolStreamEventsLogic.build>
 
     const TASK_ID = 'task-1'
     const RUN_ID = 'run-1'
@@ -118,10 +121,17 @@ describe('runInteractionLogic', () => {
     beforeEach(() => {
         jest.clearAllMocks()
         ;(tasksRunsCommandCreate as jest.Mock).mockResolvedValue({})
-        ;(tasksRunCreate as jest.Mock).mockResolvedValue({ latest_run: 'run-2' })
+        ;(tasksRunCreate as jest.Mock).mockResolvedValue({ latest_run: { id: 'run-2' } })
         initKeaTests()
         project = projectLogic()
         project.mount()
+        toolEvents = toolStreamEventsLogic()
+        toolEvents.mount()
+        toolEvents.actions.registerToolListener('editor', {
+            tools: ['create_insight'],
+            applyBackTargetId: 'insight-1:activation-1',
+            onEvent: jest.fn(),
+        })
         stream = runStreamLogic({ streamKey: RUN_ID })
         stream.mount()
         logic = runInteractionLogic({ taskId: TASK_ID, runId: RUN_ID, onRunStarted })
@@ -132,6 +142,7 @@ describe('runInteractionLogic', () => {
         logic?.unmount()
         stream?.unmount()
         project?.unmount()
+        toolEvents?.unmount()
     })
 
     it('sends immediately and echoes the message when the agent is idle', async () => {
@@ -146,6 +157,9 @@ describe('runInteractionLogic', () => {
         await expectLogic(stream).toDispatchActions(['pushHumanMessage'])
         expect(logic.values.composerForm.draft).toBe('')
         expect(logic.values.queuedMessages).toEqual([])
+        expect(toolEvents.values.applyBackTargetClaims[RUN_ID]).toEqual([
+            { targetId: 'insight-1:activation-1', tools: ['create_insight'] },
+        ])
     })
 
     it('does not send any command when the model or effort is picked', async () => {
@@ -220,8 +234,8 @@ describe('runInteractionLogic', () => {
 
         // The agent transitions autonomously (e.g. a plan approval leaves Plan mode) and confirms via a
         // `current_mode_update` frame — the live mode replaces the earlier pick.
-        stream.actions.setCurrentMode('acceptEdits')
-        expect(logic.values.selectedMode).toBe('acceptEdits')
+        stream.actions.setCurrentMode('auto')
+        expect(logic.values.selectedMode).toBe('auto')
 
         logic.actions.setComposerFormValues({ draft: 'go on' })
         await expectLogic(logic, () => {
@@ -242,13 +256,14 @@ describe('runInteractionLogic', () => {
         stream.actions.setCurrentMode('full-access')
         expect(logic.values.selectedMode).toBe('plan')
 
+        // The retired acceptEdits wire mode (older runs, resumed snapshots) normalizes to auto.
         stream.actions.setCurrentMode('acceptEdits')
-        expect(logic.values.selectedMode).toBe('acceptEdits')
+        expect(logic.values.selectedMode).toBe('auto')
     })
 
     it('seeds a fresh run with the picked permission mode when the run is terminal', async () => {
         setStatus('completed')
-        logic.actions.setMode('acceptEdits')
+        logic.actions.setMode('bypassPermissions')
         logic.actions.setComposerFormValues({ draft: 'continue from here' })
 
         await expectLogic(logic, () => {
@@ -258,7 +273,7 @@ describe('runInteractionLogic', () => {
         expect(tasksRunCreate).toHaveBeenCalledWith(
             '997',
             TASK_ID,
-            expect.objectContaining({ initial_permission_mode: 'acceptEdits' })
+            expect.objectContaining({ initial_permission_mode: 'bypassPermissions' })
         )
     })
 
@@ -320,6 +335,7 @@ describe('runInteractionLogic', () => {
         expect(lemonToast.error).toHaveBeenCalled()
         expect(logic.values.composerForm.draft).toBe('ship it')
         expect(logic.values.sending).toBe(false)
+        expect(toolEvents.values.applyBackTargetClaims[RUN_ID]).toBeUndefined()
     })
 
     it('starts a fresh run seeded with the message when the run is terminal', async () => {
@@ -336,11 +352,15 @@ describe('runInteractionLogic', () => {
             runtime_adapter: 'claude',
             model: 'claude-sonnet-5',
             reasoning_effort: 'high',
-            initial_permission_mode: 'bypassPermissions',
+            initial_permission_mode: 'auto',
             resume_from_run_id: RUN_ID,
             pending_user_message: 'continue from here',
         })
         expect(onRunStarted).toHaveBeenCalledWith('run-2')
+        expect(toolEvents.values.applyBackTargetClaims[RUN_ID]).toBeUndefined()
+        expect(toolEvents.values.applyBackTargetClaims['run-2']).toEqual([
+            { targetId: 'insight-1:activation-1', tools: ['create_insight'] },
+        ])
         expect(logic.values.queuedMessages).toEqual([])
         expect(logic.values.composerForm.draft).toBe('')
     })
@@ -357,6 +377,7 @@ describe('runInteractionLogic', () => {
         expect(lemonToast.error).toHaveBeenCalled()
         expect(onRunStarted).not.toHaveBeenCalled()
         expect(logic.values.composerForm.draft).toBe('continue from here')
+        expect(toolEvents.values.applyBackTargetClaims[RUN_ID]).toBeUndefined()
     })
 
     it('wraps outgoing content with the attached-context block while echoing the raw text, and dedupes per task', async () => {
@@ -375,7 +396,7 @@ describe('runInteractionLogic', () => {
             params: { content: string }
         }
         // The wire content carries the invisible context block; the echoed human message stays raw.
-        expect(firstSend.params.content).toContain('<posthog_context>')
+        expect(firstSend.params.content).toContain('<posthog_untrusted_context>')
         expect(firstSend.params.content).toContain('- insight sig ("Signups")')
         expect(firstSend.params.content.endsWith('why the drop?')).toBe(true)
         await expectLogic(stream).toDispatchActions([
@@ -397,6 +418,25 @@ describe('runInteractionLogic', () => {
         expect(secondSend.params.content).not.toContain('- insight sig')
         expect(secondSend.params.content).toContain('- text: "always resend me"')
         expect(secondSend.params.content.endsWith('follow up')).toBe(true)
+    })
+
+    it('prunes context whose rendered line the run log already carries, even with no sent-key bookkeeping', async () => {
+        // The reload scenario: `sentContextKeysByTask` is empty (fresh session), but `runStreamLogic`
+        // recorded the block lines it found replaying the resume-chain history — the same ref must not
+        // be re-wrapped into the next send.
+        const seenItem = { type: 'insight', key: 'sig', label: 'Signups' }
+        attachedContextLogic().actions.registerContext('scene', [seenItem])
+        attachedContextLogic().actions.markContextLinesSeen(TASK_ID, [contextItemLine(seenItem)])
+        setThinking(false)
+
+        logic.actions.setComposerFormValues({ draft: 'follow up' })
+        await expectLogic(logic, () => {
+            logic.actions.submitComposerForm()
+        }).toFinishAllListeners()
+
+        const send = (tasksRunsCommandCreate as jest.Mock).mock.calls[0][3] as { params: { content: string } }
+        // The only attached item is already in the chain history, so no context block is prepended.
+        expect(send.params.content).toBe('follow up')
     })
 
     it('keeps pruning context sent by a terminal-run send after re-pointing to the fresh run', async () => {

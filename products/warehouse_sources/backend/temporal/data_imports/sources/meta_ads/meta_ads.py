@@ -10,7 +10,12 @@ from django.db import OperationalError, close_old_connections
 
 import structlog
 from requests import Response
-from requests.exceptions import JSONDecodeError as RequestsJSONDecodeError
+from requests.exceptions import (
+    ChunkedEncodingError,
+    ConnectionError as RequestsConnectionError,
+    JSONDecodeError as RequestsJSONDecodeError,
+    ReadTimeout,
+)
 
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, MetaAdsIntegration
 
@@ -25,7 +30,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.int
     IntegrationAccountListingError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MetaAdsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.metaads import (
+    MetaAdsSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.schemas import RESOURCE_SCHEMAS
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
@@ -101,7 +108,7 @@ def _fetch_paging_url(url: str, access_token: str) -> Response:
     Saved URLs have ``access_token`` stripped; we pass it via ``params`` at
     request time so the token never persists in Redis or debug logs.
     """
-    return make_tracked_session().get(url, params={"access_token": access_token})
+    return _get_with_transient_retry(lambda: make_tracked_session().get(url, params={"access_token": access_token}))
 
 
 def _clean_account_id(s: str | None) -> str | None:
@@ -286,6 +293,74 @@ def _is_timeout_error(response: Response) -> bool:
         return False
 
 
+# Meta's error-code reference documents code 1 ("API Unknown" — an unexplained backend hiccup
+# that usually clears in 1-2 retries) and code 2 ("API Service" — temporary downtime/overload) as
+# retry-recommended: https://developers.facebook.com/docs/graph-api/guides/error-handling. Meta
+# also flags some of these transient via ``error.is_transient``, but that flag isn't set
+# consistently — code 2 "Service temporarily unavailable" has been observed with
+# ``is_transient: false`` — so the documented codes are trusted over the flag. The request itself
+# is fine, so a couple of immediate retries with a short backoff usually clears it — keeping a
+# self-recovering blip from failing the whole activity (and surfacing as error-tracking noise)
+# while still letting it propagate, and Temporal retry from saved resume state, if it persists.
+META_TRANSIENT_ERROR_MAX_ATTEMPTS = 4
+META_TRANSIENT_ERROR_CODES = {1, 2}
+
+
+def _is_transient_error(response: Response) -> bool:
+    """Return True for Meta errors that are momentary backend blips worth retrying immediately.
+
+    Distinct from the too-much-data timeout (``_is_timeout_error``), which has its own
+    limit-shrinking recovery; a transient error is retried with the request unchanged.
+    """
+    try:
+        error = response.json().get("error", {})
+    except (ValueError, AttributeError):
+        return False
+    return error.get("is_transient") is True or error.get("code") in META_TRANSIENT_ERROR_CODES
+
+
+# Meta's connection occasionally resets mid-response — `requests` raises these while decoding the
+# body, after urllib3's own connection-level retries have already returned headers, so there's no
+# `Response` object yet to inspect for `_is_transient_error`. Re-issuing the same request is safe:
+# nothing was yielded from the failed one yet.
+NETWORK_TRANSIENT_ERRORS = (ChunkedEncodingError, RequestsConnectionError, ReadTimeout)
+
+
+def _get_with_transient_retry(issue: collections.abc.Callable[[], Response]) -> Response:
+    """Issue a request, absorbing transient network failures and Meta's transient server errors.
+
+    Re-issuing the same request is safe: a transiently-failed request yielded no rows. Too-much-data
+    timeouts are left for the caller's limit-shrinking path. If a failure persists past the bound, the
+    last response (or exception) propagates as usual, so the caller raises it, staying retryable upstream.
+    """
+    attempt = 1
+    while True:
+        try:
+            response = issue()
+        except NETWORK_TRANSIENT_ERRORS:
+            if attempt >= META_TRANSIENT_ERROR_MAX_ATTEMPTS:
+                raise
+            _backoff_sleep(attempt)
+            attempt += 1
+            continue
+
+        if (
+            attempt >= META_TRANSIENT_ERROR_MAX_ATTEMPTS
+            or response.status_code == 200
+            or not _is_transient_error(response)
+            or _is_timeout_error(response)
+        ):
+            return response
+
+        _backoff_sleep(attempt)
+        attempt += 1
+
+
+def _get_initial_request(url: str, params: dict) -> Response:
+    """Issue a first (non-cursor) Graph API request, absorbing Meta's transient server errors."""
+    return _get_with_transient_retry(lambda: make_tracked_session().get(url, params=params))
+
+
 # Meta error codes that indicate a permanent auth or permission problem — the
 # only fix is for the user to re-authorize the integration, so retrying the job
 # is pointless. We key off the numeric ``code`` rather than the error ``type``:
@@ -348,11 +423,18 @@ def _raise_meta_api_error(response: Response) -> typing.NoReturn:
 
     Permanent auth/permission failures raise a clean, user-actionable message
     that ``MetaAdsSource.get_non_retryable_errors`` matches on, so the job fails
-    fast instead of burning retries. The raw response is appended for debugging.
+    fast instead of burning retries. A momentary backend blip (see
+    ``_is_transient_error``) that has already exhausted its in-process retries is
+    tagged so ``MetaAdsSource.get_retryable_errors`` can keep the self-recovering
+    failure out of error tracking once Temporal retries the activity — excluding
+    the too-much-data timeout, which has its own non-retryable classification since
+    plain retries never resolve it. The raw response is appended for debugging.
     Everything else raises the raw response and stays retryable.
     """
     if _is_permanent_auth_error(response):
         raise Exception(f"{META_AUTH_ERROR_MESSAGE} (Meta API response: {response.status_code} - {response.text})")
+    if _is_transient_error(response) and not _is_timeout_error(response):
+        raise Exception(f"Meta API request failed (retryable): {response.status_code} - {response.text}")
     raise Exception(f"Meta API request failed: {response.status_code} - {response.text}")
 
 
@@ -470,8 +552,8 @@ def _iter_simple_pagination(
             )
             return _fetch_paging_url(url, access_token)
         if current_limit != PAGE_LIMIT_FALLBACK_SIZES[0]:
-            return make_tracked_session().get(initial_url, params={**params, "limit": current_limit})
-        return make_tracked_session().get(initial_url, params=params)
+            return _get_initial_request(initial_url, {**params, "limit": current_limit})
+        return _get_initial_request(initial_url, params)
 
     response = _issue()
     malformed_json_attempts = 0
@@ -601,7 +683,7 @@ def _iter_time_range_pagination(
             }
 
             chunk_params = {**params, "limit": current_limit, "time_range": json.dumps(chunk_time_range)}
-            response = make_tracked_session().get(url, params=chunk_params)
+            response = _get_initial_request(url, chunk_params)
 
             if response.status_code != 200:
                 # Fallback only happens on the initial chunk request (before any data is yielded).
@@ -639,7 +721,7 @@ def _iter_time_range_pagination(
                 if last_paging_url is not None:
                     response = _fetch_paging_url(_override_limit(last_paging_url, current_limit), access_token)
                 elif chunk_params is not None:
-                    response = make_tracked_session().get(url, params=chunk_params)
+                    response = _get_initial_request(url, chunk_params)
                 else:
                     # Unreachable: on the non-resume path chunk_params is always
                     # set, and on the resume path last_paging_url is always set.

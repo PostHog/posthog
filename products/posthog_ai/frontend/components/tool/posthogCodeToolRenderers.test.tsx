@@ -4,9 +4,9 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
 import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTypes'
 
+import { resolveToolCall } from '../../utils/toolResolver'
 import { PostHogCodeToolRenderer, POSTHOG_CODE_TOOLS_SERVER } from './posthogCodeToolRenderers'
 import { lookupToolRenderer } from './toolRegistry'
-import { resolveToolCall } from './toolResolver'
 
 function textBlock(text: string): unknown {
     return { type: 'content', content: { type: 'text', text } }

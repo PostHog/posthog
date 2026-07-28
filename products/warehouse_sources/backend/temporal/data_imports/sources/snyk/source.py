@@ -21,13 +21,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SnykSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.snyk.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-    SNYK_ENDPOINTS,
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.snyk import SnykSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.snyk.settings import ENDPOINTS, INCREMENTAL_FIELDS
 from products.warehouse_sources.backend.temporal.data_imports.sources.snyk.snyk import (
     SnykResumeConfig,
     snyk_source,
@@ -101,7 +100,7 @@ Pick the region your Snyk account is hosted on — Snyk's regional stacks are in
         )
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
-        # 401/403 surface as a requests HTTPError when `_fetch_page` calls `raise_for_status()`.
+        # 401/403 surface as a requests HTTPError from the REST client's `raise_for_status()`.
         # No amount of retrying fixes a bad or under-permissioned token, so stop the sync.
         return {
             "401 Client Error: Unauthorized for url": "Your Snyk API token is invalid or has been revoked. Generate a new token in your Snyk account settings, then reconnect.",
@@ -122,23 +121,14 @@ Pick the region your Snyk account is hosted on — Snyk's regional stacks are in
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=SNYK_ENDPOINTS[endpoint].supports_incremental,
-                supports_append=SNYK_ENDPOINTS[endpoint].supports_incremental,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-            )
-            for endpoint in list(ENDPOINTS)
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # Only endpoints with incremental fields (issues) advertise incremental/append; the rest
+        # stay full refresh — build_endpoint_schemas derives that from INCREMENTAL_FIELDS.
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: SnykSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: SnykSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         return validate_snyk_credentials(config.region, config.api_token, config.organization_id)
 
@@ -156,7 +146,8 @@ Pick the region your Snyk account is hosted on — Snyk's regional stacks are in
             api_token=config.api_token,
             organization_id=config.organization_id,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

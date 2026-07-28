@@ -6,7 +6,7 @@ from parameterized import parameterized
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PayFitSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.payfit import PayFitSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.payfit.payfit import PayFitResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.payfit.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.payfit.source import PayFitSource

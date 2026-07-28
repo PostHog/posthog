@@ -94,7 +94,7 @@ Follow this order. Each step maps to TODOs in `source.template`.
 3. **Pick the base class** (see above) and rename the class / `source_type` return.
 4. **Define `get_source_config`** — name, **category** (required — see "Source category & keywords"), label, caption, docsUrl, iconPath, fields, and optional `keywords`. Use appropriate field types (see below). Also set the vendor API version metadata class attributes — see "Vendor API version metadata".
 5. **Register** the source — add an import line to `products/warehouse_sources/backend/temporal/data_imports/sources/__init__.py` and include it in `__all__`. (The `@SourceRegistry.register` decorator on the class handles runtime registration.)
-6. **Run the config generator**: `pnpm run generate:source-configs`. Confirm the new config class appears in `products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs.py`. **Do not edit that file by hand.** Every time you change `get_source_config.fields`, re-run the generator.
+6. **Run the config generator**: `pnpm run generate:source-configs`. Confirm the new config class appears in `products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs/<your_source>.py` (one generated module per source; the package `__init__.py` is hand-written and never regenerated). **Do not edit generated modules by hand.** Every time you change `get_source_config.fields`, re-run the generator.
 7. **Swap the generic `Config` type** in `source.py` for the generated `{Source}SourceConfig` class.
 8. **Implement**: `validate_credentials`, `get_schemas`, `source_for_pipeline` (plus `get_resumable_source_manager` / `get_webhook_source_manager` as needed).
 9. **Split transport logic.** Put API client, paginator, row normalization, and `SourceResponse` assembly in `{source}.py`. Keep endpoint catalog/incremental fields/primary keys/partition defaults in `settings.py`.
@@ -132,7 +132,7 @@ This keeps endpoint behavior declarative and easy to extend.
 
 ### Source behaviour goes in the source, never in the API layer
 
-The `data_warehouse` presentation layer (`products/data_warehouse/backend/presentation/views/external_data_source.py`, `external_data_schema.py`) must stay source-agnostic.
+The `warehouse_sources` presentation layer (`products/warehouse_sources/backend/presentation/views/external_data_source.py`, `external_data_schema.py`) must stay source-agnostic.
 Do **not** add `if source_type == ExternalDataSourceType.X` / `source.is_direct_<engine>` branches there — a CI guard (`.github/scripts/check-dwh-source-agnostic.py`) blocks new ones.
 
 When a source needs behaviour the API must invoke, expose it on the source instead:
@@ -596,8 +596,17 @@ If new:
    - Add to `IntegrationKind` enum.
    - Add to `OauthIntegration.supported_kinds`.
    - Add an `elif kind == "your-source": return OauthConfig(...)` branch in `oauth_config_for_kind()`.
-3. **Redirect URI**: `https://localhost:8010/integrations/your-kind/callback` in the external service.
-4. List any new env vars in the final handoff so they can be set in all environments.
+     Raise `NotImplementedError("<Source> app not configured")` when the env vars are empty — that's the
+     fail-closed message, so code and charts can ship before the secret values exist.
+   - If the provider's token response has **no account identifier** (e.g. Resend), decode the
+     access-token JWT and set `id_path` / `name_path` from a claim (`sub`), mirroring the reddit/bing
+     branches in `integration_from_oauth_response`.
+3. **Register the client + deploy the credentials.** Registering the OAuth client with the provider,
+   the redirect URIs (US/EU/dev/localhost), the **charts** PR (wiring the env vars into both
+   `posthog-django-shared-secrets` for the web app and the worker's `secret_env_app_specific` store),
+   and writing the values into AWS Secrets Manager via the `PostHog/secrets` CLI — plus which of these
+   an agent can vs. must not automate — are all in
+   [references/oauth-app-deployment.md](references/oauth-app-deployment.md).
 
 ## Non-retryable errors
 

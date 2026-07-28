@@ -10,7 +10,7 @@ def _source_schema(*, catalog=None, schema=None, table=None):
 
 
 class TestDirectQueryEngineRegistry:
-    @parameterized.expand(["postgres", "mysql", "snowflake", "redshift"])
+    @parameterized.expand(["postgres", "mysql", "snowflake", "redshift", "clickhouse"])
     def test_known_engine_resolves(self, engine: str):
         adapter = get_direct_query_engine(engine)
         assert adapter is not None
@@ -28,6 +28,7 @@ class TestDirectQueryEngineRegistry:
             ("mysql", False),
             ("snowflake", False),
             ("redshift", False),
+            ("clickhouse", False),
         ]
     )
     def test_resolves_location_in_warehouse_mode(self, engine: str, expected: bool):
@@ -43,6 +44,8 @@ class TestDirectQueryEngineRegistry:
             ("snowflake", ("db", "public", "users")),
             ("redshift", ("db", "public", "users")),
             ("mysql", (None, "public", "users")),
+            # ClickHouse has no catalog level — the database occupies the "schema" slot.
+            ("clickhouse", (None, "public", "users")),
         ]
     )
     def test_source_table_location_uses_explicit_metadata(self, engine: str, expected: tuple):
@@ -81,6 +84,14 @@ class TestDirectQueryEngineRegistry:
             default_catalog="WAREHOUSE",
         )
         assert location == ("WAREHOUSE", "analytics", "events")
+
+    @parameterized.expand(["mysql", "snowflake", "redshift", "clickhouse"])
+    def test_non_postgres_engines_return_no_name_substitutions(self, engine: str):
+        # Returning None (not {}) is the sentinel that makes the view fall through to the generic
+        # multi-schema migration path; only Postgres has bespoke legacy-row remapping.
+        adapter = get_direct_query_engine(engine)
+        assert adapter is not None
+        assert adapter.refresh_name_substitutions(source=None, source_schemas=[], team_id=1) is None
 
     def test_snowflake_default_schema_takes_precedence_over_dot_split(self):
         adapter = get_direct_query_engine("snowflake")

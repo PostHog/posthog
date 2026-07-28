@@ -481,6 +481,17 @@ const RevenueAnalyticsPropertyFilter = z.object({
     value: PropertyFilterValue.optional(),
 })
 
+const AccountCustomPropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z
+        .literal('account_custom_property')
+        .describe('Customer analytics account custom property — the key is the property definition id')
+        .default('account_custom_property'),
+    value: PropertyFilterValue.optional(),
+})
+
 const WorkflowVariablePropertyFilter = z.object({
     key: z.string(),
     label: z.string().optional(),
@@ -511,6 +522,7 @@ const AnyPropertyFilter = z.union([
     MetricPropertyFilter,
     SpanPropertyFilter,
     RevenueAnalyticsPropertyFilter,
+    AccountCustomPropertyFilter,
     WorkflowVariablePropertyFilter,
 ])
 
@@ -549,6 +561,21 @@ const MCPToolDailyStatsQuery = z.object({
 const MCPToolFailuresQuery = z.object({
     dateRange: DateRange.optional(),
     kind: z.literal('MCPToolFailuresQuery').default('MCPToolFailuresQuery'),
+    toolName: z
+        .string()
+        .describe('The effective tool name to scope to (matched against the single-exec-resolved tool name).'),
+})
+
+const MCPToolFailureOccurrencesQuery = z.object({
+    dateRange: DateRange.optional(),
+    errorStatus: z
+        .string()
+        .describe('When set, only events with this HTTP status match; when unset, only events without a status match.')
+        .optional(),
+    errorType: z
+        .string()
+        .describe('Raw $mcp_error_type bucket; "unknown" selects errored events without an error type.'),
+    kind: z.literal('MCPToolFailureOccurrencesQuery').default('MCPToolFailureOccurrencesQuery'),
     toolName: z
         .string()
         .describe('The effective tool name to scope to (matched against the single-exec-resolved tool name).'),
@@ -616,6 +643,11 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
         name: 'query-mcp-tool-failures',
         schema: MCPToolFailuresQuery,
         kind: 'MCPToolFailuresQuery',
+    }),
+    'query-mcp-tool-failure-occurrences': createQueryWrapper({
+        name: 'query-mcp-tool-failure-occurrences',
+        schema: MCPToolFailureOccurrencesQuery,
+        kind: 'MCPToolFailureOccurrencesQuery',
     }),
     'query-mcp-tool-top-users': createQueryWrapper({
         name: 'query-mcp-tool-top-users',

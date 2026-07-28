@@ -33,7 +33,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coralogix.
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CoralogixSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coralogix import (
+    CoralogixSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -136,6 +138,7 @@ The **Frequent search** tier queries your indexed retention and works out of the
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = CORALOGIX_ENDPOINTS[endpoint]
@@ -161,7 +164,11 @@ The **Frequent search** tier queries your indexed retention and works out of the
         return schemas
 
     def validate_credentials(
-        self, config: CoralogixSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: CoralogixSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_coralogix_credentials(config.api_key, config.domain):
             return True, None

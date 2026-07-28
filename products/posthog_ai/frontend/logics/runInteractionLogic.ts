@@ -25,10 +25,11 @@ import {
 
 import { type AttachedContextItem, attachedContextItemKey } from '../types/contextTypes'
 import type { PermissionRequestRecord } from '../types/streamTypes'
-import { wrapWithPosthogContext } from '../utils/posthogContextBlock'
+import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContextBlock'
 import { attachedContextLogic } from './attachedContextLogic'
 import { isTerminalRunStatus, runStreamLogic } from './runStreamLogic'
 import type { RunStatus } from './runStreamLogic'
+import { toolStreamEventsLogic } from './toolStreamEventsLogic'
 
 export interface RunInteractionLogicProps {
     taskId: string
@@ -71,6 +72,7 @@ const MODE_CONFIG_ID = 'mode'
 export interface runInteractionLogicValues {
     dataProcessingAccepted: boolean // aiConsentLogic
     contextItems: AttachedContextItem[] // attachedContextLogic
+    seenContextLinesByTask: Record<string, string[]> // attachedContextLogic
     sentContextKeysByTask: Record<string, string[]> // attachedContextLogic
     currentProjectId: number | null // projectLogic
     currentMode: string | null // runStreamLogic
@@ -166,6 +168,19 @@ export interface runInteractionLogicActions {
     setCurrentMode: (mode: string) => {
         mode: string
     } // runStreamLogic
+    claimApplyBackTargets: (streamKey: string) => {
+        streamKey: string
+    } // toolStreamEventsLogic
+    releaseApplyBackTargets: (streamKey: string) => {
+        streamKey: string
+    } // toolStreamEventsLogic
+    transferApplyBackTargets: (
+        fromStreamKey: string,
+        toStreamKey: string
+    ) => {
+        fromStreamKey: string
+        toStreamKey: string
+    } // toolStreamEventsLogic
     blockOnConsent: () => {
         value: true
     }
@@ -291,6 +306,7 @@ export interface runInteractionLogicMeta {
         pendingContextItems: (
             contextItems: AttachedContextItem[],
             sentContextKeysByTask: Record<string, string[]>,
+            seenContextLinesByTask: Record<string, string[]>,
             arg: string
         ) => AttachedContextItem[]
     }
@@ -328,7 +344,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             runStreamLogic({ streamKey: props.streamKey ?? props.runId }),
             ['currentRunStatus', 'pendingPermissionRequest', 'respondingToPermission', 'isThinking', 'currentMode'],
             attachedContextLogic,
-            ['contextItems', 'sentContextKeysByTask'],
+            ['contextItems', 'sentContextKeysByTask', 'seenContextLinesByTask'],
             aiConsentLogic,
             ['dataProcessingAccepted'],
         ],
@@ -337,6 +353,8 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             ['pushHumanMessage', 'respondToPermission', 'cancelRun', 'markTurnComplete', 'setCurrentMode'],
             attachedContextLogic,
             ['markContextSent'],
+            toolStreamEventsLogic,
+            ['claimApplyBackTargets', 'transferApplyBackTargets', 'releaseApplyBackTargets'],
         ],
     })),
 
@@ -544,20 +562,31 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             (sending: boolean, startingRun: boolean): boolean => sending || startingRun,
         ],
         // Attached context not yet wrapped into a message for this task, the snapshot the next send wraps.
-        // The sent-key bookkeeping is task-scoped (`attachedContextLogic.sentContextKeysByTask`), not
-        // run-scoped, so the dedupe survives a terminal-run send re-pointing to a fresh run instance.
+        // Two dedupe layers, both task-scoped (not run-scoped, so the dedupe survives a terminal-run send
+        // re-pointing to a fresh run instance): the in-memory sent keys marked by this session's sends, and
+        // the durable seen lines `runStreamLogic` reconstructs from the run log's resume-chain history —
+        // without the latter, a reload or another tab would re-wrap context the chain already carries.
         // `text` items are never deduped (matches the backend's `prune_repeated_entity_refs`: repeated
         // text is intentional, e.g. consecutive error snippets).
         pendingContextItems: [
-            (s) => [s.contextItems, s.sentContextKeysByTask, (_, p: RunInteractionLogicProps) => p.taskId],
+            (s) => [
+                s.contextItems,
+                s.sentContextKeysByTask,
+                s.seenContextLinesByTask,
+                (_, p: RunInteractionLogicProps) => p.taskId,
+            ],
             (
                 contextItems: AttachedContextItem[],
                 sentContextKeysByTask: Record<string, string[]>,
+                seenContextLinesByTask: Record<string, string[]>,
                 taskId: string
             ): AttachedContextItem[] => {
                 const sentKeys = new Set(sentContextKeysByTask[taskId] ?? [])
+                const seenLines = new Set(seenContextLinesByTask[taskId] ?? [])
                 return contextItems.filter(
-                    (item) => item.type === 'text' || !sentKeys.has(attachedContextItemKey(item))
+                    (item) =>
+                        item.type === 'text' ||
+                        (!sentKeys.has(attachedContextItemKey(item)) && !seenLines.has(contextItemLine(item)))
                 )
             },
         ],
@@ -597,6 +626,9 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     return
                 }
                 actions.setSending(true)
+                const streamKey = props.streamKey ?? props.runId
+                const pendingContext = values.pendingContextItems
+                actions.claimApplyBackTargets(streamKey)
                 // Clear the draft synchronously before the await so text the user types while the send is in
                 // flight isn't clobbered when the request resolves; a failed send restores it ahead of anything
                 // typed since. The queue buffer was already cleared up-front in `flushQueue`.
@@ -645,7 +677,6 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     }
                     // Wrap the outgoing content with the on-screen context block (invisible to the user —
                     // `runStreamLogic.unwrapUserMessageContent` strips it on replay, and the echo below is raw).
-                    const pendingContext = values.pendingContextItems
                     await tasksRunsCommandCreate(String(values.currentProjectId), props.taskId, props.runId, {
                         jsonrpc: '2.0',
                         method: 'user_message',
@@ -655,6 +686,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     actions.pushHumanMessage(content)
                     markPendingContextSent(pendingContext)
                 } catch {
+                    actions.releaseApplyBackTargets(streamKey)
                     // Restore unsent content for retry, preserving send order — draft content goes back ahead of
                     // anything typed during the failed send, queue content re-stages ahead of anything staged since.
                     if (source === 'draft') {
@@ -690,12 +722,15 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     return
                 }
                 actions.setStartingRun(true)
+                const streamKey = props.streamKey ?? props.runId
+                let claimedStreamKey = streamKey
+                const pendingContext = values.pendingContextItems
+                actions.claimApplyBackTargets(streamKey)
                 try {
                     // Same endpoint as the "Run again" button, but seeded with the user's message and chained
                     // from the finished run so the new run continues the thread, and carrying the picked model /
                     // reasoning effort (the resume schema can't, so we send the Claude create shape). The response
                     // carries the new run id as `latest_run`; the consumer-provided `onRunStarted` re-points to it.
-                    const pendingContext = values.pendingContextItems
                     const createRequest: ClaudeTaskRunCreateSchemaApi = {
                         runtime_adapter: ClaudeRuntimeAdapterEnumApi.Claude,
                         model: values.selectedModel,
@@ -707,10 +742,16 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     const result = await tasksRunCreate(String(values.currentProjectId), props.taskId, createRequest)
                     actions.resetComposerForm()
                     markPendingContextSent(pendingContext)
-                    if (result.latest_run) {
-                        props.onRunStarted?.(result.latest_run)
+                    const latestRunId = result.latest_run?.id
+                    if (latestRunId) {
+                        actions.transferApplyBackTargets(streamKey, latestRunId)
+                        claimedStreamKey = latestRunId
+                        props.onRunStarted?.(latestRunId)
+                    } else {
+                        actions.releaseApplyBackTargets(streamKey)
                     }
                 } catch {
+                    actions.releaseApplyBackTargets(claimedStreamKey)
                     lemonToast.error('Failed to start a new run. Please try again.')
                 } finally {
                     actions.setStartingRun(false)

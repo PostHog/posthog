@@ -19,7 +19,11 @@ from posthog.ph_client import ph_scoped_capture
 from posthog.temporal.common.utils import close_db_connections
 
 from products.error_tracking.backend.indexed_embedding import EMBEDDING_TABLES
-from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2, ErrorTrackingIssueMergeResult
+from products.error_tracking.backend.models import (
+    ErrorTrackingIssue,
+    ErrorTrackingIssueFingerprintV2,
+    ErrorTrackingIssueMergeResult,
+)
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.types import (
     FingerprintEmbeddingMergeResult,
     FingerprintEmbeddingResultInputs,
@@ -39,7 +43,7 @@ CLOSEST_FINGERPRINTS_QUERY_BY_MODEL = {
         AND team_id = {team_id}
         AND timestamp >= {min_timestamp}
         ORDER BY distance ASC
-        LIMIT 3
+        LIMIT 10
         """,
     "text-embedding-3-small-1536": """
         SELECT document_id, cosineDistance({target_embedding}, embedding) AS distance
@@ -51,7 +55,7 @@ CLOSEST_FINGERPRINTS_QUERY_BY_MODEL = {
         AND team_id = {team_id}
         AND timestamp >= {min_timestamp}
         ORDER BY distance ASC
-        LIMIT 3
+        LIMIT 10
         """,
 }
 
@@ -71,10 +75,13 @@ class StaleAutoMergeStateError(RuntimeError):
 def _capture_activity_exception(
     error: Exception,
     inputs: FingerprintEmbeddingResultInputs,
+    *,
+    activity_name: str,
+    workflow_name: str,
 ) -> None:
     properties: dict[str, object] = {
-        "activity": "merge_similar_fingerprints_activity",
-        "workflow": "error-tracking-fingerprint-embedding-result",
+        "activity": activity_name,
+        "workflow": workflow_name,
         "team_id": inputs.team_id,
         "fingerprint": inputs.fingerprint,
         "rendering": inputs.rendering,
@@ -190,18 +197,23 @@ def _merge_fingerprint_into_closest_issue(
     team: Team,
     fingerprint: str,
     closest_fingerprints: list[SimilarFingerprintDistance],
+    expected_source_issue_id: str | None = None,
 ) -> int:
-    closest_fingerprint = closest_fingerprints[0] if closest_fingerprints else None
     team_id = team.id
-    if not settings.ERROR_TRACKING_AUTO_MERGE_ENABLED or closest_fingerprint is None:
+    if not settings.ERROR_TRACKING_AUTO_MERGE_ENABLED:
         return 0
-    if closest_fingerprint.distance >= AUTO_MERGE_DISTANCE_THRESHOLD:
+
+    eligible_fingerprints = [
+        candidate for candidate in closest_fingerprints if candidate.distance < AUTO_MERGE_DISTANCE_THRESHOLD
+    ]
+    if not eligible_fingerprints:
         return 0
 
     fingerprints_by_value = {
         row.fingerprint: row
         for row in ErrorTrackingIssueFingerprintV2.objects.filter(
-            team_id=team_id, fingerprint__in=[fingerprint, closest_fingerprint.fingerprint]
+            team_id=team_id,
+            fingerprint__in=[fingerprint, *(candidate.fingerprint for candidate in eligible_fingerprints)],
         )
         .select_related("issue")
         .order_by("fingerprint", "id")
@@ -210,50 +222,59 @@ def _merge_fingerprint_into_closest_issue(
     if source_fingerprint is None:
         raise FingerprintIssueNotFoundError(f"Source fingerprint {fingerprint} not found for team {team_id}")
 
-    target_fingerprint = fingerprints_by_value.get(closest_fingerprint.fingerprint)
-    if target_fingerprint is None:
-        raise FingerprintIssueNotFoundError(
-            f"Target fingerprint {closest_fingerprint.fingerprint} not found for team {team_id}"
-        )
-    if source_fingerprint.issue_id == target_fingerprint.issue_id:
+    if expected_source_issue_id is not None and str(source_fingerprint.issue_id) != expected_source_issue_id:
+        source_issue_exists = ErrorTrackingIssue.objects.filter(team_id=team_id, id=expected_source_issue_id).exists()
+        if not source_issue_exists:
+            # The merge committed but its activity completion may have been lost. Treat a deleted
+            # source issue as merged so an activity retry cannot emit a duplicate issue-created alert.
+            return 1
+        # A split or reassignment moved the fingerprint without deleting the issue. No merge
+        # completed, so allow the issue-created side effects instead of exhausting activity retries.
         return 0
 
-    source_issue_id = source_fingerprint.issue_id
-    target_issue_id = target_fingerprint.issue_id
-    merge_result = target_fingerprint.issue.merge(
-        issue_ids=[source_issue_id],
-        expected_fingerprint_issue_ids={
-            fingerprint: source_issue_id,
-            closest_fingerprint.fingerprint: target_issue_id,
-        },
-    )
-    if merge_result == ErrorTrackingIssueMergeResult.NO_SOURCE_ISSUES:
-        return 0
-    if merge_result != ErrorTrackingIssueMergeResult.MERGED:
-        raise StaleAutoMergeStateError(f"Fingerprint issue ownership changed before auto-merge for team {team_id}")
+    for candidate in eligible_fingerprints:
+        target_fingerprint = fingerprints_by_value.get(candidate.fingerprint)
+        if target_fingerprint is None or source_fingerprint.issue_id == target_fingerprint.issue_id:
+            continue
 
-    with ph_scoped_capture() as capture:
-        capture(
-            distinct_id=str(team.uuid),
-            event="error_tracking_issue_merged",
-            groups=groups(team=team),
-            properties={
-                "merge_source": "auto",
-                "source_issue_id": str(source_issue_id),
-                "target_issue_id": str(target_issue_id),
-                "source_fingerprint": fingerprint,
-                "target_fingerprint": closest_fingerprint.fingerprint,
-                "distance": closest_fingerprint.distance,
+        source_issue_id = source_fingerprint.issue_id
+        target_issue_id = target_fingerprint.issue_id
+        merge_result = target_fingerprint.issue.merge(
+            issue_ids=[source_issue_id],
+            expected_fingerprint_issue_ids={
+                fingerprint: source_issue_id,
+                candidate.fingerprint: target_issue_id,
             },
         )
-    return 1
+        if merge_result == ErrorTrackingIssueMergeResult.NO_SOURCE_ISSUES:
+            return 0
+        if merge_result != ErrorTrackingIssueMergeResult.MERGED:
+            raise StaleAutoMergeStateError(f"Fingerprint issue ownership changed before auto-merge for team {team_id}")
+
+        with ph_scoped_capture() as capture:
+            capture(
+                distinct_id=str(team.uuid),
+                event="error_tracking_issue_merged",
+                groups=groups(team=team),
+                properties={
+                    "merge_source": "auto",
+                    "source_issue_id": str(source_issue_id),
+                    "target_issue_id": str(target_issue_id),
+                    "source_fingerprint": fingerprint,
+                    "target_fingerprint": candidate.fingerprint,
+                    "distance": candidate.distance,
+                },
+            )
+        return 1
+
+    return 0
 
 
-@activity.defn
-@posthoganalytics.scoped()
-@close_db_connections
-def merge_similar_fingerprints_activity(
+def merge_similar_fingerprints(
     inputs: FingerprintEmbeddingResultInputs,
+    *,
+    activity_name: str,
+    workflow_name: str,
 ) -> FingerprintEmbeddingMergeResult:
     try:
         try:
@@ -273,6 +294,7 @@ def merge_similar_fingerprints_activity(
             team,
             inputs.fingerprint,
             closest_fingerprints,
+            inputs.source_issue_id,
         )
 
         return FingerprintEmbeddingMergeResult(
@@ -281,5 +303,23 @@ def merge_similar_fingerprints_activity(
             closest_fingerprints=closest_fingerprints,
         )
     except Exception as err:
-        _capture_activity_exception(err, inputs)
+        _capture_activity_exception(
+            err,
+            inputs,
+            activity_name=activity_name,
+            workflow_name=workflow_name,
+        )
         raise
+
+
+@activity.defn
+@posthoganalytics.scoped()
+@close_db_connections
+def merge_similar_fingerprints_activity(
+    inputs: FingerprintEmbeddingResultInputs,
+) -> FingerprintEmbeddingMergeResult:
+    return merge_similar_fingerprints(
+        inputs,
+        activity_name="merge_similar_fingerprints_activity",
+        workflow_name="error-tracking-fingerprint-embedding-result",
+    )
