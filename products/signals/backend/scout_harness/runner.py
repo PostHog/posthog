@@ -17,11 +17,15 @@ from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.agent_runtime import STEP_SCOUT, resolve_agent_runtime
-from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
+from products.signals.backend.models import SignalScoutConfig, SignalScoutRun, SignalScratchpad
 from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
-from products.signals.backend.scout_harness.limits import DEFAULT_MAX_RUNTIME_S, STALE_RUN_CUTOFF_S
+from products.signals.backend.scout_harness.limits import (
+    DEFAULT_MAX_RUNTIME_S,
+    SELF_VALIDATION_RUN_INTERVAL,
+    STALE_RUN_CUTOFF_S,
+)
 from products.signals.backend.scout_harness.model_selection import resolve_scout_model
-from products.signals.backend.scout_harness.prompt import SignalScoutRunSummary, build_run_prompt
+from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX, SignalScoutRunSummary, build_run_prompt
 from products.signals.backend.scout_harness.skill_loader import (
     LoadedSkill,
     load_skill_for_run,
@@ -44,6 +48,12 @@ logger = logging.getLogger(__name__)
 # Reuse the report-research sandbox env. Same posture: full repo on disk, restricted
 # network, MCP read scopes injected. Split out later if the agent needs different policy.
 SIGNALS_SCOUT_SANDBOX_ENV_NAME = SIGNALS_REPORT_RESEARCH_ENV_NAME
+
+# Metadata / analytics value marking a run the harness dedicated to validating the scout's own
+# `followup:` scratchpad queue. Stamped as `metadata["run_focus"]` on the bridge row (queryable on
+# the run API) and attached to the lifecycle events; the cadence check in
+# `_should_focus_on_followups` keys on the same stamp to space focus runs out.
+RUN_FOCUS_SELF_VALIDATION = "self_validation"
 
 # The report channel (emit_report/edit_report) is opt-in per skill. A scout's sandbox token
 # carries the report-write scope ONLY when its skill listed one of these in `allowed_tools` (see
@@ -206,6 +216,15 @@ async def arun_signals_scout(
             skip_reason="no active user to act as for team",
         )
 
+    # Decide whether this run is a self-validation run (lead with the scout's own `followup:`
+    # queue) — deterministic cadence on the same canonical (team, skill) lane the guards above
+    # key on, gated on pending entries actually existing. Resolved before spawn so the prompt,
+    # the bridge row's metadata stamp, and the lifecycle events all agree on the run's focus.
+    followup_focus = await database_sync_to_async(_should_focus_on_followups, thread_sensitive=False)(
+        team_id=team.parent_team_id or team.id, skill_name=skill.name
+    )
+    run_focus = RUN_FOCUS_SELF_VALIDATION if followup_focus else None
+
     started = time.monotonic()
     # Pre-mint the bridge row's UUID so the prompt can reference it before the row
     # exists. The TaskRun is created inside `MultiTurnSession.start`; the bridge row is
@@ -257,6 +276,7 @@ async def arun_signals_scout(
             model=model,
             runtime_adapter=runtime_adapter,
             reasoning_effort=reasoning_effort,
+            run_focus=run_focus,
         )
         runtime_s = time.monotonic() - started
         emitted_count, _ = await database_sync_to_async(_read_run_metrics, thread_sensitive=False)(
@@ -273,6 +293,7 @@ async def arun_signals_scout(
             emitted_count=emitted_count,
             model=model,
             runtime_adapter=runtime_adapter,
+            run_focus=run_focus,
         )
         return RunResult(
             run_id=str(run_id),
@@ -323,6 +344,7 @@ async def arun_signals_scout(
             emitted_count=emitted_count,
             model=model,
             runtime_adapter=runtime_adapter,
+            run_focus=run_focus,
             error_type=type(exc).__name__,
             error_message=str(exc)[:300],
         )
@@ -367,6 +389,7 @@ async def arun_signals_scout(
             emitted_count=None,
             model=model,
             runtime_adapter=runtime_adapter,
+            run_focus=run_focus,
         )
         raise
 
@@ -384,13 +407,16 @@ async def _spawn_and_run(
     model: str | None,
     runtime_adapter: str | None = None,
     reasoning_effort: str | None = None,
+    run_focus: str | None = None,
 ) -> tuple[str, str]:
     """Spawn the sandbox, create the bridge row before the first turn, run the agent.
 
     `user_id` is the acting user resolved (and validated non-None) by the caller. `model`,
     `runtime_adapter`, and `reasoning_effort` are the agent runtime overrides (`model` paired with the
     `runtime_adapter` that serves it — the agent server derives the provider from it; all `None` keeps
-    the agent-server default Claude runtime). Returns `(last_message, task_run_id)`.
+    the agent-server default Claude runtime). `run_focus` is the harness-decided focus for this run
+    (`RUN_FOCUS_SELF_VALIDATION` steers the prompt at the scout's `followup:` queue and is stamped on
+    the bridge row; `None` is a normal run). Returns `(last_message, task_run_id)`.
     """
     sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
         team.id,
@@ -457,7 +483,12 @@ async def _spawn_and_run(
         reasoning_effort=reasoning_effort,
     )
     prompt = build_run_prompt(
-        skill, run_id=str(run_id), team_id=team.id, started_at=started_at, github_read_access=github_prompt_guidance
+        skill,
+        run_id=str(run_id),
+        team_id=team.id,
+        started_at=started_at,
+        github_read_access=github_prompt_guidance,
+        followup_focus=run_focus == RUN_FOCUS_SELF_VALIDATION,
     )
     logger.info(
         "signals_scout: spawning sandbox",
@@ -486,6 +517,7 @@ async def _spawn_and_run(
             model=model,
             runtime_adapter=runtime_adapter,
             reasoning_effort=reasoning_effort,
+            run_focus=run_focus,
         )
         # Lifecycle start marker. The row + TaskRun now exist and the run has cleared the
         # reap + single-flight guards, so this counts exactly the runs that actually start —
@@ -500,6 +532,7 @@ async def _spawn_and_run(
             task_run_id=str(task_run.id),
             model=model,
             runtime_adapter=runtime_adapter,
+            run_focus=run_focus,
         )
 
     session, result = await MultiTurnSession.start(
@@ -661,6 +694,41 @@ def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
             )
 
 
+def _should_focus_on_followups(*, team_id: int, skill_name: str) -> bool:
+    """Decide whether this run should lead with validating the scout's own `followup:` queue.
+
+    Deterministic cadence, not a coin flip: the most recent `SELF_VALIDATION_RUN_INTERVAL - 1`
+    runs for this (team, skill) lane form the lookback window — a focus run inside it (stamped
+    `run_focus` in the row metadata) means the cadence isn't due yet, and fewer rows than the
+    window means the scout is too young to have work worth re-measuring. A due cadence is then
+    gated on pending `followup:<skill>:` scratchpad entries actually existing, so a scout with an
+    empty queue never spends a run on an empty validation pass — and a scout that cleans its queue
+    out stops getting focus runs entirely. Best-effort: any failure resolves to a normal run.
+    """
+    try:
+        window = list(
+            SignalScoutRun.objects.unscoped()
+            .filter(team_id=team_id, skill_name=skill_name)
+            .order_by("-created_at")
+            .values_list("metadata", flat=True)[: SELF_VALIDATION_RUN_INTERVAL - 1]
+        )
+        if len(window) < SELF_VALIDATION_RUN_INTERVAL - 1:
+            return False
+        if any((metadata or {}).get("run_focus") == RUN_FOCUS_SELF_VALIDATION for metadata in window):
+            return False
+        return (
+            SignalScratchpad.objects.unscoped()
+            .filter(team_id=team_id, key__startswith=f"{FOLLOWUP_KEY_PREFIX}{skill_name}:")
+            .exists()
+        )
+    except Exception:
+        logger.exception(
+            "signals_scout: follow-up focus check failed; proceeding with a normal run",
+            extra={"team_id": team_id, "skill_name": skill_name},
+        )
+        return False
+
+
 def _create_run_row(
     *,
     run_id: Any,
@@ -671,16 +739,19 @@ def _create_run_row(
     model: str | None = None,
     runtime_adapter: str | None = None,
     reasoning_effort: str | None = None,
+    run_focus: str | None = None,
 ) -> SignalScoutRun:
-    # Stamp the routed model triple onto the row's `metadata` so "which model ran this?" is a
-    # column read on the run API, not an analytics-event join. Keys are omitted (not null-valued)
-    # on the default path, so an empty dict means the agent-server default served the run.
+    # Stamp the routed model triple — and the harness-decided run focus — onto the row's `metadata`
+    # so "which model ran this?" / "was this a self-validation run?" are column reads on the run
+    # API, not analytics-event joins. Keys are omitted (not null-valued) on the default path, so an
+    # empty dict means a normal run served by the agent-server default.
     metadata = {
         key: value
         for key, value in (
             ("model", model),
             ("runtime_adapter", runtime_adapter),
             ("reasoning_effort", reasoning_effort),
+            ("run_focus", run_focus),
         )
         if value is not None
     }
@@ -726,6 +797,7 @@ def _capture_run_started(
     task_run_id: str,
     model: str | None = None,
     runtime_adapter: str | None = None,
+    run_focus: str | None = None,
 ) -> None:
     """Emit the scout-owned run-started analytics event.
 
@@ -744,6 +816,7 @@ def _capture_run_started(
         "task_run_id": task_run_id,
     }
     _attach_model_props(properties, model=model, runtime_adapter=runtime_adapter)
+    _attach_run_focus_prop(properties, run_focus=run_focus)
     try:
         posthoganalytics.capture(
             event="signals_scout_run_started",
@@ -807,6 +880,14 @@ def _attach_model_props(properties: dict[str, Any], *, model: str | None, runtim
         properties["runtime_adapter"] = runtime_adapter
 
 
+def _attach_run_focus_prop(properties: dict[str, Any], *, run_focus: str | None) -> None:
+    # Only attached when the harness dedicated the run to a focus (self-validation today) —
+    # absence means a normal run. Makes focus-run outcomes (runtime, emit volume) sliceable
+    # without joining through the bridge row's metadata.
+    if run_focus is not None:
+        properties["run_focus"] = run_focus
+
+
 def _capture_run_finished(
     *,
     team: Team,
@@ -819,6 +900,7 @@ def _capture_run_finished(
     emitted_count: int | None,
     model: str | None = None,
     runtime_adapter: str | None = None,
+    run_focus: str | None = None,
     error_type: str | None = None,
     error_message: str | None = None,
 ) -> None:
@@ -847,6 +929,7 @@ def _capture_run_finished(
         "emitted_count": emitted_count,
     }
     _attach_model_props(properties, model=model, runtime_adapter=runtime_adapter)
+    _attach_run_focus_prop(properties, run_focus=run_focus)
     # Only attach failure context on failed runs — keeps successful / cancelled events clean
     # rather than carrying explicit-null error fields on every event.
     if error_type is not None:
