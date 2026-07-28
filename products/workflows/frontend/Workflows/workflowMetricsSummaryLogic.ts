@@ -69,8 +69,14 @@ export type EmailMetricRow = {
     bouncePrevented: number
     blocked: number
     // Sends without open/click tracking (step toggle off or no recipient consent). These can never
-    // record opens/clicks, so engagement reads against (delivered - untracked).
+    // record opens/clicks, so engagement reads against trackedSends rather than sent.
     untracked: number
+    // Tracked sends, not tracked deliveries. `email_untracked` and `email_sent` are pushed together on
+    // the same keys at send time, so the subtraction is exact and can never go negative, whereas
+    // `delivered - untracked` mixes send-time and webhook-time counts and goes non-positive once an
+    // untracked audience starts bouncing. A true tracked-deliveries denominator would need an untracked
+    // counter emitted at delivery time in the SES webhook, keyed off `mail.tags['ses:configuration-set']`.
+    trackedSends: number
 }
 
 // Single source of truth for metric colors across the workflow metric views. Keyed by the metric's
@@ -182,13 +188,14 @@ export const WORKFLOW_EMAIL_METRICS: Record<
     email_opened: {
         name: 'Opened',
         description:
-            'Total number of emails opened. Untracked sends can never record an open, so compare opens against delivered minus untracked.',
+            'Total number of emails opened. Untracked sends can never record an open, so compare opens against sent minus untracked.',
         color: METRIC_COLORS['Opened'],
         metricNames: ['email_opened'],
     },
     email_link_clicked: {
         name: 'Link clicked',
-        description: 'Total number of times links in emails were clicked',
+        description:
+            'Total number of times links in emails were clicked. Untracked sends can never record a click, so compare clicks against sent minus untracked.',
         color: METRIC_COLORS['Link clicked'],
         metricNames: ['email_link_clicked'],
     },
@@ -220,7 +227,7 @@ export const WORKFLOW_EMAIL_METRICS: Record<
     email_untracked: {
         name: 'Untracked',
         description:
-            'Total number of emails sent without open/click tracking, because tracking was turned off on the step or the recipient has not consented. These sends can never record opens or clicks, so exclude them when judging engagement.',
+            'Total number of emails sent without open/click tracking, because tracking was turned off on the step or the recipient has not consented. These sends can never record opens or clicks, so subtract them from sent when judging engagement.',
         color: METRIC_COLORS['Untracked'],
         metricNames: ['email_untracked'],
     },
@@ -1326,6 +1333,7 @@ export function buildEmailMetricRows(
         const sent = totals.email_sent ?? 0
         const bounced = totals.email_bounced ?? 0
         const blocked = totals.email_blocked ?? 0
+        const untracked = totals.email_untracked ?? 0
         return {
             id: action.id,
             email: action.name,
@@ -1337,7 +1345,8 @@ export function buildEmailMetricRows(
             bounced,
             bouncePrevented: totals.email_bounce_prevented ?? 0,
             blocked,
-            untracked: totals.email_untracked ?? 0,
+            untracked,
+            trackedSends: Math.max(0, sent - untracked),
         }
     })
 }

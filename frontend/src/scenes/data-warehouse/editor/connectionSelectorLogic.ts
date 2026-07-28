@@ -206,12 +206,12 @@ export const connectionSelectorLogic = kea<connectionSelectorLogicType>([
                     : (connectionOptions ?? []).map((source) => {
                           const engine = getConnectionEngine(source)
                           const isSynced = source.access_method === 'warehouse'
+                          // Prefer the user-set description, then the prefix; fall back to the source type name (never the raw UUID).
+                          const name = source.description || source.prefix || source.source_type || source.id
 
                           return {
                               value: source.id,
-                              label: `${source.prefix ? source.prefix : source.id} (${ENGINE_LABELS[engine]}${
-                                  isSynced ? ' · synced' : ''
-                              })`,
+                              label: `${name} (${ENGINE_LABELS[engine]}${isSynced ? ' · synced' : ''})`,
                               iconSrc: ENGINE_ICONS[engine],
                               managementUrl: urls.dataWarehouseSource(`managed-${source.id}`),
                           }
