@@ -27,6 +27,7 @@ Usage:
 import csv
 import json
 import zlib
+from collections.abc import Sequence
 from datetime import datetime, timedelta
 from io import StringIO
 from pathlib import Path
@@ -235,15 +236,13 @@ _MASTER_DAYS = _MERGE_SPREAD_DAYS
 _MASTER_COMMITS_PER_DAY = 18
 # Each master push carries a downstream fork's open "sync from upstream" PR, because that is what
 # GitHub really sends: the association lists every PR in the fork network sharing the run's head SHA.
-# Seeding it keeps the demo honest about the only thing that makes a master run attributable — the
-# squash-merge suffix on its head commit, never the association (SPEC §6, "two PR keys, by design").
+# Seeding it keeps the demo honest about the only thing that makes a master run attributable, which is
+# the squash-merge suffix on its head commit and never the association (SPEC §6, "two PR keys").
 _FORK_REPO_ID = 778592526
 _FORK_PR_NUMBER = 1379
-# Numbered above the fixture's real PRs so a seeded master commit's PR link reads as seeded.
-_MASTER_COMMIT_PR_BASE = 73_000
 
 
-def _demo_master_commits(anchor: datetime) -> list[dict[str, Any]]:
+def _demo_master_commits(anchor: datetime, merged_pr_numbers: Sequence[int]) -> list[dict[str, Any]]:
     def iso(dt: datetime) -> str:
         return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -255,7 +254,13 @@ def _demo_master_commits(anchor: datetime) -> list[dict[str, Any]]:
         age_minutes = (total - 1 - commit_index) * spacing_minutes + (commit_index * 37) % 90
         commit_time = anchor - timedelta(minutes=age_minutes)
         sha = f"aa57e2{commit_index:04d}" + "e" * 30
-        commit_pr = _MASTER_COMMIT_PR_BASE + commit_index
+        # Cite a PR that is really in the seeded snapshot, so following the run's fallback PR link
+        # lands on a PR page instead of dead-ending on "may not exist in the connected GitHub
+        # source". Cycling through the merged set is enough: the demo needs the link to resolve, not
+        # a faithful commit-to-merge history.
+        subject = f"feat: seeded master commit {commit_index}"
+        if merged_pr_numbers:
+            subject += f" (#{merged_pr_numbers[commit_index % len(merged_pr_numbers)]})"
         red_commit = commit_index % 9 == 4  # an occasional broken master push
         cancelled_commit = commit_index % 17 == 9  # a rare all-cancelled push (neutral dot)
         for wf_index, workflow in enumerate(_MASTER_WORKFLOWS):
@@ -286,7 +291,7 @@ def _demo_master_commits(anchor: datetime) -> list[dict[str, Any]]:
                     "repository": {"full_name": "PostHog/posthog"},
                     "pull_requests": [{"number": _FORK_PR_NUMBER, "base": {"repo": {"id": _FORK_REPO_ID}}}],
                     "head_commit": {
-                        "message": f"feat: seeded master commit {commit_index} (#{commit_pr})",
+                        "message": subject,
                         "author": {"name": "PostHog Bot", "email": "bot@posthog.com"},
                     },
                 }
@@ -918,7 +923,8 @@ class Command(BaseCommand):
         # scheduled/re-triggered runs span days, which pins the scatter's Y axis at 100h+ and crushes
         # every real duration to the baseline. PR-branch rows stay untouched.
         runs = [run for run in runs if run.get("head_branch") != "master"]
-        runs.extend(_demo_master_commits(_fixture_anchor(prs, runs)))
+        merged_pr_numbers = [pr["number"] for pr in prs if pr.get("merged_at")]
+        runs.extend(_demo_master_commits(_fixture_anchor(prs, runs), merged_pr_numbers))
 
         # Always normalize timestamps to a ClickHouse-friendly format; rebasing is optional.
         shift = timedelta(0) if options["keep_dates"] else self._rebase_delta(prs, runs)
