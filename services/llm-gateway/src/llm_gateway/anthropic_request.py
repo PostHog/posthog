@@ -7,6 +7,23 @@ from typing import Any, Final
 from llm_gateway.metrics.prometheus import CLEAR_THINKING_EDIT_DROPPED
 
 CLEAR_THINKING_EDIT: Final[str] = "clear_thinking_20251015"
+OPUS_5_REQUIRED_THINKING_EFFORTS: Final[frozenset[str]] = frozenset({"xhigh", "max"})
+
+
+def enable_required_opus_5_thinking(request_data: dict[str, Any]) -> dict[str, Any]:
+    output_config = request_data.get("output_config")
+    effort = output_config.get("effort") if isinstance(output_config, dict) else None
+    thinking = request_data.get("thinking")
+
+    if (
+        request_data.get("model") != "claude-opus-5"
+        or effort not in OPUS_5_REQUIRED_THINKING_EFFORTS
+        or not isinstance(thinking, dict)
+        or thinking.get("type") != "disabled"
+    ):
+        return request_data
+
+    return {**request_data, "thinking": {"type": "adaptive"}}
 
 
 def drop_orphaned_clear_thinking(request_data: dict[str, Any], *, product: str) -> dict[str, Any]:

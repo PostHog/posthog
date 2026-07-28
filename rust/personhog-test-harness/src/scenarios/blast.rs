@@ -4,7 +4,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Result};
-use metrics::{counter, histogram};
 use personhog_proto::personhog::types::v1::ConsistencyLevel;
 use rand::{Rng, SeedableRng};
 use serde_json::{json, Value};
@@ -16,6 +15,7 @@ use crate::client::HarnessClient;
 use crate::report::{print_report, ConsistencyViolation};
 use crate::state::PersonState;
 use crate::stats::StatsCollector;
+use crate::traffic_metrics;
 
 pub async fn run(args: BlastArgs) -> Result<()> {
     let client = HarnessClient::connect(&args.router_url).await?;
@@ -126,9 +126,10 @@ pub async fn run_traffic(
                 {
                     Ok(resp) => {
                         collector.writes.record_success(start.elapsed());
-                        counter!("personhog_traffic_writes_total", "outcome" => "ok").increment(1);
-                        histogram!("personhog_traffic_write_seconds")
-                            .record(start.elapsed().as_secs_f64());
+                        traffic_metrics::record_write_ok(
+                            traffic_metrics::LANE_BLAST,
+                            start.elapsed(),
+                        );
                         let mut written = HashMap::new();
                         written.insert(key, serde_json::Value::String(value));
                         match resp.person {
@@ -140,8 +141,7 @@ pub async fn run_traffic(
                     }
                     Err(e) => {
                         collector.writes.record_failure();
-                        counter!("personhog_traffic_writes_total", "outcome" => "failed")
-                            .increment(1);
+                        traffic_metrics::record_write_failed(traffic_metrics::LANE_BLAST, &e);
                         // `{:#}` prints the full anyhow chain — the outer
                         // context alone hides the gRPC status underneath.
                         tracing::warn!(person_id, error = format!("{e:#}"), "write failed");
@@ -194,6 +194,7 @@ pub async fn verify_strong(
         match result {
             Ok(Some(person)) => {
                 collector.reads.record_success(start.elapsed());
+                traffic_metrics::record_read_ok(traffic_metrics::LANE_VERIFY, start.elapsed());
                 let props: Value = if person.properties.is_empty() {
                     json!({})
                 } else {
@@ -204,6 +205,7 @@ pub async fn verify_strong(
             }
             Ok(None) => {
                 collector.reads.record_failure();
+                traffic_metrics::record_read_failed(traffic_metrics::LANE_VERIFY, "missing");
                 all_violations.push(ConsistencyViolation {
                     person_id,
                     key: "__missing_person".to_string(),
@@ -213,6 +215,10 @@ pub async fn verify_strong(
             }
             Err(e) => {
                 collector.reads.record_failure();
+                traffic_metrics::record_read_failed(
+                    traffic_metrics::LANE_VERIFY,
+                    traffic_metrics::status_reason(&e),
+                );
                 all_violations.push(ConsistencyViolation {
                     person_id,
                     key: "__strong_read_failed".to_string(),

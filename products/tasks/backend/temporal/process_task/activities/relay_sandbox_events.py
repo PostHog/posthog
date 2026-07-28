@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from django.conf import settings
-from django.db import close_old_connections
+from django.db import close_old_connections, transaction
 
 import httpx
 import httpx_sse
@@ -56,6 +56,28 @@ TERMINAL_NOTIFICATION_METHODS = frozenset(
         "_posthog/error",
     }
 )
+
+FINAL_MESSAGE_MAX_CHARS = 20_000
+
+
+class FinalMessageTracker:
+    def __init__(self) -> None:
+        self._current_turn_parts: list[str] = []
+
+    def collect(self, event_data: dict) -> None:
+        text = _extract_agent_message_text(event_data)
+        if text:
+            self._current_turn_parts.append(text)
+
+    def end_turn(self) -> str | None:
+        if not self._current_turn_parts:
+            return None
+        text = "".join(self._current_turn_parts)[:FINAL_MESSAGE_MAX_CHARS]
+        self._current_turn_parts.clear()
+        return text
+
+    def reset(self) -> None:
+        self._current_turn_parts.clear()
 
 
 @dataclass
@@ -335,6 +357,7 @@ async def _relay_loop(
     # Buffered prose + last flush time (monotonic); see TEXT_DELTA_FLUSH_INTERVAL_SECONDS.
     pending_text_parts: list[str] = []
     last_text_flush: list[float] = [0.0]
+    final_message_tracker = FinalMessageTracker()
 
     stop_heartbeat = asyncio.Event()
     heartbeat_task = asyncio.create_task(
@@ -394,16 +417,17 @@ async def _relay_loop(
                             reconnect_count = 0
                             last_event_time[0] = time.monotonic()
 
+                            final_message_tracker.collect(event_data)
+
                             if _is_end_of_turn(event_data):
                                 agent_active[0] = False
                                 if sandbox_id and background_logs_enabled:
                                     asyncio.create_task(_emit_agentsh_events(sandbox_id, run_id, last_audit_ts_ns))
                                 if task_run is not None and task_run.mode == "interactive":
-                                    # Interactive run finished a turn — the agent is now idle waiting
-                                    # for the user. Hop off the event loop because the dispatcher
-                                    # does sync Redis (cache.add) and a potential network call to
+                                    # Hop off the event loop because the turn-completion dispatcher
+                                    # performs sync Redis I/O and a potential network call to
                                     # the feature-flag service.
-                                    asyncio.create_task(asyncio.to_thread(_safe_dispatch_awaiting_input, task_run))
+                                    asyncio.create_task(asyncio.to_thread(_safe_dispatch_turn_completed, task_run))
                                 if is_agent_design_enabled and slack_turn_active[0] and workflow_handle is not None:
                                     slack_turn_active[0] = False
                                     # Awaited in order: the final prose must be recorded before
@@ -411,6 +435,9 @@ async def _relay_loop(
                                     # otherwise drop a delta that arrived after it.
                                     await _flush_pending_text(workflow_handle, pending_text_parts, last_text_flush)
                                     await _signal_safely(workflow_handle, "turn_completed")
+                                final_text = final_message_tracker.end_turn()
+                                if final_text is not None and task_run is not None:
+                                    await asyncio.to_thread(_persist_final_message, run_id, final_text)
                             elif not agent_active[0] and _is_active_agent_update(event_data):
                                 agent_active[0] = True
 
@@ -478,6 +505,7 @@ async def _relay_loop(
                 agent_active[0] = False
                 # Drop un-flushed partial prose — the agent replays events on reconnect.
                 pending_text_parts.clear()
+                final_message_tracker.reset()
                 logger.warning(
                     "relay_sandbox_events_read_timeout",
                     run_id=run_id,
@@ -501,6 +529,7 @@ async def _relay_loop(
                 agent_active[0] = False  # missed-end_of_turn guard (see ReadTimeout above)
                 # Drop un-flushed partial prose — the agent replays events on reconnect.
                 pending_text_parts.clear()
+                final_message_tracker.reset()
                 logger.warning(
                     "relay_sandbox_events_http_error",
                     run_id=run_id,
@@ -515,6 +544,7 @@ async def _relay_loop(
                 agent_active[0] = False  # missed-end_of_turn guard (see ReadTimeout above)
                 # Drop un-flushed partial prose — the agent replays events on reconnect.
                 pending_text_parts.clear()
+                final_message_tracker.reset()
                 logger.warning(
                     "relay_sandbox_events_connection_error",
                     run_id=run_id,
@@ -749,8 +779,8 @@ def _is_terminal_event(event_data: dict) -> bool:
     return method in TERMINAL_NOTIFICATION_METHODS
 
 
-def _safe_dispatch_awaiting_input(task_run: TaskRunModel) -> None:
-    """Schedule a push when an interactive run idles waiting on the user.
+def _safe_dispatch_turn_completed(task_run: TaskRunModel) -> None:
+    """Schedule a notification when an interactive run finishes a turn.
 
     Must be called via ``asyncio.to_thread`` (as the caller does) because the
     dispatcher performs sync I/O: a Redis write (``cache.add``) and a potential
@@ -758,15 +788,29 @@ def _safe_dispatch_awaiting_input(task_run: TaskRunModel) -> None:
     dispatch never bubbles into the relay loop.
     """
     try:
-        from products.tasks.backend.push_dispatcher import notify_task_run_awaiting_input
+        from products.tasks.backend.push_dispatcher import notify_task_run_turn_completed
 
-        notify_task_run_awaiting_input(task_run)
+        notify_task_run_turn_completed(task_run)
     except Exception:
         logger.warning(
             "relay_sandbox_events_push_dispatch_failed",
             run_id=str(task_run.id),
             exc_info=True,
         )
+
+
+def _persist_final_message(run_id: str, text: str) -> None:
+    """Sync DB write; call via asyncio.to_thread."""
+    try:
+        if not settings.TEST:
+            close_old_connections()
+        with transaction.atomic():
+            run = TaskRunModel.objects.select_for_update().get(id=run_id)
+            output = run.output if isinstance(run.output, dict) else {}
+            run.output = {**output, "final_message": text}
+            run.save(update_fields=["output", "updated_at"])
+    except Exception:
+        logger.warning("relay_final_message_persist_failed", run_id=run_id, exc_info=True)
 
 
 def _broker_permission_request(task_run: TaskRunModel, permission_request: dict) -> None:

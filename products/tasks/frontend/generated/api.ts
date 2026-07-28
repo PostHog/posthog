@@ -56,6 +56,10 @@ import type {
     SandboxListParams,
     SlackThreadContextResponseApi,
     StreamReadTokenResponseApi,
+    TaskActivityListParams,
+    TaskActivityMarkReadApi,
+    TaskActivityMarkReadResponseApi,
+    TaskActivityPageDTOApi,
     TaskAutomationDTOApi,
     TaskAutomationWriteApi,
     TaskAutomationsListParams,
@@ -622,6 +626,58 @@ export const sandboxDestroy = async (projectId: string, id: string, options?: Re
     return apiMutator<void>(getSandboxDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getTaskActivityListUrl = (projectId: string, params?: TaskActivityListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/task_activity/?${stringifiedParams}`
+        : `/api/projects/${projectId}/task_activity/`
+}
+
+/**
+ * Tasks the requester is involved in (created, mentioned, or messaged), one row per task, most-recent activity first, restricted to tasks they can see.
+ * @summary List the requester's task activity
+ */
+export const taskActivityList = async (
+    projectId: string,
+    params?: TaskActivityListParams,
+    options?: RequestInit
+): Promise<TaskActivityPageDTOApi> => {
+    return apiMutator<TaskActivityPageDTOApi>(getTaskActivityListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTaskActivityMarkReadCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/task_activity/mark_read/`
+}
+
+/**
+ * Clear the unread flag on the requester's feed rows for the given tasks. Read state is per task, so opening a task through any surface clears the same row.
+ * @summary Mark task activity read
+ */
+export const taskActivityMarkReadCreate = async (
+    projectId: string,
+    taskActivityMarkReadApi: TaskActivityMarkReadApi,
+    options?: RequestInit
+): Promise<TaskActivityMarkReadResponseApi> => {
+    return apiMutator<TaskActivityMarkReadResponseApi>(getTaskActivityMarkReadCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskActivityMarkReadApi),
     })
 }
 

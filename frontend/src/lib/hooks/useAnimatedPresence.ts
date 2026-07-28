@@ -27,12 +27,20 @@ export function useAnimatedPresence(isIn: boolean, durationMs: number): Animated
     useEffect(() => {
         if (isIn) {
             setRendered(true)
-            // Defer the visibility flip a frame so the browser paints the
-            // pre-transition (hidden) styles first; without this RAF the
-            // browser coalesces both states into one paint and the CSS
-            // transition never runs.
-            const raf = window.requestAnimationFrame(() => setShown(true))
-            return () => window.cancelAnimationFrame(raf)
+            // Defer the visibility flip two frames so the browser paints the
+            // pre-transition (hidden) styles first. `setRendered` runs from a
+            // passive effect (after paint), so a single RAF fires in the same
+            // frame as the mount's paint — the browser coalesces both states
+            // into one paint and the enter transition never runs. The extra
+            // frame guarantees the hidden state paints before `shown` flips.
+            let innerRaf = 0
+            const outerRaf = window.requestAnimationFrame(() => {
+                innerRaf = window.requestAnimationFrame(() => setShown(true))
+            })
+            return () => {
+                window.cancelAnimationFrame(outerRaf)
+                window.cancelAnimationFrame(innerRaf)
+            }
         }
         if (!renderedRef.current) {
             return

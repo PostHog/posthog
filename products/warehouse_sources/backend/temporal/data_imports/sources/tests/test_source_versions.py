@@ -26,6 +26,11 @@ def test_every_source_declares_valid_versions(source_type):
         f"{source_type}: default_version {source.default_version!r} is not in supported_versions — "
         f"a missing pin would resolve to a version the source does not implement"
     )
+    assert source.default_version == source.supported_versions[-1], (
+        f"{source_type}: default_version {source.default_version!r} must be the newest supported version "
+        f"{source.supported_versions[-1]!r} — supported_versions is declared oldest→newest and the default "
+        f"is never held back (see .agents/skills/warehouse-source-new-version/SKILL.md)"
+    )
 
     assert all(isinstance(d, VersionDeprecation) for d in source.deprecated_versions), (
         f"{source_type}: deprecated_versions must contain VersionDeprecation entries"

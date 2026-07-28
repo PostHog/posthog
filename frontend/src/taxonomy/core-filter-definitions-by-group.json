@@ -1468,31 +1468,9 @@
             ],
             "label": "Event type"
         },
-        "$exception_DOMException_code": {
-            "description": "If a DOMException was thrown, it also has a DOMException code.",
-            "label": "DOMException code"
-        },
         "$exception_capture_enabled_server_side": {
             "description": "Whether exception autocapture was enabled in remote config.",
             "label": "Exception capture enabled server side"
-        },
-        "$exception_capture_endpoint": {
-            "description": "Endpoint used by posthog-js exception autocapture.",
-            "examples": [
-                "/e/"
-            ],
-            "label": "Exception capture endpoint"
-        },
-        "$exception_capture_endpoint_suffix": {
-            "description": "Endpoint used by posthog-js exception autocapture.",
-            "examples": [
-                "/e/"
-            ],
-            "label": "Exception capture endpoint suffix"
-        },
-        "$exception_colno": {
-            "description": "Which column of the line in the exception source that caused the exception.",
-            "label": "Exception source column number"
         },
         "$exception_fingerprint": {
             "description": "A fingerprint used to group issues, can be set clientside.",
@@ -1502,6 +1480,11 @@
             "description": "The structured fingerprint pieces used to group issues, captured per exception in a chain. Each entry records the type, id, and contributing pieces.",
             "label": "Exception fingerprint record"
         },
+        "$exception_fingerprint_version": {
+            "description": "The version of the fingerprinting algorithm used to group the exception.",
+            "label": "Exception fingerprint version",
+            "system": true
+        },
         "$exception_functions": {
             "description": "A function contained in the exception.",
             "label": "Exception function"
@@ -1509,10 +1492,6 @@
         "$exception_handled": {
             "description": "Whether this was a handled or unhandled exception.",
             "label": "Exception was handled"
-        },
-        "$exception_is_synthetic": {
-            "description": "Whether this was detected as a synthetic exception.",
-            "label": "Exception is synthetic"
         },
         "$exception_issue_id": {
             "description": "The id of the issue the fingerprint was associated with at ingest time.",
@@ -1525,26 +1504,10 @@
             ],
             "label": "Exception level"
         },
-        "$exception_lineno": {
-            "description": "Which line in the exception source that caused the exception.",
-            "label": "Exception source line number"
-        },
         "$exception_list": {
             "description": "List of one or more associated exceptions.",
             "label": "Exception list",
             "system": true
-        },
-        "$exception_message": {
-            "description": "The message detected on the error.",
-            "label": "Exception message"
-        },
-        "$exception_personURL": {
-            "description": "The PostHog person that experienced the exception.",
-            "label": "Exception person URL"
-        },
-        "$exception_proposed_fingerprint": {
-            "description": "The fingerprint used to group issues. Auto generated unless provided clientside.",
-            "label": "Exception proposed fingerprint"
         },
         "$exception_releases": {
             "description": "The releases in which this exception has been observed.",
@@ -1552,22 +1515,22 @@
             "type": "String"
         },
         "$exception_source": {
-            "description": "The source of the exception.",
+            "description": "The SDK integration or runtime hook that captured the exception.",
             "examples": [
-                "JS file"
+                "panic",
+                "rails",
+                "php_exception_handler"
             ],
-            "label": "Exception source"
+            "label": "Exception capture source"
         },
         "$exception_sources": {
             "description": "A source file included in the exception.",
             "label": "Exception source"
         },
-        "$exception_type": {
-            "description": "Exception categorized into types.",
-            "examples": [
-                "Error"
-            ],
-            "label": "Exception type"
+        "$exception_steps": {
+            "description": "Application-defined steps captured before the exception to provide context about the actions leading up to it.",
+            "label": "Exception steps",
+            "system": true
         },
         "$exception_types": {
             "description": "The type of the exception.",
@@ -3922,7 +3885,7 @@
         "$exception": {
             "description": "An unexpected error or unhandled exception in your application.",
             "label": "Exception",
-            "primary_property": "$exception_type"
+            "primary_property": "$exception_types"
         },
         "$feature_enrollment_update": {
             "description": "When a user enrolls with a feature.",
@@ -5863,31 +5826,9 @@
             ],
             "label": "Event type"
         },
-        "$exception_DOMException_code": {
-            "description": "If a DOMException was thrown, it also has a DOMException code.",
-            "label": "DOMException code"
-        },
         "$exception_capture_enabled_server_side": {
             "description": "Whether exception autocapture was enabled in remote config.",
             "label": "Exception capture enabled server side"
-        },
-        "$exception_capture_endpoint": {
-            "description": "Endpoint used by posthog-js exception autocapture.",
-            "examples": [
-                "/e/"
-            ],
-            "label": "Exception capture endpoint"
-        },
-        "$exception_capture_endpoint_suffix": {
-            "description": "Endpoint used by posthog-js exception autocapture.",
-            "examples": [
-                "/e/"
-            ],
-            "label": "Exception capture endpoint suffix"
-        },
-        "$exception_colno": {
-            "description": "Which column of the line in the exception source that caused the exception.",
-            "label": "Exception source column number"
         },
         "$exception_fingerprint": {
             "description": "A fingerprint used to group issues, can be set clientside.",
@@ -5897,6 +5838,11 @@
             "description": "The structured fingerprint pieces used to group issues, captured per exception in a chain. Each entry records the type, id, and contributing pieces.",
             "label": "Exception fingerprint record"
         },
+        "$exception_fingerprint_version": {
+            "description": "The version of the fingerprinting algorithm used to group the exception.",
+            "label": "Exception fingerprint version",
+            "system": true
+        },
         "$exception_functions": {
             "description": "A function contained in the exception.",
             "label": "Exception function"
@@ -5904,10 +5850,6 @@
         "$exception_handled": {
             "description": "Whether this was a handled or unhandled exception.",
             "label": "Exception was handled"
-        },
-        "$exception_is_synthetic": {
-            "description": "Whether this was detected as a synthetic exception.",
-            "label": "Exception is synthetic"
         },
         "$exception_issue_id": {
             "description": "The id of the issue the fingerprint was associated with at ingest time.",
@@ -5920,26 +5862,10 @@
             ],
             "label": "Exception level"
         },
-        "$exception_lineno": {
-            "description": "Which line in the exception source that caused the exception.",
-            "label": "Exception source line number"
-        },
         "$exception_list": {
             "description": "List of one or more associated exceptions.",
             "label": "Exception list",
             "system": true
-        },
-        "$exception_message": {
-            "description": "The message detected on the error.",
-            "label": "Exception message"
-        },
-        "$exception_personURL": {
-            "description": "The PostHog person that experienced the exception.",
-            "label": "Exception person URL"
-        },
-        "$exception_proposed_fingerprint": {
-            "description": "The fingerprint used to group issues. Auto generated unless provided clientside.",
-            "label": "Exception proposed fingerprint"
         },
         "$exception_releases": {
             "description": "The releases in which this exception has been observed.",
@@ -5947,22 +5873,22 @@
             "type": "String"
         },
         "$exception_source": {
-            "description": "The source of the exception.",
+            "description": "The SDK integration or runtime hook that captured the exception.",
             "examples": [
-                "JS file"
+                "panic",
+                "rails",
+                "php_exception_handler"
             ],
-            "label": "Exception source"
+            "label": "Exception capture source"
         },
         "$exception_sources": {
             "description": "A source file included in the exception.",
             "label": "Exception source"
         },
-        "$exception_type": {
-            "description": "Exception categorized into types.",
-            "examples": [
-                "Error"
-            ],
-            "label": "Exception type"
+        "$exception_steps": {
+            "description": "Application-defined steps captured before the exception to provide context about the actions leading up to it.",
+            "label": "Exception steps",
+            "system": true
         },
         "$exception_types": {
             "description": "The type of the exception.",

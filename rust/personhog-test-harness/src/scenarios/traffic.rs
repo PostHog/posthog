@@ -41,6 +41,7 @@ use uuid::Uuid;
 
 use crate::cli::TrafficArgs;
 use crate::client::HarnessClient;
+use crate::scenarios::chaos::{self, ChaosConfig, TargetKind, TargetSpec};
 use crate::scenarios::{blast, consistency};
 use crate::seed;
 use crate::state::PersonState;
@@ -122,6 +123,17 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
                 "shutdown signal received; cutting the epoch short to verify and clean up"
             );
             shutdown.store(true, Ordering::SeqCst);
+        });
+    }
+
+    gauge!("personhog_traffic_chaos_enabled").set(if args.chaos_enabled { 1.0 } else { 0.0 });
+    if args.chaos_enabled {
+        // Chaos runs for the process lifetime, independent of epochs:
+        // the bed is expected to stay correct while pods die under load.
+        let cfg = chaos_config(&args);
+        let shutdown = shutdown.clone();
+        tokio::spawn(async move {
+            chaos::run(cfg, shutdown).await;
         });
     }
 
@@ -242,6 +254,31 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
 /// values (admission/trim pressure). Outcomes are counted, not verified:
 /// what a given stack version does with them legitimately changes as
 /// admission hardening lands, so dashboards judge, the harness observes.
+/// The three target classes, selected by the label convention the
+/// personhog charts follow: `app.kubernetes.io/name` equals the release
+/// (and namespace) name, and `component=app` excludes the pgbouncer
+/// sidecars sharing the namespace.
+fn chaos_config(args: &TrafficArgs) -> ChaosConfig {
+    let target = |kind: TargetKind, namespace: &str| TargetSpec {
+        kind,
+        namespace: namespace.to_string(),
+        selector: format!("app.kubernetes.io/name={namespace},app.kubernetes.io/component=app"),
+    };
+    ChaosConfig {
+        interval_min: args.chaos_interval_min,
+        interval_max: args.chaos_interval_max,
+        targets: vec![
+            target(TargetKind::Leader, &args.chaos_leader_namespace),
+            target(TargetKind::Router, &args.chaos_router_namespace),
+            target(TargetKind::Writer, &args.chaos_writer_namespace),
+        ],
+        etcd: args
+            .chaos_etcd_endpoints
+            .clone()
+            .map(|endpoints| (endpoints, args.chaos_etcd_prefix.clone())),
+    }
+}
+
 async fn run_hostile(
     client: &HarnessClient,
     team_id: i64,
@@ -399,6 +436,14 @@ mod tests {
             probers: 2,
             hostile_rate: 1.0,
             metrics_port: 9110,
+            chaos_enabled: false,
+            chaos_interval_min: Duration::from_secs(180),
+            chaos_interval_max: Duration::from_secs(600),
+            chaos_leader_namespace: "personhog-leader".to_string(),
+            chaos_router_namespace: "personhog-router-leader".to_string(),
+            chaos_writer_namespace: "personhog-writer".to_string(),
+            chaos_etcd_endpoints: None,
+            chaos_etcd_prefix: "/personhog/".to_string(),
         };
         assert!(validate_args(&valid).is_ok());
         // A disabled hostile lane is legal; zero traffic knobs are not.
