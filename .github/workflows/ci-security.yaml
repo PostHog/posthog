@@ -14,14 +14,9 @@ env:
     SEMGREP_IMAGE: semgrep/semgrep:1.167.0@sha256:06938c1f365d3f67b8cedd8bc117607ae64253f88a0e768e9da9408548927dd6
 
 jobs:
-    # Job to decide which semgrep scans need to run.
+    # Job to decide which path-scoped semgrep scans need to run.
     # See .github/actions/paths-filter/README.md for filter semantics
-    # NOTE: with token auth, paths-filter uses pulls.listFiles, which caps at 3000
-    # changed files and truncates silently past that. The `|| 'true'` defaults below
-    # only cover a missing output (filter step skipped or failed). Include-only
-    # filters truncate toward 'true' anyway, since any returned page holds a file
-    # matching them. `general` is decided purely by its excludes, so it can truncate
-    # to 'false' when the returned page sits entirely inside the excluded trees.
+    # Pushes and PRs above GitHub's 3000-file API limit run every scan.
     changes:
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -31,21 +26,24 @@ jobs:
             contents: read
             pull-requests: read
         outputs:
-            python: ${{ steps.filter.outputs.python || 'true' }}
-            go: ${{ steps.filter.outputs.go || 'true' }}
-            rust: ${{ steps.filter.outputs.rust || 'true' }}
-            js: ${{ steps.filter.outputs.js || 'true' }}
-            products-frontend: ${{ steps.filter.outputs.products-frontend || 'true' }}
-            general: ${{ steps.filter.outputs.general || 'true' }}
-            devex: ${{ steps.filter.outputs.devex || 'true' }}
-            test-rules: ${{ steps.filter.outputs.test-rules || 'true' }}
+            python: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.python || 'true' }}
+            go: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.go || 'true' }}
+            rust: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.rust || 'true' }}
+            js: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.js || 'true' }}
+            products-frontend: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.products-frontend || 'true' }}
+            devex: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.devex || 'true' }}
+            test-rules: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.test-rules || 'true' }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
+            - name: Force all scans for oversized pull requests
+              id: oversized
+              if: github.event_name == 'pull_request' && github.event.pull_request.changed_files > 3000
+              run: echo "force_all=true" >> "$GITHUB_OUTPUT"
             - uses: ./.github/actions/paths-filter
               id: filter
-              if: github.event_name != 'push' # Run all scans on master push
+              if: github.event_name != 'push' && steps.oversized.outputs.force_all != 'true'
               with:
                   filters: |
                       python:
@@ -79,27 +77,7 @@ jobs:
                         - 'products/**'
                         - '.semgrep/rules/security/prefer-codegen-api.yaml'
                         - '.github/workflows/ci-security.yaml'
-                      # '**' plus negations, not positive includes, so a new top-level
-                      # directory fails open and still triggers the scan. Keep the
-                      # negations one-for-one with semgrep-general's --exclude flags:
-                      # dropping an --exclude without dropping its negation here leaves
-                      # the files in scan scope with nothing left to trigger the job.
-                      general:
-                        - '**'
-                        - '!cli/**'
-                        - '!common/**'
-                        - '!ee/**'
-                        - '!frontend/**'
-                        - '!livestream/**'
-                        - '!nodejs/**'
-                        - '!posthog/**'
-                        - '!products/**'
-                        - '!rust/**'
-                        - '!.semgrep/**'
-                        - '!docs/**'
-                        - '!services/**'
-                      # Mirrors the directory list semgrep-devex passes to semgrep. Its rules
-                      # span python/typescript/generic, so this can't narrow by extension.
+                      # Keep these paths aligned with semgrep-devex's scan targets.
                       devex:
                         - 'bin/**'
                         - 'common/**'
@@ -110,8 +88,7 @@ jobs:
                         - 'products/**'
                         - '.semgrep/rules/devex/**'
                         - '.github/workflows/ci-security.yaml'
-                      # `semgrep --test .semgrep/` only exercises the rules against their
-                      # own committed fixtures, so nothing outside .semgrep/ can change it.
+                      # Rule tests only read fixtures under .semgrep/.
                       test-rules:
                         - '.semgrep/**'
                         - '.github/workflows/ci-security.yaml'
@@ -316,8 +293,6 @@ jobs:
 
     # scans GitHub Actions and other repo-wide config
     semgrep-general:
-        needs: changes
-        if: needs.changes.outputs.general == 'true'
         runs-on: ubuntu-latest
         timeout-minutes: 20
 
@@ -336,8 +311,7 @@ jobs:
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-            # exclude all directories already scanned by other jobs.
-            # Keep this list one-for-one with the `general` filter in the changes job.
+            # exclude all directories already scanned by other jobs
             - name: Run Semgrep
               run: |
                   docker run --rm -v "${{ github.workspace }}:/src" -w /src \
