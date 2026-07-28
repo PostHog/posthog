@@ -1,6 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api, { ApiError } from 'lib/api'
 
 import { useMocks } from '~/mocks/jest'
@@ -100,11 +102,12 @@ describe('llmPlaygroundRunLogic', () => {
         streamSpy.mockRestore()
     })
 
-    it('does not run a completion without editor access to the playground', async () => {
+    it('does not run a completion without editor access to the playground and explains why', async () => {
         // Both message textareas submit on Cmd+Enter, bypassing the Run button's disabledReason,
         // so the gate has to hold in the logic itself.
         setPlaygroundAccessLevel(AccessControlLevel.Viewer)
         const streamSpy = jest.spyOn(api, 'stream')
+        const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
 
         const logic = llmPlaygroundRunLogic()
         logic.mount()
@@ -117,10 +120,14 @@ describe('llmPlaygroundRunLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(streamSpy).not.toHaveBeenCalled()
+        expect(toastSpy).toHaveBeenCalledWith(
+            "You don't have sufficient permissions for this LLM playground. Your access level (viewer) doesn't meet the required level (editor)."
+        )
         await expectLogic(logic).toMatchValues({ submitting: false })
 
         logic.unmount()
         streamSpy.mockRestore()
+        toastSpy.mockRestore()
     })
 
     it('surfaces backend error message and captures exception when stream fails with ApiError', async () => {
