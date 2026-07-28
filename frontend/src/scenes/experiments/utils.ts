@@ -293,6 +293,46 @@ export function getViewRecordingFiltersForVariant(
 }
 
 /**
+ * Stand-in exposure filter for when the default `$feature_flag_called` exposure event is captured
+ * server-side and can never match a session. `posthog-js` stamps `$feature/<flag_key>` on every
+ * client-side event captured after flags load, so this property filter matches sessions where the
+ * flag was active regardless of where the flag was evaluated. It is an approximation of exposure,
+ * not the real thing: the property reflects the flag's value on each event, not the enrollment
+ * moment. Custom exposure criteria carry semantics (a specific event plus its property filters)
+ * that a flag-value filter can't stand in for, so those return null and keep the
+ * blank-with-explanation behavior.
+ */
+export function getExposureFallbackFilter(
+    experiment: Experiment,
+    variantKey?: string
+): UniversalFiltersGroupValue | null {
+    const exposureConfig = experiment.exposure_criteria?.exposure_config
+    if (exposureConfig && !(isEventExposureConfig(exposureConfig) && exposureConfig.event === EXPOSURE_DEFAULT_EVENT)) {
+        return null
+    }
+    const variantKeys =
+        variantKey !== undefined ? [variantKey] : getExperimentVariants(experiment).map((variant) => variant.key)
+    const propertyKey = featureFlagVariantProperty(experiment.feature_flag_key)
+    // Typed as an event property, not PropertyFilterType.Feature: the recordings query backend
+    // only routes event-typed filters through its events subquery (see `is_event_property` in
+    // posthog/session_recordings/queries/utils.py) and treats feature-typed ones as unexpected.
+    if (variantKeys.length === 0) {
+        return {
+            key: propertyKey,
+            type: PropertyFilterType.Event,
+            value: PropertyOperator.IsSet,
+            operator: PropertyOperator.IsSet,
+        }
+    }
+    return {
+        key: propertyKey,
+        type: PropertyFilterType.Event,
+        value: variantKeys,
+        operator: PropertyOperator.Exact,
+    }
+}
+
+/**
  * Gets the Filters to ExperimentMetrics, Can't quite use `exposureConfigToFilter` or
  * `metricToFilter` because the format is not quite the same, but we can use `seriesToFilter`
  *
@@ -436,29 +476,43 @@ export function getSessionLinkabilityEventNames(experiment: Experiment): string[
  * Post-filters `getViewRecordingFilters` output. Recordings are matched through events carrying
  * a `$session_id`, so an event filter the project has never seen with that property (e.g. one
  * captured server-side) would zero out the whole AND-combined recordings query. The exposure
- * filter is always first; when it is itself unlinkable there are no recordings to show at all.
+ * filter is always first. When it is itself unlinkable, `exposureFallbackFilter` (see
+ * `getExposureFallbackFilter`) takes its place with `usedExposureFallback: true`, so callers can
+ * label the result as "flag was active" rather than "exposed"; without a fallback there are no
+ * recordings to show at all.
  */
 export function applySessionLinkability(
     filters: UniversalFiltersGroupValue[],
-    unlinkableEventNames: Set<string>
-): { filters: UniversalFiltersGroupValue[]; droppedMetricEventCount: number; exposureUnlinkable: boolean } {
+    unlinkableEventNames: Set<string>,
+    exposureFallbackFilter: UniversalFiltersGroupValue | null = null
+): {
+    filters: UniversalFiltersGroupValue[]
+    droppedMetricEventCount: number
+    exposureUnlinkable: boolean
+    usedExposureFallback: boolean
+} {
     const isUnlinkable = (filter: UniversalFiltersGroupValue): boolean =>
         isUnlinkableEventFilter(filter, unlinkableEventNames)
 
     if (filters.length === 0) {
-        return { filters: [], droppedMetricEventCount: 0, exposureUnlinkable: false }
+        return { filters: [], droppedMetricEventCount: 0, exposureUnlinkable: false, usedExposureFallback: false }
     }
 
     const [exposureFilter, ...metricFilters] = filters
-    if (isUnlinkable(exposureFilter)) {
-        return { filters: [], droppedMetricEventCount: 0, exposureUnlinkable: true }
+    const exposureIsUnlinkable = isUnlinkable(exposureFilter)
+    if (exposureIsUnlinkable && !exposureFallbackFilter) {
+        return { filters: [], droppedMetricEventCount: 0, exposureUnlinkable: true, usedExposureFallback: false }
     }
 
     const keptMetricFilters = metricFilters.filter((filter) => !isUnlinkable(filter))
     return {
-        filters: [exposureFilter, ...keptMetricFilters],
+        filters: [
+            exposureIsUnlinkable && exposureFallbackFilter ? exposureFallbackFilter : exposureFilter,
+            ...keptMetricFilters,
+        ],
         droppedMetricEventCount: metricFilters.length - keptMetricFilters.length,
         exposureUnlinkable: false,
+        usedExposureFallback: exposureIsUnlinkable,
     }
 }
 

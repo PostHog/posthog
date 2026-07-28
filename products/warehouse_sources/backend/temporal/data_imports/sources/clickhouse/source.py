@@ -314,6 +314,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
                 verify=config.verify,
                 query_timeout=query_timeout,
                 settings=settings,
+                bypass_env_proxy=is_team_allowlisted_for_internal_hosts(team_id),
             )
             try:
                 yield client

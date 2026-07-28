@@ -160,7 +160,12 @@ async def prepare_s3_files_for_querying(
         async def copy_file(file: str) -> None:
             async with semaphore:
                 file_name = file.replace(f"{s3_folder_for_schema}/", "")
-                await s3._copy(file, f"{s3_path_for_querying}/{file_name}")
+                # _cp_file() copies a single known source to a known destination key directly.
+                # The generic _copy() also globs the source and probes whether the destination
+                # is a directory, each requiring its own S3 ListObjectsV2 call — with hundreds of
+                # files copied concurrently, that multiplies into enough LIST traffic to trigger
+                # S3's SlowDown rate limiting on the destination prefix.
+                await s3._cp_file(file, f"{s3_path_for_querying}/{file_name}")
 
         await asyncio.gather(*[copy_file(file) for file in file_uris])
 
