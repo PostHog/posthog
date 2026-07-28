@@ -24,7 +24,7 @@ INGESTION_WARNINGS_MIN_COUNT = 10
 # We trust that producer severity instead of guessing from per-type volume thresholds:
 # 'error' means the event or update was dropped, 'warning' means it was ingested but modified,
 # 'info' means an intentional or purely informational drop.
-_PRODUCER_SEVERITY_TO_HEALTH: dict[str, str] = {
+_PRODUCER_SEVERITY_TO_HEALTH: dict[str, HealthIssue.Severity] = {
     "error": HealthIssue.Severity.CRITICAL,
     "warning": HealthIssue.Severity.WARNING,
     "info": HealthIssue.Severity.INFO,
