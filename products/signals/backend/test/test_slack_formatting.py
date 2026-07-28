@@ -37,6 +37,20 @@ class TestStripChartReferences(SimpleTestCase):
             ("escaped_bracket_is_left_alone", r"\[Daily](chart:daily)", r"\[Daily](chart:daily)"),
             ("http_link_is_left_alone", "[Docs](https://posthog.com)", "[Docs](https://posthog.com)"),
             ("prose_without_a_reference", "Signups fell 60%.", "Signups fell 60%."),
+            # The inbox resolves the reference form through its definition and draws the chart, so
+            # Slack has to reduce both halves — the reference to its label, and the definition line,
+            # which would otherwise show the raw `chart:` target.
+            ("full_reference", "[Daily][daily]\n\n[daily]: chart:signups-drop", "Daily\n\n"),
+            ("collapsed_reference", "[daily][]\n\n[daily]: chart:signups-drop", "daily\n\n"),
+            ("shortcut_reference", "[daily]\n\n[daily]: chart:signups-drop", "daily\n\n"),
+            # Matching is case-insensitive and collapses whitespace, the way CommonMark compares labels.
+            ("reference_label_normalized", "[Daily  EU][DAILY EU]\n\n[daily eu]: chart:d", "Daily  EU\n\n"),
+            # A definition pointing somewhere else isn't a chart, so the author's markup stands.
+            (
+                "non_chart_definition_is_left_alone",
+                "[Daily][daily]\n\n[daily]: https://posthog.com",
+                "[Daily][daily]\n\n[daily]: https://posthog.com",
+            ),
         ]
     )
     def test_reduces_chart_links_to_their_label(self, _name: str, summary: str, expected: str) -> None:

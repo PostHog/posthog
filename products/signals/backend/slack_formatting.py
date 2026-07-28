@@ -47,9 +47,49 @@ _CHART_REF_LINK_RE = re.compile(
 )
 
 
+# The reference form the inbox also resolves: `[Daily][daily]` with `[daily]: chart:signups-drop`
+# somewhere in the summary. Both halves have to go — the reference, or Slack shows brackets around
+# a label that points nowhere, and the definition line, or it shows the raw `chart:` target.
+#
+# A definition is a line of its own, so it anchors; CommonMark allows up to three leading spaces, an
+# angle-bracketed destination, and a title, and this takes the newline with it so the line doesn't
+# survive as a blank one. The reference itself covers all three shapes — full (`[label][daily]`),
+# collapsed (`[label][]`), and shortcut (`[label]`) — which is what the inbox's `linkReference`
+# handling resolves. A match followed by `(` is an inline link whose destination isn't a chart, so
+# it keeps its brackets and its target.
+_CHART_REF_DEFINITION_RE = re.compile(
+    r"""^[ ]{0,3}\[([^\[\]\n]+)\]:[ \t]*<?chart:[^\s>]*>?"""
+    r"""[ \t]*(?:"[^"\n]*"|'[^'\n]*'|\([^()\n]*\))?[ \t]*\n?""",
+    re.MULTILINE,
+)
+_REFERENCE_LINK_RE = re.compile(r"""(?<![!\\])\[((?:[^\[\]\n\\]|\\.)*)\](\[([^\[\]\n]*)\])?(?!\()""")
+
+
+def _normalized_label(label: str) -> str:
+    """A CommonMark link label as matching compares it: case-folded, with runs of space collapsed."""
+    return " ".join(label.split()).casefold()
+
+
 def strip_chart_references(text: str) -> str:
-    """Reduce a summary's `[label](chart:<id>)` links to their label, leaving the prose intact."""
-    return _CHART_REF_LINK_RE.sub(r"\1", text)
+    """Reduce a summary's chart references to their label, leaving the prose intact.
+
+    Covers the inline form (`[Daily](chart:daily)`) and the reference form the inbox resolves through
+    a definition. Everything else is left exactly as the author wrote it."""
+    text = _CHART_REF_LINK_RE.sub(r"\1", text)
+
+    identifiers = {_normalized_label(m.group(1)) for m in _CHART_REF_DEFINITION_RE.finditer(text)}
+    if not identifiers:
+        return text
+
+    def _reduce(match: re.Match[str]) -> str:
+        label, bracketed, identifier = match.group(1), match.group(2), match.group(3)
+        # Full form points at its own identifier; collapsed and shortcut point at the label.
+        target = identifier if bracketed and identifier else label
+        return label if _normalized_label(target) in identifiers else match.group(0)
+
+    # Definitions go first: a definition opens with a bracketed label of its own, and reducing that
+    # to bare text would leave the line behind as `daily: chart:signups-drop` for Slack to show.
+    return _REFERENCE_LINK_RE.sub(_reduce, _CHART_REF_DEFINITION_RE.sub("", text))
 
 
 def escape_slack_mrkdwn(text: str) -> str:
