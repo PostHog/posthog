@@ -3,7 +3,7 @@ import { PropertyMatchType } from 'posthog-js'
 import { useMemo } from 'react'
 
 import { IconX } from '@posthog/icons'
-import { LemonCard, LemonCheckbox, LemonCollapse } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCard, LemonCheckbox, LemonCollapse, Link } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -254,14 +254,25 @@ function SurveyEventSelector({
 
 export function SurveyEventTrigger(): JSX.Element {
     return (
-        <SurveyEventSelector
-            conditionField="events"
-            label="User sends events"
-            info="Triggers fire when the event is captured in the current user session via a PostHog SDK. Property filtering requires posthog-js 1.268+ or posthog-react-native 4.15+."
-            emptyTitle="No events selected"
-            emptyDescription="Pick events that should trigger this survey."
-            showRepeatedActivation
-        />
+        <div className="space-y-2">
+            <LemonBanner type="info" dismissKey="survey-event-trigger-client-side-only">
+                Events must be captured in the user's browser or app by a PostHog SDK to trigger a survey. Events sent
+                from your backend (for example posthog-node, Python, or a server-side integration) can't trigger
+                surveys, since eligibility is evaluated on the client.{' '}
+                <Link to="https://posthog.com/docs/surveys/troubleshooting" target="_blank">
+                    Learn more
+                </Link>
+                .
+            </LemonBanner>
+            <SurveyEventSelector
+                conditionField="events"
+                label="User sends events"
+                info="Triggers fire when the event is captured in the current user session via a PostHog SDK. Property filtering requires posthog-js 1.268+ or posthog-react-native 4.15+."
+                emptyTitle="No events selected"
+                emptyDescription="Pick events that should trigger this survey."
+                showRepeatedActivation
+            />
+        </div>
     )
 }
 
