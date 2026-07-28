@@ -8,6 +8,7 @@ function quickAction(overrides: Partial<QuickActionApi>): QuickActionApi {
         id: '1',
         short_id: 'abc',
         name: 'Test',
+        workflow_runnable: null,
         created_at: '2026-01-01T00:00:00Z',
         created_by: {} as QuickActionApi['created_by'],
         ...overrides,

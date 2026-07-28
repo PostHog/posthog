@@ -695,6 +695,11 @@ export interface QuickActionApi {
      * @nullable
      */
     workflow_id?: string | null
+    /**
+     * Whether the attached workflow is active in the current environment. Null when the quick action has no workflow. False means it can't run here (workflows are environment-scoped while quick actions are shared across the project), so the UI can disable running it.
+     * @nullable
+     */
+    readonly workflow_runnable: boolean | null
     /** "team" shares with everyone on the team; "personal" keeps it private to you.
      *
      * * `team` - Team
@@ -740,6 +745,11 @@ export interface PatchedQuickActionApi {
      * @nullable
      */
     workflow_id?: string | null
+    /**
+     * Whether the attached workflow is active in the current environment. Null when the quick action has no workflow. False means it can't run here (workflows are environment-scoped while quick actions are shared across the project), so the UI can disable running it.
+     * @nullable
+     */
+    readonly workflow_runnable?: boolean | null
     /** "team" shares with everyone on the team; "personal" keeps it private to you.
      *
      * * `team` - Team

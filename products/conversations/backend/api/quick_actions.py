@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 import structlog
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
@@ -20,8 +20,10 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 
 from products.conversations.backend.events import (
+    _get_actor_properties,
     _get_assignment_properties,
     _get_customer_properties,
+    _get_sla_properties,
     _get_ticket_base_properties,
     _groups_from_org_id,
     _resolve_org_groups,
@@ -31,10 +33,14 @@ from products.conversations.backend.models.constants import Priority, Status
 from products.workflows.backend.facade.api import (
     HogFlowNotRunnableError,
     HogFlowServiceError,
+    active_workflow_ids,
     invoke_hog_flow_now,
     user_can_run_workflow,
     workflow_is_runnable,
 )
+
+if TYPE_CHECKING:
+    from posthog.models import User
 
 logger = structlog.get_logger(__name__)
 
@@ -108,11 +114,31 @@ class QuickActionSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="Optional: id of a workflow to run against the ticket when the quick action is used.",
     )
+    workflow_runnable = serializers.SerializerMethodField(
+        help_text=(
+            "Whether the attached workflow is active in the current environment. Null when the quick "
+            "action has no workflow. False means it can't run here (workflows are environment-scoped "
+            "while quick actions are shared across the project), so the UI can disable running it."
+        )
+    )
     visibility = serializers.ChoiceField(
         choices=QuickActionVisibility.choices,
         required=False,
         help_text='"team" shares with everyone on the team; "personal" keeps it private to you.',
     )
+
+    @extend_schema_field(serializers.BooleanField(allow_null=True))
+    def get_workflow_runnable(self, obj: QuickAction) -> bool | None:
+        if not obj.workflow_id:
+            return None
+        return str(obj.workflow_id) in self._runnable_workflow_ids()
+
+    def _runnable_workflow_ids(self) -> set[str]:
+        # Resolve the team's active workflow ids once per response and reuse across every row, so a
+        # list render is one query rather than an exists() per quick action.
+        if not hasattr(self, "_runnable_ids_cache"):
+            self._runnable_ids_cache = active_workflow_ids(self.context["team_id"])
+        return self._runnable_ids_cache
 
     class Meta:
         model = QuickAction
@@ -125,6 +151,7 @@ class QuickActionSerializer(serializers.ModelSerializer):
             "rich_content",
             "actions",
             "workflow_id",
+            "workflow_runnable",
             "visibility",
             "created_at",
             "created_by",
@@ -228,13 +255,21 @@ class QuickActionRunErrorSerializer(serializers.Serializer):
     detail = serializers.CharField(help_text="Human-readable explanation of why the run failed.")
 
 
-def _build_ticket_event_globals(ticket: Ticket) -> dict:
-    """Synthesize the event/globals payload a workflow receives, mirroring the shape of the
-    `$conversation_*` events in events.py so workflow filters and ticket actions see the ticket."""
+def _build_ticket_event_globals(ticket: Ticket, actor: User | None) -> dict:
+    """Synthesize the event/globals payload a workflow receives, assembled from the same per-group
+    property helpers as the `$conversation_*` events in events.py (each helper is the single source
+    of truth for its group), so workflow filters and ticket actions see the ticket the same way.
+
+    Includes the actor (the agent who ran the quick action) and the SLA state, matching what the
+    real message events carry. Person globals are intentionally omitted: resolving a person requires
+    the full person-lookup, which this synchronous run path deliberately avoids — so a workflow
+    filtering on person properties won't match when triggered this way."""
     properties: dict[str, Any] = {}
     properties.update(_get_ticket_base_properties(ticket))
+    properties.update(_get_actor_properties(actor, "user"))
     properties.update(_get_customer_properties(ticket, include_distinct_id=True))
     properties.update(_get_assignment_properties(ticket))
+    properties.update(_get_sla_properties(ticket, timezone.now()))
     try:
         # Fast path: reuse the org id already resolved onto the ticket, like events.py does, instead
         # of paying for the full person-lookup resolver on every run.
@@ -362,7 +397,7 @@ class QuickActionViewSet(
         if ticket is None:
             raise serializers.ValidationError({"ticket_id": "Ticket not found."})
 
-        globals_payload = _build_ticket_event_globals(ticket)
+        globals_payload = _build_ticket_event_globals(ticket, request.user)  # type: ignore[arg-type]
         try:
             invoke_hog_flow_now(self.team_id, quick_action.workflow_id, globals_payload)
         except HogFlowNotRunnableError as e:

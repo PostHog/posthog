@@ -119,26 +119,39 @@ export const QuickActionPicker = forwardRef<QuickActionPickerRef, QuickActionPic
                 />
             )}
             <div className="deprecated-space-y-px overflow-y-auto max-h-[20rem]">
-                {filtered.map((quickAction, index) => (
-                    <LemonButton
-                        key={quickAction.short_id}
-                        fullWidth
-                        icon={<IconShortcut />}
-                        active={index === selectedIndex}
-                        onClick={() => execute(quickAction)}
-                        tooltip={quickAction.description || undefined}
-                        sideIcon={quickAction.workflow_id ? <LemonTag type="completion">Workflow</LemonTag> : undefined}
-                    >
-                        <div className="flex flex-col items-start">
-                            <span>{quickAction.name}</span>
-                            {quickAction.description ? (
-                                <span className="text-xs text-secondary truncate max-w-full">
-                                    {quickAction.description}
-                                </span>
-                            ) : null}
-                        </div>
-                    </LemonButton>
-                ))}
+                {filtered.map((quickAction, index) => {
+                    // A workflow quick action created in another environment can appear here (quick
+                    // actions are shared across the project) but only run where its workflow is
+                    // active. Disable it rather than letting the click fail.
+                    const notRunnableHere = !!quickAction.workflow_id && quickAction.workflow_runnable === false
+                    return (
+                        <LemonButton
+                            key={quickAction.short_id}
+                            fullWidth
+                            icon={<IconShortcut />}
+                            active={index === selectedIndex}
+                            onClick={() => execute(quickAction)}
+                            tooltip={quickAction.description || undefined}
+                            disabledReason={
+                                notRunnableHere
+                                    ? "This quick action's workflow isn't active in this environment"
+                                    : undefined
+                            }
+                            sideIcon={
+                                quickAction.workflow_id ? <LemonTag type="completion">Workflow</LemonTag> : undefined
+                            }
+                        >
+                            <div className="flex flex-col items-start">
+                                <span>{quickAction.name}</span>
+                                {quickAction.description ? (
+                                    <span className="text-xs text-secondary truncate max-w-full">
+                                        {quickAction.description}
+                                    </span>
+                                ) : null}
+                            </div>
+                        </LemonButton>
+                    )
+                })}
                 {filtered.length === 0 && (
                     <div className="text-secondary p-2 text-center">
                         {quickActionsLoading

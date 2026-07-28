@@ -42,6 +42,16 @@ def workflow_is_runnable(team_id: int, workflow_id: str | UUID) -> bool:
     return HogFlow.objects.filter(team_id=team_id, id=workflow_id, status=HogFlow.State.ACTIVE).exists()
 
 
+def active_workflow_ids(team_id: int) -> set[str]:
+    """The ids of every active workflow for the team, as strings. One query, for callers that need
+    to check runnability of many workflow references at once (e.g. rendering a list) without an
+    N+1 of `workflow_is_runnable`."""
+    return {
+        str(id)
+        for id in HogFlow.objects.filter(team_id=team_id, status=HogFlow.State.ACTIVE).values_list("id", flat=True)
+    }
+
+
 def user_can_run_workflow(user: User, team: Team, workflow_id: str | UUID) -> bool:
     """True if the user has editor access to this workflow (RBAC object-level check).
 
