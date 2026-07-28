@@ -13,12 +13,15 @@ export const getEveSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
             badge: 'required',
             content: (
                 <>
-                    <Markdown>Install the PostHog AI exporter and Vercel's OpenTelemetry package.</Markdown>
+                    <Markdown>
+                        Install the PostHog AI exporter, OpenTelemetry HTTP exporter, and Vercel's OpenTelemetry
+                        package.
+                    </Markdown>
 
                     <CodeBlock
                         language="bash"
                         code={dedent`
-                            npm install @posthog/ai @vercel/otel
+                            npm install @posthog/ai @opentelemetry/exporter-trace-otlp-http @vercel/otel
                         `}
                     />
                 </>

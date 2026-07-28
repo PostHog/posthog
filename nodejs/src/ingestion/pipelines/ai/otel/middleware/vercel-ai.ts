@@ -53,6 +53,7 @@ const STRIP_KEYS = [
 const STRING_AI_METADATA_KEYS = ['$ai_session_id', '$ai_prompt_name']
 const AI_PROMPT_VERSION_KEY = '$ai_prompt_version'
 const EVE_MARKER_KEYS = ['eve.version', 'eve.session.id']
+const EVE_TURN_SPAN_NAME = 'ai.eve.turn'
 
 function isNonEmptyString(value: unknown): value is string {
     return typeof value === 'string' && value.length > 0
@@ -64,6 +65,13 @@ function isPromptVersion(value: unknown): value is string | number {
 
 function isEveSpan(props: Record<string, unknown>): boolean {
     return EVE_MARKER_KEYS.some((key) => props[key] !== undefined)
+}
+
+function isEveTurnSpan(props: Record<string, unknown>): boolean {
+    return (
+        isEveSpan(props) &&
+        (props['$otel_span_name'] === EVE_TURN_SPAN_NAME || props['$ai_span_name'] === EVE_TURN_SPAN_NAME)
+    )
 }
 
 // Vercel AI SDK top-level spans (ai.generateText/ai.streamText/ai.*Object) record
@@ -111,6 +119,11 @@ function process(event: PluginEvent, next: () => void): void {
     }
     const props = event.properties
     const eveSpan = isEveSpan(props)
+
+    // Eve's Workflow parent is filtered before ingestion, so the turn must become the logical trace root.
+    if (isEveTurnSpan(props)) {
+        delete props['$ai_parent_id']
+    }
 
     // Capture opId before next() since STRIP_KEYS deletes it afterward
     const opId = props['ai.operationId']

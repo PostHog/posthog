@@ -28,6 +28,7 @@ function mockMapOtelAttributes(e: { event: string; properties?: Record<string, u
         'gen_ai.usage.cache_creation.input_tokens': '$ai_cache_creation_input_tokens',
         'gen_ai.response.model': '$ai_model',
         'gen_ai.provider.name': '$ai_provider',
+        $otel_span_name: '$ai_span_name',
     }
     if (props['gen_ai.input.messages'] !== undefined) {
         const val = props['gen_ai.input.messages']
@@ -597,17 +598,21 @@ describe('vercel-ai middleware', () => {
     })
 
     describe('Eve', () => {
-        it('maps Eve root turns to session-grouped Eve traces', () => {
+        it('normalizes Eve turns with filtered Workflow parents as trace roots', () => {
             const event = createEvent('$ai_span', {
-                'eve.version': '0.4.0',
+                'eve.version': '0.27.8',
                 'eve.environment': 'production',
                 'eve.session.id': 'session-123',
                 'eve.turn.id': 'turn-1',
-                $ai_span_name: 'ai.eve.turn',
+                'ai.telemetry.functionId': 'customer-support',
+                $ai_parent_id: 'filtered-workflow-step',
+                $otel_span_name: 'ai.eve.turn',
             })
             convertOtelEvent(event)
 
             expect(event.event).toBe('$ai_trace')
+            expect(event.properties!['$ai_parent_id']).toBeUndefined()
+            expect(event.properties!['$ai_span_name']).toBe('customer-support')
             expect(event.properties!['$ai_framework']).toBe('eve')
             expect(event.properties!['$ai_session_id']).toBe('session-123')
             expect(event.properties!['$ai_lib']).toBe('opentelemetry/vercel-ai')
