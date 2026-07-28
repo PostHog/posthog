@@ -2068,6 +2068,10 @@ snapshots:
         hash: v1.k794b7964.2ff7288bc0a83e48485c4bd195b0cbceb06d5fd2218264cf63c49a72a90f00dd.tsDphOLaTwWpwAxmLc9dw4zQw9og1WJG5vjOGij2UeE
     data-warehouse-query-history-modal--with-history--light:
         hash: v1.k794b7964.e72700e47a962bf542a5cb857bc6bd98e4d0ca8e280db1ce01c144d3d1b818ef.naPm1iXreZerb2g6MdHDraZEtV7nGY8bi_60zMzf70s
+    endpoints-usagetrendschart--breakdown--dark:
+        hash: v1.k794b7964.0f49030dacb9bee225faf49bd086e33ecdb005124fa98ac490cd8b10a27470a9.byjnYIJxyHM8PmD4dNpazdlTjYlvsWBXUQc7tM8ms2A
+    endpoints-usagetrendschart--breakdown--light:
+        hash: v1.k794b7964.99e7ba5520926109658e601921f2ff2ee8f2270671a9d35dc520e33f5cdb87b8.ewLUFPEIaHWeXrPE6ExJ8TC2_B4WJWX1SOETBVN2rTc
     errortracking-assigneedisplay--all-displays--dark:
         hash: v1.k794b7964.8b92c8df5d800eb86b421fff454f46834eac7d0224872a85816e3db621d3b341.BWhYbKwsYPTyu8Z7A3tKkBgmCq8en82xZrQkJO8MIQU
     errortracking-assigneedisplay--all-displays--light:
