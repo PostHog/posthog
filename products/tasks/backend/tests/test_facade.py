@@ -597,8 +597,11 @@ class TestAppendLogAgentActivity(TestCase):
             ("session_request", [{"notification": {"method": "session/request_permission", "params": {}}}], True),
             ("console_only", [{"notification": {"method": "_posthog/console", "params": {"message": "x"}}}], False),
             ("error_only", [{"notification": {"method": "_posthog/error", "params": {}}}], False),
-            ("no_notification", [{"message": "plain infra line"}], False),
-            ("malformed_notification", [{"notification": "not-a-dict"}], False),
+            # Non-ACP batches keep the old heartbeat behaviour: callers that only post generic
+            # {type, message} entries have no session/* frame to offer and would otherwise lose
+            # their inactivity extension while still working.
+            ("no_notification", [{"message": "plain infra line"}], True),
+            ("malformed_notification", [{"notification": "not-a-dict"}], True),
             ("non_string_method", [{"notification": {"method": 7}}], False),
             ("empty_entries", [], False),
             (
@@ -608,6 +611,16 @@ class TestAppendLogAgentActivity(TestCase):
                     {"notification": {"method": "session/update", "params": {}}},
                 ],
                 True,
+            ),
+            # One ACP frame is enough to mark the batch as sandbox traffic, so the plain line
+            # riding alongside it does not buy the credential-refresh batch a heartbeat.
+            (
+                "plain_line_alongside_infra_frame",
+                [
+                    {"message": "plain infra line"},
+                    {"notification": {"method": "_posthog/console", "params": {}}},
+                ],
+                False,
             ),
         ]
     )
