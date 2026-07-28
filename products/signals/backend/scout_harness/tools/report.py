@@ -1290,7 +1290,7 @@ def _do_edit_report(
         charts_set=len(charts) if charts_changed else 0,
         report_title=report_title,
         content_safety_suppressed=content_suppressed,
-        safety_explanation=content_safety.explanation if content_suppressed else None,
+        safety_explanation=content_safety.explanation if content_safety is not None and content_suppressed else None,
     )
     # Record the edit on the run tally only when something actually changed — a no-op edit (e.g. a
     # title rewrite to its current value, or re-sending the charts already stored) must not claim the
