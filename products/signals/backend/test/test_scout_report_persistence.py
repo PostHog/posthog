@@ -390,10 +390,15 @@ class TestScoutReportCharts(BaseTest):
     )
     def test_charts_past_a_cap_are_refused(self, _name: str, specs: list[tuple[str, dict]]) -> None:
         # Both caps bound what one report costs a reader: how many queries fire when it opens, and how
-        # much chart JSON the safety judge is shown in one call.
-        report_id = self._create([self._chart("signups-drop", "Daily signups")])
+        # much chart JSON the safety judge is shown in one call. Checked on both writes, which carry
+        # their own copy of the bound — and authoring is the one a scout reaches first, on `emit`.
         charts = [ReportChart(chart_id=cid, title=cid, query=query) for cid, query in specs]
 
+        with pytest.raises(InvalidScoutReportError):
+            self._create(charts)
+        assert not SignalReport.objects.filter(title="Signups dropped").exists()
+
+        report_id = self._create([self._chart("signups-drop", "Daily signups")])
         with pytest.raises(InvalidScoutReportError):
             set_report_charts(team_id=self.team.id, report_id=report_id, charts=charts)
         assert [c["chart_id"] for c in self._stored_charts(report_id)] == ["signups-drop"]
