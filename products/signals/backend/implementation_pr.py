@@ -168,43 +168,53 @@ def close_implementation_pr_for_report(
         return False
 
 
-def _latest_report_reviewer_logins(team_id: int, report_id: str) -> frozenset[str]:
-    """The github logins on the report's current (latest) `suggested_reviewers` artefact."""
-    latest = (
+def _report_reviewer_login_sets(team_id: int, report_id: str) -> tuple[frozenset[str], frozenset[str]]:
+    """``(current reviewers, every login ever suggested for this report)``.
+
+    Current is the latest `suggested_reviewers` artefact. The historical union is what lets us
+    retract a review request we once set but the report has since dropped, without disturbing a
+    reviewer a human added straight on GitHub — that login never appears in our artefacts.
+    """
+    artefacts = list(
         SignalReportArtefact.objects.filter(
             team_id=team_id,
             report_id=report_id,
             type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
-        )
-        .order_by("-created_at")
-        .first()
+        ).order_by("-created_at")
     )
-    if latest is None:
-        return frozenset()
-    return normalized_github_logins_from_suggested_reviewer_artefacts([latest])
+    if not artefacts:
+        return frozenset(), frozenset()
+    # `ever_managed` is lossy where a row was edited in place (`update_content` overwrites content),
+    # so a login that only existed in a since-edited-away version isn't retracted — acceptable, since
+    # the common reviewer-edit path appends a new row rather than editing, preserving history.
+    desired = normalized_github_logins_from_suggested_reviewer_artefacts([artefacts[0]])
+    ever_managed = desired | normalized_github_logins_from_suggested_reviewer_artefacts(artefacts[1:])
+    return desired, ever_managed
 
 
 def sync_reviewers_to_github_for_report(team_id: int, report_id: str) -> bool:
-    """Best-effort: request the report's current reviewers on its open implementation PR.
+    """Best-effort: reconcile the report's reviewers with its open implementation PR's review requests.
 
     Run whenever a report's reviewers change and when its PR is first opened, so the GitHub PR's
     requested reviewers track the reviewers shown on the report — reports were surfacing reviewers
     that were never requested on the PR, so nobody got pinged.
 
-    Additive and idempotent: only reviewers the PR is missing are requested, so re-running is a
-    no-op and a review request a human added on GitHub is never removed. Only logins we actually
-    have (the `github_login` on each reviewer entry) are sent, and GitHub silently drops any it
-    can't resolve to a collaborator — "to the extent we know the profile". Acts only on an open
-    PR: a merged or closed PR is left alone. Returns True when reviewers were requested. Never
-    raises: it hangs off a report write and must never fail it.
+    Reconciles both directions against the PR's current requests: it requests reviewers the report
+    now names, and cancels pending requests for reviewers the report has dropped. Removal is scoped
+    to logins we ourselves ever suggested, so a reviewer a human added on GitHub is left intact.
+    Only logins we actually have (the `github_login` on each reviewer entry) are sent, and GitHub
+    silently drops any it can't resolve to a collaborator — "to the extent we know the profile".
+    Acts only on an open PR: a merged or closed PR is left alone. Idempotent, so re-running is a
+    no-op. Returns True when a request was added or removed. Never raises: it hangs off a report
+    write and must never fail it.
     """
     try:
         pr = fetch_implementation_pr_state_for_reports([str(report_id)]).get(str(report_id))
         if pr is None or pr.merged:
             return False
 
-        desired = _latest_report_reviewer_logins(team_id, str(report_id))
-        if not desired:
+        desired, ever_managed = _report_reviewer_login_sets(team_id, str(report_id))
+        if not ever_managed:  # the report has never named a reviewer — nothing to add or retract
             return False
 
         parsed = GitHubIntegrationBase.parse_pull_request_url(pr.url)
@@ -220,36 +230,45 @@ def sync_reviewers_to_github_for_report(team_id: int, report_id: str) -> bool:
             return False
 
         # The facade's merge flag comes from the webhook and can lag; confirm the PR is open before
-        # requesting, so a PR closed without merging doesn't get review requests.
+        # touching review requests, so a PR closed without merging is left alone. The same call also
+        # carries the PR's current pending reviewers, so no second GET is needed to diff against them.
         pr_status = github.get_pull_request(repository, pr_number)
         if not pr_status.get("success") or pr_status.get("state") != "open" or pr_status.get("merged"):
             return False
 
-        already = github.get_requested_reviewer_logins(repository, pr_number)
-        already_logins = set(already.get("logins", [])) if already.get("success") else set()
-        # Case-insensitive diff: desired logins are already lowercased, and get_requested lowercases too.
+        # Case-insensitive diffs: our logins are already lowercased, and get_pull_request lowercases too.
+        already_logins = set(pr_status.get("requested_reviewers") or [])
         missing = sorted(desired - already_logins)
-        if not missing:
+        # Retract only reviewers we set that the report has since dropped, never a manual addition.
+        stale = sorted((already_logins & ever_managed) - desired)
+        if not missing and not stale:
             return True
 
-        outcome = github.request_pull_request_reviewers(repository, pr_number, missing)
-        if not outcome.get("success"):
-            logger.warning(
-                "sync_reviewers_request_failed",
+        acted = False
+        if missing:
+            outcome = github.request_pull_request_reviewers(repository, pr_number, missing)
+            if outcome.get("success"):
+                acted = True
+            logger.info(
+                "sync_reviewers_requested",
                 report_id=str(report_id),
                 pr_url=pr.url,
+                requested=outcome.get("requested"),
                 rejected=outcome.get("rejected"),
                 error=outcome.get("error"),
             )
-            return False
-        logger.info(
-            "sync_reviewers_requested",
-            report_id=str(report_id),
-            pr_url=pr.url,
-            requested=outcome.get("requested"),
-            rejected=outcome.get("rejected"),
-        )
-        return True
+        if stale:
+            outcome = github.remove_pull_request_reviewers(repository, pr_number, stale)
+            if outcome.get("success"):
+                acted = True
+            logger.info(
+                "sync_reviewers_removed",
+                report_id=str(report_id),
+                pr_url=pr.url,
+                removed=outcome.get("removed"),
+                error=outcome.get("error"),
+            )
+        return acted
     except Exception:
         logger.exception("sync_reviewers_unexpected_error", report_id=str(report_id))
         return False

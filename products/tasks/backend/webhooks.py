@@ -439,8 +439,9 @@ def _sync_signal_report_reviewers_on_pr_open(task_id: uuid.UUID) -> None:
     Kept tolerant: the reviewer request is best-effort and must not fail the webhook (GitHub
     retries 5xx, and the PR event is already handled).
     """
-    # Lazy import: signals.tasks pulls in the reviewer-sync chain, and importing it at module load
-    # would couple the webhook module to it; the enqueue is a rare, per-PR-open side effect.
+    # Lazy import: sync_report_reviewers_to_github pulls in the reviewer-sync chain (the GitHub API
+    # client, reviewer-resolution code), which we keep off this module's load path; the enqueue is a
+    # rare, per-PR-open side effect.
     from products.signals.backend.tasks import sync_report_reviewers_to_github  # noqa: PLC0415
 
     report_rows = (
@@ -450,19 +451,11 @@ def _sync_signal_report_reviewers_on_pr_open(task_id: uuid.UUID) -> None:
         .distinct()
     )
     for report_id, team_id in report_rows:
-        try:
-            transaction.on_commit(
-                lambda report_id=report_id, team_id=team_id: sync_report_reviewers_to_github.delay(
-                    report_id=str(report_id), team_id=team_id
-                )
+        transaction.on_commit(
+            lambda report_id=report_id, team_id=team_id: sync_report_reviewers_to_github.delay(
+                report_id=str(report_id), team_id=team_id
             )
-        except Exception:
-            logger.warning(
-                "github_pr_webhook_reviewer_sync_enqueue_failed",
-                report_id=str(report_id),
-                task_id=str(task_id),
-                exc_info=True,
-            )
+        )
 
 
 def _resolve_signal_reports_for_task(task_id: uuid.UUID, pr_url: str) -> None:

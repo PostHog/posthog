@@ -1114,7 +1114,8 @@ Two triggers converge on it:
 - **Reviewers change** — a `post_save` receiver on `SignalReportArtefact` (`backend/receivers.py`) fires for every `suggested_reviewers` write, whether an append or an in-place `update_content` edit, so any reviewer edit reaches the PR through the same single choke point the dismissal-close receiver uses.
 - **PR first opened** — reviewers are usually set before a PR exists (auto-start requires them), so no artefact write happens when the PR opens; the tasks GitHub `pull_request` `opened` webhook (`products/tasks/backend/webhooks.py`) enqueues the sync for each linked report to catch that case up.
 
-The sync is additive and idempotent: it acts only on an open PR, requests only the logins the PR is missing (diffing against GitHub's current requested reviewers), and never removes a request — so a review request a human added on GitHub is left intact.
+The sync reconciles both directions and is idempotent: it acts only on an open PR, requests the logins the PR is missing, and cancels pending requests for reviewers the report has dropped — both diffed against GitHub's current requested reviewers.
+Removal is scoped to logins the report itself ever suggested (the union across its `suggested_reviewers` artefacts), so a review request a human added straight on GitHub — one that never appeared in our artefacts — is left intact.
 Only the `github_login` stored on each reviewer entry is sent; GitHub silently drops any login it can't resolve to a repo collaborator (one such login would otherwise 422 the whole batch, so the request fans out per-login on 422 — "to the extent we know the profile").
 
 ### Eval-signal summarization (`backend/temporal/emit_eval_signal.py`)

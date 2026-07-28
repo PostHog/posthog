@@ -1883,21 +1883,41 @@ class TestGitHubIntegrationModel(BaseTest):
         assert result == {"success": True, "requested": [], "rejected": []}
         m.assert_not_called()
 
-    def test_get_requested_reviewer_logins_lowercases_and_ignores_teams(self):
-        # The reviewer diff relies on lowercased logins, so a case mismatch would re-request everyone.
+    def test_get_pull_request_lowercases_requested_reviewer_logins(self):
+        # The reviewer sync diffs against this list, so a case mismatch would re-request everyone.
         integration = self.create_integration(
             config={"account": {"name": "PostHog"}}, sensitive_config={"access_token": "ACCESS_TOKEN"}
         )
         github = GitHubIntegration(integration)
         mock_response = MagicMock(status_code=200)
         mock_response.json.return_value = {
-            "users": [{"login": "Octocat"}, {"login": "hubber"}],
-            "teams": [{"slug": "x"}],
+            "number": 42,
+            "state": "open",
+            "requested_reviewers": [{"login": "Octocat"}, {"login": "hubber"}],
         }
-        with patch.object(github, "_installation_authenticated_get", return_value=mock_response) as m:
-            result = github.get_requested_reviewer_logins("PostHog/posthog", 42)
-        assert result == {"success": True, "logins": ["octocat", "hubber"]}
+        with patch.object(github, "_installation_authenticated_get", return_value=mock_response):
+            result = github.get_pull_request("PostHog/posthog", 42)
+        assert result["success"] is True
+        assert result["requested_reviewers"] == ["octocat", "hubber"]
+
+    def test_remove_pull_request_reviewers_deletes_from_requested_reviewers_endpoint(self):
+        integration = self.create_integration(
+            config={"account": {"name": "PostHog"}}, sensitive_config={"access_token": "ACCESS_TOKEN"}
+        )
+        github = GitHubIntegration(integration)
+        with patch.object(github, "_installation_authenticated_delete", return_value=MagicMock(status_code=200)) as m:
+            result = github.remove_pull_request_reviewers("PostHog/posthog", 42, ["stranger"])
+        assert result == {"success": True, "removed": ["stranger"]}
         assert m.call_args.args[0] == "https://api.github.com/repos/PostHog/posthog/pulls/42/requested_reviewers"
+        assert m.call_args.kwargs["json_body"] == {"reviewers": ["stranger"]}
+
+    def test_remove_pull_request_reviewers_no_logins_is_a_noop(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        with patch.object(github, "_installation_authenticated_delete") as m:
+            result = github.remove_pull_request_reviewers("PostHog/posthog", 42, [])
+        assert result == {"success": True, "removed": []}
+        m.assert_not_called()
 
     @parameterized.expand(
         [

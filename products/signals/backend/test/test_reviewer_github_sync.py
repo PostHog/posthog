@@ -1,5 +1,9 @@
+from datetime import timedelta
+
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
+
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -60,24 +64,37 @@ class TestSyncReportReviewersTask(BaseTest):
 
 
 class TestSyncReviewersToGithubForReport(BaseTest):
-    def _report_with_reviewers(self, logins: list[str]) -> SignalReport:
+    def _report_with_reviewer_history(self, versions: list[list[str]]) -> SignalReport:
+        # Each version is a successive `suggested_reviewers` artefact, oldest first. created_at is
+        # stamped explicitly (bypassing auto_now_add) so "latest" is deterministic in one transaction.
         report = SignalReport.objects.create(
             team=self.team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=1, total_weight=1.0
         )
-        content = "[" + ", ".join(f'{{"github_login": "{login}"}}' for login in logins) + "]"
-        SignalReportArtefact.objects.create(
-            team=self.team,
-            report=report,
-            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
-            content=content,
-        )
+        base = timezone.now()
+        for i, logins in enumerate(versions):
+            content = "[" + ", ".join(f'{{"github_login": "{login}"}}' for login in logins) + "]"
+            artefact = SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+                content=content,
+            )
+            SignalReportArtefact.objects.filter(pk=artefact.pk).update(created_at=base + timedelta(seconds=i))
         return report
+
+    def _report_with_reviewers(self, logins: list[str]) -> SignalReport:
+        return self._report_with_reviewer_history([logins])
 
     def _github_mock(self, *, already: list[str]) -> MagicMock:
         github = MagicMock()
-        github.get_pull_request.return_value = {"success": True, "state": "open", "merged": False}
-        github.get_requested_reviewer_logins.return_value = {"success": True, "logins": already}
+        github.get_pull_request.return_value = {
+            "success": True,
+            "state": "open",
+            "merged": False,
+            "requested_reviewers": already,
+        }
         github.request_pull_request_reviewers.return_value = {"success": True, "requested": [], "rejected": []}
+        github.remove_pull_request_reviewers.return_value = {"success": True, "removed": []}
         return github
 
     def _run(self, report: SignalReport, github: MagicMock | None, *, merged: bool = False) -> bool:
@@ -98,12 +115,32 @@ class TestSyncReviewersToGithubForReport(BaseTest):
         github = self._github_mock(already=["octocat"])
         assert self._run(report, github) is True
         github.request_pull_request_reviewers.assert_called_once_with("PostHog/posthog", 42, ["hubber"])
+        github.remove_pull_request_reviewers.assert_not_called()
+
+    def test_retracts_reviewer_the_report_dropped(self):
+        # Report went [octocat, stranger] -> [octocat], so the request for stranger we set earlier
+        # must be cancelled, while octocat (still wanted) is left in place.
+        report = self._report_with_reviewer_history([["octocat", "stranger"], ["octocat"]])
+        github = self._github_mock(already=["octocat", "stranger"])
+        assert self._run(report, github) is True
+        github.remove_pull_request_reviewers.assert_called_once_with("PostHog/posthog", 42, ["stranger"])
+        github.request_pull_request_reviewers.assert_not_called()
+
+    def test_leaves_a_manual_github_reviewer_untouched(self):
+        # "human" was never suggested through PostHog, so a report that drops nobody must not retract
+        # a review request a person added straight on GitHub.
+        report = self._report_with_reviewers(["octocat"])
+        github = self._github_mock(already=["octocat", "human"])
+        assert self._run(report, github) is True
+        github.remove_pull_request_reviewers.assert_not_called()
+        github.request_pull_request_reviewers.assert_not_called()
 
     def test_noop_when_pr_already_has_every_reviewer(self):
         report = self._report_with_reviewers(["octocat"])
         github = self._github_mock(already=["octocat"])
         assert self._run(report, github) is True
         github.request_pull_request_reviewers.assert_not_called()
+        github.remove_pull_request_reviewers.assert_not_called()
 
     def test_skips_merged_pr_without_touching_github(self):
         report = self._report_with_reviewers(["octocat"])

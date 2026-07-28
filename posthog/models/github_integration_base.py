@@ -625,6 +625,23 @@ class GitHubIntegrationBase:
             logger.warning("GitHubIntegration: installation POST failed", url=url, exc_info=True)
             return None
 
+    def _installation_authenticated_delete(
+        self,
+        url: str,
+        *,
+        endpoint: str,
+        json_body: Mapping[str, object],
+        timeout: int = 10,
+    ) -> requests.Response | None:
+        """DELETE with installation token via :meth:`api_request`; ``None`` instead of raising, for the
+        success/error-dict verbs built on top."""
+        path = url.removeprefix("https://api.github.com")
+        try:
+            return self.api_request("DELETE", path, endpoint=endpoint, json_body=json_body, timeout=timeout)
+        except GitHubIntegrationError:
+            logger.warning("GitHubIntegration: installation DELETE failed", url=url, exc_info=True)
+            return None
+
     def installation_can_access_repository(self, repository: str) -> bool:
         """Whether this installation token can access the repo (``GET /repos/{owner}/{repo}`` returns 200)."""
         response = self._installation_authenticated_get(
@@ -900,6 +917,12 @@ class GitHubIntegrationBase:
             "state": pr.get("state"),
             "merged": pr.get("merged", False),
             "draft": pr.get("draft", False),
+            # Lowercased logins of reviewers whose review is still pending (drops off once they review).
+            "requested_reviewers": [
+                r["login"].strip().lower()
+                for r in (pr.get("requested_reviewers") or [])
+                if isinstance(r, dict) and isinstance(r.get("login"), str) and r["login"].strip()
+            ],
             "head_branch": head.get("ref"),
             "base_branch": base.get("ref"),
             "head_sha": head.get("sha"),
@@ -993,37 +1016,10 @@ class GitHubIntegrationBase:
         owner, repo, pr_number = parsed
         return self.comment_on_pull_request(f"{owner}/{repo}", pr_number, body)
 
-    def get_requested_reviewer_logins(self, repository: str, pr_number: int) -> dict[str, Any]:
-        """The GitHub logins already requested for review on a PR (lowercased).
-
-        Only individual users are returned — team review requests aren't reconciled here.
-        Returns ``{"success": True, "logins": [...]}`` or a ``{"success": False, ...}`` error dict.
-        """
-        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
-
-        response = self._installation_authenticated_get(
-            f"https://api.github.com/repos/{repo_path}/pulls/{pr_number}/requested_reviewers",
-            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/requested_reviewers",
-        )
-        if response is None:
-            return {"success": False, "error": "Network error fetching requested reviewers"}
-        if response.status_code != 200:
-            return {
-                "success": False,
-                "error": f"Failed to fetch requested reviewers: {response.text}",
-                "status_code": response.status_code,
-            }
-        try:
-            body = response.json()
-        except Exception:
-            return {"success": False, "error": "Failed to parse requested reviewers JSON"}
-        users = body.get("users") if isinstance(body, dict) else None
-        logins = [
-            user["login"].strip().lower()
-            for user in (users or [])
-            if isinstance(user, dict) and isinstance(user.get("login"), str) and user["login"].strip()
-        ]
-        return {"success": True, "logins": logins}
+    @staticmethod
+    def _dedupe_reviewer_logins(reviewer_logins: list[str]) -> list[str]:
+        """Strip, drop blanks, and de-dupe reviewer logins while preserving order."""
+        return list(dict.fromkeys(stripped for login in reviewer_logins if (stripped := login.strip())))
 
     def request_pull_request_reviewers(
         self, repository: str, pr_number: int, reviewer_logins: list[str]
@@ -1039,7 +1035,7 @@ class GitHubIntegrationBase:
         rather than letting one unknown login drop everyone. ``repository`` is ``owner/repo`` or a
         bare repo. Returns ``{"success", "requested", "rejected"}``.
         """
-        logins = [login for login in dict.fromkeys(login.strip() for login in reviewer_logins) if login]
+        logins = self._dedupe_reviewer_logins(reviewer_logins)
         if not logins:
             return {"success": True, "requested": [], "rejected": []}
 
@@ -1056,6 +1052,36 @@ class GitHubIntegrationBase:
             single = self._post_review_request(repository, pr_number, [login])
             (requested if single.get("success") else rejected).append(login)
         return {"success": bool(requested), "requested": requested, "rejected": rejected}
+
+    def remove_pull_request_reviewers(
+        self, repository: str, pr_number: int, reviewer_logins: list[str]
+    ) -> dict[str, Any]:
+        """Cancel pending review requests for the given GitHub logins on a PR (``DELETE`` requested_reviewers).
+
+        Only affects still-pending requests — GitHub drops a reviewer from the requested list once
+        they submit a review, so this never disturbs someone who already reviewed. ``repository`` is
+        ``owner/repo`` or a bare repo. Returns ``{"success", "removed"}``.
+        """
+        logins = self._dedupe_reviewer_logins(reviewer_logins)
+        if not logins:
+            return {"success": True, "removed": []}
+
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        response = self._installation_authenticated_delete(
+            f"https://api.github.com/repos/{repo_path}/pulls/{pr_number}/requested_reviewers",
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/requested_reviewers",
+            json_body={"reviewers": logins},
+        )
+        if response is None:
+            return {"success": False, "removed": [], "error": "Network error removing reviewers"}
+        if response.status_code != 200:
+            return {
+                "success": False,
+                "removed": [],
+                "error": f"Failed to remove reviewers: {response.text}",
+                "status_code": response.status_code,
+            }
+        return {"success": True, "removed": logins}
 
     def _post_review_request(self, repository: str, pr_number: int, reviewer_logins: list[str]) -> dict[str, Any]:
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
