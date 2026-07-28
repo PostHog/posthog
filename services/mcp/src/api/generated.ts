@@ -28356,6 +28356,11 @@ export namespace Schemas {
       readonly access_method: AccessMethodEnum;
       /** Whether HogQL queries compile for this connection. When false, only raw SQL (sendRawQuery) works. */
       readonly supports_hogql: boolean;
+      /**
+         * User-set description of the source, shown as its display name in the connection picker when set.
+         * @nullable
+         */
+      readonly description: string | null;
     }
 
     /**

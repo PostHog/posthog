@@ -782,6 +782,9 @@ def test_evolve_pyarrow_schema_whole_valued_floats_cast_into_stored_integer_colu
         (pa.bool_(), pa.array(["true", "processed"], type=pa.string())),
         # A value that overflows the stored decimal precision (Cannot convert ... overflow).
         (pa.decimal128(3, 1), pa.array([1.0, 999999999.0], type=pa.float64())),
+        # A cast pyarrow has no kernel for at all — raised as ArrowNotImplementedError, not
+        # ArrowInvalid (e.g. a source column that used to be numeric now arrives as a time).
+        (pa.float64(), pa.array([datetime.time(12, 30, 0), datetime.time(1, 0, 0)], type=pa.time64("us"))),
     ],
 )
 def test_evolve_pyarrow_schema_incompatible_cast_raises_actionable_error(
