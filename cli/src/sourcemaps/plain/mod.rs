@@ -47,6 +47,21 @@ pub struct ProcessArgs {
 
     #[clap(flatten)]
     pub upload_concurrency: UploadConcurrencyArgs,
+
+    /// EXPERIMENTAL: opt into the new release-injection mechanism for the inject step (offline
+    /// identity resolution, content-addressed chunk ids, and `_posthogRelease` injected into each
+    /// chunk). When unset (the default), inject behaves exactly as before. Also settable via
+    /// `POSTHOG_CLI_EXPERIMENTAL_RELEASE_INJECTION`.
+    #[arg(
+        long,
+        env = "POSTHOG_CLI_EXPERIMENTAL_RELEASE_INJECTION",
+        value_parser = clap::builder::BoolishValueParser::new(),
+        num_args = 0..=1,
+        require_equals = true,
+        default_value = "false",
+        default_missing_value = "true",
+    )]
+    pub experimental_release_injection: bool,
 }
 
 impl ProcessArgs {
@@ -63,6 +78,7 @@ impl From<ProcessArgs> for (InjectArgs, upload::Args) {
             file_selection: args.file_selection.clone(),
             release: args.release.clone(),
             public_path_prefix: args.public_path_prefix.clone(),
+            experimental_release_injection: args.experimental_release_injection,
         };
         let upload_args = upload::Args {
             file_selection: args.file_selection,

@@ -1,6 +1,9 @@
 use posthog_cli::{
+    api::releases::ReleaseIdentity,
     sourcemaps::{
-        content::SourceMapContent, inject::inject_pairs, plain::inject::is_javascript_file,
+        content::SourceMapContent,
+        inject::{inject_pairs, inject_pairs_legacy},
+        plain::inject::is_javascript_file,
         source_pairs::SourcePair,
     },
     utils::files::FileSelection,
@@ -129,7 +132,7 @@ fn test_pair_inject() {
     let current_pair = pairs.first_mut().expect("Failed to get first pair");
     let chunk_id = "00000-00000-00000";
     current_pair
-        .add_chunk_id(chunk_id.to_string())
+        .add_chunk_id(chunk_id.to_string(), None)
         .expect("Failed to set chunk ID");
 
     assert_file_eq(
@@ -152,7 +155,7 @@ fn test_index_inject() {
     let current_pair = pairs.first_mut().expect("Failed to get first pair");
     let chunk_id = "00000-00000-00000";
     current_pair
-        .add_chunk_id(chunk_id.to_string())
+        .add_chunk_id(chunk_id.to_string(), None)
         .expect("Failed to set chunk ID");
 
     let bytes = serde_json::to_string(&current_pair.sourcemap.inner.content).unwrap();
@@ -177,7 +180,7 @@ fn test_index_inject_retains_extension_fields() {
 
     let chunk_id = "00000-00000-00000";
     current_pair
-        .add_chunk_id(chunk_id.to_string())
+        .add_chunk_id(chunk_id.to_string(), None)
         .expect("Failed to set chunk ID");
 
     // Extension field should be retained after flattening
@@ -206,7 +209,7 @@ fn test_pair_remove() {
     let current_pair = pairs.first_mut().expect("Failed to get first pair");
     let chunk_id = "00000-00000-00000";
     current_pair
-        .add_chunk_id(chunk_id.to_string())
+        .add_chunk_id(chunk_id.to_string(), None)
         .expect("Failed to set chunk ID");
 
     current_pair
@@ -222,12 +225,56 @@ fn test_pair_remove() {
 }
 
 #[test]
-fn test_reinject_without_new_release() {
+fn test_reinject_is_idempotent() {
+    // A chunk that already carries a content-addressed id must survive re-injection untouched.
+    // Regenerating the id on every build would orphan the already-uploaded symbol set.
     let case_path = get_case_path("reinject");
     let pairs =
         read_pairs(vec![case_path.clone()], vec![], vec![], &None).expect("Failed to read pairs");
     assert_eq!(pairs.len(), 1);
+    let source_before = pairs.first().unwrap().source.inner.content.clone();
+
     let injected_pairs = inject_pairs(pairs, None).expect("Failed to inject pairs");
+    let first_pair = injected_pairs.first().expect("Failed to get first pair");
+
+    assert_eq!(first_pair.source.get_chunk_id().as_deref(), Some("0"));
+    assert_eq!(first_pair.source.inner.content, source_before);
+}
+
+#[test]
+fn test_inject_with_release_embeds_identity_in_source() {
+    // Injecting with a release identity must embed `_posthogRelease` (name + version) into the JS
+    // chunk itself — that global is the SDK's only source of the release — and must leave the
+    // release out of the sourcemap.
+    let case_path = get_case_path("inject");
+    let pairs =
+        read_pairs(vec![case_path.clone()], vec![], vec![], &None).expect("Failed to read pairs");
+    assert_eq!(pairs.len(), 1);
+    let release = ReleaseIdentity {
+        name: "my-app".to_string(),
+        version: "9.9.9".to_string(),
+    };
+
+    let injected_pairs = inject_pairs(pairs, Some(&release)).expect("Failed to inject pairs");
+    let first_pair = injected_pairs.first().expect("Failed to get first pair");
+
+    let source = &first_pair.source.inner.content;
+    assert!(source.contains("_posthogRelease"), "source: {source}");
+    assert!(source.contains(r#""my-app""#), "source: {source}");
+    assert!(source.contains(r#""9.9.9""#), "source: {source}");
+    assert!(first_pair.source.get_chunk_id().is_some());
+    assert!(first_pair.sourcemap.get_release_id().is_none());
+}
+
+#[test]
+fn test_legacy_reinject_without_new_release() {
+    // Legacy path: with no release, an existing chunk carrying a stale release id is regenerated
+    // and the release id is cleared from the sourcemap.
+    let case_path = get_case_path("reinject");
+    let pairs =
+        read_pairs(vec![case_path.clone()], vec![], vec![], &None).expect("Failed to read pairs");
+    assert_eq!(pairs.len(), 1);
+    let injected_pairs = inject_pairs_legacy(pairs, None).expect("Failed to inject pairs");
     let first_pair = injected_pairs.first().expect("Failed to get first pair");
     assert_ne!(&first_pair.source.get_chunk_id().unwrap(), "0");
     assert_eq!(
@@ -238,14 +285,15 @@ fn test_reinject_without_new_release() {
 }
 
 #[test]
-fn test_reinject_with_new_release() {
+fn test_legacy_reinject_with_new_release() {
+    // Legacy path: a new release id regenerates the chunk id and is stamped into the sourcemap.
     let case_path = get_case_path("reinject");
     let pairs =
         read_pairs(vec![case_path.clone()], vec![], vec![], &None).expect("Failed to read pairs");
     assert_eq!(pairs.len(), 1);
     let release_id = uuid::Uuid::now_v7().to_string();
     let injected_pairs =
-        inject_pairs(pairs, Some(release_id.clone())).expect("Failed to inject pairs");
+        inject_pairs_legacy(pairs, Some(release_id.clone())).expect("Failed to inject pairs");
     let first_pair = injected_pairs.first().expect("Failed to get first pair");
     assert_ne!(&first_pair.source.get_chunk_id().unwrap(), "0");
     assert_eq!(

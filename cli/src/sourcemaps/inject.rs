@@ -4,9 +4,10 @@ use tracing::{info, warn};
 use walkdir::DirEntry;
 
 use crate::{
-    api::releases::{Release, ReleaseBuilder},
+    api::releases::{Release, ReleaseBuilder, ReleaseIdentity},
     sourcemaps::{
         args::{FileSelectionArgs, ReleaseArgs},
+        constant::CHUNK_ID_NAMESPACE,
         content::SourceMapFile,
         source_pairs::{read_pairs, SourcePair},
     },
@@ -26,6 +27,23 @@ pub struct InjectArgs {
 
     #[clap(flatten)]
     pub release: ReleaseArgs,
+
+    /// EXPERIMENTAL: opt into the new release-injection mechanism. Instead of creating a release
+    /// over the API and stamping its id into the sourcemap, this resolves the release identity
+    /// locally (offline), derives content-addressed chunk ids that are stable across rebuilds, and
+    /// injects `_posthogRelease` into each chunk so the SDK emits it on every event. When unset
+    /// (the default), inject behaves exactly as before. Also settable via
+    /// `POSTHOG_CLI_EXPERIMENTAL_RELEASE_INJECTION`.
+    #[arg(
+        long,
+        env = "POSTHOG_CLI_EXPERIMENTAL_RELEASE_INJECTION",
+        value_parser = clap::builder::BoolishValueParser::new(),
+        num_args = 0..=1,
+        require_equals = true,
+        default_value = "false",
+        default_missing_value = "true",
+    )]
+    pub experimental_release_injection: bool,
 }
 
 impl InjectArgs {
@@ -43,6 +61,7 @@ pub fn inject_impl(
         file_selection,
         public_path_prefix,
         release,
+        experimental_release_injection,
     } = args;
 
     info!("injecting selection: {}", file_selection);
@@ -57,16 +76,24 @@ pub fn inject_impl(
         bail!("no source files found");
     }
 
-    let created_release_id = if let Some(r) = existing_release {
-        Some(r.id.to_string())
+    if *experimental_release_injection {
+        // Resolve the release identity locally — no API call, so inject works offline and never
+        // creates a release row. The (name, version) travels inside each chunk for the SDK to
+        // emit; the server resolves it to a release later.
+        let identity = resolve_release_identity(release.clone(), existing_release)?;
+        pairs = inject_pairs(pairs, identity.as_ref())?;
     } else {
-        let cwd = std::env::current_dir()?;
-        get_release_for_maps(&cwd, release.clone(), pairs.iter().map(|p| &p.sourcemap))?
-            .as_ref()
-            .map(|r| r.id.to_string())
-    };
-
-    pairs = inject_pairs(pairs, created_release_id)?;
+        // Legacy path: fetch or create a release over the API and stamp its id into the sourcemap.
+        let created_release_id = if let Some(r) = existing_release {
+            Some(r.id.to_string())
+        } else {
+            let cwd = std::env::current_dir()?;
+            get_release_for_maps(&cwd, release.clone(), pairs.iter().map(|p| &p.sourcemap))?
+                .as_ref()
+                .map(|r| r.id.to_string())
+        };
+        pairs = inject_pairs_legacy(pairs, created_release_id)?;
+    }
 
     // Write the source and sourcemaps back to disk
     for pair in &pairs {
@@ -76,7 +103,26 @@ pub fn inject_impl(
     Ok(())
 }
 
+/// Experimental injection: content-addressed chunk ids plus an optional `_posthogRelease` payload.
 pub fn inject_pairs(
+    mut pairs: Vec<SourcePair>,
+    release: Option<&ReleaseIdentity>,
+) -> Result<Vec<SourcePair>> {
+    for pair in &mut pairs {
+        // Chunk ids are content-addressed and stable, so a chunk that already carries one is
+        // already injected — leave it untouched (idempotent re-injection).
+        if pair.get_chunk_id().is_none() {
+            let chunk_id = stable_chunk_id(&pair.source.inner.content);
+            pair.add_chunk_id(chunk_id, release)?;
+        }
+    }
+
+    Ok(pairs)
+}
+
+/// Legacy injection: a random per-build chunk id and the created release id stamped into the
+/// sourcemap. Regenerates the chunk id whenever the release id changes or is missing.
+pub fn inject_pairs_legacy(
     mut pairs: Vec<SourcePair>,
     created_release_id: Option<String>,
 ) -> Result<Vec<SourcePair>> {
@@ -90,12 +136,41 @@ pub fn inject_pairs(
             if let Some(previous_chunk_id) = pair.get_chunk_id() {
                 pair.update_chunk_id(previous_chunk_id, chunk_id)?;
             } else {
-                pair.add_chunk_id(chunk_id)?;
+                pair.add_chunk_id(chunk_id, None)?;
             }
         }
     }
 
     Ok(pairs)
+}
+
+/// Deterministically derive a chunk id from the minified source bytes (UUIDv5). Identical
+/// source produces an identical id on every machine and rebuild, so uploads dedupe and symbol
+/// sets stay stable — no per-build random id.
+fn stable_chunk_id(source_content: &str) -> String {
+    uuid::Uuid::new_v5(&CHUNK_ID_NAMESPACE, source_content.as_bytes()).to_string()
+}
+
+/// Resolve the release identity for injection without any network call. When a release was
+/// already fetched upstream (the `process` command) we reuse its (name, version); otherwise we
+/// derive it locally from flags and git/CI metadata, exactly as release creation would.
+fn resolve_release_identity(
+    release: ReleaseArgs,
+    existing_release: Option<&Release>,
+) -> Result<Option<ReleaseIdentity>> {
+    if let Some(r) = existing_release {
+        return Ok(Some(ReleaseIdentity {
+            name: r.project.clone(),
+            version: r.version.clone(),
+        }));
+    }
+
+    let cwd = std::env::current_dir()?;
+    let release_args_were_provided =
+        release.name.is_some() || release.version.is_some() || release.build.is_some();
+    let mut builder: ReleaseBuilder = release.into();
+    add_git_info_to_release_builder(&cwd, &mut builder, release_args_were_provided)?;
+    Ok(builder.identity())
 }
 
 pub fn get_release_for_maps<'a>(
