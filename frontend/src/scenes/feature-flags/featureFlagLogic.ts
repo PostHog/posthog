@@ -1397,9 +1397,6 @@ export interface featureFlagLogicActions {
     setFeatureFlag: (featureFlag: FeatureFlagType) => {
         featureFlag: FeatureFlagType
     }
-    setOriginalFeatureFlag: (featureFlag: FeatureFlagType | null) => {
-        featureFlag: FeatureFlagType | null
-    }
     setFeatureFlagFilters: (
         filters: FeatureFlagType['filters'],
         errors: any
@@ -1517,6 +1514,9 @@ export interface featureFlagLogicActions {
     }
     setOpenVariants: (openVariants: string[]) => {
         openVariants: string[]
+    }
+    setOriginalFeatureFlag: (featureFlag: FeatureFlagType | null) => {
+        featureFlag: FeatureFlagType | null
     }
     setPayloadExpanded: (expanded: boolean) => {
         expanded: boolean
