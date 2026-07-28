@@ -5,7 +5,7 @@ every headline number ships with its previous-window twin and the UI can render 
 honest delta instead of a server-baked percentage. The PR medians (bots and drafts
 excluded, per the locked cycle-time recipe) come from the PR snapshot the same way.
 
-The four chart series are a separate concern with a separate producer
+The chart series are a separate concern with a separate producer
 (``query_repo_series``): every series query computes unconditionally, the shared
 bucket granularity is decided exactly once, and a headline-only consumer composes
 ``query_repo_overview`` with ``empty_repo_series`` instead of flag-switching what
@@ -19,6 +19,7 @@ from posthog.hogql import ast
 
 from products.engineering_analytics.backend.facade.contracts import (
     CostPerMergeBucket,
+    MergedPRBucket,
     OpenToMergeBucket,
     PassRateBucket,
     RepoOverview,
@@ -128,6 +129,48 @@ _OPEN_TO_MERGE_SERIES_SELECT = """
 """
 
 
+# PRs merged per bucket, all authors and bots included: the headline merged_pr_count population,
+# so the series sums to the tile. A bucket where nothing merged is a true 0, not a gap.
+_MERGED_PR_SERIES_SELECT = """
+    SELECT
+        __BUCKET_FN__ AS bucket_start,
+        count() AS merged_count
+    FROM __PR_SOURCE__ AS pr
+    WHERE merged_at IS NOT NULL AND merged_at >= {date_from} __DATE_TO_MERGED__
+    GROUP BY bucket_start
+    LIMIT 40000
+"""
+
+
+def query_merged_pr_series(
+    *,
+    curated: CuratedGitHubSource,
+    date_from: datetime,
+    date_to: datetime | None,
+    granularity: Granularity,
+) -> list[MergedPRBucket]:
+    """PRs merged per bucket across the window, oldest first, all authors and bots included (the
+    headline merged_pr_count population). Zero-filled: no merges in a bucket is honestly 0."""
+    placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from)}
+    date_to_clause = "AND merged_at <= {date_to}" if date_to is not None else ""
+    if date_to is not None:
+        placeholders["date_to"] = ast.Constant(value=date_to)
+    sql = (
+        _MERGED_PR_SERIES_SELECT.replace("__PR_SOURCE__", curated.pr_source())
+        .replace("__DATE_TO_MERGED__", date_to_clause)
+        .replace("__BUCKET_FN__", bucket_expr(granularity, "merged_at"))
+    )
+    response = curated.run(sql, query_type="engineering_analytics.merged_pr_series", placeholders=placeholders)
+    count_by_bucket = {
+        normalize_bucket(bucket_start, granularity): int(merged_count or 0)
+        for bucket_start, merged_count in response.results or []
+    }
+    return [
+        MergedPRBucket(bucket_start=bucket, merged_count=count_by_bucket.get(bucket, 0))
+        for bucket in window_buckets(date_from, date_to, granularity)
+    ]
+
+
 def query_success_rate_series(
     *,
     curated: CuratedGitHubSource,
@@ -191,10 +234,10 @@ def query_open_to_merge_series(
 
 @dataclass(frozen=True)
 class RepoSeries:
-    """The repo hub's four chart series over one window, on one shared bucket granularity.
+    """The repo hub's chart series over one window, on one shared bucket granularity.
 
     Internal to the read layer: ``RepoOverview`` flattens it into the contract's per-series
-    fields. Produced by ``query_repo_series`` (four bucketed scans) or ``empty_repo_series``
+    fields. Produced by ``query_repo_series`` (one bucketed scan per series) or ``empty_repo_series``
     (no scans — the headline-only shape), so callers compose which one they pay for instead
     of the query layer flag-switching what it computes.
     """
@@ -204,6 +247,7 @@ class RepoSeries:
     time_to_green: list[TimeToGreenBucket]
     success_rate: list[PassRateBucket]
     open_to_merge: list[OpenToMergeBucket]
+    merged: list[MergedPRBucket]
 
 
 def query_repo_series(
@@ -212,7 +256,7 @@ def query_repo_series(
     date_from: datetime,
     date_to: datetime | None,
 ) -> RepoSeries:
-    """All four chart series across the window — the one place their shared granularity is decided."""
+    """All chart series across the window — the one place their shared granularity is decided."""
     granularity = pick_granularity(date_from, date_to)
     return RepoSeries(
         granularity=granularity,
@@ -228,6 +272,7 @@ def query_repo_series(
         open_to_merge=query_open_to_merge_series(
             curated=curated, date_from=date_from, date_to=date_to, granularity=granularity
         ),
+        merged=query_merged_pr_series(curated=curated, date_from=date_from, date_to=date_to, granularity=granularity),
     )
 
 
@@ -240,6 +285,7 @@ def empty_repo_series(*, date_from: datetime, date_to: datetime | None) -> RepoS
         time_to_green=[],
         success_rate=[],
         open_to_merge=[],
+        merged=[],
     )
 
 
@@ -326,4 +372,6 @@ def query_repo_overview(
         success_rate_series_granularity=series.granularity,
         open_to_merge_series=series.open_to_merge,
         open_to_merge_series_granularity=series.granularity,
+        merged_pr_series=series.merged,
+        merged_pr_series_granularity=series.granularity,
     )

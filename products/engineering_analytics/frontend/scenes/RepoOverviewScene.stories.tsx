@@ -61,6 +61,12 @@ const OVERVIEW: RepoOverviewApi = {
         })
     ),
     open_to_merge_series_granularity: 'day',
+    // Sums to merged_pr_count so the card's headline tile and its bars agree.
+    merged_pr_series: [6, 9, 12, 7, 8, 10, 4].map((merged_count, i) => ({
+        bucket_start: `2026-06-${25 + i}T00:00:00Z`,
+        merged_count,
+    })),
+    merged_pr_series_granularity: 'day',
 }
 
 const ACTIVITY: WorkflowRunActivityApi = {
