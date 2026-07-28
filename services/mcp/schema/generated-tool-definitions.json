@@ -8837,6 +8837,21 @@
         },
         "feature_flag": "tasks"
     },
+    "tasks-runs-create": {
+        "description": "Create a run for an existing task without starting it. Launching a task takes two steps: create the run here, then call tasks-runs-start-create to start it. Pass `environment: cloud` for a remote sandbox run or `environment: local` for a desktop session; cloud runs also need a runtime selection (`runtime_adapter` and `model`). Creating a cloud run is gated on team usage and returns 429 when the team is over its posthog_code limit. Returns the created run.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Create task run",
+        "title": "Create task run",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "tasks"
+    },
     "tasks-runs-list": {
         "description": "List all runs for a specific task. Returns lightweight run metadata only — call tasks-runs-retrieve for full run detail including state, output, and artifacts.",
         "category": "Tasks",
@@ -8879,6 +8894,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        },
+        "feature_flag": "tasks"
+    },
+    "tasks-runs-start-create": {
+        "description": "Start an existing queued or not_started cloud run. This is the second step after tasks-runs-create. Only cloud runs can be started here. Starting a cloud run consumes team usage and returns 429 when the team is over its posthog_code limit. Returns the task with its updated latest run.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Start task run",
+        "title": "Start task run",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
         },
         "feature_flag": "tasks"
     },

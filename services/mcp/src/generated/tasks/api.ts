@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 14 enabled ops
+ * PostHog API - MCP 16 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -1016,6 +1016,169 @@ export const TasksRunsListQueryParams = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Create a new run for a specific task without starting execution.
+ * @summary Create task run
+ */
+export const TasksRunsCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    task_id: zod.string(),
+})
+
+export const tasksRunsCreateBodyImportedMcpServersItemNameMax = 64
+
+export const tasksRunsCreateBodyImportedMcpServersItemUrlMax = 2048
+
+export const tasksRunsCreateBodyImportedMcpServersItemHeadersItemNameMax = 256
+
+export const tasksRunsCreateBodyImportedMcpServersItemHeadersItemValueMax = 4096
+
+export const tasksRunsCreateBodyRelayedMcpServersItemNameMax = 64
+
+export const tasksRunsCreateBodyEnvironmentDefault = `local`
+export const tasksRunsCreateBodyModeDefault = `background`
+export const tasksRunsCreateBodyBranchMax = 255
+
+export const TasksRunsCreateBody = /* @__PURE__ */ zod
+    .object({
+        imported_mcp_servers: zod
+            .array(
+                zod
+                    .object({
+                        type: zod.enum(['http', 'sse']).describe('\* `http` - http\n\* `sse` - sse'),
+                        name: zod.string().max(tasksRunsCreateBodyImportedMcpServersItemNameMax),
+                        url: zod.url().max(tasksRunsCreateBodyImportedMcpServersItemUrlMax),
+                        headers: zod
+                            .array(
+                                zod.object({
+                                    name: zod.string().max(tasksRunsCreateBodyImportedMcpServersItemHeadersItemNameMax),
+                                    value: zod
+                                        .string()
+                                        .max(tasksRunsCreateBodyImportedMcpServersItemHeadersItemValueMax),
+                                })
+                            )
+                            .optional(),
+                    })
+                    .describe("One client-imported MCP server, in the agent server's --mcpServers entry shape.")
+            )
+            .nullish()
+            .describe(
+                'Local url-based MCP servers from the creating client (PostHog Desktop) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.'
+            ),
+        relayed_mcp_servers: zod
+            .array(
+                zod
+                    .object({
+                        name: zod.string().max(tasksRunsCreateBodyRelayedMcpServersItemNameMax),
+                    })
+                    .describe('One desktop-only MCP server relayed into the run — a name only, never configuration.')
+            )
+            .nullish()
+            .describe(
+                'Names of desktop-only MCP servers the creating client (PostHog Desktop) relays into the cloud sandbox over the durable event\/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.'
+            ),
+        environment: zod
+            .enum(['local', 'cloud'])
+            .describe('\* `local` - local\n\* `cloud` - cloud')
+            .default(tasksRunsCreateBodyEnvironmentDefault)
+            .describe(
+                "Execution environment for the new run. Use 'cloud' for remote sandbox runs and 'local' for desktop sessions.\n\n\* `local` - local\n\* `cloud` - cloud"
+            ),
+        mode: zod
+            .enum(['interactive', 'background'])
+            .describe('\* `interactive` - interactive\n\* `background` - background')
+            .default(tasksRunsCreateBodyModeDefault)
+            .describe(
+                "Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs\n\n\* `interactive` - interactive\n\* `background` - background"
+            ),
+        branch: zod
+            .string()
+            .max(tasksRunsCreateBodyBranchMax)
+            .nullish()
+            .describe('Git branch to checkout in the sandbox'),
+        sandbox_environment_id: zod
+            .string()
+            .optional()
+            .describe('Optional sandbox environment to apply for this cloud run.'),
+        custom_image_id: zod
+            .string()
+            .optional()
+            .describe(
+                "Optional custom base image for this cloud run's sandbox (Modal VM runtime only); takes precedence over the environment's image."
+            ),
+        pr_authorship_mode: zod
+            .enum(['user', 'bot'])
+            .describe('\* `user` - user\n\* `bot` - bot')
+            .optional()
+            .describe(
+                'Whether pull requests for this run should be authored by the user or the bot.\n\n\* `user` - user\n\* `bot` - bot'
+            ),
+        auto_publish: zod
+            .boolean()
+            .nullish()
+            .describe(
+                'When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask.'
+            ),
+        run_source: zod
+            .enum(['manual', 'signal_report'])
+            .describe('\* `manual` - manual\n\* `signal_report` - signal_report')
+            .optional()
+            .describe(
+                'High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.\n\n\* `manual` - manual\n\* `signal_report` - signal_report'
+            ),
+        signal_report_id: zod
+            .string()
+            .optional()
+            .describe('Optional signal report identifier when this run was started from Inbox.'),
+        runtime_adapter: zod
+            .enum(['claude', 'codex'])
+            .describe('\* `claude` - claude\n\* `codex` - codex')
+            .optional()
+            .describe(
+                "Agent runtime adapter to launch for this run. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime.\n\n\* `claude` - claude\n\* `codex` - codex"
+            ),
+        model: zod.string().optional().describe('LLM model identifier to run in the selected runtime.'),
+        reasoning_effort: zod
+            .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
+            .describe(
+                '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+            )
+            .optional()
+            .describe(
+                'Reasoning effort to request for models that expose an effort control.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+            ),
+        context_window: zod
+            .enum(['200k', '1m'])
+            .describe('\* `200k` - 200k\n\* `1m` - 1m')
+            .optional()
+            .describe('Context window size for models that support the 1M window.\n\n\* `200k` - 200k\n\* `1m` - 1m'),
+        fast_mode: zod.boolean().nullish().describe('Enable fast mode for models that support it.'),
+        github_user_token: zod
+            .string()
+            .optional()
+            .describe('Ephemeral GitHub user token from PostHog Desktop for user-authored cloud pull requests.'),
+        initial_permission_mode: zod
+            .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions', 'auto', 'read-only', 'full-access'])
+            .describe(
+                '\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
+            )
+            .optional()
+            .describe(
+                "Initial permission mode for the agent session. Claude runtimes accept PostHog permission presets like 'plan'. Codex runtimes accept native Codex modes like 'plan', 'auto', and 'read-only'.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access"
+            ),
+        rtk_enabled: zod
+            .boolean()
+            .nullish()
+            .describe(
+                'Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.'
+            ),
+    })
+    .describe('Request body for creating a task run without starting execution yet.')
+
+/**
  * Retrieve a single run for a specific task.
  * @summary Get task run
  */
@@ -1064,4 +1227,33 @@ export const TasksRunsSessionLogsRetrieveQueryParams = /* @__PURE__ */ zod.objec
         .min(tasksRunsSessionLogsRetrieveQueryOffsetMin)
         .default(tasksRunsSessionLogsRetrieveQueryOffsetDefault)
         .describe('Zero-based offset into the filtered log entries'),
+})
+
+/**
+ * Start an existing cloud run after any initial run-scoped attachments have been uploaded.
+ * @summary Start task run
+ */
+export const TasksRunsStartCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    task_id: zod.string(),
+})
+
+export const tasksRunsStartCreateBodyPendingUserArtifactIdsItemMax = 128
+
+export const TasksRunsStartCreateBody = /* @__PURE__ */ zod.object({
+    pending_user_message: zod
+        .string()
+        .optional()
+        .describe('Initial or follow-up user message to include in the run prompt.'),
+    pending_user_artifact_ids: zod
+        .array(zod.string().max(tasksRunsStartCreateBodyPendingUserArtifactIdsItemMax))
+        .optional()
+        .describe(
+            'Identifiers for run artifacts that should be attached to the next user message delivered to the sandbox.'
+        ),
 })

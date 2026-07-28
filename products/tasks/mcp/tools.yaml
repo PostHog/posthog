@@ -379,7 +379,26 @@ tools:
         enabled: false
     tasks-runs-create:
         operation: tasks_runs_create
-        enabled: false
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create task run
+        description: >
+            Create a run for an existing task without starting it. Launching a task takes two steps: create the run
+            here, then call tasks-runs-start-create to start it. Pass `environment: cloud` for a remote sandbox run or
+            `environment: local` for a desktop session; cloud runs also need a runtime selection (`runtime_adapter` and
+            `model`). Creating a cloud run is gated on team usage and returns 429 when the team is over its posthog_code
+            limit. Returns the created run.
+        feature_flag: tasks
+        response:
+            exclude:
+                - log_url
+                - state.sandbox_connect_token
+                - state.sandbox_url
     tasks-runs-list:
         operation: tasks_runs_list
         enabled: true
@@ -473,7 +492,24 @@ tools:
         enabled: false
     tasks-runs-start-create:
         operation: tasks_runs_start_create
-        enabled: false
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Start task run
+        description: >
+            Start an existing queued or not_started cloud run. This is the second step after tasks-runs-create. Only
+            cloud runs can be started here. Starting a cloud run consumes team usage and returns 429 when the team is
+            over its posthog_code limit. Returns the task with its updated latest run.
+        feature_flag: tasks
+        response:
+            exclude:
+                - latest_run.log_url
+                - latest_run.state.sandbox_connect_token
+                - latest_run.state.sandbox_url
     tasks-runs-stream-retrieve:
         operation: tasks_runs_stream_retrieve
         enabled: false

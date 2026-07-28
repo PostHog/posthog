@@ -17,11 +17,15 @@ import {
     TasksCreateBody,
     TasksListQueryParams,
     TasksRetrieveParams,
+    TasksRunsCreateBody,
+    TasksRunsCreateParams,
     TasksRunsListParams,
     TasksRunsListQueryParams,
     TasksRunsRetrieveParams,
     TasksRunsSessionLogsRetrieveParams,
     TasksRunsSessionLogsRetrieveQueryParams,
+    TasksRunsStartCreateBody,
+    TasksRunsStartCreateParams,
 } from '@/generated/tasks/api'
 import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
 import {
@@ -467,6 +471,85 @@ const tasksRetrieve = (): ToolBase<typeof TasksRetrieveSchema, WithPostHogUrl<Sc
     },
 })
 
+const TasksRunsCreateSchema = TasksRunsCreateParams.omit({ project_id: true }).extend(TasksRunsCreateBody.shape)
+
+const tasksRunsCreate = (): ToolBase<typeof TasksRunsCreateSchema, Schemas.TaskRunDetailDTO> => ({
+    name: 'tasks-runs-create',
+    schema: TasksRunsCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof TasksRunsCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.imported_mcp_servers !== undefined) {
+            body['imported_mcp_servers'] = params.imported_mcp_servers
+        }
+        if (params.relayed_mcp_servers !== undefined) {
+            body['relayed_mcp_servers'] = params.relayed_mcp_servers
+        }
+        if (params.environment !== undefined) {
+            body['environment'] = params.environment
+        }
+        if (params.mode !== undefined) {
+            body['mode'] = params.mode
+        }
+        if (params.branch !== undefined) {
+            body['branch'] = params.branch
+        }
+        if (params.sandbox_environment_id !== undefined) {
+            body['sandbox_environment_id'] = params.sandbox_environment_id
+        }
+        if (params.custom_image_id !== undefined) {
+            body['custom_image_id'] = params.custom_image_id
+        }
+        if (params.pr_authorship_mode !== undefined) {
+            body['pr_authorship_mode'] = params.pr_authorship_mode
+        }
+        if (params.auto_publish !== undefined) {
+            body['auto_publish'] = params.auto_publish
+        }
+        if (params.run_source !== undefined) {
+            body['run_source'] = params.run_source
+        }
+        if (params.signal_report_id !== undefined) {
+            body['signal_report_id'] = params.signal_report_id
+        }
+        if (params.runtime_adapter !== undefined) {
+            body['runtime_adapter'] = params.runtime_adapter
+        }
+        if (params.model !== undefined) {
+            body['model'] = params.model
+        }
+        if (params.reasoning_effort !== undefined) {
+            body['reasoning_effort'] = params.reasoning_effort
+        }
+        if (params.context_window !== undefined) {
+            body['context_window'] = params.context_window
+        }
+        if (params.fast_mode !== undefined) {
+            body['fast_mode'] = params.fast_mode
+        }
+        if (params.github_user_token !== undefined) {
+            body['github_user_token'] = params.github_user_token
+        }
+        if (params.initial_permission_mode !== undefined) {
+            body['initial_permission_mode'] = params.initial_permission_mode
+        }
+        if (params.rtk_enabled !== undefined) {
+            body['rtk_enabled'] = params.rtk_enabled
+        }
+        const result = await context.api.request<Schemas.TaskRunDetailDTO>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/${encodeURIComponent(String(params.task_id))}/runs/`,
+            body,
+        })
+        const filtered = omitResponseFields(result, [
+            'log_url',
+            'state.sandbox_connect_token',
+            'state.sandbox_url',
+        ]) as typeof result
+        return filtered
+    },
+})
+
 const TasksRunsListSchema = TasksRunsListParams.omit({ project_id: true }).extend(TasksRunsListQueryParams.shape)
 
 const tasksRunsList = (): ToolBase<
@@ -556,6 +639,36 @@ const tasksRunsSessionLogsRetrieve = (): ToolBase<typeof TasksRunsSessionLogsRet
     },
 })
 
+const TasksRunsStartCreateSchema = TasksRunsStartCreateParams.omit({ project_id: true }).extend(
+    TasksRunsStartCreateBody.shape
+)
+
+const tasksRunsStartCreate = (): ToolBase<typeof TasksRunsStartCreateSchema, Schemas.TaskDetailDTO> => ({
+    name: 'tasks-runs-start-create',
+    schema: TasksRunsStartCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof TasksRunsStartCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.pending_user_message !== undefined) {
+            body['pending_user_message'] = params.pending_user_message
+        }
+        if (params.pending_user_artifact_ids !== undefined) {
+            body['pending_user_artifact_ids'] = params.pending_user_artifact_ids
+        }
+        const result = await context.api.request<Schemas.TaskDetailDTO>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/${encodeURIComponent(String(params.task_id))}/runs/${encodeURIComponent(String(params.id))}/start/`,
+            body,
+        })
+        const filtered = omitResponseFields(result, [
+            'latest_run.log_url',
+            'latest_run.state.sandbox_connect_token',
+            'latest_run.state.sandbox_url',
+        ]) as typeof result
+        return filtered
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'loops-create-prepare': loopsCreatePrepare,
     'loops-create-execute': loopsCreateExecute,
@@ -569,7 +682,9 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'tasks-create': tasksCreate,
     'tasks-list': tasksList,
     'tasks-retrieve': tasksRetrieve,
+    'tasks-runs-create': tasksRunsCreate,
     'tasks-runs-list': tasksRunsList,
     'tasks-runs-retrieve': tasksRunsRetrieve,
     'tasks-runs-session-logs-retrieve': tasksRunsSessionLogsRetrieve,
+    'tasks-runs-start-create': tasksRunsStartCreate,
 }
