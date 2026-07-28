@@ -39478,6 +39478,8 @@ export namespace Schemas {
      * * `set_config_option` - set_config_option
      * * `mcp_response` - mcp_response
      * * `pi/rpc` - pi/rpc
+     * * `queue_get` - queue_get
+     * * `queue_clear` - queue_clear
      */
     export type MethodEnum = typeof MethodEnum[keyof typeof MethodEnum];
 
@@ -39490,6 +39492,8 @@ export namespace Schemas {
       SetConfigOption: 'set_config_option',
       McpResponse: 'mcp_response',
       PiRpc: 'pi/rpc',
+      QueueGet: 'queue_get',
+      QueueClear: 'queue_clear',
     } as const;
 
     /**
@@ -67903,7 +67907,9 @@ export namespace Schemas {
        * * `permission_response` - permission_response
        * * `set_config_option` - set_config_option
        * * `mcp_response` - mcp_response
-       * * `pi/rpc` - pi/rpc */
+       * * `pi/rpc` - pi/rpc
+       * * `queue_get` - queue_get
+       * * `queue_clear` - queue_clear */
       method: MethodEnum;
       /** Parameters for the command */
       params?: TaskRunCommandRequestParams;
