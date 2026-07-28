@@ -71,7 +71,9 @@ import {
     isTerminalRunStatus,
     INITIAL_PERMISSION_MODE,
     runStreamLogic,
+    toolStreamEventsLogic,
 } from 'products/posthog_ai/frontend/api/logics'
+import { parseInvocationOutputRecord } from 'products/posthog_ai/frontend/api/tools'
 import { LogEntry, parseLogEvent } from 'products/posthog_ai/frontend/lib/parse-logs'
 import { isPiTaskRuntime } from 'products/posthog_ai/frontend/types/taskTypes'
 
@@ -337,6 +339,9 @@ export interface maxThreadLogicActions {
     setSandboxRunOpening: (opening: boolean) => {
         opening: boolean
     } // runStreamLogic
+    emitToolEvent: (event: import('products/posthog_ai/frontend/api/types').ToolStreamEvent) => {
+        event: import('products/posthog_ai/frontend/api/types').ToolStreamEvent
+    } // toolStreamEventsLogic
     activateCommand: (command: SlashCommand) => {
         command: SlashCommand
     }
@@ -788,6 +793,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             ],
             posthogAiContextLogic({ conversationId }),
             ['clearAttachments as clearSandboxAttachments'],
+            toolStreamEventsLogic,
+            ['emitToolEvent'],
         ],
     })),
 
@@ -1653,6 +1660,25 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         }
     }),
     listeners(({ actions, values, cache, props }) => ({
+        emitToolEvent: ({ event }) => {
+            // When this conversation creates a workflow, follow it: the user's next step is
+            // always the editor, and the (persisted) chat travels with them.
+            if (
+                event.phase !== 'completed' ||
+                event.source !== 'live' ||
+                event.toolName !== 'workflows-create' ||
+                event.streamKey !== values.sandboxConversationKey
+            ) {
+                return
+            }
+            const record = parseInvocationOutputRecord(event.invocation)
+            const workflowId = typeof record?.id === 'string' ? record.id : null
+            if (!workflowId || router.values.location.pathname.startsWith(`/workflows/${workflowId}`)) {
+                return
+            }
+            router.actions.push(urls.workflow(workflowId, 'workflow'))
+        },
+
         setConversation: ({ conversation }) => {
             const nextConversationId = conversation?.id ?? null
             if (cache.lastConversationId !== nextConversationId) {

@@ -1,3 +1,5 @@
+import './EmailTemplater.scss'
+
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { ChildFunctionProps, Form } from 'kea-forms'
@@ -28,6 +30,7 @@ import { urls } from 'scenes/urls'
 import 'products/workflows/frontend/TemplateLibrary/MessageTemplatesGrid.scss'
 import { MessageTemplateCard } from 'products/workflows/frontend/TemplateLibrary/MessageTemplateCard'
 
+import { collapseToolsPanelCustomJs } from './custom-tools/collapseToolsPanel'
 import { unsubscribeLinkToolCustomJs } from './custom-tools/unsubscribeLinkTool'
 import { EMAIL_TYPE_SUPPORTED_FIELDS, EmailTemplaterLogicProps, emailTemplaterLogic } from './emailTemplaterLogic'
 
@@ -233,6 +236,7 @@ function DestinationEmailTemplaterForm({
                                             imageEditor: true,
                                             stockImages: false,
                                         },
+                                        customJS: [collapseToolsPanelCustomJs],
                                     }}
                                 />
                             </div>
@@ -376,12 +380,15 @@ function TemplateSlider({
     templates,
     onSelect,
     onSaveAsTemplate,
+    showHeader = true,
 }: {
     templates: any[]
     onSelect: (template: any) => void
     onSaveAsTemplate?: () => void
+    /** With the header hidden the slider renders expanded; the caller owns visibility. */
+    showHeader?: boolean
 }): JSX.Element {
-    const [expanded, setExpanded] = useState(false)
+    const [expanded, setExpanded] = useState(!showHeader)
     const [page, setPage] = useState(0)
     const [pageSize, setPageSize] = useState(5)
     const containerRef = useRef<HTMLDivElement>(null)
@@ -412,25 +419,27 @@ function TemplateSlider({
 
     return (
         <div className="border-b">
-            <div
-                className="flex gap-2 items-center px-2 py-1 cursor-pointer select-none"
-                onClick={() => setExpanded(!expanded)}
-            >
-                <IconChevronDown className={clsx('w-4 h-4 transition-transform', !expanded && '-rotate-90')} />
-                <span className="flex-1 text-sm text-secondary">Start from a template (optional)</span>
-                {onSaveAsTemplate && (
-                    <LemonButton
-                        size="xsmall"
-                        type="secondary"
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            onSaveAsTemplate()
-                        }}
-                    >
-                        Save as new template
-                    </LemonButton>
-                )}
-            </div>
+            {showHeader && (
+                <div
+                    className="flex gap-2 items-center px-2 py-1 cursor-pointer select-none"
+                    onClick={() => setExpanded(!expanded)}
+                >
+                    <IconChevronDown className={clsx('w-4 h-4 transition-transform', !expanded && '-rotate-90')} />
+                    <span className="flex-1 text-sm text-secondary">Start from a template (optional)</span>
+                    {onSaveAsTemplate && (
+                        <LemonButton
+                            size="xsmall"
+                            type="secondary"
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                onSaveAsTemplate()
+                            }}
+                        >
+                            Save as new template
+                        </LemonButton>
+                    )}
+                </div>
+            )}
             {expanded && (
                 <div ref={containerRef} className="flex items-center gap-1 px-1 pb-2">
                     <LemonButton
@@ -475,8 +484,15 @@ function NativeEmailTemplaterForm({
     fieldsHidden?: boolean
     onSaveAsTemplate?: () => void
 }): JSX.Element {
-    const { unlayerEditorProjectId, logicProps, templates, mergeTags, activeContentTab, visibleFields } =
-        useValues(emailTemplaterLogic)
+    const {
+        unlayerEditorProjectId,
+        logicProps,
+        templates,
+        mergeTags,
+        activeContentTab,
+        visibleFields,
+        isTemplatePickerExpanded,
+    } = useValues(emailTemplaterLogic)
     const {
         setEmailEditorRef,
         onEmailEditorReady,
@@ -554,13 +570,20 @@ function NativeEmailTemplaterForm({
 
                     <AddAdvancedFieldButtons />
 
-                    {mode === 'full' && templates.length > 0 && (
-                        <TemplateSlider
-                            templates={templates}
-                            onSelect={applyTemplate}
-                            onSaveAsTemplate={onSaveAsTemplate}
-                        />
-                    )}
+                    {mode === 'full' &&
+                        templates.length > 0 &&
+                        (logicProps.layout === 'inline' ? (
+                            // Inline: the scene's top bar owns the toggle and the save-as-template button.
+                            isTemplatePickerExpanded && (
+                                <TemplateSlider templates={templates} onSelect={applyTemplate} showHeader={false} />
+                            )
+                        ) : (
+                            <TemplateSlider
+                                templates={templates}
+                                onSelect={applyTemplate}
+                                onSaveAsTemplate={onSaveAsTemplate}
+                            />
+                        ))}
                 </div>
 
                 {mode === 'full' ? (
@@ -608,7 +631,7 @@ function NativeEmailTemplaterForm({
                                             stockImages: false,
                                         },
                                         projectId: unlayerEditorProjectId,
-                                        customJS: [unsubscribeLinkToolCustomJs],
+                                        customJS: [unsubscribeLinkToolCustomJs, collapseToolsPanelCustomJs],
                                         fonts: unlayerEditorProjectId
                                             ? {
                                                   showDefaultFonts: true,
@@ -780,11 +803,12 @@ function EmailTemplaterModal(): JSX.Element {
         <>
             <LemonModal
                 isOpen={isModalOpen}
-                width="90vw"
+                fullScreen
+                overlayClassName="EmailTemplaterModal__overlay"
                 onClose={() => closeWithConfirmation()}
                 hasUnsavedInput={emailTemplateChanged}
             >
-                <div className="h-[85vh] flex relative">
+                <div className="h-full flex relative">
                     <LemonButton
                         type="tertiary"
                         size="small"
@@ -826,12 +850,34 @@ function EmailTemplaterModal(): JSX.Element {
     )
 }
 
+function EmailTemplaterInline(): JSX.Element {
+    const { isSaveTemplateModalOpen } = useValues(emailTemplaterLogic)
+    const { saveAsTemplate, setIsSaveTemplateModalOpen } = useActions(emailTemplaterLogic)
+
+    return (
+        <>
+            <EmailTemplaterForm mode="full" onSaveAsTemplate={() => setIsSaveTemplateModalOpen(true)} />
+            <SaveTemplateModal
+                isOpen={isSaveTemplateModalOpen}
+                onClose={() => setIsSaveTemplateModalOpen(false)}
+                onSave={(name, description) => saveAsTemplate(name, description)}
+            />
+        </>
+    )
+}
+
 export function EmailTemplater(props: EmailTemplaterLogicProps): JSX.Element {
     return (
         <BindLogic logic={emailTemplaterLogic} props={props}>
             <div className="flex flex-col flex-1">
-                <EmailTemplaterForm mode="preview" />
-                <EmailTemplaterModal />
+                {props.layout === 'inline' ? (
+                    <EmailTemplaterInline />
+                ) : (
+                    <>
+                        <EmailTemplaterForm mode="preview" />
+                        <EmailTemplaterModal />
+                    </>
+                )}
             </div>
         </BindLogic>
     )

@@ -29,7 +29,7 @@ import {
 
 import type { ActionType } from '../../types'
 import type { ToolRegistration } from './max-constants'
-import { PENDING_AI_PROMPT_KEY } from './max-storage-keys'
+import { PENDING_AI_PROMPT_KEY, SIDE_PANEL_CONVERSATION_KEY } from './max-storage-keys'
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic, type PhaiViewMode } from './maxGlobalLogic'
 import { MaxUIContext } from './maxTypes'
@@ -152,6 +152,20 @@ function shouldSyncMaxUrl(props: MaxLogicProps): boolean {
     return props.syncUrl !== false && props.panelId !== SIDE_PANEL_PANEL_ID
 }
 
+// Side panel only: remember the open conversation per browser tab so it survives full page loads
+// (e.g. following a link the assistant produced). Cleared on new chat or closing the panel.
+function persistSidePanelConversation(conversationId: string | null): void {
+    try {
+        if (conversationId) {
+            sessionStorage.setItem(SIDE_PANEL_CONVERSATION_KEY, conversationId)
+        } else {
+            sessionStorage.removeItem(SIDE_PANEL_CONVERSATION_KEY)
+        }
+    } catch {
+        // sessionStorage might be unavailable
+    }
+}
+
 // Only real scene tabs carry per-tab drafts and tab badges. Embedded panels, the side panel, and bare scene don't.
 function sceneTabId(panelId?: string, syncUrl?: boolean): string | null {
     return syncUrl !== false && panelId && panelId !== SIDE_PANEL_PANEL_ID ? panelId : null
@@ -233,6 +247,9 @@ export interface maxLogicActions {
     prependOrReplaceConversation: (conversation: Conversation | ConversationDetail) => {
         conversation: Conversation | ConversationDetail
     } // maxGlobalLogic
+    closeSidePanel: (tab?: SidePanelTab | undefined) => {
+        tab: SidePanelTab | undefined
+    } // sidePanelStateLogic
     setChatDraftForTab: (
         tabId: string | undefined,
         draft: string
@@ -400,6 +417,8 @@ export const maxLogic = kea<maxLogicType>([
             ],
             tabUiStateLogic,
             ['setChatDraftForTab'],
+            sidePanelStateLogic,
+            ['closeSidePanel'],
         ],
     })),
 
@@ -826,6 +845,22 @@ export const maxLogic = kea<maxLogicType>([
             if (tabId) {
                 actions.setChatDraftForTab(tabId, '')
             }
+            if (props.panelId === SIDE_PANEL_PANEL_ID) {
+                persistSidePanelConversation(null)
+            }
+        },
+
+        setConversationId: ({ conversationId }) => {
+            if (props.panelId === SIDE_PANEL_PANEL_ID) {
+                persistSidePanelConversation(conversationId)
+            }
+        },
+
+        closeSidePanel: () => {
+            // The user dismissed the panel; a later page load should not resurrect the chat.
+            if (props.panelId === SIDE_PANEL_PANEL_ID) {
+                persistSidePanelConversation(null)
+            }
         },
     })),
 
@@ -868,77 +903,101 @@ export const maxLogic = kea<maxLogicType>([
             handleCommandString(sidePanelStateLogic.values.selectedTabOptions, actions, values.effectivePhaiView)
         }
 
+        // Restore the conversation this browser tab had open in the side panel before a full page
+        // load, so following a link out of the chat doesn't lose the conversation.
+        if (props.panelId === SIDE_PANEL_PANEL_ID && !values.conversationId) {
+            try {
+                const storedConversationId = sessionStorage.getItem(SIDE_PANEL_CONVERSATION_KEY)
+                if (storedConversationId) {
+                    actions.openConversation(storedConversationId)
+                    if (sidePanelStateLogic.isMounted() && !sidePanelStateLogic.values.sidePanelOpen) {
+                        sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max)
+                    }
+                }
+            } catch {
+                // sessionStorage might be unavailable
+            }
+        }
+
         // Load conversation history on mount
         actions.loadConversationHistory()
     }),
 
-    urlToAction(({ actions, values }) => ({
-        [urls.aiHistory()]: () => {
-            if (!values.conversationHistoryVisible) {
-                actions.toggleConversationHistory()
-            }
-        },
-        [urls.ai()]: (_, search) => {
-            if (search.ask && !search.chat && !values.question) {
-                // Clear any existing conversation so the tab title updates
-                if (values.conversationId && values.activeStreamingThreads === 0) {
-                    actions.startNewConversation()
+    urlToAction(({ actions, values, props }) => {
+        // Embedded chats and the side panel float over another scene; only the scene instance,
+        // which owns /ai, reacts to its URL. Without this guard, navigating to /ai without ?chat
+        // used to wipe the side panel's open conversation via startNewConversation.
+        if (!shouldSyncMaxUrl(props)) {
+            return {}
+        }
+        return {
+            [urls.aiHistory()]: () => {
+                if (!values.conversationHistoryVisible) {
+                    actions.toggleConversationHistory()
                 }
-
-                // kea-router coerces numeric-looking URL params to numbers
-                const askPrompt = String(search.ask)
-
-                // Consume any pending deep-link context up front, before the consent gate, so an
-                // unapproved link doesn't leave a stale entry behind for a later one to pick up.
-                let uiContext: Partial<MaxUIContext> | undefined = undefined
-                try {
-                    const stored = sessionStorage.getItem(PENDING_MAX_CONTEXT_KEY)
-                    if (stored) {
-                        const { context, timestamp }: StoredMaxContext = JSON.parse(stored)
-                        const isRecent = Date.now() - timestamp < PENDING_CONTEXT_MAX_AGE_MS
-                        if (isRecent && context) {
-                            uiContext = context
-                        }
-                        sessionStorage.removeItem(PENDING_MAX_CONTEXT_KEY)
+            },
+            [urls.ai()]: (_, search) => {
+                if (search.ask && !search.chat && !values.question) {
+                    // Clear any existing conversation so the tab title updates
+                    if (values.conversationId && values.activeStreamingThreads === 0) {
+                        actions.startNewConversation()
                     }
-                } catch {
-                    // sessionStorage unavailable or data malformed, agent will handle it
-                }
 
-                if (!values.dataProcessingAccepted) {
-                    // Without AI data-processing consent, askMax silently no-ops and the prompt is lost.
-                    // Prefill the composer instead so the deep-linked prompt stays visible and the user's
-                    // manual submit runs it (which surfaces the consent flow).
-                    actions.setQuestion(askPrompt)
+                    // kea-router coerces numeric-looking URL params to numbers
+                    const askPrompt = String(search.ask)
+
+                    // Consume any pending deep-link context up front, before the consent gate, so an
+                    // unapproved link doesn't leave a stale entry behind for a later one to pick up.
+                    let uiContext: Partial<MaxUIContext> | undefined = undefined
+                    try {
+                        const stored = sessionStorage.getItem(PENDING_MAX_CONTEXT_KEY)
+                        if (stored) {
+                            const { context, timestamp }: StoredMaxContext = JSON.parse(stored)
+                            const isRecent = Date.now() - timestamp < PENDING_CONTEXT_MAX_AGE_MS
+                            if (isRecent && context) {
+                                uiContext = context
+                            }
+                            sessionStorage.removeItem(PENDING_MAX_CONTEXT_KEY)
+                        }
+                    } catch {
+                        // sessionStorage unavailable or data malformed, agent will handle it
+                    }
+
+                    if (!values.dataProcessingAccepted) {
+                        // Without AI data-processing consent, askMax silently no-ops and the prompt is lost.
+                        // Prefill the composer instead so the deep-linked prompt stays visible and the user's
+                        // manual submit runs it (which surfaces the consent flow).
+                        actions.setQuestion(askPrompt)
+                        return
+                    }
+
+                    window.setTimeout(() => {
+                        // ensure maxThreadLogic is mounted
+                        // Pass context directly to askMax to avoid timing issues
+                        actions.askMax(askPrompt, true, uiContext)
+                    }, 100)
                     return
                 }
 
-                window.setTimeout(() => {
-                    // ensure maxThreadLogic is mounted
-                    // Pass context directly to askMax to avoid timing issues
-                    actions.askMax(askPrompt, true, uiContext)
-                }, 100)
-                return
-            }
+                if (!search.chat && values.conversationId) {
+                    actions.startNewConversation()
+                } else if (search.chat && search.chat !== values.conversationId) {
+                    actions.openConversation(search.chat)
+                } else if (values.conversationHistoryVisible) {
+                    actions.toggleConversationHistory()
+                }
 
-            if (!search.chat && values.conversationId) {
-                actions.startNewConversation()
-            } else if (search.chat && search.chat !== values.conversationId) {
-                actions.openConversation(search.chat)
-            } else if (values.conversationHistoryVisible) {
-                actions.toggleConversationHistory()
-            }
-
-            // A fresh chat (no `chat` param) may carry a task to bind via the URL (inbox "Open task").
-            // Read it after the `startNewConversation` above (which clears it) so it survives, and the
-            // first message resumes that task's run. The param naturally drops once `setConversationId`
-            // rewrites the URL to `?chat=<id>` after the first message.
-            const bindTaskId = search[SANDBOX_BIND_TASK_PARAM]
-            if (!search.chat && bindTaskId) {
-                actions.setPendingBindTaskId(String(bindTaskId))
-            }
-        },
-    })),
+                // A fresh chat (no `chat` param) may carry a task to bind via the URL (inbox "Open task").
+                // Read it after the `startNewConversation` above (which clears it) so it survives, and the
+                // first message resumes that task's run. The param naturally drops once `setConversationId`
+                // rewrites the URL to `?chat=<id>` after the first message.
+                const bindTaskId = search[SANDBOX_BIND_TASK_PARAM]
+                if (!search.chat && bindTaskId) {
+                    actions.setPendingBindTaskId(String(bindTaskId))
+                }
+            },
+        }
+    }),
 
     trackedActionToUrl(({ values, props }) => {
         // Embedded chats and the side panel float over another scene, so they must never rewrite the

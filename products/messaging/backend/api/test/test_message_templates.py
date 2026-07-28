@@ -461,3 +461,47 @@ class TestMessageTemplatesAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @patch("products.messaging.backend.api.message_templates.publish_resource_edited")
+    def test_update_emits_resource_edited(self, mock_publish):
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/messaging_templates/{self.message_template.id}/",
+            data={"name": "Renamed"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_publish.assert_called_once()
+        kwargs = mock_publish.call_args.kwargs
+        assert kwargs["resource_type"] == "MessageTemplate"
+        assert kwargs["resource_id"] == str(self.message_template.id)
+        assert kwargs["ac_resource_type"] == "hog_flow"
+
+    @patch("products.messaging.backend.api.message_templates.publish_resource_edited")
+    @patch("products.messaging.backend.api.message_templates.render_design_html")
+    def test_design_patch_emits_resource_edited(self, mock_render, mock_publish):
+        mock_render.return_value = "<html>patched</html>"
+        self.message_template.content = {"email": {"subject": "Hi", "design": self._design_with_text()}}
+        self.message_template.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/messaging_templates/{self.message_template.id}/design/",
+            data={"operations": [{"op": "update_content", "id": "txt1", "patch": {"values": {"text": "<p>New</p>"}}}]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_publish.assert_called_once()
+        assert mock_publish.call_args.kwargs["resource_type"] == "MessageTemplate"
+
+    @patch("products.messaging.backend.api.message_templates.publish_resource_edited")
+    def test_rejected_design_patch_does_not_emit_resource_edited(self, mock_publish):
+        # self.message_template has no design in content.email, so the patch is rejected.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/messaging_templates/{self.message_template.id}/design/",
+            data={"operations": [{"op": "update_content", "id": "txt1", "patch": {"values": {}}}]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_publish.assert_not_called()

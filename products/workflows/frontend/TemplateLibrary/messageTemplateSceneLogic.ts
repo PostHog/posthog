@@ -1,10 +1,11 @@
-import { MakeLogicType, kea, path, props, selectors } from 'kea'
+import { MakeLogicType, afterMount, kea, path, props, selectors } from 'kea'
 
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
-import { Breadcrumb } from '~/types'
+import { Breadcrumb, SidePanelTab } from '~/types'
 
 export interface MessageTemplateSceneLogicProps {
     id: string
@@ -64,5 +65,11 @@ export const messageTemplateSceneLogic = kea<messageTemplateSceneLogicType>([
                 ]
             },
         ],
+    }),
+    afterMount(() => {
+        // The template editor is an AI-first surface: surface the assistant alongside the canvas.
+        if (!sidePanelStateLogic.findMounted()?.values.sidePanelOpen) {
+            sidePanelStateLogic.findMounted()?.actions.openSidePanel(SidePanelTab.Max)
+        }
     }),
 ])

@@ -1,0 +1,5 @@
+.LemonModal__overlay.EmailTemplaterModal__overlay {
+    // Sits under the main nav and the PostHog AI side panel (--z-main-nav: 750) so the chat and
+    // navigation stay usable next to the full-screen editor; still above all scene content.
+    z-index: 745;
+}

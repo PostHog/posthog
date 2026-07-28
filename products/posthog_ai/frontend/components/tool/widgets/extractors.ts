@@ -56,18 +56,26 @@ function parseToonRecord(text: string): Record<string, unknown> | null {
  * anything unparseable (or empty) resolves to null so the widget falls back to the generic card.
  */
 export function parseToolOutputRecord(message: ToolCallMessage): Record<string, unknown> | null {
-    const direct = asRecord(message.rawOutput)
+    return parseInvocationOutputRecord({ input: message.rawInput, output: message.rawOutput })
+}
+
+/** Same contract as `parseToolOutputRecord`, for callers holding a raw `ToolInvocation` instead. */
+export function parseInvocationOutputRecord(invocation: {
+    input: Record<string, unknown>
+    output?: unknown
+}): Record<string, unknown> | null {
+    const direct = asRecord(invocation.output)
     if (direct) {
         return direct
     }
-    if (typeof message.rawOutput !== 'string') {
+    if (typeof invocation.output !== 'string') {
         return null
     }
-    const text = message.rawOutput.trim()
+    const text = invocation.output.trim()
     if (!text) {
         return null
     }
-    const command = typeof message.rawInput.command === 'string' ? message.rawInput.command : ''
+    const command = typeof invocation.input.command === 'string' ? invocation.input.command : ''
     const { verb, rest } = parseExecCommand(command)
     const forceJson = verb === 'call' && parseExecCall(rest).forceJson
     const attempts = forceJson ? [parseJsonRecord, parseToonRecord] : [parseToonRecord, parseJsonRecord]

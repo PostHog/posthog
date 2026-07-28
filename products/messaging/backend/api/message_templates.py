@@ -21,6 +21,7 @@ from products.messaging.backend.api.design_validation import validate_design
 from products.messaging.backend.models.message_category import MessageCategory
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.unlayer import UnlayerNotConfiguredError, UnlayerRenderError, render_design_html
+from products.notifications.backend.facade.api import publish_resource_edited
 
 logger = structlog.get_logger(__name__)
 
@@ -296,6 +297,26 @@ class MessageTemplatesViewSet(
             .order_by("-created_at")
         )
 
+    def _emit_resource_edited(self, instance: MessageTemplate) -> None:
+        publish_resource_edited(
+            team=self.team,
+            resource_type="MessageTemplate",
+            resource_id=str(instance.id),
+            updated_at=instance.updated_at.isoformat(),
+            actor_user_id=getattr(self.request.user, "id", None),
+            ac_resource_type=self.scope_object,
+        )
+
+    def perform_create(self, serializer: serializers.BaseSerializer) -> None:
+        serializer.save()
+        assert isinstance(serializer.instance, MessageTemplate)
+        self._emit_resource_edited(serializer.instance)
+
+    def perform_update(self, serializer: serializers.BaseSerializer) -> None:
+        serializer.save()
+        assert isinstance(serializer.instance, MessageTemplate)
+        self._emit_resource_edited(serializer.instance)
+
     @extend_schema(request=DesignPatchSerializer, responses={200: MessageTemplateSerializer})
     @action(detail=True, methods=["PATCH"])
     def design(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -337,5 +358,8 @@ class MessageTemplatesViewSet(
             serializer = self.get_serializer(locked, data={"content": content}, partial=True)
             serializer.is_valid(raise_exception=True)
             serializer.save()
+
+        # Outside the atomic block: the realtime notify is a side effect that must not fire on rollback.
+        self._emit_resource_edited(locked)
 
         return Response(self.get_serializer(locked).data)

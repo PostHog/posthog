@@ -109,6 +109,12 @@ export interface EmailTemplaterLogicProps {
     defaultValue?: EmailTemplate | null
     templating?: boolean | 'hog' | 'liquid'
     onChangeTemplating?: (templating: 'hog' | 'liquid') => void
+    /**
+     * 'modal' (default): preview with an editing modal, changes propagate on save.
+     * 'inline': the full editor rendered in place, changes propagate live (debounced) so the
+     * parent form's dirty state and save flow see them without a separate editor-level save.
+     */
+    layout?: 'modal' | 'inline'
 }
 
 function autoRevealAdvancedFields(
@@ -149,6 +155,7 @@ export interface emailTemplaterLogicValues {
     isEmailTemplateValid: boolean
     isModalOpen: boolean
     isSaveTemplateModalOpen: boolean
+    isTemplatePickerExpanded: boolean
     logicProps: EmailTemplaterLogicProps
     mergeTags: UnlayerMergeTags
     personPropertyDefinitions: PropertyDefinition[]
@@ -168,6 +175,9 @@ export interface emailTemplaterLogicActions {
         template: MessageTemplate
     }
     closeWithConfirmation: () => {
+        value: true
+    }
+    designUpdated: () => {
         value: true
     }
     hideAdvancedField: (key: EmailMetaFieldKey) => {
@@ -263,6 +273,9 @@ export interface emailTemplaterLogicActions {
     submitEmailTemplateSuccess: (emailTemplate: EmailTemplate) => {
         emailTemplate: EmailTemplate
     }
+    toggleTemplatePicker: () => {
+        value: true
+    }
     touchEmailTemplateField: (key: string) => {
         key: string
     }
@@ -298,6 +311,8 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         setIsModalOpen: (isModalOpen: boolean) => ({ isModalOpen }),
         setIsSaveTemplateModalOpen: (isOpen: boolean) => ({ isOpen }),
         applyTemplate: (template: MessageTemplate) => ({ template }),
+        designUpdated: true,
+        toggleTemplatePicker: true,
         closeWithConfirmation: true,
         setTemplatingEngine: (templating: 'hog' | 'liquid') => ({ templating }),
         saveAsTemplate: (name: string, description: string) => ({ name, description }),
@@ -329,6 +344,13 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             false,
             {
                 setIsSaveTemplateModalOpen: (_, { isOpen }) => isOpen,
+            },
+        ],
+        isTemplatePickerExpanded: [
+            false,
+            {
+                toggleTemplatePicker: (state) => !state,
+                applyTemplate: () => false,
             },
         ],
         appliedTemplate: [
@@ -442,7 +464,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         ],
     }),
 
-    forms(({ actions, values, props }) => ({
+    forms(({ actions, values, props, cache }) => ({
         emailTemplate: {
             defaults: props.defaultValue as EmailTemplate,
             submit: async (formValues: EmailTemplate | undefined) => {
@@ -480,17 +502,59 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                     design: htmlData.design,
                 }
 
+                cache.lastEditorDesign = htmlData.design
                 props.onChange(finalValues)
                 actions.setIsModalOpen(false)
             },
         },
     })),
 
-    listeners(({ props, values, actions }) => ({
+    listeners(({ props, values, actions, cache }) => ({
         onEmailEditorReady: () => {
             if (props.value?.design) {
+                cache.lastEditorDesign = props.value.design
+                cache.designLoadedAt = Date.now()
                 values.emailEditorRef?.editor?.loadDesign(props.value.design)
             }
+            if (props.layout === 'inline') {
+                values.emailEditorRef?.editor?.addEventListener('design:updated', () => actions.designUpdated())
+            }
+        },
+
+        designUpdated: async (_, breakpoint) => {
+            // A programmatic loadDesign fires design:updated too, and unlayer normalizes the loaded
+            // JSON, so re-exporting right after a load would push a cosmetically-different design to
+            // the parent and falsely dirty its form. Ignore events on the heels of a load.
+            if (cache.designLoadedAt && Date.now() - cache.designLoadedAt < 1000) {
+                return
+            }
+            await breakpoint(500)
+
+            const editor = values.emailEditorRef?.editor
+            if (!editor || !values.isEmailEditorReady) {
+                return
+            }
+
+            const [htmlData, textData]: [{ html: string; design: JSONTemplate }, { text: string }] = await Promise.all([
+                new Promise<any>((res) => editor.exportHtml(res)),
+                new Promise<any>((res) => editor.exportPlainText(res)),
+            ])
+            breakpoint()
+
+            cache.lastEditorDesign = htmlData.design
+            // A programmatic loadDesign can fire design:updated too - exporting the same design the
+            // parent already holds would only mark its form dirty, so propagate real edits only.
+            if (objectsEqual(htmlData.design, props.value?.design)) {
+                return
+            }
+            props.onChange({
+                ...values.emailTemplate,
+                html: ['native_email', 'native_email_template'].includes(props.type)
+                    ? htmlData.html
+                    : escapeHTMLStringCurlies(htmlData.html),
+                text: textData.text,
+                design: htmlData.design,
+            })
         },
 
         setEmailTemplateValue: ({ name, value }) => {
@@ -531,6 +595,8 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
 
             // Load the design into the editor if it's ready and has a design
             if (values.isEmailEditorReady && emailTemplateContent.design) {
+                cache.lastEditorDesign = emailTemplateContent.design
+                cache.designLoadedAt = Date.now()
                 values.emailEditorRef?.editor?.loadDesign(emailTemplateContent.design)
             }
         },
@@ -610,10 +676,23 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         },
     })),
 
-    propsChanged(({ actions, props }, oldProps) => {
+    propsChanged(({ actions, values, props, cache }, oldProps) => {
         if (props.value && !objectsEqual(props.value, oldProps.value)) {
             actions.resetEmailTemplate(props.value)
             autoRevealAdvancedFields(actions, props)
+
+            // Re-hydrate an already-open editor when the design changed externally (e.g. an AI or
+            // API edit reloaded the parent). lastEditorDesign tracks what the canvas itself holds,
+            // so the editor's own export echoing back through onChange never triggers a redraw.
+            if (
+                props.value.design &&
+                values.isEmailEditorReady &&
+                !objectsEqual(props.value.design, cache.lastEditorDesign)
+            ) {
+                cache.lastEditorDesign = props.value.design
+                cache.designLoadedAt = Date.now()
+                values.emailEditorRef?.editor?.loadDesign(props.value.design)
+            }
         }
     }),
 
