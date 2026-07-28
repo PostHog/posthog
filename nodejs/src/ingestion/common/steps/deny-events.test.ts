@@ -15,7 +15,7 @@ function makeInput(eventName: string | undefined) {
 }
 
 describe('createDenyEventsStep', () => {
-    const step = createDenyEventsStep(['$exception', '$$client_ingestion_warning'])
+    const step = createDenyEventsStep({ eventNames: ['$exception', '$$client_ingestion_warning'] })
 
     it('DLQs events whose name is in the deny list', async () => {
         const result = await step(makeInput('$exception'))
@@ -45,12 +45,26 @@ describe('createDenyEventsStep', () => {
         expect(result).toEqual(ok(input))
     })
 
-    it('passes through everything when the deny list is empty', async () => {
-        const emptyStep = createDenyEventsStep([])
+    it('passes through everything when nothing is denied', async () => {
+        const emptyStep = createDenyEventsStep({})
         const input = makeInput('$exception')
 
         const result = await emptyStep(input)
 
         expect(result).toEqual(ok(input))
+    })
+
+    test.each([
+        ['$ai_generation', true],
+        ['$ai_', true],
+        ['$aiproduct_event', false],
+        ['$pageview', false],
+    ])('eventPrefixes denies by prefix: %s denied=%s', async (eventName, denied) => {
+        const prefixStep = createDenyEventsStep({ eventPrefixes: ['$ai_'] })
+        const input = makeInput(eventName)
+
+        const result = await prefixStep(input)
+
+        expect(result).toEqual(denied ? dlq('event_in_denylist') : ok(input))
     })
 })

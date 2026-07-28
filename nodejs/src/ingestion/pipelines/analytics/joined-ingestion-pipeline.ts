@@ -206,7 +206,7 @@ export function createJoinedIngestionPipeline<
             // Header-only steps: token-level deny list and restrictions. Cheap; runs
             // per-event before we touch the body.
             .parseHeaders()
-            .pipe(createDenyEventsStep(['$exception', '$$client_ingestion_warning', '$$heatmap']))
+            .pipe(createDenyEventsStep({ eventNames: ['$exception', '$$client_ingestion_warning', '$$heatmap'] }))
             .pipe(
                 createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
                     overflowMode,
