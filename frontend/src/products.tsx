@@ -153,6 +153,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/error_tracking/fingerprint/:fingerprint': ['ErrorTrackingFingerprint', 'errorTrackingFingerprint'],
     '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
     '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
+    '/error_tracking/migrations/sentry': ['ErrorTrackingSentryMigration', 'errorTrackingSentryMigration'],
     '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
     '/error_tracking/alerts/new/:templateId': ['HogFunction', 'errorTrackingAlertNew'],
     '/feature_flags/templates': ['FeatureFlagTemplates', 'featureFlagTemplates'],
@@ -642,6 +643,7 @@ export const productConfiguration: Record<string, any> = {
     ErrorTrackingIssue: { projectBased: true, name: 'Error tracking issue', layout: 'app-raw' },
     ErrorTrackingIssueFingerprints: { projectBased: true, name: 'Error tracking issue fingerprints' },
     ErrorTrackingFingerprint: { projectBased: true, name: 'Error tracking fingerprint' },
+    ErrorTrackingSentryMigration: { projectBased: true, name: 'Migrate from Sentry' },
     FeatureFlagTemplates: { projectBased: true, name: 'Feature flag templates' },
     FeatureFlagsStaffTools: { instanceLevel: true, name: 'Flags staff tools' },
     Game368Hedgehogs: { name: '368Hedgehogs', projectBased: true, activityScope: 'Games' },
@@ -1127,6 +1129,7 @@ export const productUrls = {
             timestamp?: string
         } = {}
     ): string => combineUrl(`/error_tracking/fingerprint/${encodeURIComponent(fingerprint)}`, params).url,
+    errorTrackingSentryMigration: (): string => '/error_tracking/migrations/sentry',
     errorTrackingAlert: (id: string): string => `/error_tracking/alerts/${id}`,
     errorTrackingAlertNew: (templateId: string): string => `/error_tracking/alerts/new/${templateId}`,
     experiment: (
@@ -1917,6 +1920,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'ErrorTrackingIssue',
             'ErrorTrackingIssueFingerprints',
             'ErrorTrackingFingerprint',
+            'ErrorTrackingSentryMigration',
         ],
     },
     {

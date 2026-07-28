@@ -55,6 +55,7 @@ import {
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
 import { ExceptionAutocaptureToggle } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
 import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/suppression_rules/SuppressionRules'
+import { SentryMigrationSetting } from 'products/error_tracking/frontend/scenes/SentryMigrationScene/SentryMigrationSetting'
 import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
 import { LogsMetricRulesSection } from 'products/logs/frontend/components/LogsMetricRules/LogsMetricRulesSection'
 import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampling/LogsSamplingSection'
@@ -542,6 +543,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Filter out exceptions that match the given filters.',
                 component: <SuppressionRules />,
                 keywords: ['filter', 'ignore', 'suppress', 'exception', 'type', 'message'],
+            },
+            {
+                id: 'error-tracking-sentry-migration',
+                title: 'Migrate from Sentry',
+                description: 'Import your Sentry issues and events, and switch your code to the PostHog SDK.',
+                component: <SentryMigrationSetting />,
+                flag: 'ERROR_TRACKING_SENTRY_MIGRATION',
+                keywords: ['sentry', 'migrate', 'import', 'switch'],
             },
             {
                 id: 'error-tracking-spike-detection',

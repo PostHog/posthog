@@ -33,12 +33,18 @@ export const manifest: ProductManifest = {
             projectBased: true,
             name: 'Error tracking fingerprint',
         },
+        ErrorTrackingSentryMigration: {
+            import: () => import('./frontend/scenes/SentryMigrationScene/SentryMigrationScene'),
+            projectBased: true,
+            name: 'Migrate from Sentry',
+        },
     },
     routes: {
         '/error_tracking': ['ErrorTracking', 'errorTracking'],
         '/error_tracking/fingerprint/:fingerprint': ['ErrorTrackingFingerprint', 'errorTrackingFingerprint'],
         '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
         '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
+        '/error_tracking/migrations/sentry': ['ErrorTrackingSentryMigration', 'errorTrackingSentryMigration'],
         '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
         '/error_tracking/alerts/new/:templateId': ['HogFunction', 'errorTrackingAlertNew'],
     },
@@ -76,6 +82,7 @@ export const manifest: ProductManifest = {
                 timestamp?: string
             } = {}
         ): string => combineUrl(`/error_tracking/fingerprint/${encodeURIComponent(fingerprint)}`, params).url,
+        errorTrackingSentryMigration: (): string => '/error_tracking/migrations/sentry',
         errorTrackingAlert: (id: string): string => `/error_tracking/alerts/${id}`,
         errorTrackingAlertNew: (templateId: string): string => `/error_tracking/alerts/new/${templateId}`,
     },
