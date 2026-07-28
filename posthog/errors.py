@@ -459,7 +459,10 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
         "INCOMPATIBLE_COLUMNS", category=QueryErrorCategory.USER_ERROR
     ),  # column types don't match expected schema
     123: ErrorCodeMeta("UNKNOWN_TYPE_OF_AST_NODE"),
-    124: ErrorCodeMeta("INCORRECT_ELEMENT_OF_SET"),
+    124: ErrorCodeMeta(
+        "INCORRECT_ELEMENT_OF_SET",
+        user_safe="Mismatched number of columns in an IN clause tuple.",
+    ),
     125: ErrorCodeMeta("INCORRECT_RESULT_OF_SCALAR_SUBQUERY"),
     127: ErrorCodeMeta("ILLEGAL_INDEX"),
     128: ErrorCodeMeta("TOO_LARGE_ARRAY_SIZE"),
