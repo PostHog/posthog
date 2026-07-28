@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from '@storybook/react'
+import type { Decorator, Meta, StoryObj } from '@storybook/react'
 import { useEffect } from 'react'
 
 import { ExportType, ExportedData } from '~/exporter/types'
@@ -9,7 +9,7 @@ import __lifecycle from '../../mocks/fixtures/api/projects/team_id/insights/life
 import __retention from '../../mocks/fixtures/api/projects/team_id/insights/retention.json'
 import __stickiness from '../../mocks/fixtures/api/projects/team_id/insights/stickiness.json'
 import __trendsBarBreakdown from '../../mocks/fixtures/api/projects/team_id/insights/trendsBarBreakdown.json'
-import __trendsTable from '../../mocks/fixtures/api/projects/team_id/insights/trendsTable.json'
+import __trendsLine from '../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
 import __userPaths from '../../mocks/fixtures/api/projects/team_id/insights/userPaths.json'
 import { Exporter } from '../Exporter'
 
@@ -94,14 +94,24 @@ export const SQLInsightNoResults: Story = {
     },
 }
 
+/** Mirrors the 800px viewport the image exporter renders ad-hoc query exports in (see
+ * `_insight_query_screenshot_width`). Without it the test runner's shrink-to-fit root leaves the
+ * responsive chart canvas nothing to fill, collapsing the chart to the width of its axis labels. */
+const adhocExportViewport: Decorator = (StoryFn): JSX.Element => <div className="w-[800px]">{StoryFn()}</div>
+
+const adhocExportParameters = {
+    testOptions: { waitForSelector: '.ExportedInsight canvas' },
+}
+
 /** Ad-hoc query image export (`export_context.source`) — a query rendered from inlined results, with no saved insight. */
 export const AdhocQueryExport: Story = {
     args: {
         type: ExportType.Image,
-        query: (__trendsTable as any).query,
-        query_results: { results: (__trendsTable as any).result },
+        query: (__trendsLine as any).query,
+        query_results: { results: (__trendsLine as any).result },
     },
-    tags: ['test-skip'], // doesn't produce a helpful reference image, as canvas can't be captured
+    decorators: [adhocExportViewport],
+    parameters: adhocExportParameters,
 }
 
 /** Multi-series ad-hoc export with `?legend=true` — the horizontal exporter legend below the chart, never the in-chart side legend. */
@@ -112,5 +122,6 @@ export const AdhocQueryExportWithLegend: Story = {
         query_results: { results: (__trendsBarBreakdown as any).result },
         legend: true,
     },
-    tags: ['test-skip'], // doesn't produce a helpful reference image, as canvas can't be captured
+    decorators: [adhocExportViewport],
+    parameters: adhocExportParameters,
 }
