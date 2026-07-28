@@ -3,6 +3,7 @@ import time
 import asyncio
 from datetime import timedelta
 from typing import Any
+from urllib.parse import quote
 from uuid import uuid4
 
 import pytest
@@ -40,13 +41,22 @@ async def _release(conn: psycopg.AsyncConnection[Any], *, batches: list[PendingB
     await BatchQueue.unlock_for_batches(conn, batches=batches, owner_token=owner)
 
 
+# The queue table names are production constants, so every module that exercises the queue used to
+# create, truncate, and query one shared physical set of them in `public` — making the autouse TRUNCATE
+# below a cross-module hazard rather than isolation. Own schema instead: the tables this module creates
+# are its own, and nothing another module does to its copies is visible here. `public` stays on the
+# search path so the Django-managed tables in the same database still resolve.
+QUEUE_TEST_SCHEMA = "test_postgres_queue_jobs_db"
+
+
 def _get_test_database_url() -> str:
     from django.db import connection
 
     s = connection.settings_dict
     host = s.get("HOST", "localhost") or "localhost"
     port = s.get("PORT", "5432") or "5432"
-    return f"postgres://{s['USER']}:{s['PASSWORD']}@{host}:{port}/{s['NAME']}"
+    options = quote(f"-csearch_path={QUEUE_TEST_SCHEMA},public", safe="")
+    return f"postgres://{s['USER']}:{s['PASSWORD']}@{host}:{port}/{s['NAME']}?options={options}"
 
 
 def _ensure_tables(conn: psycopg.Connection[Any]) -> None:
@@ -167,6 +177,9 @@ def _db_url() -> str:
 @pytest.fixture(scope="session", autouse=True)
 def _create_tables(_db_url: str) -> None:
     with psycopg.Connection.connect(_db_url, autocommit=True) as conn:
+        # search_path is just a name list, so pointing the connection at the schema before it exists is
+        # fine — every unqualified name below resolves to it once this runs.
+        conn.execute(f"CREATE SCHEMA IF NOT EXISTS {QUEUE_TEST_SCHEMA}")
         _ensure_tables(conn)
 
 

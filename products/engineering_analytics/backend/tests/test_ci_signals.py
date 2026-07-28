@@ -658,6 +658,42 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
         assert findings[0].extra["run_id"] == 3
         _assert_emittable(findings[0])
 
+    def test_flaky_check_groups_a_sharded_job_under_one_signal(self) -> None:
+        # A sharded job reports per shard, and the shard count moves between runs, so keying on the raw
+        # name splits one flaky job into a signal per shard name — each separately gated by
+        # min_flaky_runs, so a job that recovered 3 times reports nothing at all.
+        now = datetime.now(UTC).replace(tzinfo=None)
+        shards = ["product tests (1/4)", "product tests (1/5)", "product tests (1/6)"]
+        rows = []
+        jobs = []
+        for run_id, shard in enumerate(shards, start=1):
+            rows.append(
+                _run_row(run_id, "CI", f"shaS{run_id}", "success", now - timedelta(hours=run_id), 60, run_attempt=2)
+            )
+            jobs.append(
+                _job_row(
+                    run_id * 10, run_id, shard, f"shaS{run_id}", "failure", now - timedelta(hours=run_id), run_attempt=1
+                )
+            )
+            jobs.append(
+                _job_row(
+                    run_id * 10 + 1,
+                    run_id,
+                    shard,
+                    f"shaS{run_id}",
+                    "success",
+                    now - timedelta(hours=run_id),
+                    run_attempt=2,
+                )
+            )
+        findings = detect_flaky_checks(self._curated_over_runs(rows, jobs), min_flaky_runs=3)
+        assert len(findings) == 1
+        assert findings[0].extra["job_name"] == "product tests"
+        assert findings[0].extra["flaky_count"] == 3
+        # The shard the worked example came from is evidence, so it survives outside the key.
+        assert "product tests (1/6)" in findings[0].description
+        _assert_emittable(findings[0])
+
     def test_flaky_check_ignores_required_check_aggregators(self) -> None:
         # A `* Pass` gate fails only because a job it gates failed, so counting it emits a second
         # signal for every real flake. Real aggregators settle in 3-5s; real jobs run 60s+.

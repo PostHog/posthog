@@ -1,7 +1,9 @@
 import os
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Optional
+from urllib.parse import quote
 
 # Above this many assigned signals, an already-researched (READY/RESOLVED) report stops
 # re-researching on new signals; signals are still assigned. See assign_and_emit_signal_activity.
@@ -22,6 +24,39 @@ class EmitSignalInputs:
     # the Temporal/S3 JSON round-trip. Surfaced to the research agent as authoritative direction when
     # present; not required by any source.
     remediation: Optional[dict] = None
+
+
+def signal_document_id(signal: EmitSignalInputs) -> str:
+    """The ClickHouse `document_id` to emit a signal under.
+
+    Every signal read groups on `document_id`, so a random id per emission made a re-processed signal
+    undedupable: a grouping-workflow replay or retry re-emitted a condition already reported and it
+    landed in the inbox a second time. Deriving the id from the signal instead makes that write
+    idempotent — the replay lands on the row it already wrote.
+
+    Keyed on the source record (`SignalEmissionRecord`'s unique tuple) *plus the description*, not the
+    tuple alone. Several sources reuse one `source_id` across genuinely distinct occurrences — an
+    error-tracking issue reopening twice, a log alert firing again after resolving — and those carry
+    different evidence in their text. Keying on the tuple alone would silently overwrite the earlier
+    occurrence; including the content narrows the collapse to what is actually a duplicate.
+
+    Components are percent-encoded before joining so `(source_type="a|b", source_id="c")` can't
+    collide with `(source_type="a", source_id="b|c")`. A blank `source_id` identifies nothing, so
+    those keep a random id rather than leaning on the description alone.
+    """
+    if not signal.source_id:
+        return str(uuid.uuid4())
+    key = "|".join(
+        quote(part, safe="")
+        for part in (
+            str(signal.team_id),
+            signal.source_product,
+            signal.source_type,
+            signal.source_id,
+            signal.description,
+        )
+    )
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"posthog:signals:signal:{key}"))
 
 
 @dataclass

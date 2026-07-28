@@ -1,4 +1,3 @@
-import uuid
 import asyncio
 from dataclasses import dataclass
 from datetime import timedelta
@@ -37,6 +36,7 @@ from products.signals.backend.temporal.types import (
     SignalCandidate,
     SignalReportSummaryWorkflowInputs,
     SpecificityMetadata,
+    signal_document_id,
 )
 
 logger = structlog.get_logger(__name__)
@@ -327,7 +327,7 @@ async def _process_parallel_batch(
     coroutines = []
     for idx in batch_indices:
         signal = batch[idx]
-        signal_id = str(uuid.uuid4())
+        signal_id = signal_document_id(signal)
 
         # Augment CH candidates with all previously processed signals (from earlier batches)
         augmented_results = _augment_candidates_with_batch(

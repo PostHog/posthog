@@ -1,5 +1,6 @@
 import json
 import uuid
+import asyncio
 import functools
 from concurrent.futures import ThreadPoolExecutor
 
@@ -42,6 +43,15 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.settings import ACTIVITIES
 
 BUCKET_NAME = "test-pipeline"
+
+# Guards against a workflow that never settles: without it a wedged sync hangs until the job's own
+# timeout kills the whole shard, costing 40 minutes and reporting nothing about which test wedged.
+# Deliberately real time, not a Temporal `execution_timeout`: the time-skipping environment charges
+# both real activity time and fast-forwarded retry backoffs against a workflow deadline, so it expires
+# for reasons unrelated to the behavior under test. Generous on purpose — a loaded runner must clear it
+# comfortably, and it only has to beat the job timeout, not the happy-path runtime.
+WORKFLOW_REAL_TIME_LIMIT_SECONDS = 600
+
 SESSION = aioboto3.Session()
 create_test_client = functools.partial(SESSION.client, endpoint_url=settings.OBJECT_STORAGE_ENDPOINT)
 
@@ -233,12 +243,15 @@ async def run_external_data_job_workflow(
                 max_concurrent_activities=50,
                 debug_mode=True,  # turn off sandbox/deadlock detector
             ):
-                await activity_environment.client.execute_workflow(
-                    ExternalDataJobWorkflow.run,
-                    inputs,
-                    id=workflow_id,
-                    task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
-                    retry_policy=RetryPolicy(maximum_attempts=1),
+                await asyncio.wait_for(
+                    activity_environment.client.execute_workflow(
+                        ExternalDataJobWorkflow.run,
+                        inputs,
+                        id=workflow_id,
+                        task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+                        retry_policy=RetryPolicy(maximum_attempts=1),
+                    ),
+                    timeout=WORKFLOW_REAL_TIME_LIMIT_SECONDS,
                 )
 
     # if not ignore_assertions:

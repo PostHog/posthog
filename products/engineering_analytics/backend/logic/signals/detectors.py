@@ -4,6 +4,7 @@ They compose the ``logic/queries/`` read modules instead of authoring SQL, so de
 MCP read surface can never disagree (SPEC §7). Thresholds are overridable arguments.
 """
 
+import re
 import hashlib
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
@@ -56,8 +57,23 @@ DURATION_MIN_PCT_INCREASE = 0.5
 DURATION_MIN_ABS_INCREASE_SECONDS = 60.0
 
 
+# A sharded job reports as one GitHub job per shard, named `<job> (i/N)`.
+SHARD_SUFFIX_RE = re.compile(r"\s*\(\d+/\d+\)\s*$")
+
+
+def _base_job_name(job_name: str) -> str:
+    """The job name with its shard suffix removed.
+
+    The flaky thing is the job, not the shard that happened to hold the offending test: shards are a
+    sizing detail, and the shard count itself moves between runs, so a raw-name key splits one flaky
+    job across a signal per shard (each separately gated by min_flaky_runs) and mints fresh keys the
+    day the count changes. Falls back to the raw name if stripping would leave nothing.
+    """
+    return SHARD_SUFFIX_RE.sub("", job_name) or job_name
+
+
 def _job_key(row: FlakyJobRun) -> tuple[str, str, str, str]:
-    return (row.repo_owner, row.repo_name, row.workflow_name, row.job_name)
+    return (row.repo_owner, row.repo_name, row.workflow_name, _base_job_name(row.job_name))
 
 
 def _observation_week(now: datetime) -> str:
@@ -110,6 +126,11 @@ def detect_flaky_checks(
         repo = f"{repo_owner}/{repo_name}"
         # The flaky thing is the job, not any one rerun: one worked example plus a count.
         latest = max(rows, key=lambda row: row.run_id)
+        # Which shard holds the offending test is still evidence, so keep it on the worked example
+        # even though it's out of the key.
+        shard_names = {row.job_name for row in rows}
+        shard_note = f", spread over {len(shard_names)} shards of the job" if len(shard_names) > 1 else ""
+        latest_shard = f" (shard '{latest.job_name}')" if latest.job_name != job_name else ""
         findings.append(
             CISignalFinding(
                 source_type=SOURCE_TYPE_FLAKY_CHECK,
@@ -120,8 +141,9 @@ def detect_flaky_checks(
                     # Grouping titles a split report from the first line, so keep ids out of it.
                     f"CI job '{job_name}' in workflow '{workflow_name}' is flaky on {repo}\n"
                     f"It failed and then passed on a rerun of the same commit {flaky_count} time(s) in the "
-                    f"last {window_days}d. Most recent: run {latest.run_id} for commit {latest.head_sha} "
-                    f"failed on attempt {latest.failed_attempt} and passed on attempt {latest.passed_attempt}."
+                    f"last {window_days}d{shard_note}. Most recent: run {latest.run_id} for commit "
+                    f"{latest.head_sha}{latest_shard} failed on attempt {latest.failed_attempt} and passed on "
+                    f"attempt {latest.passed_attempt}."
                 ),
                 weight=SIGNAL_WEIGHT,
                 extra=EngineeringAnalyticsCIFlakyCheckSignalExtra(

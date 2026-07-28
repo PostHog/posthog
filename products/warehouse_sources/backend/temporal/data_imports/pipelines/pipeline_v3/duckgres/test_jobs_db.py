@@ -1,4 +1,5 @@
 from typing import Any
+from urllib.parse import quote
 
 import pytest
 
@@ -29,6 +30,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     BatchQueue,
 )
 
+# Own schema, so this module's TRUNCATE can't reach another module's copies of the same tables — see
+# the same constant in postgres_queue/test_jobs_db.py.
+QUEUE_TEST_SCHEMA = "test_duckgres_jobs_db"
+
 
 def _get_test_database_url() -> str:
     from django.db import connection
@@ -36,7 +41,8 @@ def _get_test_database_url() -> str:
     settings = connection.settings_dict
     host = settings.get("HOST", "localhost") or "localhost"
     port = settings.get("PORT", "5432") or "5432"
-    return f"postgres://{settings['USER']}:{settings['PASSWORD']}@{host}:{port}/{settings['NAME']}"
+    options = quote(f"-csearch_path={QUEUE_TEST_SCHEMA},public", safe="")
+    return f"postgres://{settings['USER']}:{settings['PASSWORD']}@{host}:{port}/{settings['NAME']}?options={options}"
 
 
 def _ensure_tables(conn: psycopg.Connection[Any]) -> None:
@@ -190,6 +196,9 @@ def _db_url() -> str:
 @pytest.fixture(scope="session", autouse=True)
 def _create_tables(_db_url: str) -> None:
     with psycopg.Connection.connect(_db_url, autocommit=True) as conn:
+        # search_path is just a name list, so pointing the connection at the schema before it exists is
+        # fine — every unqualified name below resolves to it once this runs.
+        conn.execute(f"CREATE SCHEMA IF NOT EXISTS {QUEUE_TEST_SCHEMA}")
         _ensure_tables(conn)
 
 
