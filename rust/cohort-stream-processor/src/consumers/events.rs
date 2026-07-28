@@ -42,7 +42,7 @@ use crate::observability::metrics::{
     MERGE_HELD_OFFSET_GAUGE, MERGE_PENDING_TRANSFERS_GAUGE, PARTITIONS_ASSIGNED_TOTAL,
     PARTITIONS_PAUSED, PARTITIONS_REVOKED_TOTAL, PARTITION_STATE_DELETED_TOTAL,
     PENDING_HELD_EVENTS, REBALANCE_CLEANUP_SKIPPED_TOTAL, REVOKE_DRAIN_DURATION_SECONDS,
-    SEED_HELD_OFFSET_GAUGE,
+    SEED_HELD_OFFSET_GAUGE, SEED_OLDEST_HELD_AGE_MS, SEED_PAUSE_AGE_MS,
 };
 use crate::partitions::backpressure::Backpressure;
 use crate::partitions::offset_tracker::OffsetTracker;
@@ -701,6 +701,8 @@ impl EventDispatcher {
         gauge!(CASCADE_HELD_OFFSET_GAUGE, "partition" => partition.to_string()).set(0.0);
         gauge!(SEED_HELD_OFFSET_GAUGE, "partition" => partition.to_string()).set(0.0);
         gauge!(LIVE_WATERMARK_AGE_MS, "partition" => partition.to_string()).set(0.0);
+        gauge!(SEED_PAUSE_AGE_MS, "partition" => partition.to_string()).set(0.0);
+        gauge!(SEED_OLDEST_HELD_AGE_MS, "partition" => partition.to_string()).set(0.0);
 
         let Some(partition_id) = partition_to_store_id(partition) else {
             warn!(
@@ -1454,8 +1456,17 @@ pub(crate) async fn run_pauser_loop(
     while let Some(target) = rx.recv().await {
         let to_pause: Vec<i32> = target.iter().copied().collect();
         let to_resume: Vec<i32> = applied.difference(&target).copied().collect();
-        pauser.pause(&to_pause);
-        pauser.resume(&to_resume);
+        // Run the blocking FFI off the worker threads, awaited serially so updates keep their
+        // order.
+        let ffi_pauser = pauser.clone();
+        let applied_ffi = tokio::task::spawn_blocking(move || {
+            ffi_pauser.pause(&to_pause);
+            ffi_pauser.resume(&to_resume);
+        })
+        .await;
+        if let Err(err) = applied_ffi {
+            warn!(error = %err, "pauser task's blocking pause/resume panicked; the next target update re-asserts");
+        }
         applied = target;
     }
 }
@@ -2290,6 +2301,7 @@ mod tests {
             )),
             partition,
             offset,
+            broker_ts_ms: None,
         }
     }
 
@@ -2621,6 +2633,7 @@ mod tests {
             work: SeedWork::Reconcile(tile.clone()),
             partition: 0,
             offset: 5,
+            broker_ts_ms: None,
         }]);
         assert!(held.is_empty());
         for _ in 0..10_000 {
@@ -2672,6 +2685,7 @@ mod tests {
             work: SeedWork::Reconcile(tile.clone()),
             partition: 0,
             offset: 5,
+            broker_ts_ms: None,
         }]);
         assert_eq!(
             held_seed_offsets(held.get(&0).expect("the draining route is held")),

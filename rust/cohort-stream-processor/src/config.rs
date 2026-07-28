@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use anyhow::ensure;
+use anyhow::{ensure, Context};
 use common_database::PoolConfig;
 use common_kafka::config::KafkaConfig;
 use common_types::cohort::TeamAllowlist;
@@ -11,6 +11,7 @@ use envconfig::Envconfig;
 use rdkafka::ClientConfig;
 use tracing::warn;
 
+use crate::partitions::pacing::{AgeMs, Hysteresis, SeedPacingConfig, UsedPct};
 use crate::store::durability::DurabilityConfig;
 use crate::store::{OffloadConfig, OffloadMode, StoreConfig};
 use crate::workers::{CascadeConfig, EventNameGating, TransferRetryPolicy};
@@ -263,6 +264,26 @@ pub struct Config {
     /// Cadence for routing one bounded reconcile-drain tick to each active partition worker.
     #[envconfig(from = "COHORT_SEED_RECONCILE_TICK_INTERVAL_MS", default = "2000")]
     pub cohort_seed_reconcile_tick_interval_ms: u64,
+
+    /// Live-priority gate: pause a seed partition once its live watermark age reaches this (ms).
+    /// `0` disables the trigger.
+    #[envconfig(from = "COHORT_SEED_LIVE_LAG_PAUSE_MS", default = "120000")]
+    pub cohort_seed_live_lag_pause_ms: i64,
+
+    /// Resume a live-lag-paused seed partition once its watermark age drops below this (ms).
+    /// Must be positive and below the pause threshold when the trigger is enabled.
+    #[envconfig(from = "COHORT_SEED_LIVE_LAG_RESUME_MS", default = "60000")]
+    pub cohort_seed_live_lag_resume_ms: i64,
+
+    /// Disk gate: pause all seed partitions once the store filesystem's used share reaches
+    /// this (%). `0` disables the trigger.
+    #[envconfig(from = "COHORT_SEED_DISK_PAUSE_PCT", default = "60")]
+    pub cohort_seed_disk_pause_pct: f64,
+
+    /// Resume disk-paused seed partitions once the used share drops below this (%). Must be
+    /// positive and below the pause threshold when the trigger is enabled.
+    #[envconfig(from = "COHORT_SEED_DISK_RESUME_PCT", default = "55")]
+    pub cohort_seed_disk_resume_pct: f64,
 
     /// Stable per-pod identity for `group.instance.id` + `client.id`, enabling static membership.
     /// Read from `POD_NAME`, else `HOSTNAME`. Absent means no static membership.
@@ -623,6 +644,55 @@ impl Config {
         Duration::from_millis(self.cohort_seed_reconcile_tick_interval_ms)
     }
 
+    /// The seed consumer's pacing gates. `0` on a pause threshold disables that trigger; an
+    /// enabled trigger requires `0 < resume < pause` (and `pause <= 100` for the disk share) so a
+    /// flapping or never-releasing pair is refused at startup.
+    pub fn seed_pacing_config(&self) -> anyhow::Result<SeedPacingConfig> {
+        let live_lag = if self.cohort_seed_live_lag_pause_ms == 0 {
+            None
+        } else {
+            ensure!(
+                self.cohort_seed_live_lag_pause_ms > 0,
+                "COHORT_SEED_LIVE_LAG_PAUSE_MS must be positive (0 disables the trigger).",
+            );
+            ensure!(
+                self.cohort_seed_live_lag_resume_ms > 0,
+                "COHORT_SEED_LIVE_LAG_RESUME_MS must be positive: a non-positive resume \
+                 threshold could never release the pause.",
+            );
+            Some(
+                Hysteresis::new(
+                    AgeMs(self.cohort_seed_live_lag_pause_ms),
+                    AgeMs(self.cohort_seed_live_lag_resume_ms),
+                )
+                .context(
+                    "COHORT_SEED_LIVE_LAG_RESUME_MS must be below COHORT_SEED_LIVE_LAG_PAUSE_MS",
+                )?,
+            )
+        };
+        let disk = if self.cohort_seed_disk_pause_pct == 0.0 {
+            None
+        } else {
+            ensure!(
+                self.cohort_seed_disk_pause_pct > 0.0 && self.cohort_seed_disk_pause_pct <= 100.0,
+                "COHORT_SEED_DISK_PAUSE_PCT must be within (0, 100] (0 disables the trigger).",
+            );
+            ensure!(
+                self.cohort_seed_disk_resume_pct > 0.0,
+                "COHORT_SEED_DISK_RESUME_PCT must be positive: a non-positive resume threshold \
+                 could never release the pause.",
+            );
+            Some(
+                Hysteresis::new(
+                    UsedPct(self.cohort_seed_disk_pause_pct),
+                    UsedPct(self.cohort_seed_disk_resume_pct),
+                )
+                .context("COHORT_SEED_DISK_RESUME_PCT must be below COHORT_SEED_DISK_PAUSE_PCT")?,
+            )
+        };
+        Ok(SeedPacingConfig { live_lag, disk })
+    }
+
     pub fn checkpoint_interval(&self) -> Duration {
         Duration::from_millis(self.checkpoint_interval_ms)
     }
@@ -676,6 +746,23 @@ impl Config {
             self.cohort_seed_reconcile_tick_interval_ms > 0,
             "COHORT_SEED_RECONCILE_TICK_INTERVAL_MS must be greater than zero.",
         );
+
+        let pacing = self.seed_pacing_config()?;
+        // Idle partitions' watermarks advance only once per probe, so a pause threshold inside
+        // two probe intervals would flap on quiet partitions.
+        let idle_probe_ms =
+            i64::try_from(self.cohort_seed_watermark_idle_probe_interval_ms).unwrap_or(i64::MAX);
+        if pacing.live_lag.is_some()
+            && self.cohort_seed_live_lag_pause_ms <= idle_probe_ms.saturating_mul(2)
+        {
+            warn!(
+                cohort_seed_live_lag_pause_ms = self.cohort_seed_live_lag_pause_ms,
+                idle_probe_interval_ms = self.cohort_seed_watermark_idle_probe_interval_ms,
+                "COHORT_SEED_LIVE_LAG_PAUSE_MS within 2× the idle-probe interval: idle \
+                 partitions advance only per probe, so the live-lag gate may flap on quiet \
+                 partitions.",
+            );
+        }
 
         if self.cohort_seed_reconcile_enabled && !self.cohort_seed_consumer_enabled {
             warn!(
@@ -1014,6 +1101,10 @@ mod tests {
             cohort_seed_reconcile_enabled: false,
             cohort_seed_reconcile_scan_page: 256,
             cohort_seed_reconcile_tick_interval_ms: 2_000,
+            cohort_seed_live_lag_pause_ms: 120_000,
+            cohort_seed_live_lag_resume_ms: 60_000,
+            cohort_seed_disk_pause_pct: 60.0,
+            cohort_seed_disk_resume_pct: 55.0,
         }
     }
 
@@ -1079,6 +1170,65 @@ mod tests {
         config.cohort_seed_reconcile_enabled = true;
         config.cohort_seed_consumer_enabled = false;
 
+        assert!(config.validate_durability_startup().is_ok());
+    }
+
+    /// A flapping (inverted/equal) threshold pair or a never-releasing resume must be refused at
+    /// startup, not discovered as a wedged or flapping gate in production.
+    #[test]
+    fn seed_pacing_validation_rejects_inverted_equal_and_non_positive_thresholds() {
+        let defaults = test_config();
+        let pacing = defaults.seed_pacing_config().unwrap();
+        assert!(pacing.live_lag.is_some());
+        assert!(pacing.disk.is_some());
+
+        type Mutation = fn(&mut Config);
+        let cases: [(&str, Mutation); 6] = [
+            ("COHORT_SEED_LIVE_LAG_RESUME_MS must be below", |config| {
+                config.cohort_seed_live_lag_resume_ms = 120_000; // equal
+            }),
+            ("COHORT_SEED_LIVE_LAG_RESUME_MS must be below", |config| {
+                config.cohort_seed_live_lag_resume_ms = 240_000; // inverted
+            }),
+            (
+                "COHORT_SEED_LIVE_LAG_RESUME_MS must be positive",
+                |config| {
+                    config.cohort_seed_live_lag_resume_ms = -1;
+                },
+            ),
+            ("COHORT_SEED_LIVE_LAG_PAUSE_MS must be positive", |config| {
+                config.cohort_seed_live_lag_pause_ms = -1;
+            }),
+            ("COHORT_SEED_DISK_RESUME_PCT must be below", |config| {
+                config.cohort_seed_disk_resume_pct = 60.0; // equal
+            }),
+            ("COHORT_SEED_DISK_PAUSE_PCT must be within", |config| {
+                config.cohort_seed_disk_pause_pct = 101.0;
+            }),
+        ];
+        for (expected, mutate) in cases {
+            let mut config = test_config();
+            mutate(&mut config);
+            let err = config
+                .validate_durability_startup()
+                .unwrap_err()
+                .to_string();
+            assert!(err.contains(expected), "expected {expected:?} in {err:?}");
+        }
+    }
+
+    #[test]
+    fn seed_pacing_zero_pause_thresholds_disable_their_triggers() {
+        let mut config = test_config();
+        config.cohort_seed_live_lag_pause_ms = 0;
+        config.cohort_seed_disk_pause_pct = 0.0;
+        // Resume thresholds are irrelevant while disabled — even nonsense must not refuse boot.
+        config.cohort_seed_live_lag_resume_ms = -5;
+        config.cohort_seed_disk_resume_pct = -5.0;
+
+        let pacing = config.seed_pacing_config().unwrap();
+        assert!(pacing.live_lag.is_none());
+        assert!(pacing.disk.is_none());
         assert!(config.validate_durability_startup().is_ok());
     }
 
