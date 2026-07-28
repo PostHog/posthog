@@ -605,6 +605,30 @@ class TestCIMDVerificationToken(APIBaseTest):
         token.refresh_from_db()
         self.assertIsNotNone(token.last_used_at)
 
+    @parameterized.expand(["create", "refresh"])
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_verification_token_does_not_link_a_second_document(self, code_path, mock_get, _url_mock):
+        _, plaintext = create_cimd_verification_token(
+            organization=self.organization, label="Test partner", created_by=self.user
+        )
+        mock_get.return_value = _mock_response(_make_metadata(posthog_verification_token=plaintext), headers={})
+        owner_app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+        assert owner_app is not None
+        self.assertEqual(owner_app.organization_id, self.organization.id)
+
+        copycat_url = "https://copycat.example.com/.well-known/oauth-client-metadata.json"
+        if code_path == "refresh":
+            mock_get.return_value = _mock_response(_make_metadata(url=copycat_url), headers={})
+            fetch_and_upsert_cimd_application(copycat_url)
+
+        mock_get.return_value = _mock_response(
+            _make_metadata(url=copycat_url, posthog_verification_token=plaintext), headers={}
+        )
+        copycat_app = fetch_and_upsert_cimd_application(copycat_url)
+
+        assert copycat_app is not None
+        self.assertIsNone(copycat_app.organization_id)
+
     @patch("posthog.api.oauth.cimd.requests.get")
     def test_invalid_verification_token_leaves_app_unlinked(self, mock_get, _url_mock):
         metadata = _make_metadata(posthog_verification_token="phvt_totally_made_up")

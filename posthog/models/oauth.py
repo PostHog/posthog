@@ -643,6 +643,10 @@ class CIMDVerificationToken(models.Model):
     `posthog_verification_token`. On fetch, we hash and look up the token; if it
     matches, we link the resulting OAuthApplication to this organization and
     apply the verified-partner rate-limit tier.
+
+    The document is served unauthenticated, so the token value alone proves nothing about
+    who published it. `bound_cimd_url` records the document the token was first seen in and
+    the token only ever verifies that one URL.
     """
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
@@ -657,6 +661,13 @@ class CIMDVerificationToken(models.Model):
     )
     created_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
     last_used_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
+    bound_cimd_url: models.URLField = models.URLField(
+        max_length=2048,
+        null=True,
+        blank=True,
+        editable=False,
+        help_text="The CIMD metadata URL this token is bound to. Claimed on first use; the token verifies no other URL.",
+    )
 
     class Meta:
         verbose_name = "CIMD Verification Token"

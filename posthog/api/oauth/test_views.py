@@ -26,6 +26,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.oauth import OAuthAuthorizationSerializer
+from posthog.api.oauth.cimd import _create_cimd_application
 from posthog.api.oauth.views import OAuthValidator
 from posthog.models.oauth import (
     OAuthAccessToken,
@@ -2952,6 +2953,21 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response_data["error"], "invalid_request")
         self.assertIn("Invalid JSON", response_data["error_description"])
 
+    @parameterized.expand(
+        [
+            ("array", "[]"),
+            ("null", "null"),
+            ("string", '"authorization_code"'),
+            ("number", "1"),
+            ("non_string_value", '{"grant_type": "authorization_code", "client_id": {"nested": "object"}}'),
+        ]
+    )
+    def test_token_endpoint_rejects_json_payloads_that_are_not_string_objects(self, _name: str, body: str):
+        response = self.client.post("/oauth/token/", data=body, content_type="application/json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_request")
+
     def _create_access_and_refresh_tokens(self, scopes: str = "openid") -> tuple[OAuthAccessToken, OAuthRefreshToken]:
         response = self.client.post(
             "/oauth/authorize/",
@@ -3085,6 +3101,46 @@ class TestOAuthAPI(APIBaseTest):
         access_token, _ = self._create_access_and_refresh_tokens()
 
         response = self.post("/oauth/introspect/", {"token": access_token.token})
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @parameterized.expand(["cimd_client", "public_client", "confidential_client"])
+    def test_introspection_rejects_client_credentials_with_a_blank_secret(self, app_kind: str):
+        access_token, _ = self._create_access_and_refresh_tokens()
+
+        if app_kind == "cimd_client":
+            cimd_url = "https://partner.example.com/.well-known/oauth-client-metadata.json"
+            _create_cimd_application(
+                cimd_url,
+                {
+                    "client_id": cimd_url,
+                    "client_name": "Partner",
+                    "redirect_uris": ["https://partner.example.com/callback"],
+                    "token_endpoint_auth_method": "none",
+                },
+            )
+            client_id = cimd_url
+        else:
+            # A row already persisted with a blank secret — the creation-site fix can't reach these.
+            secretless_app = OAuthApplication.objects.create(
+                name=f"Secretless {app_kind}",
+                client_id=f"secretless_{app_kind}",
+                client_secret="",
+                client_type=(
+                    OAuthApplication.CLIENT_PUBLIC
+                    if app_kind == "public_client"
+                    else OAuthApplication.CLIENT_CONFIDENTIAL
+                ),
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="https://example.com/callback",
+                algorithm="RS256",
+            )
+            client_id = secretless_app.client_id
+
+        response = self.post(
+            "/oauth/introspect/",
+            {"token": access_token.token, "client_id": client_id, "client_secret": ""},
+        )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 

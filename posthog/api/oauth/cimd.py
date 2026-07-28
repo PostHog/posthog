@@ -23,6 +23,7 @@ import requests
 import structlog
 import posthoganalytics
 from celery import shared_task
+from oauth2_provider.generators import generate_client_secret
 from oauth2_provider.models import AbstractApplication
 from rest_framework.throttling import SimpleRateThrottle
 
@@ -322,24 +323,58 @@ def fetch_cimd_metadata(url: str) -> tuple[CIMDMetadataDocument, int]:
     return metadata, cache_ttl
 
 
-def _resolve_verification_token(metadata: CIMDMetadataDocument) -> CIMDVerificationToken | None:
+def _bind_verification_token_to_url(token: CIMDVerificationToken, url: str) -> bool:
+    """Claim `token` for `url`, returning whether it may verify that document.
+
+    A CIMD document is served unauthenticated at a URL every user of the partner's app
+    sees during /authorize, so the token value alone says nothing about who published it.
+    The first document a token is seen in claims it; presenting the same token from any
+    other URL proves nothing and is refused.
+
+    The claim is a conditional UPDATE so two documents racing on the same unbound token
+    can't both win it.
+    """
+    if token.bound_cimd_url == url:
+        return True
+    if token.bound_cimd_url:
+        return False
+
+    claimed = CIMDVerificationToken.objects.filter(pk=token.pk, bound_cimd_url__isnull=True).update(bound_cimd_url=url)
+    if not claimed:
+        token.refresh_from_db(fields=["bound_cimd_url"])
+        return token.bound_cimd_url == url
+    token.bound_cimd_url = url
+    return True
+
+
+def _resolve_verification_token(metadata: CIMDMetadataDocument, url: str) -> CIMDVerificationToken | None:
     """Look up a verification token from CIMD metadata, preferring the nested
     `com.posthog.verification_token` and falling back to the legacy top-level
     `posthog_verification_token`. Falls back to the top-level token when the nested
     one is absent OR present-but-unrecognized, so a typo'd nested token doesn't drop
-    a partner whose legacy token still resolves. Returns the token record, or None."""
+    a partner whose legacy token still resolves. Returns the token record, or None.
+
+    A token only verifies the document URL it is bound to — see `_bind_verification_token_to_url`."""
+    candidates: list[str] = []
     com_posthog = metadata.get("com.posthog")
     if isinstance(com_posthog, dict):
         nested_raw = com_posthog.get("verification_token")
         if nested_raw and isinstance(nested_raw, str):
-            token = find_cimd_verification_token(nested_raw)
-            if token is not None:
-                return token
+            candidates.append(nested_raw)
 
     raw = metadata.get("posthog_verification_token")
-    if not raw or not isinstance(raw, str):
-        return None
-    return find_cimd_verification_token(raw)
+    if raw and isinstance(raw, str):
+        candidates.append(raw)
+
+    for candidate in candidates:
+        token = find_cimd_verification_token(candidate)
+        if token is None:
+            continue
+        if _bind_verification_token_to_url(token, url):
+            return token
+        logger.warning("cimd_verification_token_url_mismatch", url=url, token_id=str(token.pk))
+
+    return None
 
 
 def _resolve_scopes(metadata: CIMDMetadataDocument) -> list[str] | None:
@@ -400,7 +435,7 @@ def _create_cimd_application(url: str, metadata: CIMDMetadataDocument) -> OAuthA
 
     redirect_uris = " ".join(metadata.get("redirect_uris", []))
     logo_uri = metadata.get("logo_uri") or None
-    verification = _resolve_verification_token(metadata)
+    verification = _resolve_verification_token(metadata, url)
     resolved_scopes = _resolve_scopes(metadata)
     resolved_optional_scopes = _resolve_optional_scopes(metadata)
 
@@ -408,7 +443,9 @@ def _create_cimd_application(url: str, metadata: CIMDMetadataDocument) -> OAuthA
         name=client_name,
         redirect_uris=redirect_uris,
         client_type=AbstractApplication.CLIENT_PUBLIC,
-        client_secret="",
+        # CIMD clients authenticate with PKCE and are never told this value. It exists only
+        # so the row never carries a secret an unauthenticated caller could guess.
+        client_secret=generate_client_secret(),
         authorization_grant_type=AbstractApplication.GRANT_AUTHORIZATION_CODE,
         algorithm="RS256",
         skip_authorization=False,
@@ -461,7 +498,7 @@ def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocume
 
     # Re-evaluate verification on every refresh so a rotated/removed token
     # unlinks the app on the next fetch.
-    verification = _resolve_verification_token(metadata)
+    verification = _resolve_verification_token(metadata, app.cimd_metadata_url)
     new_org = verification.organization if verification else None
     update_fields = ["name", "redirect_uris", "logo_uri", "cimd_metadata_last_fetched"]
 

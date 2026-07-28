@@ -20,6 +20,7 @@ import posthoganalytics
 from oauth2_provider.compat import login_not_required
 from oauth2_provider.exceptions import FatalClientError, OAuthToolkitError
 from oauth2_provider.http import OAuth2ResponseRedirect
+from oauth2_provider.models import AbstractApplication
 from oauth2_provider.oauth2_validators import OAuth2Validator
 from oauth2_provider.settings import oauth2_settings
 from oauth2_provider.views import (
@@ -286,6 +287,17 @@ class OAuthAuthorizationSerializer(serializers.Serializer):
 
 
 class OAuthValidator(OAuth2Validator):
+    def _check_secret(self, provided_secret, stored_secret):
+        """An empty secret is not a credential, so never let one authenticate a client.
+
+        django-oauth-toolkit hashes whatever is on the model, so an application saved
+        without a secret stores `make_password("")` — which the base implementation then
+        happily verifies against an empty string supplied by the caller.
+        """
+        if not provided_secret or not stored_secret:
+            return False
+        return super()._check_secret(provided_secret, stored_secret)
+
     def _is_dynamic_client(self, request) -> bool:
         """Check if the client was registered dynamically (DCR or CIMD)."""
         if hasattr(request, "client") and request.client:
@@ -1285,14 +1297,34 @@ class OAuthTokenView(TokenView):
         if request.content_type == "application/json" and request.body:
             try:
                 json_data = json.loads(request.body)
-                request.POST = request.POST.copy()
-                for key, value in json_data.items():
-                    request.POST[key] = value
             except (json.JSONDecodeError, ValueError):
                 return JsonResponse(
                     {"error": "invalid_request", "error_description": "Invalid JSON payload"},
                     status=400,
                 )
+
+            if not isinstance(json_data, dict):
+                return JsonResponse(
+                    {"error": "invalid_request", "error_description": "JSON payload must be an object"},
+                    status=400,
+                )
+
+            # Everything downstream (oauthlib, our own logging) treats these as form
+            # parameters, so anything that isn't a scalar is rejected here rather than
+            # left to blow up as a string operation on a dict or a list.
+            request.POST = request.POST.copy()
+            for key, value in json_data.items():
+                if value is None:
+                    continue
+                if isinstance(value, dict | list):
+                    return JsonResponse(
+                        {
+                            "error": "invalid_request",
+                            "error_description": f"Parameter '{key}' must be a string",
+                        },
+                        status=400,
+                    )
+                request.POST[str(key)] = str(value)
 
         grant_type = request.POST.get("grant_type", "unknown")
 
@@ -1414,6 +1446,21 @@ class OAuthRevokeTokenView(RevokeTokenView):
     pass
 
 
+class ConfidentialClientOnlyOAuthValidator(OAuthValidator):
+    """Client-credentials gate that only a confidential client can pass.
+
+    A public client holds no secret to prove, so it must never satisfy an endpoint whose
+    only authentication is client credentials. Kept separate from `OAuthValidator` because
+    the token endpoint legitimately tolerates a public client presenting a secret it then
+    ignores (the grant is bound by PKCE instead).
+    """
+
+    def authenticate_client(self, request, *args, **kwargs):
+        if not super().authenticate_client(request, *args, **kwargs):
+            return False
+        return getattr(request.client, "client_type", None) == AbstractApplication.CLIENT_CONFIDENTIAL
+
+
 @method_decorator(csrf_exempt, name="dispatch")
 @method_decorator(login_not_required, name="dispatch")
 class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
@@ -1423,7 +1470,7 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
 
     To access this view the request must pass a OAuth2 Bearer Token
     which is allowed to access the scope `introspection`. Alternatively,
-    if the client_id and client_secret are provided, the request is
+    if a confidential client's client_id and client_secret are provided, the request is
     authenticated using client credentials and does not require the `introspection` scope.
 
     Self-introspection: An access token can always introspect itself without
@@ -1433,6 +1480,7 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
     """
 
     required_scopes = ["introspection"]
+    validator_class = ConfidentialClientOnlyOAuthValidator
 
     def _is_self_introspection(self, request) -> bool:
         """
