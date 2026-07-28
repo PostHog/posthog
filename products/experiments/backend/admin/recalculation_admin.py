@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.contrib import admin, messages
+from django.core.exceptions import PermissionDenied
 from django.db.models import QuerySet
 from django.http import HttpRequest, HttpResponseRedirect
 from django.urls import path, reverse
@@ -95,8 +96,11 @@ class ExperimentMetricsRecalculationAdmin(admin.ModelAdmin):
         extra_context = extra_context or {}
         obj = self.get_object(request, object_id)
         if obj is not None:
+            # Hide the action buttons from a view-only staff user; the endpoints reject them too.
+            can_manage = self.has_change_permission(request, obj)
             is_terminal = obj.status in _TERMINAL_STATUSES
-            extra_context["can_mark_terminal"] = not is_terminal
+            extra_context["can_mark_terminal"] = can_manage and not is_terminal
+            extra_context["can_start_recalculation"] = can_manage
             extra_context["mark_failed_url"] = reverse("admin:experiments_recalculation_mark_failed", args=[obj.pk])
             extra_context["mark_completed_url"] = reverse(
                 "admin:experiments_recalculation_mark_completed", args=[obj.pk]
@@ -129,6 +133,10 @@ class ExperimentMetricsRecalculationAdmin(admin.ModelAdmin):
         obj = self.get_object(request, object_id)
         if obj is None:
             return HttpResponseRedirect(reverse("admin:experiments_experimentmetricsrecalculation_changelist"))
+
+        # admin_view only enforces is_staff; a view-only staff user must not be able to mutate the row.
+        if not self.has_change_permission(request, obj):
+            raise PermissionDenied
 
         change_url = reverse("admin:experiments_experimentmetricsrecalculation_change", args=[obj.pk])
         if request.method != "POST":
@@ -166,6 +174,9 @@ class ExperimentMetricsRecalculationAdmin(admin.ModelAdmin):
         obj = self.get_object(request, object_id)
         if obj is None:
             return HttpResponseRedirect(reverse("admin:experiments_experimentmetricsrecalculation_changelist"))
+
+        if not self.has_change_permission(request, obj):
+            raise PermissionDenied
 
         change_url = reverse("admin:experiments_experimentmetricsrecalculation_change", args=[obj.pk])
         if request.method != "POST":

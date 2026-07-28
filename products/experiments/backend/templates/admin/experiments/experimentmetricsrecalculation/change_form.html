@@ -4,7 +4,7 @@
 {% block after_field_sets %}
     {{ block.super }}
 
-    {% if original %}
+    {% if original and can_start_recalculation %}
     <fieldset style="margin: 20px 0; padding: 16px; border: 1px solid #ccc; border-radius: 4px;">
         <h2>Recalculation actions</h2>
         <div style="margin-top: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
