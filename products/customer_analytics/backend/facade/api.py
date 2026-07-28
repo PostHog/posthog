@@ -82,7 +82,10 @@ from products.customer_analytics.backend.models import (
     SyncStatus,
     TargetType,
 )
-from products.customer_analytics.backend.models.account import AccountProperties as _ModelAccountProperties
+from products.customer_analytics.backend.models.account import (
+    AccountProperties as _ModelAccountProperties,
+    cap_to_field_length,
+)
 from products.customer_analytics.backend.tasks.tasks import send_announcement
 from products.notebooks.backend.facade import (
     api as notebooks,
@@ -736,7 +739,7 @@ def _log_activity_swallowing(
     name: str,
     organization_id,
     team_id: int,
-    user: "User",
+    user: "User | None",
     was_impersonated: bool,
     previous=None,
 ) -> None:
@@ -1985,27 +1988,33 @@ def get_account_for_view(
     return _to_account_view(account)
 
 
-def create_account_for_view(
+def create_account(
     *,
-    team_id: int,
-    team,
-    input: contracts.CreateAccountInput,
-    organization_id,
-    user: "User",
-    was_impersonated: bool,
-) -> contracts.AccountView:
+    team: Team,
+    name: str,
+    created_by: "User | None" = None,
+    external_id: str | None = None,
+    properties: "dict | _ModelAccountProperties | None" = None,
+    tags: list[str] | None = None,
+    was_impersonated: bool = False,
+) -> Account:
+    """The single account-creation write path: validates properties, sets tags, shadows role
+    assignments into the relationships table, and logs activity. Product-internal — it returns
+    the model, so it must not be called across the product boundary.
+    Raises ``AccountPropertiesValidationError`` / ``AccountConflictError``."""
     try:
         with transaction.atomic():
-            account = Account.objects.create_account(
+            validated = _ModelAccountProperties.from_input(properties or {})
+            account = Account.objects.unscoped().create(
                 team=team,
-                created_by=user,
-                name=input.name,
-                external_id=input.external_id,
-                properties=input.properties,
+                created_by=created_by,
+                name=cap_to_field_length("name", name),
+                external_id=cap_to_field_length("external_id", external_id) if external_id is not None else None,
+                _properties=validated.model_dump(mode="json", exclude_unset=True),
             )
-            _set_tags(input.tags, account, actor=user)
+            _set_tags(tags, account, actor=created_by)
             if any(field in (account._properties or {}) for field in ACCOUNT_ASSIGNMENT_ROLE_FIELDS):
-                _relationships_logic.sync_from_account_properties(account, created_by=user)
+                _relationships_logic.sync_from_account_properties(account, created_by=created_by)
     except PydanticValidationError as exc:
         raise AccountPropertiesValidationError(_format_pydantic_errors(exc))
     except IntegrityError:
@@ -2015,9 +2024,28 @@ def create_account_for_view(
         scope="Account",
         activity="created",
         name=account.name,
-        organization_id=organization_id,
-        team_id=team_id,
-        user=user,
+        organization_id=team.organization_id,
+        team_id=team.pk,
+        user=created_by,
+        was_impersonated=was_impersonated,
+    )
+    return account
+
+
+def create_account_for_view(
+    *,
+    team: Team,
+    input: contracts.CreateAccountInput,
+    user: "User",
+    was_impersonated: bool,
+) -> contracts.AccountView:
+    account = create_account(
+        team=team,
+        created_by=user,
+        name=input.name,
+        external_id=input.external_id,
+        properties=input.properties,
+        tags=input.tags,
         was_impersonated=was_impersonated,
     )
     return _to_account_view(account)

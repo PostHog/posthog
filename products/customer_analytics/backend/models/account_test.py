@@ -14,8 +14,9 @@ from posthog.models import Team, User
 from posthog.models.scoping import team_scope
 
 from products.customer_analytics.backend.models import Account, TeamCustomerAnalyticsConfig
-from products.customer_analytics.backend.models.account import AccountAssignment, AccountProperties
+from products.customer_analytics.backend.models.account import AccountAssignment, AccountProperties, cap_to_field_length
 from products.customer_analytics.backend.models.team_scoped_test_base import TeamScopedTestMixin
+from products.customer_analytics.backend.test.factories import create_account
 
 
 class AccountPropertiesValidationTest(TeamScopedTestMixin, BaseTest):
@@ -116,11 +117,11 @@ class AccountManagerWriteTest(TeamScopedTestMixin, BaseTest):
         )
 
     def test_update_account_replaces_properties_wholesale(self):
-        account = Account.objects.create_account(
-            team=self.team,
+        account = create_account(
+            team_id=self.team.pk,
             created_by=self.user,
             name="Acme",
-            properties={"csm": {"id": self.user.id, "email": self.user.email}},
+            _properties={"csm": {"id": self.user.id, "email": self.user.email}},
         )
         Account.objects.update_account(account, properties={"stripe_customer_id": "cus_123"})
         account.refresh_from_db()
@@ -128,11 +129,11 @@ class AccountManagerWriteTest(TeamScopedTestMixin, BaseTest):
         assert account.properties.stripe_customer_id == "cus_123"
 
     def test_update_account_leaves_properties_untouched_when_not_passed(self):
-        account = Account.objects.create_account(
-            team=self.team,
+        account = create_account(
+            team_id=self.team.pk,
             created_by=self.user,
             name="Acme",
-            properties={"stripe_customer_id": "cus_123"},
+            _properties={"stripe_customer_id": "cus_123"},
         )
 
         Account.objects.update_account(account, name="Renamed")
@@ -142,20 +143,20 @@ class AccountManagerWriteTest(TeamScopedTestMixin, BaseTest):
         assert account.properties.stripe_customer_id == "cus_123"
 
     def test_update_account_updates_name_and_external_id(self):
-        account = Account.objects.create_account(team=self.team, created_by=self.user, name="Old")
+        account = create_account(team_id=self.team.pk, created_by=self.user, name="Old")
         Account.objects.update_account(account, name="New", external_id="acme-1")
         account.refresh_from_db()
         assert account.name == "New"
         assert account.external_id == "acme-1"
 
 
-class AccountManagerCapToFieldLengthTest(SimpleTestCase):
+class AccountCapToFieldLengthTest(SimpleTestCase):
     @parameterized.expand([("name",), ("external_id",)])
     def test_caps_value_to_field_max_length(self, field_name):
         max_length = cast(models.CharField, Account._meta.get_field(field_name)).max_length
         assert max_length is not None
-        result = Account.objects._cap_to_field_length(field_name, "x" * (max_length + 50))
+        result = cap_to_field_length(field_name, "x" * (max_length + 50))
         assert result == "x" * max_length
 
     def test_leaves_value_within_limit_unchanged(self):
-        assert Account.objects._cap_to_field_length("name", "Acme") == "Acme"
+        assert cap_to_field_length("name", "Acme") == "Acme"

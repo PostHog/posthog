@@ -341,10 +341,8 @@ class TestCustomerAnalyticsCRUDFacade(BaseTest):
 
     def _create(self, **kwargs) -> contracts.AccountView:
         return facade.create_account_for_view(
-            team_id=self.team.id,
             team=self.team,
             input=self._create_account_input(**kwargs),
-            organization_id=self.organization.id,
             user=self.user,
             was_impersonated=False,
         )

@@ -9,12 +9,13 @@ from products.customer_analytics.backend.facade import (
 )
 from products.customer_analytics.backend.logic import relationships
 from products.customer_analytics.backend.models import Account, AccountRelationship, AccountRelationshipDefinition
+from products.customer_analytics.backend.test.factories import create_account
 
 
 class TestRelationshipLogic(BaseTest):
     def setUp(self):
         super().setUp()
-        self.account = Account.objects.create_account(team=self.team, name="Acme")
+        self.account = create_account(team_id=self.team.pk, name="Acme")
         self.other_user = self._create_user("other@posthog.com")
 
     def _create_definition(self, name="CSM", is_single_holder=True) -> AccountRelationshipDefinition:
@@ -91,10 +92,10 @@ class TestSyncFromAccountProperties(BaseTest):
     def setUp(self):
         super().setUp()
         AccountRelationshipDefinition.objects.for_team(self.team.id).create(team_id=self.team.id, name="CSM")
-        self.account = Account.objects.create_account(
-            team=self.team,
+        self.account = create_account(
+            team_id=self.team.pk,
             name="Acme",
-            properties={"csm": {"id": self.user.id, "email": self.user.email}, "sfdc_id": "001xx"},
+            _properties={"csm": {"id": self.user.id, "email": self.user.email}, "sfdc_id": "001xx"},
         )
 
     def _get_active_rows_for_account(self):
@@ -165,7 +166,7 @@ class TestSyncFromAccountProperties(BaseTest):
 class TestRelationshipFacade(BaseTest):
     def setUp(self):
         super().setUp()
-        self.account = Account.objects.create_account(team=self.team, name="Acme")
+        self.account = create_account(team_id=self.team.pk, name="Acme")
 
     def test_create_and_list_definitions_roundtrip(self):
         created = facade.create_account_relationship_definition(
@@ -309,7 +310,7 @@ class TestRelationshipFacade(BaseTest):
             team_id=self.team.id, name="CSM", created_by=self.user
         )
         assert definition.id is not None
-        other_account = Account.objects.create_account(team=self.team, name="Other")
+        other_account = create_account(team_id=self.team.pk, name="Other")
         assigned = facade.assign_account_relationship(
             team_id=self.team.id,
             account_id=self.account.id,
@@ -358,7 +359,7 @@ class TestWritePathSync(BaseTest):
         )
 
     def test_update_account_for_view_syncs_role_assign_and_clear(self):
-        account = Account.objects.create_account(team=self.team, name="Acme")
+        account = create_account(team_id=self.team.pk, name="Acme")
         self._update_properties(account.id, {"csm": {"id": self.user.id, "email": self.user.email}})
         rows = self._active_rows(account)
         assert rows.count() == 1
@@ -370,12 +371,10 @@ class TestWritePathSync(BaseTest):
 
     def test_create_account_for_view_syncs_roles(self):
         view = facade.create_account_for_view(
-            team_id=self.team.id,
             team=self.team,
             input=contracts.CreateAccountInput(
                 name="Acme", properties={"csm": {"id": self.user.id, "email": self.user.email}}
             ),
-            organization_id=self.organization.id,
             user=self.user,
             was_impersonated=False,
         )
@@ -384,7 +383,7 @@ class TestWritePathSync(BaseTest):
         assert self._active_rows(account).count() == 1
 
     def test_update_external_account_syncs_roles(self):
-        account = Account.objects.create_account(team=self.team, name="Acme", external_id="acme-1")
+        account = create_account(team_id=self.team.pk, name="Acme", external_id="acme-1")
         result = facade.update_external_account(
             self.team.id,
             "acme-1",
