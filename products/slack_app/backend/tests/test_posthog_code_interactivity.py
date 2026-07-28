@@ -1017,15 +1017,6 @@ class TestInsightAlertSnooze(TestCase):
     def _snooze_select_payload(self, value: str) -> dict:
         return self._payload_with_action({"action_id": "insight_alert_snooze", "selected_option": {"value": value}})
 
-    def _snooze_until_payload(self, selected_date_time: int) -> dict:
-        return self._payload_with_action(
-            {
-                "action_id": "insight_alert_snooze_until",
-                "block_id": f"insight_alert_snooze:{self.alert.id}",
-                "selected_date_time": selected_date_time,
-            }
-        )
-
     def _payload_with_action(self, action: dict, *, slack_user_id: str = "U777") -> dict:
         return {
             "type": "block_actions",
@@ -1123,51 +1114,6 @@ class TestInsightAlertSnooze(TestCase):
         assert self.alert.snoozed_until == relative_date_parse(
             "1d", ZoneInfo("UTC"), increase=True, always_truncate=True
         )
-
-    @freeze_time("2026-07-21T12:34:56Z")
-    @patch("products.slack_app.backend.api._is_org_member")
-    @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
-    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
-    def test_snooze_until_sets_exact_time(self, mock_config, mock_requests_post, mock_is_org_member):
-        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
-        mock_is_org_member.return_value = self.user
-
-        picked = datetime(2026, 7, 23, 9, 30, tzinfo=UTC)
-        response = self._post_interactivity(self._snooze_until_payload(int(picked.timestamp())))
-
-        assert response.status_code == 200
-        self.alert.refresh_from_db()
-        assert self.alert.state == AlertState.SNOOZED
-        assert self.alert.snoozed_until == picked
-        assert "Snoozed until 2026-07-23 09:30 UTC" in mock_requests_post.call_args.kwargs["json"]["text"]
-
-    @parameterized.expand(
-        [
-            ("in_the_past", -3600),
-            ("beyond_31_days", 32 * 24 * 3600),
-        ]
-    )
-    @freeze_time("2026-07-21T12:34:56Z")
-    @patch("products.slack_app.backend.api._is_org_member")
-    @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
-    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
-    def test_snooze_until_rejects_out_of_bounds(
-        self, _name, offset_seconds, mock_config, mock_requests_post, mock_is_org_member
-    ):
-        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
-        mock_is_org_member.return_value = self.user
-
-        picked = int(datetime(2026, 7, 21, 12, 34, 56, tzinfo=UTC).timestamp()) + offset_seconds
-        response = self._post_interactivity(self._snooze_until_payload(picked))
-
-        assert response.status_code == 200
-        self.alert.refresh_from_db()
-        assert self.alert.state == AlertState.FIRING
-        assert self.alert.snoozed_until is None
-        # Feedback is ephemeral so a bad pick doesn't destroy the alert message and its pickers.
-        feedback = mock_requests_post.call_args.kwargs["json"]
-        assert feedback["response_type"] == "ephemeral"
-        assert feedback["replace_original"] is False
 
     @patch("products.slack_app.backend.api._is_org_member")
     @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
@@ -1391,30 +1337,6 @@ class TestHandleInsightAlertSnoozeGuards(TestCase):
         mock_is_org_member.return_value = self.user
 
         response = _handle_insight_alert_snooze(self._payload(value))
-
-        assert response.status_code == 200
-        self.alert.refresh_from_db()
-        assert self.alert.state == AlertState.FIRING
-        assert self.alert.snoozed_until is None
-        mock_requests_post.assert_not_called()
-
-    @parameterized.expand(
-        [
-            ("foreign_block_id", lambda self: {"block_id": "some_other_block", "selected_date_time": 1785000000}),
-            (
-                "non_int_timestamp",
-                lambda self: {"block_id": f"insight_alert_snooze:{self.alert.id}", "selected_date_time": "soon"},
-            ),
-        ]
-    )
-    @patch("products.slack_app.backend.api._is_org_member")
-    @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
-    def test_guard_rejects_malformed_datetimepicker(self, _name, action_fields, mock_requests_post, mock_is_org_member):
-        mock_is_org_member.return_value = self.user
-        payload = self._payload("ignored")
-        payload["actions"] = [{"action_id": "insight_alert_snooze_until", **action_fields(self)}]
-
-        response = _handle_insight_alert_snooze(payload)
 
         assert response.status_code == 200
         self.alert.refresh_from_db()

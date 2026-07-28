@@ -3331,12 +3331,8 @@ def _post_signals_dismiss_feedback(payload: dict, *, dismissed: bool, slack_user
     _replace_message_stripping_actions(payload, text, keep_link_buttons=False)
 
 
-# Snoozes an insight alert from the button on its firing Slack message.
+# Snoozes an insight alert from the dropdown on its firing Slack message.
 INSIGHT_ALERT_SNOOZE_ACTION_ID = "insight_alert_snooze"
-INSIGHT_ALERT_SNOOZE_UNTIL_ACTION_ID = "insight_alert_snooze_until"
-# Slack's datetimepicker element can't carry a custom value, so the alert id rides on the
-# actions block's block_id instead (set by the alert-firing sub-template).
-INSIGHT_ALERT_SNOOZE_BLOCK_ID_PREFIX = "insight_alert_snooze:"
 
 INSIGHT_ALERT_SNOOZE_DURATION_LABELS: dict[str, str] = {
     "1h": "1 hour",
@@ -3353,11 +3349,7 @@ INSIGHT_ALERT_SNOOZE_MODAL_TIME_BLOCK = "snooze_time"
 
 def _insight_alert_snooze_action(payload: dict) -> dict | None:
     return next(
-        (
-            a
-            for a in payload.get("actions", [])
-            if a.get("action_id") in (INSIGHT_ALERT_SNOOZE_ACTION_ID, INSIGHT_ALERT_SNOOZE_UNTIL_ACTION_ID)
-        ),
+        (a for a in payload.get("actions", []) if a.get("action_id") == INSIGHT_ALERT_SNOOZE_ACTION_ID),
         None,
     )
 
@@ -3387,29 +3379,13 @@ def _parse_insight_alert_snooze_value(value: str) -> tuple[uuid.UUID, str] | Non
 
 
 def _parse_insight_alert_snooze_action(action: dict) -> tuple[uuid.UUID, str | None, datetime | None] | None:
-    """Normalize the three snooze action shapes to (alert_uuid, duration_token, until).
+    """Resolve a snooze dropdown selection to (alert_uuid, duration_token, until).
 
-    Shapes: the preset static_select (value on selected_option), the legacy single button from
-    already-posted messages (value on the action itself), and the datetimepicker (unix timestamp
-    on selected_date_time, alert id on the block_id).
+    The value is the preset static_select's selected option (or the legacy single button's own
+    value); its signature is verified in _parse_insight_alert_snooze_value. An absolute time is
+    never carried in the message — custom times come from the modal, whose alert id is set
+    server-side after this verified selection, so `until` is always None here.
     """
-    if action.get("action_id") == INSIGHT_ALERT_SNOOZE_UNTIL_ACTION_ID:
-        block_id = action.get("block_id", "")
-        if not isinstance(block_id, str) or not block_id.startswith(INSIGHT_ALERT_SNOOZE_BLOCK_ID_PREFIX):
-            return None
-        try:
-            alert_uuid = uuid.UUID(block_id[len(INSIGHT_ALERT_SNOOZE_BLOCK_ID_PREFIX) :])
-        except (ValueError, AttributeError, TypeError):
-            return None
-        selected = action.get("selected_date_time")
-        if not isinstance(selected, int):
-            return None
-        try:
-            until = datetime.fromtimestamp(selected, tz=UTC)
-        except (OverflowError, OSError, ValueError):
-            return None
-        return alert_uuid, None, until
-
     selected_option = action.get("selected_option")
     value = selected_option.get("value") if isinstance(selected_option, dict) else action.get("value", "")
     if not isinstance(value, str):
@@ -3885,7 +3861,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
                 return _handle_channel_approval_deny(payload)
             if action_id == SIGNALS_DISMISS_REPORT_ACTION_ID:
                 return _handle_signals_dismiss_report(payload)
-            if action_id in (INSIGHT_ALERT_SNOOZE_ACTION_ID, INSIGHT_ALERT_SNOOZE_UNTIL_ACTION_ID):
+            if action_id == INSIGHT_ALERT_SNOOZE_ACTION_ID:
                 return _handle_insight_alert_snooze(payload)
             if action_id == onboarding.INBOX_CREATE_ACTION_ID:
                 return inbox_interactivity.handle_inbox_create(payload)
