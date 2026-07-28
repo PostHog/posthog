@@ -3354,6 +3354,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     // its stored query, so the update target and its definition come from the same
                     // authenticated response.
                     try {
+                        // Validate before it reaches the request path: the value is interpolated
+                        // into the URL unencoded, so a name containing "../" could otherwise
+                        // traverse to a metric in another project. The name regex forbids slashes.
+                        if (validateMetricName(searchParams.edit_metric)) {
+                            throw new Error('Invalid metric name')
+                        }
                         const metric = await dataCatalogMetricsRetrieve(
                             String(ApiConfig.getCurrentTeamId()),
                             searchParams.edit_metric
@@ -3362,8 +3368,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         const metricQuery = typeof definition?.query === 'string' ? definition.query : ''
                         actions.createTab(metricQuery, undefined, undefined, undefined, metric.name)
                     } catch {
-                        // Metric not found or no access — open an unbound empty tab rather than
-                        // binding an update target we couldn't verify.
+                        // Invalid name, metric not found, or no access — open an unbound empty tab
+                        // rather than binding an update target we couldn't verify.
                         actions.createTab('')
                     }
                     tabAdded = true

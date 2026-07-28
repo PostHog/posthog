@@ -969,6 +969,32 @@ describe('sqlEditorLogic', () => {
 
             await expectLogic(logic).toDispatchActions(['createTab']).toMatchValues({ editingMetricName: null })
         })
+
+        it('does not request or bind a traversal-shaped edit_metric name', async () => {
+            // edit_metric is interpolated into the request path unencoded, so a "../"-shaped
+            // name must be rejected before it can reach another project's metric.
+            const retrieveMock = jest.fn(() => [200, { name: 'x', definition: { query: 'SELECT 1' } }])
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/data_catalog/metrics/:name/': retrieveMock,
+                },
+            })
+
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            router.actions.push(urls.sqlEditor(), {
+                source: 'metric',
+                edit_metric: '../../../1/data_catalog/metrics/other',
+            })
+
+            await expectLogic(logic).toDispatchActions(['createTab']).toMatchValues({ editingMetricName: null })
+            expect(retrieveMock).not.toHaveBeenCalled()
+        })
     })
 
     describe('Update view', () => {
