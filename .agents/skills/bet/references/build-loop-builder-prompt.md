@@ -61,21 +61,36 @@ shell):
    ```
 
 6. Report the artifact — this is required, the gauntlet cannot run without
-   it:
+   it. `jq` is **not** installed in this sandbox; build the payload with
+   `python3` (always present) instead:
 
    ```sh
-   foundry-event "$(jq -nc \
-     --arg repo "$FOUNDRY_TARGET_REPO_URL" \
-     --arg ref "$FOUNDRY_WORK_BRANCH" \
-     --arg base "$FOUNDRY_GATE_BASE_REF" \
-     '{type:"artifact_ready", repo_url:$repo, ref:$ref, base_ref:$base}' | base64 -w0)"
+   foundry-event "$(python3 -c '
+   import base64, json, os
+   payload = {
+       "type": "artifact_ready",
+       "repo_url": os.environ["FOUNDRY_TARGET_REPO_URL"],
+       "ref": os.environ["FOUNDRY_WORK_BRANCH"],
+       "base_ref": os.environ["FOUNDRY_GATE_BASE_REF"],
+   }
+   print(base64.b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode())
+   ')"
    ```
 
+   This step is not optional and not best-effort: if this call fails for
+   any reason (typo, missing env var, anything), fix it and run it again
+   before finishing — a clean exit without this call means the gauntlet
+   never runs at all, silently, with no error visible to you.
+
 7. If you learned something worth remembering for next time (a gotcha in
-   this repo, why an approach didn't work), publish it:
+   this repo, why an approach didn't work), publish it the same way:
 
    ```sh
-   foundry-event "$(jq -nc --arg title "..." '{type:"knowledge_published", repo:"", title:$title}' | base64 -w0)"
+   foundry-event "$(python3 -c '
+   import base64, json
+   payload = {"type": "knowledge_published", "repo": "", "title": "..."}
+   print(base64.b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode())
+   ')"
    ```
 
 You will not get a second chance to explain yourself beyond the code you

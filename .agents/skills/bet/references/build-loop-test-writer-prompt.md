@@ -53,10 +53,16 @@ shell):
 5. You do not need to call `foundry-event artifact_ready` — this role's
    output is provenance, not something the gauntlet gates. If you want to
    leave a note for whoever reads the bet's timeline (e.g. "wrote 4
-   acceptance tests covering the success and two edge cases"), you can:
+   acceptance tests covering the success and two edge cases"), `jq` is
+   **not** installed in this sandbox — use `python3` instead (always
+   present):
 
    ```sh
-   foundry-event "$(jq -nc --arg msg "wrote 4 acceptance tests covering ..." '{type:"note", message:$msg}' | base64 -w0)"
+   foundry-event "$(python3 -c '
+   import base64, json
+   payload = {"type": "note", "message": "wrote 4 acceptance tests covering ..."}
+   print(base64.b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode())
+   ')"
    ```
 
 Do not implement the feature. Do not touch any file outside
