@@ -17,11 +17,10 @@ import type { BreakPointFunction } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import mergeObject from 'lodash.merge'
 
-import type { ChartSeriesSettings } from 'lib/charts/types'
-import { formatDataWithSettings } from 'lib/charts/utils/format'
 import { dayjs } from 'lib/dayjs'
 import { RGBToHex, lightenDarkenColor } from 'lib/utils/colors'
 import { uuid } from 'lib/utils/dom'
+import { compactNumber } from 'lib/utils/numbers'
 import { objectsEqual } from 'lib/utils/objects'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -32,6 +31,8 @@ import {
     AnyResponseType,
     ChartAxis,
     ChartSettings,
+    ChartSettingsDisplay,
+    ChartSettingsFormatting,
     ConditionalFormattingRule,
     DataVisualizationNode,
     HeatmapSettings,
@@ -86,7 +87,10 @@ export interface TableDataCell<T extends string | number | boolean | Date | null
     isTransposedHeader?: boolean
 }
 
-export type AxisSeriesSettings = ChartSeriesSettings
+export interface AxisSeriesSettings {
+    formatting?: ChartSettingsFormatting
+    display?: ChartSettingsDisplay
+}
 
 export interface AxisSeries<T> {
     column: Column
@@ -145,7 +149,48 @@ const cloneOrDefaultSettings = (settings?: AxisSeriesSettings): AxisSeriesSettin
 const TRANSPOSED_FIELD_COLUMN_NAME = '__transpose_field__'
 const TRANSPOSED_ROW_COLUMN_PREFIX = '__transpose_row__'
 
-export { formatDataWithSettings }
+export const formatDataWithSettings = (
+    data: number | string | null | object,
+    settings?: AxisSeriesSettings
+): string | object | null => {
+    if (data === null || Number.isNaN(data)) {
+        return null
+    }
+
+    if (typeof data === 'object') {
+        return data
+    }
+
+    const decimalPlaces = settings?.formatting?.decimalPlaces
+
+    let dataAsString = `${data}`
+
+    if (typeof data === 'number') {
+        dataAsString = `${decimalPlaces ? data.toFixed(decimalPlaces) : data}`
+
+        if (settings?.formatting?.style === 'number') {
+            dataAsString = data.toLocaleString(undefined, { maximumFractionDigits: decimalPlaces })
+        }
+
+        if (settings?.formatting?.style === 'short') {
+            dataAsString = compactNumber(data)
+        }
+
+        if (settings?.formatting?.style === 'percent') {
+            dataAsString = `${data.toLocaleString(undefined, { maximumFractionDigits: decimalPlaces })}%`
+        }
+    }
+
+    if (settings?.formatting?.prefix) {
+        dataAsString = `${settings.formatting.prefix}${dataAsString}`
+    }
+
+    if (settings?.formatting?.suffix) {
+        dataAsString = `${dataAsString}${settings.formatting.suffix}`
+    }
+
+    return dataAsString
+}
 
 export const convertTableValue = (
     value: string | number | null,

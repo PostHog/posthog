@@ -18,17 +18,20 @@ import {
 
 import { dayjs } from 'lib/dayjs'
 
+import {
+    type AxisSeriesSettings,
+    formatDataWithSettings,
+} from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { ChartSettings, GoalLine, YAxisSettings } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
-
-import type { ChartSeriesSettings } from './types'
-import { formatDataWithSettings } from './utils/format'
 
 /**
  * Maps a saved insight's tabular axis series + `ChartSettings` onto quill's time-series charts:
  * per-series types and dispatch (line vs bar vs combo), series building, and the line/bar/combo
- * chart configs (axes, tooltip, legend, goal/trend lines, value labels). Structural types keep it
- * decoupled from any host — SQL insights and customer analytics both render through it.
+ * chart configs (axes, tooltip, legend, goal/trend lines, value labels). Structural series types
+ * keep it decoupled from any single host — SQL insights and customer analytics both render through
+ * it; the per-column settings semantics (`AxisSeriesSettings`, `formatDataWithSettings`) stay owned
+ * by data viz.
  */
 
 export const MAX_SERIES = 200
@@ -40,7 +43,7 @@ export const AREA_FILL_OPACITY = 0.5
 export interface ChartAxisSeries<T> {
     column: { name: string }
     data: T[]
-    settings?: ChartSeriesSettings
+    settings?: AxisSeriesSettings
 }
 
 /** A series derived from a series breakdown — named by breakdown value, with no source column. */
@@ -49,7 +52,7 @@ export interface ChartBreakdownSeries<T> {
     /** Stable key derived from the raw breakdown column value. */
     breakdownValue: string
     data: T[]
-    settings?: ChartSeriesSettings
+    settings?: AxisSeriesSettings
 }
 
 export type ChartYSeries = ChartAxisSeries<number | null> | ChartBreakdownSeries<number | null>
@@ -67,13 +70,13 @@ export interface TimeSeriesChartInput {
     chartSettings: ChartSettings
 }
 
-export const isAreaSeries = (visualizationType: ChartDisplayType, settings: ChartSeriesSettings | undefined): boolean =>
+export const isAreaSeries = (visualizationType: ChartDisplayType, settings: AxisSeriesSettings | undefined): boolean =>
     visualizationType === ChartDisplayType.ActionsAreaGraph || settings?.display?.displayType === 'area'
 
 /** Per-series quill `type` that drives mixed-type rendering on the combo chart. */
 export function seriesDisplayType(
     visualizationType: ChartDisplayType,
-    settings: ChartSeriesSettings | undefined
+    settings: AxisSeriesSettings | undefined
 ): SeriesType {
     const displayType = settings?.display?.displayType
     if (displayType === 'bar') {
@@ -238,7 +241,7 @@ export function capYSeriesData<T extends readonly unknown[]>(yData: T | null | u
 /** Per-series display settings carried into quill's `series.meta` so the tooltip can format each
  *  row with its own column's currency/duration/percent/prefix/suffix settings. */
 export interface ChartSeriesMeta {
-    settings?: ChartSeriesSettings
+    settings?: AxisSeriesSettings
 }
 
 export function buildChartSeries(
@@ -276,7 +279,7 @@ export function buildChartSeries(
  *  at 3 fraction digits — a computed column (e.g. a ratio) otherwise renders with full float
  *  precision (`22.222222222222`). The results table keeps full precision on purpose; this rounding
  *  is chart-display only. */
-export function formatSeriesValue(value: number, settings?: ChartSeriesSettings): string {
+export function formatSeriesValue(value: number, settings?: AxisSeriesSettings): string {
     const formatting = settings?.formatting
     // Styled values round inside formatDataWithSettings. Unstyled values are capped here — at the
     // column's explicit decimalPlaces when set (formatDataWithSettings skips a falsy 0, so a
@@ -297,7 +300,7 @@ const seriesForAxis = (ySeriesData: ChartYSeries[] | null | undefined, position:
 /** True when a column carries formatting that should override quill's default numeric axis ticks —
  *  a non-default `style`, a prefix/suffix, or an explicit decimal-place count. Default settings fall
  *  through so the axis keeps quill's human-friendly auto-formatting. */
-export function hasAxisTickFormatting(settings?: ChartSeriesSettings): boolean {
+export function hasAxisTickFormatting(settings?: AxisSeriesSettings): boolean {
     const formatting = settings?.formatting
     if (!formatting) {
         return false
