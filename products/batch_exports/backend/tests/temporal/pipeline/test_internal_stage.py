@@ -50,6 +50,7 @@ from products.batch_exports.backend.tests.temporal.utils.persons import (
     generate_test_persons_in_clickhouse,
 )
 from products.batch_exports.backend.tests.temporal.utils.s3 import assert_files_in_s3
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
