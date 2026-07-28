@@ -2,9 +2,12 @@ import './Billing.scss'
 
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+import { useEffect } from 'react'
 
 import { LemonTabs } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -20,7 +23,7 @@ export const scene: SceneExport = {
     logic: billingLogic,
 }
 
-const tabs: { key: BillingSectionId; label: string }[] = [
+const allTabs: { key: BillingSectionId; label: string }[] = [
     { key: 'overview', label: 'Overview' },
     { key: 'usage', label: 'Usage' },
     { key: 'spend', label: 'Spend' },
@@ -29,14 +32,23 @@ const tabs: { key: BillingSectionId; label: string }[] = [
 
 export function BillingSection(): JSX.Element {
     const { location, searchParams } = useValues(router)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const billingAlertsEnabled = !!featureFlags[FEATURE_FLAGS.BILLING_ALERTS]
+    const tabs = billingAlertsEnabled ? allTabs : allTabs.filter((tab) => tab.key !== 'alerts')
 
     const section = location.pathname.includes('spend')
         ? 'spend'
         : location.pathname.includes('usage')
           ? 'usage'
-          : location.pathname.includes('alerts')
+          : location.pathname.includes('alerts') && billingAlertsEnabled
             ? 'alerts'
             : 'overview'
+
+    useEffect(() => {
+        if (location.pathname.includes('alerts') && !billingAlertsEnabled) {
+            router.actions.replace(urls.organizationBillingSection('overview'))
+        }
+    }, [billingAlertsEnabled, location.pathname])
 
     const handleTabChange = (key: BillingSectionId): void => {
         const newUrl = urls.organizationBillingSection(key)
