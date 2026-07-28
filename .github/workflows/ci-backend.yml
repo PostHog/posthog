@@ -449,6 +449,41 @@ jobs:
                   restore-keys: |
                       posthog-test-durations-
 
+            - name: Restore per-segment test durations from cache
+              # Restored here as well as in the Django job so the sharding-plan snapshot
+              # below covers the per-segment plan files the Core/Temporal shards read.
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: |
+                      .test_durations.core
+                      .test_durations.temporal
+                  key: posthog-segment-durations-${{ github.run_id }}
+                  restore-keys: |
+                      posthog-segment-durations-
+
+            - name: Snapshot the sharding plan for re-run attempts
+              # The durations caches float to the newest daily entry, so a re-run days
+              # later shards from different timing data than attempt 1. Under "re-run
+              # failed jobs" only the failed shards re-execute, which means a reshard can
+              # move a test that failed in attempt 1 onto a shard that is not re-run: the
+              # test is then never re-executed, every job goes green, and the gate passes
+              # a still-broken PR. Snapshotting the plan inputs as a run-scoped artifact
+              # lets re-run attempts restore attempt 1's exact plan, so a re-run shard
+              # re-collects exactly the tests it failed with.
+              if: github.run_attempt == '1'
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: test-durations-plan
+                  path: |
+                      .test_durations
+                      .test_durations.core
+                      .test_durations.temporal
+                  include-hidden-files: true
+                  # The committed .test_durations always exists; the per-segment files are
+                  # cache-only and may legitimately be absent.
+                  if-no-files-found: warn
+                  retention-days: 14
+
             - name: Discover products to test
               id: discover
               env:
@@ -874,6 +909,26 @@ jobs:
                   key: posthog-test-durations-${{ github.run_id }}
                   restore-keys: |
                       posthog-test-durations-
+
+            - name: Download attempt 1's sharding plan on re-runs
+              # Same re-run pinning as the Django job: a sharded product must re-collect
+              # the same tests on a re-run, else a test that failed in attempt 1 can move
+              # to a shard that is not re-run and never be re-executed while the gate goes
+              # green. Falls back to the floating cache when the snapshot is missing.
+              id: pinned-plan
+              if: github.run_attempt != '1'
+              continue-on-error: true
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: test-durations-plan
+                  path: /tmp/test-durations-plan
+
+            - name: Apply the pinned sharding plan
+              if: steps.pinned-plan.outcome == 'success'
+              shell: bash
+              run: |
+                  cp /tmp/test-durations-plan/.test_durations .test_durations
+                  echo "Sharding plan pinned to attempt 1's snapshot"
 
             - name: Run product tests
               id: run-product-tests
@@ -2639,6 +2694,37 @@ jobs:
                   key: posthog-segment-durations-${{ github.run_id }}
                   restore-keys: |
                       posthog-segment-durations-
+
+            - name: Download attempt 1's sharding plan on re-runs
+              # The cache restores above float to the newest daily entry, which on a
+              # re-run days later can differ from what attempt 1 sharded with. Under
+              # "re-run failed jobs" only the failed shards re-execute, so a reshard can
+              # move a test that failed in attempt 1 onto a shard that is not re-run,
+              # and the failure is never re-executed yet the gate goes green. Pinning
+              # every attempt of a run to the plan snapshotted by turbo-discover makes a
+              # re-run shard re-collect exactly the tests it failed with.
+              # continue-on-error because a missing snapshot (turbo-discover failed, or
+              # the artifact expired) falls back to the floating caches above.
+              id: pinned-plan
+              if: github.run_attempt != '1'
+              continue-on-error: true
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: test-durations-plan
+                  path: /tmp/test-durations-plan
+
+            - name: Apply the pinned sharding plan
+              if: steps.pinned-plan.outcome == 'success'
+              shell: bash
+              run: |
+                  # Delete before copying so a per-segment file the snapshot lacks cannot
+                  # survive from the newer floating cache and diverge from the pinned union.
+                  rm -f .test_durations.core .test_durations.temporal
+                  cp /tmp/test-durations-plan/.test_durations .test_durations
+                  for f in .test_durations.core .test_durations.temporal; do
+                      if [ -f "/tmp/test-durations-plan/$f" ]; then cp "/tmp/test-durations-plan/$f" "$f"; fi
+                  done
+                  echo "Sharding plan pinned to attempt 1's snapshot"
 
             - name: Determine if --snapshot-update should be on
               # UPDATE mode: human commits - update snapshots
