@@ -6,7 +6,7 @@ Use this reference to decide where code belongs before editing it.
 
 | Layer                       | Location                                                     | Owns                                                                                                                                                   |
 | --------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Pure lifecycle decisions    | `common/alerting/`                                           | State transitions, policy decisions, and notification actions                                                                                          |
+| Pure lifecycle decisions    | `products/alerts/backend/state_machine.py`                   | State transitions, policy decisions, and notification actions                                                                                          |
 | Shared alert infrastructure | `products/alerts/backend/`                                   | Scheduling math, destination configuration and persistence, internal-event delivery, email transport, insight alert models/API, and insight evaluation |
 | Product adapter             | `products/<name>/backend/`                                   | Domain evaluation, model snapshots, the single mutator, event payloads, allowed destinations, due queries, history, and orchestration                  |
 | Shared alert creation UI    | `frontend/src/lib/components/Alerting/AlertWizard/`          | Reusable HogFunction destination, trigger, and configuration flow                                                                                      |
@@ -35,7 +35,7 @@ Read [frontend-alerting.md](frontend-alerting.md) before adding or extending a p
 
 ## Lifecycle contract
 
-`common/alerting/state_machine.py` is pure Python.
+`products/alerts/backend/state_machine.py` is pure Python.
 
 - `CheckInput` normalizes one product evaluation.
 - `AlertSnapshot` contains only fields needed for lifecycle decisions.

@@ -30,6 +30,8 @@ class ProductConfig:
     # To permit OAuth access, explicitly list the allowed application IDs.
     allowed_application_ids: frozenset[str] | None = frozenset()
     allowed_models: frozenset[str] | None = None  # None = all allowed
+    # True = exact allowlist match, not startswith
+    exact_model_match: bool = False
     allow_api_keys: bool = True
     # Which customer credit bucket this product bills into. None = not billed: emitted
     # $ai_generation events are tagged $ai_billable=false and the usage reporter
@@ -71,6 +73,7 @@ _POSTHOG_CODE_AGENT_MODELS: Final[frozenset[str]] = frozenset(
         "claude-opus-4-6",
         "claude-opus-4-7",
         "claude-opus-4-8",
+        "claude-opus-5",
         "claude-sonnet-4-5",
         "claude-sonnet-4-6",
         "claude-sonnet-5",
@@ -84,6 +87,7 @@ _POSTHOG_CODE_AGENT_MODELS: Final[frozenset[str]] = frozenset(
         "gpt-5.2",
         "gpt-5-mini",
         "@cf/zai-org/glm-5.2",
+        "moonshotai/kimi-k3",
     }
 )
 
@@ -123,6 +127,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
                 "claude-opus-4-6",
                 "claude-opus-4-7",
                 "claude-opus-4-8",
+                "claude-opus-5",
                 "claude-sonnet-4-5",
                 "claude-sonnet-5",
                 "claude-haiku-4-5",
@@ -267,6 +272,14 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allow_api_keys=True,
         credit_bucket=CreditBucket.AI_CREDITS,
     ),
+    # changelog-bot. Exact-pinned to these two ids (the agent sends "openai/"-prefixed).
+    "changelog_bot": ProductConfig(
+        allowed_application_ids=None,
+        allowed_models=frozenset({"openai/gpt-5.6-terra", "openai/gpt-5.6-sol"}),
+        exact_model_match=True,
+        allow_api_keys=True,
+        credit_bucket=None,
+    ),
     # Stamphog: the sandboxed PR reviewer (Sonnet, OAuth-only in practice) and the daily merged-PR
     # digest summarization (Haiku, server-side via the shared key). Low volume, internal infra.
     # The reviewer runs inside a sandbox over untrusted PR content, so it authenticates with a
@@ -324,6 +337,7 @@ def _model_matches_product_allowlist(
     allowed_models: frozenset[str],
     provider: str | None = None,
     settings: object | None = None,
+    exact: bool = False,
 ) -> bool:
     model_candidates = {model.lower()}
     if provider == "bedrock":
@@ -331,11 +345,16 @@ def _model_matches_product_allowlist(
             get_bedrock_model_access_candidates(model, region_name=get_bedrock_region_name(settings=settings))
         )
 
-    allowed_prefixes = tuple(allowed_model.lower() for allowed_model in allowed_models)
+    allowed_lower = tuple(allowed_model.lower() for allowed_model in allowed_models)
+    if exact:
+        # A variant like "<pinned>-pro" is a distinct, pricier model — reject it.
+        return any(candidate in allowed_lower for candidate in model_candidates)
+    # Default: prefix match, so Bedrock/agent ids with region+version suffixes
+    # (e.g. "claude-3-5-sonnet-20241022-v2:0") match a short pinned name.
     return any(
         model_candidate.startswith(allowed_prefix)
         for model_candidate in model_candidates
-        for allowed_prefix in allowed_prefixes
+        for allowed_prefix in allowed_lower
     )
 
 
@@ -427,7 +446,9 @@ def check_product_access(
         return False, f"Product '{product}' requires a server-minted credential"
 
     if model and config.allowed_models is not None:
-        if not _model_matches_product_allowlist(model, config.allowed_models, provider=provider, settings=settings):
+        if not _model_matches_product_allowlist(
+            model, config.allowed_models, provider=provider, settings=settings, exact=config.exact_model_match
+        ):
             return False, f"Model '{model}' not allowed for product '{product}'"
 
     return True, None

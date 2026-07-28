@@ -1,4 +1,5 @@
 import os
+from functools import cache
 from typing import Any, Optional
 
 from django.conf import settings
@@ -7,9 +8,12 @@ import openai
 import posthoganalytics
 from posthoganalytics.ai.openai import OpenAI
 
-openai_client = (
-    OpenAI(posthog_client=posthoganalytics, base_url=settings.OPENAI_BASE_URL) if os.getenv("OPENAI_API_KEY") else None  # type: ignore
-)
+
+@cache
+def _get_openai_client() -> Optional[OpenAI]:
+    if not os.getenv("OPENAI_API_KEY"):
+        return None
+    return OpenAI(posthog_client=posthoganalytics.setup(), base_url=settings.OPENAI_BASE_URL)
 
 
 def hit_openai(
@@ -20,6 +24,7 @@ def hit_openai(
     timeout: float | None = None,
     response_format: dict[str, Any] | None = None,
 ) -> tuple[str, int, int]:
+    openai_client = _get_openai_client()
     if not openai_client:
         raise ValueError("OPENAI_API_KEY environment variable not set")
 

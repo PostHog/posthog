@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError, models, transaction
+from django.db import IntegrityError, connection, models, transaction
 from django.db.models.fields.json import KeyTransform
 from django.utils import timezone as django_timezone
 
@@ -41,6 +41,7 @@ from posthog.models.user import User
 from posthog.models.utils import DeletedMetaFields, UUIDModel
 from posthog.storage import object_storage
 from posthog.temporal.oauth import PosthogMcpScopes
+from posthog.uuidt import uuid7
 
 from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS
 from products.tasks.backend.error_telemetry import truncate_error_message
@@ -418,6 +419,10 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
                 "environment": task_run.environment,
                 "is_resume": is_resume,
                 "has_pending_message": has_pending,
+                # Loop attribution: this event uses Task.capture_event (not TaskRun's),
+                # so carry it from the run state the same way TaskRun.capture_event does.
+                "loop_id": state.get("loop_id"),
+                "loop_trigger_id": state.get("loop_trigger_id"),
             },
         )
         return task_run
@@ -906,7 +911,9 @@ class TaskThreadMessage(TeamScopedRootMixin):
 
     class Meta:
         db_table = "posthog_task_thread_message"
-        indexes = [models.Index(fields=["task", "created_at"], name="task_thread_msg_task_created")]
+        indexes = [
+            models.Index(fields=["task", "created_at"], name="task_thread_msg_task_created"),
+        ]
 
     def __str__(self):
         return f"Thread message {self.id} on task {self.task_id}"
@@ -938,6 +945,106 @@ class TaskThreadMessageMention(TeamScopedRootMixin):
 
     def __str__(self):
         return f"Mention of user {self.mentioned_user_id} in message {self.message_id}"
+
+
+class TaskActivity(TeamScopedRootMixin):
+    """One row per (user, task): the latest thing that happened on a task the user is
+    involved in, plus whether they have seen it.
+
+    Collapsing to one row per task is what makes "read" a property of the task rather
+    than of a feed cursor, so opening the task from anywhere clears it. Rows are
+    projected on write by ``products.tasks.backend.facade.api``.
+    """
+
+    class Kind(models.TextChoices):
+        CREATED = "created", "Created"
+        MENTION = "mention", "Mention"
+        MESSAGE = "message", "Message"
+        AWAITING_INPUT = "awaiting_input", "Awaiting input"
+        COMPLETED = "completed", "Completed"
+
+    # uuid7 rather than the uuid4 the sibling task models use: rows are insert-heavy and
+    # read newest-first, so a time-ordered key keeps the index appends local and makes the
+    # id a meaningful tiebreak when two rows share an activity_at.
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="+")
+    message = models.ForeignKey(
+        TaskThreadMessage, on_delete=models.SET_NULL, null=True, blank=True, related_name="activity_rows"
+    )
+    kind = models.CharField(max_length=32, choices=Kind)
+    activity_at = models.DateTimeField()
+    read_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "posthog_task_activity"
+        constraints = [models.UniqueConstraint(fields=["team", "user", "task"], name="task_activity_user_task_unique")]
+        indexes = [
+            models.Index(fields=["team", "user", "activity_at", "id"], name="task_activity_feed_idx"),
+            models.Index(
+                fields=["team", "user"], condition=models.Q(read_at__isnull=True), name="task_activity_unread_idx"
+            ),
+        ]
+
+    @classmethod
+    def record(
+        cls,
+        *,
+        team_id: int,
+        user_id: int,
+        task_id: uuid.UUID | str,
+        kind: str,
+        activity_at: datetime,
+        message_id: uuid.UUID | None = None,
+        actor_id: int | None = None,
+    ) -> None:
+        """Record the latest activity on ``task_id`` for ``user_id``, newest-wins.
+
+        A single upsert rather than read-modify-write: two messages landing on the same
+        task concurrently would otherwise race and lose one. The ``WHERE`` on the conflict
+        clause is what makes it newest-wins, so an out-of-order write (a retried Temporal
+        activity, say) can't drag ``activity_at`` backwards.
+
+        Activity the user caused themselves lands already-read — their own reply should
+        never light up their own unread badge.
+        """
+        read_at = activity_at if actor_id is not None and actor_id == user_id else None
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                INSERT INTO {cls._meta.db_table}
+                       (id, team_id, user_id, task_id, message_id, kind, activity_at, read_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (team_id, user_id, task_id) DO UPDATE
+                   SET message_id = EXCLUDED.message_id,
+                       kind = EXCLUDED.kind,
+                       activity_at = EXCLUDED.activity_at,
+                       read_at = CASE
+                           WHEN {cls._meta.db_table}.activity_at = EXCLUDED.activity_at
+                           THEN {cls._meta.db_table}.read_at
+                           ELSE EXCLUDED.read_at
+                       END
+                 WHERE {cls._meta.db_table}.activity_at <= EXCLUDED.activity_at
+                """,
+                [uuid7(), team_id, user_id, task_id, message_id, kind, activity_at, read_at],
+            )
+
+
+@receiver(post_save, sender=Task)
+def project_task_created_activity(sender, instance: Task, created: bool, **kwargs) -> None:
+    """Seed the creator's activity row. A signal rather than a facade call because tasks are
+    created from several paths (API, automations, the sandbox warm path) and every one of them
+    should show up in its creator's feed."""
+    if created and instance.created_by_id is not None:
+        TaskActivity.record(
+            team_id=instance.team_id,
+            user_id=instance.created_by_id,
+            task_id=instance.id,
+            kind=TaskActivity.Kind.CREATED,
+            activity_at=instance.created_at,
+            actor_id=instance.created_by_id,
+        )
 
 
 class ChannelFeedMessage(TeamScopedRootMixin):

@@ -1,4 +1,5 @@
 import asyncio
+from typing import cast
 
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
@@ -11,6 +12,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.models.user import User
 from posthog.temporal.common.client import async_connect
 
 from products.error_tracking.backend.models import ErrorTrackingSentryMigration
@@ -156,7 +158,7 @@ class ErrorTrackingSentryMigrationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
         config = data.get("config") or {}
         migration = ErrorTrackingSentryMigration.objects.create(
             team=self.team,
-            created_by=request.user,
+            created_by=cast(User, request.user),
             external_data_source_id=source_id,
             org_slug=data["org_slug"],
             config={

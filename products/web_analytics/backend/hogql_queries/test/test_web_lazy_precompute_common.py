@@ -25,7 +25,7 @@ from posthog.hogql import ast
 
 from posthog import redis
 from posthog.clickhouse.query_tagging import Feature, get_query_tag_value, reset_query_tags, tags_context
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
@@ -542,6 +542,26 @@ class TestWebEnsurePrecomputed(BaseTest):
             assert grace == STALE_WHILE_REVALIDATE_SECONDS
         else:
             assert grace is None, f"background context {tags} must not be served stale"
+
+    @parameterized.expand(
+        [
+            # A user-initiated force refresh (the "Reload" button -> force_blocking for
+            # non-insight web tiles) must bypass the grace so it recomputes fresh instead
+            # of being handed the very stale row it is trying to clear (the reported bug).
+            ("force_blocking", ExecutionMode.CALCULATE_BLOCKING_ALWAYS.value, None),
+            ("force_async", ExecutionMode.CALCULATE_ASYNC_ALWAYS.value, None),
+            # A normal (non-forced) read must keep the grace, or every read pays a
+            # synchronous recompute and the serve-stale optimization is lost.
+            ("blocking", ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE.value, STALE_WHILE_REVALIDATE_SECONDS),
+        ]
+    )
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_forced_refresh_bypasses_stale_grace(self, _name, execution_mode, expected_grace, mock_ensure):
+        mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[])
+        reset_query_tags()
+        with tags_context(execution_mode=execution_mode):
+            web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
+        assert mock_ensure.call_args.kwargs["stale_while_revalidate_seconds"] == expected_grace
 
 
 class TestStaleRevalidationEnqueue(BaseTest):

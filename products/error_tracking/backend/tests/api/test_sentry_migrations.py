@@ -18,17 +18,16 @@ class TestSentryMigrationsAPI(APIBaseTest):
     def _url(self, suffix: str = "") -> str:
         return f"/api/projects/{self.team.id}/error_tracking/sentry_migrations/{suffix}"
 
-    def _create_migration(self, **overrides) -> ErrorTrackingSentryMigration:
+    def _create_migration(self, team=None, **overrides) -> ErrorTrackingSentryMigration:
+        team = team or self.team
         defaults = {
-            "team": self.team,
             "created_by": self.user,
             "external_data_source_id": uuid.uuid4(),
             "org_slug": "acme",
             "status": ErrorTrackingSentryMigration.Status.IMPORTING,
         }
         defaults.update(overrides)
-        team = defaults["team"]
-        return ErrorTrackingSentryMigration.objects.for_team(team.id).create(**defaults)
+        return ErrorTrackingSentryMigration.objects.for_team(team.id).create(team=team, **defaults)
 
     @patch(f"{VIEW_MODULE}.start_sentry_migration_workflow", new_callable=AsyncMock)
     @patch(f"{VIEW_MODULE}.warehouse_api.get_source")

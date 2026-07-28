@@ -470,23 +470,21 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             if snoozed_until_param is None:
                 instance.state = AlertState.NOT_FIRING
                 instance.snoozed_until = None
+                AlertCheck.objects.create(
+                    alert_configuration=instance,
+                    calculated_value=None,
+                    condition=instance.condition,
+                    targets_notified={},
+                    state=instance.state,
+                    error=None,
+                )
             else:
                 # always store snoozed_until as UTC time
                 # as we look at current UTC time to check when to run alerts
                 snoozed_until = relative_date_parse(
                     snoozed_until_param, ZoneInfo("UTC"), increase=True, always_truncate=True
                 )
-                instance.state = AlertState.SNOOZED
-                instance.snoozed_until = snoozed_until
-
-            AlertCheck.objects.create(
-                alert_configuration=instance,
-                calculated_value=None,
-                condition=instance.condition,
-                targets_notified={},
-                state=instance.state,
-                error=None,
-            )
+                instance.snooze(until=snoozed_until)
 
         conditions_or_threshold_changed = False
 
