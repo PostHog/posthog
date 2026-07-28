@@ -202,7 +202,8 @@ class DataDeletionRequestForm(forms.ModelForm):
     person_properties = ArrayTextareaField(
         required=False,
         help_text="One property name per line. You can also paste a JSON array. "
-        "Properties to remove from events.person_properties. Required for property removal requests when properties is empty.",
+        "Properties to remove from events.person_properties. This does NOT delete the properties from the person itself, only from the person_properties stored on events. "
+        "Required for property removal requests when properties is empty.",
     )
     hogql_predicate = forms.CharField(
         required=False,
