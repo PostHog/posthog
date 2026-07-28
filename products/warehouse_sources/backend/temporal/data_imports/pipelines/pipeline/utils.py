@@ -295,7 +295,7 @@ def evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sche
             else:
                 try:
                     casted_column = incoming_column.cast(delta_field.type).combine_chunks()
-                except pa.ArrowInvalid as e:
+                except (pa.ArrowInvalid, pa.ArrowNotImplementedError) as e:
                     # Reaching this cast already means the incoming type differs from the stored
                     # Delta type (see the guard above) and the timestamp path didn't apply, so a
                     # failure here is a deterministic, unretryable incompatibility: the source
@@ -303,12 +303,13 @@ def evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sche
                     # shapes are an integer column widened upstream (Postgres `integer` → `bigint`),
                     # an integer-created column now receiving fractional values ("Float value 19.99
                     # was truncated converting to int64"), non-numeric text arriving for a numeric
-                    # column ("Failed to parse string: '80-150' as a scalar of type int32"), or a
-                    # value that overflows the stored decimal precision. delta-rs cannot change a
-                    # column's type in place, so retrying is futile — surface an actionable error
-                    # telling the user to reset and fully re-sync. Lossless widening (e.g. a
-                    # whole-valued float into an integer column) still casts fine and never reaches
-                    # here.
+                    # column ("Failed to parse string: '80-150' as a scalar of type int32"), a
+                    # value that overflows the stored decimal precision, or a cast pyarrow has no
+                    # kernel for at all (e.g. `time64` → `double`, raised as ArrowNotImplementedError
+                    # rather than ArrowInvalid). delta-rs cannot change a column's type in place, so
+                    # retrying is futile — surface an actionable error telling the user to reset and
+                    # fully re-sync. Lossless widening (e.g. a whole-valued float into an integer
+                    # column) still casts fine and never reaches here.
                     raise SchemaColumnTypeChangedException(
                         f"Source column type changed: '{delta_field.name}' has values that no longer "
                         f"fit its stored type {delta_field.type} (incoming data is now "

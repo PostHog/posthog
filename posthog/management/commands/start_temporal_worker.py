@@ -466,11 +466,10 @@ _task_queue_specs = [
         LLM_ANALYTICS_ACTIVITIES,
     ),
     (
-        # Dedicated queue for MCP analytics clustering — isolates the CPU
-        # burst (cluster compute) and external embedding worker calls from
-        # the general-purpose queue that hosts the rest of mcp_analytics.
-        # Workflow + activity lists are populated as the stack lands; an
-        # empty queue is harmless — the worker registers and idles.
+        # MCP analytics clustering. MCPA_TASK_QUEUE defaults to the
+        # general-purpose queue (no dedicated worker deployed yet), so the
+        # defaultdict merge below folds these into the general-purpose
+        # registration; the env override routes them to a dedicated worker.
         settings.MCPA_TASK_QUEUE,
         MCP_ANALYTICS_INTENT_CLUSTERING_WORKFLOWS,
         MCP_ANALYTICS_INTENT_CLUSTERING_ACTIVITIES,

@@ -22,6 +22,7 @@ from posthog.models.user import User
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
+from products.cohorts.backend.backfill.finalize import finalize_backfill_runs
 from products.cohorts.backend.backfill.runs import create_backfill_run_for_cohort
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
@@ -913,3 +914,11 @@ def trigger_cohort_events_backfill_task(team_id: int, cohort_id: int, trigger_ki
             error=str(error),
         )
         raise
+
+
+@shared_task(ignore_result=True)
+def finalize_cohort_backfill_runs() -> None:
+    """Terminalize behavioral backfill runs the Rust seeder has fully observed. Gated off by
+    ``BEHAVIORAL_BACKFILL_FINALIZER_ENABLED`` (checked inside ``finalize_backfill_runs``, which
+    returns before touching the DB when disabled)."""
+    finalize_backfill_runs()

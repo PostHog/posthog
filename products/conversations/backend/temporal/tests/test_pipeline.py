@@ -447,6 +447,12 @@ class TestPersistReplyActivity:
                 True,
             ),
             (
+                "bug_stays_private_even_if_set_to_bot_reply",
+                {"allow_bot_reply": True, "channel_source": "widget", "ticket_type": "bug"},
+                {"widget": {"bug": "bot_reply"}},
+                True,
+            ),
+            (
                 "account_billing_stays_private_even_if_set_to_bot_reply",
                 {"allow_bot_reply": True, "channel_source": "widget", "ticket_type": "account_billing"},
                 {"widget": {"account_billing": "bot_reply"}},

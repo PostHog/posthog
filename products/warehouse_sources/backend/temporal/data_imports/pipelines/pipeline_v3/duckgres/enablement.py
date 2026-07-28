@@ -86,10 +86,14 @@ def duckgres_sink_enablement() -> SinkEnablement | None:
             "id", "uuid", "organization_id"
         )
     }
+    # Filtered by the app DB's own org ids, never by the control plane's row.organization_id:
+    # that value is an external, unvalidated string (the CP has test/dev rows keyed by
+    # human-readable slugs, not UUIDs), and passing it straight into a UUID FK lookup
+    # raises ValidationError before the org_id match-up below ever runs.
     budgets = {
         str(org_id): sink_max_concurrency
         for org_id, sink_max_concurrency in DuckgresServer.objects.filter(
-            organization_id__in={row.organization_id for row in rows}
+            organization_id__in={org_id for _, org_id in team_info.values()}
         ).values_list("organization_id", "sink_max_concurrency")
     }
 

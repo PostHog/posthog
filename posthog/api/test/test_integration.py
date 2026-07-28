@@ -49,6 +49,7 @@ from posthog.models.user_integration import UserIntegration
 from posthog.models.utils import hash_key_value
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 
+from products.batch_exports.backend.models import BatchExport, BatchExportDestination
 from products.cdp.backend.models import HogFunction
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.workflows.backend.models import HogFlow
@@ -4849,6 +4850,19 @@ class TestIntegrationDeletionHogFunctionGuard:
         content = response.content.decode()
         assert "Slack flow" in content
         assert "Slack notifier" in content
+        assert Integration.objects.filter(id=self.integration.id).exists()
+
+    def test_destroy_blocked_message_includes_batch_exports(self, client: HttpClient):
+        dest = BatchExportDestination.objects.create(
+            config={}, type=BatchExportDestination.Destination.AWS_S3, integration=self.integration
+        )
+        BatchExport.objects.create(name="Test batch export", destination=dest, team=self.team, interval="hour")
+
+        response = self._delete(client)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        content = response.content.decode()
+        assert "Test batch export" in content
         assert Integration.objects.filter(id=self.integration.id).exists()
 
 
