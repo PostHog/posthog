@@ -2,6 +2,7 @@ import json
 from datetime import UTC, datetime
 from typing import Optional
 
+from django.conf import settings
 from django.http import HttpResponse
 from django.utils.html import escape
 
@@ -122,6 +123,10 @@ def is_csp_violation(data: dict) -> bool:
     return "type" in data and data["type"] == "csp-violation"
 
 
+class CSPReportTooLarge(Exception):
+    pass
+
+
 def build_csp_event(props: dict, distinct_id: str, session_id: str, version: str, user_agent: Optional[str]) -> dict:
     props = {f"$csp_{k}": v for k, v in props.items()}
 
@@ -163,7 +168,15 @@ def process_csp_report(request):
             )
             return None, None
 
+        body_size = len(request.body)
+        if body_size > settings.CSP_REPORT_MAX_BODY_BYTES:
+            raise CSPReportTooLarge(f"CSP report body of {body_size} bytes exceeds the limit")
+
         csp_data = json.loads(request.body)
+
+        # Each element becomes its own event, so bound the count before any per-element work runs.
+        if isinstance(csp_data, list) and len(csp_data) > settings.CSP_REPORT_MAX_REPORTS:
+            raise CSPReportTooLarge(f"CSP report bundle of {len(csp_data)} reports exceeds the limit")
 
         distinct_id = request.GET.get("distinct_id") or str(uuid7())
         session_id = request.GET.get("session_id") or str(uuid7())
@@ -231,6 +244,17 @@ def process_csp_report(request):
         else:
             raise ValueError("Invalid CSP report")
 
+    except CSPReportTooLarge as e:
+        logger.warning("CSP report rejected - too large", reason=str(e))
+        return None, cors_response(
+            request,
+            generate_exception_response(
+                "capture",
+                "CSP report too large",
+                code="csp_report_too_large",
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            ),
+        )
     except json.JSONDecodeError as e:
         logger.exception("Invalid CSP report JSON format", error=e)
         return None, cors_response(

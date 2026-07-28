@@ -5,7 +5,24 @@ from unittest.mock import MagicMock, patch
 
 from django.test.client import Client
 
+from parameterized import parameterized
 from rest_framework import status
+from structlog.testing import capture_logs
+
+SINGLE_VIOLATION_REPORT_URI = {
+    "csp-report": {
+        "document-uri": "https://example.com/foo/bar",
+        "violated-directive": "default-src self",
+    }
+}
+
+SINGLE_VIOLATION_REPORT_TO = {
+    "type": "csp-violation",
+    "body": {
+        "documentURL": "https://example.com/foo/bar",
+        "effectiveDirective": "script-src",
+    },
+}
 
 
 class TestCspReport(BaseTest):
@@ -19,6 +36,74 @@ class TestCspReport(BaseTest):
         super().setUp()
         # it is really important to know that /capture is CSRF exempt. Enforce checking in the client
         self.client = Client(enforce_csrf_checks=True)
+
+    @parameterized.expand(
+        [
+            (
+                "report_to_over_count_cap",
+                "application/reports+json",
+                [SINGLE_VIOLATION_REPORT_TO] * 3,
+                {"CSP_REPORT_MAX_REPORTS": 2},
+            ),
+            (
+                "report_to_over_body_cap",
+                "application/reports+json",
+                [SINGLE_VIOLATION_REPORT_TO] * 3,
+                {"CSP_REPORT_MAX_BODY_BYTES": 64},
+            ),
+            (
+                "report_uri_over_body_cap",
+                "application/csp-report",
+                SINGLE_VIOLATION_REPORT_URI,
+                {"CSP_REPORT_MAX_BODY_BYTES": 64},
+            ),
+            (
+                "report_to_over_count_cap_buffered",
+                "application/reports+json",
+                [SINGLE_VIOLATION_REPORT_TO] * 3,
+                {"CSP_REPORT_MAX_REPORTS": 2, "CSP_REPORT_BUFFERED_FORWARD": True},
+            ),
+        ]
+    )
+    def test_oversized_csp_report_is_rejected_before_expansion(self, _name, content_type, payload, overrides):
+        with (
+            self.settings(**overrides),
+            patch("posthog.api.report.capture_batch_internal") as mock_batch_capture,
+            patch("posthog.api.report.capture_internal") as mock_capture,
+            patch("posthog.api.report.csp_report_buffer") as mock_buffer,
+        ):
+            mock_batch_capture.return_value = MagicMock(raise_for_status=MagicMock())
+            mock_capture.return_value = MagicMock(raise_for_status=MagicMock())
+
+            response = self.client.post(
+                f"/report/?token={self.team.api_token}",
+                data=json.dumps(payload),
+                content_type=content_type,
+            )
+
+        assert response.status_code == status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
+        mock_batch_capture.assert_not_called()
+        mock_capture.assert_not_called()
+        mock_buffer.enqueue.assert_not_called()
+
+    def test_csp_report_never_logs_request_headers(self):
+        with capture_logs() as logs, patch("posthog.api.report.capture_internal") as mock_capture:
+            mock_capture.return_value = MagicMock(raise_for_status=MagicMock())
+
+            response = self.client.post(
+                f"/report/?token={self.team.api_token}&debug=true",
+                data=json.dumps(SINGLE_VIOLATION_REPORT_URI),
+                content_type="application/csp-report",
+                headers={
+                    "cookie": "sessionid=sentinel-session-credential",
+                    "authorization": "Bearer sentinel-bearer-credential",
+                },
+            )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        rendered_logs = json.dumps(logs, default=str)
+        assert "sentinel-session-credential" not in rendered_logs
+        assert "sentinel-bearer-credential" not in rendered_logs
 
     @patch("posthog.api.report.capture_internal")
     def test_submit_csp_report_to_new_internal_capture(self, mock_capture) -> None:
@@ -316,93 +401,6 @@ class TestCspReport(BaseTest):
         # Both events go through a single batched dispatch call
         mock_capture.assert_called_once()
         assert len(mock_capture.call_args.kwargs["events"]) == 2
-
-    @patch("posthog.api.report.capture_internal")
-    @patch("posthog.api.report.logger")
-    def test_csp_debug_logging_enabled(self, mock_logger, mock_capture):
-        mock_capture.return_value = MagicMock(status_code=204)
-
-        """Test that debug logging is enabled when debug=true parameter is present"""
-        csp_report = {
-            "csp-report": {
-                "document-uri": "https://example.com/foo/bar",
-                "violated-directive": "default-src self",
-            }
-        }
-
-        response = self.client.post(
-            f"/report/?token={self.team.api_token}&debug=true",
-            data=json.dumps(csp_report),
-            content_type="application/csp-report",
-        )
-
-        assert status.HTTP_204_NO_CONTENT == response.status_code
-        mock_capture.assert_called_once()
-
-        mock_logger.exception.assert_called_once()
-        call_args = mock_logger.exception.call_args
-        assert call_args[0][0] == "CSP debug request"
-        assert call_args[1]["method"] == "POST"
-        assert "debug=true" in call_args[1]["url"]
-        assert call_args[1]["content_type"] == "application/csp-report"
-        assert "body" in call_args[1]
-
-    @patch("posthog.api.report.capture_internal")
-    @patch("posthog.api.report.logger")
-    def test_csp_debug_logging_disabled(self, mock_logger, mock_capture):
-        mock_capture.return_value = MagicMock(status_code=204)
-
-        csp_report = {
-            "csp-report": {
-                "document-uri": "https://example.com/foo/bar",
-                "violated-directive": "default-src self",
-            }
-        }
-
-        response = self.client.post(
-            f"/report/?token={self.team.api_token}",
-            data=json.dumps(csp_report),
-            content_type="application/csp-report",
-        )
-
-        assert status.HTTP_204_NO_CONTENT == response.status_code
-        mock_capture.assert_called_once()
-        mock_logger.exception.assert_not_called()
-
-    @patch("posthog.api.report.capture_internal")
-    @patch("posthog.api.report.logger")
-    def test_csp_debug_logging_case_insensitive(self, mock_logger, mock_capture):
-        mock_capture.return_value = MagicMock(status_code=204)
-
-        csp_report = {
-            "csp-report": {
-                "document-uri": "https://example.com/foo/bar",
-                "violated-directive": "default-src self",
-            }
-        }
-
-        response = self.client.post(
-            f"/report/?token={self.team.api_token}&debug=TRUE",
-            data=json.dumps(csp_report),
-            content_type="application/csp-report",
-        )
-
-        assert status.HTTP_204_NO_CONTENT == response.status_code
-        mock_logger.exception.assert_called_once()
-        mock_capture.assert_called_once()
-
-        mock_logger.reset_mock()
-        mock_capture.reset_mock()
-
-        response = self.client.post(
-            f"/report/?token={self.team.api_token}&debug=True",
-            data=json.dumps(csp_report),
-            content_type="application/csp-report",
-        )
-
-        assert status.HTTP_204_NO_CONTENT == response.status_code
-        mock_logger.exception.assert_called_once()
-        mock_capture.assert_called_once()
 
     def test_csp_sampled_out_report_uri_does_not_return_400(self):
         csp_report = {
