@@ -328,6 +328,75 @@ class EmailValidationHelper:
         return EmailLookupHandler.get_user_by_email(email) is not None
 
 
+# Consumer mailbox providers. An address on one of these tells us nothing about who the person
+# works with, so anything that reasons about colleagues sharing an email domain must skip them.
+PERSONAL_EMAIL_DOMAINS = {
+    "gmail.com",
+    "yahoo.com",
+    "hotmail.com",
+    "outlook.com",
+    "aol.com",
+    "icloud.com",
+    "protonmail.com",
+    "zoho.com",
+    "yandex.com",
+    "live.com",
+    "msn.com",
+    "me.com",
+    "mac.com",
+    "gmx.com",
+    "yahoo.co.uk",
+    "yahoo.co.jp",
+    "yahoo.co.in",
+    "yahoo.com.au",
+    "yahoo.com.sg",
+    "yahoo.com.ph",
+    "yahoo.com.my",
+    "yahoo.com.hk",
+    "yahoo.com.tw",
+    "yahoo.com.vn",
+    "yahoo.com.br",
+    "yahoo.com.ar",
+    "yahoo.com.mx",
+    "yahoo.com.tr",
+    "yahoo.com.ua",
+    "yahoo.com.eg",
+    "yahoo.com.sa",
+    "yahoo.com.ae",
+    "yahoo.com.kr",
+    "yahoo.com.cn",
+    "yahoo.com.ru",
+    "yahoo.com.id",
+    "yahoo.com.th",
+    "yahoo.com.ve",
+    "yahoo.com.pe",
+    "yahoo.com.cl",
+    "yahoo.com.co",
+    "yahoo.com.ec",
+    "yahoo.com.uy",
+    "yahoo.com.py",
+    "yahoo.com.bo",
+    "yahoo.com.do",
+    "yahoo.com.pr",
+    "yahoo.com.gt",
+    "yahoo.com.sv",
+    "yahoo.com.hn",
+    "yahoo.com.ni",
+    "yahoo.com.cr",
+    "yahoo.com.pa",
+}
+
+
+def is_personal_email_domain(domain: str) -> bool:
+    """Whether a bare domain belongs to a consumer mailbox provider."""
+    normalized = domain.lower().strip(".")
+    if normalized in PERSONAL_EMAIL_DOMAINS:
+        return True
+    # Fall back to the registrable part so subdomains of a consumer provider also match.
+    parts = normalized.split(".")
+    return len(parts) >= 2 and ".".join(parts[-2:]) in PERSONAL_EMAIL_DOMAINS
+
+
 ESP_SUPPRESSION_CACHE_TTL_IN_SECONDS = 86400  # 1 day
 ESP_SUPPRESSION_ERROR_CACHE_TTL_IN_SECONDS = (
     60  # Short TTL for errors/rate-limits to prevent thundering herd during outages

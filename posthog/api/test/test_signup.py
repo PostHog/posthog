@@ -3132,3 +3132,128 @@ class TestSignupResendInvite(APIBaseTest):
         # Bob still has a fresh bucket
         bob_ok = self.client.post("/api/signup/resend-invite", {"email": "bob@acme.com"})
         self.assertEqual(bob_ok.status_code, status.HTTP_200_OK)
+
+
+class TestSignupPrecheckDomainOrganization(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        # Real organizations always have an owner; the base test user is only a member.
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+        self.client.logout()
+
+    def _claim_domain(self, domain: str, *, verified: bool = False) -> OrganizationDomain:
+        return OrganizationDomain.objects.create(
+            organization=self.organization,
+            domain=domain,
+            verified_at=timezone.now() if verified else None,
+        )
+
+    @parameterized.expand(
+        [
+            ("unverified_claim", False, False),
+            ("verified_claim", True, True),
+        ]
+    )
+    def test_precheck_reports_organization_on_email_domain(self, _name, verified, expect_organization_name):
+        self._claim_domain("acme.com", verified=verified)
+        response = self.client.post("/api/signup/precheck", {"email": "someone@acme.com"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json()["domain_organization"],
+            {
+                "domain": "acme.com",
+                "organization_name": self.organization.name if expect_organization_name else None,
+            },
+        )
+
+    @parameterized.expand(
+        [
+            ("no_organization_claims_the_domain", None, "someone@nowhere.com"),
+            ("personal_mailbox_provider", "gmail.com", "someone@gmail.com"),
+        ]
+    )
+    def test_precheck_reports_no_organization(self, _name, claimed_domain, lookup_email):
+        if claimed_domain:
+            self._claim_domain(claimed_domain)
+        response = self.client.post("/api/signup/precheck", {"email": lookup_email})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(response.json()["domain_organization"])
+
+    def test_precheck_prefers_pending_invite_over_domain_organization(self):
+        self._claim_domain("acme.com", verified=True)
+        OrganizationInvite.objects.create(
+            organization=self.organization, target_email="alice@acme.com", created_by=self.user
+        )
+        response = self.client.post("/api/signup/precheck", {"email": "alice@acme.com"})
+        payload = response.json()
+        self.assertEqual(payload["pending_invite"], {"organization_name": self.organization.name})
+        self.assertIsNone(payload["domain_organization"])
+
+    def test_precheck_skips_organization_with_nobody_who_could_invite(self):
+        # An organization with no active admin has nobody to receive the request, so nudging the
+        # user to ask for an invite would dead-end.
+        empty_organization = Organization.objects.create(name="Ghost Town")
+        OrganizationDomain.objects.create(organization=empty_organization, domain="ghost.com")
+        response = self.client.post("/api/signup/precheck", {"email": "someone@ghost.com"})
+        self.assertIsNone(response.json()["domain_organization"])
+
+
+class TestSignupRequestOrganizationAccess(APIBaseTest):
+    def setUp(self):
+        cache.clear()
+        super().setUp()
+        # Real organizations always have an owner; the base test user is only a member.
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+        self.client.logout()
+
+    def _claim_domain(self, domain: str) -> OrganizationDomain:
+        return OrganizationDomain.objects.create(organization=self.organization, domain=domain)
+
+    @patch("posthog.api.signup.is_email_available", return_value=True)
+    @patch("posthog.tasks.email.send_organization_access_request.apply_async")
+    def test_request_access_dispatches_to_the_organization_on_the_domain(self, mock_send, _mock_email_available):
+        organization_domain = self._claim_domain("acme.com")
+        response = self.client.post("/api/signup/request-organization-access", {"email": "alice@acme.com"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"sent": True})
+        mock_send.assert_called_once_with(
+            kwargs={"organization_domain_id": str(organization_domain.id), "requester_email": "alice@acme.com"}
+        )
+
+    @parameterized.expand(
+        [
+            ("unclaimed_domain", None, "alice@nowhere.com"),
+            ("personal_mailbox_provider", "gmail.com", "alice@gmail.com"),
+        ]
+    )
+    @patch("posthog.api.signup.is_email_available", return_value=True)
+    @patch("posthog.tasks.email.send_organization_access_request.apply_async")
+    def test_request_access_is_a_no_op_without_a_claimed_work_domain(
+        self, _name, claimed_domain, requester_email, mock_send, _mock_email_available
+    ):
+        if claimed_domain:
+            self._claim_domain(claimed_domain)
+        response = self.client.post("/api/signup/request-organization-access", {"email": requester_email})
+        self.assertEqual(response.json(), {"sent": False})
+        mock_send.assert_not_called()
+
+    @patch("posthog.api.signup.is_email_available", return_value=True)
+    @patch("posthog.tasks.email.send_organization_access_request.apply_async")
+    def test_request_access_is_a_no_op_when_the_account_already_exists(self, mock_send, _mock_email_available):
+        self._claim_domain(self.user.email.split("@")[-1])
+        response = self.client.post("/api/signup/request-organization-access", {"email": self.user.email})
+        self.assertEqual(response.json(), {"sent": False})
+        mock_send.assert_not_called()
+
+    @patch("posthog.api.signup.is_email_available", return_value=True)
+    @patch("posthog.tasks.email.send_organization_access_request.apply_async")
+    def test_request_access_throttles_repeat_requests_for_the_same_email(self, _mock_send, _mock_email_available):
+        self._claim_domain("acme.com")
+        for i in range(4):
+            response = self.client.post("/api/signup/request-organization-access", {"email": "alice@acme.com"})
+            if i < 3:
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+            else:
+                self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)

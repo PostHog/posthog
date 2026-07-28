@@ -18,6 +18,7 @@ from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.messaging import MessagingRecord, get_email_hashes
 from posthog.models.organization import OrganizationMembership
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.tasks.email import (
     get_members_to_notify_for_pipeline_error,
@@ -38,6 +39,7 @@ from posthog.tasks.email import (
     send_matview_failure_digest,
     send_member_join,
     send_new_ticket_notification,
+    send_organization_access_request,
     send_password_reset,
     send_posthog_ai_access_request,
     send_project_secret_api_key_exposed,
@@ -1813,6 +1815,36 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         send_posthog_ai_access_request(organization_id=str(org.id), requesting_user_id=owner.id)
 
         assert len(mocked_email_messages) == 0
+
+    def test_send_organization_access_request(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        org, _owner = create_org_team_and_user("2022-01-02 00:00:00", "acme-owner@acme.com")
+        team = org.teams.first()
+        assert team is not None
+        User.objects.create_and_join(
+            organization=org,
+            email="acme-member@acme.com",
+            password=None,
+            level=OrganizationMembership.Level.MEMBER,
+        )
+        organization_domain = OrganizationDomain.objects.create(organization=org, domain="acme.com")
+
+        send_organization_access_request(
+            organization_domain_id=str(organization_domain.id), requester_email="newcomer@acme.com"
+        )
+
+        assert len(mocked_email_messages) == 1
+        message = mocked_email_messages[0]
+        assert message.send.call_count == 1
+        assert message.template_name == "organization_access_requested"
+        # Only members who can actually send an invite learn the requester's address.
+        recipient_emails = {dest["raw_email"] for dest in message.to}
+        assert recipient_emails == {"acme-owner@acme.com"}
+        assert "newcomer@acme.com" in message.html_body
+        assert message.properties["members_url"] == (
+            f"{settings.SITE_URL}/project/{team.id}/settings/organization-members"
+        )
 
     def test_send_project_secret_api_key_exposed(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)

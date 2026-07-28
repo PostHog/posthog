@@ -33,10 +33,16 @@ const NOTES: Record<number, string[]> = {
     2: ['// almost there', '// last step'],
 }
 
-/** Step 1 — email (+ region, social, pending-invite branch). */
+/** Step 1 — email (+ region, social, pending-invite and existing-team branches). */
 function SignupEmailPanel(): JSX.Element {
-    const { isSignupPanelEmailSubmitting, signupPanelEmailManualErrors, pendingInvite, loginUrl, emailCaseNotice } =
-        useValues(signupLogic)
+    const {
+        isSignupPanelEmailSubmitting,
+        signupPanelEmailManualErrors,
+        pendingInvite,
+        domainOrganization,
+        loginUrl,
+        emailCaseNotice,
+    } = useValues(signupLogic)
     const { preflight } = useValues(preflightLogic)
     const [showJoinOrg, setShowJoinOrg] = useState(false)
     const lastLoginMethod = getCookie('ph_last_login_method') as LoginMethod | null
@@ -44,6 +50,10 @@ function SignupEmailPanel(): JSX.Element {
 
     if (pendingInvite) {
         return <PendingInvitePanel />
+    }
+
+    if (domainOrganization) {
+        return <DomainOrganizationPanel />
     }
 
     const footer = preflight?.demo ? undefined : (
@@ -131,6 +141,77 @@ function SignupEmailPanel(): JSX.Element {
                             Didn't get one? Check spam, or ask them to resend it from their members settings.
                         </p>
                     )}
+                </div>
+            )}
+        </PaperDeskCard>
+    )
+}
+
+function DomainOrganizationPanel(): JSX.Element {
+    const { signupPanelEmail, domainOrganization, organizationAccessRequestStatus } = useValues(signupLogic)
+    const { requestOrganizationAccess, dismissDomainOrganization } = useActions(signupLogic)
+    const organizationName = domainOrganization?.organization_name
+    const domain = domainOrganization?.domain ?? 'your company'
+
+    return (
+        <PaperDeskCard>
+            <CardTitle
+                title={
+                    organizationName
+                        ? 'Your team is already on PostHog'
+                        : `Someone at ${domain} already uses PostHog`
+                }
+                sub={
+                    <span>
+                        {organizationName ? (
+                            <b className="text-primary">{organizationName}</b>
+                        ) : (
+                            <span>An organization</span>
+                        )}{' '}
+                        <span>uses PostHog with</span> <span className="PaperDesk__mono">{domain}</span>{' '}
+                        <span>email addresses. Ask an admin for an invite so your work lands next to theirs.</span>
+                    </span>
+                }
+                className="mb-5"
+            />
+            {organizationAccessRequestStatus === 'sent' ? (
+                <div className="flex gap-2 items-start py-2.5 px-3 text-sm text-primary text-left bg-success-highlight border border-success rounded">
+                    <span className="font-bold text-success">✓</span>
+                    <span>
+                        Sent. An admin will get an email asking them to invite you. Your invite link then arrives at{' '}
+                        {signupPanelEmail.email}.
+                    </span>
+                </div>
+            ) : (
+                <div className="flex flex-col gap-2.5">
+                    {organizationAccessRequestStatus === 'failed' && (
+                        <div className="py-2.5 px-3 text-sm text-primary text-left bg-warning-highlight border border-warning rounded">
+                            <span>
+                                We couldn't reach an admin. Ask a teammate to invite you from the organization's members
+                                settings, or create your own organization below.
+                            </span>
+                        </div>
+                    )}
+                    <LemonButton
+                        type="primary"
+                        size="large"
+                        center
+                        fullWidth
+                        data-attr="domain-organization-request-access"
+                        loading={organizationAccessRequestStatus === 'pending'}
+                        onClick={() => requestOrganizationAccess(signupPanelEmail.email)}
+                    >
+                        Ask an admin to invite me
+                    </LemonButton>
+                    <LemonButton
+                        size="large"
+                        center
+                        fullWidth
+                        data-attr="domain-organization-create-own-org"
+                        onClick={() => dismissDomainOrganization()}
+                    >
+                        I'd rather create my own organization
+                    </LemonButton>
                 </div>
             )}
         </PaperDeskCard>

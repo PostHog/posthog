@@ -533,6 +533,7 @@ urlpatterns = [
     re_path(r"^external_surveys/(?P<survey_id>[^/]+)/?$", public_survey_page),
     opt_slash_path("api/signup/precheck", signup.SignupEmailPrecheckViewset.as_view()),
     opt_slash_path("api/signup/resend-invite", signup.SignupResendInviteViewset.as_view()),
+    opt_slash_path("api/signup/request-organization-access", signup.SignupRequestOrganizationAccessViewset.as_view()),
     opt_slash_path("api/signup", signup.SignupViewset.as_view()),
     opt_slash_path("api/social_signup", signup.SocialSignupViewset.as_view()),
     path("api/signup/<str:invite_id>/", signup.InviteSignupViewset.as_view()),

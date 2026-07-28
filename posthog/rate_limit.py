@@ -368,6 +368,30 @@ class SignupResendInviteThrottle(UserOrEmailRateThrottle):
     rate = "5/hour"
 
 
+class SignupOrganizationAccessRequestEmailThrottle(UserOrEmailRateThrottle):
+    """
+    Rate limit "ask an admin to invite me" requests per email address.
+
+    The request emails an organization's admins, so the per-email cap keeps one address from
+    being used to send the same admins repeated requests no matter how many IPs it comes from.
+    """
+
+    scope = "signup_organization_access_request_email"
+    rate = "3/day"
+
+
+class SignupOrganizationAccessRequestIPThrottle(IPThrottle):
+    """
+    Rate limit "ask an admin to invite me" requests per IP.
+
+    Pairs with the per-email cap: because the email address is caller-supplied, only the IP cap
+    bounds walking through many addresses on a domain to reach the same admins.
+    """
+
+    scope = "signup_organization_access_request_ip"
+    rate = "10/hour"
+
+
 # Requesting PostHog AI access emails the org admins, so cap it per user and per IP
 # to keep a single member (or a shared-IP burst) from spamming admins' inboxes.
 class PostHogAIAccessRequestUserThrottle(UserRateThrottle):

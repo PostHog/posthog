@@ -141,3 +141,68 @@ describe('signupLogic — pending invite banner', () => {
         expect(logic.values.pendingInviteResent).toBe(false)
     })
 })
+
+describe('signupLogic — existing team on the email domain', () => {
+    let logic: ReturnType<typeof signupLogic.build>
+
+    beforeEach(() => {
+        useMocks({
+            post: {
+                '/api/signup/precheck': () => [
+                    200,
+                    {
+                        email_exists: false,
+                        pending_invite: null,
+                        domain_organization: { domain: 'acme.com', organization_name: 'Acme Corp' },
+                    },
+                ],
+                '/api/signup/request-organization-access': () => [200, { sent: true }],
+            },
+        })
+        initKeaTests()
+        router.actions.push('/signup')
+        logic = signupLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+    })
+
+    it('shows the banner instead of advancing to a brand new organization', async () => {
+        logic.actions.setSignupPanelEmailValue('email', 'newcomer@acme.com')
+        logic.actions.submitSignupPanelEmail()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.domainOrganization).toEqual({ domain: 'acme.com', organization_name: 'Acme Corp' })
+        expect(logic.values.panel).toBe(0)
+    })
+
+    it('advances the panel when the user opts to create their own organization', async () => {
+        logic.actions.setSignupPanelEmailValue('email', 'newcomer@acme.com')
+        logic.actions.submitSignupPanelEmail()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.dismissDomainOrganization()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.domainOrganization).toBeNull()
+        expect(logic.values.panel).toBe(1)
+    })
+
+    it('reports the request as sent once an admin has been emailed', async () => {
+        logic.actions.setDomainOrganization({ domain: 'acme.com', organization_name: 'Acme Corp' })
+        logic.actions.requestOrganizationAccess('newcomer@acme.com')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.organizationAccessRequestStatus).toBe('sent')
+    })
+
+    it('falls back to a failure state when no admin could be reached', async () => {
+        useMocks({
+            post: {
+                '/api/signup/request-organization-access': () => [200, { sent: false }],
+            },
+        })
+        logic.actions.setDomainOrganization({ domain: 'acme.com', organization_name: null })
+        logic.actions.requestOrganizationAccess('newcomer@acme.com')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.organizationAccessRequestStatus).toBe('failed')
+    })
+})

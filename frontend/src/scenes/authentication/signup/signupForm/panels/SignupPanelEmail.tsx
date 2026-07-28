@@ -12,6 +12,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { JoinExistingOrgLink } from '../JoinExistingOrgLink'
 import { signupLogic } from '../signupLogic'
+import { DomainOrganizationBanner } from './DomainOrganizationBanner'
 import { PendingInviteBanner } from './PendingInviteBanner'
 
 export function SignupPanelEmail(): JSX.Element | null {
@@ -23,6 +24,7 @@ export function SignupPanelEmail(): JSX.Element | null {
         passkeyError,
         error,
         pendingInvite,
+        domainOrganization,
         signupPanelEmail,
     } = useValues(signupLogic)
     const emailInputRef = useRef<HTMLInputElement | null>(null)
@@ -33,6 +35,10 @@ export function SignupPanelEmail(): JSX.Element | null {
 
     if (pendingInvite) {
         return <PendingInviteBanner invite={pendingInvite} email={signupPanelEmail.email} />
+    }
+
+    if (domainOrganization) {
+        return <DomainOrganizationBanner organization={domainOrganization} email={signupPanelEmail.email} />
     }
 
     return (

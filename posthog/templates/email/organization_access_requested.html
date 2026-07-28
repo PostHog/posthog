@@ -1,0 +1,21 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
+{% block heading %}Someone at {{ domain }} would like to join {{ organization_name }}{% endblock %}
+{% block section %}
+<!-- prettier-ignore -->
+<p>
+    <a href="mailto:{{ requester_email }}">{{ requester_email }}</a> tried to sign up for PostHog and we told them
+    <strong>{{ organization_name }}</strong> is already using it, because your organization has claimed
+    <strong>{{ domain }}</strong>. They're asking for an invite instead of starting a separate organization.
+</p>
+<p>If you recognize them, invite them from your organization's members settings.</p>
+<div class="mb mt text-center">
+    <a class="button primary" href="{{ members_url }}">Invite them</a>
+</div>
+<div class="mt">
+    <p>
+        If the button above doesn't work, paste this link into your browser:<br />
+        <a href="{{ members_url }}">{{ members_url }}</a>
+    </p>
+    <p>If you don't recognize this address, you can ignore this email. Nobody has been given access.</p>
+</div>
+{% endblock %}

@@ -32,12 +32,27 @@ from posthog.api.webauthn import (
 from posthog.email import is_email_available
 from posthog.event_usage import alias_invite_id, report_user_joined_organization, report_user_signed_up
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers.email_utils import EmailValidationHelper, validate_display_name
-from posthog.models import InviteExpiredException, Organization, OrganizationDomain, OrganizationInvite, Team, User
+from posthog.helpers.email_utils import EmailValidationHelper, is_personal_email_domain, validate_display_name
+from posthog.models import (
+    InviteExpiredException,
+    Organization,
+    OrganizationDomain,
+    OrganizationInvite,
+    OrganizationMembership,
+    Team,
+    User,
+)
 from posthog.models.organization_invite import INVITE_DAYS_VALIDITY
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import CanCreateOrg
-from posthog.rate_limit import SignupEmailPrecheckThrottle, SignupIPThrottle, SignupResendInviteThrottle
+from posthog.rate_limit import (
+    SignupEmailPrecheckThrottle,
+    SignupIPThrottle,
+    SignupOrganizationAccessRequestEmailThrottle,
+    SignupOrganizationAccessRequestIPThrottle,
+    SignupResendInviteThrottle,
+)
+from posthog.tasks.email import send_organization_access_request
 from posthog.temporal.signup_enrichment.trigger import start_signup_enrichment_workflow
 from posthog.utils import get_can_create_org, get_trusted_client_ip, is_relative_url
 from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
@@ -366,6 +381,54 @@ class PendingInvitePayload(TypedDict):
     organization_name: str
 
 
+class DomainOrganizationPayload(TypedDict):
+    domain: str
+    organization_name: Optional[str]
+
+
+def _get_organization_domain_for_email(email: str) -> Optional[OrganizationDomain]:
+    """Find the organization that has claimed this email address's domain, verified or not.
+
+    JIT provisioning requires a verified domain because it silently joins people to an
+    organization. This lookup only decides whether to *tell* someone their company is already
+    on PostHog, so an unverified claim is signal enough. Requiring verification here would leave
+    every colleague of an admin who never finished DNS verification in a brand new organization
+    of their own.
+    """
+    domain = email.rpartition("@")[2].lower()
+    if not domain or is_personal_email_domain(domain):
+        return None
+    # `OrganizationDomain.domain` is unique, so at most one organization can claim a domain.
+    return OrganizationDomain.objects.filter(domain__iexact=domain).select_related("organization").first()
+
+
+def _has_member_who_can_invite(organization_id: uuid_module.UUID) -> bool:
+    return (
+        OrganizationMembership.objects.filter(
+            organization_id=organization_id,
+            level__gte=OrganizationMembership.Level.ADMIN,
+            user__is_active=True,
+        )
+        .exclude(user__email="")
+        .exists()
+    )
+
+
+def _get_domain_organization_for_email(email: str) -> Optional[DomainOrganizationPayload]:
+    organization_domain = _get_organization_domain_for_email(email)
+    if organization_domain is None:
+        return None
+    # Without an admin to receive it, "ask an admin to invite you" has nowhere to go.
+    if not _has_member_who_can_invite(organization_domain.organization_id):
+        return None
+    return {
+        "domain": organization_domain.domain,
+        # A domain claim is self-asserted until DNS verification passes, so only a verified claim
+        # is trustworthy enough to name the organization to someone who isn't a member yet.
+        "organization_name": (organization_domain.organization.name if organization_domain.is_verified else None),
+    }
+
+
 def _get_pending_invite_for_email(email: str) -> Optional[OrganizationInvite]:
     # Pre-filter in SQL to a generous validity window for efficiency, then defer to the
     # model's `is_expired` for the authoritative check so any future expansion of that
@@ -402,14 +465,23 @@ class SignupEmailPrecheckViewset(generics.GenericAPIView):
             )
         invite = _get_pending_invite_for_email(email)
         pending_invite: Optional[PendingInvitePayload] = None
+        domain_organization: Optional[DomainOrganizationPayload] = None
         if invite is not None:
             # We deliberately do NOT return the invite UUID here. The signup form shows a
             # nudge banner, and the user has to round-trip through the invite email to
             # actually accept — preserving the pre-PR security property that only the
             # mailbox owner can consume the invite.
             pending_invite = {"organization_name": invite.organization.name}
+        else:
+            # No invite waiting, but their company may still be on PostHog already. Say so, so
+            # they can ask for an invite instead of creating a disconnected organization.
+            domain_organization = _get_domain_organization_for_email(email)
         return response.Response(
-            {"email_exists": False, "pending_invite": pending_invite},
+            {
+                "email_exists": False,
+                "pending_invite": pending_invite,
+                "domain_organization": domain_organization,
+            },
             status=status.HTTP_200_OK,
         )
 
@@ -441,6 +513,55 @@ class SignupResendInviteViewset(generics.GenericAPIView):
 
             send_invite.apply_async(kwargs={"invite_id": str(invite.id)})
         return response.Response({"sent": invite is not None}, status=status.HTTP_200_OK)
+
+
+class SignupRequestOrganizationAccessSerializer(serializers.Serializer):
+    email: serializers.Field = serializers.EmailField(
+        help_text="Address of the person asking to join. Only the organization that claimed this address's email domain is contacted."
+    )
+
+
+class SignupRequestOrganizationAccessViewset(generics.GenericAPIView):
+    """Ask the admins of the organization on this email's domain to send an invite.
+
+    Pairs with the precheck nudge banner: someone whose colleagues already use PostHog can ask
+    for an invite instead of silently creating a separate organization. Only the organization
+    that claimed the address's domain is ever contacted, admins are never disclosed to the
+    requester, and precheck has already told the requester such an organization exists, so this
+    endpoint reveals nothing new. The email carries the requester's address and nothing else they
+    typed, and it's deduped per requester so repeat clicks can't be used to spam admins.
+    """
+
+    serializer_class = SignupRequestOrganizationAccessSerializer
+    permission_classes = (permissions.AllowAny,)
+    throttle_classes = (
+        []
+        if settings.E2E_TESTING
+        else [SignupOrganizationAccessRequestEmailThrottle, SignupOrganizationAccessRequestIPThrottle]
+    )
+
+    def post(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data["email"]
+        if EmailValidationHelper.user_exists(email):
+            # They already have an account, so there's nothing to request and they should log in.
+            return response.Response({"sent": False}, status=status.HTTP_200_OK)
+        organization_domain = _get_organization_domain_for_email(email)
+        sent = (
+            organization_domain is not None
+            and _has_member_who_can_invite(organization_domain.organization_id)
+            and is_email_available(with_absolute_urls=True)
+        )
+        if sent:
+            assert organization_domain is not None  # type hinting
+            send_organization_access_request.apply_async(
+                kwargs={
+                    "organization_domain_id": str(organization_domain.id),
+                    "requester_email": email,
+                }
+            )
+        return response.Response({"sent": sent}, status=status.HTTP_200_OK)
 
 
 class SignupViewset(generics.CreateAPIView):

@@ -13,12 +13,20 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { JoinExistingOrgLink } from '../JoinExistingOrgLink'
 import { signupLogic } from '../signupLogic'
+import { DomainOrganizationBanner } from './DomainOrganizationBanner'
 import { PendingInviteBanner } from './PendingInviteBanner'
 
 export function SignupPanel1(): JSX.Element | null {
     const { preflight, socialAuthAvailable } = useValues(preflightLogic)
-    const { isSignupPanel1Submitting, validatedPassword, loginUrl, emailCaseNotice, pendingInvite, signupPanel1 } =
-        useValues(signupLogic)
+    const {
+        isSignupPanel1Submitting,
+        validatedPassword,
+        loginUrl,
+        emailCaseNotice,
+        pendingInvite,
+        domainOrganization,
+        signupPanel1,
+    } = useValues(signupLogic)
     const emailInputRef = useRef<HTMLInputElement | null>(null)
 
     useEffect(() => {
@@ -28,6 +36,10 @@ export function SignupPanel1(): JSX.Element | null {
 
     if (pendingInvite) {
         return <PendingInviteBanner invite={pendingInvite} email={signupPanel1.email} />
+    }
+
+    if (domainOrganization) {
+        return <DomainOrganizationBanner organization={domainOrganization} email={signupPanel1.email} />
     }
 
     return (

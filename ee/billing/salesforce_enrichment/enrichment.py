@@ -10,13 +10,13 @@ from dateutil import parser
 from simple_salesforce.format import format_soql
 
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.email_utils import is_personal_email_domain
 from posthog.temporal.common.logger import get_logger
 
 from .constants import (
     DEFAULT_CHUNK_SIZE,
     HARMONIC_BATCH_SIZE,
     METRIC_PERIODS,
-    PERSONAL_EMAIL_DOMAINS,
     SALESFORCE_UPDATE_BATCH_SIZE,
     YC_INVESTOR_NAME,
 )
@@ -57,17 +57,7 @@ def is_excluded_domain(domain: str | None) -> bool:
     if not domain:
         return True
 
-    # Check full domain first (handles yahoo.co.uk, yahoo.com.au, etc.)
-    if domain in PERSONAL_EMAIL_DOMAINS:
-        return True
-
-    # Fall back to main domain (last two parts) for standard domains
-    parts = domain.split(".")
-    if len(parts) >= 2:
-        main_domain = ".".join(parts[-2:])
-        return main_domain in PERSONAL_EMAIL_DOMAINS
-
-    return False
+    return is_personal_email_domain(domain)
 
 
 def _calculate_historical_matches(historical_data: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:

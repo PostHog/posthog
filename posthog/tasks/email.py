@@ -1,4 +1,5 @@
 import uuid
+import hashlib
 import datetime
 from enum import Enum
 from typing import Any, Literal, Optional, cast
@@ -25,6 +26,7 @@ from posthog.helpers.email_utils import sanitize_display_name, sanitize_message_
 from posthog.helpers.two_factor_session import CODE_TTL_SECONDS
 from posthog.models import (
     Organization,
+    OrganizationDomain,
     OrganizationInvite,
     OrganizationMembership,
     PersonalAPIKey,
@@ -2344,6 +2346,71 @@ def send_posthog_ai_access_request(organization_id: str, requesting_user_id: int
             "posthog_ai_url": posthog_ai_url,
         },
         reply_to=requester.email or "",
+    )
+    for user in recipients:
+        message.add_user_recipient(user)
+    message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
+def send_organization_access_request(organization_domain_id: str, requester_email: str) -> None:
+    """Ask an organization's admins to invite someone signing up on a domain the org has claimed."""
+    if not is_email_available(with_absolute_urls=True):
+        return
+
+    organization_domain = (
+        OrganizationDomain.objects.select_related("organization").filter(id=organization_domain_id).first()
+    )
+    if organization_domain is None:
+        return
+
+    organization = organization_domain.organization
+    org_name = sanitize_display_name(
+        organization.name,
+        fallback="your organization",
+        context={
+            "task": "send_organization_access_request",
+            "field": "organization_name",
+            "organization_domain_id": organization_domain_id,
+            "organization_id": str(organization.id),
+        },
+    )
+
+    # Admins and owners are the members who can send an invite, so they're the recipients.
+    memberships = OrganizationMembership.objects.select_related("user").filter(
+        organization_id=organization.id,
+        level__gte=OrganizationMembership.Level.ADMIN,
+        user__is_active=True,
+    )
+    recipients = [membership.user for membership in memberships if membership.user.email]
+    if not recipients:
+        return
+
+    # Members settings is org-level but reached through a project, so any project in the org works.
+    team = organization.teams.first()
+    members_url = (
+        f"{settings.SITE_URL}/project/{team.id}/settings/organization-members"
+        if team is not None
+        else f"{settings.SITE_URL}/settings/organization-members"
+    )
+
+    # Deterministic per requester so repeat clicks can't be used to spam admins (MessagingRecord
+    # dedups). The address is hashed to keep the key within `campaign_key`'s length.
+    requester_key = hashlib.sha256(requester_email.lower().encode()).hexdigest()[:32]
+    campaign_key = f"organization_access_request_{organization_domain_id}_{requester_key}"
+
+    message = EmailMessage(
+        campaign_key=campaign_key,
+        subject=f"{requester_email} would like to join {org_name} on PostHog",
+        template_name="organization_access_requested",
+        template_context={
+            "requester_email": requester_email,
+            "organization_name": org_name,
+            "domain": organization_domain.domain,
+            "members_url": members_url,
+        },
+        reply_to=requester_email,
     )
     for user in recipients:
         message.add_user_recipient(user)
