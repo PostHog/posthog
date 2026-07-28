@@ -8,7 +8,7 @@ from django.core.cache import cache
 from django.test import override_settings
 from django.utils import timezone as tz
 
-from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorTooManyBytes
+from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorTooManyBytes, CHQueryErrorUnknownTable
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.tasks.tasks import sync_feature_flag_last_called
 
@@ -452,8 +452,9 @@ class TestSyncFeatureFlagLastCalledChunking(BaseTest):
     @freeze_time("2024-06-15 12:00:00")
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
-    def test_checkpoint_not_updated_on_failure(self, mock_get_client: MagicMock, mock_sync_execute: MagicMock) -> None:
-        """On scan failure, checkpoint should remain unchanged so the window is retried"""
+    def test_checkpoint_stops_at_first_failed_chunk(
+        self, mock_get_client: MagicMock, mock_sync_execute: MagicMock
+    ) -> None:
         redis_mock = mock_redis_client()
         checkpoint_key = "posthog:feature_flag_last_called_sync:last_timestamp"
         # 15 min ago = 3 chunks
@@ -461,15 +462,47 @@ class TestSyncFeatureFlagLastCalledChunking(BaseTest):
         redis_mock.storage[checkpoint_key] = checkpoint_time.isoformat().encode()
         mock_get_client.return_value = redis_mock
 
-        # First chunk succeeds, second chunk fails
-        mock_sync_execute.side_effect = [[], Exception("ClickHouse error")]
+        called_at = tz.make_aware(datetime(2024, 6, 15, 11, 47, 0))
+        # First and third chunks succeed, second one fails
+        mock_sync_execute.side_effect = [
+            [(self.team.pk, self.flag1.key, called_at, 5)],
+            Exception("ClickHouse error"),
+            [],
+        ]
 
-        with self.assertRaises(Exception):
+        sync_feature_flag_last_called()
+
+        # A failed chunk must not abort the remaining chunks, nor discard what was read
+        assert mock_sync_execute.call_count == 3
+        self.flag1.refresh_from_db()
+        assert self.flag1.last_called_at == called_at
+
+        # Checkpoint stops at the end of the first chunk, so the unread window from 11:50
+        # onwards is retried next run rather than skipped
+        stored = redis_mock.storage.get(checkpoint_key)
+        assert stored == tz.make_aware(datetime(2024, 6, 15, 11, 50, 0)).isoformat()
+
+    @freeze_time("2024-06-15 12:00:00")
+    @patch("posthog.clickhouse.client.sync_execute")
+    @patch("posthog.tasks.tasks.get_client")
+    def test_every_chunk_failing_raises_and_leaves_checkpoint(
+        self, mock_get_client: MagicMock, mock_sync_execute: MagicMock
+    ) -> None:
+        redis_mock = mock_redis_client()
+        checkpoint_key = "posthog:feature_flag_last_called_sync:last_timestamp"
+        # 10 min ago = 2 chunks
+        checkpoint_time = tz.make_aware(datetime(2024, 6, 15, 11, 50, 0))
+        redis_mock.storage[checkpoint_key] = checkpoint_time.isoformat().encode()
+        mock_get_client.return_value = redis_mock
+        mock_sync_execute.side_effect = CHQueryErrorUnknownTable("Table posthog.events_recent does not exist")
+
+        # Nothing could be read, so the run must fail loudly instead of reporting an empty
+        # sync, and it must re-raise the ClickHouse error so autoretry_for still applies
+        with self.assertRaises(CHQueryErrorUnknownTable):
             sync_feature_flag_last_called()
 
-        # Checkpoint should remain at the original value (no per-chunk advancement)
-        stored = redis_mock.storage.get(checkpoint_key)
-        assert stored == checkpoint_time.isoformat().encode()
+        assert mock_sync_execute.call_count == 2
+        assert redis_mock.storage.get(checkpoint_key) == checkpoint_time.isoformat().encode()
 
     @freeze_time("2024-06-15 12:00:00")
     @patch("posthog.clickhouse.client.sync_execute")
