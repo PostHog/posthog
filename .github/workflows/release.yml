@@ -43,7 +43,9 @@ jobs:
               shell: bash
               run: |
                   installer="$RUNNER_TEMP/cargo-dist-installer.sh"
-                  curl --proto '=https' --tlsv1.2 -LsSf \
+                  # Retry flags match the setup-* composite actions: GitHub's release CDN blips
+                  # often enough to redden this step on PRs that never touched the CLI.
+                  curl --proto '=https' --tlsv1.2 -fsSL --retry 10 --retry-delay 30 --retry-all-errors \
                       "https://github.com/axodotdev/cargo-dist/releases/download/v${CARGO_DIST_VERSION}/cargo-dist-installer.sh" \
                       -o "$installer"
                   if command -v sha256sum >/dev/null 2>&1; then
@@ -60,7 +62,16 @@ jobs:
                       echo "::error::No sha256 checksum tool available"
                       exit 1
                   fi
-                  sh "$installer"
+                  # The installer downloads the dist binary with its own curl, which has no retries.
+                  for attempt in 1 2 3; do
+                      if sh "$installer"; then
+                          exit 0
+                      fi
+                      echo "::warning::cargo-dist installer failed on attempt $attempt, retrying in 30s"
+                      sleep 30
+                  done
+                  echo "::error::cargo-dist installer failed after 3 attempts"
+                  exit 1
             - name: Cache dist
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
@@ -129,7 +140,9 @@ jobs:
               shell: bash
               run: |
                   installer="$RUNNER_TEMP/cargo-dist-installer.sh"
-                  curl --proto '=https' --tlsv1.2 -LsSf \
+                  # Retry flags match the setup-* composite actions: GitHub's release CDN blips
+                  # often enough to redden this step on PRs that never touched the CLI.
+                  curl --proto '=https' --tlsv1.2 -fsSL --retry 10 --retry-delay 30 --retry-all-errors \
                       "https://github.com/axodotdev/cargo-dist/releases/download/v${CARGO_DIST_VERSION}/cargo-dist-installer.sh" \
                       -o "$installer"
                   if command -v sha256sum >/dev/null 2>&1; then
@@ -146,7 +159,16 @@ jobs:
                       echo "::error::No sha256 checksum tool available"
                       exit 1
                   fi
-                  sh "$installer"
+                  # The installer downloads the dist binary with its own curl, which has no retries.
+                  for attempt in 1 2 3; do
+                      if sh "$installer"; then
+                          exit 0
+                      fi
+                      echo "::warning::cargo-dist installer failed on attempt $attempt, retrying in 30s"
+                      sleep 30
+                  done
+                  echo "::error::cargo-dist installer failed after 3 attempts"
+                  exit 1
             # Get the dist-manifest
             - name: Fetch local artifacts
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
