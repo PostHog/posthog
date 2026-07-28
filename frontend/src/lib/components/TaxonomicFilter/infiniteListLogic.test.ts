@@ -536,17 +536,27 @@ describe('infiniteListLogic', () => {
     })
 
     describe('remote fetch failure settles the list', () => {
-        // Every fetch deliberately 500s — silence the loader error log.
+        // The first fetch deliberately 500s — silence the loader error log.
         beforeEach(silenceKeaLoadersErrors)
         afterEach(resumeKeaLoadersErrors)
 
-        it('falls back to the empty state instead of spinning forever when the fetch fails', async () => {
+        it('shows the error state (not "No results") on failure and recovers on retry', async () => {
+            let failNext = true
             useMocks({
                 get: {
-                    '/api/projects/:team/event_definitions': () => [500, { detail: 'server error' }],
+                    '/api/projects/:team/event_definitions': ({ request }) => {
+                        const search = new URL(request.url).searchParams.get('search') ?? ''
+                        if (search === 'user_signed_up' && failNext) {
+                            failNext = false
+                            return [500, { detail: 'server error' }]
+                        }
+                        const results = mockEventDefinitions.filter((e) => e.name.includes(search))
+                        return [200, { results, count: results.length }]
+                    },
                 },
             })
             initKeaTests()
+            clearApiCache()
             const captureSpy = jest.spyOn(posthog, 'capture')
             const failingLogic = infiniteListLogic({
                 taxonomicFilterLogicKey: 'failingList',
@@ -555,6 +565,9 @@ describe('infiniteListLogic', () => {
                 showNumericalPropsOnly: false,
             })
             failingLogic.mount()
+
+            // A fetch failure for the current query must surface a distinct error state (with a
+            // retry), not the generic "No results" empty state — and must not spin forever.
             await expectLogic(failingLogic, () => {
                 failingLogic.actions.setSearchQuery('user_signed_up')
             })
@@ -562,18 +575,25 @@ describe('infiniteListLogic', () => {
                 .toFinishAllListeners()
                 .toMatchValues({
                     showLoadingState: false,
-                    showEmptyState: true,
+                    showEmptyState: false,
+                    showErrorState: true,
                 })
 
-            // The failure lands on the same empty state as a genuine no-match, so telemetry is
-            // the only prod signal that the backend blipped — losing this capture makes the
-            // worst case ("event exists, fetch failed") invisible.
+            // Telemetry is the only prod signal that the backend blipped, so the capture must fire.
             const failedCalls = captureSpy.mock.calls.filter((c) => c[0] === 'taxonomic filter fetch failed')
             expect(failedCalls).toHaveLength(1)
             expect(failedCalls[0][1]).toMatchObject({
                 groupType: TaxonomicFilterGroupType.Events,
                 searchQuery: 'user_signed_up',
             })
+
+            // Retrying the same query re-hits the backend and clears the error once it lands.
+            await expectLogic(failingLogic, () => {
+                failingLogic.actions.loadRemoteItems({ offset: 0, limit: 100 })
+            })
+                .toDispatchActions(['loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+                .toMatchValues({ showErrorState: false })
         })
     })
 

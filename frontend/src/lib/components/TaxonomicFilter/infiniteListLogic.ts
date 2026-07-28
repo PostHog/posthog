@@ -323,6 +323,7 @@ export interface infiniteListLogicValues {
         value: TaxonomicFilterValue | undefined
     }
     showEmptyState: boolean
+    showErrorState: boolean
     showLoadingState: boolean
     showNonCapturedEventOption: boolean
     showPopover: boolean
@@ -554,6 +555,13 @@ export interface infiniteListLogicMeta {
             anyGroupStale: boolean,
             searchQuery: string
         ) => boolean
+        showErrorState: (
+            remoteFetchFailed: string | null,
+            searchQuery: string,
+            totalListCount: number,
+            isLoading: boolean,
+            showNonCapturedEventOption: boolean
+        ) => boolean
         showEmptyState: (
             totalListCount: number,
             isLoading: boolean,
@@ -562,7 +570,8 @@ export interface infiniteListLogicMeta {
             hasRemoteDataSource: boolean,
             showNonCapturedEventOption: boolean,
             needsMoreSearchCharacters: boolean,
-            remoteResultsAreFresh: boolean
+            remoteResultsAreFresh: boolean,
+            showErrorState: boolean
         ) => boolean
         showLoadingState: (
             isLoading: boolean,
@@ -1267,6 +1276,26 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 searchQuery: string
             ): boolean => isSuggestedFilters && (anyGroupLoading || anyGroupStale) && searchQuery.trim().length > 0,
         ],
+        // A fetch failure for the *current* query gets its own state with a retry, rather than
+        // the "No results" empty state a genuine no-match shows. We compare the exact failed query
+        // (not a bare boolean) so an out-of-order stale failure doesn't surface an error over a
+        // newer in-flight query. Gated on there being nothing else to show: stale rows from a prior
+        // query still render, and the "not seen yet" escape hatch still wins when it applies.
+        showErrorState: [
+            (s) => [s.remoteFetchFailed, s.searchQuery, s.totalListCount, s.isLoading, s.showNonCapturedEventOption],
+            (
+                remoteFetchFailed: string | null,
+                searchQuery: string,
+                totalListCount: number,
+                isLoading: boolean,
+                showNonCapturedEventOption: boolean
+            ): boolean =>
+                remoteFetchFailed !== null &&
+                remoteFetchFailed === searchQuery &&
+                totalListCount === 0 &&
+                !isLoading &&
+                !showNonCapturedEventOption,
+        ],
         showEmptyState: [
             (s) => [
                 s.totalListCount,
@@ -1277,6 +1306,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 s.showNonCapturedEventOption,
                 s.needsMoreSearchCharacters,
                 s.remoteResultsAreFresh,
+                s.showErrorState,
             ],
             (
                 totalListCount: number,
@@ -1286,10 +1316,13 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 hasRemoteDataSource: boolean,
                 showNonCapturedEventOption: boolean,
                 needsMoreSearchCharacters: boolean,
-                remoteResultsAreFresh: boolean
+                remoteResultsAreFresh: boolean,
+                showErrorState: boolean
             ): boolean =>
                 (totalListCount === 0 &&
                     !isLoading &&
+                    // A failed fetch shows the error state (with retry), not "No results".
+                    !showErrorState &&
                     // Don't declare "No results" until the fetch for the *current* query has landed —
                     // otherwise a stale/empty list from the previous query masquerades as no matches.
                     remoteResultsAreFresh &&

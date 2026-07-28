@@ -6,7 +6,16 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { CSSProperties, useEffect, useState } from 'react'
 import { List, useListRef } from 'react-window'
 
-import { IconArchive, IconCheck, IconPin, IconPinFilled, IconPlus, IconSearch } from '@posthog/icons'
+import {
+    IconArchive,
+    IconCheck,
+    IconPin,
+    IconPinFilled,
+    IconPlus,
+    IconRefresh,
+    IconSearch,
+    IconWarning,
+} from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonTag } from '@posthog/lemon-ui'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
@@ -824,6 +833,36 @@ function InfiniteListEmptyState(): JSX.Element {
     )
 }
 
+function InfiniteListErrorState(): JSX.Element {
+    const { searchQuery } = useValues(taxonomicFilterLogic)
+    const { limit } = useValues(infiniteListLogic)
+    const { loadRemoteItems } = useActions(infiniteListLogic)
+
+    return (
+        <div className="no-infinite-results flex flex-col gap-y-1 items-center">
+            <IconWarning className="text-5xl text-tertiary" />
+            <span className="text-center">
+                {searchQuery ? (
+                    <>
+                        Couldn't load results for "<strong>{searchQuery}</strong>"
+                    </>
+                ) : (
+                    "Couldn't load results"
+                )}
+            </span>
+            <LemonButton
+                type="secondary"
+                size="xsmall"
+                icon={<IconRefresh />}
+                data-attr="taxonomic-retry-fetch"
+                onClick={() => loadRemoteItems({ offset: 0, limit })}
+            >
+                Try again
+            </LemonButton>
+        </div>
+    )
+}
+
 export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: InfiniteListProps): JSX.Element {
     const {
         mouseInteractionsEnabled,
@@ -852,6 +891,7 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
         showPopover,
         showNonCapturedEventOption,
         showEmptyState,
+        showErrorState,
         showLoadingState,
         isSuggestedFilters,
         isActiveTab,
@@ -878,12 +918,14 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
         <div
             className={cn(
                 'taxonomic-infinite-list',
-                showEmptyState && 'empty-infinite-list',
+                (showEmptyState || showErrorState) && 'empty-infinite-list',
                 'h-full',
                 isSuggestedFilters && 'empty-infinite-list--start'
             )}
         >
-            {showEmptyState ? (
+            {showErrorState ? (
+                <InfiniteListErrorState />
+            ) : showEmptyState ? (
                 <InfiniteListEmptyState />
             ) : showLoadingState ? (
                 <div className="flex items-center justify-center h-full">
