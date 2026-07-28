@@ -200,12 +200,17 @@ impl<P: KafkaProducer> Clone for KafkaSinkBase<P> {
 /// policy from metadata.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum KeyPolicy {
-    /// Partition on the event's `token:distinct_id` key.
-    EventKey,
-    /// No partition key — round-robin; person locality is intentionally dropped.
+    /// Preserve ordering per distinct id — the customer-facing guarantee for
+    /// every non-replay lane. Partitions on the event's canonical key
+    /// ([`CapturedEvent::key`]): `token:distinct_id`, or `token:ip` in
+    /// cookieless mode, where the ip stands in for the distinct id derived
+    /// later in the pipeline.
+    DistinctIdOrderingKey,
+    /// No partition key — round-robin; ordering is intentionally dropped.
     Null,
-    /// Partition on the replay `session_id` (missing id is a sink-level reject).
-    SessionId,
+    /// Preserve ordering per replay session: partitions on the raw
+    /// `session_id`, no token prefix (missing id is a sink-level reject).
+    SessionOrderingKey,
 }
 
 /// Header / metric side effects the routing decision implies. Applied by the
@@ -239,13 +244,13 @@ struct Route<'a> {
 }
 
 /// Partition key policy shared by the AnalyticsMain default and force-overflow
-/// paths: null the key when person processing is skipped, otherwise partition on
-/// the event key.
+/// paths: null the key when person processing is skipped, otherwise keep
+/// per-distinct-id ordering.
 fn person_key_policy(skip_person_processing: bool) -> KeyPolicy {
     if skip_person_processing {
         KeyPolicy::Null
     } else {
-        KeyPolicy::EventKey
+        KeyPolicy::DistinctIdOrderingKey
     }
 }
 
@@ -258,7 +263,7 @@ fn route(metadata: &ProcessedEventMetadata, ai_events_overflow_armed: bool) -> R
     if metadata.redirect_to_dlq {
         return Route {
             target: Outputs::Dlq,
-            key_policy: KeyPolicy::EventKey,
+            key_policy: KeyPolicy::DistinctIdOrderingKey,
             effect: RouteEffect::Dlq,
         };
     }
@@ -266,7 +271,7 @@ fn route(metadata: &ProcessedEventMetadata, ai_events_overflow_armed: bool) -> R
     if let Some(ref topic) = metadata.redirect_to_topic {
         return Route {
             target: Outputs::Custom(topic),
-            key_policy: KeyPolicy::EventKey,
+            key_policy: KeyPolicy::DistinctIdOrderingKey,
             effect: RouteEffect::CustomTopic,
         };
     }
@@ -276,7 +281,7 @@ fn route(metadata: &ProcessedEventMetadata, ai_events_overflow_armed: bool) -> R
             // Historical events never overflow — force_overflow and
             // overflow_reason are deliberately ignored here.
             target: Outputs::AnalyticsHistorical,
-            key_policy: KeyPolicy::EventKey,
+            key_policy: KeyPolicy::DistinctIdOrderingKey,
             effect: RouteEffect::Standard,
         },
         DataType::AnalyticsMain => {
@@ -299,7 +304,7 @@ fn route(metadata: &ProcessedEventMetadata, ai_events_overflow_armed: bool) -> R
                         preserve_locality: true,
                     }) => Route {
                         target: Outputs::AnalyticsOverflow,
-                        key_policy: KeyPolicy::EventKey,
+                        key_policy: KeyPolicy::DistinctIdOrderingKey,
                         effect: RouteEffect::Standard,
                     },
                     Some(OverflowReason::RateLimited {
@@ -344,7 +349,7 @@ fn route(metadata: &ProcessedEventMetadata, ai_events_overflow_armed: bool) -> R
                         preserve_locality: true,
                     }) => Route {
                         target: Outputs::AiOverflow,
-                        key_policy: KeyPolicy::EventKey,
+                        key_policy: KeyPolicy::DistinctIdOrderingKey,
                         effect: RouteEffect::Standard,
                     },
                     Some(OverflowReason::RateLimited {
@@ -356,31 +361,31 @@ fn route(metadata: &ProcessedEventMetadata, ai_events_overflow_armed: bool) -> R
                     },
                     Some(OverflowReason::ReplayLimited) | None => Route {
                         target: Outputs::AiMain,
-                        key_policy: KeyPolicy::EventKey,
+                        key_policy: KeyPolicy::DistinctIdOrderingKey,
                         effect: RouteEffect::Standard,
                     },
                 }
             } else {
                 Route {
                     target: Outputs::AiMain,
-                    key_policy: KeyPolicy::EventKey,
+                    key_policy: KeyPolicy::DistinctIdOrderingKey,
                     effect: RouteEffect::Standard,
                 }
             }
         }
         DataType::ClientIngestionWarning => Route {
             target: Outputs::ClientWarningsMain,
-            key_policy: KeyPolicy::EventKey,
+            key_policy: KeyPolicy::DistinctIdOrderingKey,
             effect: RouteEffect::Standard,
         },
         DataType::HeatmapMain => Route {
             target: Outputs::HeatmapsMain,
-            key_policy: KeyPolicy::EventKey,
+            key_policy: KeyPolicy::DistinctIdOrderingKey,
             effect: RouteEffect::Standard,
         },
         DataType::ExceptionErrorTracking => Route {
             target: Outputs::ErrorTrackingMain,
-            key_policy: KeyPolicy::EventKey,
+            key_policy: KeyPolicy::DistinctIdOrderingKey,
             effect: RouteEffect::Standard,
         },
         DataType::SnapshotMain => {
@@ -399,7 +404,7 @@ fn route(metadata: &ProcessedEventMetadata, ai_events_overflow_armed: bool) -> R
             };
             Route {
                 target,
-                key_policy: KeyPolicy::SessionId,
+                key_policy: KeyPolicy::SessionOrderingKey,
                 effect: RouteEffect::Standard,
             }
         }
@@ -437,7 +442,7 @@ mod route_tests {
             route(&m, false),
             Route {
                 target: Outputs::Dlq,
-                key_policy: KeyPolicy::EventKey,
+                key_policy: KeyPolicy::DistinctIdOrderingKey,
                 effect: RouteEffect::Dlq,
             }
         );
@@ -453,7 +458,7 @@ mod route_tests {
             route(&m, false),
             Route {
                 target: Outputs::Custom("my_topic"),
-                key_policy: KeyPolicy::EventKey,
+                key_policy: KeyPolicy::DistinctIdOrderingKey,
                 effect: RouteEffect::CustomTopic,
             }
         );
@@ -485,7 +490,10 @@ mod route_tests {
         // force_overflow -> overflow topic; key policy follows skip_person.
         let mut m = meta(DataType::AnalyticsMain);
         m.force_overflow = true;
-        assert_eq!(route(&m, false).key_policy, KeyPolicy::EventKey);
+        assert_eq!(
+            route(&m, false).key_policy,
+            KeyPolicy::DistinctIdOrderingKey
+        );
         m.skip_person_processing = true;
         assert_eq!(route(&m, false).key_policy, KeyPolicy::Null);
         assert_eq!(route(&m, false).target, Outputs::AnalyticsOverflow);
@@ -510,7 +518,10 @@ mod route_tests {
         preserve.overflow_reason = Some(OverflowReason::RateLimited {
             preserve_locality: true,
         });
-        assert_eq!(route(&preserve, false).key_policy, KeyPolicy::EventKey);
+        assert_eq!(
+            route(&preserve, false).key_policy,
+            KeyPolicy::DistinctIdOrderingKey
+        );
         assert_eq!(route(&preserve, false).target, Outputs::AnalyticsOverflow);
 
         let mut no_preserve = base.clone();
@@ -539,14 +550,14 @@ mod route_tests {
             route(&m, false),
             Route {
                 target: Outputs::AiMain,
-                key_policy: KeyPolicy::EventKey,
+                key_policy: KeyPolicy::DistinctIdOrderingKey,
                 effect: RouteEffect::Standard,
             }
         );
 
         // Valve armed: mirrors the analytics main lane's overflow handling.
         assert_eq!(route(&m, true).target, Outputs::AiOverflow);
-        assert_eq!(route(&m, true).key_policy, KeyPolicy::EventKey);
+        assert_eq!(route(&m, true).key_policy, KeyPolicy::DistinctIdOrderingKey);
         m.skip_person_processing = true;
         assert_eq!(route(&m, true).key_policy, KeyPolicy::Null);
 
@@ -574,7 +585,7 @@ mod route_tests {
                 route(&m, armed),
                 Route {
                     target: Outputs::AiMain,
-                    key_policy: KeyPolicy::EventKey,
+                    key_policy: KeyPolicy::DistinctIdOrderingKey,
                     effect: RouteEffect::Standard,
                 },
                 "armed={armed}"
@@ -589,14 +600,14 @@ mod route_tests {
             route(&m, false),
             Route {
                 target: Outputs::SessionReplayMain,
-                key_policy: KeyPolicy::SessionId,
+                key_policy: KeyPolicy::SessionOrderingKey,
                 effect: RouteEffect::Standard,
             }
         );
 
         m.force_overflow = true;
         assert_eq!(route(&m, false).target, Outputs::SessionReplayOverflow);
-        assert_eq!(route(&m, false).key_policy, KeyPolicy::SessionId);
+        assert_eq!(route(&m, false).key_policy, KeyPolicy::SessionOrderingKey);
 
         m.force_overflow = false;
         m.overflow_reason = Some(OverflowReason::ReplayLimited);
@@ -837,9 +848,9 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
         let topic: &str = self.topics.topic_for(&route.target);
 
         let partition_key: Option<&str> = match route.key_policy {
-            KeyPolicy::EventKey => Some(event_key.as_str()),
+            KeyPolicy::DistinctIdOrderingKey => Some(event_key.as_str()),
             KeyPolicy::Null => None,
-            KeyPolicy::SessionId => Some(
+            KeyPolicy::SessionOrderingKey => Some(
                 metadata
                     .session_id
                     .as_deref()
