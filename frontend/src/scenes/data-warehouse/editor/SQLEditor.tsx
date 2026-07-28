@@ -385,7 +385,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         setEditingInsightName,
         setEditingInsightDescription,
     } = useActions(sqlEditorLogic)
-    const { editingMetricName } = useValues(sqlEditorLogic)
+    const { editingMetricName, metricUpdating } = useValues(sqlEditorLogic)
     const { response, responseError, responseLoading } = useValues(dataNodeLogic)
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
 
@@ -730,6 +730,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                     type="primary"
                                     size="small"
                                     onClick={() => updateEditingMetric()}
+                                    loading={metricUpdating}
                                     disabledReason={saveAsDisabledReason}
                                     data-attr="sql-editor-update-metric"
                                     sideAction={{

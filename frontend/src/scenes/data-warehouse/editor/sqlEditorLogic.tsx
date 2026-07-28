@@ -521,6 +521,7 @@ export interface sqlEditorLogicValues {
     materializationModalView: DataWarehouseSavedQuery | null
     metadata: HogQLMetadataResponse | null
     metadataLoading: boolean
+    metricUpdating: boolean
     originalQueryInput: string | null | undefined
     queryInput: string | null
     rejectText: string
@@ -980,6 +981,9 @@ export interface sqlEditorLogicActions {
     setMetadataLoading: (loading: boolean) => {
         loading: boolean
     }
+    setMetricUpdating: (updating: boolean) => {
+        updating: boolean
+    }
     setQueryInput: (queryInput: string | null) => {
         queryInput: string | null
     }
@@ -1217,6 +1221,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         }),
         setEditingMetricName: (metricName: string | null) => ({ metricName }),
         updateEditingMetric: true,
+        setMetricUpdating: (updating: boolean) => ({ updating }),
         updateInsight: true,
         setEditingInsightName: (name: string) => ({ name }),
         setEditingInsightDescription: (description: string) => ({ description }),
@@ -1497,6 +1502,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             false,
             {
                 setInsightLoading: (_, { loading }) => loading,
+            },
+        ],
+        metricUpdating: [
+            false,
+            {
+                setMetricUpdating: (_, { updating }) => updating,
             },
         ],
         activeTab: [
@@ -2514,9 +2525,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 }
             },
             updateEditingMetric: async () => {
-                if (!values.editingMetricName) {
+                if (!values.editingMetricName || values.metricUpdating) {
                     return
                 }
+                actions.setMetricUpdating(true)
                 try {
                     await dataCatalogMetricsPartialUpdate(
                         String(ApiConfig.getCurrentTeamId()),
@@ -2532,6 +2544,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     router.actions.push(urls.dataCatalogMetric(values.editingMetricName))
                 } catch (error: any) {
                     lemonToast.error(error.detail || 'Failed to update metric')
+                } finally {
+                    actions.setMetricUpdating(false)
                 }
             },
             setEditingMetricName: ({ metricName }) => {

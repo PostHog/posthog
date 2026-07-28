@@ -487,7 +487,9 @@ function MetricDefinition({
                     </>
                 ) : (
                     <>
-                        <LemonMarkdown>{definitionField(metric, 'markdown') || '_No instructions yet._'}</LemonMarkdown>
+                        <LemonMarkdown disableImages>
+                            {definitionField(metric, 'markdown') || '_No instructions yet._'}
+                        </LemonMarkdown>
                         <div className="flex gap-2">
                             {runButton}
                             <LemonButton
@@ -566,7 +568,7 @@ function RunResult({ runResult }: { runResult: DataCatalogMetricRunResult }): JS
     return (
         <div className="flex flex-col gap-2">
             {runResult.instructions ? (
-                <LemonMarkdown>{runResult.instructions}</LemonMarkdown>
+                <LemonMarkdown disableImages>{runResult.instructions}</LemonMarkdown>
             ) : (
                 <ResultsTable results={runResult.results} />
             )}
