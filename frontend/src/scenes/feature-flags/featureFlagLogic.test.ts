@@ -785,6 +785,26 @@ describe('featureFlagLogic', () => {
             }).toMatchValues({ hasUnsavedChanges: false })
         })
 
+        it('keeps an in-progress release-condition edit dirty when a background setFeatureFlag reconciles', async () => {
+            // Regression: a mid-edit setFeatureFlag (inline tag save, active/archive sync, or the
+            // on-mount cache reconcile) used to re-baseline originalFeatureFlag to the already-edited
+            // working copy, flipping the guard to clean so navigation silently discarded the edit.
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagValue('filters', {
+                    ...logic.values.featureFlag.filters,
+                    groups: [
+                        ...logic.values.featureFlag.filters.groups,
+                        { properties: [], rollout_percentage: 100, variant: null },
+                    ],
+                })
+            }).toMatchValues({ hasUnsavedChanges: true, isFormDirty: true })
+
+            // Reconcile with the current working copy, as a tag save / active sync does mid-edit.
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlag(logic.values.featureFlag)
+            }).toMatchValues({ hasUnsavedChanges: true, isFormDirty: true })
+        })
+
         it('tracks changes when the whole form is replaced via setFeatureFlagValues', async () => {
             await expectLogic(logic, () => {
                 // Form `defaults` narrow `ensure_experience_continuity` to `boolean`, but
