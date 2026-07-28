@@ -43,6 +43,7 @@ from posthog.security.url_validation import is_url_allowed
 
 from ..models import MCPOAuthState, MCPServerInstallation, MCPServerInstallationTool, MCPServerTemplate, SensitiveConfig
 from ..oauth import (
+    DcrClientRegistration,
     OAuthAuthorizeURLError,
     OAuthTokenExchangeError,
     discover_oauth_metadata,
@@ -575,7 +576,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
     def _register_dcr_client_or_raise(
         self, metadata: dict, redirect_uri: str, *, server_url: str = ""
-    ) -> tuple[str, str | None, str]:
+    ) -> DcrClientRegistration:
         log_context = {"error": ""} if not server_url else {"server_url": server_url, "error": ""}
         try:
             return register_dcr_client(metadata, redirect_uri)
@@ -871,7 +872,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 return Response({"detail": "OAuth discovery failed."}, status=status.HTTP_400_BAD_REQUEST)
 
             try:
-                client_id, dcr_client_secret, token_endpoint_auth_method = self._register_dcr_client_or_raise(
+                registration = self._register_dcr_client_or_raise(
                     metadata,
                     redirect_uri,
                     server_url=template.url,
@@ -887,6 +888,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 if created:
                     installation.delete()
                 return Response({"detail": "OAuth registration failed."}, status=status.HTTP_400_BAD_REQUEST)
+            client_id = registration.client_id
 
             # Cache the discovered metadata and minted per-user client on the
             # installation so reconnect/refresh can reuse them. Nothing is
@@ -894,9 +896,9 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             sensitive = dict(installation.sensitive_configuration or {})
             sensitive["dcr_client_id"] = client_id
             sensitive["dcr_is_user_provided"] = False
-            sensitive["dcr_token_endpoint_auth_method"] = token_endpoint_auth_method
-            if dcr_client_secret:
-                sensitive["dcr_client_secret"] = dcr_client_secret
+            sensitive["dcr_token_endpoint_auth_method"] = registration.token_endpoint_auth_method
+            if registration.client_secret:
+                sensitive["dcr_client_secret"] = registration.client_secret
             else:
                 sensitive.pop("dcr_client_secret", None)
             installation.oauth_metadata = metadata
@@ -1132,9 +1134,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 )
         else:
             try:
-                client_id, dcr_client_secret, token_endpoint_auth_method = self._register_dcr_client_or_raise(
-                    metadata, redirect_uri, server_url=mcp_url
-                )
+                registration = self._register_dcr_client_or_raise(metadata, redirect_uri, server_url=mcp_url)
             except DCRNotSupportedError:
                 if created:
                     installation.delete()
@@ -1146,6 +1146,9 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 if created:
                     installation.delete()
                 return Response({"detail": "OAuth registration failed."}, status=status.HTTP_400_BAD_REQUEST)
+            client_id = registration.client_id
+            dcr_client_secret = registration.client_secret
+            token_endpoint_auth_method = registration.token_endpoint_auth_method
             dcr_is_user_provided = False
 
         # Cache the (non-secret) discovery metadata and the per-user creds on

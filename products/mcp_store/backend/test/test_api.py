@@ -16,6 +16,7 @@ from rest_framework.test import APIClient
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 
 from products.mcp_store.backend.models import MCPOAuthState, MCPServerInstallation, MCPServerTemplate
+from products.mcp_store.backend.oauth import DcrClientRegistration
 from products.mcp_store.backend.presentation.views import _is_valid_posthog_code_callback_url
 
 ALLOW_URL = patch("products.mcp_store.backend.presentation.views.is_url_allowed", return_value=(True, None))
@@ -844,7 +845,9 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     @patch("products.mcp_store.backend.presentation.views.discover_oauth_metadata")
     @patch(
         "products.mcp_store.backend.presentation.views.register_dcr_client",
-        return_value=("dcr-client-id", None, "none"),
+        return_value=DcrClientRegistration(
+            client_id="dcr-client-id", client_secret=None, token_endpoint_auth_method="none"
+        ),
     )
     def test_install_custom_populates_created_by(self, _mock_dcr, mock_discover, _allow):
         """install_custom path must stamp created_by on the MCPOAuthState row."""
@@ -916,7 +919,9 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
             "token_endpoint": "https://auth.legit.com/token",
             "registration_endpoint": "https://auth.legit.com/register",
         }
-        mock_dcr.return_value = ("per-user-dcr-client", None, "none")
+        mock_dcr.return_value = DcrClientRegistration(
+            client_id="per-user-dcr-client", client_secret=None, token_endpoint_auth_method="none"
+        )
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
@@ -950,7 +955,11 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
             "token_endpoint": "https://auth.legit.com/token",
             "registration_endpoint": "https://auth.legit.com/register",
         }
-        mock_dcr.return_value = ("dcr-minted-client", "dcr-minted-secret", "client_secret_post")
+        mock_dcr.return_value = DcrClientRegistration(
+            client_id="dcr-minted-client",
+            client_secret="dcr-minted-secret",
+            token_endpoint_auth_method="client_secret_post",
+        )
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
@@ -1049,7 +1058,9 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
             "token_endpoint": "https://auth.legit.com/token",
             "registration_endpoint": "https://auth.legit.com/register",
         }
-        mock_dcr.return_value = ("dcr-minted-client", None, "none")
+        mock_dcr.return_value = DcrClientRegistration(
+            client_id="dcr-minted-client", client_secret=None, token_endpoint_auth_method="none"
+        )
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
@@ -1074,7 +1085,9 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
     @ALLOW_URL
     @patch(
         "products.mcp_store.backend.presentation.views.register_dcr_client",
-        return_value=("new-dcr-client", None, "none"),
+        return_value=DcrClientRegistration(
+            client_id="new-dcr-client", client_secret=None, token_endpoint_auth_method="none"
+        ),
     )
     @patch("products.mcp_store.backend.presentation.views.discover_oauth_metadata")
     def test_reinstall_clears_stale_tokens_and_flags_reauth(self, mock_discover, _mock_dcr, _allow):
@@ -1383,7 +1396,9 @@ class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
 
     @patch(
         "products.mcp_store.backend.presentation.views.register_dcr_client",
-        return_value=("minted-per-user-client", None, "none"),
+        return_value=DcrClientRegistration(
+            client_id="minted-per-user-client", client_secret=None, token_endpoint_auth_method="none"
+        ),
     )
     @patch(
         "products.mcp_store.backend.presentation.views.discover_oauth_metadata",

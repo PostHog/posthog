@@ -234,7 +234,7 @@ def _register_probe_client(metadata: dict, result: ProbeResult) -> str | None:
     if not metadata.get("registration_endpoint"):
         return None
     try:
-        client_id, _client_secret, _auth_method = register_dcr_client(metadata, _probe_redirect_uri())
+        registration = register_dcr_client(metadata, _probe_redirect_uri())
     except ValueError as exc:
         # Mirrors views._register_dcr_client_or_raise: ValueError means DCR isn't supported.
         result.errors.append(f"Dynamic Client Registration not supported: {exc}")
@@ -242,7 +242,7 @@ def _register_probe_client(metadata: dict, result: ProbeResult) -> str | None:
     except Exception as exc:
         result.errors.append(f"Dynamic Client Registration failed: {exc}")
         return None
-    return client_id
+    return registration.client_id
 
 
 def _build_authorize_url(metadata: dict, client_id: str) -> str | None:
