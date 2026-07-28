@@ -6,7 +6,7 @@
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
 category: Agent stack
 feature: agent_platform
-url_prefix: /agent_applications
+url_prefix: /
 feature_flag: agent-platform
 ui_apps: {}
 tools:
