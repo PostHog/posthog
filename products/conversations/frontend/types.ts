@@ -161,7 +161,6 @@ export interface Ticket {
     session_context?: {
         session_replay_url?: string
         current_url?: string
-        current_url_truncated?: boolean
         [key: string]: any
     }
     sla_due_at?: string | null
@@ -196,7 +195,6 @@ export interface ConversationTicket {
     session_context?: {
         session_replay_url?: string
         current_url?: string
-        current_url_truncated?: boolean
         [key: string]: any
     }
 }

@@ -3,7 +3,7 @@ import { combineUrl, router } from 'kea-router'
 import { useRef } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonSelect, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonSelect, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
@@ -382,23 +382,14 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             {ticket?.session_context?.current_url && (
                                 <div className="flex justify-between items-start gap-2">
                                     <span className="text-muted-alt shrink-0">Page URL</span>
-                                    {ticket.session_context.current_url_truncated ? (
-                                        <Tooltip title="This URL was shortened because it was very long, so it may be incomplete.">
-                                            <span className="flex items-center gap-1 text-xs text-muted-alt overflow-hidden">
-                                                <span className="truncate">{ticket.session_context.current_url}</span>
-                                                <span className="shrink-0">(shortened)</span>
-                                            </span>
-                                        </Tooltip>
-                                    ) : (
-                                        <Link
-                                            to={ticket.session_context.current_url}
-                                            target="_blank"
-                                            className="text-xs truncate text-right"
-                                            title={ticket.session_context.current_url}
-                                        >
-                                            {ticket.session_context.current_url}
-                                        </Link>
-                                    )}
+                                    <Link
+                                        to={ticket.session_context.current_url}
+                                        target="_blank"
+                                        className="text-xs truncate text-right"
+                                        title={ticket.session_context.current_url}
+                                    >
+                                        {ticket.session_context.current_url}
+                                    </Link>
                                 </div>
                             )}
                             <div className="flex justify-between items-center">
