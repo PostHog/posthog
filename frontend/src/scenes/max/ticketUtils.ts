@@ -22,7 +22,7 @@ const TICKET_CONFIRMATION_LEAD = "I've created a support ticket for you"
  */
 export function formatTicketConfirmationMessage(ticketId: string, responseTime: string | null): string {
     const closingLine = responseTime
-        ? `Our support team will get back to you within ${responseTime}.`
+        ? `Our support team aims to get back to you within ${responseTime}.`
         : 'Our support team will get back to you soon!'
     return `${TICKET_CONFIRMATION_LEAD}.\nYour ticket ID is #${ticketId}.\n${closingLine}`
 }

@@ -59,7 +59,7 @@ describe('ticketUtils', () => {
     describe('formatTicketConfirmationMessage', () => {
         it('promises the response time the plan covers', () => {
             expect(formatTicketConfirmationMessage('4321', '48 hours')).toBe(
-                "I've created a support ticket for you.\nYour ticket ID is #4321.\nOur support team will get back to you within 48 hours."
+                "I've created a support ticket for you.\nYour ticket ID is #4321.\nOur support team aims to get back to you within 48 hours."
             )
         })
 
