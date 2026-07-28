@@ -583,7 +583,7 @@ class DirectConnectionSourceOptionSerializer(serializers.Serializer):
         read_only=True,
         help_text="The source type to start a direct-connection setup for (e.g. 'Postgres', 'ClickHouse').",
     )
-    label = serializers.CharField(
+    label = serializers.CharField(  # type: ignore[assignment]  # field name intentionally shadows Field.label
         read_only=True,
         help_text="Human-readable name to show in the picker (falls back to the source type).",
     )
