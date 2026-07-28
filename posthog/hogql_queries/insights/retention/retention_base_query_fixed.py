@@ -294,11 +294,39 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         actor_field = ast.Field(chain=[self.aggregation_target_events_column])
         start_of_interval_sql = self.query_date_range.get_start_of_interval_hogql(source=timestamp_field)
 
-        start_event_timestamps_expr = self._single_scan_start_event_timestamps_expr(
-            timestamp_field, self.start_entity_expr
-        )
+        two_arm = self._first_time_two_arm_scan()
+        if two_arm:
+            # The same lean two-arm shape build_base_query_legacy uses: each arm carries its own
+            # entity's filters (start unbounded for the anchor, return bounded to the window) and
+            # projects only actor/timestamp/tags, so granules the unbounded start arm matches never
+            # read the other entity's columns. The aggregates below swap entity matchers for the
+            # arms' role tags.
+            select_from = ast.JoinExpr(
+                table=ast.SelectSetQuery.create_from_queries(
+                    [
+                        self._first_time_scan_arm(self.start_event, "start"),
+                        self._first_time_scan_arm(self.return_event, "return"),
+                    ],
+                    "UNION ALL",
+                ),
+                alias="events",
+            )
+            where: ast.Expr | None = None
+            return_condition: ast.Expr = parse_expr("events.is_return = 1")
+        else:
+            select_from = ast.JoinExpr(table=ast.Field(chain=["events"]))
+            where = ast.And(exprs=self._single_scan_filters())
+            return_condition = self.return_entity_expr
+
         if self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence:
-            start_event_timestamps_expr = self._first_time_start_event_timestamps_expr(self.start_event)
+            anchor_expr = (
+                self._first_time_two_arm_anchor_expr() if two_arm else self.get_first_time_anchor_expr(self.start_event)
+            )
+            start_event_timestamps_expr = self._anchored_start_event_timestamps_expr(anchor_expr)
+        else:
+            start_event_timestamps_expr = self._single_scan_start_event_timestamps_expr(
+                timestamp_field, self.start_entity_expr
+            )
 
         select_fields: list[ast.Expr] = [
             ast.Alias(alias="actor_id", expr=actor_field),
@@ -313,7 +341,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                     with_dupes_expr=self._get_dwh_return_timestamps_expr(
                         minimum_occurrences=self.minimum_occurrences,
                         start_of_interval_sql=start_of_interval_sql,
-                        return_entity_expr=self.return_entity_expr,
+                        return_entity_expr=return_condition,
                         timestamp_field=timestamp_field,
                     ),
                 )
@@ -323,7 +351,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             return_event_timestamps_expr = self._get_dwh_return_timestamps_expr(
                 minimum_occurrences=1,
                 start_of_interval_sql=start_of_interval_sql,
-                return_entity_expr=self.return_entity_expr,
+                return_entity_expr=return_condition,
                 timestamp_field=timestamp_field,
             )
 
@@ -343,8 +371,8 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
 
         return ast.SelectQuery(
             select=select_fields,
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-            where=ast.And(exprs=self._single_scan_filters()),
+            select_from=select_from,
+            where=where,
             group_by=[ast.Field(chain=["actor_id"])],
             having=ast.And(
                 exprs=[
@@ -385,7 +413,8 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         # return-side aggregate is window-conditioned. Filtering per role keeps the start entity
         # unbounded while cutting the return entity to the window, instead of reading BOTH
         # entities' full history (with an all-events return entity that was the entire events
-        # table). This is the single-scan equivalent of the legacy two-arm split.
+        # table). Shapes the two-arm scan can serve never get here; this covers the remainder the
+        # tag arms can't carry, chiefly breakdowns, which read event properties in the outer query.
         filters = self.runner.events_where_clause(
             self.is_first_occurrence_matching_filters, self.is_first_ever_occurrence, entities=[]
         )
@@ -579,14 +608,17 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         )
 
     def _first_time_start_event_timestamps_expr(self, entity: RetentionEntity) -> ast.Expr:
-        # The variant subquery is already GROUP BY actor_id, so the polymorphic first-time anchor (a minIf)
-        # resolves to one cohorting timestamp per actor. Emit that single bucketed interval when the anchor falls
+        return self._anchored_start_event_timestamps_expr(self.get_first_time_anchor_expr(entity))
+
+    def _anchored_start_event_timestamps_expr(self, anchor_expr: ast.Expr) -> ast.Expr:
+        # The variant subquery is already GROUP BY actor_id, so the first-time anchor (a minIf over
+        # entity matchers, or over the two-arm role tags) resolves to one cohorting timestamp per actor.
+        # Emit that single bucketed interval when the anchor falls
         # inside the query window, otherwise nothing. This mirrors the legacy
         # if(has(_start_event_timestamps, min_timestamp), _start_event_timestamps, []) wrapping: in first-time
         # mode the only element ever read is start_event_timestamps[1] (the minimum), so a single-element array is
         # equivalent. A null anchor (first-ever occurrence not matching filters) or an out-of-window anchor both
         # fail the window check and yield an empty array, excluding the actor.
-        anchor_expr = self.get_first_time_anchor_expr(entity)
         return parse_expr(
             "if({within_window}, [{bucketed_anchor}], [])",
             {
@@ -651,15 +683,15 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             source=ast.Field(chain=["events", "timestamp"])
         )
 
-        two_arm = self._legacy_first_time_two_arm_scan()
+        two_arm = self._first_time_two_arm_scan()
         if two_arm:
             # Aliasing the UNION as `events` keeps every aggregate expression below identical;
             # only the entity conditions swap to the arms' role tags.
             select_from = ast.JoinExpr(
                 table=ast.SelectSetQuery.create_from_queries(
                     [
-                        self._legacy_scan_arm(self.start_event, "start"),
-                        self._legacy_scan_arm(self.return_event, "return"),
+                        self._first_time_scan_arm(self.start_event, "start"),
+                        self._first_time_scan_arm(self.return_event, "return"),
                     ],
                     "UNION ALL",
                 ),
@@ -752,7 +784,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
 
         if self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence:
             min_timestamp_inner_expr = (
-                self._legacy_two_arm_anchor_expr() if two_arm else self.get_first_time_anchor_expr(self.start_event)
+                self._first_time_two_arm_anchor_expr() if two_arm else self.get_first_time_anchor_expr(self.start_event)
             )
 
             start_event_timestamps = parse_expr(
@@ -870,7 +902,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
 
         return inner_query
 
-    def _legacy_first_time_two_arm_scan(self) -> bool:
+    def _first_time_two_arm_scan(self) -> bool:
         # The tag-column arms carry no event properties, so any per-row property read in the
         # outer query (value breakdowns, property aggregation) keeps the single scan.
         return (
@@ -886,7 +918,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             return False
         return None not in self.runner.get_events_for_entity(self.start_event)
 
-    def _legacy_scan_arm(self, entity: RetentionEntity, query_kind: Literal["start", "return"]) -> ast.SelectQuery:
+    def _first_time_scan_arm(self, entity: RetentionEntity, query_kind: Literal["start", "return"]) -> ast.SelectQuery:
         filters = [*self.runner.arm_event_filters(entity, query_kind)]
         if query_kind == "start":
             # The first-ever anchor needs the no-props stream, so property matching moves into
@@ -922,7 +954,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             where=ast.And(exprs=filters) if filters else None,
         )
 
-    def _legacy_two_arm_anchor_expr(self) -> ast.Expr:
+    def _first_time_two_arm_anchor_expr(self) -> ast.Expr:
         # Mirrors get_first_time_anchor_expr with the arms' tags standing in for the entity matchers.
         if self.is_first_ever_occurrence:
             return parse_expr(
