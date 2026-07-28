@@ -99,6 +99,17 @@ class TestCheckProductAccess:
             ("posthog_ai", "oauth_access_token", POSTHOG_AI_US_APP_ID, "claude-sonnet-4-5", True, None),
             ("posthog_ai", "oauth_access_token", POSTHOG_AI_EU_APP_ID, "gpt-5.3-codex", True, None),
             ("posthog_ai", "oauth_access_token", POSTHOG_AI_DEV_APP_ID, "claude-3-opus", True, None),
+            # changelog_bot: shared-key auth, models pinned to the openai/-prefixed ids the curator
+            # sends verbatim. Exact-match only: bare ids (no prefix) AND variant suffixes must be
+            # rejected, or the cost pin doesn't hold.
+            ("changelog_bot", "personal_api_key", None, "openai/gpt-5.6-terra", True, None),
+            ("changelog_bot", "personal_api_key", None, "openai/gpt-5.6-sol", True, None),
+            ("changelog_bot", "personal_api_key", None, "gpt-5.6-terra", False, "not allowed"),
+            ("changelog_bot", "personal_api_key", None, "openai/gpt-5-mini", False, "not allowed"),
+            # exact_model_match: a pricier "-pro" variant of a pinned id must NOT slip through startswith.
+            ("changelog_bot", "personal_api_key", None, "openai/gpt-5.6-terra-pro", False, "not allowed"),
+            ("changelog_bot", "personal_api_key", None, "openai/gpt-5.6-sol-pro", False, "not allowed"),
+            ("changelog_bot", "oauth_access_token", "any-app-id", "openai/gpt-5.6-terra", False, "not authorized"),
             # unknown product
             ("unknown", "personal_api_key", None, None, False, "Unknown product"),
         ],
