@@ -8,7 +8,13 @@ MAX_SUMMARIES_PER_RUN = 50
 # Must be in the LLM gateway `conversations` product allowlist
 # (`services/llm-gateway/src/llm_gateway/products/config.py`).
 SUMMARY_MODEL = "claude-sonnet-5"
-SUMMARY_MAX_TOKENS = 2000
+# Generous so a busy period never truncates mid-list; a short prompt-enforced summary
+# stops well under this on quiet channels.
+SUMMARY_MAX_TOKENS = 10_000
+
+# How far before the period to scan for older threads that got replies inside it —
+# a customer replying to last week's thread still counts as period activity.
+STALE_THREAD_LOOKBACK_DAYS = 30
 
 # Attempts for the single summarize activity; the activity captures to error
 # tracking on its final attempt.

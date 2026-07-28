@@ -5,6 +5,7 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
 with workflow.unsafe.imports_passed_through():
+    import re
     import asyncio
     from datetime import datetime, timedelta
     from uuid import uuid5
@@ -26,6 +27,7 @@ with workflow.unsafe.imports_passed_through():
         MAX_SUMMARY_ATTEMPTS,
         MAX_TRANSCRIPT_CHARS,
         MAX_TRANSCRIPT_MESSAGES,
+        STALE_THREAD_LOOKBACK_DAYS,
         SUMMARY_MAX_TOKENS,
         SUMMARY_MODEL,
     )
@@ -64,6 +66,7 @@ One bullet per unresolved request or commitment: who asked, what they need. Writ
 
 Rules:
 - Be factual and specific. No filler, no speculation.
+- Cover every distinct thread or topic in the transcript at least briefly before going deep on any one.
 - Back every claim with a citation: a markdown link on a short phrase pointing to the source message's link from the transcript, like [asked about SSO](https://...). Every bullet needs at least one citation.
 - Do not use em-dashes.
 - Do not address the customer; this is an internal recap.
@@ -90,22 +93,18 @@ def _fetch_period_messages(
 ) -> list[tuple[dict, list[dict]]]:
     """The channel's messages within ``[oldest, latest)`` as (parent, replies) pairs,
     oldest first. Replies are bounded to the same window so a summary never leaks
-    content from after its period."""
-    parents: list[dict] = []
-    cursor: str | None = None
-    while True:
-        response = client.conversations_history(
-            channel=channel_id,
-            oldest=str(oldest),
-            latest=str(latest),
-            limit=200,
-            cursor=cursor,
-        )
-        page_messages: list[dict] = response.get("messages", [])
-        parents.extend(m for m in page_messages if _include_message(m))
-        cursor = ((response.get("response_metadata") or {}).get("next_cursor")) or None
-        if not cursor or len(parents) >= MAX_TRANSCRIPT_MESSAGES:
-            break
+    content from outside its period. Parents from before the window whose thread got
+    replies inside it are included too (as anchors) — a reply yesterday to last week's
+    thread is period activity, and thread replies never show up in channel history."""
+    parents = _history_page(client, channel_id, oldest, latest, _include_message)
+    lookback_oldest = oldest - STALE_THREAD_LOOKBACK_DAYS * 24 * 3600
+    parents += _history_page(
+        client,
+        channel_id,
+        lookback_oldest,
+        oldest,
+        lambda m: bool(m.get("reply_count")) and float(m.get("latest_reply", 0)) >= oldest and _include_message(m),
+    )
 
     parents.sort(key=lambda m: float(m["ts"]))
     threads: list[tuple[dict, list[dict]]] = []
@@ -117,10 +116,37 @@ def _fetch_period_messages(
             replies = [
                 r
                 for r in thread_messages
-                if r.get("ts") != parent["ts"] and float(r.get("ts", 0)) < latest and _include_message(r)
+                if r.get("ts") != parent["ts"] and oldest <= float(r.get("ts", 0)) < latest and _include_message(r)
             ]
         threads.append((parent, replies))
     return threads
+
+
+def _history_page(client: WebClient, channel_id: str, oldest: float, latest: float, keep) -> list[dict]:
+    kept: list[dict] = []
+    cursor: str | None = None
+    while True:
+        response = client.conversations_history(
+            channel=channel_id,
+            oldest=str(oldest),
+            latest=str(latest),
+            limit=200,
+            cursor=cursor,
+        )
+        page_messages: list[dict] = response.get("messages", [])
+        kept.extend(m for m in page_messages if keep(m))
+        cursor = ((response.get("response_metadata") or {}).get("next_cursor")) or None
+        if not cursor or len(kept) >= MAX_TRANSCRIPT_MESSAGES:
+            break
+    return kept
+
+
+# <@U123ABC> or <@U123ABC|legacy name> — Slack's raw mention syntax in message text.
+_MENTION_RE = re.compile(r"<@([A-Z0-9]+)(?:\|[^>]*)?>")
+
+
+def _resolve_mentions(client: WebClient, text: str, cache: dict[str, str]) -> str:
+    return _MENTION_RE.sub(lambda m: f"@{_display_name(client, m.group(1), cache)}", text)
 
 
 def _display_name(client: WebClient, user_id: str, cache: dict[str, str]) -> str:
@@ -141,7 +167,7 @@ def _message_line(client: WebClient, channel_id: str, message: dict, tz, cache: 
     ts = message["ts"]
     when = datetime.fromtimestamp(float(ts), tz=tz).strftime("%Y-%m-%d %H:%M")
     author = _display_name(client, message["user"], cache) if message.get("user") else "unknown"
-    text = (message.get("text") or "").strip() or "[file shared]"
+    text = _resolve_mentions(client, (message.get("text") or "").strip(), cache) or "[file shared]"
     link = _slack_permalink(channel_id, ts, message.get("thread_ts"))
     return f"{indent}[{when}] {author}: {text}\n{indent}  link: {link}"
 

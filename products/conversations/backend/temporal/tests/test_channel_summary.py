@@ -11,6 +11,7 @@ from products.conversations.backend.temporal.channel_summary.coordinator import 
 from products.conversations.backend.temporal.channel_summary.summarize import (
     _fetch_period_messages,
     _include_message,
+    _resolve_mentions,
     _slack_permalink,
 )
 from products.customer_analytics.backend.test.factories import create_account
@@ -90,3 +91,49 @@ class TestSummarizeHelpers:
         threads = _fetch_period_messages(client, "C1", oldest=50.0, latest=200.0)
 
         assert [(p["ts"], [r["ts"] for r in replies]) for p, replies in threads] == [("100.0", ["150.0"])]
+
+    def test_replies_to_a_thread_started_before_the_period_are_included(self):
+        # Thread replies never appear in channel history, so without the lookback scan a
+        # reply inside the period to last week's thread would vanish from the summary.
+        stale_parent = {
+            "text": "old question",
+            "ts": "10.0",
+            "thread_ts": "10.0",
+            "user": "U1",
+            "reply_count": 2,
+            "latest_reply": "150.0",
+        }
+        quiet_old_parent = {
+            "text": "no new replies",
+            "ts": "20.0",
+            "user": "U1",
+            "reply_count": 1,
+            "latest_reply": "30.0",
+        }
+        before_window_reply = {"text": "old answer", "ts": "30.0", "thread_ts": "10.0", "user": "U2"}
+        in_window_reply = {"text": "new answer", "ts": "150.0", "thread_ts": "10.0", "user": "U2"}
+
+        def history(channel, oldest, latest, limit, cursor):
+            in_window_scan = float(oldest) == 50.0
+            return {
+                "messages": [] if in_window_scan else [stale_parent, quiet_old_parent],
+                "response_metadata": {},
+            }
+
+        client = MagicMock()
+        client.conversations_history.side_effect = history
+        client.conversations_replies.return_value = {"messages": [stale_parent, before_window_reply, in_window_reply]}
+
+        threads = _fetch_period_messages(client, "C1", oldest=50.0, latest=200.0)
+
+        assert [(p["ts"], [r["ts"] for r in replies]) for p, replies in threads] == [("10.0", ["150.0"])]
+
+    def test_mentions_in_text_resolve_to_display_names(self):
+        client = MagicMock()
+        client.users_info.return_value = {"user": {"profile": {"display_name": "alice", "real_name": "Alice A"}}}
+        cache: dict[str, str] = {}
+
+        resolved = _resolve_mentions(client, "hey <@U123ABC> and <@U123ABC|alice-legacy>, ping me", cache)
+
+        assert resolved == "hey @alice and @alice, ping me"
+        client.users_info.assert_called_once_with(user="U123ABC")
