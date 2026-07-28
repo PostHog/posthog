@@ -32,6 +32,12 @@ class BetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "bet"
     serializer_class = BetSerializer
     pagination_class = None
+    # Custom @action names aren't covered by APIScopePermission's default
+    # list/retrieve/create/update/... action sets, so personal-API-key and
+    # OAuth access (the only auth an external orchestrator or the /bet skill
+    # has) is rejected for them unless listed here explicitly.
+    scope_object_read_actions = ["list", "retrieve", "nodes"]
+    scope_object_write_actions = ["create", "update", "partial_update", "destroy", "fund", "verdict", "events"]
 
     def _get(self, bet_id: str) -> contracts.BetDTO:
         try:
