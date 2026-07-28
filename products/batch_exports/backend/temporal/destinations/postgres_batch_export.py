@@ -160,10 +160,13 @@ class PostgreSQLTransactionError(Exception):
 
 
 class PostgreSQLMissingRequiredInputsError(Exception):
-    """Raised when required connection inputs (credentials or host/port) are missing.
+    """Raised when the export is missing required connection inputs (credentials or host/port).
 
     This usually means the backing integration is misconfigured or absent, so retrying won't recover it.
     """
+
+    def __init__(self, err_msg: str):
+        super().__init__(f"The export is missing required connection inputs: {err_msg}")
 
 
 class _PostgreSQLClientInputsProtocol(typing.Protocol):
@@ -193,7 +196,7 @@ class PostgresInsertInputs(BatchExportInsertInputs):
         password = self.password
 
         if user is None or password is None:
-            raise PostgreSQLMissingRequiredInputsError("Missing required credentials (user and/or password)")
+            raise ValueError("Missing required inputs")
 
         return Credentials(user, password)
 
@@ -202,7 +205,7 @@ class PostgresInsertInputs(BatchExportInsertInputs):
         port = self.port
 
         if host is None or port is None:
-            raise PostgreSQLMissingRequiredInputsError("Missing required connection details (host and/or port)")
+            raise ValueError("Missing required inputs")
 
         return Authority(host, port)
 
@@ -943,7 +946,12 @@ async def insert_into_postgres_activity_from_stage(inputs: PostgresInsertInputs)
         )[:63]
 
         client_inputs = await _get_postgresql_integration(inputs) or inputs
-        pg_client = PostgreSQLClient.from_inputs(client_inputs, database=inputs.database)
+        try:
+            pg_client = PostgreSQLClient.from_inputs(client_inputs, database=inputs.database)
+        except ValueError as err:
+            # Missing credentials/host usually means a misconfigured or absent integration, which retrying
+            # can't recover. Surface it as a non-retryable error so the export fails fast instead of breaching SLA.
+            raise PostgreSQLMissingRequiredInputsError(str(err)) from err
 
         async with pg_client.connect() as pg_client:
             table_exists = False

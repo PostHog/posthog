@@ -42,17 +42,10 @@ def test_remove_invalid_json(input_data, expected_data):
     assert remove_invalid_json(input_data) == expected_data
 
 
-@pytest.mark.parametrize(
-    "overrides, accessor",
-    [
-        ({"user": None}, "credentials"),
-        ({"password": None}, "credentials"),
-        ({"host": None}, "authority"),
-        ({"port": None}, "authority"),
-    ],
-)
-def test_missing_connection_inputs_raise_non_retryable_error(overrides, accessor):
-    # These come from a misconfigured/absent integration, so they must fail fast rather than retry to an SLA breach.
+@pytest.mark.parametrize("missing_field", ["user", "password", "host", "port"])
+def test_from_inputs_raises_value_error_when_connection_inputs_missing(missing_field):
+    # The activity relies on `from_inputs` raising ValueError to convert missing inputs into a
+    # non-retryable error, so it fails fast rather than retrying to an SLA breach.
     inputs = dataclasses.replace(
         PostgresInsertInputs(
             team_id=1,
@@ -65,10 +58,13 @@ def test_missing_connection_inputs_raise_non_retryable_error(overrides, accessor
             user="posthog",
             password="posthog",
         ),
-        **overrides,
+        **{missing_field: None},
     )
-    with pytest.raises(PostgreSQLMissingRequiredInputsError):
-        getattr(inputs, accessor)()
+    with pytest.raises(ValueError):
+        PostgreSQLClient.from_inputs(inputs, database=inputs.database)
+
+
+def test_missing_required_inputs_error_is_non_retryable():
     assert PostgreSQLMissingRequiredInputsError.__name__ in NON_RETRYABLE_ERROR_TYPES
 
 
