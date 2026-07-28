@@ -83,6 +83,8 @@ export interface ConfigurationTabProps {
     source: SchemaSceneSource | null
     section: SchemaConfigurationSection
     onConfigureSyncMethod: () => void
+    /** Omitted when the source has no sync history to link to. */
+    syncHistoryUrl?: string
 }
 
 export function ConfigurationTab({
@@ -91,6 +93,7 @@ export function ConfigurationTab({
     source,
     section,
     onConfigureSyncMethod,
+    syncHistoryUrl,
 }: ConfigurationTabProps): JSX.Element {
     const logic = schemaSceneLogic({ sourceId, schemaId: schema.id })
     const { isProjectTime, refreshingSchemas, resyncingSchema, supportsRowFilters } = useValues(logic)
@@ -108,6 +111,7 @@ export function ConfigurationTab({
                     cancelSchema={cancelSchema}
                     updateSchema={updateSchema}
                     onConfigureSyncMethod={onConfigureSyncMethod}
+                    syncHistoryUrl={syncHistoryUrl}
                 />
             )
         case 'sync-method':
@@ -175,6 +179,7 @@ function DetailsSection({
     cancelSchema,
     updateSchema,
     onConfigureSyncMethod,
+    syncHistoryUrl,
 }: {
     source: ExternalDataSource | null
     schema: ExternalDataSourceSchema
@@ -182,6 +187,7 @@ function DetailsSection({
     cancelSchema: (schema: ExternalDataSourceSchema) => void
     updateSchema: (schema: ExternalDataSourceSchema) => void
     onConfigureSyncMethod: () => void
+    syncHistoryUrl?: string
 }): JSX.Element {
     const syncedTableName = schema.table?.hogql_name ?? schema.table?.name
 
@@ -340,6 +346,11 @@ function DetailsSection({
                             </LemonButton>
                         )}
                     </SourceEditorAction>
+                )}
+                {syncHistoryUrl && (
+                    <LemonButton type="secondary" to={syncHistoryUrl}>
+                        View sync history
+                    </LemonButton>
                 )}
             </div>
         </div>

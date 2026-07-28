@@ -9,6 +9,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -124,6 +125,9 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
                             source={source}
                             section={currentSection}
                             onConfigureSyncMethod={() => setCurrentSection('sync-method')}
+                            syncHistoryUrl={
+                                showSyncs ? urls.dataWarehouseSourceSchema(sourceId, schema.id, 'syncs') : undefined
+                            }
                         />
                     }
                 />
@@ -135,7 +139,16 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
         tabs.push({
             label: 'Syncs',
             key: 'syncs',
-            content: <SyncsTab id={cleanedSourceId} lockedSchema={schema.name} />,
+            content: (
+                <div className="flex flex-col gap-2">
+                    <div className="flex justify-end">
+                        <LemonButton type="secondary" size="small" to={urls.dataWarehouseSource(sourceId, 'syncs')}>
+                            View all syncs for source
+                        </LemonButton>
+                    </div>
+                    <SyncsTab id={cleanedSourceId} lockedSchema={schema.name} />
+                </div>
+            ),
         })
     }
 
