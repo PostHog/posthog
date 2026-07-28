@@ -593,6 +593,83 @@ describe('dashboardLogic', () => {
             )
         })
 
+        it('keeps shared auto colors when a failed refresh leaves a tile without results', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS], {
+                [FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS]: true,
+            })
+
+            const [firstInsight, secondInsight] = logic.values
+                .dashboard!.tiles.filter((t) => !!t.insight)
+                .map((t) => t.insight!)
+            const withBreakdownQuery = (
+                insight: typeof firstInsight,
+                breakdownValues: string[] | null
+            ): typeof firstInsight => ({
+                ...insight,
+                dashboards: [5],
+                dashboard_tiles: [{ id: 1, dashboard_id: 5 }],
+                result: breakdownValues
+                    ? breakdownValues.map((breakdown_value) => ({ action: { order: 0 }, breakdown_value }))
+                    : null,
+                query: {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [],
+                        breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+                    },
+                } as InsightVizNode<TrendsQuery>,
+            })
+
+            await expectLogic(logic, () => {
+                dashboardsModel.actions.updateDashboardInsight(
+                    withBreakdownQuery(firstInsight, ['Chrome', 'Firefox'])
+                )
+                dashboardsModel.actions.updateDashboardInsight(withBreakdownQuery(secondInsight, ['Chrome']))
+            }).toFinishAllListeners()
+
+            jest.spyOn(api, 'update')
+
+            // persist the shared value's auto entry
+            await expectLogic(logic, () => {
+                logic.actions.saveEditModeChanges()
+            }).toFinishAllListeners()
+            expect(api.update).toHaveBeenCalledWith(
+                `api/environments/${MOCK_TEAM_ID}/dashboards/5`,
+                expect.objectContaining({
+                    breakdown_colors: [
+                        expect.objectContaining({ breakdownValue: 'Chrome', colorToken: 'preset-1', source: 'auto' }),
+                    ],
+                })
+            )
+
+            // the save response resets tiles to the mock originals, so restore the loaded tile and
+            // put the other into the state a failed refresh leaves behind: a breakdown query whose
+            // insight never got results, while itemsLoading settles back to false
+            await expectLogic(logic, () => {
+                dashboardsModel.actions.updateDashboardInsight(
+                    withBreakdownQuery(firstInsight, ['Chrome', 'Firefox'])
+                )
+                dashboardsModel.actions.updateDashboardInsight(withBreakdownQuery(secondInsight, null))
+            }).toFinishAllListeners()
+
+            expect(logic.values.itemsLoading).toBe(false)
+            // Chrome only looks single-tile because the failed tile's values are unknown
+            expect(logic.values.effectiveBreakdownColors).toContainEqual(
+                expect.objectContaining({ breakdownValue: 'Chrome', colorToken: 'preset-1', source: 'auto' })
+            )
+
+            jest.mocked(api.update).mockClear()
+
+            // saving in this state must not persist the loss of the entry either
+            await expectLogic(logic, () => {
+                logic.actions.saveEditModeChanges()
+            }).toFinishAllListeners()
+            expect(api.update).not.toHaveBeenCalled()
+        })
+
         it('saving after theme change calls api', async () => {
             await expectLogic(logic).toFinishAllListeners()
 

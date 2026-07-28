@@ -88,6 +88,13 @@ export function mergeBreakdownColorConfigs(...configLists: BreakdownColorConfig[
     return merged
 }
 
+// Time-to-convert renders a single-color histogram, so it has nothing to contribute.
+function funnelVizRendersBreakdownSeries(funnelVizType: FunnelVizType | undefined): boolean {
+    return (
+        funnelVizType === undefined || funnelVizType === FunnelVizType.Steps || funnelVizType === FunnelVizType.Trends
+    )
+}
+
 function extractTileBreakdownValues(tile: DashboardTile<QueryBasedInsightModel>): BreakdownValueAndType[] {
     if (!isInsightVizNode(tile.insight?.query)) {
         return []
@@ -97,11 +104,10 @@ function extractTileBreakdownValues(tile: DashboardTile<QueryBasedInsightModel>)
     let breakdownValues: (BreakdownValueAndType | null)[] = []
     if (isFunnelsQuery(querySource)) {
         const funnelVizType = querySource.funnelsFilter?.funnelVizType
-        const isStepsViz = funnelVizType === undefined || funnelVizType === FunnelVizType.Steps
-        // Time-to-convert renders a single-color histogram, so it has nothing to contribute.
-        if (!isStepsViz && funnelVizType !== FunnelVizType.Trends) {
+        if (!funnelVizRendersBreakdownSeries(funnelVizType)) {
             return []
         }
+        const isStepsViz = funnelVizType === undefined || funnelVizType === FunnelVizType.Steps
         const breakdownType = querySource.breakdownFilter?.breakdown_type || 'event'
         // Only the steps visualization renders a baseline series.
         breakdownValues = isStepsViz
@@ -157,6 +163,29 @@ export function extractBreakdownValuesByTile(
         return []
     }
     return insightTiles.map(extractTileBreakdownValues).filter((values) => values.length > 0)
+}
+
+/** True when any tile's query would contribute breakdown values once loaded, but its results are
+ * unavailable (a refresh errored or was aborted before the insight ever got results). Such a
+ * tile's breakdown values are unknown rather than absent, so tile counts under-report sharing:
+ * pruning or persisting auto colors in this state would drop entries that are still valid. */
+export function hasUnresolvedBreakdownTiles(insightTiles: DashboardTile<QueryBasedInsightModel>[] | null): boolean {
+    return (insightTiles ?? []).some((tile) => {
+        if (tile.insight?.result != null || !isInsightVizNode(tile.insight?.query)) {
+            return false
+        }
+        const querySource = tile.insight?.query.source
+        if (isFunnelsQuery(querySource)) {
+            return (
+                funnelVizRendersBreakdownSeries(querySource.funnelsFilter?.funnelVizType) &&
+                hasBreakdownFilter(querySource.breakdownFilter)
+            )
+        }
+        if (isTrendsQuery(querySource) || isRetentionQuery(querySource)) {
+            return hasBreakdownFilter(querySource.breakdownFilter)
+        }
+        return false
+    })
 }
 
 export function extractBreakdownValues(

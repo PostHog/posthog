@@ -10,6 +10,7 @@ import {
     extractBreakdownValues,
     extractBreakdownValuesByTile,
     findBreakdownColorConfig,
+    hasUnresolvedBreakdownTiles,
     mergeBreakdownColorConfigs,
 } from './dashboardBreakdownColors'
 
@@ -278,6 +279,66 @@ describe('dashboardBreakdownColors', () => {
                 ],
                 [{ breakdownValue: 'Chrome', breakdownType: 'event' }],
             ])
+        })
+    })
+
+    describe('hasUnresolvedBreakdownTiles', () => {
+        const breakdownFilter = { breakdown: '$browser', breakdown_type: 'event' }
+        const vizQuery = (source: Record<string, any>): InsightVizNode<InsightQueryNode> =>
+            ({ kind: NodeKind.InsightVizNode, source }) as InsightVizNode<InsightQueryNode>
+
+        it.each([
+            [
+                'trends tile with a breakdown and no results',
+                createTestTile({ result: null, query: vizQuery({ kind: NodeKind.TrendsQuery, breakdownFilter }) }),
+                true,
+            ],
+            [
+                'trends tile with a breakdown and empty results',
+                createTestTile({ result: [], query: vizQuery({ kind: NodeKind.TrendsQuery, breakdownFilter }) }),
+                false,
+            ],
+            [
+                'trends tile without a breakdown and no results',
+                createTestTile({ result: null, query: vizQuery({ kind: NodeKind.TrendsQuery }) }),
+                false,
+            ],
+            [
+                'funnel steps tile with a breakdown and no results',
+                createTestTile({
+                    result: null,
+                    query: vizQuery({
+                        kind: NodeKind.FunnelsQuery,
+                        funnelsFilter: { funnelVizType: FunnelVizType.Steps },
+                        breakdownFilter,
+                    }),
+                }),
+                true,
+            ],
+            [
+                'time-to-convert funnel tile with a breakdown and no results',
+                createTestTile({
+                    result: null,
+                    query: vizQuery({
+                        kind: NodeKind.FunnelsQuery,
+                        funnelsFilter: { funnelVizType: FunnelVizType.TimeToConvert },
+                        breakdownFilter,
+                    }),
+                }),
+                false,
+            ],
+            [
+                'retention tile with a breakdown and no results',
+                createTestTile({ result: null, query: vizQuery({ kind: NodeKind.RetentionQuery, breakdownFilter }) }),
+                true,
+            ],
+            [
+                'non insight-viz tile with no results',
+                createTestTile({ result: null, query: { kind: NodeKind.DataTableNode } as any }),
+                false,
+            ],
+        ])('%s', (_name, tile, expected) => {
+            expect(hasUnresolvedBreakdownTiles([tile])).toBe(expected)
         })
     })
 
