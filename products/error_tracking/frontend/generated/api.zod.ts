@@ -428,6 +428,64 @@ export const ErrorTrackingIssuesBulkCreateBody = /* @__PURE__ */ zod
     .describe('Read-only serializer for issue contract types returned by the facade.')
 
 /**
+ * Imports issues and events from a synced data warehouse source into error tracking.
+ * @summary Start an error tracking migration
+ */
+export const errorTrackingMigrationsCreateBodyConfigOneOrgSlugMax = 200
+
+export const ErrorTrackingMigrationsCreateBody = /* @__PURE__ */ zod.object({
+    source_type: zod
+        .enum(['sentry'])
+        .describe('\* `sentry` - Sentry')
+        .describe('External error tracker to migrate from.\n\n\* `sentry` - Sentry'),
+    external_data_source_id: zod
+        .uuid()
+        .describe(
+            'Id of an existing data warehouse source of the matching type to import from. The schemas the migration reads must be enabled on it.'
+        ),
+    config: zod
+        .object({
+            org_slug: zod
+                .string()
+                .max(errorTrackingMigrationsCreateBodyConfigOneOrgSlugMax)
+                .optional()
+                .describe(
+                    'Source organization identifier. Required for Sentry migrations; namespaces imported issue fingerprints.'
+                ),
+            date_from: zod.iso
+                .datetime({ offset: true })
+                .nullish()
+                .describe(
+                    'Only import source events created at or after this time. Omit to import everything retained.'
+                ),
+            date_to: zod.iso
+                .datetime({ offset: true })
+                .nullish()
+                .describe('Only import source events created before this time. Omit for no upper bound.'),
+            issue_statuses: zod
+                .array(zod.string())
+                .optional()
+                .describe(
+                    "Only import events belonging to source issues in these statuses (source-specific values, e.g. Sentry's unresolved\/resolved\/ignored). Omit to import all issues."
+                ),
+            sentry_project_slugs: zod
+                .array(zod.string())
+                .optional()
+                .describe('Sentry only: restrict the import to these project slugs. Omit to import every project.'),
+        })
+        .optional()
+        .describe('Source-specific settings and optional import scope filters. Sentry migrations require org_slug.'),
+})
+
+/**
+ * Records the wizard cloud-run task that migrates the project's code off the source SDK.
+ * @summary Attach a code migration task
+ */
+export const ErrorTrackingMigrationsAttachCodeMigrationCreateBody = /* @__PURE__ */ zod.object({
+    task_id: zod.uuid().describe('Id of the wizard cloud-run task performing the SDK code migration.'),
+})
+
+/**
  * Fetch one error tracking issue with impact counts, top in_app frame, latest release, and optional sparkline.
  * @summary Get compact error tracking issue details
  */
@@ -919,63 +977,6 @@ export const ErrorTrackingReleasesPartialUpdateBody = /* @__PURE__ */ zod.object
         .record(zod.string(), zod.unknown())
         .nullish()
         .describe('Free-form metadata object. Omit to preserve the current value.'),
-})
-
-/**
- * Imports issues and events from a synced Sentry data warehouse source into error tracking.
- * @summary Start a Sentry migration
- */
-export const errorTrackingSentryMigrationsCreateBodyOrgSlugMax = 200
-
-export const ErrorTrackingSentryMigrationsCreateBody = /* @__PURE__ */ zod.object({
-    external_data_source_id: zod
-        .uuid()
-        .describe(
-            'Id of an existing Sentry data warehouse source to import from. The source must have the issues and issue_events schemas enabled.'
-        ),
-    org_slug: zod
-        .string()
-        .max(errorTrackingSentryMigrationsCreateBodyOrgSlugMax)
-        .describe('Sentry organization slug of the source. Used to namespace imported issue fingerprints.'),
-    config: zod
-        .object({
-            date_from: zod.iso
-                .datetime({ offset: true })
-                .nullish()
-                .describe(
-                    'Only import Sentry events created at or after this time. Omit to import everything retained.'
-                ),
-            date_to: zod.iso
-                .datetime({ offset: true })
-                .nullish()
-                .describe('Only import Sentry events created before this time. Omit for no upper bound.'),
-            issue_statuses: zod
-                .array(
-                    zod
-                        .enum(['unresolved', 'resolved', 'ignored'])
-                        .describe('\* `unresolved` - unresolved\n\* `resolved` - resolved\n\* `ignored` - ignored')
-                )
-                .optional()
-                .describe(
-                    'Only import events belonging to Sentry issues in these statuses. Omit to import all issues.'
-                ),
-            sentry_project_slugs: zod
-                .array(zod.string())
-                .optional()
-                .describe(
-                    'Only import events from these Sentry project slugs. Omit to import every project in the org.'
-                ),
-        })
-        .optional()
-        .describe('Optional import scope filters. Omit to import everything retained by Sentry.'),
-})
-
-/**
- * Records the wizard cloud-run task that migrates the project's code off the Sentry SDK.
- * @summary Attach a code migration task
- */
-export const ErrorTrackingSentryMigrationsAttachCodeMigrationCreateBody = /* @__PURE__ */ zod.object({
-    task_id: zod.uuid().describe('Id of the wizard cloud-run task performing the SDK code migration.'),
 })
 
 export const ErrorTrackingSettingsUpdateSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({

@@ -821,7 +821,10 @@ class ErrorTrackingRecommendation(UUIDTModel):
         ]
 
 
-class ErrorTrackingSentryMigration(TeamScopedRootMixin, UUIDTModel):
+class ErrorTrackingMigration(TeamScopedRootMixin, UUIDTModel):
+    class SourceType(models.TextChoices):
+        SENTRY = "sentry", "Sentry"
+
     class Status(models.TextChoices):
         CREATED = "created", "Created"
         SYNCING = "syncing", "Syncing"
@@ -837,12 +840,13 @@ class ErrorTrackingSentryMigration(TeamScopedRootMixin, UUIDTModel):
     created_by = models.ForeignKey(
         "posthog.User", null=True, blank=True, on_delete=models.SET_NULL, db_constraint=False
     )
+    source_type = models.CharField(max_length=32, choices=SourceType, default=SourceType.SENTRY)
     # Loose reference to warehouse_sources.ExternalDataSource — cross-product FKs are not allowed,
     # resolve via the warehouse facade when needed.
     external_data_source_id = models.UUIDField()
-    org_slug = models.CharField(max_length=200)
     status = models.CharField(max_length=32, choices=Status, default=Status.CREATED)
-    # No secrets here — the Sentry token lives encrypted on the warehouse source.
+    # Source-specific settings and import scope filters (e.g. Sentry's org_slug, date range,
+    # issue statuses). No secrets here — source credentials live encrypted on the warehouse source.
     config = models.JSONField(default=dict, blank=True)
     # Workflow-owned progress: counters (issues_total, events_emitted, events_dropped) and keyset cursor.
     state = models.JSONField(default=dict, blank=True)
@@ -854,8 +858,8 @@ class ErrorTrackingSentryMigration(TeamScopedRootMixin, UUIDTModel):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = "posthog_errortrackingsentrymigration"
+        db_table = "posthog_errortrackingmigration"
         indexes = [
-            models.Index(fields=["team", "-created_at"], name="posthog_et_sentry_mig_team_idx"),
-            models.Index(fields=["team", "status"], name="posthog_et_sentry_mig_stat_idx"),
+            models.Index(fields=["team", "-created_at"], name="posthog_et_migration_team_idx"),
+            models.Index(fields=["team", "status"], name="posthog_et_migration_stat_idx"),
         ]

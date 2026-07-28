@@ -41,14 +41,14 @@ import type {
     ErrorTrackingIssuesListParams,
     ErrorTrackingIssuesListQueryRequestApi,
     ErrorTrackingIssuesListResponseApi,
+    ErrorTrackingMigrationApi,
+    ErrorTrackingMigrationsListParams,
     ErrorTrackingRecommendationApi,
     ErrorTrackingRecommendationsListParams,
     ErrorTrackingReleaseApi,
     ErrorTrackingReleaseCreateRequestApi,
     ErrorTrackingReleaseUpdateRequestApi,
     ErrorTrackingReleasesListParams,
-    ErrorTrackingSentryMigrationApi,
-    ErrorTrackingSentryMigrationsListParams,
     ErrorTrackingSettingsApi,
     ErrorTrackingSpikeDetectionConfigApi,
     ErrorTrackingSpikeEventsListParams,
@@ -67,14 +67,16 @@ import type {
     ErrorTrackingSymbolSetFinishUploadApi,
     ErrorTrackingSymbolSetsListParams,
     GitProviderFileLinkResolveResponseApi,
+    MigrationAttachCodeMigrationApi,
+    MigrationCreateRequestApi,
     PaginatedErrorTrackingAssignmentRuleListApi,
     PaginatedErrorTrackingBypassRuleListApi,
     PaginatedErrorTrackingExternalReferenceResultListApi,
     PaginatedErrorTrackingFingerprintListApi,
     PaginatedErrorTrackingIssueReadListApi,
+    PaginatedErrorTrackingMigrationListApi,
     PaginatedErrorTrackingRecommendationListApi,
     PaginatedErrorTrackingReleaseListApi,
-    PaginatedErrorTrackingSentryMigrationListApi,
     PaginatedErrorTrackingSpikeEventListApi,
     PaginatedErrorTrackingStackFrameListApi,
     PaginatedErrorTrackingSuppressionRuleListApi,
@@ -92,8 +94,6 @@ import type {
     PatchedErrorTrackingSpikeDetectionConfigApi,
     PatchedErrorTrackingSuppressionRuleApi,
     PatchedErrorTrackingSuppressionRuleUpdateRequestApi,
-    SentryMigrationAttachCodeMigrationApi,
-    SentryMigrationCreateRequestApi,
     _SymbolSetDownloadResponseApi,
 } from './api.schemas'
 
@@ -972,6 +972,112 @@ export const errorTrackingIssuesValuesRetrieve = async (projectId: string, optio
     })
 }
 
+export const getErrorTrackingMigrationsListUrl = (projectId: string, params?: ErrorTrackingMigrationsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/error_tracking/migrations/?${stringifiedParams}`
+        : `/api/projects/${projectId}/error_tracking/migrations/`
+}
+
+export const errorTrackingMigrationsList = async (
+    projectId: string,
+    params?: ErrorTrackingMigrationsListParams,
+    options?: RequestInit
+): Promise<PaginatedErrorTrackingMigrationListApi> => {
+    return apiMutator<PaginatedErrorTrackingMigrationListApi>(getErrorTrackingMigrationsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getErrorTrackingMigrationsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/error_tracking/migrations/`
+}
+
+/**
+ * Imports issues and events from a synced data warehouse source into error tracking.
+ * @summary Start an error tracking migration
+ */
+export const errorTrackingMigrationsCreate = async (
+    projectId: string,
+    migrationCreateRequestApi: MigrationCreateRequestApi,
+    options?: RequestInit
+): Promise<ErrorTrackingMigrationApi> => {
+    return apiMutator<ErrorTrackingMigrationApi>(getErrorTrackingMigrationsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(migrationCreateRequestApi),
+    })
+}
+
+export const getErrorTrackingMigrationsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/migrations/${id}/`
+}
+
+export const errorTrackingMigrationsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ErrorTrackingMigrationApi> => {
+    return apiMutator<ErrorTrackingMigrationApi>(getErrorTrackingMigrationsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getErrorTrackingMigrationsAttachCodeMigrationCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/migrations/${id}/attach_code_migration/`
+}
+
+/**
+ * Records the wizard cloud-run task that migrates the project's code off the source SDK.
+ * @summary Attach a code migration task
+ */
+export const errorTrackingMigrationsAttachCodeMigrationCreate = async (
+    projectId: string,
+    id: string,
+    migrationAttachCodeMigrationApi: MigrationAttachCodeMigrationApi,
+    options?: RequestInit
+): Promise<ErrorTrackingMigrationApi> => {
+    return apiMutator<ErrorTrackingMigrationApi>(
+        getErrorTrackingMigrationsAttachCodeMigrationCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(migrationAttachCodeMigrationApi),
+        }
+    )
+}
+
+export const getErrorTrackingMigrationsCancelCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/migrations/${id}/cancel/`
+}
+
+/**
+ * @summary Cancel an error tracking migration
+ */
+export const errorTrackingMigrationsCancelCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ErrorTrackingMigrationApi> => {
+    return apiMutator<ErrorTrackingMigrationApi>(getErrorTrackingMigrationsCancelCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getErrorTrackingQueryIssueCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/error_tracking/query/issue/`
 }
@@ -1235,118 +1341,6 @@ export const errorTrackingReleasesHashRetrieve = async (
     return apiMutator<void>(getErrorTrackingReleasesHashRetrieveUrl(projectId, hashId), {
         ...options,
         method: 'GET',
-    })
-}
-
-export const getErrorTrackingSentryMigrationsListUrl = (
-    projectId: string,
-    params?: ErrorTrackingSentryMigrationsListParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/error_tracking/sentry_migrations/?${stringifiedParams}`
-        : `/api/projects/${projectId}/error_tracking/sentry_migrations/`
-}
-
-export const errorTrackingSentryMigrationsList = async (
-    projectId: string,
-    params?: ErrorTrackingSentryMigrationsListParams,
-    options?: RequestInit
-): Promise<PaginatedErrorTrackingSentryMigrationListApi> => {
-    return apiMutator<PaginatedErrorTrackingSentryMigrationListApi>(
-        getErrorTrackingSentryMigrationsListUrl(projectId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-export const getErrorTrackingSentryMigrationsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/error_tracking/sentry_migrations/`
-}
-
-/**
- * Imports issues and events from a synced Sentry data warehouse source into error tracking.
- * @summary Start a Sentry migration
- */
-export const errorTrackingSentryMigrationsCreate = async (
-    projectId: string,
-    sentryMigrationCreateRequestApi: SentryMigrationCreateRequestApi,
-    options?: RequestInit
-): Promise<ErrorTrackingSentryMigrationApi> => {
-    return apiMutator<ErrorTrackingSentryMigrationApi>(getErrorTrackingSentryMigrationsCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(sentryMigrationCreateRequestApi),
-    })
-}
-
-export const getErrorTrackingSentryMigrationsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/error_tracking/sentry_migrations/${id}/`
-}
-
-export const errorTrackingSentryMigrationsRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<ErrorTrackingSentryMigrationApi> => {
-    return apiMutator<ErrorTrackingSentryMigrationApi>(getErrorTrackingSentryMigrationsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getErrorTrackingSentryMigrationsAttachCodeMigrationCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/error_tracking/sentry_migrations/${id}/attach_code_migration/`
-}
-
-/**
- * Records the wizard cloud-run task that migrates the project's code off the Sentry SDK.
- * @summary Attach a code migration task
- */
-export const errorTrackingSentryMigrationsAttachCodeMigrationCreate = async (
-    projectId: string,
-    id: string,
-    sentryMigrationAttachCodeMigrationApi: SentryMigrationAttachCodeMigrationApi,
-    options?: RequestInit
-): Promise<ErrorTrackingSentryMigrationApi> => {
-    return apiMutator<ErrorTrackingSentryMigrationApi>(
-        getErrorTrackingSentryMigrationsAttachCodeMigrationCreateUrl(projectId, id),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(sentryMigrationAttachCodeMigrationApi),
-        }
-    )
-}
-
-export const getErrorTrackingSentryMigrationsCancelCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/error_tracking/sentry_migrations/${id}/cancel/`
-}
-
-/**
- * @summary Cancel a Sentry migration
- */
-export const errorTrackingSentryMigrationsCancelCreate = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<ErrorTrackingSentryMigrationApi> => {
-    return apiMutator<ErrorTrackingSentryMigrationApi>(getErrorTrackingSentryMigrationsCancelCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
     })
 }
 

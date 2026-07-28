@@ -2,14 +2,14 @@ import dataclasses
 
 
 @dataclasses.dataclass(frozen=True)
-class SentryMigrationInputs:
+class MigrationInputs:
     migration_id: str
     team_id: int
 
 
 @dataclasses.dataclass(frozen=True)
 class MigrationContext:
-    org_slug: str
+    source_type: str
     source_id: str
 
 
@@ -17,16 +17,15 @@ class MigrationContext:
 class SyncCheckResult:
     ready: bool
     reason: str | None = None
-    events_table: str | None = None
-    issues_table: str | None = None
+    # Adapter schema role -> resolved warehouse table name.
+    tables: dict[str, str] = dataclasses.field(default_factory=dict)
 
 
 @dataclasses.dataclass(frozen=True)
 class ImportTablesInputs:
     migration_id: str
     team_id: int
-    events_table: str
-    issues_table: str
+    tables: dict[str, str]
 
 
 @dataclasses.dataclass(frozen=True)

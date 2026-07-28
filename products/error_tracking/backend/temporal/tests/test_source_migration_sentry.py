@@ -3,7 +3,7 @@ import json
 from parameterized import parameterized
 
 from products.error_tracking.backend.models import ErrorTrackingIssue
-from products.error_tracking.backend.temporal.sentry_migration.transform import (
+from products.error_tracking.backend.temporal.source_migration.sentry import (
     MAX_FRAMES,
     build_anchor_event_uuid,
     build_event_uuid,

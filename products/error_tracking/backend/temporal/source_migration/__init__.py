@@ -1,4 +1,4 @@
-from products.error_tracking.backend.temporal.sentry_migration.activities import (
+from products.error_tracking.backend.temporal.source_migration.activities import (
     check_warehouse_sync_activity,
     count_imported_fingerprints_activity,
     get_migration_context_activity,
@@ -7,9 +7,9 @@ from products.error_tracking.backend.temporal.sentry_migration.activities import
     set_migration_status_activity,
     sync_issue_status_activity,
 )
-from products.error_tracking.backend.temporal.sentry_migration.workflow import SentryMigrationWorkflow
+from products.error_tracking.backend.temporal.source_migration.workflow import ErrorTrackingMigrationWorkflow
 
-WORKFLOWS = [SentryMigrationWorkflow]
+WORKFLOWS = [ErrorTrackingMigrationWorkflow]
 ACTIVITIES = [
     check_warehouse_sync_activity,
     count_imported_fingerprints_activity,
@@ -23,7 +23,7 @@ ACTIVITIES = [
 __all__ = [
     "ACTIVITIES",
     "WORKFLOWS",
-    "SentryMigrationWorkflow",
+    "ErrorTrackingMigrationWorkflow",
     "check_warehouse_sync_activity",
     "count_imported_fingerprints_activity",
     "get_migration_context_activity",

@@ -10,8 +10,8 @@ from products.error_tracking.backend.presentation.views.issues import ErrorTrack
 from products.error_tracking.backend.presentation.views.query import ErrorTrackingQueryViewSet
 from products.error_tracking.backend.presentation.views.recommendations import ErrorTrackingRecommendationViewSet
 from products.error_tracking.backend.presentation.views.releases import ErrorTrackingReleaseViewSet
-from products.error_tracking.backend.presentation.views.sentry_migrations import ErrorTrackingSentryMigrationViewSet
 from products.error_tracking.backend.presentation.views.settings import ErrorTrackingSettingsViewSet
+from products.error_tracking.backend.presentation.views.source_migrations import ErrorTrackingMigrationViewSet
 from products.error_tracking.backend.presentation.views.spike_detection_config import (
     ErrorTrackingSpikeDetectionConfigViewSet,
 )
@@ -23,7 +23,7 @@ from products.error_tracking.backend.presentation.views.symbol_sets import Error
 __all__ = [
     "ErrorTrackingExternalReferenceViewSet",
     "ErrorTrackingIssueViewSet",
-    "ErrorTrackingSentryMigrationViewSet",
+    "ErrorTrackingMigrationViewSet",
     "ErrorTrackingQueryViewSet",
     "ErrorTrackingRecommendationViewSet",
     "ErrorTrackingStackFrameViewSet",

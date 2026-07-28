@@ -7,10 +7,10 @@ from products.error_tracking.backend.presentation.views import (
     ErrorTrackingFingerprintViewSet,
     ErrorTrackingGroupingRuleViewSet,
     ErrorTrackingIssueViewSet,
+    ErrorTrackingMigrationViewSet,
     ErrorTrackingQueryViewSet,
     ErrorTrackingRecommendationViewSet,
     ErrorTrackingReleaseViewSet,
-    ErrorTrackingSentryMigrationViewSet,
     ErrorTrackingSettingsViewSet,
     ErrorTrackingSpikeDetectionConfigViewSet,
     ErrorTrackingSpikeEventViewSet,
@@ -107,8 +107,8 @@ def register_routes(routers: RouterRegistry) -> None:
         ["team_id"],
     )
     routers.projects.register(
-        r"error_tracking/sentry_migrations",
-        ErrorTrackingSentryMigrationViewSet,
-        "project_error_tracking_sentry_migration",
+        r"error_tracking/migrations",
+        ErrorTrackingMigrationViewSet,
+        "project_error_tracking_migration",
         ["team_id"],
     )
