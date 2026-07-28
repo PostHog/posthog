@@ -3,7 +3,6 @@ import { useRef, useState } from 'react'
 
 import {
     IconCopy,
-    IconLock,
     IconThumbsDown,
     IconThumbsDownFilled,
     IconThumbsUp,
@@ -17,6 +16,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import type { AiReplyFeedbackRating, ChatMessage, MessageDeliveryStatus } from '../../types'
 import { SupportMarkdown, SupportRichContentPreview } from '../Editor'
+import { TeamOnlyBadge } from './TeamOnlyBadge'
 
 export interface MessageProps {
     message: ChatMessage
@@ -75,14 +75,7 @@ export function Message({
                             showName={true}
                         />
                         <div className="flex items-center gap-1.5">
-                            {isPrivate && (
-                                <Tooltip title="Only visible to your team">
-                                    <span className="inline-flex items-center gap-0.5 text-xs text-warning-dark bg-warning-highlight px-1.5 py-0.5 rounded">
-                                        <IconLock className="text-xs" />
-                                        Private note
-                                    </span>
-                                </Tooltip>
-                            )}
+                            {isPrivate && <TeamOnlyBadge label="Private note" />}
                             <span className="text-xs text-muted-alt">
                                 <TZLabel time={message.createdAt} />
                             </span>
@@ -110,13 +103,18 @@ export function Message({
                                     </Tooltip>
                                 </div>
                             )}
+                            {/* Every message here is untrusted: customers write them, imports carry them,
+                                and agents generate them from customer text. An inline remote image would
+                                fetch on open, leaking the reader's IP or probing hosts their browser can
+                                reach. PostHog-hosted images (attachments included) still render inline;
+                                anything else becomes a click-to-open link. */}
                             {message.richContent ? (
                                 <SupportRichContentPreview
                                     content={message.richContent as JSONContent}
                                     className="text-sm"
                                 />
                             ) : (
-                                <SupportMarkdown className="text-sm" disableImages={message.fromZendesk}>
+                                <SupportMarkdown className="text-sm" disableImages>
                                     {message.content}
                                 </SupportMarkdown>
                             )}

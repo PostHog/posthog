@@ -8,12 +8,12 @@ import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
 import { InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
-import { ChartDisplayType, InsightLogicProps, PropertyMathType } from '~/types'
+import { BaseMathType, ChartDisplayType, InsightLogicProps, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { formatCredits } from '../../utils/credits'
 import { exhaustionForecast, hasCreditLimit, projectQuota } from '../../utils/quotaProjection'
-import { ReplayScanner, modelName } from '../types'
+import { OBSERVATION_CREDITS_BY_MODEL, ReplayScanner, modelName } from '../types'
 import { SpendChartInterval, visionUsageLogic } from '../visionUsageLogic'
 import { VisionInsightChart } from './VisionInsightChart'
 
@@ -32,6 +32,27 @@ const SPEND_CHART_DATE_FROM: Record<Exclude<SpendChartInterval, 'day'>, string> 
     month: '-365d',
     year: 'all',
 }
+
+// Spend is counted per model and priced in the formula rather than summing the `credits` event property:
+// events emitted before that property existed would otherwise read as zero spend. Pricing counts at current
+// rates matches how the table's totals are computed. Retired models missing from the price table are omitted.
+const SPEND_CHART_MODEL_PRICES = Object.entries(OBSERVATION_CREDITS_BY_MODEL)
+const SPEND_CHART_SERIES = SPEND_CHART_MODEL_PRICES.map(([model]) => ({
+    kind: NodeKind.EventsNode as const,
+    event: RECORDING_OBSERVED_EVENT,
+    math: BaseMathType.TotalCount,
+    properties: [
+        {
+            type: PropertyFilterType.Event as const,
+            key: 'model_used',
+            operator: PropertyOperator.Exact as const,
+            value: model,
+        },
+    ],
+}))
+const SPEND_CHART_FORMULA = `(${SPEND_CHART_MODEL_PRICES.map(
+    ([, credits], index) => `${String.fromCharCode(65 + index)}*${credits}`
+).join(' + ')}) / 100`
 
 export function VisionUsageTab(): JSX.Element {
     const { usageScanners, usageScannersLoading, spendChartInterval } = useValues(visionUsageLogic)
@@ -56,18 +77,11 @@ export function VisionUsageTab(): JSX.Element {
             kind: NodeKind.InsightVizNode,
             source: {
                 kind: NodeKind.TrendsQuery,
-                series: [
-                    {
-                        kind: NodeKind.EventsNode,
-                        event: RECORDING_OBSERVED_EVENT,
-                        math: PropertyMathType.Sum,
-                        math_property: 'credits',
-                    },
-                ],
+                series: SPEND_CHART_SERIES,
                 trendsFilter: {
                     display: ChartDisplayType.ActionsLineGraph,
-                    // The credits event property is 1 credit = $0.01; chart in dollars to match the table.
-                    formulaNodes: [{ formula: 'A / 100', custom_name: 'Spend' }],
+                    // 1 credit = $0.01; the /100 in the formula charts dollars to match the table.
+                    formulaNodes: [{ formula: SPEND_CHART_FORMULA, custom_name: 'Spend' }],
                     aggregationAxisPrefix: '$',
                 },
                 dateRange: {

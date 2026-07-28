@@ -1116,16 +1116,10 @@ environment:
         bin_script: rust-jumphost
         description: 'Shell into the flags-cache-jumphost pod (uses $KUBE_NAMESPACE, defaults to posthog)'
         hidden: true
-    run:agent:
-        bin_script: run-agent
-        description: 'POST a demo /run to local agent-ingress and tail /listen SSE events — exercises the full ingress → queue → runner path'
     wait:for:postgres:tables:
         bin_script: wait-for-postgres-tables
         description: 'Block until the named Postgres tables exist'
         hidden: true
-    agent:tunnel:
-        bin_script: agent-tunnel
-        description: 'Expose local agent-ingress on a public cloudflared URL and wire AGENT_INGRESS_PUBLIC_URL into .env.local so Slack/webhooks can reach your dev box'
     dev:sandbox:
         bin_script: dev-sandbox
         description: 'Run a command inside the dev filesystem sandbox (internal; used by hogli dev:generate by default unless POSTHOG_DEV_SANDBOX=0)'
@@ -1169,10 +1163,6 @@ environment:
     dev:open:when:ready:
         bin_script: dev-open-when-ready
         description: 'Open a URL in the browser once its server is listening (internal; runs unsandboxed so sandboxed procs can auto-open)'
-        hidden: true
-    migrate:agent:test:db:
-        bin_script: migrate-agent-test-db
-        description: Create + migrate the agent_platform test database from the Django migrations (single source of truth)
         hidden: true
     docker:agent:proxy:
         cmd: node dist/agent-proxy-server.mjs

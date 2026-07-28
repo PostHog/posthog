@@ -138,6 +138,26 @@ class TestVercelSource:
         retryable_errors = self.source.get_retryable_errors()
         assert any(key in observed_error for key in retryable_errors)
 
+    @parameterized.expand(
+        [
+            (
+                "connection_error",
+                "HTTPSConnectionPool(host='api.vercel.com', port=443): Max retries exceeded with url: "
+                '/v1/billing/charges?teamId=team_abc (Caused by ReadTimeoutError("HTTPSConnectionPool'
+                "(host='api.vercel.com', port=443): Read timed out. (read timeout=120)\"))",
+            ),
+            (
+                "read_timeout",
+                "HTTPSConnectionPool(host='api.vercel.com', port=443): Read timed out. (read timeout=120)",
+            ),
+        ]
+    )
+    def test_retryable_errors_match_transient_network_failures(self, _name: str, observed_error: str) -> None:
+        # `_fetch_page`/`_open_billing_stream` already retry these in-process; once exhausted, this
+        # keeps the benign, self-recovering failure out of error tracking.
+        retryable_errors = self.source.get_retryable_errors()
+        assert any(key in observed_error for key in retryable_errors)
+
     def test_get_resumable_source_manager_binds_data_class(self) -> None:
         manager = self.source.get_resumable_source_manager(_source_inputs("deployments"))
         assert isinstance(manager, ResumableSourceManager)

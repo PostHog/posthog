@@ -16,14 +16,15 @@ use async_trait::async_trait;
 use chrono::Utc;
 use common_kafka::kafka_producer::KafkaProduceError;
 use metrics::counter;
-use serde::de::{Deserializer, Error as DeError, Unexpected};
-use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
 
 use cohort_core::seed::RunId;
+// Hoisted to the shared seed contract so the seeder's marker watcher and this producer agree on the
+// wire bytes; re-exported here so processor call sites keep their `crate::producer` import path.
+pub use cohort_core::seed::ReconcileCompleteMarker;
 
 use crate::filters::reverse_index::TeamFilters;
-use crate::filters::{CohortId, TeamId};
+use crate::filters::CohortId;
 use crate::observability::metrics::OUTPUT_TRANSITIONS_UNMAPPED;
 use crate::stage1::transition::{LeafTransition, TransitionKind};
 
@@ -63,84 +64,6 @@ pub struct CohortMembershipChange {
 pub enum ChangeOrigin {
     Seed,
     Reconcile,
-}
-
-const RECONCILE_COMPLETE_KIND: &str = "reconcile_complete";
-
-/// A completion certificate emitted after one partition's reconcile snapshot is durable.
-/// Field order is the wire order.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ReconcileCompleteMarker {
-    #[serde(rename = "type")]
-    kind: ReconcileCompleteKind,
-    team_id: i32,
-    cohort_id: i32,
-    partition: u16,
-    run_id: RunId,
-    /// ClickHouse `DateTime64(6)` wire format.
-    last_updated: String,
-}
-
-impl ReconcileCompleteMarker {
-    pub fn new(
-        team_id: TeamId,
-        cohort_id: CohortId,
-        partition: u16,
-        run_id: RunId,
-        last_updated: String,
-    ) -> Self {
-        Self {
-            kind: ReconcileCompleteKind,
-            team_id: team_id.0,
-            cohort_id: cohort_id.0,
-            partition,
-            run_id,
-            last_updated,
-        }
-    }
-
-    pub const fn team_id(&self) -> TeamId {
-        TeamId(self.team_id)
-    }
-
-    pub const fn cohort_id(&self) -> CohortId {
-        CohortId(self.cohort_id)
-    }
-
-    pub const fn partition(&self) -> u16 {
-        self.partition
-    }
-
-    pub const fn run_id(&self) -> RunId {
-        self.run_id
-    }
-
-    pub fn last_updated(&self) -> &str {
-        &self.last_updated
-    }
-}
-
-/// A zero-sized discriminant proven to be [`RECONCILE_COMPLETE_KIND`] during deserialization.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct ReconcileCompleteKind;
-
-impl Serialize for ReconcileCompleteKind {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(RECONCILE_COMPLETE_KIND)
-    }
-}
-
-impl<'de> Deserialize<'de> for ReconcileCompleteKind {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let value = String::deserialize(deserializer)?;
-        if value != RECONCILE_COMPLETE_KIND {
-            return Err(DeError::invalid_value(
-                Unexpected::Str(&value),
-                &"marker type \"reconcile_complete\"",
-            ));
-        }
-        Ok(Self)
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -510,32 +433,6 @@ mod tests {
     fn reconcile_origin_serializes_snake_case() {
         let value = serde_json::to_value(ChangeOrigin::Reconcile).unwrap();
         assert_eq!(value, json!("reconcile"));
-    }
-
-    #[test]
-    fn reconcile_complete_marker_has_the_exact_wire_contract() {
-        let marker = reconcile_complete_marker(7);
-
-        assert_eq!(
-            serde_json::to_string(&marker).unwrap(),
-            r#"{"type":"reconcile_complete","team_id":42,"cohort_id":91204,"partition":7,"run_id":"00000000-0000-0000-0000-000000000000","last_updated":"2026-05-26 12:34:56.789123"}"#,
-        );
-        assert_eq!(
-            serde_json::from_str::<ReconcileCompleteMarker>(
-                &serde_json::to_string(&marker).unwrap()
-            )
-            .unwrap(),
-            marker
-        );
-    }
-
-    #[test]
-    fn reconcile_complete_marker_rejects_another_message_type() {
-        let payload = serde_json::to_string(&reconcile_complete_marker(7))
-            .unwrap()
-            .replace("reconcile_complete", "seed");
-
-        assert!(serde_json::from_str::<ReconcileCompleteMarker>(&payload).is_err());
     }
 
     #[test]
