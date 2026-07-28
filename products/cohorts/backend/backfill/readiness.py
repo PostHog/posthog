@@ -49,8 +49,8 @@ def stamp_events_readiness(run: CohortBackfillRun, cohort_id: int) -> bool:
     A person-property or cohort-reference edit mid-backfill shifts the full hash without touching
     events readiness, so keying on the full hash would wrongly supersede a still-valid events backfill.
 
-    This update intentionally bypasses signals. B5 must explicitly invalidate feature-flag and
-    behavioral-cohort caches after a successful stamp.
+    This update intentionally bypasses signals. The caller must explicitly invalidate feature-flag
+    and behavioral-cohort caches after a successful stamp.
 
     Call inside a transaction: the cohort stamp and the participation CAS that ratifies it must
     commit or roll back together.
@@ -107,7 +107,7 @@ def stamp_events_readiness(run: CohortBackfillRun, cohort_id: int) -> bool:
     error = "Cohort definition changed before readiness was stamped"
     # ``superseded_at__isnull`` keeps an earlier supersession's timestamp and message rather than
     # clobbering them with this later, less specific diagnosis (the Rust side COALESCEs for the
-    # same reason). Either way the participation ends up terminal, which is what INV-2 needs.
+    # same reason). Either way the participation ends up terminal.
     CohortBackfillRunCohort.objects.for_team(run.team_id).filter(
         id=participation.id, superseded_at__isnull=True
     ).update(superseded_at=Now(), error=error)

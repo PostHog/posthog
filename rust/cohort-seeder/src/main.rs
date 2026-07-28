@@ -3,6 +3,7 @@
 //! the composition root at the top of the stack.
 
 use std::num::NonZeroUsize;
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -16,12 +17,15 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{fmt, EnvFilter, Layer};
 
 use cohort_seeder::app::{
-    AutoDispatchPolicy, CompletionDriver, OrchestratorSettings, SeederOrchestrator,
-    ORCHESTRATOR_LIVENESS_DEADLINE,
+    AutoDispatchPolicy, CompletionDriver, KafkaCommittedOffsets, KafkaTopicOffsets,
+    MarkerWatchTask, ObservePolicy, OrchestratorSettings, PgMarkerFlush, SeederOrchestrator,
+    WatchDirectives, MARKER_WATCH_LIVENESS_DEADLINE, ORCHESTRATOR_LIVENESS_DEADLINE,
 };
 use cohort_seeder::clickhouse::client::build_client;
 use cohort_seeder::clickhouse::scanner::ChunkScanner;
 use cohort_seeder::config::Config;
+use cohort_seeder::kafka::committed::SeedGroupOffsetReader;
+use cohort_seeder::kafka::markers::MarkerWatcher;
 use cohort_seeder::kafka::pacing::TilePacer;
 use cohort_seeder::kafka::producer::SeedTileProducer;
 use cohort_seeder::observability;
@@ -44,6 +48,9 @@ async fn async_main(config: Config) -> Result<()> {
     init_tracing();
     log_startup(&config);
 
+    let observe_policy =
+        ObservePolicy::from_config(&config).context("validating reconcile observer policy")?;
+
     let mut manager = Manager::builder(SERVICE_NAME)
         .with_global_shutdown_timeout(Duration::from_secs(30))
         .build();
@@ -56,6 +63,20 @@ async fn async_main(config: Config) -> Result<()> {
             .with_liveness_deadline(ORCHESTRATOR_LIVENESS_DEADLINE)
             .with_stall_threshold(3),
     );
+    // The marker-watch task is the binary's second lifecycle component, registered only when the
+    // observer gate is on.
+    let watch_handle = match observe_policy {
+        ObservePolicy::Enabled => Some(
+            manager.register(
+                "marker-watch",
+                ComponentOptions::new()
+                    .with_graceful_shutdown(Duration::from_secs(30))
+                    .with_liveness_deadline(MARKER_WATCH_LIVENESS_DEADLINE)
+                    .with_stall_threshold(3),
+            ),
+        ),
+        ObservePolicy::Disabled => None,
+    };
     let readiness = manager.readiness_handler();
     let liveness = manager.liveness_handler();
     let recorder = config
@@ -88,9 +109,9 @@ async fn async_main(config: Config) -> Result<()> {
     );
     let settings =
         OrchestratorSettings::try_from(&config).context("validating orchestrator settings")?;
-    let completion_driver = build_completion_driver(&config, &pool, &producer)
+    let completion = build_completion(&config, &pool, &producer, observe_policy, watch_handle)
         .await
-        .context("validating auto reconcile dispatch policy")?;
+        .context("validating completion driver policies")?;
     let claimed_by = format!("cohort-seeder:{}", uuid::Uuid::now_v7());
     let orchestrator = SeederOrchestrator::new(
         pool,
@@ -101,11 +122,14 @@ async fn async_main(config: Config) -> Result<()> {
         settings,
         seeder_handle,
         claimed_by,
-        completion_driver,
+        completion.driver,
     );
 
     let guard = manager.monitor_background();
     tokio::spawn(orchestrator.process());
+    if let Some(watch_task) = completion.watch_task {
+        tokio::spawn(watch_task.run());
+    }
 
     let app = observability::health::router(SERVICE_NAME, readiness, liveness, recorder);
     let bind = config.bind_address();
@@ -124,43 +148,138 @@ async fn async_main(config: Config) -> Result<()> {
     Ok(())
 }
 
-/// Build the reconcile-dispatch driver when the policy is armed; `None` leaves the dark path with no
-/// extra queries. A misconfigured policy (enabled without attestation, or a non-contract partition
-/// count) is a startup error, as is an unreachable membership topic — a typo'd name would otherwise
-/// surface only as runs stuck re-dispatching forever.
-async fn build_completion_driver(
+/// The wired completion components: the driver ticked from the orchestrator (with whichever halves
+/// the policies armed) and the marker-watch task to spawn when the observer is on.
+struct WiredCompletion {
+    driver: Option<CompletionDriver>,
+    watch_task: Option<MarkerWatchTask<MarkerWatcher, PgMarkerFlush>>,
+}
+
+/// Build the completion driver from the two independent gates. Auto-dispatch arms the dispatch half
+/// (CAS + tile produce + record); the observer arms the observation half (marker-watch directives +
+/// the observation pass) and its dedicated watch task. Either half alone is valid; both off leaves the
+/// dark path with no extra queries. A misconfigured policy (dispatch enabled without attestation, or a
+/// non-contract partition count) is a startup error, as is an unreachable membership topic — a typo'd
+/// name would otherwise surface only as runs stuck re-dispatching forever.
+async fn build_completion(
     config: &Config,
     pool: &sqlx::PgPool,
     producer: &SeedTileProducer,
-) -> Result<Option<CompletionDriver>> {
-    match AutoDispatchPolicy::from_config(config)? {
-        AutoDispatchPolicy::Disabled => Ok(None),
-        AutoDispatchPolicy::Enabled(register_backfill) => {
-            let max_inflight = NonZeroUsize::new(config.seeder_max_inflight_tiles)
-                .context("SEEDER_MAX_INFLIGHT_TILES must be greater than zero")?;
-            let max_concurrent_dispatches = NonZeroUsize::new(
-                config.seeder_reconcile_max_concurrent_dispatches,
-            )
-            .context("SEEDER_RECONCILE_MAX_CONCURRENT_DISPATCHES must be greater than zero")?;
-            let verify_producer = producer.clone();
-            let membership_topic = config.cohort_membership_changed_topic.clone();
-            tokio::task::spawn_blocking(move || {
-                verify_producer.capture_topic_offsets(&membership_topic, PARTITION_VERIFY_TIMEOUT)
-            })
-            .await
-            .context("joining membership topic verification task")?
-            .context("verifying the membership topic is reachable")?;
-            Ok(Some(CompletionDriver::new(
-                pool.clone(),
-                producer.clone(),
-                config.team_allowlist.clone(),
-                config.cohort_membership_changed_topic.clone(),
-                max_inflight,
-                max_concurrent_dispatches,
-                register_backfill,
-            )))
-        }
+    observe_policy: ObservePolicy,
+    watch_handle: Option<lifecycle::Handle>,
+) -> Result<WiredCompletion> {
+    let dispatch_policy = AutoDispatchPolicy::from_config(config)
+        .context("validating auto reconcile dispatch policy")?;
+    if matches!(dispatch_policy, AutoDispatchPolicy::Disabled)
+        && observe_policy == ObservePolicy::Disabled
+    {
+        return Ok(WiredCompletion {
+            driver: None,
+            watch_task: None,
+        });
     }
+
+    // Both halves ride the membership topic — dispatch produces reconcile tiles onto it, the observer
+    // watches it for markers — so prove it is reachable before either arms.
+    let verify_producer = producer.clone();
+    let membership_topic = config.cohort_membership_changed_topic.clone();
+    tokio::task::spawn_blocking(move || {
+        verify_producer.capture_topic_offsets(&membership_topic, PARTITION_VERIFY_TIMEOUT)
+    })
+    .await
+    .context("joining membership topic verification task")?
+    .context("verifying the membership topic is reachable")?;
+
+    let mut driver = CompletionDriver::new(pool.clone(), config.team_allowlist.clone());
+
+    if let AutoDispatchPolicy::Enabled(register_backfill) = dispatch_policy {
+        let max_inflight = NonZeroUsize::new(config.seeder_max_inflight_tiles)
+            .context("SEEDER_MAX_INFLIGHT_TILES must be greater than zero")?;
+        let max_concurrent_dispatches =
+            NonZeroUsize::new(config.seeder_reconcile_max_concurrent_dispatches)
+                .context("SEEDER_RECONCILE_MAX_CONCURRENT_DISPATCHES must be greater than zero")?;
+        driver = driver.with_dispatch(
+            producer.clone(),
+            config.cohort_membership_changed_topic.clone(),
+            max_inflight,
+            max_concurrent_dispatches,
+            register_backfill,
+        );
+    }
+
+    let watch_task = match observe_policy {
+        ObservePolicy::Disabled => None,
+        ObservePolicy::Enabled => {
+            let handle = watch_handle
+                .context("the marker-watch component must be registered when the observer is on")?;
+            // A zero interval would panic tokio's interval timer; a zero batch would flush per message.
+            if config.seeder_reconcile_persist_interval_ms == 0 {
+                anyhow::bail!("SEEDER_RECONCILE_PERSIST_INTERVAL_MS must be greater than zero");
+            }
+            if config.seeder_reconcile_persist_max_batch == 0 {
+                anyhow::bail!("SEEDER_RECONCILE_PERSIST_MAX_BATCH must be greater than zero");
+            }
+            // The flush tick is the watch task's only heartbeat while the topic is idle, so too long
+            // an interval gets a healthy-but-idle task killed as stalled.
+            let persist_interval =
+                Duration::from_millis(config.seeder_reconcile_persist_interval_ms);
+            if persist_interval > MARKER_WATCH_LIVENESS_DEADLINE / 2 {
+                anyhow::bail!(
+                    "SEEDER_RECONCILE_PERSIST_INTERVAL_MS must be at most half the marker-watch \
+                     liveness deadline ({}ms)",
+                    MARKER_WATCH_LIVENESS_DEADLINE.as_millis() / 2
+                );
+            }
+            // A zero timeout fails every OffsetFetch and watermark call rather than disabling the
+            // timeout, silently dropping the liveness signal.
+            if config.seeder_reconcile_offsets_timeout_ms == 0 {
+                anyhow::bail!("SEEDER_RECONCILE_OFFSETS_TIMEOUT_MS must be greater than zero");
+            }
+            let offsets_timeout = Duration::from_millis(config.seeder_reconcile_offsets_timeout_ms);
+            let reader = SeedGroupOffsetReader::new(
+                config.build_kafka_config(),
+                config.kafka_seed_consumer_group.clone(),
+                config.seed_events_topic.clone(),
+                config.cohort_partition_count,
+                offsets_timeout,
+            );
+            let topic_ends = KafkaTopicOffsets::new(
+                producer.clone(),
+                config.cohort_membership_changed_topic.clone(),
+                offsets_timeout,
+            );
+            // Unique group id: the watcher never commits or joins a group, but a distinct id keeps it
+            // out of any real group's coordinator state.
+            let watch_group = format!("cohort-seeder-marker-watch-{}", uuid::Uuid::now_v7());
+            let watcher = MarkerWatcher::new(
+                &config.build_kafka_config(),
+                config.cohort_membership_changed_topic.clone(),
+                &watch_group,
+                offsets_timeout,
+            )
+            .context("creating the marker-watch consumer")?;
+            let (directives_tx, directives_rx) =
+                tokio::sync::watch::channel(WatchDirectives::default());
+            driver = driver.with_observe(
+                Arc::new(KafkaCommittedOffsets::new(reader)),
+                Arc::new(topic_ends),
+                directives_tx,
+            );
+            Some(MarkerWatchTask::new(
+                watcher,
+                PgMarkerFlush::new(pool.clone()),
+                directives_rx,
+                handle,
+                persist_interval,
+                config.seeder_reconcile_persist_max_batch,
+            ))
+        }
+    };
+
+    Ok(WiredCompletion {
+        driver: Some(driver),
+        watch_task,
+    })
 }
 
 fn log_startup(config: &Config) {
@@ -180,6 +299,11 @@ fn log_startup(config: &Config) {
         confirm_register_backfilled = config.seeder_confirm_register_backfilled,
         reconcile_max_concurrent_dispatches = config.seeder_reconcile_max_concurrent_dispatches,
         membership_topic = %config.cohort_membership_changed_topic,
+        reconcile_observer_enabled = config.seeder_reconcile_observer_enabled,
+        seed_consumer_group = %config.kafka_seed_consumer_group,
+        reconcile_offsets_timeout_ms = config.seeder_reconcile_offsets_timeout_ms,
+        reconcile_persist_interval_ms = config.seeder_reconcile_persist_interval_ms,
+        reconcile_persist_max_batch = config.seeder_reconcile_persist_max_batch,
         "starting cohort-seeder",
     );
 }
