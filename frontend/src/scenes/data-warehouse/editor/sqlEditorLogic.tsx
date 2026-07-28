@@ -81,7 +81,11 @@ import {
 } from '~/types'
 
 import { validateMetricName } from 'products/data_catalog/frontend/common'
-import { dataCatalogMetricsCreate, dataCatalogMetricsPartialUpdate } from 'products/data_catalog/frontend/generated/api'
+import {
+    dataCatalogMetricsCreate,
+    dataCatalogMetricsPartialUpdate,
+    dataCatalogMetricsRetrieve,
+} from 'products/data_catalog/frontend/generated/api'
 import { DagSelector, openCreateDagDialog } from 'products/data_modeling/frontend/DagSelector'
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 import { validateEndpointName } from 'products/endpoints/frontend/common'
@@ -3342,6 +3346,27 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                     tabAdded = true
                     router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
+                } else if (searchParams.edit_metric) {
+                    // edit_metric binds the "Update metric" button to overwrite a named metric.
+                    // Both edit_metric and open_query are URL-controlled, so we never bind the
+                    // update target to URL-supplied SQL — a crafted link could otherwise overwrite
+                    // a teammate's metric with arbitrary HogQL. Load the metric server-side and open
+                    // its stored query, so the update target and its definition come from the same
+                    // authenticated response.
+                    try {
+                        const metric = await dataCatalogMetricsRetrieve(
+                            String(ApiConfig.getCurrentTeamId()),
+                            searchParams.edit_metric
+                        )
+                        const definition = metric.definition as Record<string, unknown> | null | undefined
+                        const metricQuery = typeof definition?.query === 'string' ? definition.query : ''
+                        actions.createTab(metricQuery, undefined, undefined, undefined, metric.name)
+                    } catch {
+                        // Metric not found or no access — open an unbound empty tab rather than
+                        // binding an update target we couldn't verify.
+                        actions.createTab('')
+                    }
+                    tabAdded = true
                 } else if (searchParams.open_query) {
                     // kea-router decodes JSON-shaped URL values to objects — a node here carries
                     // visualization settings (display, chartSettings) alongside the SQL
@@ -3350,13 +3375,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             ? toDataVisualizationNode(searchParams.open_query)
                             : undefined
                     if (openQueryNode) {
-                        actions.createTab(
-                            openQueryNode.source.query || '',
-                            undefined,
-                            undefined,
-                            undefined,
-                            searchParams.edit_metric
-                        )
+                        actions.createTab(openQueryNode.source.query || '')
                         actions.setSourceQuery(hasFiltersHashParam ? applyFiltersFromUrl(openQueryNode) : openQueryNode)
                         if (!outputTabFromUrl) {
                             actions.setActiveTab(OutputTab.Visualization)
@@ -3367,11 +3386,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         // kea-router also decodes numeric/JSON-shaped values; a non-node object is a
                         // malformed URL, so fall back to an empty query rather than "[object Object]"
                         actions.createTab(
-                            typeof searchParams.open_query === 'object' ? '' : String(searchParams.open_query),
-                            undefined,
-                            undefined,
-                            undefined,
-                            searchParams.edit_metric
+                            typeof searchParams.open_query === 'object' ? '' : String(searchParams.open_query)
                         )
                     }
                     tabAdded = true

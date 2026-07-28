@@ -152,10 +152,7 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
                       key: 'open-sql',
                       label: 'Open in SQL editor',
                       icon: <IconServer />,
-                      onClick: () =>
-                          router.actions.push(
-                              urls.sqlEditor({ query: definitionSql, source: 'metric', metricName: metric.name })
-                          ),
+                      onClick: () => router.actions.push(urls.sqlEditor({ source: 'metric', metricName: metric.name })),
                   },
               ]
             : []),
@@ -455,7 +452,7 @@ function MetricDefinition({
                         type="secondary"
                         size="small"
                         icon={<IconServer />}
-                        to={urls.sqlEditor({ query: sql, source: 'metric', metricName: metric.name })}
+                        to={urls.sqlEditor({ source: 'metric', metricName: metric.name })}
                     >
                         Open in SQL editor
                     </LemonButton>
