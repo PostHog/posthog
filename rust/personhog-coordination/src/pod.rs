@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -166,14 +166,31 @@ impl Default for PodConfig {
     }
 }
 
+/// What a partition's warm was installed for. A warm is only as fresh as
+/// the moment it replayed the changelog; `converge` records why each one
+/// was installed so a later Acquiring can tell a warm it may honor from
+/// one left over from an earlier era.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum WarmProvenance {
+    /// Warmed as (or on the way back to being) the serving owner: a
+    /// process restart, or the returning old owner of an in-flight
+    /// handoff. Current at install time and kept current by the pod's
+    /// own accepted writes for as long as it remains the owner.
+    Serving,
+    /// Warmed for one specific handoff's Warming phase, identified by
+    /// its id.
+    Handoff(String),
+}
+
 pub struct PodHandle {
     store: Arc<PersonhogStore>,
     config: PodConfig,
     handler: Arc<dyn HandoffHandler>,
-    /// Partitions warmed by this process — local, dies with the process.
-    /// `converge` consults it to decide whether a Serving/Acquiring
-    /// partition still needs a warm, and `drain()` waits for it to empty.
-    warmed_partitions: Mutex<HashSet<u32>>,
+    /// Partitions warmed by this process — local, dies with the process —
+    /// each with the provenance of its warm. `converge` consults it to
+    /// decide whether a Serving/Acquiring partition still needs a warm,
+    /// and `drain()` waits for it to empty.
+    warmed_partitions: Mutex<HashMap<u32, WarmProvenance>>,
     /// Partitions this process has write-fenced via a drain — local,
     /// consulted so convergence to Serving only issues a resume when a
     /// fence actually exists.
@@ -195,7 +212,7 @@ impl PodHandle {
             store,
             config,
             handler,
-            warmed_partitions: Mutex::new(HashSet::new()),
+            warmed_partitions: Mutex::new(HashMap::new()),
             fenced_partitions: Mutex::new(HashSet::new()),
             drain_notify: Notify::new(),
             k8s_awareness,
@@ -418,7 +435,11 @@ impl PodHandle {
     async fn held_partition_count(&self) -> usize {
         let warmed = self.warmed_partitions.lock().await;
         let fenced = self.fenced_partitions.lock().await;
-        warmed.union(&fenced).count()
+        warmed
+            .keys()
+            .chain(fenced.iter())
+            .collect::<HashSet<_>>()
+            .len()
     }
 
     /// Wait until all held partitions have been released via handoffs.
@@ -505,13 +526,16 @@ impl PodHandle {
 
         match desired {
             DesiredState::Serving => {
-                if !self.warmed_partitions.lock().await.contains(&partition) {
+                if !self.warmed_partitions.lock().await.contains_key(&partition) {
                     tracing::info!(pod, partition, "converging to Serving: warming");
                     let start = Instant::now();
                     self.handler.warm_partition(partition).await?;
                     histogram!("personhog_coordination_partition_warm_ms", "trigger" => "restart")
                         .record(start.elapsed().as_secs_f64() * 1000.0);
-                    self.warmed_partitions.lock().await.insert(partition);
+                    self.warmed_partitions
+                        .lock()
+                        .await
+                        .insert(partition, WarmProvenance::Serving);
                 } else if self.fenced_partitions.lock().await.contains(&partition) {
                     tracing::info!(pod, partition, "converging to Serving: resuming writes");
                     self.handler.resume_partition(partition).await?;
@@ -553,16 +577,47 @@ impl PodHandle {
                 }
             }
             DesiredState::Acquiring => {
-                if !self.warmed_partitions.lock().await.contains(&partition) {
+                let handoff = handoff.expect("Acquiring state only derives from a handoff");
+                // Only a warm installed for *this* handoff satisfies its
+                // warming. One left over from an earlier era — the pod
+                // was this partition's owner or warming target before,
+                // ownership moved away, and the intervening Released
+                // convergence never ran — can hold values that predate
+                // writes the changelog accepted since. A fresh warm
+                // replays only from the writer's committed offset, so a
+                // stale cache below that offset would keep hitting;
+                // release first and rebuild from clean.
+                let valid = self.warmed_partitions.lock().await.get(&partition).is_some_and(
+                    |provenance| {
+                        matches!(provenance, WarmProvenance::Handoff(id) if *id == handoff.handoff_id)
+                    },
+                );
+                if !valid {
+                    if self
+                        .warmed_partitions
+                        .lock()
+                        .await
+                        .remove(&partition)
+                        .is_some()
+                    {
+                        tracing::info!(
+                            pod,
+                            partition,
+                            "converging to Acquiring: releasing a warm from an earlier era"
+                        );
+                        self.handler.release_partition(partition).await?;
+                    }
                     tracing::info!(pod, partition, "converging to Acquiring: warming");
                     let start = Instant::now();
                     self.handler.warm_partition(partition).await?;
                     histogram!("personhog_coordination_partition_warm_ms", "trigger" => "handoff")
                         .record(start.elapsed().as_secs_f64() * 1000.0);
-                    self.warmed_partitions.lock().await.insert(partition);
+                    self.warmed_partitions.lock().await.insert(
+                        partition,
+                        WarmProvenance::Handoff(handoff.handoff_id.clone()),
+                    );
                 }
                 self.fenced_partitions.lock().await.remove(&partition);
-                let handoff = handoff.expect("Acquiring state only derives from a handoff");
                 self.store
                     .put_warmed_ack(&PodWarmedAck {
                         pod_name: pod.clone(),
@@ -574,7 +629,12 @@ impl PodHandle {
                 tracing::info!(pod, partition, "warmed ack written");
             }
             DesiredState::Released => {
-                let was_warmed = self.warmed_partitions.lock().await.remove(&partition);
+                let was_warmed = self
+                    .warmed_partitions
+                    .lock()
+                    .await
+                    .remove(&partition)
+                    .is_some();
                 let was_fenced = self.fenced_partitions.lock().await.remove(&partition);
                 if was_warmed || was_fenced {
                     tracing::info!(pod, partition, "converging to Released: releasing");
