@@ -1,6 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
+import { activityLogLogic, ensureActivityDescribersLoaded } from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityChange, ActivityLogItem, PersonMerge, Trigger } from 'lib/components/ActivityLog/humanizeActivity'
 
 import { useMocks } from '~/mocks/jest'
@@ -60,6 +60,15 @@ async function testSetup(
 }
 
 export const makeTestSetup = (scope: ActivityScope, url: string) => {
+    // `fetchActivity` awaits the code-split describer registry, so without this hook whichever test
+    // calls the returned setup first has to transpile and require every product's describers inside
+    // its own timeout. That is several seconds of one-time work against jest's 5s default, which
+    // leaves so little headroom that a contended CI shard tips the first test into a timeout.
+    // The hook gets an explicit timeout because a cold transform cache can be slower still.
+    beforeAll(async () => {
+        await ensureActivityDescribersLoaded()
+    }, 60_000)
+
     return async (
         name: string,
         activity: string,
