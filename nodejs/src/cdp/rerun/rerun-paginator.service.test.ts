@@ -5,9 +5,12 @@ import { DateTime } from 'luxon'
 
 import { KAFKA_HOG_INVOCATION_RESULTS } from '~/common/config/kafka-topics'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { HOG_INVOCATION_RESULTS_OUTPUT } from '~/common/outputs'
+import { IngestionOutput } from '~/common/outputs/ingestion-output'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { UUIDT } from '~/common/utils/utils'
-import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { waitForHogInvocationResultsMvReady } from '~/tests/helpers/hog-invocation-results'
@@ -16,13 +19,15 @@ import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../types'
 import { insertHogFunction as _insertHogFunction, createHogExecutionGlobals } from '../_tests/fixtures'
-import { createCdpOutputsRegistry } from '../outputs/registry'
 import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
 import { CyclotronJobQueuePostgresV2 } from '../services/job-queue/job-queue-postgres-v2'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
-import { HogInvocationResultsService } from '../services/monitoring/hog-invocation-results.service'
+import {
+    HogInvocationResultsService,
+    HogInvocationResultsServiceOutput,
+} from '../services/monitoring/hog-invocation-results.service'
 import { CyclotronJobInvocationHogFunction, HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import { RERUN_PAGE_SIZE, RerunJobState } from './rerun-job.types'
 import { RerunPaginatorService } from './rerun-paginator.service'
@@ -70,6 +75,41 @@ describe('RerunPaginatorService integration', () => {
         clickhouse?.close()
         await chClient?.close()
     })
+
+    // Seeding produces through the real output, but `HogInvocationResultsService.flush()`
+    // catches every produce error, logs it and moves on — deliberately, since a monitoring
+    // write must never disrupt invocation processing. That leaves seeding unable to tell a
+    // delivered row from a dropped one: a row that never reached Kafka just never arrives in
+    // ClickHouse, and the poll below burns its deadline before failing on a count mismatch
+    // that says nothing about the broker. Hold each produce promise so `seedRows` can await
+    // them and report the underlying failure instead.
+    let pendingProduces: Promise<void>[] = []
+    const buildSeedingOutputs = (
+        producer: KafkaProducerWrapper
+    ): IngestionOutputs<HogInvocationResultsServiceOutput> => {
+        const output = new SingleIngestionOutput(
+            HOG_INVOCATION_RESULTS_OUTPUT,
+            KAFKA_HOG_INVOCATION_RESULTS,
+            producer,
+            'test'
+        )
+        const recording: IngestionOutput = {
+            produce: (message) => {
+                const produced = output.produce(message)
+                pendingProduces.push(produced)
+                return produced
+            },
+            queueMessages: (messages) => output.queueMessages(messages),
+            checkHealth: (timeoutMs) => output.checkHealth(timeoutMs),
+            checkTopicExists: (timeoutMs) => output.checkTopicExists(timeoutMs),
+        }
+        // Lifecycle rows are the only thing this service produces, so the rest of its
+        // output union is unreachable and has nothing to wire up.
+        return new IngestionOutputs({ [HOG_INVOCATION_RESULTS_OUTPUT]: recording } as Record<
+            HogInvocationResultsServiceOutput,
+            IngestionOutput
+        >)
+    }
 
     let seededCount = 0
     /**
@@ -119,6 +159,11 @@ describe('RerunPaginatorService integration', () => {
             seedingService.queueLifecycleRow(invocation, r.status, { error: r.error, errorKind: r.errorKind })
         }
         await seedingService.flush()
+        // `flush()` has already swallowed any produce rejection; re-await the promises it
+        // discarded so a broker failure fails the seed here, with the broker's own error.
+        const produced = pendingProduces
+        pendingProduces = []
+        await Promise.all(produced)
         await kafkaProducer.flush()
 
         // Track cumulative seeded rows so calling seedRows twice in the same
@@ -207,12 +252,10 @@ describe('RerunPaginatorService integration', () => {
         team = await getFirstTeam(hub.postgres)
 
         // Real seeding path: outputs → kafka → MV → CH.
-        const deps = createCdpConsumerDeps(hub, kafkaProducer)
-        const outputs = createCdpOutputsRegistry().build(deps.cdpProducerRegistry, {
-            ...hub,
-            HOG_INVOCATION_RESULTS_TOPIC: KAFKA_HOG_INVOCATION_RESULTS,
-        } as any)
-        seedingService = new HogInvocationResultsService(outputs, { HOG_INVOCATION_RESULTS_ENABLED: true })
+        pendingProduces = []
+        seedingService = new HogInvocationResultsService(buildSeedingOutputs(kafkaProducer), {
+            HOG_INVOCATION_RESULTS_ENABLED: true,
+        })
 
         hogFunction = await _insertHogFunction(hub.postgres, team.id, {
             type: 'destination',
