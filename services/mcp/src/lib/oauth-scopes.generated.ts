@@ -115,6 +115,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'llm_analytics:write',
     'ai_observability_clusters:read',
     'ai_observability_clusters:write',
+    'llm_playground:read',
+    'llm_playground:write',
     'llm_prompt:read',
     'llm_prompt:write',
     'llm_provider_key:read',
