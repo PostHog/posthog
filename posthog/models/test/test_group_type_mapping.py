@@ -1,5 +1,6 @@
 from unittest.mock import MagicMock, patch
 
+from django.db import DatabaseError
 from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
@@ -899,6 +900,31 @@ class TestUnconfiguredClientDegradesGracefully(SimpleTestCase):
     def test_project_has_group_types_fails_closed(self):
         # Unconfirmable state must not be treated as "safe to empty" — fail closed to True.
         assert project_has_group_types_authoritatively(self.project_id) is True
+
+    def _make_instance(self):
+        instance = MagicMock()
+        instance.project_id = self.project_id
+        instance.group_type_index = 0
+        return instance
+
+    @parameterized.expand(
+        [
+            (
+                "update",
+                lambda self: update_group_type_mapping_fields(self._make_instance(), fields={"name_singular": "Org"}),
+            ),
+            ("delete", lambda self: delete_group_type_mapping(self._make_instance())),
+        ]
+    )
+    def test_write_path_raises_recoverable_database_error(self, _name, call):
+        # A missing client (RuntimeError) must surface as the recoverable DatabaseError,
+        # not escape raw and 500 the caller.
+        with self.assertRaises(DatabaseError):
+            call(self)
+
+    def test_clear_dashboard_is_best_effort_and_does_not_raise(self):
+        # Dashboard.delete() calls this first; an unconfigured client must not abort the delete.
+        clear_dashboard_from_group_type_mapping(team_id=42, dashboard_id=99, project_id=self.project_id)
 
 
 class TestDictToGroupTypeMappingModel(SimpleTestCase):

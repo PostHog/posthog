@@ -652,9 +652,10 @@ def update_group_type_mapping_fields(
     """
     from posthog.personhog_client.proto import UpdateGroupTypeMappingRequest
 
-    client = require_personhog_client()
-
     def _fn() -> None:
+        # require_personhog_client() must run inside personhog_call so a missing client
+        # (RuntimeError) is wrapped as DatabaseError and recovered like any write failure.
+        client = require_personhog_client()
         update_mask: list[str] = list(fields.keys())
         kwargs: dict[str, Any] = {
             "project_id": instance.project_id,
@@ -687,15 +688,20 @@ def delete_group_type_mapping(instance: GroupTypeMapping, *, caller_tag: str | N
     """Delete a GroupTypeMapping via personhog."""
     from posthog.personhog_client.proto import DeleteGroupTypeMappingRequest
 
-    client = require_personhog_client()
-    personhog_call(
-        "delete_group_type_mapping",
-        lambda: client.delete_group_type_mapping(
+    def _fn() -> None:
+        # require_personhog_client() must run inside personhog_call so a missing client
+        # (RuntimeError) is wrapped as DatabaseError and recovered like any write failure.
+        client = require_personhog_client()
+        client.delete_group_type_mapping(
             DeleteGroupTypeMappingRequest(
                 project_id=instance.project_id,
                 group_type_index=instance.group_type_index,
             )
-        ),
+        )
+
+    personhog_call(
+        "delete_group_type_mapping",
+        _fn,
         caller_tag=f"group_type_mapping/{caller_tag or 'delete_group_type_mapping'}",
         reraise_as=DatabaseError,
     )
@@ -710,9 +716,10 @@ def clear_dashboard_from_group_type_mapping(
     """
     from posthog.personhog_client.proto import GetGroupTypeMappingByDashboardIdRequest, UpdateGroupTypeMappingRequest
 
-    client = require_personhog_client()
-
     def _fn() -> None:
+        # require_personhog_client() must run inside personhog_call so a missing client
+        # (RuntimeError) is wrapped as DatabaseError and recovered like any write failure.
+        client = require_personhog_client()
         resp = client.get_group_type_mapping_by_dashboard_id(
             GetGroupTypeMappingByDashboardIdRequest(team_id=team_id, dashboard_id=dashboard_id)
         )
@@ -726,9 +733,20 @@ def clear_dashboard_from_group_type_mapping(
             )
             invalidate_group_types_cache(resp.mapping.project_id)
 
-    personhog_call(
-        "clear_dashboard_from_group_type_mapping",
-        _fn,
-        caller_tag=f"group_type_mapping/{caller_tag or 'clear_dashboard_from_group_type_mapping'}",
-        reraise_as=DatabaseError,
-    )
+    try:
+        personhog_call(
+            "clear_dashboard_from_group_type_mapping",
+            _fn,
+            caller_tag=f"group_type_mapping/{caller_tag or 'clear_dashboard_from_group_type_mapping'}",
+            reraise_as=DatabaseError,
+        )
+    except DatabaseError:
+        # Best-effort: clearing the dashboard reference must not block Dashboard.delete().
+        # If personhog is unavailable the stale detail_dashboard_id is harmless — the
+        # mapping's dashboard link is read defensively downstream.
+        logger.warning(
+            "clear_dashboard_from_group_type_mapping_failed",
+            team_id=team_id,
+            dashboard_id=dashboard_id,
+            exc_info=True,
+        )
