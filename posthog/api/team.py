@@ -1232,6 +1232,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "slack_bot_token",
             "slack_team_id",
             "slack_enabled",
+            "slack_scopes",
             "email_enabled",
             "teams_enabled",
             "teams_tenant_id",

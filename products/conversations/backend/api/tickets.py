@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
+import time
 import uuid
 from collections.abc import Sequence
 from datetime import timedelta
 from typing import Any
 
 from django.db import transaction
-from django.db.models import CharField, Exists, F, OrderBy, OuterRef, Q, QuerySet, Sum
+from django.db.models import CharField, F, OrderBy, Q, QuerySet, Sum
 from django.db.models.functions import Cast
 from django.http import Http404
 from django.utils import timezone
@@ -54,6 +55,7 @@ from products.conversations.backend.events import (
     capture_ticket_priority_changed,
     capture_ticket_status_changed,
 )
+from products.conversations.backend.metrics import TICKET_SEARCH_DURATION_SECONDS
 from products.conversations.backend.models import EmailChannel, Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
 from products.conversations.backend.person_lookup import _get_persons_by_email
@@ -368,6 +370,29 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
     permission_classes = [IsAuthenticated, APIScopePermission]
     pagination_class = TicketPagination
 
+    # Which search branch safely_get_queryset applied, for the latency histogram.
+    _search_path: str | None = None
+
+    def _filter_by_text_search(self, queryset: QuerySet, search: str) -> QuerySet:
+        # Comment match as a non-correlated subquery: self-contained, so Postgres hashes
+        # it once per query (scanning posthog_comment through its trigram index) instead
+        # of probing comments per ticket the way a correlated EXISTS would. The ticket id
+        # is cast to text rather than item_id to uuid — the id side is always a valid
+        # UUID, while a malformed item_id row would make the whole search error.
+        comment_match = Comment.objects.filter(
+            team_id=self.team_id,
+            scope="conversations_ticket",
+            deleted=False,
+            content__icontains=search,
+        ).values("item_id")
+
+        return queryset.alias(id_text=Cast("id", output_field=CharField())).filter(
+            Q(anonymous_traits__name__icontains=search)
+            | Q(anonymous_traits__email__icontains=search)
+            | Q(email_subject__icontains=search)
+            | Q(id_text__in=comment_match)
+        )
+
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         """Filter tickets by team."""
         queryset = queryset.filter(team_id=self.team_id)
@@ -477,28 +502,11 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
             # that int() then rejects, which would 500 the request.
             ticket_number_search = search[1:] if search.startswith("#") else search
             if ticket_number_search.isascii() and ticket_number_search.isdigit():
+                self._search_path = "ticket_number"
                 queryset = queryset.filter(ticket_number=int(ticket_number_search))
             else:
-                # EXISTS subquery: matches any comment in the ticket's conversation.
-                # Uses the (team_id, scope, item_id) composite index on Comment to
-                # narrow to per-ticket comments; EXISTS short-circuits on first match.
-                # If this becomes slow at scale (10k+ candidate tickets with broad
-                # filters), consider adding a GIN trigram index on Comment.content:
-                #   GinIndex(name="comment_content_trigram", fields=["content"],
-                #            opclasses=["gin_trgm_ops"])
-                comment_match = Comment.objects.filter(
-                    team_id=OuterRef("team_id"),
-                    scope="conversations_ticket",
-                    item_id=Cast(OuterRef("id"), output_field=CharField()),
-                    content__icontains=search,
-                    deleted=False,
-                )
-                queryset = queryset.filter(
-                    Q(anonymous_traits__name__icontains=search)
-                    | Q(anonymous_traits__email__icontains=search)
-                    | Q(email_subject__icontains=search)
-                    | Exists(comment_match)
-                )
+                self._search_path = "text"
+                queryset = self._filter_by_text_search(queryset, search)
 
         sla_param = self.request.query_params.get("sla")
         if sla_param:
@@ -768,8 +776,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 description=(
-                    "Free-text search. A numeric value matches a ticket number exactly; otherwise matches "
-                    "against the customer's name or email (case-insensitive, partial match)."
+                    "Free-text search. A numeric value (optionally prefixed with `#`) matches a ticket number "
+                    "exactly; otherwise matches against the customer's name or email, the email subject, or "
+                    "message content (case-insensitive, partial match)."
                 ),
             ),
             OpenApiParameter(
@@ -820,18 +829,27 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
     )
     def list(self, request, *args, **kwargs):
         """List tickets with person data attached."""
-        queryset = self.filter_queryset(self.get_queryset())
-        page = self.paginate_queryset(queryset)
+        # _search_path starts as the class default (None) on each request's fresh
+        # viewset instance; filter_queryset sets it when a search filter is applied.
+        start = time.perf_counter()
+        try:
+            queryset = self.filter_queryset(self.get_queryset())
+            page = self.paginate_queryset(queryset)
 
-        if page is not None:
-            self._attach_persons_to_tickets(page)
-            serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
+            if page is not None:
+                self._attach_persons_to_tickets(page)
+                serializer = self.get_serializer(page, many=True)
+                return self.get_paginated_response(serializer.data)
 
-        tickets = list(queryset)
-        self._attach_persons_to_tickets(tickets)
-        serializer = self.get_serializer(tickets, many=True)
-        return Response(serializer.data)
+            tickets = list(queryset)
+            self._attach_persons_to_tickets(tickets)
+            serializer = self.get_serializer(tickets, many=True)
+            return Response(serializer.data)
+        finally:
+            if self._search_path is not None:
+                TICKET_SEARCH_DURATION_SECONDS.labels(search_path=self._search_path).observe(
+                    time.perf_counter() - start
+                )
 
     def retrieve(self, request, *args, **kwargs):
         """Get single ticket and mark as read by team."""
