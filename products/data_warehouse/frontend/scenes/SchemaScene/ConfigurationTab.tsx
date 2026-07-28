@@ -83,7 +83,6 @@ export interface ConfigurationTabProps {
     source: SchemaSceneSource | null
     section: SchemaConfigurationSection
     onConfigureSyncMethod: () => void
-    onViewSyncHistory: () => void
 }
 
 export function ConfigurationTab({
@@ -92,7 +91,6 @@ export function ConfigurationTab({
     source,
     section,
     onConfigureSyncMethod,
-    onViewSyncHistory,
 }: ConfigurationTabProps): JSX.Element {
     const logic = schemaSceneLogic({ sourceId, schemaId: schema.id })
     const { isProjectTime, refreshingSchemas, resyncingSchema, supportsRowFilters } = useValues(logic)
@@ -110,7 +108,6 @@ export function ConfigurationTab({
                     cancelSchema={cancelSchema}
                     updateSchema={updateSchema}
                     onConfigureSyncMethod={onConfigureSyncMethod}
-                    onViewSyncHistory={onViewSyncHistory}
                 />
             )
         case 'sync-method':
@@ -178,7 +175,6 @@ function DetailsSection({
     cancelSchema,
     updateSchema,
     onConfigureSyncMethod,
-    onViewSyncHistory,
 }: {
     source: ExternalDataSource | null
     schema: ExternalDataSourceSchema
@@ -186,7 +182,6 @@ function DetailsSection({
     cancelSchema: (schema: ExternalDataSourceSchema) => void
     updateSchema: (schema: ExternalDataSourceSchema) => void
     onConfigureSyncMethod: () => void
-    onViewSyncHistory: () => void
 }): JSX.Element {
     const syncedTableName = schema.table?.hogql_name ?? schema.table?.name
 
@@ -346,9 +341,6 @@ function DetailsSection({
                         )}
                     </SourceEditorAction>
                 )}
-                <LemonButton type="secondary" onClick={onViewSyncHistory}>
-                    View sync history
-                </LemonButton>
             </div>
         </div>
     )
