@@ -329,6 +329,30 @@ class TestTemplateHubspotEvent(BaseHogFunctionTemplateTest):
             },
         )
 
+    def test_wide_payload_still_sends_the_event(self):
+        self.fetch_responses = {
+            "https://api.hubapi.com/events/v3/event-definitions/purchase/?includeProperties=true": EVENT_DEFINITION_RESPONSE,
+            "https://api.hubapi.com/events/v3/event-definitions/purchase/property": {"status": 200, "body": {}},
+        }
+        new_properties = {f"new_{i}": f"value_{i}" for i in range(5)}
+
+        self.run_function(
+            inputs=self._inputs(include_all_properties=True),
+            globals={"event": {"properties": new_properties}},
+        )
+
+        calls = self.get_mock_fetch_calls()
+        # An invocation gets 5 fetches: the definition lookup, three registrations, the send
+        assert len(calls) == 5
+        assert [call[1]["body"]["name"] for call in calls[1:4]] == ["new_0", "new_1", "new_2"]
+        assert calls[4][0] == "https://api.hubapi.com/events/v3/send"
+        assert calls[4][1]["body"]["properties"] == {"price": 50, "currency": "USD", **new_properties}
+        assert self.get_mock_print_calls() == [
+            (
+                "Hubspot accepts one new event property per request, so 3 of the 5 new properties on purchase were registered. The rest will be registered as more events come in.",
+            )
+        ]
+
     def test_exits_if_no_email(self):
         for email in [None, ""]:
             self.mock_print.reset_mock()

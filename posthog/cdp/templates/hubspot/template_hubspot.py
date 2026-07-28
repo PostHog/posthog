@@ -266,20 +266,29 @@ if (eventSchema.status >= 400) {
         }
     }
 
-    if (not empty(missingProperties)) {
-        for (let i, obj in missingProperties) {
-            let res := fetch(f'https://api.hubapi.com/events/v3/event-definitions/{eventName}/property', {
-                'method': 'POST',
-                'headers': {
-                    'Authorization': f'Bearer {inputs.oauth.access_token}',
-                    'Content-Type': 'application/json'
-                },
-                'body': getPropValueTypeDefinition(obj.key, obj.value)
-            })
+    // Hubspot registers one property per request and has no batch endpoint for an event
+    // definition that already exists. An invocation is capped at 5 fetches, and the lookup
+    // above and the send below each take one, so only 3 are left over for properties. The
+    // rest are registered by later events, whose lookup sees whatever landed here.
+    let propertiesToRegister := length(missingProperties)
+    if (propertiesToRegister > 3) {
+        propertiesToRegister := 3
+        print(f'Hubspot accepts one new event property per request, so {propertiesToRegister} of the {length(missingProperties)} new properties on {eventName} were registered. The rest will be registered as more events come in.')
+    }
 
-            if (res.status >= 400) {
-                throw Error(f'Error from api.hubapi.com api: {res.status}: {res.body}');
-            }
+    for (let i := 1; i <= propertiesToRegister; i := i + 1) {
+        let obj := missingProperties[i]
+        let res := fetch(f'https://api.hubapi.com/events/v3/event-definitions/{eventName}/property', {
+            'method': 'POST',
+            'headers': {
+                'Authorization': f'Bearer {inputs.oauth.access_token}',
+                'Content-Type': 'application/json'
+            },
+            'body': getPropValueTypeDefinition(obj.key, obj.value)
+        })
+
+        if (res.status >= 400) {
+            throw Error(f'Error from api.hubapi.com api: {res.status}: {res.body}');
         }
     }
 

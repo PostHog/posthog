@@ -18,6 +18,53 @@ class _Replacement(TypedDict):
     to_string: str
 
 
+# Existing destinations run the code they were created with, so the unbounded property
+# registration loop has to be swapped out of them directly. Both blocks are verbatim copies
+# of the template's own text, which is what makes the match succeed.
+HUBSPOT_EVENT_UNBOUNDED_PROPERTY_LOOP = """    if (not empty(missingProperties)) {
+        for (let i, obj in missingProperties) {
+            let res := fetch(f'https://api.hubapi.com/events/v3/event-definitions/{eventName}/property', {
+                'method': 'POST',
+                'headers': {
+                    'Authorization': f'Bearer {inputs.oauth.access_token}',
+                    'Content-Type': 'application/json'
+                },
+                'body': getPropValueTypeDefinition(obj.key, obj.value)
+            })
+
+            if (res.status >= 400) {
+                throw Error(f'Error from api.hubapi.com api: {res.status}: {res.body}');
+            }
+        }
+    }"""
+
+HUBSPOT_EVENT_BOUNDED_PROPERTY_LOOP = """    // Hubspot registers one property per request and has no batch endpoint for an event
+    // definition that already exists. An invocation is capped at 5 fetches, and the lookup
+    // above and the send below each take one, so only 3 are left over for properties. The
+    // rest are registered by later events, whose lookup sees whatever landed here.
+    let propertiesToRegister := length(missingProperties)
+    if (propertiesToRegister > 3) {
+        propertiesToRegister := 3
+        print(f'Hubspot accepts one new event property per request, so {propertiesToRegister} of the {length(missingProperties)} new properties on {eventName} were registered. The rest will be registered as more events come in.')
+    }
+
+    for (let i := 1; i <= propertiesToRegister; i := i + 1) {
+        let obj := missingProperties[i]
+        let res := fetch(f'https://api.hubapi.com/events/v3/event-definitions/{eventName}/property', {
+            'method': 'POST',
+            'headers': {
+                'Authorization': f'Bearer {inputs.oauth.access_token}',
+                'Content-Type': 'application/json'
+            },
+            'body': getPropValueTypeDefinition(obj.key, obj.value)
+        })
+
+        if (res.status >= 400) {
+            throw Error(f'Error from api.hubapi.com api: {res.status}: {res.body}');
+        }
+    }"""
+
+
 class _ReplaceOption(TypedDict):
     template_id: str
     replacements: list[_Replacement]
@@ -94,6 +141,19 @@ class Command(BaseCommand):
             # `/cu/11`) between `.../automations/direct/` and `/workflows/`, so the original
             # `direct/workflows/` regex rejected valid URLs. Widen the path to allow those segments
             # on functions already deployed with the stale pattern.
+            # The custom event destination registered one property per fetch inside an
+            # unbounded loop, so an event with 4 or more properties Hubspot had not seen
+            # exhausted the invocation's fetch budget before reaching the send and was
+            # dropped entirely. Bound the registrations so the send always runs.
+            "hubspot-event-bounded-property-registration": {
+                "template_id": "template-hubspot-event",
+                "replacements": [
+                    {
+                        "from_string": HUBSPOT_EVENT_UNBOUNDED_PROPERTY_LOOP,
+                        "to_string": HUBSPOT_EVENT_BOUNDED_PROPERTY_LOOP,
+                    },
+                ],
+            },
             "microsoft-teams-powerplatform-cu-path": {
                 "template_id": "template-microsoft-teams",
                 "replacements": [
