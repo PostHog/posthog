@@ -6601,15 +6601,15 @@ snapshots:
     scenes-app-people-cohorts--cohort-edit-dynamic--dark:
         hash: v1.k794b7964.29528fe9c6743a11a17bf839e152d3ed0d45a571dc704b0fbeafc0e469213d61.u8BPurAlJ3JdThf5TpcoGw-6KWkWwHlFETCXvt2Y6us
     scenes-app-people-cohorts--cohort-edit-dynamic--light:
-        hash: v1.k794b7964.68a8f57efed3143da4feec04312c071aa8d6bb92e475945589b843ad881b69e9.v7QDELbVd7iBn4lZs6VDsX1slTQVBZb3w8z6sO3BNJ4
+        hash: v1.k794b7964.af17394f32809d5fb7e65e8f3298be02447f4481ff41645350514a7f16ac8545.f1AXZKpaB9lZ6zPTIYL6gMPVqdUbN_T7QdgB-doywX8
     scenes-app-people-cohorts--cohort-edit-static--dark:
         hash: v1.k794b7964.02d0747e4c10c736c348f8ec64e6c40f7613e9b3c750802c707e807f8d513199.uayJO_46qM2XEfrPzVhPHBxuAi1bH7wTaAc41c-PngY
     scenes-app-people-cohorts--cohort-edit-static--light:
         hash: v1.k794b7964.ccfdd12041c23093f9dfdea3d74a8be8672f017b838ca9171c9713eb49418899.NFNZNNezQtqlEbBSbXoGbIKJQllVOfqNMGJgCYdKRGc
     scenes-app-people-cohorts--cohort-new--dark:
-        hash: v1.k794b7964.ad06461fec9e86b589fdd27f1dc1ea74c673c06dd2945d7d95d96fd6db03bc60.hilKwZIabJOnPepZU0WRMVrsNXbq7LLFr-2wmF4g7OM
+        hash: v1.k794b7964.0c0b9da85f85dac4c299d0527725f192c0c07d204e28462a64736552aaba735b.aX2s9DQu-pQIZHJDYBeZXL9lyni7w6PSMh3u3b_cvhA
     scenes-app-people-cohorts--cohort-new--light:
-        hash: v1.k794b7964.d1c3a92efe91c712053a6902aba48fb73c4cea5d60cf859b3ac8e77bf8059858.YtZMc4vBSnh9Bw6VkBOGXTefiEiqMVkE8NEE2RuMAZE
+        hash: v1.k794b7964.b7e34e37161bbc571400f8c8e4cf210f1e8e08a901f0194b25700de2447b6544.if6FtZPEEaSX6nWtoSmOeZM_PNYQz7bFqj7123_mQjM
     scenes-app-people-cohorts--cohorts-empty--dark:
         hash: v1.k794b7964.036e2f8323a54221ffdfb2807d0c9df42ae3d0969d15912c7fa7c6f6b51691c0.A0HlqNJEUOMVyy81_QznYrkUeMiQ8Ch6HmU0HgIUA8M
     scenes-app-people-cohorts--cohorts-empty--light:
@@ -6647,13 +6647,13 @@ snapshots:
     scenes-app-people-person--person-not-found--light:
         hash: v1.k794b7964.a3a657862b2bd2cb2f1e0a795c2089816cd3a3add75d63f3c1d17c3dfaf99e58.7nKFbvFDTWKtPh8oT1khOtMFENiy8AKBKvg2bhR1z8k
     scenes-app-people-persons--persons--dark:
-        hash: v1.k794b7964.7dca6e6ef2fbbaf88a8643258ac08e5023bd4e029cd27bb5a8dd759d9eeeb874.82-2FT_JXe5lV6BgFjLOEHSpzpXz1AI9jNUbwFoW0TA
+        hash: v1.k794b7964.bbcde823907d0a6561afe40e363d67f53cf9fc88a6bc3d7b8e303b78c465f089.CNT0CyRUG-yut-MJbs-By27E6VxqHPp3dsKxT0dQrN4
     scenes-app-people-persons--persons--light:
-        hash: v1.k794b7964.30f0cfd43969eea6f10f8e9d542aa97ce3011e6c45b33bf76b74839e6c3472f8.CdW2YRmHDkTVQIAphHjze_aPJ3ZMNK5tDUiE8p5V32Q
+        hash: v1.k794b7964.ba8c5f8760919e5bc6a62d587599f9d18b1699177e1a553122ddef7bb1d1ba2f.1mP2Hl4Y9F_TTBdpLx0z2FWvDoEe8ttr3JOSP4XJoMg
     scenes-app-people-persons--persons-empty--dark:
-        hash: v1.k794b7964.018f90390ce1abe0b0f96d9963f54163d1abec92c37a71d057e08f288b4e3cc0.cfsa-xhzG6F4I-po54D1rW_xUUtV-5CvPh3HUEmqAFA
+        hash: v1.k794b7964.eaa71c50ae2ed7a81333458b1174a80885e621c9f293de0367e2a4d65294b398.8uMKPXYZ943_ncEtmg592_sXacuRN3Fux9hJ4G1qcsc
     scenes-app-people-persons--persons-empty--light:
-        hash: v1.k794b7964.6d33664880233181a1bdd548af368a71cfe902c955a8fd065c357405463dfee8._CXXkKx2YPfH59z1AtHnDabjXIrp6Osdk9uqTG9U3Mw
+        hash: v1.k794b7964.10c9878a4b0790830b0e0074a903686b0576a2fa385833673d7ee4abe113c57d.f7bzPSLBvs3XksPwPMuXolugbN1cNkOf-fxikxTqlGA
     scenes-app-persons-modal--empty--dark:
         hash: v1.k794b7964.00a95f7411a59b96d96cd23b8f4da1eca9053e7c391a2c4db52f27526fc842d2.OhWCw6o84czmOJ-2Q_tWWo_OmFLiEf7hCAfs9UWltco
     scenes-app-persons-modal--empty--light:
