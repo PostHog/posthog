@@ -502,6 +502,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconHogQL,
         inMenu: false,
     },
+    [NodeKind.MarketingAnalyticsAttributionQuery]: {
+        name: 'Marketing Analytics Attribution',
+        icon: IconHogQL,
+        inMenu: false,
+    },
     [NodeKind.NonIntegratedConversionsTableQuery]: {
         name: 'Non-Integrated Conversions Table',
         icon: IconHogQL,

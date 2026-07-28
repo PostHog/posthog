@@ -1,4 +1,3 @@
-import math
 import uuid
 import threading
 from collections.abc import Sequence
@@ -38,17 +37,16 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 )
 
 from .adapters.factory import MarketingSourceFactory
+from .attribution_weights import (
+    DAY_IN_SECONDS,
+    build_linear_weights,
+    build_position_based_weights,
+    build_time_decay_weights,
+)
 from .marketing_analytics_config import MarketingAnalyticsConfig
 from .marketing_lazy_precompute import marketing_ensure_precomputed
 from .metrics import CONVERSION_GOAL_PRECOMPUTE_FALLBACK_COUNTER
 from .utils import build_source_normalization_expr
-
-DAY_IN_SECONDS = 86400
-LN2 = math.log(2)  # ≈ 0.693, used in half-life formula: weight = exp(-ln(2) * t / half_life)
-# Half-life = attribution_window / 4, so a 90-day window gives ~22.5-day half-life.
-# At t = half_life, weight = exp(-ln(2)) = 0.5 (exactly half).
-# This follows the industry standard (Google Analytics, Adobe, Mixpanel all use 7-day half-life).
-TIME_DECAY_HALF_LIFE_DIVISOR = 4
 
 # Freshness windows for the precompute read path. The Dagster warmer
 # (products/marketing_analytics/dags/marketing_precompute.py) MUST drive ensure_precomputed with this
@@ -1538,228 +1536,17 @@ class ConversionGoalProcessor:
         filtered_ts = ast.Field(chain=[filtered_timestamps_alias])
 
         if self.config.attribution_mode == AttributionMode.LINEAR:
-            return self._build_linear_weights(filtered_ts)
+            return build_linear_weights(filtered_ts)
         elif self.config.attribution_mode == AttributionMode.TIME_DECAY:
-            return self._build_time_decay_weights(filtered_ts, attribution_window_seconds)
+            conversion_time = ast.ArrayAccess(
+                array=ast.Field(chain=["conversion_timestamps"]),
+                property=ast.Field(chain=["i"]),
+            )
+            return build_time_decay_weights(filtered_ts, conversion_time, attribution_window_seconds)
         elif self.config.attribution_mode == AttributionMode.POSITION_BASED:
-            return self._build_position_based_weights(filtered_ts)
+            return build_position_based_weights(filtered_ts)
 
         raise ValueError(f"Unknown multi-touch attribution mode: {self.config.attribution_mode}")
-
-    def _build_linear_weights(self, filtered_ts: ast.Expr) -> ast.Expr:
-        """Equal weight for all touchpoints: 1.0 / n."""
-        n = ast.Call(name="toFloat", args=[ast.Call(name="length", args=[filtered_ts])])
-        return ast.Call(
-            name="arrayMap",
-            args=[
-                ast.Lambda(
-                    args=["_x"],
-                    expr=ast.ArithmeticOperation(
-                        left=ast.Constant(value=1.0),
-                        op=ast.ArithmeticOperationOp.Div,
-                        right=ast.Call(name="greatest", args=[n, ast.Constant(value=1.0)]),
-                    ),
-                ),
-                filtered_ts,
-            ],
-        )
-
-    def _build_time_decay_weights(self, filtered_ts: ast.Expr, attribution_window_seconds: int) -> ast.Expr:
-        """Exponential half-life decay: weight = exp(-ln(2) * delta / half_life).
-
-        At t = half_life, weight = 0.5 (exactly half). This matches the industry
-        standard used by Google Analytics, Adobe Analytics, and Mixpanel.
-        The half-life scales with the attribution window (window / 4).
-        Weights are normalized so they sum to 1.
-        """
-        half_life_seconds = max(attribution_window_seconds // TIME_DECAY_HALF_LIFE_DIVISOR, DAY_IN_SECONDS)
-        conversion_time = ast.ArrayAccess(
-            array=ast.Field(chain=["conversion_timestamps"]),
-            property=ast.Field(chain=["i"]),
-        )
-        # weight = exp(-ln(2) * (conversion_time - ts) / half_life)
-        raw_weights = ast.Call(
-            name="arrayMap",
-            args=[
-                ast.Lambda(
-                    args=["ts"],
-                    expr=ast.Call(
-                        name="exp",
-                        args=[
-                            ast.ArithmeticOperation(
-                                left=ast.Constant(value=-LN2),
-                                op=ast.ArithmeticOperationOp.Mult,
-                                right=ast.ArithmeticOperation(
-                                    left=ast.ArithmeticOperation(
-                                        left=conversion_time,
-                                        op=ast.ArithmeticOperationOp.Sub,
-                                        right=ast.Field(chain=["ts"]),
-                                    ),
-                                    op=ast.ArithmeticOperationOp.Div,
-                                    right=ast.Constant(value=half_life_seconds),
-                                ),
-                            ),
-                        ],
-                    ),
-                ),
-                filtered_ts,
-            ],
-        )
-        # Normalize: divide each weight by sum of all weights.
-        # Note: raw_weights AST node is referenced twice (in arraySum and as the
-        # arrayMap input), so ClickHouse evaluates the exp() computation twice per row.
-        # This is acceptable because touchpoint arrays are small (typically 3-10 elements).
-        weight_sum = ast.Call(name="arraySum", args=[raw_weights])
-        return ast.Call(
-            name="arrayMap",
-            args=[
-                ast.Lambda(
-                    args=["w"],
-                    expr=ast.ArithmeticOperation(
-                        left=ast.Field(chain=["w"]),
-                        op=ast.ArithmeticOperationOp.Div,
-                        right=ast.Call(name="greatest", args=[weight_sum, ast.Constant(value=0.000001)]),
-                    ),
-                ),
-                raw_weights,
-            ],
-        )
-
-    def _build_position_based_weights(self, filtered_ts: ast.Expr) -> ast.Expr:
-        """40% first touch, 40% last touch, 20% distributed among middle touchpoints.
-
-        Uses arrayMin/arrayMax to identify first/last by timestamp value,
-        avoiding dependency on array ordering (groupArray doesn't guarantee order).
-
-        Edge cases:
-        - 0 touchpoints: empty array (ARRAY JOIN produces no rows)
-        - 1 touchpoint: [1.0]
-        - 2 touchpoints: [0.5, 0.5]
-        - Duplicate timestamps: if multiple touchpoints share min/max timestamp,
-          all get 0.4 weight before normalization. Normalization rescues the total
-          to 1.0, but credit distribution may deviate from the intended 40/20/40.
-        """
-        n = ast.Call(name="toFloat", args=[ast.Call(name="length", args=[filtered_ts])])
-        middle_weight = ast.ArithmeticOperation(
-            left=ast.Constant(value=0.2),
-            op=ast.ArithmeticOperationOp.Div,
-            right=ast.Call(
-                name="greatest",
-                args=[
-                    ast.ArithmeticOperation(
-                        left=n,
-                        op=ast.ArithmeticOperationOp.Sub,
-                        right=ast.Constant(value=2.0),
-                    ),
-                    ast.Constant(value=1.0),
-                ],
-            ),
-        )
-
-        min_ts = ast.Call(name="arrayMin", args=[filtered_ts])
-        max_ts = ast.Call(name="arrayMax", args=[filtered_ts])
-
-        position_weights = ast.Call(
-            name="arrayMap",
-            args=[
-                ast.Lambda(
-                    args=["ts"],
-                    expr=ast.Call(
-                        name="if",
-                        args=[
-                            ast.CompareOperation(
-                                left=ast.Field(chain=["ts"]),
-                                op=ast.CompareOperationOp.Eq,
-                                right=min_ts,
-                            ),
-                            ast.Constant(value=0.4),
-                            ast.Call(
-                                name="if",
-                                args=[
-                                    ast.CompareOperation(
-                                        left=ast.Field(chain=["ts"]),
-                                        op=ast.CompareOperationOp.Eq,
-                                        right=max_ts,
-                                    ),
-                                    ast.Constant(value=0.4),
-                                    middle_weight,
-                                ],
-                            ),
-                        ],
-                    ),
-                ),
-                filtered_ts,
-            ],
-        )
-
-        # Normalize so weights always sum to 1.0.
-        # Handles edge cases like duplicate timestamps where multiple elements
-        # match arrayMin/arrayMax.
-        # Wrap in ifNull to handle Nullable(Float64) from HogQL casts.
-        non_nullable_weights = ast.Call(
-            name="arrayMap",
-            args=[
-                ast.Lambda(
-                    args=["_pw"],
-                    expr=ast.Call(name="ifNull", args=[ast.Field(chain=["_pw"]), ast.Constant(value=0.0)]),
-                ),
-                position_weights,
-            ],
-        )
-        weight_sum = ast.Call(name="arraySum", args=[non_nullable_weights])
-        normalized_weights = ast.Call(
-            name="arrayMap",
-            args=[
-                ast.Lambda(
-                    args=["w"],
-                    expr=ast.ArithmeticOperation(
-                        left=ast.Field(chain=["w"]),
-                        op=ast.ArithmeticOperationOp.Div,
-                        right=ast.Call(name="greatest", args=[weight_sum, ast.Constant(value=0.000001)]),
-                    ),
-                ),
-                non_nullable_weights,
-            ],
-        )
-
-        return ast.Call(
-            name="if",
-            args=[
-                # n == 0: no touchpoints in window, empty weights (ARRAY JOIN produces no rows)
-                ast.CompareOperation(
-                    left=ast.Call(name="length", args=[filtered_ts]),
-                    op=ast.CompareOperationOp.Eq,
-                    right=ast.Constant(value=0),
-                ),
-                ast.Array(exprs=[]),
-                ast.Call(
-                    name="if",
-                    args=[
-                        # n == 1: single touchpoint gets all credit
-                        ast.CompareOperation(
-                            left=ast.Call(name="length", args=[filtered_ts]),
-                            op=ast.CompareOperationOp.Eq,
-                            right=ast.Constant(value=1),
-                        ),
-                        ast.Array(exprs=[ast.Constant(value=1.0)]),
-                        ast.Call(
-                            name="if",
-                            args=[
-                                # n == 2: [0.5, 0.5]
-                                ast.CompareOperation(
-                                    left=ast.Call(name="length", args=[filtered_ts]),
-                                    op=ast.CompareOperationOp.Eq,
-                                    right=ast.Constant(value=2),
-                                ),
-                                ast.Array(exprs=[ast.Constant(value=0.5), ast.Constant(value=0.5)]),
-                                # n >= 3: assign by min/max timestamp, normalized
-                                normalized_weights,
-                            ],
-                        ),
-                    ],
-                ),
-            ],
-        )
 
     def _build_multi_touch_array_join_subquery(
         self, inner_query: ast.SelectQuery, attribution_window_seconds: int
