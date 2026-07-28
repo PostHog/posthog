@@ -38,7 +38,7 @@ export const ReviewHogReviewsListQueryParams = /* @__PURE__ */ zod.object({
         .enum(['mine', 'everyone'])
         .default(reviewHogReviewsListQueryScopeDefault)
         .describe(
-            "Whose reviews to list: `mine` for reviews of the requesting user's pull requests (the default), `everyone` for every review on this project.\n\n\* `mine` - mine\n\* `everyone` - everyone"
+            'Whose reviews to list: `mine` (the default) for reviews the requesting user ran plus reviews of pull requests they authored (matched via their linked GitHub login), `everyone` for every review on this project.\n\n\* `mine` - mine\n\* `everyone` - everyone'
         ),
 })
 
