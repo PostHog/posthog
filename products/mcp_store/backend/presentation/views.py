@@ -921,8 +921,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             # _template_uses_dcr guarantees client_id is present here.
             client_id = template.oauth_credentials["client_id"]
 
-        _pkce = generate_pkce()
-        code_verifier, code_challenge = _pkce.code_verifier, _pkce.code_challenge
+        pkce = generate_pkce()
         token = secrets.token_urlsafe(32)
         _create_oauth_state(
             request,
@@ -930,7 +929,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             token,
             install_source,
             posthog_code_callback_url,
-            pkce_verifier=code_verifier,
+            pkce_verifier=pkce.code_verifier,
             template=template,
         )
 
@@ -940,7 +939,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 client_id=client_id,
                 redirect_uri=redirect_uri,
                 state_token=token,
-                code_challenge=code_challenge,
+                code_challenge=pkce.code_challenge,
             )
         except OAuthAuthorizeURLError as exc:
             logger.warning(
@@ -1183,8 +1182,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             ]
         )
 
-        _pkce = generate_pkce()
-        code_verifier, code_challenge = _pkce.code_verifier, _pkce.code_challenge
+        pkce = generate_pkce()
         token = secrets.token_urlsafe(32)
         _create_oauth_state(
             request,
@@ -1192,7 +1190,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             token,
             install_source,
             posthog_code_callback_url,
-            pkce_verifier=code_verifier,
+            pkce_verifier=pkce.code_verifier,
             template=None,
         )
 
@@ -1202,7 +1200,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 client_id=client_id,
                 redirect_uri=redirect_uri,
                 state_token=token,
-                code_challenge=code_challenge,
+                code_challenge=pkce.code_challenge,
             )
         except OAuthAuthorizeURLError:
             if created:
@@ -1318,8 +1316,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             client_id = template.oauth_credentials["client_id"]
 
         redirect_uri = _get_oauth_redirect_uri()
-        _pkce = generate_pkce()
-        code_verifier, code_challenge = _pkce.code_verifier, _pkce.code_challenge
+        pkce = generate_pkce()
         token = secrets.token_urlsafe(32)
         _create_oauth_state(
             request,
@@ -1327,7 +1324,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             token,
             install_source,
             posthog_code_callback_url,
-            pkce_verifier=code_verifier,
+            pkce_verifier=pkce.code_verifier,
             template=template,
         )
         try:
@@ -1336,7 +1333,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 client_id=client_id,
                 redirect_uri=redirect_uri,
                 state_token=token,
-                code_challenge=code_challenge,
+                code_challenge=pkce.code_challenge,
             )
         except OAuthAuthorizeURLError as exc:
             logger.warning(
@@ -1402,8 +1399,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             )
 
         redirect_uri = _get_oauth_redirect_uri()
-        _pkce = generate_pkce()
-        code_verifier, code_challenge = _pkce.code_verifier, _pkce.code_challenge
+        pkce = generate_pkce()
         token = secrets.token_urlsafe(32)
         _create_oauth_state(
             request,
@@ -1411,7 +1407,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             token,
             install_source,
             posthog_code_callback_url,
-            pkce_verifier=code_verifier,
+            pkce_verifier=pkce.code_verifier,
             template=None,
         )
         try:
@@ -1420,7 +1416,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 client_id=client_id,
                 redirect_uri=redirect_uri,
                 state_token=token,
-                code_challenge=code_challenge,
+                code_challenge=pkce.code_challenge,
             )
         except OAuthAuthorizeURLError:
             return Response({"detail": "Authorization endpoint must use HTTPS"}, status=status.HTTP_400_BAD_REQUEST)

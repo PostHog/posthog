@@ -157,13 +157,12 @@ class AIOHTTPSession(BaseAIOHTTPSession):
 @asynccontextmanager
 async def get_s3_client():
     """Async context manager for creating and managing an S3 client."""
-    _s3_creds = _get_s3_credentials()
-    aws_access_key_id, aws_secret_access_key = _s3_creds.aws_access_key_id, _s3_creds.aws_secret_access_key
+    s3_creds = _get_s3_credentials()
     session = aioboto3.Session()
     async with session.client(
         "s3",
-        aws_access_key_id=aws_access_key_id,
-        aws_secret_access_key=aws_secret_access_key,
+        aws_access_key_id=s3_creds.aws_access_key_id,
+        aws_secret_access_key=s3_creds.aws_secret_access_key,
         endpoint_url=_get_s3_endpoint_url(),
         region_name=settings.BATCH_EXPORT_OBJECT_STORAGE_REGION,
         # aiobotocore defaults keepalive_timeout to 12 seconds, which can be low for
@@ -417,13 +416,12 @@ async def _get_query(
     num_partitions = num_partitions or settings.BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS
     assert num_partitions is not None  # to satisfy mypy
 
-    _s3_creds = _get_s3_credentials()
+    s3_creds = _get_s3_credentials()
 
-    aws_access_key_id, aws_secret_access_key = _s3_creds.aws_access_key_id, _s3_creds.aws_secret_access_key
     s3_function = get_s3_function_call(
         s3_folder=s3_staging_folder_url,
-        s3_key=aws_access_key_id,
-        s3_secret=aws_secret_access_key,
+        s3_key=s3_creds.aws_access_key_id,
+        s3_secret=s3_creds.aws_secret_access_key,
         num_partitions=num_partitions,
     )
 
@@ -619,14 +617,13 @@ async def _write_batch_export_record_batches_to_internal_stage(
             query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
 
             if isinstance(query_or_model, RecordBatchModel):
-                _s3_creds = _get_s3_credentials()
-                aws_access_key_id, aws_secret_access_key = _s3_creds.aws_access_key_id, _s3_creds.aws_secret_access_key
+                s3_creds = _get_s3_credentials()
                 query, query_parameters = await query_or_model.as_insert_into_s3_query_with_parameters(
                     data_interval_start=interval_start,
                     data_interval_end=interval_end,
                     s3_folder=s3_staging_folder_url,
-                    s3_key=aws_access_key_id,
-                    s3_secret=aws_secret_access_key,
+                    s3_key=s3_creds.aws_access_key_id,
+                    s3_secret=s3_creds.aws_secret_access_key,
                     num_partitions=num_partitions or settings.BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS,
                 )
             else:
