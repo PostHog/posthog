@@ -1,7 +1,11 @@
+import { initKeaTests } from '~/test/init'
+
 import type { WizardSessionDTOApi } from 'products/wizard/frontend/generated/api.schemas'
 
 import type { FinishedLocalRunHandle } from './finishedLocalRunLogic'
 import {
+    POSTHOG_INTEGRATION_WORKFLOW_ID,
+    SELF_DRIVING_WORKFLOW_ID,
     cloudProgress,
     isSessionFresh,
     localProgress,
@@ -10,6 +14,7 @@ import {
     resetWizardSyncTelemetryForTests,
     runLocalSessionBookkeeping,
 } from './installationProgressLogic'
+import { wizardActiveSessionDetectorLogic } from './wizardActiveSessionDetectorLogic'
 
 // Matches the fixtures' timestamps so sessions read as fresh where intended.
 const NOW = new Date('2026-01-01T00:00:30Z').getTime()
@@ -538,15 +543,20 @@ describe('installationProgressLogic merge', () => {
         it('marks the session current and reports detected once per session across redeliveries', () => {
             const actions = spyActions()
             const s = fresh({ session_id: 'dup' })
-            runLocalSessionBookkeeping(s, null, actions)
-            runLocalSessionBookkeeping(s, s, actions)
+            runLocalSessionBookkeeping(s, null, POSTHOG_INTEGRATION_WORKFLOW_ID, actions)
+            runLocalSessionBookkeeping(s, s, POSTHOG_INTEGRATION_WORKFLOW_ID, actions)
             expect(actions.markSessionCurrent).toHaveBeenCalledTimes(2)
             expect(actions.reportWizardSyncSessionDetected).toHaveBeenCalledTimes(1)
         })
 
         it('ignores a stale session entirely for freshness and reach telemetry', () => {
             const actions = spyActions()
-            runLocalSessionBookkeeping(session({ updated_at: '2020-01-01T00:00:00Z' }), null, actions)
+            runLocalSessionBookkeeping(
+                session({ updated_at: '2020-01-01T00:00:00Z' }),
+                null,
+                POSTHOG_INTEGRATION_WORKFLOW_ID,
+                actions
+            )
             expect(actions.markSessionCurrent).not.toHaveBeenCalled()
             expect(actions.reportWizardSyncSessionDetected).not.toHaveBeenCalled()
         })
@@ -555,10 +565,10 @@ describe('installationProgressLogic merge', () => {
             const actions = spyActions()
             const running = fresh({ session_id: 'fin', run_phase: 'running' })
             const done = fresh({ session_id: 'fin', run_phase: 'completed' })
-            runLocalSessionBookkeeping(done, null, actions) // replayed terminal state: no transition
+            runLocalSessionBookkeeping(done, null, POSTHOG_INTEGRATION_WORKFLOW_ID, actions) // replayed terminal state: no transition
             expect(actions.reportWizardSyncSessionFinished).not.toHaveBeenCalled()
-            runLocalSessionBookkeeping(done, running, actions)
-            runLocalSessionBookkeeping(done, running, actions)
+            runLocalSessionBookkeeping(done, running, POSTHOG_INTEGRATION_WORKFLOW_ID, actions)
+            runLocalSessionBookkeeping(done, running, POSTHOG_INTEGRATION_WORKFLOW_ID, actions)
             expect(actions.reportWizardSyncSessionFinished).toHaveBeenCalledTimes(1)
         })
 
@@ -576,7 +586,7 @@ describe('installationProgressLogic merge', () => {
             const s = isFresh
                 ? fresh(overrides as Partial<WizardSessionDTOApi>)
                 : session(overrides as Partial<WizardSessionDTOApi>)
-            runLocalSessionBookkeeping(s, null, actions)
+            runLocalSessionBookkeeping(s, null, POSTHOG_INTEGRATION_WORKFLOW_ID, actions)
             expect(actions.recordFinishedLocalRun).toHaveBeenCalledTimes(expectRecorded ? 1 : 0)
         })
 
@@ -584,7 +594,12 @@ describe('installationProgressLogic merge', () => {
             // Starting over must replace the old handoff with the live run — otherwise dismissing
             // requires clearing two surfaces, or the old completed card reappears mid-new-run.
             const actions = spyActions()
-            runLocalSessionBookkeeping(fresh({ session_id: 'new-run', run_phase: 'running' }), null, actions)
+            runLocalSessionBookkeeping(
+                fresh({ session_id: 'new-run', run_phase: 'running' }),
+                null,
+                POSTHOG_INTEGRATION_WORKFLOW_ID,
+                actions
+            )
             expect(actions.supersedeFinishedLocalRun).toHaveBeenCalledWith('new-run')
             expect(actions.recordFinishedLocalRun).not.toHaveBeenCalled()
         })
@@ -592,10 +607,40 @@ describe('installationProgressLogic merge', () => {
         it('tolerates a malformed session with null tasks', () => {
             const actions = spyActions()
             const s = fresh({ session_id: 'null-tasks', tasks: null as unknown as WizardSessionDTOApi['tasks'] })
-            expect(() => runLocalSessionBookkeeping(s, null, actions)).not.toThrow()
+            expect(() => runLocalSessionBookkeeping(s, null, POSTHOG_INTEGRATION_WORKFLOW_ID, actions)).not.toThrow()
             expect(actions.reportWizardSyncSessionDetected).toHaveBeenCalledWith(
                 expect.objectContaining({ taskCount: 0 })
             )
+        })
+
+        it('stamps telemetry with the workflow being tracked', () => {
+            const actions = spyActions()
+            runLocalSessionBookkeeping(fresh({ session_id: 'sd-run' }), null, SELF_DRIVING_WORKFLOW_ID, actions)
+            expect(actions.reportWizardSyncSessionDetected).toHaveBeenCalledWith(
+                expect.objectContaining({ workflowId: SELF_DRIVING_WORKFLOW_ID })
+            )
+        })
+
+        // The detector is a singleton gating the app-wide FAB against `posthog-integration`. A
+        // self-driving session reaching it would make the FAB claim an SDK install is running.
+        it('only lets the tracked workflow drive the app-wide session detector', () => {
+            // `started_at` too must be recent: the detector's eligibility check caps a session's
+            // lifetime at an hour, and the shared fixture's is fixed in the past.
+            const live = (sessionId: string): WizardSessionDTOApi =>
+                fresh({ session_id: sessionId, started_at: new Date(Date.now() - 1000).toISOString() })
+
+            initKeaTests()
+            const detector = wizardActiveSessionDetectorLogic()
+            detector.mount()
+            try {
+                runLocalSessionBookkeeping(live('sd'), null, SELF_DRIVING_WORKFLOW_ID, spyActions())
+                expect(detector.values.hasActiveSession).toBe(false)
+
+                runLocalSessionBookkeeping(live('pi'), null, POSTHOG_INTEGRATION_WORKFLOW_ID, spyActions())
+                expect(detector.values.hasActiveSession).toBe(true)
+            } finally {
+                detector.unmount()
+            }
         })
     })
 })

@@ -35,8 +35,19 @@ import { isSessionActive, wizardActiveSessionDetectorLogic } from './wizardActiv
 import { wizardDashboardLogic } from './wizardDashboardLogic'
 
 // The wizard session stream the local CLI publishes to — and the channel a cloud wizard reports its
-// own sub-progress on.
-const WORKFLOW_ID = 'posthog-integration'
+// own sub-progress on. The CLI sends its program id as `workflow_id`, so each wizard program is its
+// own channel: `posthog-integration` for the SDK install, `self-driving` for `wizard self-driving`.
+export const POSTHOG_INTEGRATION_WORKFLOW_ID = 'posthog-integration'
+/** `wizard self-driving` — the program the self-driving onboarding runs. */
+export const SELF_DRIVING_WORKFLOW_ID = 'self-driving'
+
+/**
+ * Which wizard program a surface is tracking. Defaulted rather than required so every existing
+ * consumer keeps watching the SDK install without passing anything.
+ */
+export function resolveWorkflowId(props: Pick<InstallationProgressLogicProps, 'workflowId'>): string {
+    return props.workflowId ?? POSTHOG_INTEGRATION_WORKFLOW_ID
+}
 
 // A session counts as "current" if it was updated within the last 10 minutes. Lets the install step
 // ignore stale terminal sessions left over from previous runs / test data when a user lands on the
@@ -85,15 +96,26 @@ const reportedFinishedSessions = new Set<string>()
 // on unmount (and early, by a cloud instance whose run went terminal), and only the LAST release
 // disconnects. Without this, a finishing cloud run would kill the stream for the still-mounted
 // local instance and the "Run it yourself" recovery flow would go deaf until a full remount.
-const sessionStreamShares = new Set<string>()
+// Keyed by stream, not global: `wizardSessionStreamLogic` is itself keyed per workflow, so a single
+// flat set would both collide (two workflows share the instance key `local`) and leak (the last
+// release of ANY workflow would disconnect only its own stream, stranding the others).
+const sessionStreamShares = new Map<string, Set<string>>()
 
-function releaseSessionShare(shareKey: string, disconnectSession: () => void): void {
-    if (!sessionStreamShares.delete(shareKey)) {
+function releaseSessionShare(streamKey: string, shareKey: string, disconnectSession: () => void): void {
+    const shares = sessionStreamShares.get(streamKey)
+    if (!shares?.delete(shareKey)) {
         return
     }
-    if (sessionStreamShares.size === 0) {
+    if (shares.size === 0) {
+        sessionStreamShares.delete(streamKey)
         disconnectSession()
     }
+}
+
+function acquireSessionShare(streamKey: string, shareKey: string): void {
+    const shares = sessionStreamShares.get(streamKey) ?? new Set<string>()
+    shares.add(shareKey)
+    sessionStreamShares.set(streamKey, shares)
 }
 
 export function resetWizardSyncTelemetryForTests(): void {
@@ -102,8 +124,23 @@ export function resetWizardSyncTelemetryForTests(): void {
     sessionStreamShares.clear()
 }
 
+/**
+ * Identity of one mounted instance. Shared by `key()` and the stream-share bookkeeping, which must
+ * agree — if they drift, the refcount releases a share nobody holds and the transport leaks.
+ */
 function instanceKey(props: InstallationProgressLogicProps): string {
-    return props.mode === 'cloud' ? `cloud:${props.runId ?? ''}` : 'local'
+    const mode = props.mode === 'cloud' ? `cloud:${props.runId ?? ''}` : 'local'
+    return `${resolveWorkflowId(props)}:${mode}`
+}
+
+/**
+ * The `wizardSessionStreamLogic` instance an install-progress instance shares. Mirrors that logic's
+ * own key. `skillId` is deliberately left unset: the CLI reassigns `session.skillId` per agent run,
+ * so a self-driving run's skill flips to the framework name mid-session and a skill-scoped
+ * subscription would drop out partway through.
+ */
+function sessionStreamKey(props: InstallationProgressLogicProps): string {
+    return `${resolveWorkflowId(props)}::*`
 }
 
 export type InstallationMode = 'local' | 'cloud'
@@ -147,6 +184,8 @@ export interface InstallationProgressLogicProps {
     mode: InstallationMode
     runId?: string
     taskId?: string
+    /** Wizard program to track. Defaults to the SDK install (`posthog-integration`). */
+    workflowId?: string
 }
 
 const STEP_STATUSES: Record<string, InstallationStepStatus> = {
@@ -520,7 +559,9 @@ export type installationProgressLogicType = MakeLogicType<
  */
 export const installationProgressLogic = kea<installationProgressLogicType>([
     props({} as InstallationProgressLogicProps),
-    key((props) => (props.mode === 'cloud' ? `cloud:${props.runId ?? ''}` : 'local')),
+    // Must include the workflow: kea mutates props in place on a cache hit, so two workflows sharing
+    // a key would leave the second one's `connect` wiring pinned to the first one's stream.
+    key(instanceKey),
     path((key) => ['scenes', 'onboarding', 'installationProgressLogic', key]),
     connect((props: InstallationProgressLogicProps) => ({
         values: [
@@ -532,7 +573,7 @@ export const installationProgressLogic = kea<installationProgressLogicType>([
                 'isStalled',
                 'lastActivityAt',
             ],
-            wizardSessionStreamLogic({ workflowId: WORKFLOW_ID }),
+            wizardSessionStreamLogic({ workflowId: resolveWorkflowId(props) }),
             ['latestSession', 'connectionStatus as sessionConnectionStatus'],
             finishedLocalRunLogic,
             ['dismissedSessionId'],
@@ -546,7 +587,7 @@ export const installationProgressLogic = kea<installationProgressLogicType>([
                 'disconnect as disconnectTaskRun',
                 'streamCompleted as taskRunStreamCompleted',
             ],
-            wizardSessionStreamLogic({ workflowId: WORKFLOW_ID }),
+            wizardSessionStreamLogic({ workflowId: resolveWorkflowId(props) }),
             ['connect as connectSession', 'disconnect as disconnectSession', 'sessionUpdated'],
             eventUsageLogic,
             ['reportWizardSyncSessionDetected', 'reportWizardSyncSessionFinished'],
@@ -612,7 +653,7 @@ export const installationProgressLogic = kea<installationProgressLogicType>([
             if (props.mode !== 'cloud') {
                 return
             }
-            releaseSessionShare(instanceKey(props), actions.disconnectSession)
+            releaseSessionShare(sessionStreamKey(props), instanceKey(props), actions.disconnectSession)
             // The cloud wizard builds a dashboard too — look it up so the completed surfaces can
             // link to it. startedAt travels on the persisted run handle; without it there's no run
             // window to scope the search to, so skip.
@@ -630,30 +671,34 @@ export const installationProgressLogic = kea<installationProgressLogicType>([
             }
             const prev = (cache.prevSession ?? null) as WizardSessionDTOApi | null
             cache.prevSession = session
-            runLocalSessionBookkeeping(session, prev, actions)
+            runLocalSessionBookkeeping(session, prev, resolveWorkflowId(props), actions)
         },
     })),
     afterMount(({ actions, props, cache, values }) => {
         actions.connectTaskRun()
-        sessionStreamShares.add(instanceKey(props))
+        acquireSessionShare(sessionStreamKey(props), instanceKey(props))
         actions.connectSession()
         if (props.mode === 'local') {
             // The detector's REST poll is only useful to the local instance (it gates the FAB's
             // local stream and receives markActive sync) — mounting it from cloud instances would
             // run a background poll for the whole run for nothing (INC-886 family).
-            cache.detectorUnmount = wizardActiveSessionDetectorLogic.mount()
+            // It is a singleton polling `posthog-integration`, so only that workflow's instance may
+            // drive it; a self-driving instance mounting it would poll for a run it isn't watching.
+            if (resolveWorkflowId(props) === POSTHOG_INTEGRATION_WORKFLOW_ID) {
+                cache.detectorUnmount = wizardActiveSessionDetectorLogic.mount()
+            }
             // Seed from a session already on the shared stream: the listener only sees NEW
             // deliveries, so a remount would otherwise wait for the next tick (long in polling
             // backoff) and flap the install-step takeover back to the command block.
             if (values.latestSession) {
                 cache.prevSession = values.latestSession
-                runLocalSessionBookkeeping(values.latestSession, null, actions)
+                runLocalSessionBookkeeping(values.latestSession, null, resolveWorkflowId(props), actions)
             }
         }
     }),
     beforeUnmount(({ actions, props, cache }) => {
         actions.disconnectTaskRun()
-        releaseSessionShare(instanceKey(props), actions.disconnectSession)
+        releaseSessionShare(sessionStreamKey(props), instanceKey(props), actions.disconnectSession)
         if (cache.detectorUnmount) {
             cache.detectorUnmount()
             cache.detectorUnmount = undefined
@@ -672,6 +717,7 @@ export const installationProgressLogic = kea<installationProgressLogicType>([
 export function runLocalSessionBookkeeping(
     session: WizardSessionDTOApi,
     prev: WizardSessionDTOApi | null,
+    workflowId: string,
     actions: {
         markSessionCurrent: () => void
         recordFinishedLocalRun: (session: WizardSessionDTOApi) => void
@@ -713,7 +759,7 @@ export function runLocalSessionBookkeeping(
         if (!reportedDetectedSessions.has(session.session_id)) {
             reportedDetectedSessions.add(session.session_id)
             actions.reportWizardSyncSessionDetected({
-                workflowId: WORKFLOW_ID,
+                workflowId,
                 skillId: session.skill_id,
                 runPhase: session.run_phase,
                 taskCount: tasks.length,
@@ -726,7 +772,11 @@ export function runLocalSessionBookkeeping(
     // teardown actually run. Only schedule teardown on the eligible → ineligible *transition* so
     // repeated re-polls don't reset the clock. The detector is mounted by the local instance's
     // afterMount, which always precedes this bookkeeping.
-    const detector = wizardActiveSessionDetectorLogic.findMounted()
+    // The detector is a singleton scoped to `posthog-integration` (it gates the app-wide FAB), so
+    // only that workflow's sessions may move it. Letting a self-driving session call markActive
+    // would make the FAB claim an SDK install is live.
+    const detector =
+        workflowId === POSTHOG_INTEGRATION_WORKFLOW_ID ? wizardActiveSessionDetectorLogic.findMounted() : null
     if (detector) {
         const eligible = isSessionActive(session)
         const wasEligible = isSessionActive(prev)
@@ -743,7 +793,7 @@ export function runLocalSessionBookkeeping(
         if (isTerminalPhase && !reportedFinishedSessions.has(session.session_id)) {
             reportedFinishedSessions.add(session.session_id)
             actions.reportWizardSyncSessionFinished({
-                workflowId: WORKFLOW_ID,
+                workflowId,
                 skillId: session.skill_id,
                 outcome: session.run_phase,
                 taskCount: tasks.length,
