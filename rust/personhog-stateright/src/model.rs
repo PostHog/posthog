@@ -56,6 +56,8 @@ fn production_handoff(p: Partition, h: &Handoff) -> HandoffState {
         // the live registry, and the production quorum predicate below
         // is exercised on exactly that divergence.
         freeze_quorum: Some(h.quorum.iter().map(|r| router_name(*r)).collect()),
+        created_at_ms: 0,
+        phase_entered_at_ms: 0,
     }
 }
 

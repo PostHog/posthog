@@ -191,6 +191,28 @@ pub struct Config {
 
     #[envconfig(default = "100")]
     pub seeder_queue_full_backoff_ms: u64,
+
+    /// Enable the dark-by-default automatic reconcile dispatch driver. Enabling it without
+    /// [`Config::seeder_confirm_register_backfilled`] is a startup error.
+    #[envconfig(default = "false")]
+    pub seeder_reconcile_auto_dispatch_enabled: bool,
+
+    /// Attest that every run's data tiles were seeded after membership-register writers deployed —
+    /// the automatic equivalent of the CLI's `--confirm-register-backfilled`. Required to arm
+    /// automatic dispatch.
+    #[envconfig(default = "false")]
+    pub seeder_confirm_register_backfilled: bool,
+
+    /// How many reconcile dispatches this replica may run at once — the bound on how hard a backlog
+    /// of completed runs can press the producer queue the chunk pipeline shares. Separate from
+    /// [`Config::seeder_max_inflight_tiles`], which bounds a single dispatch.
+    #[envconfig(default = "4")]
+    pub seeder_reconcile_max_concurrent_dispatches: usize,
+
+    /// The membership-change topic whose high watermarks anchor the marker watcher's start
+    /// positions, captured at dispatch time. PR-C's observer reads markers from the same topic.
+    #[envconfig(default = "cohort_membership_changed_shadow")]
+    pub cohort_membership_changed_topic: String,
 }
 
 impl Config {

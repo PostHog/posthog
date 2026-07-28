@@ -34,6 +34,13 @@ pub const LEASE_LOST: &str = "seeder_lease_lost_total";
 pub const RUN_CHUNKS_REMAINING: &str = "seeder_run_chunks_remaining";
 pub const RUNS_WITHOUT_CHUNKS: &str = "seeder_runs_without_chunks";
 pub const WINDOW_DAYS_MISMATCH: &str = "seeder_window_days_mismatch_total";
+pub const RUNS_PLANNING_STAMPED: &str = "seeder_runs_planning_stamped_total";
+pub const RUNS_PLANNING_WITHHELD: &str = "seeder_runs_planning_withheld_total";
+pub const RECONCILE_DISPATCHES: &str = "seeder_reconcile_dispatches_total";
+pub const RECONCILE_CAS_LOST: &str = "seeder_reconcile_cas_lost_total";
+pub const RECONCILE_RECORD_INVALID: &str = "seeder_reconcile_record_invalid_total";
+pub const RECONCILE_DISPATCHES_IN_FLIGHT: &str = "seeder_reconcile_dispatches_in_flight";
+pub const RUNS_RECONCILING: &str = "seeder_runs_reconciling";
 
 pub fn install_recorder() -> Result<PrometheusHandle, BuildError> {
     PrometheusBuilder::new().install_recorder()
