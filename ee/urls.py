@@ -275,24 +275,9 @@ urlpatterns: list[Any] = [
         name="scim_resource_types",
     ),
     path("scim/v2/<uuid:domain_id>/Schemas", csrf_exempt(scim_views.SCIMSchemasView.as_view()), name="scim_schemas"),
-    # Stripe Projects provisioning (APP 0.1d) — the namespace the Stripe app
-    # manifest points at (provisioning.base_url = .../api/partners/stripe/)
+    # Stripe Projects provisioning (APP 0.1d)
     path("api/partners/stripe/", include("ee.partners.stripe.api.provisioning.urls")),
     # Account Provisioning
-    # TODO(migration): the Stripe-only routes below (health, services,
-    # update_service) and Stripe's use of the rest are served by
-    # /api/partners/stripe/ - remove the Stripe-only ones once Stripe traffic
-    # has fully moved (watch path_namespace on agentic_provisioning events).
-    path(
-        "api/agentic/provisioning/health",
-        csrf_exempt(agentic_provisioning_views.provisioning_health),
-        name="agentic_provisioning_health",
-    ),
-    path(
-        "api/agentic/provisioning/services",
-        csrf_exempt(agentic_provisioning_views.provisioning_services),
-        name="agentic_provisioning_services",
-    ),
     path(
         "api/agentic/provisioning/account_requests",
         csrf_exempt(agentic_provisioning_views.account_requests),
@@ -327,11 +312,6 @@ urlpatterns: list[Any] = [
         "api/agentic/provisioning/resources/<str:resource_id>/rotate_credentials",
         csrf_exempt(agentic_provisioning_views.provisioning_rotate_credentials),
         name="agentic_provisioning_rotate_credentials",
-    ),
-    path(
-        "api/agentic/provisioning/resources/<str:resource_id>/update_service",
-        csrf_exempt(agentic_provisioning_views.provisioning_update_service),
-        name="agentic_provisioning_update_service",
     ),
     path(
         "api/agentic/provisioning/resources/<str:resource_id>/remove",
@@ -374,19 +354,6 @@ urlpatterns: list[Any] = [
         name="agentic_login",
     ),
     # Generic provisioning URL aliases (keep /api/agentic/... for backward compat)
-    # TODO(migration): health, services, and update_service in this block are
-    # Stripe-only — remove them once Stripe traffic has fully moved to
-    # /api/partners/stripe/, unless another partner adopts them.
-    path(
-        "api/provisioning/health",
-        csrf_exempt(agentic_provisioning_views.provisioning_health),
-        name="provisioning_health",
-    ),
-    path(
-        "api/provisioning/services",
-        csrf_exempt(agentic_provisioning_views.provisioning_services),
-        name="provisioning_services",
-    ),
     path(
         "api/provisioning/account_requests",
         csrf_exempt(agentic_provisioning_views.account_requests),
@@ -406,11 +373,6 @@ urlpatterns: list[Any] = [
         "api/provisioning/resources/<str:resource_id>/rotate_credentials",
         csrf_exempt(agentic_provisioning_views.provisioning_rotate_credentials),
         name="provisioning_rotate_credentials",
-    ),
-    path(
-        "api/provisioning/resources/<str:resource_id>/update_service",
-        csrf_exempt(agentic_provisioning_views.provisioning_update_service),
-        name="provisioning_update_service",
     ),
     path(
         "api/provisioning/resources/<str:resource_id>/remove",

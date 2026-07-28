@@ -18,7 +18,7 @@ import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from
 import { loaders } from 'kea-loaders'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 
-import api, { ApiConfig, ApiError } from '~/lib/api'
+import { ApiConfig, ApiError } from '~/lib/api'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import {
@@ -32,22 +32,21 @@ import {
 import { isTracesQuery } from '~/queries/utils'
 import { teamLogic } from '~/scenes/teamLogic'
 import { urls } from '~/scenes/urls'
-import {
-    AnyPropertyFilter,
-    Breadcrumb,
-    ChartDisplayType,
-    LLMPrompt,
-    LLMPromptResolveResponse,
-    LLMPromptVersionSummary,
-    PropertyFilterType,
-    PropertyOperator,
-} from '~/types'
+import { AnyPropertyFilter, Breadcrumb, ChartDisplayType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { ProductIntentProperties } from '../../../../frontend/src/lib/utils/product-intents'
-import { llmPromptsNameLabelsDestroy, llmPromptsNameLabelsUpdate } from '../generated/api'
-import type { LLMPromptLabelApi } from '../generated/api.schemas'
+import {
+    llmPromptsCreate,
+    llmPromptsNameArchiveCreate,
+    llmPromptsNameLabelsDestroy,
+    llmPromptsNameLabelsUpdate,
+    llmPromptsNamePartialUpdate,
+    llmPromptsResolveNameRetrieve,
+} from '../generated/api'
+import type { LLMPromptLabelApi, LLMPromptResolveResponseApi } from '../generated/api.schemas'
 import { llmPromptsLogic } from './llmPromptsLogic'
 import { LLM_PROMPTS_FORCE_RELOAD_PARAM } from './llmPromptsLogic'
+import { LLMPrompt, LLMPromptVersionSummary } from './types'
 import {
     getApiErrorDetail,
     openCreateLabelDialog,
@@ -111,7 +110,7 @@ async function fetchResolvedPrompt(
     params?: { version?: number; offset?: number; before_version?: number; limit?: number }
 ): Promise<ResolvedLLMPrompt> {
     return getResolvedPrompt(
-        await api.llmPrompts.resolveByName(promptName, {
+        await llmPromptsResolveNameRetrieve(String(ApiConfig.getCurrentTeamId()), promptName, {
             ...params,
             limit: params?.limit ?? PROMPT_VERSIONS_LIMIT,
         })
@@ -128,10 +127,11 @@ async function refreshLatestPromptState(
     return latestPrompt
 }
 
-function getResolvedPrompt(response: LLMPromptResolveResponse): ResolvedLLMPrompt {
+function getResolvedPrompt(response: LLMPromptResolveResponseApi): ResolvedLLMPrompt {
+    // Casts apply the deliberate narrowing documented in ./types (string prompt, UserBasicType created_by).
     return {
-        ...response.prompt,
-        versions: response.versions,
+        ...(response.prompt as unknown as LLMPrompt),
+        versions: response.versions as unknown as LLMPromptVersionSummary[],
         has_more: response.has_more,
         labels: response.labels ?? [],
     }
@@ -145,6 +145,7 @@ function buildPromptVersionSummary(prompt: LLMPrompt, isLatest: boolean): LLMPro
         created_by: prompt.created_by,
         created_at: prompt.created_at,
         is_latest: isLatest,
+        labels: [],
     }
 }
 
@@ -622,10 +623,10 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                     let savedPrompt: LLMPrompt
 
                     if (isNew) {
-                        savedPrompt = await api.llmPrompts.create({
+                        savedPrompt = (await llmPromptsCreate(String(ApiConfig.getCurrentTeamId()), {
                             name: formValues.name,
                             prompt: formValues.prompt,
-                        })
+                        })) as unknown as LLMPrompt
                         llmPromptsLogic.findMounted()?.actions.loadPrompts(false)
                         lemonToast.success('Prompt created successfully')
                         router.actions.replace(urls.aiObservabilityPrompt(savedPrompt.name))
@@ -642,11 +643,15 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                         }
 
                         const versionDescription = values.versionDescription.trim()
-                        savedPrompt = await api.llmPrompts.update(props.promptName, {
-                            prompt: formValues.prompt,
-                            base_version: currentPrompt.latest_version,
-                            ...(versionDescription ? { version_description: versionDescription } : {}),
-                        })
+                        savedPrompt = (await llmPromptsNamePartialUpdate(
+                            String(ApiConfig.getCurrentTeamId()),
+                            props.promptName,
+                            {
+                                prompt: formValues.prompt,
+                                base_version: currentPrompt.latest_version,
+                                ...(versionDescription ? { version_description: versionDescription } : {}),
+                            }
+                        )) as unknown as LLMPrompt
                         llmPromptsLogic.findMounted()?.actions.loadPrompts(false)
                         lemonToast.success(`Published v${savedPrompt.version}`)
 
@@ -1203,7 +1208,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         deletePrompt: async () => {
             if (props.promptName !== 'new' && values.prompt && isPrompt(values.prompt)) {
                 try {
-                    await api.llmPrompts.archiveByName(values.prompt.name)
+                    await llmPromptsNameArchiveCreate(String(ApiConfig.getCurrentTeamId()), values.prompt.name)
                     lemonToast.info(`${values.prompt.name || 'Prompt'} has been archived.`)
                     llmPromptsLogic.findMounted()?.actions.loadPrompts(false)
                     router.actions.replace(urls.aiObservabilityPrompts(), {

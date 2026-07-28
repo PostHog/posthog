@@ -202,12 +202,15 @@ export class TemplateTester {
                 sesSecretAccessKey: config.SES_SECRET_ACCESS_KEY,
                 sesRegion: config.SES_REGION,
                 sesEndpoint: config.SES_ENDPOINT,
+                sesTrackedConfigurationSet: config.SES_TRACKED_CONFIGURATION_SET,
+                sesUntrackedConfigurationSet: config.SES_UNTRACKED_CONFIGURATION_SET,
             },
             undefined as any,
             undefined as any,
             config.ENCRYPTION_SALT_KEYS,
             config.SITE_URL,
             new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL),
+            undefined as any,
             undefined as any
         )
         return new HogExecutorService(
