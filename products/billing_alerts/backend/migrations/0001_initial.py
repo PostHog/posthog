@@ -3,6 +3,7 @@
 from decimal import Decimal
 
 import django.db.models.deletion
+from django.conf import settings
 from django.db import migrations, models
 
 import posthog.models.utils
@@ -12,6 +13,7 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
+        migrations.swappable_dependency(settings.AUTH_USER_MODEL),
         ("posthog", "1256_userproductlist_default_reason"),
     ]
 
@@ -49,8 +51,28 @@ class Migration(migrations.Migration):
                         to="posthog.team",
                     ),
                 ),
-                ("created_by_id", models.BigIntegerField(blank=True, null=True)),
-                ("updated_by_id", models.BigIntegerField(blank=True, null=True)),
+                (
+                    "created_by",
+                    models.ForeignKey(
+                        blank=True,
+                        db_constraint=False,
+                        null=True,
+                        on_delete=django.db.models.deletion.DO_NOTHING,
+                        related_name="+",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
+                (
+                    "updated_by",
+                    models.ForeignKey(
+                        blank=True,
+                        db_constraint=False,
+                        null=True,
+                        on_delete=django.db.models.deletion.DO_NOTHING,
+                        related_name="+",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
                 ("name", models.CharField(max_length=160)),
                 ("description", models.TextField(blank=True)),
                 ("enabled", models.BooleanField(default=True)),
@@ -58,7 +80,7 @@ class Migration(migrations.Migration):
                     "metric",
                     models.CharField(choices=[("spend", "Spend")], default="spend", max_length=20),
                 ),
-                ("currency", models.CharField(default="USD", max_length=3)),
+                ("currency", models.CharField(choices=[("USD", "USD")], default="USD", max_length=3)),
                 ("configuration_revision", models.PositiveIntegerField(default=1)),
                 (
                     "threshold_type",
@@ -91,16 +113,8 @@ class Migration(migrations.Migration):
                         max_length=20,
                     ),
                 ),
-                (
-                    "check_interval_hours",
-                    models.PositiveSmallIntegerField(
-                        choices=[(24, "Daily (UTC)")],
-                        default=24,
-                        help_text="Billing alerts evaluate one UTC billing date per day.",
-                    ),
-                ),
                 ("cooldown_hours", models.PositiveSmallIntegerField(default=24)),
-                ("snooze_until", models.DateTimeField(blank=True, null=True)),
+                ("snoozed_until", models.DateTimeField(blank=True, null=True)),
                 ("next_check_at", models.DateTimeField(blank=True, null=True)),
                 ("pending_evaluation_date", models.DateField(blank=True, null=True)),
                 ("retry_attempt_count", models.PositiveSmallIntegerField(default=0)),
@@ -119,16 +133,11 @@ class Migration(migrations.Migration):
                         models.OrderBy(models.F("next_check_at"), nulls_first=True),
                         name="billing_alert_scheduler_idx",
                     ),
-                    models.Index(fields=["organization", "enabled", "state"], name="billing_alert_org_state_idx"),
                 ],
                 "constraints": [
                     models.CheckConstraint(
                         condition=models.Q(("baseline_window_days__gte", 1)),
                         name="billing_alert_baseline_window_positive",
-                    ),
-                    models.CheckConstraint(
-                        condition=models.Q(("check_interval_hours", 24)),
-                        name="billing_alert_supported_interval",
                     ),
                     models.CheckConstraint(
                         condition=models.Q(("minimum_value__gte", 0)),
@@ -261,8 +270,36 @@ class Migration(migrations.Migration):
                     models.DecimalField(blank=True, decimal_places=6, max_digits=20, null=True),
                 ),
                 ("threshold_breached", models.BooleanField(default=False)),
-                ("state_before", models.CharField(blank=True, max_length=20, null=True)),
-                ("state_after", models.CharField(blank=True, max_length=20, null=True)),
+                (
+                    "state_before",
+                    models.CharField(
+                        blank=True,
+                        choices=[
+                            ("not_firing", "Not firing"),
+                            ("firing", "Firing"),
+                            ("errored", "Errored"),
+                            ("snoozed", "Snoozed"),
+                            ("broken", "Broken"),
+                        ],
+                        max_length=20,
+                        null=True,
+                    ),
+                ),
+                (
+                    "state_after",
+                    models.CharField(
+                        blank=True,
+                        choices=[
+                            ("not_firing", "Not firing"),
+                            ("firing", "Firing"),
+                            ("errored", "Errored"),
+                            ("snoozed", "Snoozed"),
+                            ("broken", "Broken"),
+                        ],
+                        max_length=20,
+                        null=True,
+                    ),
+                ),
                 ("notification_sent_at", models.DateTimeField(blank=True, null=True)),
                 ("targets_notified", models.JSONField(default=dict)),
                 ("query_duration_ms", models.PositiveIntegerField(blank=True, null=True)),
@@ -293,7 +330,6 @@ class Migration(migrations.Migration):
                 "db_table": "billing_alerts_event",
                 "indexes": [
                     models.Index(fields=["team", "-created_at"], name="billing_event_team_ts_idx"),
-                    models.Index(fields=["kind", "-created_at"], name="billing_event_kind_ts_idx"),
                 ],
             },
         ),
