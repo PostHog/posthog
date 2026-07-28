@@ -16,21 +16,23 @@ use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use cohort_core::filters::{CohortId, TeamId};
 use cohort_core::partitioner::COHORT_PARTITION_COUNT;
 use cohort_seeder::domain::{
-    CompletionPhase, DispatchEpoch, MarkerPartition, MarkerWatch, PartitionBitmap, ProducedOffset,
-    ReconcileHwms, RunId, SeedPartition, UndispatchedReason, WatchPositions,
+    CompletionPhase, DispatchEpoch, MarkerPartition, MarkerWatch, MembershipPartition, NextOffset,
+    ObservationEnds, PartitionBitmap, ProducedOffset, ReconcileHwms, RunId, SeedPartition,
+    UndispatchedReason, WatchPositions,
 };
 use cohort_seeder::store::chunks::PgChunkStore;
 use cohort_seeder::store::completion::{
     cas_run_reconciling, confirm_reconciling, discover_completions, load_current_behavioral_hashes,
     load_observation_participations, mark_chunks_planned, mark_participation_completed,
     mark_run_observed, mark_run_observed_unreconcilable, persist_marker_observations,
-    persist_marker_watch, record_participation_partial, record_participation_shortfall,
+    persist_observation_ends, record_participation_partial, record_participation_shortfall,
     runs_with_all_chunks_confirmed, CompletionStoreError, CurrentBehavioralHash,
     PlanningStampOutcome,
 };
 use cohort_seeder::store::RenderedError;
 use cohort_seeder::test_support;
 use common_types::cohort::TeamAllowlist;
+use sqlx::types::Json;
 use sqlx::PgPool;
 
 mod support;
@@ -53,6 +55,15 @@ fn full_hwms() -> ReconcileHwms {
             })
             .collect();
     ReconcileHwms::new(offsets).unwrap()
+}
+
+fn captured_ends() -> ObservationEnds {
+    let mut ends = ObservationEnds::new();
+    ends.insert(
+        MembershipPartition::new(0),
+        NextOffset::from_high_watermark(10),
+    );
+    ends
 }
 
 fn empty_watch() -> MarkerWatch {
@@ -408,7 +419,7 @@ async fn fenced_writes_reject_stale_epoch_and_wrong_status() -> Result<()> {
                     .execute(&pool)
                     .await?;
             }
-            ensure_fence_lost(persist_marker_watch(&pool, run_id, at, &empty_watch()).await)?;
+            ensure_fence_lost(persist_observation_ends(&pool, run_id, at, &captured_ends()).await)?;
             ensure_fence_lost(
                 persist_marker_observations(
                     &pool,
@@ -533,6 +544,43 @@ async fn fenced_write(
     }
 }
 
+/// Capturing the observation ends patches only the `ends` key. The observer holds discovery-time
+/// positions, so writing the whole document would regress the watcher's flushed coverage — and on a
+/// topic that then goes idle nothing would repair it, leaving the run unable to ever mint a proof.
+#[tokio::test]
+async fn capturing_ends_leaves_the_watcher_positions_alone() -> Result<()> {
+    with_db(|pool| async move {
+        let run_id = insert_reconciling_run(&pool, 2).await?;
+        insert_participation(&pool, run_id, 2, 301, false, empty_pinned()).await?;
+        let claim = confirm_reconciling(&pool, run_id)
+            .await?
+            .context("run should be claimable")?;
+        let epoch = claim.record(&pool, &full_hwms(), &empty_watch()).await?;
+
+        let mut advanced = WatchPositions::new();
+        advanced.insert(
+            MembershipPartition::new(0),
+            NextOffset::from_high_watermark(42),
+        );
+        persist_marker_observations(&pool, run_id, epoch, &[], &advanced).await?;
+        persist_observation_ends(&pool, run_id, epoch, &captured_ends()).await?;
+
+        let watch: Json<MarkerWatch> =
+            sqlx::query_scalar("SELECT marker_watch FROM cohort_backfill_runs WHERE id = $1")
+                .bind(run_id)
+                .fetch_one(&pool)
+                .await?;
+        ensure!(
+            watch.0.positions.get(MembershipPartition::new(0))
+                == Some(NextOffset::from_high_watermark(42)),
+            "capturing the ends regressed the watcher positions"
+        );
+        ensure!(watch.0.ends == Some(captured_ends()));
+        Ok(())
+    })
+    .await
+}
+
 /// A reconciling run whose every participation was superseded has nothing to dispatch and no outcome
 /// to write, so the seeder stamps the observation itself and hands the run to Django's finalizer.
 /// The guard refuses to shortcut a run that still has an active participation.
@@ -623,10 +671,10 @@ async fn marker_observations_or_merge_round_trip_including_bit_63() -> Result<()
     .await
 }
 
-/// Discovery classifies each completion phase, including a pre-B5 reconciling run whose completion
+/// Discovery classifies each completion phase, including a reconciling run whose completion
 /// columns are all NULL.
 #[tokio::test]
-async fn discovery_classifies_each_phase_including_pre_b5_rows() -> Result<()> {
+async fn discovery_classifies_each_phase_including_undispatched_rows() -> Result<()> {
     with_db(|pool| async move {
         let unplanned =
             insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
@@ -642,8 +690,8 @@ async fn discovery_classifies_each_phase_including_pre_b5_rows() -> Result<()> {
             .context("dispatched run should be claimable")?;
         let _ = claim.record(&pool, &full_hwms(), &empty_watch()).await?;
 
-        // Pre-B5: reconciling with every new column NULL.
-        let pre_b5 = insert_run(
+        // A run that predates the completion columns: reconciling with every one of them NULL.
+        let undispatched = insert_run(
             &pool,
             5,
             "team_enablement",
@@ -675,7 +723,7 @@ async fn discovery_classifies_each_phase_including_pre_b5_rows() -> Result<()> {
             Some(CompletionPhase::Reconciling(_))
         ));
         ensure!(
-            phase(pre_b5)
+            phase(undispatched)
                 == Some(CompletionPhase::ReconcilingUndispatched(
                     UndispatchedReason::NeverDispatched
                 ))

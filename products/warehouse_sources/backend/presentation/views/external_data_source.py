@@ -556,6 +556,11 @@ class ExternalDataSourceConnectionOptionSerializer(serializers.ModelSerializer):
     supports_hogql = serializers.SerializerMethodField(
         help_text="Whether HogQL queries compile for this connection. When false, only raw SQL (sendRawQuery) works.",
     )
+    description = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="User-set description of the source, shown as its display name in the connection picker when set.",
+    )
 
     @extend_schema_field(serializers.BooleanField())
     def get_supports_hogql(self, source: ExternalDataSource) -> bool:
@@ -566,8 +571,8 @@ class ExternalDataSourceConnectionOptionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ExternalDataSource
-        fields = ["id", "prefix", "engine", "source_type", "access_method", "supports_hogql"]
-        read_only_fields = ["id", "prefix", "engine", "source_type", "access_method", "supports_hogql"]
+        fields = ["id", "prefix", "engine", "source_type", "access_method", "supports_hogql", "description"]
+        read_only_fields = ["id", "prefix", "engine", "source_type", "access_method", "supports_hogql", "description"]
 
 
 class ExternalDataSourceBulkUpdateSchemaSerializer(serializers.Serializer):

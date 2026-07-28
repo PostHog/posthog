@@ -65,6 +65,7 @@ import type { BranchPRMatchApi } from 'products/engineering_analytics/frontend/g
 
 import { EnrichedTraceTreeNode, findNodeForEvent, aiObservabilityTraceDataLogic } from './aiObservabilityTraceDataLogic'
 import { DisplayOption, TraceViewMode, aiObservabilityTraceLogic } from './aiObservabilityTraceLogic'
+import { AttachedFeedbackPills } from './components/AttachedFeedbackPills'
 import { ClustersTabContent } from './components/ClustersTabContent'
 import { CostBreakdownTooltip } from './components/CostBreakdownTooltip'
 import { EvalResultBadges } from './components/EvalResultBadges'
@@ -514,8 +515,8 @@ function TraceSceneWrapper(): JSX.Element {
                         <div className="flex items-start justify-between">
                             <TraceMetadata
                                 trace={trace}
-                                metricEvents={metricEvents as LLMTraceEvent[]}
-                                feedbackEvents={feedbackEvents as LLMTraceEvent[]}
+                                metricEvents={metricEvents}
+                                feedbackEvents={feedbackEvents}
                                 billedTotalUsd={billedTotalUsd}
                                 billedCredits={billedCredits}
                                 markupUsd={markupUsd}
@@ -1252,6 +1253,7 @@ const TreeNode = React.memo(function TraceNode({
     const latency = node.displayLatency
     const usage = node.displayUsage
     const item = node.event
+    const attachedFeedback = 'attachedFeedback' in node ? node.attachedFeedback : []
 
     const traceLogic = useMountedLogic(aiObservabilityTraceLogic)
     const { eventTypeExpanded } = useValues(traceLogic)
@@ -1283,6 +1285,11 @@ const TreeNode = React.memo(function TraceNode({
                 {usage}
                 {usage != null && totalCost != null && <span>{' / '}</span>}
                 {totalCost != null && formatLLMCost(totalCost)}
+            </span>
+        ),
+        attachedFeedback.length > 0 && (
+            <span key="attached-feedback" onClick={(e) => e.stopPropagation()}>
+                <AttachedFeedbackPills events={attachedFeedback} />
             </span>
         ),
     ]
