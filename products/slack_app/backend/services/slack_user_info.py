@@ -117,10 +117,20 @@ def persist_slack_user_info(integration: Integration, slack_user_id: str, user_i
         logger.warning("slack_app_slack_user_cache_db_unavailable", integration_id=integration.id)
 
 
-def get_slack_user_info(slack: SlackIntegration, integration: Integration, slack_user_id: str) -> dict[str, Any]:
-    cached_db = _get_slack_user_info_from_db(integration, slack_user_id)
-    if isinstance(cached_db, dict):
-        return cached_db
+def get_slack_user_info(
+    slack: SlackIntegration, integration: Integration, slack_user_id: str, *, force_refresh: bool = False
+) -> dict[str, Any]:
+    """Look up a Slack user's profile, DB-cache first.
+
+    ``force_refresh=True`` skips the ``SlackUserProfileCache`` read and always
+    hits ``users.info`` fresh, refreshing the cached row. Callers use it to
+    recover from a stale cached email (e.g. the user changed their Slack email
+    after we last cached it) without waiting out the profile-cache TTL.
+    """
+    if not force_refresh:
+        cached_db = _get_slack_user_info_from_db(integration, slack_user_id)
+        if isinstance(cached_db, dict):
+            return cached_db
 
     user_info = normalize_slack_response(slack.client.users_info(user=slack_user_id))
     if user_info:
