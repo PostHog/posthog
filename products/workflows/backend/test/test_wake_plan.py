@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from typing import cast
 
 from django.test import SimpleTestCase
 
@@ -8,6 +9,7 @@ from parameterized import parameterized
 from posthog.hogql.parser import parse_expr
 
 from posthog.cdp.filters import compile_filters_expr
+from posthog.models import Team
 
 from products.workflows.backend.services.wake_plan import analyze_wait_condition
 
@@ -62,7 +64,8 @@ class TestWakePlan(SimpleTestCase):
         # derived from parse_expr proves nothing about the real one. Regression this catches: a
         # wrapping change that hides the clock call, silently reclassifying a timed wait as
         # stream-only and dropping its wake once the poll is gone.
-        team = SimpleNamespace(id=1, project_id=1, test_account_filters=[], timezone="UTC")
+        # Only the few attributes compile_filters_expr touches; no DB row needed.
+        team = cast(Team, SimpleNamespace(id=1, project_id=1, test_account_filters=[], timezone="UTC"))
         filters = {
             "source": "events",
             "properties": [{"key": PRODUCTION_TRIAL_CONDITION, "type": "hogql", "value": None}],
