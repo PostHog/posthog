@@ -1,13 +1,18 @@
 import { useActions, useValues } from 'kea'
 
-import { IconX } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { AlertingWizardLayout } from 'lib/components/Alerting'
+import type { AlertingWizardStep } from 'lib/components/Alerting'
 
 import { WizardStep, alertWizardLogic } from './alertWizardLogic'
-import { AlertWizardStepper } from './AlertWizardStepper'
 import { ConfigureStep } from './steps/ConfigureStep'
 import { DestinationStep } from './steps/DestinationStep'
 import { TriggerStep } from './steps/TriggerStep'
+
+const ALL_STEPS: AlertingWizardStep<WizardStep>[] = [
+    { key: WizardStep.Destination, label: 'Destination' },
+    { key: WizardStep.Trigger, label: 'Trigger' },
+    { key: WizardStep.Configure, label: 'Configure' },
+]
 
 export interface AlertWizardProps {
     onCancel: () => void
@@ -24,38 +29,20 @@ export function AlertWizard({
 }: AlertWizardProps): JSX.Element {
     const { currentStep } = useValues(alertWizardLogic)
     const { setStep } = useActions(alertWizardLogic)
+    const steps = hideTriggerStep ? ALL_STEPS.filter((step) => step.key !== WizardStep.Trigger) : ALL_STEPS
 
     return (
-        <div className="flex flex-col min-h-[400px]">
-            <div className="grid grid-cols-[1fr_auto_1fr] items-center">
-                <div />
-                <AlertWizardStepper currentStep={currentStep} onStepClick={setStep} hideTriggerStep={hideTriggerStep} />
-                {hideCloseButton ? (
-                    <div />
-                ) : (
-                    <LemonButton
-                        type="tertiary"
-                        size="small"
-                        icon={<IconX />}
-                        onClick={onCancel}
-                        aria-label="Close wizard"
-                        className="justify-self-start ml-2"
-                    />
-                )}
-            </div>
-
-            <div className="max-w-lg mx-auto flex-1 w-full mt-4">
-                {currentStep === WizardStep.Destination && <DestinationStep />}
-                {currentStep === WizardStep.Trigger && !hideTriggerStep && <TriggerStep />}
-                {currentStep === WizardStep.Configure && <ConfigureStep />}
-            </div>
-
-            <p className="text-center text-xs text-muted mt-6">
-                Need more control?{' '}
-                <button type="button" onClick={onSwitchToTraditional} className="text-link hover:underline">
-                    Go back to traditional editor
-                </button>
-            </p>
-        </div>
+        <AlertingWizardLayout
+            steps={steps}
+            currentStep={currentStep}
+            onStepClick={setStep}
+            onCancel={onCancel}
+            onSwitchToTraditional={onSwitchToTraditional}
+            hideCloseButton={hideCloseButton}
+        >
+            {currentStep === WizardStep.Destination && <DestinationStep />}
+            {currentStep === WizardStep.Trigger && !hideTriggerStep && <TriggerStep />}
+            {currentStep === WizardStep.Configure && <ConfigureStep />}
+        </AlertingWizardLayout>
     )
 }
