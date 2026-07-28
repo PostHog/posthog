@@ -1600,8 +1600,7 @@ class ExperimentService:
                 "rollout_percentage": variant.get("rollout_percentage"),
             }
         experiment.variants = web_variants
-        self._bump_version(experiment)
-        experiment.save()
+        self._bump_version_and_save(experiment, update_fields=["variants"])
 
     def _sync_saved_metrics(
         self,
@@ -1761,27 +1760,49 @@ class ExperimentService:
         # so start_date stays None and the experiment is not launched.
         set_flag_active(feature_flag, True, team=self.team, user=self.user, request=request)
 
-        # Set start_date
-        experiment.start_date = timezone.now()
+        # Set start_date and persist under the experiment row lock. Refresh the metric
+        # collections from the locked row first so fingerprints recompute against the current
+        # metrics and the launch save can't revert a metric edit another writer committed
+        # since this request loaded the experiment.
+        with transaction.atomic():
+            locked_version = (
+                Experiment.objects.select_for_update()
+                .filter(pk=experiment.pk)
+                .values_list("version", flat=True)
+                .first()
+                or 0
+            )
+            experiment.refresh_from_db(fields=["metrics", "metrics_secondary"])
+            experiment.start_date = timezone.now()
 
-        # Recompute metric fingerprints with the new start_date
-        for metric_field in ["metrics", "metrics_secondary"]:
-            metrics = getattr(experiment, metric_field, None)
-            if metrics:
-                setattr(
-                    experiment,
-                    metric_field,
-                    self._recompute_fingerprints(
-                        metrics,
-                        experiment.start_date,
-                        experiment.stats_config,
-                        experiment.exposure_criteria,
-                        excluded_variants=experiment.excluded_variants or [],
-                    ),
-                )
+            # Recompute metric fingerprints with the new start_date
+            for metric_field in ["metrics", "metrics_secondary"]:
+                metrics = getattr(experiment, metric_field, None)
+                if metrics:
+                    setattr(
+                        experiment,
+                        metric_field,
+                        self._recompute_fingerprints(
+                            metrics,
+                            experiment.start_date,
+                            experiment.stats_config,
+                            experiment.exposure_criteria,
+                            excluded_variants=experiment.excluded_variants or [],
+                        ),
+                    )
 
-        self._bump_version(experiment)
-        experiment.save()
+            experiment.version = locked_version + 1
+            # stats_config carries the baseline-variant pin materialized above; persist it too.
+            experiment.save(
+                update_fields=[
+                    "start_date",
+                    "stats_config",
+                    "metrics",
+                    "metrics_secondary",
+                    "version",
+                    "updated_at",
+                ]
+            )
 
         self._report_experiment_launched(experiment, request=request)
 
@@ -1816,8 +1837,7 @@ class ExperimentService:
             raise ValidationError("Experiment must be ended before it can be archived.")
 
         experiment.archived = True
-        self._bump_version(experiment)
-        experiment.save()
+        self._bump_version_and_save(experiment, update_fields=["archived"])
 
         self._archive_linked_feature_flag(
             experiment,
@@ -1928,8 +1948,7 @@ class ExperimentService:
             raise ValidationError("Experiment is not archived.")
 
         experiment.archived = False
-        self._bump_version(experiment)
-        experiment.save()
+        self._bump_version_and_save(experiment, update_fields=["archived"])
 
         self._unarchive_linked_feature_flag(experiment, can_write_feature_flag=can_write_feature_flag, request=request)
 
@@ -2459,8 +2478,9 @@ class ExperimentService:
         experiment.end_date = timezone.now()
         experiment.conclusion = conclusion
         experiment.conclusion_comment = conclusion_comment
-        self._bump_version(experiment)
-        experiment.save()
+        self._bump_version_and_save(
+            experiment, update_fields=["end_date", "conclusion", "conclusion_comment"]
+        )
 
         self._report_experiment_ended(experiment, request=request, open_cleanup_pr=open_cleanup_pr)
 
@@ -2689,6 +2709,17 @@ class ExperimentService:
         if experiment.is_draft:
             raise ValidationError("Experiment is already in draft state.")
 
+        # Lock the experiment row before _clear_frozen_exposure locks the flag row, so every
+        # transaction that holds both locks acquires them experiment-then-flag and can't
+        # deadlock. Held until this @transaction.atomic method commits.
+        locked_version = (
+            Experiment.objects.select_for_update()
+            .filter(pk=experiment.pk)
+            .values_list("version", flat=True)
+            .first()
+            or 0
+        )
+
         self._clear_frozen_exposure(experiment, request=request)
 
         experiment.start_date = None
@@ -2700,8 +2731,19 @@ class ExperimentService:
         # stale "Cleanup PR opened" line after the experiment is re-ended without opting in.
         experiment.flag_cleanup_task_id = None
 
-        self._bump_version(experiment)
-        experiment.save()
+        experiment.version = locked_version + 1
+        experiment.save(
+            update_fields=[
+                "start_date",
+                "end_date",
+                "archived",
+                "conclusion",
+                "conclusion_comment",
+                "flag_cleanup_task_id",
+                "version",
+                "updated_at",
+            ]
+        )
 
         self._report_lifecycle_event(experiment, "experiment reset", request=request)
 
@@ -2825,14 +2867,17 @@ class ExperimentService:
 
         # End the experiment only if it's still running
         was_running = experiment.is_running
+        shipped_fields: list[str] = []
         if was_running:
             experiment.end_date = timezone.now()
+            shipped_fields.append("end_date")
         if conclusion is not None:
             experiment.conclusion = conclusion
+            shipped_fields.append("conclusion")
         if conclusion_comment is not None:
             experiment.conclusion_comment = conclusion_comment
-        self._bump_version(experiment)
-        experiment.save()
+            shipped_fields.append("conclusion_comment")
+        self._bump_version_and_save(experiment, update_fields=shipped_fields)
 
         self._report_experiment_variant_shipped(
             experiment, variant_key=variant_key, release_to_everyone=release_to_everyone, request=request
@@ -2871,10 +2916,29 @@ class ExperimentService:
     # an atomic block would roll back the just-created pending ChangeRequest. That flag
     # write runs first, outside any transaction; the experiment-state writes that follow
     # are wrapped in a narrow `with transaction.atomic()` block so they stay all-or-nothing.
-    @staticmethod
-    def _bump_version(experiment: Experiment) -> None:
-        """Advance the optimistic-concurrency token ahead of a lifecycle save."""
-        experiment.version = (experiment.version or 0) + 1
+    def _bump_version_and_save(self, experiment: Experiment, *, update_fields: list[str]) -> None:
+        """Persist a lifecycle change under a row lock so the concurrency token stays reliable.
+
+        Locking the experiment row serializes the version bump against any concurrent
+        writer — including ``update_experiment``, which takes the same lock — so two racing
+        saves can't both land on the same version. The scoped ``update_fields`` write touches
+        only the columns this transition owns, so it can't revert metric collections a
+        concurrent update committed after this request loaded the row.
+
+        Lock ordering: callers that also lock the linked feature-flag row must take this
+        experiment lock first (see ``reset_experiment`` / ``archive_experiment``), so every
+        transaction holding both acquires them experiment-then-flag and can't deadlock.
+        """
+        with transaction.atomic():
+            locked_version = (
+                Experiment.objects.select_for_update()
+                .filter(pk=experiment.pk)
+                .values_list("version", flat=True)
+                .first()
+                or 0
+            )
+            experiment.version = locked_version + 1
+            experiment.save(update_fields=[*update_fields, "version", "updated_at"])
 
     def _report_update_conflict(
         self,

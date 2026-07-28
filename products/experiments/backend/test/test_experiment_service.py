@@ -312,6 +312,55 @@ class TestExperimentService(APIBaseTest):
         assert isinstance(experiment.metrics[0]["fingerprint"], str)
         assert len(experiment.metrics[0]["fingerprint"]) == 64  # SHA256 hex
 
+    def test_lifecycle_save_does_not_clobber_concurrent_metric_change(self):
+        from django.utils import timezone
+
+        self._create_flag(key="lifecycle-clobber")
+        service = self._service()
+
+        metric_one = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "uuid": "metric-1",
+            "source": {"kind": "EventsNode", "event": "$pageview"},
+        }
+        metric_two = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "uuid": "metric-2",
+            "source": {"kind": "EventsNode", "event": "$pageview"},
+        }
+
+        experiment = service.create_experiment(
+            name="Lifecycle Clobber",
+            feature_flag_key="lifecycle-clobber",
+            allow_unknown_events=True,
+            metrics=[metric_one],
+            start_date=timezone.now(),  # launched, so end_experiment is valid
+        )
+
+        # A request that loaded the experiment before the concurrent metric add.
+        stale = Experiment.objects.get(pk=experiment.pk)
+        stale_version = stale.version or 0
+
+        # A concurrent request adds a second metric.
+        service.update_experiment(
+            Experiment.objects.get(pk=experiment.pk),
+            {"metrics": [metric_one, metric_two]},
+            allow_unknown_events=True,
+        )
+
+        # Ending from the stale instance must not revert metric-2: the scoped, row-locked
+        # save touches only end_date/conclusion/version, never the metric collections.
+        service.end_experiment(stale)
+
+        final = Experiment.objects.get(pk=experiment.pk)
+        assert final.end_date is not None
+        assert {m["uuid"] for m in (final.metrics or [])} == {"metric-1", "metric-2"}
+        # Both writes advanced the token; the lifecycle bump reads the locked row, so it
+        # lands above the concurrent update rather than colliding with it.
+        assert (final.version or 0) > stale_version + 1
+
     # ------------------------------------------------------------------
     # Metric ordering
     # ------------------------------------------------------------------
