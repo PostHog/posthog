@@ -984,6 +984,13 @@ LOGGED_ONLY_BODY = """
     echo "build: ${{ needs.build.result }}"
 """
 
+BUILD_CALL = """    check "Build" "${{ needs.build.result }}\""""
+
+# Helper calls whose trailing comment or label contains `()`. Discarding those lines
+# loses the argument binding, which reports a gate that does allowlist its results.
+COMMENTED_CALL_BODY = HELPER_BODY.replace(BUILD_CALL, f"{BUILD_CALL}  # see check() above")
+PAREN_LABEL_CALL_BODY = HELPER_BODY.replace(BUILD_CALL, """    check "Build ()" "${{ needs.build.result }}\"""")
+
 # A job wired into `needs:` that the gate never tests. Judging only the results the
 # body mentions would approve the two assertions that are here and say nothing
 # about the dependency whose assertion was forgotten.
@@ -1035,8 +1042,22 @@ def _off_convention_gate(marker: str = "") -> str:
 class TestRequiredGateCheck:
     @pytest.mark.parametrize(
         "content",
-        [_gate(SAFE_BODY), _gate(HELPER_BODY), _gate(LOCAL_ALIAS_HELPER_BODY), ENV_LOOP_GATE],
-        ids=["inline-allowlist", "shared-helper", "helper-via-local", "env-block-loop"],
+        [
+            _gate(SAFE_BODY),
+            _gate(HELPER_BODY),
+            _gate(LOCAL_ALIAS_HELPER_BODY),
+            _gate(COMMENTED_CALL_BODY),
+            _gate(PAREN_LABEL_CALL_BODY),
+            ENV_LOOP_GATE,
+        ],
+        ids=[
+            "inline-allowlist",
+            "shared-helper",
+            "helper-via-local",
+            "helper-call-with-trailing-comment",
+            "helper-call-with-parens-in-label",
+            "env-block-loop",
+        ],
     )
     def test_passes_when_every_dependency_is_allowlisted(self, tmp_path: Path, content: str) -> None:
         _write(tmp_path, "ci-thing.yml", content)

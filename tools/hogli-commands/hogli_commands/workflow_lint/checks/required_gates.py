@@ -218,8 +218,11 @@ def _trace(job: Job) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
                     edges.setdefault(source, set()).add(target)
 
             # A helper call binds each argument to that function's positional parameter.
+            # Only a nested definition is skipped here, matched as such rather than by
+            # looking for `()` anywhere, which also discards real calls whose arguments
+            # or trailing comment happen to contain those two characters.
             call = line.strip()
-            if "()" in call:
+            if FUNC_DEF.match(call):
                 continue
             name, _, rest = call.partition(" ")
             if name not in functions or not rest.strip():
