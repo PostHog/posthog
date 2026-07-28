@@ -254,10 +254,10 @@ fn person_key_policy(skip_person_processing: bool) -> KeyPolicy {
     }
 }
 
-/// Pure routing decision lifted out of `prepare_record`. DLQ and custom-topic
-/// redirects take priority over per-datatype and overflow routing, matching the
-/// pre-refactor ordering. Consulted by the sink, which resolves the target to a
-/// topic string, the key policy to a partition key, and applies the effect.
+/// Decide an event's route from its metadata. DLQ and custom-topic redirects
+/// take priority over per-datatype and overflow routing. Consulted by the
+/// sink, which resolves the target to a topic string, the key policy to a
+/// partition key, and applies the effect.
 fn route(metadata: &ProcessedEventMetadata, ai_events_overflow_armed: bool) -> Route<'_> {
     // redirect_to_dlq takes priority over all other routing.
     if metadata.redirect_to_dlq {
@@ -789,9 +789,9 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
     /// Routing policy is read from `ProcessedEventMetadata` (stamped upstream
     /// by the pipeline). This function does not consult any limiter — it is
     /// pure mechanism. DLQ and custom-topic redirects take priority over
-    /// overflow routing, matching the pre-refactor ordering.
+    /// overflow routing.
     ///
-    /// Not `async`: post-refactor there are no await points, and keeping it
+    /// Not `async`: there are no await points, and keeping it
     /// synchronous lets `send_batch`'s serial fast path call it inline without
     /// any runtime indirection.
     fn prepare_record(&self, event: ProcessedEvent) -> Result<ProduceRecord, CaptureError> {
@@ -1592,9 +1592,9 @@ mod tests {
 
         /// The full routing fingerprint of one event: topic + partition key +
         /// every header the sink can stamp + which reroute counter (if any)
-        /// fires. This is the golden oracle every later refactor step diffs
-        /// against, so each field is stated explicitly rather than re-derived
-        /// from the input. Fields default to the "normal main-topic" outcome so
+        /// fires. This is the golden oracle produce-path refactors prove wire
+        /// parity against, so each field is stated explicitly rather than
+        /// re-derived from the input. Fields default to the "normal main-topic" outcome so
         /// each case only spells out what makes it different.
         struct ExpectedRouting<'a> {
             topic: &'a str,

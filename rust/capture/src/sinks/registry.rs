@@ -2,12 +2,11 @@
 //!
 //! Binds every fixed routing [`Outputs`] variant to its configured Kafka topic
 //! and provides a startup completeness check ([`OutputRegistry::check_complete`])
-//! that refuses to boot when any fixed output resolves to an empty topic. This is
-//! the single place the output→topic wiring lives: it replaces the ad-hoc
-//! `KafkaTopicConfig` struct plus the inline `match route.target` that used to
-//! resolve topics inside the sink. Adding an output is now a one-place change —
-//! the `topic_for` match is compiler-forced exhaustive, and `check_complete`
-//! catches an unwired output at boot rather than at first produce (#68719).
+//! that refuses to boot when any fixed output resolves to an empty topic. This
+//! is the single place the output→topic wiring lives, so adding an output is a
+//! one-place change: the `topic_for` match is compiler-forced exhaustive, and
+//! `check_complete` catches an unwired output at boot rather than at first
+//! produce.
 //!
 //! Two outputs sit outside the completeness check: `Custom` topics are
 //! admin-supplied inline on the event's metadata (they carry their own topic),
@@ -24,9 +23,9 @@ use crate::config::KafkaConfig;
 /// lanes; see the plan doc). The sink resolves each output to a concrete
 /// topic string against the [`OutputRegistry`]; distinct outputs may share a
 /// topic (analytics main and session-replay main both resolve the
-/// deployment's main topic today). Promoted from Step 2's `RouteTarget`;
-/// mirrors v1's `Destination` split (the Step 12 convergence target, when
-/// the v1 stack folds onto this registry).
+/// deployment's main topic today). Mirrors v1's `Destination` split — the
+/// convergence target when the v1 stack folds onto this registry (see the
+/// plan doc).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outputs<'a> {
     AnalyticsMain,
@@ -159,9 +158,8 @@ impl OutputRegistry {
     }
 
     /// Startup completeness check: every registered output must resolve to a
-    /// non-empty topic. Introduced by Step 3 (#68719) — a misconfigured or
-    /// newly-added-but-unwired output now fails fast at boot instead of at first
-    /// produce. `Custom` is excluded (it carries its own topic per event), as
+    /// non-empty topic, so a misconfigured or newly-added-but-unwired output
+    /// fails fast at boot instead of at first produce. `Custom` is excluded (it carries its own topic per event), as
     /// are the opt-in AI outputs (validated by setup against the routing mode).
     pub fn check_complete(&self) -> anyhow::Result<()> {
         for output in &Outputs::REGISTERED {
@@ -270,7 +268,7 @@ mod tests {
     }
 
     /// Every registered output, blanked one at a time, must fail the check and
-    /// the error must name the offending output — the #68719 completeness seam.
+    /// the error must name the offending output.
     #[rstest]
     #[case("analytics_main", |r: &mut OutputRegistry| r.main.clear())]
     #[case("analytics_overflow", |r: &mut OutputRegistry| r.overflow.clear())]
