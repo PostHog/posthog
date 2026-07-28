@@ -113,6 +113,7 @@ Link
 LiveDebuggerBreakpoint
 LogsAlertConfiguration
 LogsExclusionRule
+LogsRetentionRule
 LogsView
 MCPAnalyticsSubmission
 MCPServerInstallation

@@ -90,6 +90,8 @@ export const pluralizeResource = (resource: APIScopeObject): string => {
         return 'sharing'
     } else if (resource === AccessControlResourceType.Toolbar) {
         return 'toolbar'
+    } else if (resource === AccessControlResourceType.LlmPlayground) {
+        return 'LLM playground'
     } else if (resource === AccessControlResourceType.Workflow) {
         return 'workflows'
     } else if (resource === AccessControlResourceType.ReplayScanner) {
@@ -131,6 +133,8 @@ export const resourceTypeToString = (resourceType: AccessControlResourceType): s
         return 'AI observability resource'
     } else if (resourceType === AccessControlResourceType.LlmSkill) {
         return 'skill'
+    } else if (resourceType === AccessControlResourceType.LlmPlayground) {
+        return 'LLM playground'
     } else if (resourceType === AccessControlResourceType.AiObservabilityClusters) {
         return 'AI trace clusters resource'
     } else if (resourceType === AccessControlResourceType.RevenueAnalytics) {
