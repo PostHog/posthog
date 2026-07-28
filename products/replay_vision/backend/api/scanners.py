@@ -91,7 +91,7 @@ from products.replay_vision.backend.temporal.scanners import validate_scanner_co
 # Date is set by the schedule at trigger time, not by the user — strip on save.
 _QUERY_FIELDS_TO_STRIP = ("date_from", "date_to")
 
-# Size caps enforced at the write boundary; scanner_config and query are copied into every observation's snapshot.
+# Size caps enforced at the write boundary because scanner_config and query are copied into every observation's snapshot.
 _MAX_PROMPT_LENGTH = 20_000
 _MAX_TAGS = 100
 _MAX_TAG_LENGTH = 100
@@ -462,7 +462,9 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
         # Persist exactly what the user sent (validated), minus the date keys the schedule controls.
         attrs["query"] = {k: v for k, v in attrs["query"].items() if k not in _QUERY_FIELDS_TO_STRIP}
         if len(json.dumps(attrs["query"], separators=(",", ":")).encode()) > _MAX_QUERY_BYTES:
-            raise serializers.ValidationError({"query": f"Recording filter can be at most {_MAX_QUERY_BYTES:,} bytes."})
+            raise serializers.ValidationError(
+                {"query": f"Recording filter is too large. Keep it under {_MAX_QUERY_BYTES // 1000} KB."}
+            )
 
     def to_representation(self, instance: ReplayScanner) -> dict[str, Any]:
         data = super().to_representation(instance)
