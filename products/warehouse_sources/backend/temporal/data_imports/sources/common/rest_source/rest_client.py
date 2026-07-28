@@ -286,6 +286,7 @@ class RESTClient:
         resume_hook: Optional[Callable[[Optional[dict[str, Any]]], None]] = None,
         initial_paginator_state: Optional[dict[str, Any]] = None,
         data_selector_required: bool = False,
+        data_selector_empty_ok: bool = False,
         data_selector_malformed_retryable: bool = False,
     ) -> Iterator[list[Any]]:
         paginator = copy.deepcopy(paginator) if paginator else copy.deepcopy(self.paginator)
@@ -326,7 +327,9 @@ class RESTClient:
             except IgnoreResponseException:
                 break
 
-            data = self._extract_response(body, data_selector, required=data_selector_required)
+            data = self._extract_response(
+                body, data_selector, required=data_selector_required, empty_body_ok=data_selector_empty_ok
+            )
 
             if paginator is not None:
                 paginator.update_state(response, data)
@@ -449,7 +452,9 @@ class RESTClient:
 
         return response, body
 
-    def _extract_response(self, body: Any, data_selector: Optional[TJsonPath], *, required: bool = False) -> list[Any]:
+    def _extract_response(
+        self, body: Any, data_selector: Optional[TJsonPath], *, required: bool = False, empty_body_ok: bool = False
+    ) -> list[Any]:
         if data_selector:
             matches: Any = find_values(data_selector, body)
             # ``required`` distinguishes "the selector key is absent" (no matches -> the response
@@ -457,6 +462,13 @@ class RESTClient:
             # zero-row page, which yields one match whose value is []). Sources that treat a missing
             # data key as an error set data_selector_required=True instead of silently syncing 0 rows.
             if required and not matches:
+                # An empty container omits the key but carries no rows and no alternative shape.
+                # Sources whose API drops the envelope key for an empty collection (rather than
+                # returning an empty list) opt into treating it as a 0-row page via ``empty_body_ok``;
+                # by default it stays a fail-loud shape mismatch, since a body with other keys is a
+                # genuine shape change.
+                if empty_body_ok and isinstance(body, dict | list) and not body:
+                    return []
                 keys = sorted(body.keys())[:20] if isinstance(body, dict) else type(body).__name__
                 raise ValueError(
                     f"Required data_selector {data_selector!r} matched nothing in the response "
