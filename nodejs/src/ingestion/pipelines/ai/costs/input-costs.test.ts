@@ -160,6 +160,37 @@ describe('resolveCacheReportingExclusive()', () => {
             expected: false,
         },
         {
+            name: 'falls back to exclusive for a non-Anthropic provider when cache reads exceed input tokens',
+            properties: {
+                $ai_provider: 'openai',
+                $ai_model: 'xiaomi/mimo-v2.5',
+                $ai_input_tokens: 149,
+                $ai_cache_read_input_tokens: 23104,
+            },
+            expected: true,
+        },
+        {
+            name: 'stays inclusive for a non-Anthropic provider when cache reads fit within input tokens',
+            properties: {
+                $ai_provider: 'openai',
+                $ai_model: 'gpt-4o',
+                $ai_input_tokens: 1000,
+                $ai_cache_read_input_tokens: 500,
+            },
+            expected: false,
+        },
+        {
+            name: 'explicit false wins over the provably-not-inclusive fallback',
+            properties: {
+                $ai_provider: 'openai',
+                $ai_model: 'gpt-4o',
+                $ai_cache_reporting_exclusive: false,
+                $ai_input_tokens: 100,
+                $ai_cache_read_input_tokens: 200,
+            },
+            expected: false,
+        },
+        {
             name: 'returns false when event has no properties',
             properties: undefined,
             expected: false,
@@ -508,15 +539,15 @@ describe('calculateInputCost()', () => {
             expect(result).toBe('0')
         })
 
-        it('handles cache read tokens exceeding input tokens', () => {
+        it('resolves to exclusive accounting when cache read tokens exceed input tokens', () => {
             const event = createOpenAITestEvent(100, 200, { $ai_model: 'gpt-4' })
             const result = calculateInputCost(event, testModel)
 
-            // Regular: (100 - 200) = -100, negative regular tokens
             // Read: 200 * 0.000001 * 0.5 = 0.0001
-            // Regular: -100 * 0.000001 = -0.0001
-            // Total: 0.0001 + (-0.0001) = 0
-            expectCostToBeCloseTo(result, 0)
+            // Regular: 100 * 0.000001 = 0.0001
+            // Total: 0.0001 + 0.0001 = 0.0002
+            expectCostToBeCloseTo(result, 0.0002)
+            expect(event.properties!['$ai_cache_reporting_exclusive']).toBe(true)
         })
 
         it('handles very large token counts', () => {

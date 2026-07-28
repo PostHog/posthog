@@ -63,6 +63,12 @@ export const aiOtelGroupsCounter = new Counter({
 // The team was renamed from LLMA to AIO: metrics above keep their historical
 // `llma_` prefix (dashboards depend on it); new metrics use `aio_` from now on.
 
+export const aiCacheExclusiveFallbackCounter = new Counter({
+    name: 'aio_ai_cost_cache_exclusive_fallback_total',
+    help: 'Undeclared events resolved to exclusive cache reporting because cache tokens exceed input tokens',
+    labelNames: ['prior'], // prior: inclusive | anthropic_inclusive
+})
+
 export const aiBlobOffloadS3Duration = new Histogram({
     name: 'aio_blob_offload_s3_request_duration_seconds',
     help: 'Latency of S3 requests made by the AI blob offload store',
