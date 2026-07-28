@@ -18,7 +18,9 @@ from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import PosthogMcpScopes
 
+from products.tasks.backend.logic.stream.redis_stream import DATA_KEY, get_task_run_stream_key
 from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.redis import get_tasks_stream_redis_sync, run_uses_dedicated_stream
 
 if TYPE_CHECKING:
     from temporalio.client import WorkflowHandle
@@ -30,7 +32,7 @@ logger = logging.getLogger(__name__)
 # Type for an optional output callback (e.g. management command's self.stdout.write)
 OutputFn = Callable[[str], object] | None
 
-# Sandbox logs polling from S3
+# Sandbox event polling
 POLL_INTERVAL_SECONDS = 10
 MAX_POLL_SECONDS = 30 * 60  # default per-turn budget; callers with longer turns pass max_poll_seconds
 MAX_CONSECUTIVE_STORAGE_ERRORS = 3
@@ -222,7 +224,7 @@ async def poll_for_turn(
     workflow_handle: WorkflowHandle | None = None,
     max_poll_seconds: int | None = None,
 ) -> tuple[str, str | None, int, int]:
-    """Poll S3 logs until the agent finishes a turn.
+    """Poll sandbox events until the agent finishes a turn.
 
     `max_poll_seconds` overrides the default poll budget for callers whose activity
     timeout is shorter than `MAX_POLL_SECONDS` — the dropped-finalization salvage only
@@ -285,7 +287,7 @@ async def poll_for_turn(
         # Warn once per minute of silence (not every poll) so stalls surface without flooding logs.
         if stale_seconds >= 60 and stale_seconds % 60 < POLL_INTERVAL_SECONDS:
             logger.warning(
-                "custom_prompt - poll_for_turn: no new S3 log lines for %ds, run=%s, total_lines=%d",
+                "custom_prompt - poll_for_turn: no new event lines for %ds, run=%s, total_lines=%d",
                 stale_seconds,
                 task_run.id,
                 total_lines,
@@ -630,10 +632,10 @@ def _stream_new_lines(
 
 def _check_logs(task_run, skip_lines: int = 0) -> tuple[bool, str | None, str | None, int, bool]:
     """
-    Parse S3 logs. When skip_lines > 0, only lines after that offset are inspected for end_turn
+    Parse sandbox events. When skip_lines > 0, only lines after that offset are inspected for end_turn
     and agent messages. This avoids re-parsing the entire log on every poll cycle.
     """
-    log_content = object_storage.read(task_run.log_url, missing_ok=True) or ""
+    log_content = _read_log_content(task_run)
     return _parse_log_content(log_content, skip_lines)
 
 
@@ -661,7 +663,9 @@ def _parse_log_content(log_content: str, skip_lines: int = 0) -> tuple[bool, str
         if not isinstance(notification, dict):
             continue
         result = notification.get("result")
-        if isinstance(result, dict) and result.get("stopReason") == "end_turn":
+        if (isinstance(result, dict) and result.get("stopReason") == "end_turn") or notification.get(
+            "method"
+        ) == "_posthog/turn_complete":
             agent_finished = True
         if notification.get("method") != "session/update":
             continue
@@ -695,6 +699,28 @@ def _parse_log_content(log_content: str, skip_lines: int = 0) -> tuple[bool, str
     if agent_finished and latest_text is None:
         return False, None, log_content, total_lines, True
     return agent_finished, latest_text, log_content, total_lines, False
+
+
+def _read_log_content(task_run: TaskRun) -> str:
+    state = task_run.state if isinstance(getattr(task_run, "state", None), dict) else {}
+    use_event_stream = bool(state.get("sandbox_event_ingest_enabled")) or bool(
+        settings.DEBUG and settings.TASKS_AGENT_PROXY_INGEST_URL
+    )
+    if not use_event_stream:
+        return object_storage.read(task_run.log_url, missing_ok=True) or ""
+
+    redis_client = get_tasks_stream_redis_sync(run_uses_dedicated_stream(state))
+    stream_entries = redis_client.xrange(get_task_run_stream_key(str(task_run.id)))
+    lines: list[str] = []
+    for _, fields in stream_entries:
+        raw = fields.get(DATA_KEY)
+        if raw is None:
+            raw = fields.get(DATA_KEY.decode())
+        if isinstance(raw, bytes):
+            lines.append(raw.decode("utf-8"))
+        elif isinstance(raw, str):
+            lines.append(raw)
+    return "\n".join(lines)
 
 
 def _is_failed_progress(notification: dict) -> bool:

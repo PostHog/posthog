@@ -6,6 +6,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.db import OperationalError
+from django.test import override_settings
 
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
@@ -50,6 +51,41 @@ class _Resp(BaseModel):
 
 
 class TestPollForTurnEmptyEndTurn:
+    @pytest.mark.asyncio
+    @override_settings(DEBUG=True, TASKS_AGENT_PROXY_INGEST_URL="http://localhost:8003")
+    async def test_reads_direct_event_ingest_stream(self):
+        fake_task_run = FakeTaskRun()
+        fake_task_run.state = {"sandbox_event_ingest_enabled": False}
+        lines = [
+            _agent_message_line("gateway-response"),
+            json.dumps(
+                {
+                    "type": "notification",
+                    "notification": {
+                        "method": "_posthog/turn_complete",
+                        "params": {"stopReason": "end_turn"},
+                    },
+                }
+            ),
+        ]
+        stream_entries = [
+            (f"{index}-0".encode(), {b"data": line.encode()}) for index, line in enumerate(lines, start=1)
+        ]
+
+        with (
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch(
+                "products.tasks.backend.logic.services.custom_prompt_internals.get_tasks_stream_redis_sync"
+            ) as get_redis,
+            patch("posthog.storage.object_storage.read") as read_object_storage,
+        ):
+            get_redis.return_value.xrange.return_value = stream_entries
+            last_message, _, total_lines, _ = await poll_for_turn(fake_task_run)
+
+        assert last_message == "gateway-response"
+        assert total_lines == len(lines)
+        read_object_storage.assert_not_called()
+
     @pytest.mark.asyncio
     async def test_raises_empty_agent_turn_error_with_offsets(self):
         """poll_for_turn must translate the _check_logs empty-end_turn flag into a
