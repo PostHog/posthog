@@ -72,10 +72,13 @@ export function stateTagType(
     state: BillingAlertConfigurationStateEnumApi,
     enabled: boolean | undefined
 ): 'success' | 'danger' | 'warning' | 'muted' {
+    if (state === 'broken') {
+        return 'danger'
+    }
     if (!enabled) {
         return 'muted'
     }
-    if (state === 'firing' || state === 'broken') {
+    if (state === 'firing') {
         return 'danger'
     }
     if (state === 'errored' || state === 'snoozed') {
@@ -85,6 +88,9 @@ export function stateTagType(
 }
 
 export function stateLabel(state: BillingAlertConfigurationStateEnumApi, enabled: boolean | undefined): string {
+    if (state === 'broken') {
+        return 'broken'
+    }
     if (!enabled) {
         return 'Paused'
     }
