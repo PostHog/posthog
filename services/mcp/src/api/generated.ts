@@ -23071,6 +23071,13 @@ export namespace Schemas {
       reviewers_set: boolean;
       /** How many charts the report now shows, or 0 if charts were untouched. */
       charts_set: number;
+      /** True when the safety judge flagged the rewritten title/summary as unsafe: the content rewrite was dropped (the existing prose stays), so it is not in `updated_fields`. Note/reviewer edits in the same call still apply. */
+      content_safety_suppressed: boolean;
+      /**
+         * When the safety judge suppressed the content rewrite, why; null when the rewrite was safe.
+         * @nullable
+         */
+      safety_explanation: string | null;
     }
 
     export type EffectiveMembershipLevelEnum = typeof EffectiveMembershipLevelEnum[keyof typeof EffectiveMembershipLevelEnum];

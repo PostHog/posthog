@@ -3,9 +3,12 @@
 Where `emit.py` forwards a weak signal through `emit_signal()` and lets the pipeline decide, these
 tools let an opted-in scout author or edit a full `SignalReport` directly. They are thin harness
 adapters: input validation + the shared preflight gates + attribution, then calls into the sanctioned
-`scout_report/` service (`judge_scout_report` + `create_scout_report` for emit; `update_scout_report` /
-`append_report_note` for edit). The tool never touches `SignalReport` or the embeddings pipeline itself
-— that boundary lives in the service (see `scout_harness/AGENTS.md`).
+`scout_report/` service (`judge_scout_report` + `create_scout_report` for emit;
+`judge_report_content_safety` + `update_scout_report` / `append_report_note` for edit). Both channels
+run the prompt-injection safety judge on the title/summary before it is persisted — an unsafe emit is
+born SUPPRESSED, an unsafe edit drops the content rewrite (the existing prose stays). The tool never
+touches `SignalReport` or the embeddings pipeline itself — that boundary lives in the service (see
+`scout_harness/AGENTS.md`).
 
 Opt-in is by `allowed_tools`: a scout gets these only if its skill lists `emit_report` / `edit_report`,
 intersected with what `tools/__init__.py` re-exports.
@@ -22,6 +25,7 @@ import re
 import json
 import uuid
 import asyncio
+import hashlib
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -43,6 +47,7 @@ from products.signals.backend.artefact_schemas import (
     ActionabilityChoice,
     Priority,
     PriorityAssessment,
+    SafetyJudgment,
     SuggestedReviewerEntry,
     SuggestedReviewers,
 )
@@ -81,7 +86,11 @@ from products.signals.backend.scout_report import (
     set_scout_report_reviewers,
     update_scout_report,
 )
-from products.signals.backend.scout_report.judge import ScoutReportJudgement, judge_scout_report
+from products.signals.backend.scout_report.judge import (
+    ScoutReportJudgement,
+    judge_report_content_safety,
+    judge_scout_report,
+)
 from products.signals.backend.slack_formatting import strip_chart_references
 
 logger = logging.getLogger(__name__)
@@ -172,6 +181,12 @@ class EditReportResult:
     # note/reviewer-only edit) — telemetry-only, so the edited lifecycle event can classify the report
     # (`_report_classification_props`) even when the edit didn't touch the title.
     report_title: str | None = None
+    # Set when the safety judge flagged the rewritten title/summary as unsafe: the content rewrite is
+    # dropped (the existing, already-judged prose stays), so `updated_fields` won't include the
+    # suppressed field. `safety_explanation` carries the judge's reason so the scout learns why its
+    # rewrite didn't take rather than silently seeing no change.
+    content_safety_suppressed: bool = False
+    safety_explanation: str | None = None
 
     @property
     def changed(self) -> bool:
@@ -665,6 +680,14 @@ def _chart_event_key(chart: ReportChartInput) -> str:
     )
 
 
+def _suppressed_content_key(title: str | None, summary: str | None) -> str:
+    """Digest of the prose a safety-suppressed edit tried to apply, for the edit event's dedup key. The
+    content itself never reaches the event, so the digest is what keeps two distinct rejected rewrites from
+    hashing to one uuid — and being a digest, it carries none of the rejected text onward."""
+    payload = json.dumps([title, summary], separators=(",", ":"))
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
 def _report_event_uuid(*parts: object, charted: bool = False) -> str:
     """Deterministic event uuid from the parts that identify a distinct emit/edit. A retried capture of the
     same authored report (or an identical re-applied edit) collapses to one event at ingestion instead of
@@ -822,9 +845,18 @@ def _capture_report_edited(
     thread. Returns the customer-facing fan-out payload for the caller to forward, or None when the call
     left the report as it was: `edit_report` is non-idempotent, so a retry restates content the report
     already holds, and there is no earlier event for ingestion to collapse the second one into. Both
-    streams stay quiet rather than telling a CDP destination a report changed when it didn't."""
-    if not result.changed:
+    streams stay quiet rather than telling a CDP destination a report changed when it didn't. A
+    safety-suppressed rewrite also leaves the report as it was, but still fires — a scout attempting prose
+    the judge rejected is the thing the team most needs to hear about."""
+    if not result.changed and not result.content_safety_suppressed:
         return None
+    # Never carry safety-suppressed prose on the event: an unsafe rewrite was dropped (not applied), so
+    # forwarding it here would push it back into the team's own event stream (and any CDP destination
+    # templating on `summary`). Drop it, and surface the judge's reason instead so the suppression is
+    # observable.
+    suppressed_content_key = _suppressed_content_key(title, summary) if result.content_safety_suppressed else None
+    title = None if result.content_safety_suppressed else title
+    summary = None if result.content_safety_suppressed else summary
     properties = {
         **_report_event_base(run),
         **_report_classification_props(result.report_title),
@@ -833,6 +865,8 @@ def _capture_report_edited(
         "note_appended": result.note_appended,
         "reviewers_set": result.reviewers_set,
         "charts_set": result.charts_set,
+        "content_safety_suppressed": result.content_safety_suppressed,
+        "safety_explanation": _clip(result.safety_explanation, _MAX_TELEMETRY_TEXT_LEN),
         "title": _clip(title, MAX_REPORT_TITLE_LENGTH),
         "summary": _forwarded_summary(summary),
         "note": _clip(note, _MAX_TELEMETRY_TEXT_LEN),
@@ -874,6 +908,12 @@ def _capture_report_edited(
     # here would hash it identically to the edit before it and let ingestion drop it.
     if charts:
         parts.append(json.dumps([_chart_event_key(c) for c in charts], separators=(",", ":")))
+    # Same collision, one more way in: a suppressed rewrite drops the prose from the event *and* applies
+    # no fields, so two differently-worded unsafe rewrites of one report in a run would hash identically
+    # and ingestion would keep only the first — losing exactly the second attempt worth seeing. Key on a
+    # digest of the attempted content, which distinguishes them without putting the prose back on the wire.
+    if suppressed_content_key is not None:
+        parts.append(suppressed_content_key)
     return _ReportForward(
         event_name=CUSTOMER_REPORT_EDITED_EVENT,
         distinct_id=f"signals_scout:{run.skill_name}",
@@ -1134,9 +1174,9 @@ def _do_edit_report(
     suggested_reviewers: list[ReviewerInput] | None,
     charts: list[ReportChart],
 ) -> EditReportResult:
-    """Fully-sync edit core (no LLM step). The async/sync entrypoints both funnel here — directly in
-    the sync path, via `database_sync_to_async` in the async path. Reviewer resolution does a DB read
-    and the autostart re-eval bridges an async hand-off via `async_to_sync`, both safe on this sync
+    """Fully-sync edit core. The async/sync entrypoints both funnel here — directly in the sync path, via
+    `database_sync_to_async` in the async path. Reviewer resolution does a DB read, and both the safety
+    judge and the autostart re-eval bridge an async hand-off via `async_to_sync`, all safe on this sync
     thread."""
     preflight = _preflight_emit_gates(team, run)
     if preflight is not None:
@@ -1153,6 +1193,19 @@ def _do_edit_report(
     # provenance is stamped so a picked owner still can't become the autostart identity, regardless of
     # which report the edit targets.
     reviewers = _build_suggested_reviewers(team, suggested_reviewers, skill_name=run.skill_name)
+
+    # Safety-judge the rewritten prose before persisting it — the same prompt-injection guard
+    # `emit_report` runs on authored content, which the edit path previously skipped entirely. An edit
+    # can target ANY inbox report (pipeline-authored included) and re-fire autostart, so an unsafe
+    # title/summary rewrite must never reach the inbox or the implementation agent. When unsafe the
+    # content write is dropped (the existing, already-judged prose stays); a note/reviewer-only edit
+    # supplies no prose, so it skips the judge. Judged inline via `async_to_sync` like emit's sync path,
+    # and outside the transaction below — an LLM call must never be made holding a write txn open.
+    content_safety: SafetyJudgment | None = None
+    if title is not None or summary is not None:
+        content_safety = async_to_sync(judge_report_content_safety)(team_id=team.id, title=title, summary=summary)
+    content_suppressed = content_safety is not None and not content_safety.choice
+
     updated_fields: list[str] = []
     note_appended = False
     charts_changed = False
@@ -1160,7 +1213,7 @@ def _do_edit_report(
     # instead of leaving the report half-changed. The side effects below (autostart, telemetry,
     # delivery) stay outside, and the `on_commit` hooks these writes register fire on this commit.
     with transaction.atomic():
-        if title is not None or summary is not None:
+        if (title is not None or summary is not None) and not content_suppressed:
             updated_fields = update_scout_report(
                 team_id=team.id,
                 report_id=report_id,
@@ -1215,11 +1268,12 @@ def _do_edit_report(
         },
     )
     # Resolve the report's effective title for the edited event's classification — the rewritten title
-    # when this edit set one, else the stored title (one indexed read; the edits above already proved
-    # the report exists for this team). Telemetry-only and best-effort: the edit has already committed,
-    # so a transient read failure here must not fail the call (or skip the tally below) — degrade to an
-    # unclassified event instead.
-    report_title: str | None = title
+    # only when this edit actually applied one (a safety-suppressed rewrite leaves the stored title in
+    # place), else the stored title (one indexed read; the edits above already proved the report exists
+    # for this team). Telemetry-only and best-effort: the edit has already committed, so a transient
+    # read failure here must not fail the call (or skip the tally below) — degrade to an unclassified
+    # event instead.
+    report_title: str | None = title if "title" in updated_fields else None
     if report_title is None:
         try:
             report_title = get_scout_report_title(team_id=team.id, report_id=report_id)
@@ -1235,6 +1289,8 @@ def _do_edit_report(
         reviewers_set=reviewers_set,
         charts_set=len(charts) if charts_changed else 0,
         report_title=report_title,
+        content_safety_suppressed=content_suppressed,
+        safety_explanation=content_safety.explanation if content_suppressed else None,
     )
     # Record the edit on the run tally only when something actually changed — a no-op edit (e.g. a
     # title rewrite to its current value, or re-sending the charts already stored) must not claim the

@@ -976,7 +976,9 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to "
             "this scout. Setting reviewers is how you rescue a report that surfaced routed to no one: it "
             "replaces the reviewer list and re-runs autostart, so a report missing a qualifying reviewer can "
-            "open a draft PR. Title/summary edits are best-effort: the pipeline may later re-research them."
+            "open a draft PR. Title/summary edits are best-effort: the pipeline may later re-research them, "
+            "and they pass the same safety judge as `emit-report` — an unsafe rewrite is dropped (the "
+            "existing prose stays) and flagged via `content_safety_suppressed`."
         ),
         operation_id="signals_scout_edit_report",
     )
@@ -1012,6 +1014,8 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "note_appended": result.note_appended,
                     "reviewers_set": result.reviewers_set,
                     "charts_set": result.charts_set,
+                    "content_safety_suppressed": result.content_safety_suppressed,
+                    "safety_explanation": result.safety_explanation,
                 }
             ).data,
             status=status.HTTP_200_OK,
