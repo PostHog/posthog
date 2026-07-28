@@ -185,6 +185,29 @@ class TestBillingAlertAPI(APIBaseTest):
         assert alert.state == BillingAlertConfiguration.State.NOT_FIRING
         assert alert.consecutive_failures == 0
 
+    def test_evaluation_rule_edits_reset_firing_state_and_failures(self) -> None:
+        updates = [
+            ("metric", BillingAlertConfiguration.Metric.USAGE),
+            ("currency", "EUR"),
+            ("baseline_window_days", 14),
+            ("evaluation_delay_hours", 12),
+        ]
+
+        for field, value in updates:
+            with self.subTest(field=field):
+                alert = self._alert(
+                    state=BillingAlertConfiguration.State.FIRING,
+                    consecutive_failures=3,
+                )
+
+                response = self.client.patch(f"{self.url}{alert.id}/", {field: value}, format="json")
+
+                assert response.status_code == status.HTTP_200_OK, response.json()
+                alert.refresh_from_db()
+                assert getattr(alert, field) == value
+                assert alert.state == BillingAlertConfiguration.State.NOT_FIRING
+                assert alert.consecutive_failures == 0
+
     def test_threshold_edit_preserves_snoozed_state(self) -> None:
         snooze_until = timezone.now() + timedelta(hours=2)
         alert = self._alert(
