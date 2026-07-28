@@ -17,7 +17,6 @@ from posthog.temporal.ducklake.ducklake_register_data_imports_workflow import (
     copy_and_register_ducklake_data_imports_activity,
     ducklake_register_data_imports_gate_activity,
     prepare_ducklake_data_imports_registration_activity,
-    verify_ducklake_data_imports_registration_activity,
 )
 
 from products.warehouse_sources.backend.facade.models import (
@@ -140,6 +139,16 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     conn.__exit__ = MagicMock(return_value=False)
     conn.transaction.return_value.__enter__ = MagicMock()
     conn.transaction.return_value.__exit__ = MagicMock(return_value=False)
+
+    def execute(query: object) -> MagicMock:
+        query_text = str(query)
+        if "SELECT count(*) FROM read_parquet" in query_text:
+            return MagicMock(fetchone=MagicMock(return_value=(2,)))
+        if "SELECT count(*) FROM" in query_text:
+            return MagicMock(fetchone=MagicMock(return_value=(2,)))
+        return MagicMock()
+
+    conn.execute.side_effect = execute
     connect = MagicMock(return_value=conn)
     monkeypatch.setattr(registration_module.psycopg, "connect", connect)
     monkeypatch.setattr(registration_module, "setup_duckgres_session", MagicMock())
@@ -167,12 +176,15 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     ]
     executed = [str(call.args[0]) for call in conn.execute.call_args_list]
     registration_indexes = [index for index, query in enumerate(executed) if "ducklake_add_data_files" in query]
+    verification_indexes = [index for index, query in enumerate(executed) if "SELECT count(*) FROM" in query]
     drop_live_index = next(
         index for index, query in enumerate(executed) if "DROP TABLE IF EXISTS" in query and "customers" in query
     )
     rename_index = next(index for index, query in enumerate(executed) if "RENAME TO" in query)
     assert len(registration_indexes) == 2
-    assert max(registration_indexes) < drop_live_index < rename_index
+    assert len(verification_indexes) == 2
+    assert max(registration_indexes) < min(verification_indexes)
+    assert max(verification_indexes) < drop_live_index < rename_index
     assert any("SET PARTITIONED BY" in query for query in executed)
 
 
@@ -196,19 +208,41 @@ def test_copy_activity_does_not_touch_catalog_for_stale_generation(monkeypatch):
     assert copy_and_register_ducklake_data_imports_activity(_activity_inputs()) is False
 
 
-def test_verification_rejects_a_row_count_mismatch(monkeypatch):
-    conn = MagicMock()
-    conn.execute.side_effect = [
-        MagicMock(fetchone=MagicMock(return_value=(10,))),
-        MagicMock(fetchone=MagicMock(return_value=(9,))),
-    ]
+def test_copy_activity_does_not_publish_a_row_count_mismatch(monkeypatch):
     monkeypatch.setattr(
-        registration_module, "_connect_to_duckgres_for_team", lambda team_id: contextlib.nullcontext(conn)
+        registration_module,
+        "_copy_prepared_parquet_files",
+        lambda source_uri, landing_uri: [f"{landing_uri}/file.parquet"],
+    )
+    monkeypatch.setattr(registration_module, "_prepared_generation_is_current", lambda inputs: True)
+    conn = MagicMock()
+    conn.transaction.return_value.__enter__ = MagicMock()
+    conn.transaction.return_value.__exit__ = MagicMock(return_value=False)
+    counts = iter([(10,), (9,)])
+
+    def execute(query: object) -> MagicMock:
+        if "SELECT count(*) FROM" in str(query):
+            return MagicMock(fetchone=MagicMock(return_value=next(counts)))
+        return MagicMock()
+
+    conn.execute.side_effect = execute
+    monkeypatch.setattr(
+        registration_module,
+        "_connect_to_duckgres_for_team",
+        lambda team_id: contextlib.nullcontext(conn),
     )
     monkeypatch.setattr(registration_module, "setup_duckgres_session", MagicMock())
+    heartbeater = MagicMock()
+    heartbeater.__enter__ = MagicMock(return_value=heartbeater)
+    heartbeater.__exit__ = MagicMock(return_value=False)
+    monkeypatch.setattr(registration_module, "HeartbeaterSync", MagicMock(return_value=heartbeater))
 
     with pytest.raises(ApplicationError, match="row count mismatch"):
-        verify_ducklake_data_imports_registration_activity(_activity_inputs())
+        copy_and_register_ducklake_data_imports_activity(_activity_inputs())
+
+    executed = [str(call.args[0]) for call in conn.execute.call_args_list]
+    assert not any("DROP TABLE IF EXISTS" in query and "customers" in query for query in executed)
+    assert not any("RENAME TO" in query for query in executed)
 
 
 def _activity_inputs() -> DuckLakeRegisterDataImportsActivityInputs:

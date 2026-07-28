@@ -20,7 +20,6 @@ from posthog.temporal.ducklake.ducklake_register_data_imports_workflow import (
     copy_and_register_ducklake_data_imports_activity,
     ducklake_register_data_imports_gate_activity,
     prepare_ducklake_data_imports_registration_activity,
-    verify_ducklake_data_imports_registration_activity,
 )
 
 WORKFLOWS = [
@@ -44,5 +43,4 @@ ACTIVITIES = [
     run_ducklake_compaction,
     verify_data_imports_ducklake_copy_activity,
     verify_ducklake_copy_activity,
-    verify_ducklake_data_imports_registration_activity,
 ]

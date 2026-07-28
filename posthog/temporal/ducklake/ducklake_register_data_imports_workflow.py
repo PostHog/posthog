@@ -195,43 +195,12 @@ def copy_and_register_ducklake_data_imports_activity(inputs: DuckLakeRegisterDat
             return False
 
     logger.info(
-        "Copied and registered prepared Parquet files in DuckLake",
+        "Copied, verified, and registered prepared Parquet files in DuckLake",
         ducklake_table=f"{inputs.metadata.ducklake_schema_name}.{inputs.metadata.ducklake_table_name}",
         file_count=len(landing_paths),
         landing_uri=inputs.metadata.landing_uri,
     )
     return True
-
-
-@activity.defn
-def verify_ducklake_data_imports_registration_activity(inputs: DuckLakeRegisterDataImportsActivityInputs) -> None:
-    bind_contextvars(team_id=inputs.team_id)
-    logger = LOGGER.bind(schema_id=inputs.metadata.source_schema_id, job_id=inputs.job_id)
-    if not settings.TEST:
-        close_old_connections()
-
-    with _connect_to_duckgres_for_team(inputs.team_id) as conn:
-        setup_duckgres_session(conn, extensions=("ducklake", "httpfs"))
-        source_row = conn.execute(
-            psql.SQL("SELECT count(*) FROM read_parquet({}, union_by_name=true, hive_partitioning=true)").format(
-                psql.Literal(f"{inputs.metadata.landing_uri.rstrip('/')}/**/*.parquet")
-            )
-        ).fetchone()
-        registered_row = conn.execute(
-            psql.SQL("SELECT count(*) FROM {}.{}").format(
-                psql.Identifier(inputs.metadata.ducklake_schema_name),
-                psql.Identifier(inputs.metadata.ducklake_table_name),
-            )
-        ).fetchone()
-
-    source_count = int(source_row[0]) if source_row else 0
-    registered_count = int(registered_row[0]) if registered_row else 0
-    if source_count != registered_count:
-        raise ApplicationError(
-            f"DuckLake prepared-file registration row count mismatch: source={source_count}, registered={registered_count}",
-            non_retryable=True,
-        )
-    logger.info("Verified DuckLake prepared-file registration", row_count=registered_count)
 
 
 def _is_valid_queryable_folder(queryable_folder: str) -> bool:
@@ -361,6 +330,26 @@ def _register_prepared_parquet_files(
                 )
             )
 
+        source_row = conn.execute(
+            psql.SQL("SELECT count(*) FROM read_parquet({}, union_by_name=true, hive_partitioning=true)").format(
+                parquet_paths
+            )
+        ).fetchone()
+        registered_row = conn.execute(
+            psql.SQL("SELECT count(*) FROM {}.{}").format(
+                psql.Identifier(schema_name),
+                psql.Identifier(shadow_name),
+            )
+        ).fetchone()
+        source_count = int(source_row[0]) if source_row else 0
+        registered_count = int(registered_row[0]) if registered_row else 0
+        if source_count != registered_count:
+            raise ApplicationError(
+                "DuckLake prepared-file registration row count mismatch: "
+                f"source={source_count}, registered={registered_count}",
+                non_retryable=True,
+            )
+
         if not _prepared_generation_is_current(inputs):
             raise _StalePreparedGenerationError
 
@@ -453,13 +442,6 @@ class DuckLakeRegisterDataImportsWorkflow(PostHogWorkflow):
                 get_ducklake_register_data_imports_finished_metric(status="stale").add(1)
                 return
 
-            await workflow.execute_activity(
-                verify_ducklake_data_imports_registration_activity,
-                activity_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=10),
-                heartbeat_timeout=dt.timedelta(minutes=2),
-                retry_policy=RetryPolicy(maximum_attempts=1),
-            )
         except Exception:
             get_ducklake_register_data_imports_finished_metric(status="failed").add(1)
             raise
