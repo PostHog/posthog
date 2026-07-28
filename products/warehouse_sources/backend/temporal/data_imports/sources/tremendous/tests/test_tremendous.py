@@ -1,192 +1,217 @@
+import json
 from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest import mock
 
-import requests
 from parameterized import parameterized
+from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.tremendous import tremendous
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientRetryableError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.tremendous.settings import (
     ENDPOINTS,
     TREMENDOUS_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.tremendous.tremendous import (
+    DEFAULT_PROBE_PATH,
     TremendousResumeConfig,
-    TremendousRetryableError,
     _to_iso_datetime,
     base_url_for_environment,
-    check_access,
-    get_rows,
     tremendous_source,
     validate_credentials,
 )
 
-# Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
-_fetch_page_unwrapped = tremendous._fetch_page.__wrapped__  # type: ignore[attr-defined]
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the tremendous module.
+TREMENDOUS_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.tremendous.tremendous.make_tracked_session"
+)
 
-ORDERS_PAGE_SIZE = TREMENDOUS_ENDPOINTS["orders"].page_size
-
-
-class _FakeResumableManager:
-    def __init__(self, state: TremendousResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[TremendousResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> TremendousResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: TremendousResumeConfig) -> None:
-        self.saved.append(data)
+INVOICES_PAGE_SIZE = TREMENDOUS_ENDPOINTS["invoices"].page_size  # 10 — cheap full-page fixtures
 
 
-def _page(size: int) -> list[dict]:
-    return [{"id": f"ID{i}"} for i in range(size)]
+def _response(items: list[dict[str, Any]], *, data_key: str = "orders") -> Response:
+    resp = Response()
+    resp.status_code = 200
+    resp._content = json.dumps({data_key: items, "total_count": len(items)}).encode()
+    return resp
 
 
-class TestGetRows:
-    @staticmethod
-    def _collect(
-        manager: _FakeResumableManager,
-        monkeypatch: Any,
-        pages: dict[int, list[dict]],
-        endpoint: str = "orders",
-        should_use_incremental_field: bool = False,
-        db_incremental_field_last_value: Any = None,
-    ) -> tuple[list[dict], list[dict[str, Any]]]:
-        requested_params: list[dict[str, Any]] = []
+def _raw_response(body: Any) -> Response:
+    resp = Response()
+    resp.status_code = 200
+    resp._content = json.dumps(body).encode()
+    return resp
 
-        def fake_fetch(session: Any, url: str, data_key: str, params: dict[str, Any], logger: Any) -> list[dict]:
-            requested_params.append(params)
-            return pages[params["offset"]] if "offset" in params else pages[0]
 
-        monkeypatch.setattr(tremendous, "_fetch_page", fake_fetch)
-        monkeypatch.setattr(tremendous, "make_tracked_session", lambda **kwargs: MagicMock())
+def _make_manager(resume_state: TremendousResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
 
-        rows: list[dict] = []
-        for batch in get_rows(
-            api_key="tremendous-key",
-            environment="production",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=manager,  # type: ignore[arg-type]
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ):
-            rows.extend(batch)
-        return rows, requested_params
 
-    def test_pins_redirects_off(self, monkeypatch: Any) -> None:
-        # Redirect-following would replay the Bearer key to whatever host Tremendous redirects to.
-        captured: list[dict[str, Any]] = []
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    """Wire a mock session and snapshot each request's params AT SEND TIME.
 
-        def fake_session(**kwargs: Any) -> Any:
-            captured.append(kwargs)
-            return MagicMock()
+    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the run
+    shows only the final state — snapshot a copy when each request is prepared instead.
+    """
+    session.headers = {}
+    param_snapshots: list[dict[str, Any]] = []
 
-        monkeypatch.setattr(tremendous, "_fetch_page", lambda *a, **k: [])
-        monkeypatch.setattr(tremendous, "make_tracked_session", fake_session)
-        list(
-            get_rows(
-                api_key="tremendous-key",
-                environment="production",
-                endpoint="orders",
-                logger=MagicMock(),
-                resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
-            )
+    def _prepare(request: Any) -> mock.MagicMock:
+        param_snapshots.append(dict(request.params or {}))
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return param_snapshots
+
+
+def _source(
+    endpoint: str,
+    manager: mock.MagicMock,
+    *,
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
+    environment: str = "production",
+) -> Any:
+    return tremendous_source(
+        api_key="tremendous-key",
+        environment=environment,
+        endpoint=endpoint,
+        team_id=1,
+        job_id="j",
+        resumable_source_manager=manager,
+        should_use_incremental_field=should_use_incremental_field,
+        db_incremental_field_last_value=db_incremental_field_last_value,
+    )
+
+
+def _rows(source_response: Any) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
+
+
+class TestPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_paginates_and_progresses_offset(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        full_page = [{"id": f"i_{i}"} for i in range(INVOICES_PAGE_SIZE)]
+        params = _wire(
+            session, [_response(full_page, data_key="invoices"), _response([{"id": "i_last"}], data_key="invoices")]
         )
-        assert captured and captured[0]["allow_redirects"] is False
 
-    def test_short_page_yields_and_stops(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        rows, params = self._collect(manager, monkeypatch, {0: [{"id": "A"}, {"id": "B"}]})
-        assert rows == [{"id": "A"}, {"id": "B"}]
-        assert params == [{"limit": ORDERS_PAGE_SIZE, "offset": 0}]
-        # The page was short, so we stopped without persisting resume state.
-        assert manager.saved == []
+        manager = _make_manager()
+        rows = _rows(_source("invoices", manager))
 
-    def test_advances_offset_until_short_page(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        pages = {0: _page(ORDERS_PAGE_SIZE), ORDERS_PAGE_SIZE: [{"id": "LAST"}]}
-        rows, params = self._collect(manager, monkeypatch, pages)
-        assert len(rows) == ORDERS_PAGE_SIZE + 1
-        assert [p["offset"] for p in params] == [0, ORDERS_PAGE_SIZE]
-        # State is saved after yielding the full first page, then the short page terminates.
-        assert [s.offset for s in manager.saved] == [ORDERS_PAGE_SIZE]
+        assert [r["id"] for r in rows] == [*(f"i_{i}" for i in range(INVOICES_PAGE_SIZE)), "i_last"]
+        assert params[0]["offset"] == 0
+        assert params[0]["limit"] == INVOICES_PAGE_SIZE
+        assert params[1]["offset"] == INVOICES_PAGE_SIZE
+        # Checkpoint saved after the first full page (points at the next page); short page ends it.
+        manager.save_state.assert_called_once()
+        assert manager.save_state.call_args.args[0] == TremendousResumeConfig(offset=INVOICES_PAGE_SIZE)
 
-    def test_resumes_from_saved_offset(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager(TremendousResumeConfig(offset=1000))
-        rows, params = self._collect(manager, monkeypatch, {1000: [{"id": "X"}]})
-        assert rows == [{"id": "X"}]
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_short_first_page_makes_one_request_and_no_checkpoint(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([{"id": "A"}, {"id": "B"}])])
+
+        manager = _make_manager()
+        rows = _rows(_source("orders", manager))
+
+        assert [r["id"] for r in rows] == ["A", "B"]
+        assert session.send.call_count == 1
+        manager.save_state.assert_not_called()
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_first_page_yields_nothing_and_no_checkpoint(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([])])
+
+        manager = _make_manager()
+        rows = _rows(_source("orders", manager))
+
+        assert rows == []
+        assert session.send.call_count == 1
+        manager.save_state.assert_not_called()
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_offset(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response([{"id": "X"}])])
+
+        manager = _make_manager(TremendousResumeConfig(offset=1000))
+        _rows(_source("orders", manager))
+
         # The initial (offset=0) page must never be re-fetched on resume.
         assert [p["offset"] for p in params] == [1000]
 
-    def test_empty_first_page_yields_nothing(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        rows, _ = self._collect(manager, monkeypatch, {0: []})
-        assert rows == []
-        assert manager.saved == []
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_incremental_watermark_sent_as_created_at_gte_on_every_page(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        full_page = [{"id": f"o_{i}"} for i in range(TREMENDOUS_ENDPOINTS["orders"].page_size)]
+        params = _wire(session, [_response(full_page), _response([])])
 
-    def test_incremental_watermark_sent_as_created_at_gte_on_every_page(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        watermark = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
-        pages = {0: _page(ORDERS_PAGE_SIZE), ORDERS_PAGE_SIZE: []}
-        _, params = self._collect(
-            manager,
-            monkeypatch,
-            pages,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=watermark,
+        _rows(
+            _source(
+                "orders",
+                _make_manager(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC),
+            )
         )
+
+        assert len(params) == 2
         assert all(p["created_at[gte]"] == "2026-01-02T03:04:05+00:00" for p in params)
 
-    def test_full_refresh_sends_no_created_at_filter(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        _, params = self._collect(manager, monkeypatch, {0: [{"id": "A"}]})
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_full_refresh_sends_no_created_at_filter(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response([{"id": "A"}])])
+
+        _rows(_source("orders", _make_manager()))
+
         assert all("created_at[gte]" not in p for p in params)
 
-    def test_unpaginated_endpoint_fetches_once_without_params(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        rows, params = self._collect(manager, monkeypatch, {0: [{"id": "M1"}, {"id": "M2"}]}, endpoint="members")
-        assert rows == [{"id": "M1"}, {"id": "M2"}]
-        assert params == [{}]
-        assert manager.saved == []
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_unpaginated_endpoint_fetches_once_without_offset_limit(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response([{"id": "M1"}, {"id": "M2"}], data_key="members")])
 
+        manager = _make_manager()
+        rows = _rows(_source("members", manager))
 
-class TestFetchPage:
-    def _session_returning(self, status_code: int, body: Any = None) -> MagicMock:
-        response = MagicMock()
-        response.status_code = status_code
-        response.ok = status_code < 400
-        response.json.return_value = body if body is not None else {"orders": [], "total_count": 0}
-        response.text = ""
-        response.raise_for_status.side_effect = (
-            requests.HTTPError(f"{status_code} error", response=response) if status_code >= 400 else None
-        )
-        session = MagicMock()
-        session.get.return_value = response
-        return session
+        assert [r["id"] for r in rows] == ["M1", "M2"]
+        assert session.send.call_count == 1
+        # A single-page endpoint sends no offset/limit pagination params.
+        assert "offset" not in params[0] and "limit" not in params[0]
+        manager.save_state.assert_not_called()
 
-    @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
-    def test_retryable_statuses_raise_retryable_error(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
-        with pytest.raises(TremendousRetryableError):
-            _fetch_page_unwrapped(session, "https://www.tremendous.com/api/v2/orders", "orders", {}, MagicMock())
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_pins_redirects_off(self, MockSession: mock.MagicMock) -> None:
+        # Redirect-following would replay the Bearer key to whatever host Tremendous redirects to.
+        session = MockSession.return_value
+        _wire(session, [_response([{"id": "A"}])])
 
-    @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
-    def test_client_errors_raise_for_status(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
-        with pytest.raises(requests.HTTPError):
-            _fetch_page_unwrapped(session, "https://www.tremendous.com/api/v2/orders", "orders", {}, MagicMock())
+        _rows(_source("orders", _make_manager()))
 
-    def test_success_returns_items_under_data_key(self) -> None:
-        session = self._session_returning(200, {"orders": [{"id": "A"}], "total_count": 1})
-        items = _fetch_page_unwrapped(session, "https://www.tremendous.com/api/v2/orders", "orders", {}, MagicMock())
-        assert items == [{"id": "A"}]
+        assert session.send.call_args.kwargs["allow_redirects"] is False
+
+    @mock.patch("tenacity.nap.time.sleep", return_value=None)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_unexpected_payload_is_retryable(self, MockSession: mock.MagicMock, _sleep: mock.MagicMock) -> None:
+        # A 200 whose body isn't the expected {data_key: [...]} shape is retried, then re-raised.
+        session = MockSession.return_value
+        _wire(session, [_raw_response({"total_count": 0})] * 5)
+
+        with pytest.raises(RESTClientRetryableError):
+            _rows(_source("orders", _make_manager()))
 
     @parameterized.expand(
         [
@@ -195,10 +220,16 @@ class TestFetchPage:
             ("data_key_not_a_list", {"orders": {"id": "A"}}),
         ]
     )
-    def test_unexpected_payload_is_retryable(self, _name: str, body: Any) -> None:
-        session = self._session_returning(200, body)
-        with pytest.raises(TremendousRetryableError):
-            _fetch_page_unwrapped(session, "https://www.tremendous.com/api/v2/orders", "orders", {}, MagicMock())
+    @mock.patch("tenacity.nap.time.sleep", return_value=None)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_unexpected_payload_shapes_are_retryable(
+        self, _name: str, body: Any, MockSession: mock.MagicMock, _sleep: mock.MagicMock
+    ) -> None:
+        session = MockSession.return_value
+        _wire(session, [_raw_response(body)] * 5)
+
+        with pytest.raises(RESTClientRetryableError):
+            _rows(_source("orders", _make_manager()))
 
 
 class TestHelpers:
@@ -227,67 +258,15 @@ class TestHelpers:
         assert base_url_for_environment(environment) == expected
 
 
-class TestCheckAccess:
+class TestValidateCredentials:
     @staticmethod
-    def _session(response: Any) -> MagicMock:
-        session = MagicMock()
+    def _session(response: Any) -> mock.MagicMock:
+        session = mock.MagicMock()
         if isinstance(response, Exception):
             session.get.side_effect = response
         else:
             session.get.return_value = response
         return session
-
-    @parameterized.expand(
-        [
-            ("ok", 200, True, 200, None),
-            ("unauthorized", 401, False, 401, None),
-            ("forbidden", 403, False, 403, None),
-            ("server_error", 500, False, 500, "Tremendous returned HTTP 500"),
-        ]
-    )
-    @patch(f"{tremendous.__name__}.make_tracked_session")
-    def test_status_mapping(
-        self,
-        _name: str,
-        status: int,
-        ok: bool,
-        expected_status: int,
-        expected_message: str | None,
-        mock_session: MagicMock,
-    ) -> None:
-        response = MagicMock()
-        response.status_code = status
-        response.ok = ok
-        mock_session.return_value = self._session(response)
-        assert check_access("tremendous-key", "production") == (expected_status, expected_message)
-
-    @patch(f"{tremendous.__name__}.make_tracked_session")
-    def test_connection_error_maps_to_zero(self, mock_session: MagicMock) -> None:
-        mock_session.return_value = self._session(requests.ConnectionError("boom"))
-        status, message = check_access("tremendous-key", "production")
-        assert status == 0
-        assert message is not None and "boom" in message
-
-    @patch(f"{tremendous.__name__}.make_tracked_session")
-    def test_pins_redirects_off(self, mock_session: MagicMock) -> None:
-        # Redirect-following would replay the Bearer key to whatever host Tremendous redirects to.
-        response = MagicMock()
-        response.status_code = 200
-        response.ok = True
-        mock_session.return_value = self._session(response)
-        check_access("tremendous-key", "production")
-        assert mock_session.call_args.kwargs["allow_redirects"] is False
-
-    @patch(f"{tremendous.__name__}.make_tracked_session")
-    def test_probe_targets_selected_environment(self, mock_session: MagicMock) -> None:
-        response = MagicMock()
-        response.status_code = 200
-        response.ok = True
-        session = self._session(response)
-        mock_session.return_value = session
-        check_access("tremendous-key", "sandbox")
-        url = session.get.call_args.args[0]
-        assert url.startswith("https://testflight.tremendous.com/api/v2")
 
     @parameterized.expand(
         [
@@ -297,32 +276,43 @@ class TestCheckAccess:
             ("server_error", 500, False, "Tremendous returned HTTP 500"),
         ]
     )
-    @patch(f"{tremendous.__name__}.make_tracked_session")
-    def test_validate_credentials(
+    @mock.patch(TREMENDOUS_SESSION_PATCH)
+    def test_status_mapping(
         self,
         _name: str,
         status: int,
         expected_valid: bool,
         expected_message: str | None,
-        mock_session: MagicMock,
+        mock_session: mock.MagicMock,
     ) -> None:
-        response = MagicMock()
-        response.status_code = status
-        response.ok = status < 400
-        mock_session.return_value = self._session(response)
+        mock_session.return_value = self._session(mock.MagicMock(status_code=status))
         assert validate_credentials("tremendous-key", "production") == (expected_valid, expected_message)
+
+    @mock.patch(TREMENDOUS_SESSION_PATCH)
+    def test_connection_error_is_not_validated(self, mock_session: mock.MagicMock) -> None:
+        # A credential probe must never raise; a transport failure means "not validated".
+        mock_session.return_value = self._session(ConnectionError("boom"))
+        assert validate_credentials("tremendous-key", "production") == (False, "Could not validate Tremendous API key")
+
+    @mock.patch(TREMENDOUS_SESSION_PATCH)
+    def test_pins_redirects_off(self, mock_session: mock.MagicMock) -> None:
+        mock_session.return_value = self._session(mock.MagicMock(status_code=200))
+        validate_credentials("tremendous-key", "production")
+        assert mock_session.call_args.kwargs["allow_redirects"] is False
+
+    @mock.patch(TREMENDOUS_SESSION_PATCH)
+    def test_probe_targets_selected_environment(self, mock_session: mock.MagicMock) -> None:
+        session = self._session(mock.MagicMock(status_code=200))
+        mock_session.return_value = session
+        validate_credentials("tremendous-key", "sandbox")
+        url = session.get.call_args.args[0]
+        assert url == f"https://testflight.tremendous.com/api/v2{DEFAULT_PROBE_PATH}"
 
 
 class TestTremendousSourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])
     def test_source_response_shape(self, endpoint: str) -> None:
-        response = tremendous_source(
-            api_key="tremendous-key",
-            environment="production",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
+        response = _source(endpoint, _make_manager())
         assert response.name == endpoint
         assert response.primary_keys == ["id"]
         # Tremendous lists are creation-date DESC; declaring asc would corrupt the incremental watermark.

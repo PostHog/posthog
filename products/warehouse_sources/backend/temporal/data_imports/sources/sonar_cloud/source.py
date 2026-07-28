@@ -22,7 +22,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SonarCloudSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sonarcloud import (
+    SonarCloudSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonar_cloud.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -126,6 +128,7 @@ Generate a **user token** under **My Account → Security** in SonarQube Cloud, 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -144,7 +147,11 @@ Generate a **user token** under **My Account → Security** in SonarQube Cloud, 
         return schemas
 
     def validate_credentials(
-        self, config: SonarCloudSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: SonarCloudSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         status = validate_sonar_cloud_credentials(config.token, config.organization, config.region)
         if status == 200:
@@ -174,6 +181,7 @@ Generate a **user token** under **My Account → Security** in SonarQube Cloud, 
             organization=config.organization,
             region=config.region,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )

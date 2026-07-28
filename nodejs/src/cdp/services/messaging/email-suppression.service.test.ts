@@ -16,30 +16,16 @@ interface SuppressionRow {
 describe('EmailSuppressionService', () => {
     let hub: Hub
     let team: Team
-    let originalWriteEnv: string | undefined
-    let originalEnforceEnv: string | undefined
     let originalThresholdEnv: string | undefined
 
     beforeEach(async () => {
         await resetTestDatabase()
         hub = await createHub()
         team = await getFirstTeam(hub.postgres)
-        originalWriteEnv = process.env.EMAIL_SUPPRESSION_WRITE_ENABLED
-        originalEnforceEnv = process.env.EMAIL_SUPPRESSION_ENFORCE_ENABLED
         originalThresholdEnv = process.env.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD
     })
 
     afterEach(async () => {
-        if (originalWriteEnv === undefined) {
-            delete process.env.EMAIL_SUPPRESSION_WRITE_ENABLED
-        } else {
-            process.env.EMAIL_SUPPRESSION_WRITE_ENABLED = originalWriteEnv
-        }
-        if (originalEnforceEnv === undefined) {
-            delete process.env.EMAIL_SUPPRESSION_ENFORCE_ENABLED
-        } else {
-            process.env.EMAIL_SUPPRESSION_ENFORCE_ENABLED = originalEnforceEnv
-        }
         if (originalThresholdEnv === undefined) {
             delete process.env.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD
         } else {
@@ -60,9 +46,8 @@ describe('EmailSuppressionService', () => {
         return res.rows[0]
     }
 
-    describe('recordTransientBounces (write flag on, threshold=3)', () => {
+    describe('recordTransientBounces (threshold=3)', () => {
         beforeEach(() => {
-            process.env.EMAIL_SUPPRESSION_WRITE_ENABLED = 'true'
             // Threshold=3 gives a clean boundary: 2 bounces must not flip, 3 must.
             process.env.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD = '3'
         })
@@ -86,9 +71,8 @@ describe('EmailSuppressionService', () => {
         })
     })
 
-    describe('recordDeliveries (write flag on)', () => {
+    describe('recordDeliveries', () => {
         beforeEach(() => {
-            process.env.EMAIL_SUPPRESSION_WRITE_ENABLED = 'true'
             process.env.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD = '5'
         })
 
@@ -153,9 +137,8 @@ describe('EmailSuppressionService', () => {
         })
     })
 
-    describe('recordHardBounces (write flag on)', () => {
+    describe('recordHardBounces', () => {
         beforeEach(() => {
-            process.env.EMAIL_SUPPRESSION_WRITE_ENABLED = 'true'
             // Threshold irrelevant — hard bounces suppress on the first hit.
             process.env.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD = '5'
         })
@@ -222,12 +205,6 @@ describe('EmailSuppressionService', () => {
     })
 
     describe('cache invalidation', () => {
-        beforeEach(() => {
-            process.env.EMAIL_SUPPRESSION_WRITE_ENABLED = 'true'
-            process.env.EMAIL_SUPPRESSION_ENFORCE_ENABLED = 'true'
-            process.env.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD = '5'
-        })
-
         it("a write for one team does not evict another team's cached entries", async () => {
             // Guards against a regression from markForRefresh(touchedKeys) back to clear() — clear()
             // would drop every team's cache on any write, causing a thundering-herd read against
@@ -267,50 +244,26 @@ describe('EmailSuppressionService', () => {
     })
 
     describe('isSuppressed', () => {
-        it('returns false when enforcement is disabled, even if a suppressed row exists (dark-launch gate)', async () => {
-            // enforce env deliberately left unset — the gate must short-circuit before hitting the DB.
+        it.each([
+            ['returns true for a suppressed row', true],
+            ['returns false for an identifier that is not on the list', false],
+        ])('%s', async (_label, expected) => {
             const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
-            const email = 'listed-but-not-enforced@example.com'
-            await hub.postgres.query(
-                PostgresUse.COMMON_WRITE,
-                `INSERT INTO posthog_messagesuppression
-                    (id, team_id, identifier, source, reason, transient_bounce_count,
-                     suppressed, suppressed_at, deleted, created_at, updated_at)
-                 VALUES (gen_random_uuid(), $1, $2, 'BOUNCE', 'test row', 5,
-                     true, NOW(), false, NOW(), NOW())`,
-                [team.id, email],
-                'test-insert-suppression'
-            )
+            const email = expected ? 'listed@example.com' : 'not-listed@example.com'
+            if (expected) {
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `INSERT INTO posthog_messagesuppression
+                        (id, team_id, identifier, source, reason, transient_bounce_count,
+                         suppressed, suppressed_at, deleted, created_at, updated_at)
+                     VALUES (gen_random_uuid(), $1, $2, 'BOUNCE', 'test row', 5,
+                         true, NOW(), false, NOW(), NOW())`,
+                    [team.id, email],
+                    'test-insert-suppression'
+                )
+            }
 
-            expect(await svc.isSuppressed(team.id, email)).toBe(false)
-        })
-
-        describe('with enforcement enabled', () => {
-            beforeEach(() => {
-                process.env.EMAIL_SUPPRESSION_ENFORCE_ENABLED = 'true'
-            })
-
-            it.each([
-                ['returns true for a suppressed row', true],
-                ['returns false for an identifier that is not on the list', false],
-            ])('%s', async (_label, expected) => {
-                const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
-                const email = expected ? 'listed@example.com' : 'not-listed@example.com'
-                if (expected) {
-                    await hub.postgres.query(
-                        PostgresUse.COMMON_WRITE,
-                        `INSERT INTO posthog_messagesuppression
-                            (id, team_id, identifier, source, reason, transient_bounce_count,
-                             suppressed, suppressed_at, deleted, created_at, updated_at)
-                         VALUES (gen_random_uuid(), $1, $2, 'BOUNCE', 'test row', 5,
-                             true, NOW(), false, NOW(), NOW())`,
-                        [team.id, email],
-                        'test-insert-suppression'
-                    )
-                }
-
-                expect(await svc.isSuppressed(team.id, email)).toBe(expected)
-            })
+            expect(await svc.isSuppressed(team.id, email)).toBe(expected)
         })
     })
 })

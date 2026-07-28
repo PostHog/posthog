@@ -8,7 +8,9 @@ from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInp
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import OnePasswordSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.onepassword import (
+    OnePasswordSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.onepassword import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.onepassword.onepassword import (
     OnePasswordResumeConfig,

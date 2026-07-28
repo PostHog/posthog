@@ -5,7 +5,10 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
-from requests.exceptions import JSONDecodeError as RequestsJSONDecodeError
+from requests.exceptions import (
+    ChunkedEncodingError,
+    JSONDecodeError as RequestsJSONDecodeError,
+)
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot import (
     HubspotPathologicalWindowError,
@@ -1096,6 +1099,47 @@ class TestGetRowsFullRefresh:
             )
 
         # The truncated response was reissued (same URL) and the retry yielded the row.
+        assert len(captured_urls) == 2
+        assert captured_urls[0] == captured_urls[1]
+        assert sum(t.num_rows for t in tables) == 1
+
+    def test_chunked_encoding_error_is_retried(self) -> None:
+        # Regression: a connection dropped mid-stream (server closes early during chunked
+        # transfer) raises requests' ChunkedEncodingError, which isn't a ConnectionError
+        # subclass. It must be treated as transient and retried, not crash the whole import.
+        from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot import get_rows
+
+        manager = _make_manager()
+        logger = MagicMock()
+
+        good = _make_response(200, {"results": [{"id": "1", "properties": {"hs_object_id": "1"}}]})
+        responses = iter([ChunkedEncodingError("Connection broken"), good])
+        captured_urls: list[str] = []
+
+        def _get(url, headers=None, timeout=None):  # noqa: ARG001
+            captured_urls.append(url)
+            next_response = next(responses)
+            if isinstance(next_response, Exception):
+                raise next_response
+            return next_response
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
+            new=lambda *_a, **_k: type("_S", (), {"get": staticmethod(_get)})(),
+        ):
+            tables = list(
+                get_rows(
+                    api_key="k",
+                    refresh_token="r",
+                    endpoint="deals",
+                    logger=logger,
+                    resumable_source_manager=manager,
+                    include_custom_props=False,
+                    api_version=HUBSPOT_API_VERSION_V3,
+                )
+            )
+
+        # The dropped connection was retried (same URL) and the second attempt yielded the row.
         assert len(captured_urls) == 2
         assert captured_urls[0] == captured_urls[1]
         assert sum(t.num_rows for t in tables) == 1

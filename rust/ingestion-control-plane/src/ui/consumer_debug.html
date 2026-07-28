@@ -564,7 +564,7 @@
       function buildFlow(b, workers) {
         const idx = {};
         workers.forEach((w, i) => (idx[w.worker] = i));
-        const deferBy = { drain: 0, unroutable: 0, send_failed: 0 };
+        const deferBy = { drain: 0, queued_behind_deferral: 0, unroutable: 0, send_failed: 0 };
         b.deferred.forEach((d) => (deferBy[d.reason] = (deferBy[d.reason] || 0) + d.groups));
         const hasStash = b.deferred.length > 0;
         const totalDeferred = b.deferred.reduce((a, d) => a + d.groups, 0);
@@ -626,9 +626,9 @@
 
         if (hasStash) {
           let incoming = 0;
-          const da = deferBy.drain + deferBy.unroutable;
+          const da = deferBy.drain + deferBy.queued_behind_deferral + deferBy.unroutable;
           if (da > 0) {
-            const lbl = [deferBy.drain ? "drain" : "", deferBy.unroutable ? "unroutable" : ""].filter(Boolean).join("/");
+            const lbl = [deferBy.drain ? "drain" : "", deferBy.queued_behind_deferral ? "queued" : "", deferBy.unroutable ? "unroutable" : ""].filter(Boolean).join("/");
             edges.push({ from: "n-assign", to: "n-stash", label: `deferred (${lbl})`, color: C.warn });
             incoming++;
           }

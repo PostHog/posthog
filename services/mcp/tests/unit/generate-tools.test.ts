@@ -990,6 +990,44 @@ describe('rename_params', () => {
     })
 })
 
+describe('param_overrides aliases', () => {
+    it('wraps the composed schema with normalizeParamAliases and imports the helper', () => {
+        const config: ToolConfig = {
+            operation: 'things_retrieve',
+            enabled: true,
+            param_overrides: {
+                id: { aliases: ['thingId', 'thing_id'] },
+            },
+        }
+        const resolved = makeResolved({
+            method: 'GET',
+            path: '/api/projects/{project_id}/things/{id}/',
+            operation: {
+                operationId: 'things_retrieve',
+                parameters: [
+                    { name: 'project_id', in: 'path', required: true, schema: { type: 'string' } },
+                    { name: 'id', in: 'path', required: true, schema: { type: 'integer' } },
+                ],
+            },
+        })
+
+        const result = generateToolCode(
+            'things-get',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.castHelperImports.has('normalizeParamAliases')).toBe(true)
+        expect(result.code).toContain(
+            "const ThingsGetSchema = z.preprocess(normalizeParamAliases({ id: ['thingId', 'thing_id'] }), ThingsRetrieveParams.omit({ project_id: true }))"
+        )
+    })
+})
+
 describe('x-accepts-stringified-json query params', () => {
     function resolvedWith(parameters: NonNullable<ResolvedOperation['operation']['parameters']>): ResolvedOperation {
         return makeResolved({
@@ -1765,6 +1803,18 @@ describe('ToolConfigSchema confirmed_action', () => {
         }
     })
 
+    it('rejects confirmed_action combined with a whole-tool input_schema', () => {
+        const result = ToolConfigSchema.safeParse({
+            ...base,
+            input_schema: 'OrganizationUpdateSchema',
+            confirmed_action: { message: 'x' },
+        })
+        expect(result.success).toBe(false)
+        if (!result.success) {
+            expect(result.error.issues[0]!.message).toContain('input_schema')
+        }
+    })
+
     it('rejects unknown keys inside the confirmed_action object', () => {
         const result = ToolConfigSchema.safeParse({
             ...base,
@@ -1815,7 +1865,7 @@ describe('generateToolCode with confirmed_action', () => {
         expect(result.code).not.toMatch(/const organizationEnforce2faUpdate\s*=/)
     })
 
-    it('extends the base schema for the execute variant with confirmation fields', () => {
+    it('emits a strict confirmation-only schema for the execute variant', () => {
         const result = generateToolCode(
             'organization-enforce-2fa-update',
             makeConfirmedConfig(),
@@ -1826,7 +1876,8 @@ describe('generateToolCode with confirmed_action', () => {
             stubGetQuerySchema
         )
         expect(result.code).toContain('OrganizationEnforce2faUpdateSchemaExecute')
-        expect(result.code).toContain('.extend({')
+        expect(result.code).toContain('z.strictObject({')
+        expect(result.code).not.toContain('OrganizationEnforce2faUpdateSchema.extend({')
         expect(result.code).toContain('confirmation_hash')
         expect(result.code).toContain('confirmation:')
     })
@@ -1864,12 +1915,7 @@ describe('generateToolCode with confirmed_action', () => {
         expect(result.code).toContain("method: 'PATCH'")
     })
 
-    it('REPLACES params with verifiedArgs (never merges) so unsigned extras cannot survive', () => {
-        // The generated handler must not preserve incoming params alongside
-        // verifiedArgs — only the signed payload is authorized. A merge
-        // would let the model slip an unsigned base-schema field (e.g. an
-        // extra 'name') into the downstream API body without it ever being
-        // shown to the user at prepare time.
+    it('uses only verifiedArgs as the downstream action params', () => {
         const result = generateToolCode(
             'organization-enforce-2fa-update',
             makeConfirmedConfig(),
@@ -1879,8 +1925,8 @@ describe('generateToolCode with confirmed_action', () => {
             new Set<string>(),
             stubGetQuerySchema
         )
-        expect(result.code).toContain('params = { ...__guard.verifiedArgs }')
-        expect(result.code).not.toMatch(/params\s*=\s*\{\s*\.\.\.params\s*,\s*\.\.\.__guard\.verifiedArgs/)
+        expect(result.code).toContain('const params = __guard.verifiedArgs')
+        expect(result.code).toContain('incomingArgs: confirmationParams')
     })
 
     it('uses the tool title as the fallback action_label when none is set', () => {
@@ -1899,6 +1945,91 @@ describe('generateToolCode with confirmed_action', () => {
             stubGetQuerySchema
         )
         expect(result.code).toContain('actionLabel: "Enforce 2FA"')
+    })
+
+    it('binds the active project scope into prepare and re-checks it in execute (cross-project replay guard)', () => {
+        // A project-scoped confirmed action must sign the active project at
+        // prepare time (boundScope) and re-verify it at execute time
+        // (expectedScope). Without this, a confirmation prepared while one
+        // project was active could be replayed against another after
+        // switch-project.
+        const result = generateToolCode(
+            'metric-approve',
+            makeConfirmedConfig(),
+            makeResolved({
+                method: 'POST',
+                path: '/api/projects/{project_id}/metrics/{name}/approve/',
+                operation: {
+                    operationId: 'organizations_partial_update',
+                    parameters: [
+                        { in: 'path', name: 'project_id', required: true, schema: { type: 'string' } },
+                        { in: 'path', name: 'name', required: true, schema: { type: 'string' } },
+                    ],
+                },
+            }),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        expect(result.code).toContain('boundScope: { projectId: String(__scopeProjectId) }')
+        expect(result.code).toContain('expectedScope: { projectId: String(__scopeProjectId) }')
+    })
+
+    it('reuses the scope-checked project id to build the execute path (no post-guard re-read)', () => {
+        // The path must be built from the same project id that was verified
+        // against expectedScope. Re-reading state after the guard would let a
+        // concurrent switch-project retarget the request at a different
+        // project than the confirmation was bound to.
+        const result = generateToolCode(
+            'metric-approve',
+            makeConfirmedConfig(),
+            makeResolved({
+                method: 'POST',
+                path: '/api/projects/{project_id}/metrics/{name}/approve/',
+                operation: {
+                    operationId: 'organizations_partial_update',
+                    parameters: [
+                        { in: 'path', name: 'project_id', required: true, schema: { type: 'string' } },
+                        { in: 'path', name: 'name', required: true, schema: { type: 'string' } },
+                    ],
+                },
+            }),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        expect(result.code).toContain('const projectId = __scopeProjectId')
+        expect(result.code).not.toContain(
+            'const params = __guard.verifiedArgs\n        const projectId = await context.stateManager.getProjectId()'
+        )
+    })
+
+    it('resolves an omitted state-fallback id and signs it into the confirmed args (cross-org replay guard)', () => {
+        // When the target id is optional with a state fallback, prepare must
+        // resolve the active org/project to a concrete value and sign it, so a
+        // switch-organization between prepare and execute can't retarget the
+        // confirmed action at a different entity where the user is also an admin.
+        const config: ToolConfig = {
+            ...makeConfirmedConfig(),
+            param_overrides: {
+                id: { optional: true, fallback: 'orgId', description: 'Organization ID.' },
+            },
+        }
+        const result = generateToolCode(
+            'organization-enforce-2fa-update',
+            config,
+            makePatchResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        expect(result.code).toContain('const id = params.id ?? await context.stateManager.getOrgID()')
+        expect(result.code).toContain('args: { ...params, id }')
+        // The unresolved args object must not be what gets signed.
+        expect(result.code).not.toContain('args: params,')
     })
 })
 

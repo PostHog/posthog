@@ -80,14 +80,34 @@ class TestSendFollowupToSandbox(BaseTest):
         mock_refresh_sandbox_mcp,
     ):
         task_run = MagicMock()
-        task_run.task.created_by = None
+        task_run.id = "run-123"
+        task_run.state = {"sandbox_id": "sandbox-123"}
+        task_run.task.created_by_id = 42
+        task_run.task.created_by = MagicMock(id=42)
         mock_task_run_objects.select_related.return_value.get.return_value = task_run
         mock_send_user_message.return_value = MagicMock(
             success=True,
             data={"result": {"stopReason": "steered", "steered": True}},
         )
 
-        send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-123", message="change direction", steer=True))
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_sandbox_mcp_session_user",
+                return_value=42,
+            ),
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_sandbox_connection_token",
+                return_value=None,
+            ),
+        ):
+            send_followup_to_sandbox(
+                SendFollowupToSandboxInput(
+                    run_id="run-123",
+                    message="change direction",
+                    actor_user_id=42,
+                    steer=True,
+                )
+            )
 
         mock_refresh_sandbox_mcp.assert_not_called()
         mock_send_user_message.assert_called_once_with(

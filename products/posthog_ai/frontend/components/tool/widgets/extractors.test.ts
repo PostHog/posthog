@@ -69,6 +69,30 @@ describe('mcp tool adapter extractors', () => {
             )
             expect(dashboard).toEqual({ id: '7', name: 'From input', url: '/dashboard/7' })
         })
+
+        // String rawOutput goes through the best-effort JSON/TOON parse — exec `call`s respond with
+        // JSON when `--json` was passed and TOON otherwise, and the off-order format is a fallback.
+        test.each([
+            [
+                'JSON output when the command carried --json',
+                'call --json dashboard-create {}',
+                '{"id": 7, "name": "Growth"}',
+            ],
+            ['TOON output when the command had no flag', 'call dashboard-create {}', 'id: 7\nname: Growth'],
+            ['JSON output even without the flag', 'call dashboard-create {}', '{"id": 7, "name": "Growth"}'],
+        ])('parses %s', (_name, command, rawOutput) => {
+            const dashboard = extractDashboard({ ...toolMessage(rawOutput), rawInput: { command } })
+            expect(dashboard?.id).toBe(7)
+            expect(dashboard?.name).toBe('Growth')
+        })
+
+        it('extracts nothing when a string output parses as neither JSON nor TOON', () => {
+            const dashboard = extractDashboard({
+                ...toolMessage('created the dashboard for you'),
+                rawInput: { command: 'call dashboard-create {}' },
+            })
+            expect(dashboard).toBeNull()
+        })
     })
 
     describe('extractRecordingFilters', () => {

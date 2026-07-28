@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PulumiCloudSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pulumicloud import (
+    PulumiCloudSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.pulumi_cloud.pulumi_cloud import (
     PulumiCloudResumeConfig,
     pulumi_cloud_source,
@@ -107,6 +109,7 @@ The organization name is the one shown in your Pulumi Cloud console URL (`app.pu
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = PULUMI_CLOUD_ENDPOINTS[endpoint]
@@ -129,7 +132,11 @@ The organization name is the one shown in your Pulumi Cloud console URL (`app.pu
         return schemas
 
     def validate_credentials(
-        self, config: PulumiCloudSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: PulumiCloudSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_pulumi_cloud_credentials(config.access_token):
             return True, None

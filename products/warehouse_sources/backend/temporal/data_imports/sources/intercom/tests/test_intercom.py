@@ -35,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.i
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.settings import INTERCOM_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source import IntercomSource
 
 
 def _make_response(json_body: Any, status_code: int = 200, text: str = "") -> Response:
@@ -652,7 +653,7 @@ class TestSubstreamSessionRetries:
         # read timeout on those calls would propagate unretried (unlike the GETs in
         # the same walk). These POSTs are read-only/idempotent, so the session must
         # retry them on transient read timeouts and 429/5xx.
-        session = _make_intercom_session("token")
+        session = _make_intercom_session("token", "2.13")
         retry = cast(HTTPAdapter, session.get_adapter(INTERCOM_API_BASE)).max_retries
         allowed_methods = cast("frozenset[str]", retry.allowed_methods)
 
@@ -676,6 +677,7 @@ class TestIntercomSource:
                 endpoint=endpoint,
                 team_id=1,
                 job_id="job-1",
+                api_version="2.15",
             )
 
         assert response.name == endpoint
@@ -696,10 +698,46 @@ class TestIntercomSource:
         ]
 
         with mock.patch.object(intercom_module, "make_tracked_session", return_value=mock_session):
-            response = intercom_source(access_token="token", endpoint="companies", team_id=1, job_id="job-1")
+            response = intercom_source(
+                access_token="token", endpoint="companies", team_id=1, job_id="job-1", api_version="2.15"
+            )
             # `items()` is typed `Iterable | AsyncIterable`; the scroll path yields a sync iterator.
             companies = list(cast(Iterable[dict[str, Any]], response.items()))
 
         assert [c["id"] for c in companies] == ["co1"]
         urls = [call.args[0] for call in mock_session.get.call_args_list]
         assert urls and all(url.endswith("/companies/scroll") for url in urls)
+
+
+class TestVersionDispatch:
+    # The resolved pin must reach the wire as the `Intercom-Version` header for every
+    # supported version, on both request paths (session-based scroll/substream, and the
+    # framework REST path). Parameterizing over the source's declared versions keeps the
+    # coverage honest when a version is added.
+    @pytest.mark.parametrize("api_version", IntercomSource.supported_versions)
+    def test_session_path_sends_pinned_version_header(self, api_version: str):
+        captured: dict[str, Any] = {}
+
+        def fake_session(headers: dict[str, str], retry: Any) -> mock.MagicMock:
+            captured["headers"] = headers
+            session = mock.MagicMock()
+            session.get.return_value = _make_response({"data": [], "scroll_param": None})
+            return session
+
+        with mock.patch.object(intercom_module, "make_tracked_session", side_effect=fake_session):
+            response = intercom_source(
+                access_token="token", endpoint="companies", team_id=1, job_id="job-1", api_version=api_version
+            )
+            list(cast(Iterable[dict[str, Any]], response.items()))
+
+        assert captured["headers"]["Intercom-Version"] == api_version
+
+    @pytest.mark.parametrize("api_version", IntercomSource.supported_versions)
+    def test_rest_path_sends_pinned_version_header(self, api_version: str):
+        with mock.patch.object(intercom_module, "rest_api_resource", return_value=object()) as mock_rest:
+            intercom_source(
+                access_token="token", endpoint="contacts", team_id=1, job_id="job-1", api_version=api_version
+            )
+
+        config = mock_rest.call_args.args[0]
+        assert config["client"]["headers"]["Intercom-Version"] == api_version

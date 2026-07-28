@@ -4,7 +4,7 @@
 //! (pacing, in-flight bound, mark-produced, delivery acks) lives above, in the orchestrator, so this
 //! module carries no PostgreSQL dependency.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use common_kafka::config::KafkaConfig;
 use common_kafka::kafka_producer::{create_kafka_producer, KafkaContext};
@@ -12,7 +12,9 @@ use common_liveness::SyncLivenessReporter;
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use rdkafka::producer::{DeliveryFuture, FutureProducer, FutureRecord, Producer};
 
-use crate::domain::SeedTile;
+use crate::domain::{MembershipPartition, NextOffset, ReconcileTile, SeedTile, WatchPositions};
+
+pub use crate::domain::partition::{SeedPartition, SeedPartitionCountError, SeedPartitions};
 
 #[derive(Debug, thiserror::Error)]
 pub enum EnqueueError {
@@ -92,9 +94,119 @@ impl SeedTileProducer {
             .map_err(|(error, _)| error.into())
     }
 
+    pub fn enqueue_reconcile(
+        &self,
+        tile: &ReconcileTile,
+        partition: SeedPartition,
+    ) -> Result<DeliveryFuture, EnqueueError> {
+        let payload = serde_json::to_vec(tile).expect("ReconcileTile serialization cannot fail");
+        let key = reconcile_partition_key(tile);
+        let record = FutureRecord::to(&self.topic)
+            .partition(partition.as_i32())
+            .key(&key)
+            .payload(&payload);
+        self.producer
+            .send_result(record)
+            .map_err(|(error, _)| error.into())
+    }
+
     pub fn flush(&self, timeout: Duration) -> Result<(), KafkaError> {
         self.producer.flush(timeout)
     }
+
+    /// Capture the membership topic's per-partition high watermarks as the marker watcher's start
+    /// positions. The high watermark is the offset the next record *will* receive, so it is exactly
+    /// the first offset the watcher must read — no clock or "latest committed" assumption. Callers
+    /// capture these BEFORE producing reconcile tiles: markers acked after this point sit at or above
+    /// these positions, so the watcher started here cannot miss a marker of this dispatch. A manual
+    /// disaster-recovery fallback could instead resolve positions via `offsets_for_times`; that is
+    /// intentionally not implemented here. Blocking — call via `spawn_blocking` from async contexts.
+    ///
+    /// `budget` bounds the whole capture, not each call: watermarks come one partition at a time, so
+    /// a per-call timeout would let a degraded broker hold the thread for `partitions × timeout`.
+    pub fn capture_topic_offsets(
+        &self,
+        topic: &str,
+        budget: Duration,
+    ) -> Result<WatchPositions, CaptureOffsetsError> {
+        let deadline = Instant::now() + budget;
+        let remaining = |deadline: Instant| {
+            deadline
+                .checked_duration_since(Instant::now())
+                .filter(|left| !left.is_zero())
+                .ok_or_else(|| CaptureOffsetsError::BudgetExhausted {
+                    topic: topic.to_string(),
+                    budget,
+                })
+        };
+        let client = self.producer.client();
+        let metadata = client
+            .fetch_metadata(Some(topic), remaining(deadline)?)
+            .map_err(CaptureOffsetsError::Metadata)?;
+        let topic_metadata = metadata
+            .topics()
+            .iter()
+            .find(|entry| entry.name() == topic)
+            .ok_or_else(|| CaptureOffsetsError::Missing {
+                topic: topic.to_string(),
+            })?;
+        if let Some(error) = topic_metadata.error() {
+            return Err(CaptureOffsetsError::Topic {
+                topic: topic.to_string(),
+                code: error.into(),
+            });
+        }
+        if topic_metadata.partitions().is_empty() {
+            // An empty position set would be vacuously "caught up", minting a settlement proof over
+            // nothing. Refuse it at the source, the way `verify_partition_count` refuses a
+            // mis-provisioned seed topic.
+            return Err(CaptureOffsetsError::NoPartitions {
+                topic: topic.to_string(),
+            });
+        }
+        let mut positions = WatchPositions::new();
+        for partition in topic_metadata.partitions() {
+            let (_low, high) = client
+                .fetch_watermarks(topic, partition.id(), remaining(deadline)?)
+                .map_err(|source| CaptureOffsetsError::Watermarks {
+                    topic: topic.to_string(),
+                    partition: partition.id(),
+                    source,
+                })?;
+            positions.insert(
+                MembershipPartition::new(partition.id()),
+                NextOffset::from_high_watermark(high),
+            );
+        }
+        Ok(positions)
+    }
+}
+
+/// Why capturing the membership topic's start positions failed. The dispatch cannot record a
+/// resumable watch state without them, so every variant aborts the dispatch (it re-converges on the
+/// next tick).
+#[derive(Debug, thiserror::Error)]
+pub enum CaptureOffsetsError {
+    #[error("fetching membership topic metadata")]
+    Metadata(#[source] KafkaError),
+    #[error("membership topic {topic:?} is not present in broker metadata")]
+    Missing { topic: String },
+    #[error("membership topic {topic:?} metadata reports {code}")]
+    Topic {
+        topic: String,
+        code: RDKafkaErrorCode,
+    },
+    #[error("membership topic {topic:?} reports no partitions")]
+    NoPartitions { topic: String },
+    #[error("capturing membership topic {topic:?} offsets exceeded its {budget:?} budget")]
+    BudgetExhausted { topic: String, budget: Duration },
+    #[error("fetching watermarks for membership topic {topic:?} partition {partition}")]
+    Watermarks {
+        topic: String,
+        partition: i32,
+        #[source]
+        source: KafkaError,
+    },
 }
 
 /// Why the seed topic failed its startup partition-count verification. Every variant is fatal:
@@ -130,9 +242,36 @@ impl SyncLivenessReporter for AlwaysHealthy {
     fn report_unhealthy(&self) {}
 }
 
+fn reconcile_partition_key(tile: &ReconcileTile) -> String {
+    format!(
+        "{}:{}:{}",
+        tile.team_id().0,
+        tile.cohort_id().0,
+        tile.run_id().0
+    )
+}
+
 #[cfg(test)]
 mod tests {
+    use cohort_core::filters::{CohortId, TeamId};
+    use uuid::Uuid;
+
     use super::*;
+
+    #[test]
+    fn reconcile_key_identifies_the_run_and_cohort() {
+        let tile = ReconcileTile::new(
+            TeamId(2),
+            CohortId(42),
+            crate::domain::BehavioralShapeHash::parse("shape").unwrap(),
+            crate::domain::RunId(Uuid::nil()),
+        );
+
+        assert_eq!(
+            reconcile_partition_key(&tile),
+            "2:42:00000000-0000-0000-0000-000000000000"
+        );
+    }
 
     #[test]
     fn enqueue_error_splits_queue_full_from_fatal() {

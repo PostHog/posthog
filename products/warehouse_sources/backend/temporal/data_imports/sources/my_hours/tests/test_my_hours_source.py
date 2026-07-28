@@ -7,7 +7,9 @@ from parameterized import parameterized
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MyHoursSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.myhours import (
+    MyHoursSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.my_hours.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.my_hours.source import MyHoursSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType

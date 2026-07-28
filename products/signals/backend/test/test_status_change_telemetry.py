@@ -55,12 +55,18 @@ class TestCaptureStatusChangeAnalytics(BaseTest):
     @parameterized.expand(
         [
             ("dismissal_includes_fresh_reason", SignalReport.Status.SUPPRESSED, False, "wontfix_irrelevant"),
-            # Dismissal artefacts are append-only, so an old reason must not leak onto later
-            # non-dismissal transitions (e.g. a restored report getting resolved)...
-            ("non_dismissal_excludes_reason", SignalReport.Status.RESOLVED, False, None),
-            # ...nor onto a later feedback-less dismissal (the state API only writes a new
-            # dismissal artefact when the user actually gave a reason or note).
+            # A resolve that wrote no feedback of its own — the PR-merge webhook path — must not
+            # adopt an unrelated earlier reason just because it landed inside the freshness window.
+            # Resolve-with-feedback goes through the state API and is covered separately.
+            ("webhook_resolve_excludes_fresh_reason", SignalReport.Status.RESOLVED, False, None),
+            # Dismissal artefacts are append-only, so an old reason must not leak onto a later
+            # transition — neither a resolve...
+            ("stale_reason_excluded_from_resolve", SignalReport.Status.RESOLVED, True, None),
+            # ...nor a later feedback-less dismissal (the state API only writes a new dismissal
+            # artefact when the user actually gave a reason or note).
             ("stale_reason_excluded_from_new_dismissal", SignalReport.Status.SUPPRESSED, True, None),
+            # A pipeline transition never carries dismissal feedback, however fresh the artefact.
+            ("pipeline_transition_excludes_reason", SignalReport.Status.CANDIDATE, False, None),
         ]
     )
     def test_label_snapshots_latest_classification_artefacts(

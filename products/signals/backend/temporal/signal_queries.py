@@ -566,14 +566,21 @@ def fetch_signals_for_report_sync(team: Team, report_id: str) -> list[dict]:
 # fetch_report_ids_for_source_products — synchronous, for the viewset list filter
 # ---------------------------------------------------------------------------
 
+# Bounds the report-id set handed to the Django `id__in` inbox filters (source/scout). The cap is
+# applied after a deterministic `ORDER BY max(timestamp) DESC`, so it keeps the most-recently-active
+# matching reports and the same set across list/count calls.
+_REPORT_ID_FILTER_CAP = 300
+
 
 def fetch_report_ids_for_source_products(team: Team, source_products: list[str]) -> set[str]:
     """Return the set of report IDs that have at least one non-deleted signal from the given source products.
 
     Uses argMax deduplication to give stable results regardless of ReplacingMergeTree merge state.
+    Capped at `_REPORT_ID_FILTER_CAP` most-recently-active matching reports after a deterministic
+    `ORDER BY` so the list and count requests that both call this see the identical truncated set.
     """
     ch_query = f"""
-        SELECT DISTINCT report_id
+        SELECT report_id
         FROM (
             SELECT
                 JSONExtractString(metadata, 'report_id') as report_id,
@@ -581,12 +588,13 @@ def fetch_report_ids_for_source_products(team: Team, source_products: list[str])
                 JSONExtractString(metadata, 'source_product') as source_product,
                 timestamp
             FROM ({_deduped_signals_subquery()})
-            ORDER BY timestamp DESC
         )
         WHERE NOT is_deleted
           AND report_id != ''
           AND source_product IN ({{source_products}})
-        LIMIT 300
+        GROUP BY report_id
+        ORDER BY max(timestamp) DESC
+        LIMIT {_REPORT_ID_FILTER_CAP}
     """
 
     tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
@@ -597,6 +605,56 @@ def fetch_report_ids_for_source_products(team: Team, source_products: list[str])
         placeholders={
             "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
             "source_products": ast.Tuple(exprs=[ast.Constant(value=sp) for sp in source_products]),
+        },
+    )
+
+    return {row[0] for row in (result.results or []) if row[0]}
+
+
+# ---------------------------------------------------------------------------
+# fetch_report_ids_for_scout_names — synchronous, for the viewset list filter
+# ---------------------------------------------------------------------------
+
+
+def fetch_report_ids_for_scout_names(team: Team, scout_names: list[str]) -> set[str]:
+    """Return the set of report IDs that have at least one non-deleted signal authored by the given scouts.
+
+    Scout-emitted signals carry the authoring scout's raw skill_name slug (e.g.
+    "signals-scout-error-tracking") in `extra.skill_name`; other sources leave it empty, so
+    matching on it alone is already scoped to scout signals. Uses argMax deduplication to give
+    stable results regardless of ReplacingMergeTree merge state.
+
+    Capped at `_REPORT_ID_FILTER_CAP` most-recently-active matching reports (by newest signal
+    timestamp). The cap is applied after a deterministic `ORDER BY` so the list and count requests
+    that both call this see the identical set — without the ordering the truncated set could differ
+    between calls, flickering reports in and out across refreshes.
+    """
+    ch_query = f"""
+        SELECT report_id
+        FROM (
+            SELECT
+                JSONExtractString(metadata, 'report_id') as report_id,
+                JSONExtractBool(metadata, 'deleted') as is_deleted,
+                JSONExtractString(metadata, 'extra', 'skill_name') as skill_name,
+                timestamp
+            FROM ({_deduped_signals_subquery()})
+        )
+        WHERE NOT is_deleted
+          AND report_id != ''
+          AND skill_name IN ({{scout_names}})
+        GROUP BY report_id
+        ORDER BY max(timestamp) DESC
+        LIMIT {_REPORT_ID_FILTER_CAP}
+    """
+
+    tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
+    result = execute_hogql_query(
+        query_type="SignalsFilterByScoutName",
+        query=ch_query,
+        team=team,
+        placeholders={
+            "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
+            "scout_names": ast.Tuple(exprs=[ast.Constant(value=name) for name in scout_names]),
         },
     )
 

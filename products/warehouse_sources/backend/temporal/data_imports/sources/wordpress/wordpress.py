@@ -14,6 +14,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientNonRetryableError,
+    _looks_like_json,
+    _safe_url,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress.settings import (
     WORDPRESS_ENDPOINTS,
@@ -277,11 +282,22 @@ def validate_credentials(
     if response.status_code == 404:
         return False, "WordPress REST API not found at this URL — confirm the site URL and that the REST API is enabled"
 
+    # A WordPress REST error carries a JSON `message` worth surfacing. Anything else — a WAF,
+    # reverse proxy, or load balancer answering with a bare status line like "Bad Request" — gives
+    # the user nothing to act on, so replace it with an actionable message naming the status code
+    # rather than leaking the raw body.
     try:
         body = response.json()
-        return False, body.get("message", response.text)
+        wp_message = body.get("message") if isinstance(body, dict) else None
     except Exception:
-        return False, response.text
+        wp_message = None
+
+    if wp_message:
+        return False, wp_message
+    return False, (
+        f"WordPress returned an unexpected response (HTTP {response.status_code}). "
+        "Check the site URL is correct and that the REST API is enabled and reachable, then try again."
+    )
 
 
 def _parse_retry_after(response: requests.Response) -> float | None:
@@ -348,7 +364,7 @@ def get_rows(
         wait=_retry_wait,
         reraise=True,
     )
-    def fetch_page(page_url: str) -> requests.Response:
+    def fetch_page(page_url: str) -> tuple[requests.Response, Any]:
         # Don't follow redirects: an attacker-controlled host could 3xx to an internal address (SSRF).
         response = make_tracked_session().get(
             page_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False
@@ -371,12 +387,26 @@ def get_rows(
             logger.error(f"WordPress API error: status={response.status_code}, body={response.text}, url={page_url}")
             response.raise_for_status()
 
-        return response
+        try:
+            data = response.json()
+        except requests.exceptions.JSONDecodeError as e:
+            # Empty body on a 2xx is a complete "no more rows" answer — treat it as an empty page
+            # and let pagination stop, rather than crashing.
+            if not response.content or not response.content.strip():
+                return response, None
+            # A body that doesn't even begin with a JSON value is a non-JSON error page (HTML, a
+            # login redirect, a WAF/maintenance page) served with a 2xx. Re-fetching returns the
+            # same body, so fail fast and non-retryably. A body that starts as JSON but fails to
+            # parse is a truncated read, which stays retryable.
+            if not _looks_like_json(response.content):
+                raise RESTClientNonRetryableError(f"Non-JSON response from {_safe_url(page_url)}") from e
+            raise WordpressRetryableError(f"Malformed JSON response from {_safe_url(page_url)}: {e}") from e
+
+        return response, data
 
     while True:
-        response = fetch_page(url)
+        response, data = fetch_page(url)
 
-        data = response.json()
         if not isinstance(data, list) or not data:
             break
 

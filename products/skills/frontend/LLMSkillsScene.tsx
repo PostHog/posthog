@@ -151,7 +151,7 @@ function buildSkillColumns(
                                 </LemonButton>
 
                                 <AccessControlAction
-                                    resourceType={AccessControlResourceType.LlmAnalytics}
+                                    resourceType={AccessControlResourceType.LlmSkill}
                                     minAccessLevel={AccessControlLevel.Editor}
                                 >
                                     <LemonButton
@@ -187,7 +187,7 @@ function buildSkillColumns(
                                 </AccessControlAction>
 
                                 <AccessControlAction
-                                    resourceType={AccessControlResourceType.LlmAnalytics}
+                                    resourceType={AccessControlResourceType.LlmSkill}
                                     minAccessLevel={AccessControlLevel.Editor}
                                 >
                                     <LemonButton
@@ -350,7 +350,7 @@ function MarketplaceCredentialSection(): JSX.Element {
             {!justIssued && (
                 <div>
                     <AccessControlAction
-                        resourceType={AccessControlResourceType.LlmAnalytics}
+                        resourceType={AccessControlResourceType.LlmSkill}
                         minAccessLevel={AccessControlLevel.Editor}
                     >
                         <LemonButton
@@ -493,7 +493,7 @@ export function LLMSkillsScene(): JSX.Element {
                             Load skills in your agent
                         </LemonButton>
                         <AccessControlAction
-                            resourceType={AccessControlResourceType.LlmAnalytics}
+                            resourceType={AccessControlResourceType.LlmSkill}
                             minAccessLevel={AccessControlLevel.Editor}
                         >
                             <LemonButton
@@ -509,7 +509,7 @@ export function LLMSkillsScene(): JSX.Element {
                             </LemonButton>
                         </AccessControlAction>
                         <AccessControlAction
-                            resourceType={AccessControlResourceType.LlmAnalytics}
+                            resourceType={AccessControlResourceType.LlmSkill}
                             minAccessLevel={AccessControlLevel.Editor}
                         >
                             <LemonButton

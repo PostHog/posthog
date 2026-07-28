@@ -16,7 +16,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bugsnag.se
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bugsnag.source import BugsnagSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BugsnagSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bugsnag import (
+    BugsnagSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

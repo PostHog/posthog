@@ -85,9 +85,9 @@ export function InboxCardSourceMeta({
 
 /**
  * PR open/merged/closed state, mapped to muted palette tags (outlined: --success / --purple /
- * --danger). We have no real PR status from GitHub on the report, so it's inferred from the
- * report status: a resolved report means its implementation PR merged (webhook-driven on merge),
- * a failed one means the PR never landed, everything else is still an open PR.
+ * --danger). "merged" comes from `implementation_pr_merged`, the flag the GitHub webhook sets on
+ * merge — report status can't stand in for it, since a report can be resolved directly without its
+ * PR ever landing. A failed report means the PR never landed; everything else is still an open PR.
  */
 const PR_BADGE_STATE: Record<'open' | 'merged' | 'closed', { label: string; type: LemonTagType }> = {
     open: { label: 'open', type: 'success' },
@@ -97,8 +97,8 @@ const PR_BADGE_STATE: Record<'open' | 'merged' | 'closed', { label: string; type
 
 type PrBadgeState = keyof typeof PR_BADGE_STATE
 
-function derivePrState(status: SignalReportStatus): PrBadgeState {
-    if (status === SignalReportStatus.RESOLVED) {
+function derivePrState(status: SignalReportStatus, prMerged: boolean): PrBadgeState {
+    if (prMerged) {
         return 'merged'
     }
     if (status === SignalReportStatus.FAILED) {
@@ -220,7 +220,11 @@ export function ReportCard({
         <div className={clsx('relative', inboxCardRowClassName(attached, { dashed: !hasPr }))}>
             {hasPr && prNumber != null ? (
                 <div className="absolute right-4 top-3 z-10">
-                    <PrBadge prNumber={prNumber} prUrl={prUrl} state={derivePrState(report.status)} />
+                    <PrBadge
+                        prNumber={prNumber}
+                        prUrl={prUrl}
+                        state={derivePrState(report.status, report.implementation_pr_merged === true)}
+                    />
                 </div>
             ) : null}
 
