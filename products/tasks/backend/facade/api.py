@@ -2943,8 +2943,8 @@ def relay_task_run_message(
 
     Returns ``(status, relay_id)`` where status is ``"accepted"`` (relay_id set), ``"skipped"``
     (run not found / terminal / no Slack mapping / empty text / streamed inline under the
-    agent-design flag / posted as a GitHub comment because the run already opened a PR), or
-    ``"failed"``.
+    agent-design flag / posted as a GitHub comment because it's an autonomous follow-up on an
+    already-opened PR), or ``"failed"``.
 
     When ``text_parts`` is provided the last non-empty entry is used — it's the
     post-last-tool-use answer, and posting only that keeps the interim narration
@@ -2973,10 +2973,12 @@ def relay_task_run_message(
     if not trimmed:
         return "skipped", None
 
-    # Once the run has opened a PR, later messages are CI/review follow-ups. Post them as a
-    # comment on the PR instead of trailing verbose updates behind the "PR opened" card in Slack.
+    # Once the run has opened a PR, autonomous CI/review follow-ups (the agent re-triggered by
+    # the CI loop, not by a person) belong on the PR, not trailing behind the "PR opened" card in
+    # Slack. A reply to a human's thread message carries that message's id — those stay in Slack so
+    # the conversation isn't diverted. Autonomous follow-ups have no answering message_id.
     pr_url = (run.output or {}).get("pr_url")
-    if pr_url and _post_ci_followup_as_github_comment(run, pr_url, trimmed):
+    if pr_url and message_id is None and _post_ci_followup_as_github_comment(run, pr_url, trimmed):
         return "skipped", None
 
     if bool((run.state or {}).get(AGENT_DESIGN_STATE_KEY)):
