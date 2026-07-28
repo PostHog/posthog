@@ -226,9 +226,6 @@ export interface supportTicketSceneLogicActions {
     applyTicketActions: (ticketActions: QuickActionActionsApi) => {
         ticketActions: QuickActionActionsApi
     }
-    runWorkflowQuickAction: (quickAction: QuickActionApi) => {
-        quickAction: QuickActionApi
-    }
     dismissKnowledgeGap: (suggestionId: string) => {
         suggestionId: string
     }
@@ -313,6 +310,9 @@ export interface supportTicketSceneLogicActions {
     ) => {
         messageId: string
         rating: AiReplyFeedbackRating
+    }
+    runWorkflowQuickAction: (quickAction: QuickActionApi) => {
+        quickAction: QuickActionApi
     }
     sendMessage: (
         content: string,
