@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import models, transaction
 
 if TYPE_CHECKING:
     from posthog.event_usage import AnalyticsProps
@@ -228,6 +228,27 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
                 kwargs["update_fields"].append("state")
 
         super().save(*args, **kwargs)
+
+    def snooze(self, *, until: datetime) -> AlertCheck:
+        """Snooze this alert until the given time, recording an audit AlertCheck row.
+
+        The check is created *after* save() so it reflects whatever actually got persisted —
+        save() forces a disabled alert's state back to NOT_FIRING, and the audit row must not
+        claim SNOOZED for an alert that was in fact left NOT_FIRING.
+        """
+        with transaction.atomic():
+            self.state = AlertState.SNOOZED
+            self.snoozed_until = until
+            self.save(update_fields=["state", "snoozed_until"])
+
+            return AlertCheck.objects.create(
+                alert_configuration=self,
+                calculated_value=None,
+                condition=self.condition,
+                targets_notified={},
+                state=self.state,
+                error=None,
+            )
 
     def _get_event_properties(self) -> dict:
         detector_config = self.detector_config or {}

@@ -334,6 +334,32 @@ class TestHandleCorruptedDeltaLog:
         job.refresh_from_db()
         assert job.billable is True
 
+    def test_reset_transient_object_store_error_retries_next_sync(self, team):
+        # An S3 rate-limit blip purging the old table's prefix (see `_purge_s3_prefix`) is not a bug:
+        # it must skip the non-retryable-error escalation above (which would burn through its attempt
+        # budget on pure throttling) and leave the revive markers set so the next sync retries the
+        # reset from scratch, instead of minting an error-tracking issue for a self-healing blip.
+        schema, job = self._schema_and_job(team)
+        reset_error = OSError("[Errno 16] Please reduce your request rate.")
+        helper = MagicMock(
+            is_table_corrupted=AsyncMock(return_value=True), reset_table=AsyncMock(side_effect=reset_error)
+        )
+        logger = self._logger()
+
+        with (
+            patch(f"{_EXTRACT_MODULE}.posthoganalytics"),
+            patch(f"{_EXTRACT_MODULE}.capture_exception") as mock_capture,
+            patch(f"{_EXTRACT_MODULE}.handle_non_retryable_error") as handle_mock,
+        ):
+            result = async_to_sync(handle_corrupted_delta_log)(schema, job, helper, logger)
+
+        assert result is False
+        mock_capture.assert_not_called()
+        handle_mock.assert_not_called()
+        logger.awarning.assert_awaited()
+        job.refresh_from_db()
+        assert job.billable is True
+
     def test_revive_marker_resets_readable_table(self, team):
         # A hollow table — log opens fine but references data files gone from S3 — is invisible to
         # is_table_corrupted; the repartition scan marks it instead. The marker alone must trigger the
