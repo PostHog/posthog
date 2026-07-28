@@ -3,6 +3,7 @@
 //! inline in [`crate::store::rocks`].
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -27,37 +28,50 @@ use crate::sweep::Sweeper;
 pub struct DiskProbe {
     store_path: PathBuf,
     shared: Arc<SharedDiskUtilization>,
+    /// At most one statvfs call outstanding: a hung mount must not leak one blocking thread per
+    /// tick until the pool is exhausted.
+    in_flight: Arc<AtomicBool>,
 }
 
 impl DiskProbe {
     pub fn new(store_path: PathBuf, shared: Arc<SharedDiskUtilization>) -> Self {
-        Self { store_path, shared }
+        Self {
+            store_path,
+            shared,
+            in_flight: Arc::new(AtomicBool::new(false)),
+        }
     }
 
-    async fn run_once(&self) {
-        let path = self.store_path.clone();
-        // statvfs is a synchronous syscall; keep it off the runtime threads like the store
-        // property reads.
-        let sample = match tokio::task::spawn_blocking(move || sample_store_filesystem(&path)).await
-        {
-            Ok(Ok(sample)) => Some(sample),
-            Ok(Err(err)) => {
-                counter!(STORE_DISK_SAMPLE_ERRORS_TOTAL).increment(1);
-                warn!(error = %err, path = %self.store_path.display(), "store filesystem sample failed; the seed disk gate stays fail-open");
-                None
-            }
-            Err(err) => {
-                counter!(STORE_DISK_SAMPLE_ERRORS_TOTAL).increment(1);
-                warn!(error = %err, "store filesystem sample task failed; the seed disk gate stays fail-open");
-                None
-            }
-        };
-        if let Some(sample) = sample {
-            gauge!(STORE_DISK_TOTAL_BYTES).set(sample.total_bytes as f64);
-            gauge!(STORE_DISK_AVAILABLE_BYTES).set(sample.available_bytes as f64);
-            gauge!(STORE_DISK_UTILIZATION_PCT).set(sample.used_pct());
+    /// Detached: the sample publishes from inside the blocking task, so a hung statvfs can never
+    /// wedge the sweep loop or delay the store snapshot — the shared snapshot's staleness bound
+    /// turns the missing refresh into fail-open, and the skipped ticks keep the error counter
+    /// climbing so the wedge is visible.
+    fn run_once(&self) {
+        if self.in_flight.swap(true, Ordering::AcqRel) {
+            counter!(STORE_DISK_SAMPLE_ERRORS_TOTAL).increment(1);
+            warn!(path = %self.store_path.display(), "previous store filesystem sample still running; skipping this tick");
+            return;
         }
-        self.shared.publish(sample);
+        let path = self.store_path.clone();
+        let shared = self.shared.clone();
+        let in_flight = self.in_flight.clone();
+        tokio::task::spawn_blocking(move || {
+            let sample = match sample_store_filesystem(&path) {
+                Ok(sample) => {
+                    gauge!(STORE_DISK_TOTAL_BYTES).set(sample.total_bytes as f64);
+                    gauge!(STORE_DISK_AVAILABLE_BYTES).set(sample.available_bytes as f64);
+                    gauge!(STORE_DISK_UTILIZATION_PCT).set(sample.used_pct());
+                    Some(sample)
+                }
+                Err(err) => {
+                    counter!(STORE_DISK_SAMPLE_ERRORS_TOTAL).increment(1);
+                    warn!(error = %err, path = %path.display(), "store filesystem sample failed; the seed disk gate stays fail-open");
+                    None
+                }
+            };
+            shared.publish(sample);
+            in_flight.store(false, Ordering::Release);
+        });
     }
 }
 
@@ -78,8 +92,9 @@ impl StoreStatsSweeper {
 #[async_trait]
 impl Sweeper for StoreStatsSweeper {
     async fn run_once(&self) {
-        // Disk first: a teardown-cancelled store snapshot must not suppress the disk sample.
-        self.disk.run_once().await;
+        // Fire-and-forget, so neither the disk sample nor the store snapshot can delay or
+        // suppress the other.
+        self.disk.run_once();
 
         let stats = match self.handle.stats_snapshot().await {
             Ok(stats) => stats,

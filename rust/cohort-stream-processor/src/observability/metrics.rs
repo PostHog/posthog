@@ -177,8 +177,9 @@ pub const STORE_DISK_AVAILABLE_BYTES: &str = "store_disk_available_bytes";
 /// few points above kubelet's used/capacity ratio on filesystems with a root reserve.
 /// **Alert on a sustained high level** — RocksDB compaction needs headroom well before disk-full.
 pub const STORE_DISK_UTILIZATION_PCT: &str = "store_disk_utilization_pct";
-/// Failed store-filesystem samples (counter). While failing, the seed disk gate reads no sample
-/// and never pauses (fail-open), so a persistently non-zero rate means the gate is dark.
+/// Failed store-filesystem samples, including ticks skipped because the previous sample is still
+/// running (counter). While failing, the seed disk gate reads no fresh sample and never pauses
+/// (fail-open), so a persistently non-zero rate means the gate is dark.
 pub const STORE_DISK_SAMPLE_ERRORS_TOTAL: &str = "store_disk_sample_errors_total";
 
 /// Fraction of wall-clock worker-time spent executing tasks (gauge, 0.0–1.0).

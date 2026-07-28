@@ -434,7 +434,7 @@ fn run_admission_cycle(
     let target = pacing.ledger.pause_target();
     for partition in prev_paused_target.difference(&target) {
         // Zero the per-partition gauges for drained partitions so they clear.
-        let label = partition.to_string();
+        let label: Arc<str> = Arc::from(partition.to_string());
         gauge!(SEED_FENCE_DEFICIT_MS, "partition" => label.clone()).set(0.0);
         gauge!(SEED_PAUSE_AGE_MS, "partition" => label.clone()).set(0.0);
         gauge!(SEED_OLDEST_HELD_AGE_MS, "partition" => label).set(0.0);
