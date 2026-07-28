@@ -379,7 +379,9 @@ tools:
             Execution stats for a single workflow by ID: time-series success/failure counts over a configurable interval
             (hour, day, or week). Use to inspect one workflow's health — failure spikes and reliability trends. For an
             at-a-glance view across ALL workflows, call workflows-global-stats first, then drill in here. Supports
-            breakdown by metric kind (success/failure) or name, and time range filtering.
+            breakdown by metric kind (success/failure) or name, and time range filtering. For email engagement, read
+            email_opened and email_link_clicked against (email_sent - email_untracked): email_untracked counts sends
+            with open/click tracking off, which can never register an open or a click.
     workflows-test-run:
         operation: hog_flows_invocations_create
         enabled: true
