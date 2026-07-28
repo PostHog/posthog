@@ -81,6 +81,7 @@ class SendFollowupToSandboxInput:
     # Signal context, passed through from PendingFollowup.
     context: dict[str, Any] | None = None
     steer: bool = False
+    max_attempts: int = SEND_FOLLOWUP_MAX_ATTEMPTS
 
 
 @activity.defn
@@ -290,7 +291,7 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
         # releases the id when a delivered turn fails before completion.
         attempt = _current_attempt()
         failure_kind = "delivery unknown" if result.status_code == 504 else "retryable failure"
-        if attempt < SEND_FOLLOWUP_MAX_ATTEMPTS:
+        if attempt < input.max_attempts:
             logger.warning(
                 "send_followup_retrying",
                 run_id=input.run_id,

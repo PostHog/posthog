@@ -731,14 +731,14 @@ class TaskRunAppendLogRequestSerializer(serializers.Serializer):
 
 
 class TaskSessionResponseSerializer(serializers.Serializer):
-    id = serializers.UUIDField()
-    download_url = serializers.URLField(allow_null=True)
-    content_sha256 = serializers.CharField(allow_null=True)
+    id = serializers.UUIDField(help_text="Task session identifier")
+    download_url = serializers.URLField(allow_null=True, help_text="Temporary URL for downloading the session")
+    content_sha256 = serializers.CharField(allow_null=True, help_text="SHA-256 digest of the current session content")
 
 
 class TaskSessionSyncResponseSerializer(serializers.Serializer):
-    id = serializers.UUIDField()
-    content_sha256 = serializers.CharField()
+    id = serializers.UUIDField(help_text="Task session identifier")
+    content_sha256 = serializers.CharField(help_text="SHA-256 digest of the uploaded session content")
 
 
 class TaskRunRelayMessageResponseSerializer(serializers.Serializer):

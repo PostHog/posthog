@@ -2123,6 +2123,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             },
         )
         try:
+            max_attempts = 1 if self.context.task_runtime == "pi" else SEND_FOLLOWUP_MAX_ATTEMPTS
             return await workflow.execute_activity(
                 send_followup_to_sandbox,
                 SendFollowupToSandboxInput(
@@ -2134,12 +2135,13 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     actor_user_id=actor_user_id,
                     context=context,
                     steer=steer,
+                    max_attempts=max_attempts,
                 ),
                 start_to_close_timeout=timedelta(minutes=35),
                 heartbeat_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(
                     initial_interval=timedelta(seconds=5),
-                    maximum_attempts=(1 if self.context.task_runtime == "pi" else SEND_FOLLOWUP_MAX_ATTEMPTS),
+                    maximum_attempts=max_attempts,
                 ),
             )
         except Exception as e:

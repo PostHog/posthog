@@ -883,6 +883,7 @@ class TaskSession(TeamScopedRootMixin, UUIDModel):
         on_delete=models.CASCADE,
         related_name="+",
         db_constraint=False,
+        db_index=False,
     )
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="task_sessions", db_index=False)
     object_storage_key = models.CharField(max_length=512, null=True, blank=True, unique=True)
@@ -1724,6 +1725,21 @@ class TaskRun(models.Model):
                 state.pop(key, None)
             if updates:
                 state.update(updates)
+
+        return cls.mutate_state_atomic(run_id, _mutator)
+
+    @classmethod
+    def clear_sandbox_connection_state_atomic(
+        cls,
+        run_id: str | uuid.UUID,
+        sandbox_id: str,
+    ) -> dict[str, Any]:
+        def _mutator(state: dict[str, Any]) -> None:
+            if state.get("sandbox_id") != sandbox_id:
+                return
+
+            for key in ("sandbox_id", "sandbox_url", "sandbox_connect_token", "sandbox_jwt_kid"):
+                state.pop(key, None)
 
         return cls.mutate_state_atomic(run_id, _mutator)
 

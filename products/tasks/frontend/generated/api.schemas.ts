@@ -2964,15 +2964,24 @@ export interface StreamReadTokenResponseApi {
 }
 
 export interface TaskSessionResponseApi {
+    /** Task session identifier */
     id: string
-    /** @nullable */
+    /**
+     * Temporary URL for downloading the session
+     * @nullable
+     */
     download_url: string | null
-    /** @nullable */
+    /**
+     * SHA-256 digest of the current session content
+     * @nullable
+     */
     content_sha256: string | null
 }
 
 export interface TaskSessionSyncResponseApi {
+    /** Task session identifier */
     id: string
+    /** SHA-256 digest of the uploaded session content */
     content_sha256: string
 }
 

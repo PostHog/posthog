@@ -1,5 +1,5 @@
 import uuid
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import cast
 
@@ -14,6 +14,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 
 from products.tasks.backend.logic.services.connection_token import (
     SANDBOX_CONNECTION_AUDIENCE,
+    SANDBOX_EVENT_INGEST_AUDIENCE,
     SANDBOX_JWT_STATE_KID_KEY,
     _compute_kid,
     _derive_public_key_pem,
@@ -112,6 +113,42 @@ class TestSandboxJwtRotation(SimpleTestCase):
         payload = validate_sandbox_event_ingest_token(token)
         self.assertEqual(payload.team_id, 1)
         self.assertEqual(payload.sandbox_id, "sandbox-1")
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=KEY_A, SANDBOX_JWT_PRIVATE_KEY_SECONDARY=None)
+    def test_ingest_token_uses_explicit_sandbox_identity(self) -> None:
+        reset_sandbox_jwt_key_cache()
+
+        token = create_sandbox_event_ingest_token(
+            _fake_run({"sandbox_id": None}),
+            sandbox_id="sandbox-explicit",
+        )
+
+        payload = validate_sandbox_event_ingest_token(token)
+        self.assertEqual(payload.sandbox_id, "sandbox-explicit")
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=KEY_A, SANDBOX_JWT_PRIVATE_KEY_SECONDARY=None)
+    def test_legacy_ingest_token_without_sandbox_id_remains_valid(self) -> None:
+        reset_sandbox_jwt_key_cache()
+        run = _fake_run()
+        now = datetime.now(tz=UTC)
+        token = jwt.encode(
+            {
+                "run_id": str(run.id),
+                "task_id": str(run.task_id),
+                "team_id": run.team_id,
+                "iat": now,
+                "exp": now + timedelta(minutes=5),
+                "aud": SANDBOX_EVENT_INGEST_AUDIENCE,
+            },
+            KEY_A,
+            algorithm="RS256",
+            headers={"kid": KID_A},
+        )
+
+        payload = validate_sandbox_event_ingest_token(token)
+
+        self.assertEqual(payload.run_id, str(run.id))
+        self.assertIsNone(payload.sandbox_id)
 
     def test_ingest_token_validates_after_primary_rotation(self) -> None:
         # Ingest is rotation-safe: a token signed under the old primary keeps validating after the

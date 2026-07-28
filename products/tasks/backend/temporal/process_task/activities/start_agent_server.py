@@ -194,7 +194,7 @@ def _include_personal_mcp_for_task(task: Task) -> bool:
     return not task.internal
 
 
-def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _LaunchParams:
+def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbox_id: str) -> _LaunchParams:
     try:
         task = Task.objects.select_related("created_by", "team").get(id=ctx.task_id)
         actor_user = get_task_run_credential_user(task, ctx.state)
@@ -225,7 +225,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _La
     task_run_session_token: str | None = None
     if event_stream_ingest_enabled or task.runtime == Task.Runtime.PI:
         try:
-            run_token = create_sandbox_event_ingest_token(task_run)
+            run_token = create_sandbox_event_ingest_token(task_run, sandbox_id=sandbox_id)
         except Exception as e:
             raise SandboxExecutionError(
                 "Failed to create sandbox task run token",
@@ -451,7 +451,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         # repo directory can never appear later. The deferred/overlap path clones in parallel
         # and gates the session on the repo-ready barrier instead.
         _ensure_repository_on_disk(ctx, sandbox)
-        params = _prepare_launch(ctx, input.posthog_mcp_scopes)
+        params = _prepare_launch(ctx, input.posthog_mcp_scopes, input.sandbox_id)
 
         with StepTimer("agent_server_ready", boot_path=input.boot_path) as ready_timer:
             _invoke_start_agent_server(sandbox, ctx, params, repo_ready_file=None, wait_for_health=True)
@@ -489,7 +489,7 @@ def launch_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         emit_agent_log(ctx.run_id, "debug", "Launching agent server (deferred readiness)")
 
         sandbox = Sandbox.get_by_id(input.sandbox_id)
-        params = _prepare_launch(ctx, input.posthog_mcp_scopes)
+        params = _prepare_launch(ctx, input.posthog_mcp_scopes, input.sandbox_id)
 
         repo_ready_file = REPO_READY_FILE if input.defer_for_clone else None
         with StepTimer("agent_server_launch", boot_path=input.boot_path) as launch_timer:

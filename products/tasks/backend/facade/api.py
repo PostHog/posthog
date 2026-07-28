@@ -3692,7 +3692,7 @@ def get_conversation_task_dtos(task_ids: Sequence[str | UUID], team_id: int) -> 
 
 
 def pi_cloud_runtime_enabled(team: Team, user: User) -> bool:
-    distinct_id = user.distinct_id or user.email or str(user.uuid)
+    distinct_id = user.distinct_id or f"user_{user.id}"
     organization_id = str(team.organization_id)
     try:
         return bool(

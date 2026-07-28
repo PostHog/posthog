@@ -38,7 +38,7 @@ class SandboxEventIngestTokenPayload:
     run_id: str
     task_id: str
     team_id: int
-    sandbox_id: str
+    sandbox_id: str | None
 
 
 @dataclass(frozen=True)
@@ -244,21 +244,26 @@ def _encode_run_scoped_token(
     return jwt.encode(payload, key.private_key_pem, algorithm="RS256", headers={"kid": key.kid})
 
 
-def create_sandbox_event_ingest_token(task_run: TaskRun, ttl: timedelta = SANDBOX_EVENT_INGEST_TOKEN_TTL) -> str:
+def create_sandbox_event_ingest_token(
+    task_run: TaskRun,
+    ttl: timedelta = SANDBOX_EVENT_INGEST_TOKEN_TTL,
+    *,
+    sandbox_id: str | None = None,
+) -> str:
     """
     Create a run-scoped JWT token for sandbox-to-Django live event ingest.
 
     This token intentionally carries no user identity and grants one capability:
     appending ordered live events for this task run.
     """
-    sandbox_id = (task_run.state or {}).get("sandbox_id")
-    if not isinstance(sandbox_id, str) or not sandbox_id:
+    active_sandbox_id = sandbox_id or (task_run.state or {}).get("sandbox_id")
+    if not isinstance(active_sandbox_id, str) or not active_sandbox_id:
         raise ValueError("Task run has no active sandbox identity")
     return _encode_run_scoped_token(
         task_run,
         SANDBOX_EVENT_INGEST_AUDIENCE,
         ttl,
-        {"sandbox_id": sandbox_id},
+        {"sandbox_id": active_sandbox_id},
     )
 
 
@@ -270,13 +275,9 @@ def validate_sandbox_event_ingest_token(token: str) -> SandboxEventIngestTokenPa
     team_id = payload.get("team_id")
     sandbox_id = payload.get("sandbox_id")
 
-    if (
-        not isinstance(run_id, str)
-        or not isinstance(task_id, str)
-        or type(team_id) is not int
-        or not isinstance(sandbox_id, str)
-        or not sandbox_id
-    ):
+    if not isinstance(run_id, str) or not isinstance(task_id, str) or type(team_id) is not int:
+        raise jwt.InvalidTokenError("Sandbox event ingest token has invalid claims")
+    if sandbox_id is not None and (not isinstance(sandbox_id, str) or not sandbox_id):
         raise jwt.InvalidTokenError("Sandbox event ingest token has invalid claims")
 
     return SandboxEventIngestTokenPayload(

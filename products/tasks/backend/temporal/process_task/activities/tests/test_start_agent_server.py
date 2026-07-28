@@ -177,6 +177,7 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(mocker
     assert result.sandbox_url == "https://sandbox.example"
     assert result.connect_token == "connect-token"
     create_event_ingest_token.assert_called_once()
+    assert create_event_ingest_token.call_args.kwargs == {"sandbox_id": "sandbox-id"}
     sandbox.start_agent_server.assert_called_once()
     assert sandbox.start_agent_server.call_args.kwargs["event_ingest_token"] == "event-ingest-token"
 

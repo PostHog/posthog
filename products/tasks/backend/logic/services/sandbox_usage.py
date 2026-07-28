@@ -57,7 +57,7 @@ def open_sandbox_session(
     try:
         with transaction.atomic():
             run = (
-                TaskRun.objects.select_for_update()
+                TaskRun.objects.select_for_update(of=("self",))
                 .select_related("task")
                 .only("id", "team_id", "state", "task__origin_product")
                 .get(id=run_id)

@@ -631,7 +631,10 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
                 required=ctx.task_runtime == "pi",
             )
         except Exception:
-            sandbox.destroy()
+            try:
+                sandbox.destroy()
+            finally:
+                TaskRun.clear_sandbox_connection_state_atomic(ctx.run_id, sandbox.id)
             raise
 
         emit_agent_log(ctx.run_id, "debug", f"Sandbox provisioned: {sandbox.id}")
