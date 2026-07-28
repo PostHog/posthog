@@ -8966,7 +8966,7 @@ class TestExperimentConcurrency(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(body["current_version"], 1)
         self.assertEqual(body["conflicting_metric_uuids"], [snapshot["metrics"][0]["uuid"]])
         experiment = Experiment.objects.get(id=snapshot["id"])
-        self.assertEqual(experiment.metrics[0]["source"]["event"], "their_event")
+        self.assertEqual((experiment.metrics or [])[0]["source"]["event"], "their_event")
 
     @parameterized.expand(
         [

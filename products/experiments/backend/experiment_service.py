@@ -3258,7 +3258,7 @@ class ExperimentService:
                 or 0
             )
             if resolution_version is not None and locked_version != resolution_version:
-                conflict = ExperimentVersionConflict(current_version=locked_version)
+                locked_conflict = ExperimentVersionConflict(current_version=locked_version)
                 if client_version is not None:
                     self._report_update_conflict(
                         experiment,
@@ -3266,9 +3266,9 @@ class ExperimentService:
                         resolution="rejected",
                         versions_behind=locked_version - client_version,
                         base_snapshot_sent=original_experiment is not None,
-                        conflict=conflict,
+                        conflict=locked_conflict,
                     )
-                raise conflict
+                raise locked_conflict
             update_data["version"] = locked_version + 1
 
             # --- saved metrics sync (update-in-place) -----------
