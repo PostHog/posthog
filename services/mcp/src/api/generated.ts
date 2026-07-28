@@ -33922,6 +33922,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
       orderBy?: LogsOrderBy | null;
+      /** Show logs for a given person */
+      personId?: string | null;
       resourceFingerprint?: string | null;
       response?: LogsQueryResponse | null;
       searchTerm?: string | null;
@@ -70641,6 +70643,8 @@ export namespace Schemas {
       facetSearch?: string;
       /** Property filters for the query. */
       filterGroup?: _LogPropertyFilter[];
+      /** Scope counts to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
+      personId?: string;
     }
 
     export interface _LogsFacetValuesRequest {
@@ -70827,6 +70831,8 @@ export namespace Schemas {
       excludeAttributes?: boolean;
       /** Custom column expressions evaluated per log row. Each entry is either a source-prefixed shorthand (`attributes.<key>`, `resource_attributes.<key>`, `body.<json.path>`) or a scalar HogQL expression (`upper(level)`, `coalesce(attributes['a'], attributes['b'])`). Aggregations and subqueries are rejected. Values come back on each result row keyed by the aliases echoed in the response `columns` field. */
       customColumns?: string[];
+      /** Scope results to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
+      personId?: string;
     }
 
     export interface _LogsQueryRequest {
@@ -70947,6 +70953,8 @@ export namespace Schemas {
        * * `severity` - severity
        * * `service` - service */
       sparklineBreakdownBy?: SparklineBreakdownByEnum;
+      /** Scope results to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
+      personId?: string;
     }
 
     export interface _LogsSparklineBucket {
@@ -79578,6 +79586,10 @@ export namespace Schemas {
      * Case-insensitive substring match against report title and summary.
      */
     search?: string;
+    /**
+     * Comma-separated list of source record ids. Reports are kept if at least one of their contributing signals came from one of these records — e.g. pass a support ticket's UUID to see what the inbox already found for that ticket. Requires exactly one source_product, since a source id is only unique within its product.
+     */
+    source_id?: string;
     /**
      * Comma-separated list of source products to include. Reports are kept if at least one of their contributing signals comes from one of these products (e.g. error_tracking, session_replay).
      */

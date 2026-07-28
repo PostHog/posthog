@@ -119,12 +119,13 @@ class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
         self.assertGreater(len(result), 0)
         self.assertNotIn("", result)
 
-    def test_resource_facet_ignores_its_own_filter(self):
-        """Selecting a value via a log_resource_attribute filter must not change that facet's own counts."""
+    @parameterized.expand([("exact",), ("is_not",)])
+    def test_resource_facet_ignores_its_own_filter(self, operator):
+        """Selecting or excluding a value via a log_resource_attribute filter must not change that facet's own counts."""
         base = self._facet_attr("k8s.namespace.name")
         own_value = next(iter(base))
         filter_group = [
-            {"key": "k8s.namespace.name", "type": "log_resource_attribute", "operator": "exact", "value": own_value}
+            {"key": "k8s.namespace.name", "type": "log_resource_attribute", "operator": operator, "value": own_value}
         ]
         self.assertEqual(self._facet_attr("k8s.namespace.name", filterGroup=filter_group), base)
 
@@ -139,13 +140,19 @@ class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(set(scoped).issubset(set(base)))
         self.assertLess(sum(scoped.values()), sum(base.values()))
 
-    def test_resource_facet_honors_other_resource_attribute_filter(self):
-        # A different resource-attribute filter re-scopes the counts via the rollup's
-        # resource_fingerprint subquery — proves cross-filtering still works on log_attributes.
+    @parameterized.expand([("exact",), ("is_not",)])
+    def test_resource_facet_honors_other_resource_attribute_filter(self, operator):
+        # A different resource-attribute filter — include or exclude — re-scopes the counts via the
+        # rollup's resource_fingerprint subquery — proves cross-filtering still works on log_attributes.
         base = self._facet_attr("k8s.pod.name")
         one_namespace = next(iter(self._facet_attr("k8s.namespace.name")))
         filter_group = [
-            {"key": "k8s.namespace.name", "type": "log_resource_attribute", "operator": "exact", "value": one_namespace}
+            {
+                "key": "k8s.namespace.name",
+                "type": "log_resource_attribute",
+                "operator": operator,
+                "value": one_namespace,
+            }
         ]
         scoped = self._facet_attr("k8s.pod.name", filterGroup=filter_group)
         self.assertGreater(len(scoped), 0)

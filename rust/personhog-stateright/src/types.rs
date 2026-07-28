@@ -27,6 +27,13 @@ pub struct Handoff {
     pub old_owner: Option<PodId>,
     pub new_owner: PodId,
     pub phase: Phase,
+    /// The freeze-quorum snapshot: routers registered when the rebalance
+    /// created this handoff (production `HandoffState::freeze_quorum`,
+    /// always captured — the model never writes legacy records, so the
+    /// production `None` fallback is pinned by unit tests instead).
+    /// With `RouterJoin` in the action space this diverges from the live
+    /// registry, which is exactly what the checker is here to explore.
+    pub quorum: BTreeSet<RouterId>,
 }
 
 /// Per-partition warm state on a pod — everything the invariants need to
@@ -143,6 +150,9 @@ pub struct SystemState {
     pub reads_left: u8,
     pub crashes_left: u8,
     pub rejoins_left: u8,
+    /// Times a router may (re)join: a late slot coming up for the first
+    /// time, or a dead router returning as a fresh process.
+    pub router_joins_left: u8,
     pub next_write_id: WriteId,
     /// Count of strong reads actually served (reachability evidence for
     /// the read properties).
@@ -236,4 +246,13 @@ pub enum Action {
     /// The zombie router's keepalive notices the dead lease and the
     /// process exits (production fix 1).
     RouterSelfFence(RouterId),
+    /// A router process starts and registers: a late slot coming up
+    /// mid-run, or a dead router returning under its old name. Fresh
+    /// process, empty table — production `load_initial` starts from an
+    /// empty routing table that fails every lookup closed, and the
+    /// model's `Observe` is its bootstrap. A joiner whose `Observe` the
+    /// checker never schedules is precisely the silent late joiner the
+    /// freeze-quorum snapshot exists to tolerate: registered, counted by
+    /// the legacy live-set rule, acking nothing.
+    RouterJoin(RouterId),
 }
