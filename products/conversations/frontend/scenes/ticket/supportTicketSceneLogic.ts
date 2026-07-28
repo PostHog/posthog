@@ -1056,9 +1056,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.setTicket(ticket)
                 lemonToast.success('Ticket updated')
                 actions.loadTickets()
-                // Saving a ticket creates any newly typed tag as a global Tag row, but the shared
-                // tag pool is loaded once and never reloads. Refresh it when a new tag appears so it
-                // shows up in the dropdown on other tickets without a full page reload.
+                // tagsModel loads once per session and never refetches, so newly created tags need an explicit reload
                 if (values.tags.some((tag) => !values.availableTags.includes(tag))) {
                     actions.loadTags()
                 }
