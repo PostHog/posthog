@@ -242,9 +242,13 @@ def authenticate_confidential_partner(request: Request) -> OAuthApplication:
     Authenticating is necessary but not sufficient. A CIMD client self-registers by publishing
     a metadata document, and one that declares ``private_key_jwt`` becomes a confidential
     client whose assertions it can sign with its own published key, so it would clear a
-    confidential-only gate without any PostHog involvement. ``provisioning_partner_type`` is
-    only ever set through the admin, which keeps these endpoints to partners a human vouched
-    for.
+    confidential-only gate without any PostHog involvement.
+
+    CIMD auto-registration is the only path that sets ``is_provisioning_partner`` without an
+    admin, so it is the only one that needs a second signal, and the signal is an admin-set
+    ``provisioning_partner_type``. Deliberately not required of non-CIMD partners: those exist
+    only because someone created them in the admin, and demanding a partner type of them would
+    lock out an already-configured partner whose type field was simply left blank.
 
     Raises :class:`ProvisioningError` when no qualifying partner is identified.
     """
@@ -260,7 +264,7 @@ def authenticate_confidential_partner(request: Request) -> OAuthApplication:
         raise ProvisioningError("unauthorized", CLIENT_NOT_REGISTERED_MESSAGE, status=401)
     if not partner.requires_client_authentication:
         raise ProvisioningError("forbidden", "This endpoint requires a confidential partner", status=403)
-    if not partner.provisioning_partner_type:
+    if partner.is_cimd_client and not partner.provisioning_partner_type:
         raise ProvisioningError("forbidden", "This endpoint requires a registered provisioning partner", status=403)
     return partner
 

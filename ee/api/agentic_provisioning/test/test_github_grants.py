@@ -258,9 +258,12 @@ class TestGitHubGrants(ProvisioningTestBase):
         assert response.status_code == 404
         assert response.json()["error"]["code"] == "grant_not_found"
 
-    def _create_other_partner(self, *, partner_type: str = "other_test_partner") -> OAuthApplication:
+    def _create_other_partner(
+        self, *, partner_type: str = "other_test_partner", is_cimd_client: bool = False
+    ) -> OAuthApplication:
         return OAuthApplication.objects.create(
             name="Other Partner",
+            is_cimd_client=is_cimd_client,
             client_id="other_partner_client_id",
             client_secret=TEST_PARTNER_CLIENT_SECRET,
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
@@ -319,18 +322,40 @@ class TestGitHubGrants(ProvisioningTestBase):
         assert foreign.status_code == 404
         assert owner.status_code == 200
 
-    def test_repositories_rejects_confidential_partner_without_a_partner_type(self):
-        # A CIMD client self-registers by publishing a metadata document and becomes
-        # confidential by declaring private_key_jwt, so authenticating cannot be the only
-        # gate here. provisioning_partner_type is admin-set and marks a vouched-for partner.
+    def test_repositories_rejects_a_self_registered_cimd_partner(self):
+        # A CIMD client self-registers by publishing a metadata document and becomes confidential
+        # by declaring private_key_jwt, so authenticating cannot be the only gate here. An
+        # admin-set provisioning_partner_type is what separates one PostHog vouched for.
         grant = github_grants.create_grant(self.partner, AUTHORIZATION, "octocat@example.com")
-        unvouched = self._create_other_partner(partner_type="")
+        unvouched = self._create_other_partner(partner_type="", is_cimd_client=True)
         response = self._get_api(
             f"/api/agentic/provisioning/github/grants/{grant.grant_id}/repositories",
             HTTP_AUTHORIZATION=self._basic_auth_header(unvouched),
         )
         assert response.status_code == 403
         assert response.json()["error"]["code"] == "forbidden"
+
+    def test_repositories_allows_a_non_cimd_partner_with_no_partner_type(self):
+        # Only CIMD auto-registration can make a partner without an admin, so a non-CIMD app is
+        # vouched for by the fact that it exists. Requiring a partner type of it too would lock
+        # out an already-configured partner whose type field was left blank.
+        grant = github_grants.create_grant(self.partner, AUTHORIZATION, "octocat@example.com")
+        admin_registered = self._create_other_partner(partner_type="")
+
+        def fake_github_request(method, request_url, **kwargs):
+            if request_url.endswith("/user/installations"):
+                return INSTALLATIONS_RESPONSE
+            return REPOSITORIES_RESPONSE
+
+        with patch("ee.api.agentic_provisioning.github_grants.github_request", side_effect=fake_github_request):
+            response = self._get_api(
+                f"/api/agentic/provisioning/github/grants/{grant.grant_id}/repositories",
+                HTTP_AUTHORIZATION=self._basic_auth_header(admin_registered),
+            )
+        # 404 rather than 200: it authenticated and passed the gate, then failed ownership on a
+        # grant belonging to another partner, which is the next check and the correct one.
+        assert response.status_code == 404
+        assert response.json()["error"]["code"] == "grant_not_found"
 
     def test_repositories_github_failure_returns_502(self):
         grant = github_grants.create_grant(self.partner, AUTHORIZATION, "octocat@example.com")
