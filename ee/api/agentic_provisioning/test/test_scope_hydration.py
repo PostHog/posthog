@@ -9,7 +9,7 @@ from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 
 from ee.api.agentic_provisioning.test.base import ProvisioningTestBase
-from ee.api.agentic_provisioning.views import _compute_partner_scoped_teams
+from ee.api.agentic_provisioning.tokens import compute_partner_scoped_teams
 from ee.models.rbac.access_control import AccessControl
 
 TOKEN_URL = "/api/agentic/oauth/token"
@@ -110,7 +110,7 @@ class TestPartnerTokenScopeHydration(ProvisioningTestBase):
         assert restricted_team.id not in access_token.scoped_teams
 
     def test_issuance_rejected_when_no_accessible_teams(self):
-        # When the base team is gone or the user lost access, _compute_partner_scoped_teams
+        # When the base team is gone or the user lost access, compute_partner_scoped_teams
         # returns []. An empty scoped_teams is unrestricted under the standard permission
         # check, so issuance must fail closed rather than mint a project-unrestricted token.
         self._enable_access_control_as_member()
@@ -171,7 +171,7 @@ class TestPartnerTokenScopeHydration(ProvisioningTestBase):
         assert newly_provisioned.id in refresh_token.scoped_teams
 
     def test_backfill_leaves_scope_unchanged_when_recomputed_scope_is_empty(self):
-        # When the user has lost access, _compute_partner_scoped_teams returns [].
+        # When the user has lost access, compute_partner_scoped_teams returns [].
         # An empty scoped_teams is unrestricted under the standard permission check, so the
         # backfill must NOT overwrite a restricted token with [] — it leaves the existing
         # restriction intact and reports the token for re-authorization.
@@ -197,4 +197,4 @@ class TestPartnerTokenScopeHydration(ProvisioningTestBase):
         # NOT NULL and issuance always resolves an app), so this pins the helper's
         # defensive branch: an unattributed token fails closed with no scope rather
         # than silently retaining the base team.
-        assert _compute_partner_scoped_teams(None, self.user, self.team.id) == []
+        assert compute_partner_scoped_teams(None, self.user, self.team.id) == []
