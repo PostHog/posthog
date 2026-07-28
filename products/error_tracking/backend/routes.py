@@ -10,6 +10,7 @@ from products.error_tracking.backend.presentation.views import (
     ErrorTrackingQueryViewSet,
     ErrorTrackingRecommendationViewSet,
     ErrorTrackingReleaseViewSet,
+    ErrorTrackingSentryMigrationViewSet,
     ErrorTrackingSettingsViewSet,
     ErrorTrackingSpikeDetectionConfigViewSet,
     ErrorTrackingSpikeEventViewSet,
@@ -103,5 +104,11 @@ def register_routes(routers: RouterRegistry) -> None:
         r"error_tracking/git-provider-file-links",
         GitProviderFileLinksViewSet,
         "project_error_tracking_git_provider_file_links",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"error_tracking/sentry_migrations",
+        ErrorTrackingSentryMigrationViewSet,
+        "project_error_tracking_sentry_migration",
         ["team_id"],
     )

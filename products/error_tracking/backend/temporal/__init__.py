@@ -16,6 +16,11 @@ from products.error_tracking.backend.temporal.recommendations_refresh import (
     get_team_batches_activity,
     refresh_recommendations_batch_activity,
 )
+from products.error_tracking.backend.temporal.sentry_migration import (
+    ACTIVITIES as SENTRY_MIGRATION_ACTIVITIES,
+    WORKFLOWS as SENTRY_MIGRATION_WORKFLOWS,
+    SentryMigrationWorkflow,
+)
 from products.error_tracking.backend.temporal.spike_event_cleanup import (
     ACTIVITIES as SPIKE_EVENT_ACTIVITIES,
     WORKFLOWS as SPIKE_EVENT_WORKFLOWS,
@@ -34,12 +39,14 @@ WORKFLOWS = (
     + SPIKE_EVENT_WORKFLOWS
     + RECOMMENDATIONS_REFRESH_WORKFLOWS
     + FINGERPRINT_EMBEDDING_RESULT_WORKFLOWS
+    + SENTRY_MIGRATION_WORKFLOWS
 )
 ACTIVITIES = (
     SYMBOL_SET_ACTIVITIES
     + SPIKE_EVENT_ACTIVITIES
     + RECOMMENDATIONS_REFRESH_ACTIVITIES
     + FINGERPRINT_EMBEDDING_RESULT_ACTIVITIES
+    + SENTRY_MIGRATION_ACTIVITIES
 )
 
 __all__ = [
@@ -52,6 +59,7 @@ __all__ = [
     "ErrorTrackingRecommendationsRefreshWorkflow",
     "ErrorTrackingSpikeEventCleanupWorkflow",
     "ErrorTrackingSymbolSetCleanupWorkflow",
+    "SentryMigrationWorkflow",
     "cleanup_spike_events_activity",
     "cleanup_symbol_sets_activity",
     "get_team_batches_activity",

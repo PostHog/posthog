@@ -47,6 +47,8 @@ import type {
     ErrorTrackingReleaseCreateRequestApi,
     ErrorTrackingReleaseUpdateRequestApi,
     ErrorTrackingReleasesListParams,
+    ErrorTrackingSentryMigrationApi,
+    ErrorTrackingSentryMigrationsListParams,
     ErrorTrackingSettingsApi,
     ErrorTrackingSpikeDetectionConfigApi,
     ErrorTrackingSpikeEventsListParams,
@@ -72,6 +74,7 @@ import type {
     PaginatedErrorTrackingIssueReadListApi,
     PaginatedErrorTrackingRecommendationListApi,
     PaginatedErrorTrackingReleaseListApi,
+    PaginatedErrorTrackingSentryMigrationListApi,
     PaginatedErrorTrackingSpikeEventListApi,
     PaginatedErrorTrackingStackFrameListApi,
     PaginatedErrorTrackingSuppressionRuleListApi,
@@ -89,6 +92,8 @@ import type {
     PatchedErrorTrackingSpikeDetectionConfigApi,
     PatchedErrorTrackingSuppressionRuleApi,
     PatchedErrorTrackingSuppressionRuleUpdateRequestApi,
+    SentryMigrationAttachCodeMigrationApi,
+    SentryMigrationCreateRequestApi,
     _SymbolSetDownloadResponseApi,
 } from './api.schemas'
 
@@ -1230,6 +1235,118 @@ export const errorTrackingReleasesHashRetrieve = async (
     return apiMutator<void>(getErrorTrackingReleasesHashRetrieveUrl(projectId, hashId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getErrorTrackingSentryMigrationsListUrl = (
+    projectId: string,
+    params?: ErrorTrackingSentryMigrationsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/error_tracking/sentry_migrations/?${stringifiedParams}`
+        : `/api/projects/${projectId}/error_tracking/sentry_migrations/`
+}
+
+export const errorTrackingSentryMigrationsList = async (
+    projectId: string,
+    params?: ErrorTrackingSentryMigrationsListParams,
+    options?: RequestInit
+): Promise<PaginatedErrorTrackingSentryMigrationListApi> => {
+    return apiMutator<PaginatedErrorTrackingSentryMigrationListApi>(
+        getErrorTrackingSentryMigrationsListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getErrorTrackingSentryMigrationsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/error_tracking/sentry_migrations/`
+}
+
+/**
+ * Imports issues and events from a synced Sentry data warehouse source into error tracking.
+ * @summary Start a Sentry migration
+ */
+export const errorTrackingSentryMigrationsCreate = async (
+    projectId: string,
+    sentryMigrationCreateRequestApi: SentryMigrationCreateRequestApi,
+    options?: RequestInit
+): Promise<ErrorTrackingSentryMigrationApi> => {
+    return apiMutator<ErrorTrackingSentryMigrationApi>(getErrorTrackingSentryMigrationsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sentryMigrationCreateRequestApi),
+    })
+}
+
+export const getErrorTrackingSentryMigrationsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/sentry_migrations/${id}/`
+}
+
+export const errorTrackingSentryMigrationsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ErrorTrackingSentryMigrationApi> => {
+    return apiMutator<ErrorTrackingSentryMigrationApi>(getErrorTrackingSentryMigrationsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getErrorTrackingSentryMigrationsAttachCodeMigrationCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/sentry_migrations/${id}/attach_code_migration/`
+}
+
+/**
+ * Records the wizard cloud-run task that migrates the project's code off the Sentry SDK.
+ * @summary Attach a code migration task
+ */
+export const errorTrackingSentryMigrationsAttachCodeMigrationCreate = async (
+    projectId: string,
+    id: string,
+    sentryMigrationAttachCodeMigrationApi: SentryMigrationAttachCodeMigrationApi,
+    options?: RequestInit
+): Promise<ErrorTrackingSentryMigrationApi> => {
+    return apiMutator<ErrorTrackingSentryMigrationApi>(
+        getErrorTrackingSentryMigrationsAttachCodeMigrationCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(sentryMigrationAttachCodeMigrationApi),
+        }
+    )
+}
+
+export const getErrorTrackingSentryMigrationsCancelCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/sentry_migrations/${id}/cancel/`
+}
+
+/**
+ * @summary Cancel a Sentry migration
+ */
+export const errorTrackingSentryMigrationsCancelCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ErrorTrackingSentryMigrationApi> => {
+    return apiMutator<ErrorTrackingSentryMigrationApi>(getErrorTrackingSentryMigrationsCancelCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 

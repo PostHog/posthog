@@ -1460,6 +1460,132 @@ export interface PatchedErrorTrackingReleaseUpdateRequestApi {
     metadata?: PatchedErrorTrackingReleaseUpdateRequestApiMetadata
 }
 
+/**
+ * * `created` - Created
+ * * `syncing` - Syncing
+ * * `importing` - Importing
+ * * `finalizing` - Finalizing
+ * * `completed` - Completed
+ * * `failed` - Failed
+ * * `cancelled` - Cancelled
+ */
+export type ErrorTrackingSentryMigrationStatusEnumApi =
+    (typeof ErrorTrackingSentryMigrationStatusEnumApi)[keyof typeof ErrorTrackingSentryMigrationStatusEnumApi]
+
+export const ErrorTrackingSentryMigrationStatusEnumApi = {
+    Created: 'created',
+    Syncing: 'syncing',
+    Importing: 'importing',
+    Finalizing: 'finalizing',
+    Completed: 'completed',
+    Failed: 'failed',
+    Cancelled: 'cancelled',
+} as const
+
+/**
+ * * `unresolved` - unresolved
+ * * `resolved` - resolved
+ * * `ignored` - ignored
+ */
+export type IssueStatusesEnumApi = (typeof IssueStatusesEnumApi)[keyof typeof IssueStatusesEnumApi]
+
+export const IssueStatusesEnumApi = {
+    Unresolved: 'unresolved',
+    Resolved: 'resolved',
+    Ignored: 'ignored',
+} as const
+
+export interface SentryMigrationConfigApi {
+    /**
+     * Only import Sentry events created at or after this time. Omit to import everything retained.
+     * @nullable
+     */
+    date_from?: string | null
+    /**
+     * Only import Sentry events created before this time. Omit for no upper bound.
+     * @nullable
+     */
+    date_to?: string | null
+    /** Only import events belonging to Sentry issues in these statuses. Omit to import all issues. */
+    issue_statuses?: IssueStatusesEnumApi[]
+    /** Only import events from these Sentry project slugs. Omit to import every project in the org. */
+    sentry_project_slugs?: string[]
+}
+
+export interface SentryMigrationStateApi {
+    /** Total Sentry issues matched by the migration's filters. */
+    issues_total?: number
+    /** Total Sentry events matched by the migration's filters. */
+    events_total?: number
+    /** Events successfully submitted to ingestion so far. */
+    events_emitted?: number
+    /** Events dropped by ingestion (for example, exceptions quota exceeded). */
+    events_dropped?: number
+}
+
+export interface ErrorTrackingSentryMigrationApi {
+    /** Unique id of the migration. */
+    readonly id: string
+    /** Current phase of the migration.
+     *
+     * * `created` - Created
+     * * `syncing` - Syncing
+     * * `importing` - Importing
+     * * `finalizing` - Finalizing
+     * * `completed` - Completed
+     * * `failed` - Failed
+     * * `cancelled` - Cancelled */
+    readonly status: ErrorTrackingSentryMigrationStatusEnumApi
+    /** Sentry organization slug the data is imported from. */
+    readonly org_slug: string
+    /** Id of the Sentry data warehouse source feeding the migration. */
+    readonly external_data_source_id: string
+    /** Import scope filters. */
+    readonly config: SentryMigrationConfigApi
+    /** Progress counters, updated as the import runs. */
+    readonly state: SentryMigrationStateApi
+    /**
+     * Id of the code migration agent task, when one was started from this migration.
+     * @nullable
+     */
+    readonly code_migration_task_id: string | null
+    /**
+     * Human-readable error when the migration failed.
+     * @nullable
+     */
+    readonly latest_error: string | null
+    /** When the migration was created. */
+    readonly created_at: string
+    /** When the migration last changed. */
+    readonly updated_at: string
+}
+
+export interface PaginatedErrorTrackingSentryMigrationListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ErrorTrackingSentryMigrationApi[]
+}
+
+export interface SentryMigrationCreateRequestApi {
+    /** Id of an existing Sentry data warehouse source to import from. The source must have the issues and issue_events schemas enabled. */
+    external_data_source_id: string
+    /**
+     * Sentry organization slug of the source. Used to namespace imported issue fingerprints.
+     * @maxLength 200
+     */
+    org_slug: string
+    /** Optional import scope filters. Omit to import everything retained by Sentry. */
+    config?: SentryMigrationConfigApi
+}
+
+export interface SentryMigrationAttachCodeMigrationApi {
+    /** Id of the wizard cloud-run task performing the SDK code migration. */
+    task_id: string
+}
+
 export interface ErrorTrackingSettingsApi {
     /**
      * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
@@ -1879,6 +2005,17 @@ export type ErrorTrackingRecommendationsListParams = {
 }
 
 export type ErrorTrackingReleasesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ErrorTrackingSentryMigrationsListParams = {
     /**
      * Number of results to return per page.
      */

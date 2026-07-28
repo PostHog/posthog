@@ -20,6 +20,7 @@ from posthog.kafka_client.topics import (
 )
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.integration import Integration
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel, UUIDTModel
 from posthog.storage import object_storage
 
@@ -807,4 +808,44 @@ class ErrorTrackingRecommendation(UUIDTModel):
         db_table = "posthog_errortrackingrecommendation"
         constraints = [
             models.UniqueConstraint(fields=["team", "type"], name="unique_error_tracking_recommendation_per_team_type"),
+        ]
+
+
+class ErrorTrackingSentryMigration(TeamScopedRootMixin, UUIDTModel):
+    class Status(models.TextChoices):
+        CREATED = "created", "Created"
+        SYNCING = "syncing", "Syncing"
+        IMPORTING = "importing", "Importing"
+        FINALIZING = "finalizing", "Finalizing"
+        COMPLETED = "completed", "Completed"
+        FAILED = "failed", "Failed"
+        CANCELLED = "cancelled", "Cancelled"
+
+    # db_constraint=False keeps the create lock-free on the hot posthog_team/posthog_user tables;
+    # team scoping is enforced at the ORM layer via TeamScopedRootMixin.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    created_by = models.ForeignKey(
+        "posthog.User", null=True, blank=True, on_delete=models.SET_NULL, db_constraint=False
+    )
+    # Loose reference to warehouse_sources.ExternalDataSource — cross-product FKs are not allowed,
+    # resolve via the warehouse facade when needed.
+    external_data_source_id = models.UUIDField()
+    org_slug = models.CharField(max_length=200)
+    status = models.CharField(max_length=32, choices=Status, default=Status.CREATED)
+    # No secrets here — the Sentry token lives encrypted on the warehouse source.
+    config = models.JSONField(default=dict, blank=True)
+    # Workflow-owned progress: counters (issues_total, events_emitted, events_dropped) and keyset cursor.
+    state = models.JSONField(default=dict, blank=True)
+    workflow_id = models.CharField(max_length=400, null=True, blank=True)
+    workflow_run_id = models.CharField(max_length=400, null=True, blank=True)
+    code_migration_task_id = models.UUIDField(null=True, blank=True)
+    latest_error = models.TextField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_errortrackingsentrymigration"
+        indexes = [
+            models.Index(fields=["team", "-created_at"], name="posthog_et_sentry_mig_team_idx"),
+            models.Index(fields=["team", "status"], name="posthog_et_sentry_mig_stat_idx"),
         ]
