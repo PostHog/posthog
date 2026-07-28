@@ -77,28 +77,31 @@ export class CommonIngestionConsumerScope<
         pipelineFactory: PipelineFactory<S & { topHog: TopHog }>
     ) {
         const consumerName = this.name
-        this.innerScope = extend(scope, `${consumerName}-consumer`, (container, builder) => {
-            // Every consumer gets a topHog registry scoped to its own outputs
-            // and pipeline/lane labels. The registry is handed to the pipeline
-            // factory eagerly (metrics register at build time); the component
-            // owns the flush loop's lifecycle.
-            const topHog = new TopHogComponent({
-                outputs: container.outputs,
-                pipeline: config.INGESTION_PIPELINE ?? 'unknown',
-                lane: config.INGESTION_LANE ?? 'unknown',
-            })
-            const pipeline = pipelineFactory({ container: { ...container, topHog: topHog.registry() } })
+        // Every consumer gets a topHog registry scoped to its own outputs and
+        // pipeline/lane labels. It lives one scope above the consumer so its
+        // started value is in the container when the pipeline factory runs —
+        // and so its flush loop starts before, and stops after, the consumer.
+        const scopeWithTopHog = extend(scope, `${consumerName}-tophog`, (container, builder) =>
+            builder.add(
+                'topHog',
+                new TopHogComponent({
+                    outputs: container.outputs,
+                    pipeline: config.INGESTION_PIPELINE ?? 'unknown',
+                    lane: config.INGESTION_LANE ?? 'unknown',
+                })
+            )
+        )
+        this.innerScope = extend(scopeWithTopHog, `${consumerName}-consumer`, (container, builder) => {
+            const pipeline = pipelineFactory({ container })
             const handler = new KafkaBatchHandler(config, consumerName, pipeline, container.promiseScheduler)
-            return builder
-                .add('topHog', topHog)
-                .add(
-                    'kafkaConsumer',
-                    new KafkaConsumerComponent(
-                        config.INGESTION_CONSUMER_GROUP_ID,
-                        config.INGESTION_CONSUMER_CONSUME_TOPIC,
-                        (messages) => handler.handle(messages)
-                    )
+            return builder.add(
+                'kafkaConsumer',
+                new KafkaConsumerComponent(
+                    config.INGESTION_CONSUMER_GROUP_ID,
+                    config.INGESTION_CONSUMER_CONSUME_TOPIC,
+                    (messages) => handler.handle(messages)
                 )
+            )
         })
     }
 
