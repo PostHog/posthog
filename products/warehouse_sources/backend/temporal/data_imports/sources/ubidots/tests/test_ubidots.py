@@ -1,8 +1,10 @@
+import json
 from collections.abc import Iterator, Mapping
 from datetime import UTC, datetime
 from typing import Any, Optional
 
 import pytest
+from freezegun import freeze_time
 from unittest.mock import MagicMock, patch
 
 import requests
@@ -15,8 +17,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.se
     VALUES_ENDPOINT,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.ubidots import (
+    MAX_EMPTY_VALUES_WINDOWS,
     UBIDOTS_API_VERSION_LEGACY,
     UBIDOTS_API_VERSION_V2_0,
+    VALUES_WINDOW_MS,
+    UbidotsResponseTooLargeError,
+    UbidotsResponseTooSlowError,
     UbidotsResumeConfig,
     UbidotsRetryableError,
     _start_timestamp_ms,
@@ -512,7 +518,10 @@ class TestUbidotsSourceResponse:
         assert called == [expected_fn]
 
 
+@freeze_time("2026-07-28T00:00:00Z")
 class TestGetValuesRowsV2:
+    NOW_MS = int(datetime(2026, 7, 28, tzinfo=UTC).timestamp() * 1000)
+
     @staticmethod
     def _collect(
         manager: _FakeResumableManager,
@@ -527,10 +536,19 @@ class TestGetValuesRowsV2:
         def fake_fetch_page(session: Any, url: str, log: Any) -> tuple[list[dict], Optional[str]]:
             return variable_pages[url]
 
+        # Dots live in the newest window only; every older window comes back empty, which is what a
+        # real variable with a finite history looks like to the descending walk.
+        served: set[str] = set()
+
         def fake_fetch_series(session: Any, url: str, body: dict, log: Any) -> list[dict]:
             if bodies is not None:
                 bodies.append(body)
-            return series_by_variable[body["variables"][0]["variable"]]
+            variable_id = body["variables"][0]["variable"]
+            entries = series_by_variable[variable_id]
+            if variable_id in served:
+                return [{**entry, "results": []} for entry in entries]
+            served.add(variable_id)
+            return entries
 
         monkeypatch.setattr(ubidots, "_fetch_page", fake_fetch_page)
         monkeypatch.setattr(ubidots, "_fetch_data_series", fake_fetch_series)
@@ -563,38 +581,61 @@ class TestGetValuesRowsV2:
             {"timestamp": 2, "value": 1.0, "variable": "var1"},
             {"timestamp": 3, "value": 2.0, "variable": "var2"},
         ]
-        # The batch endpoint has no per-page cursor, so resume is per completed variable.
-        assert [s.completed_variable_ids for s in manager.saved] == [["var1"], ["var1", "var2"]]
+        completions = [s.completed_variable_ids for s in manager.saved if s.current_window_end is None]
+        assert completions == [["var1"], ["var1", "var2"]]
 
-    def test_incremental_watermark_is_sent_as_start(self, monkeypatch: Any) -> None:
+    def test_full_refresh_walks_bounded_windows_newest_first(self, monkeypatch: Any) -> None:
+        # The v2.0 endpoint is unpaginated, so an unwindowed request would pull a variable's whole
+        # history into memory in one response.
+        bodies: list[dict] = []
+        self._collect(
+            _FakeResumableManager(),
+            monkeypatch,
+            variable_pages={VARIABLES_FIRST_URL: ([{"id": "var1"}], None)},
+            series_by_variable={"var1": [{"variable": {"id": "var1"}, "code": 200, "results": [{"timestamp": 1}]}]},
+            bodies=bodies,
+        )
+        assert all(body["end"] - body["start"] == VALUES_WINDOW_MS for body in bodies)
+        assert [body["end"] for body in bodies] == [self.NOW_MS - i * VALUES_WINDOW_MS for i in range(len(bodies))]
+        # One window with dots, then the run of empties that ends the walk — not a scan to the epoch.
+        assert len(bodies) == 1 + MAX_EMPTY_VALUES_WINDOWS
+
+    def test_incremental_walk_floors_at_the_watermark(self, monkeypatch: Any) -> None:
+        # Empty windows must not cut an incremental run short: the range down to the watermark is
+        # known and has to be covered even where the variable went quiet.
+        watermark = self.NOW_MS - int(2.5 * VALUES_WINDOW_MS)
         bodies: list[dict] = []
         rows = self._collect(
             _FakeResumableManager(),
             monkeypatch,
             variable_pages={VARIABLES_FIRST_URL: ([{"id": "var1"}], None)},
             series_by_variable={
-                "var1": [{"variable": {"id": "var1"}, "code": 200, "results": [{"timestamp": 1700000000001}]}]
+                "var1": [{"variable": {"id": "var1"}, "code": 200, "results": [{"timestamp": watermark + 1}]}]
             },
             bodies=bodies,
             should_use_incremental_field=True,
-            db_incremental_field_last_value=1700000000000,
+            db_incremental_field_last_value=watermark,
         )
-        assert rows == [{"timestamp": 1700000000001, "variable": "var1"}]
-        assert bodies[0]["start"] == 1700000000000
-        assert bodies[0]["variables"] == [{"variable": "var1"}]
+        assert rows == [{"timestamp": watermark + 1, "variable": "var1"}]
+        assert len(bodies) == 3
+        assert bodies[0]["end"] == self.NOW_MS
+        assert bodies[-1]["start"] == watermark
+        assert all(body["start"] >= watermark for body in bodies)
 
-    def test_full_refresh_scans_from_epoch(self, monkeypatch: Any) -> None:
+    def test_resume_continues_variable_from_saved_window_end(self, monkeypatch: Any) -> None:
+        resume_end = self.NOW_MS - 5 * VALUES_WINDOW_MS
+        manager = _FakeResumableManager(UbidotsResumeConfig(current_variable_id="var1", current_window_end=resume_end))
         bodies: list[dict] = []
         self._collect(
-            _FakeResumableManager(),
+            manager,
             monkeypatch,
             variable_pages={VARIABLES_FIRST_URL: ([{"id": "var1"}], None)},
-            series_by_variable={"var1": [{"variable": {"id": "var1"}, "code": 200, "results": []}]},
+            series_by_variable={"var1": [{"variable": {"id": "var1"}, "code": 200, "results": [{"timestamp": 1}]}]},
             bodies=bodies,
         )
-        # No watermark ⇒ start from the epoch; end is a real upper bound so the window is valid.
-        assert bodies[0]["start"] == 0
-        assert bodies[0]["end"] >= bodies[0]["start"]
+        # Resuming from `now` instead would re-fetch every window the interrupted run already did.
+        assert bodies[0]["end"] == resume_end
+        assert manager.saved[0].current_window_end == resume_end - VALUES_WINDOW_MS
 
     def test_variable_with_error_code_is_skipped_but_completed(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()
@@ -624,12 +665,14 @@ class TestGetValuesRowsV2:
 
 
 class TestFetchDataSeries:
-    def _session_returning(self, status_code: int, body: Any = None) -> MagicMock:
+    @staticmethod
+    def _session_returning(status_code: int, body: Any = None, raw: bytes | None = None) -> MagicMock:
         response = MagicMock()
         response.status_code = status_code
         response.ok = status_code < 400
-        response.json.return_value = body if body is not None else {"start": 0, "end": 1, "results": []}
-        response.text = ""
+        payload = raw if raw is not None else json.dumps(body if body is not None else {"results": []}).encode()
+        # The fetcher reads bodies with stream=True via response.iter_content.
+        response.iter_content.return_value = iter([payload])
         response.raise_for_status.side_effect = (
             requests.HTTPError(f"{status_code} error", response=response) if status_code >= 400 else None
         )
@@ -637,26 +680,47 @@ class TestFetchDataSeries:
         session.post.return_value = response
         return session
 
-    def test_success_returns_results_list(self) -> None:
-        entry = {"variable": {"id": "var1"}, "code": 200, "results": [{"timestamp": 1, "value": 2.0}]}
-        session = self._session_returning(200, {"start": 0, "end": 1, "results": [entry]})
-        results = ubidots._fetch_data_series.__wrapped__(  # type: ignore[attr-defined]
+    @staticmethod
+    def _fetch(session: MagicMock) -> list[dict]:
+        return ubidots._fetch_data_series.__wrapped__(  # type: ignore[attr-defined]
             session, f"{DEFAULT_UBIDOTS_API_BASE_URL}/api/v2.0/data/series/", {"variables": []}, MagicMock()
         )
-        assert results == [entry]
+
+    def test_success_returns_results_list(self) -> None:
+        entry = {"variable": {"id": "var1"}, "code": 200, "results": [{"timestamp": 1, "value": 2.0}]}
+        assert self._fetch(self._session_returning(200, {"start": 0, "end": 1, "results": [entry]})) == [entry]
 
     @parameterized.expand([("rate_limited", 429), ("server_error", 500)])
     def test_retryable_statuses_raise_retryable_error(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
         with pytest.raises(UbidotsRetryableError):
-            ubidots._fetch_data_series.__wrapped__(  # type: ignore[attr-defined]
-                session, f"{DEFAULT_UBIDOTS_API_BASE_URL}/api/v2.0/data/series/", {"variables": []}, MagicMock()
-            )
+            self._fetch(self._session_returning(status))
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
     def test_client_errors_raise_for_status(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
         with pytest.raises(requests.HTTPError):
-            ubidots._fetch_data_series.__wrapped__(  # type: ignore[attr-defined]
-                session, f"{DEFAULT_UBIDOTS_API_BASE_URL}/api/v2.0/data/series/", {"variables": []}, MagicMock()
-            )
+            self._fetch(self._session_returning(status))
+
+    @parameterized.expand(
+        [
+            ("list_envelope", b'[{"code": 200}]'),
+            ("results_not_a_list", b'{"results": {}}'),
+            ("not_json", b"<html>gateway</html>"),
+        ]
+    )
+    def test_malformed_payloads_raise_retryable_error(self, _name: str, raw: bytes) -> None:
+        # A proxy or an API change can answer 200 with something that isn't the documented envelope;
+        # indexing it blindly would blow up with a TypeError halfway through a sync.
+        with pytest.raises(UbidotsRetryableError):
+            self._fetch(self._session_returning(200, raw=raw))
+
+    def test_oversized_body_is_refused_before_parsing(self) -> None:
+        session = self._session_returning(200, raw=b'{"results": []}')
+        with patch.object(ubidots, "MAX_RESPONSE_BYTES", 4), pytest.raises(UbidotsResponseTooLargeError):
+            self._fetch(session)
+
+    def test_slow_body_is_refused(self) -> None:
+        # A host dribbling the body stays under the per-read timeout indefinitely; only the
+        # wall-clock budget stops it holding an import worker open.
+        session = self._session_returning(200, raw=b'{"results": []}')
+        with patch.object(ubidots, "MAX_DOWNLOAD_SECONDS", -1), pytest.raises(UbidotsResponseTooSlowError):
+            self._fetch(session)
