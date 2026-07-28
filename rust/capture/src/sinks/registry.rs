@@ -1,0 +1,298 @@
+//! Output registry — the topic-completeness surface.
+//!
+//! Binds every fixed routing [`Outputs`] variant to its configured Kafka topic
+//! and provides a startup completeness check ([`OutputRegistry::check_complete`])
+//! that refuses to boot when any fixed output resolves to an empty topic. This is
+//! the single place the output→topic wiring lives: it replaces the ad-hoc
+//! `KafkaTopicConfig` struct plus the inline `match route.target` that used to
+//! resolve topics inside the sink. Adding an output is now a one-place change —
+//! the `topic_for` match is compiler-forced exhaustive, and `check_complete`
+//! catches an unwired output at boot rather than at first produce (#68719).
+//!
+//! Two outputs sit outside the completeness check: `Custom` topics are
+//! admin-supplied inline on the event's metadata (they carry their own topic),
+//! and the AI outputs are opt-in — setup separately requires
+//! `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC` whenever the routing policy can produce
+//! `AiEvents` records.
+
+use tracing::log::warn;
+
+use crate::config::KafkaConfig;
+
+/// Which configured output a routing decision selects, named **pipeline +
+/// lane** — the vocabulary the refactor converges on (typed per-pipeline
+/// lanes; see the plan doc). The sink resolves each output to a concrete
+/// topic string against the [`OutputRegistry`]; distinct outputs may share a
+/// topic (analytics main and session-replay main both resolve the
+/// deployment's main topic today). Promoted from Step 2's `RouteTarget`;
+/// mirrors v1's `Destination` split (the Step 12 convergence target, when
+/// the v1 stack folds onto this registry).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Outputs<'a> {
+    AnalyticsMain,
+    AnalyticsOverflow,
+    AnalyticsHistorical,
+    ClientWarningsMain,
+    HeatmapsMain,
+    SessionReplayMain,
+    SessionReplayOverflow,
+    /// Every pipeline's dlq lane; one shared output until the typed-address
+    /// step gives each pipeline its own dlq row.
+    Dlq,
+    ErrorTrackingMain,
+    /// The AI pipeline's main lane — the dedicated `$ai_*` topic
+    /// (`CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`). Opt-in, so not part of the
+    /// completeness check — setup validates it whenever the routing policy
+    /// can produce `AiEvents` records.
+    AiMain,
+    /// The AI pipeline's overflow lane; only routed to when the AI overflow
+    /// valve (`CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`) is armed.
+    AiOverflow,
+    /// Admin-configured custom topic borrowed from `redirect_to_topic`. Resolved
+    /// inline by the sink; never registered (it carries its own topic).
+    Custom(&'a str),
+}
+
+impl Outputs<'_> {
+    /// Every registered always-required output. `check_complete` walks this so
+    /// a newly added output is caught at boot rather than at first produce.
+    const REGISTERED: [Outputs<'static>; 9] = [
+        Outputs::AnalyticsMain,
+        Outputs::AnalyticsOverflow,
+        Outputs::AnalyticsHistorical,
+        Outputs::ClientWarningsMain,
+        Outputs::HeatmapsMain,
+        Outputs::SessionReplayMain,
+        Outputs::SessionReplayOverflow,
+        Outputs::Dlq,
+        Outputs::ErrorTrackingMain,
+    ];
+
+    /// Stable, low-cardinality label for diagnostics. `Custom` collapses to
+    /// "custom" so admin topic names never leak into error messages.
+    fn name(&self) -> &'static str {
+        match self {
+            Outputs::AnalyticsMain => "analytics_main",
+            Outputs::AnalyticsOverflow => "analytics_overflow",
+            Outputs::AnalyticsHistorical => "analytics_historical",
+            Outputs::ClientWarningsMain => "client_warnings_main",
+            Outputs::HeatmapsMain => "heatmaps_main",
+            Outputs::SessionReplayMain => "session_replay_main",
+            Outputs::SessionReplayOverflow => "session_replay_overflow",
+            Outputs::Dlq => "dlq",
+            Outputs::ErrorTrackingMain => "error_tracking_main",
+            Outputs::AiMain => "ai_main",
+            Outputs::AiOverflow => "ai_overflow",
+            Outputs::Custom(_) => "custom",
+        }
+    }
+}
+
+/// The one place output→topic wiring lives. Holds the configured topic for every
+/// fixed [`Outputs`] variant. Cheap to clone; the sink holds it behind an `Arc`.
+#[derive(Clone, Debug)]
+pub struct OutputRegistry {
+    pub(crate) main: String,
+    pub(crate) overflow: String,
+    pub(crate) historical: String,
+    pub(crate) client_ingestion_warning: String,
+    pub(crate) heatmaps: String,
+    pub(crate) replay_overflow: String,
+    pub(crate) dlq: String,
+    pub(crate) error_tracking: String,
+    /// Dedicated topic for `Outputs::AiMain`. Optional because the AI lane
+    /// is opt-in: startup validation guarantees it is set whenever the routing
+    /// policy can produce `AiEvents` records.
+    pub(crate) ai_events: Option<String>,
+    /// Overflow topic for the AI lane. Unset means the AI overflow valve is
+    /// unarmed and routing never selects `Outputs::AiOverflow`.
+    pub(crate) ai_events_overflow: Option<String>,
+}
+
+impl OutputRegistry {
+    /// Resolve an output to its topic. Fixed outputs read the registered topic;
+    /// `Custom` returns its inline, admin-supplied topic.
+    ///
+    /// An unset AI topic should be impossible for a reachable AI output
+    /// (startup validation requires `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`
+    /// whenever the routing policy can produce `AiEvents`), so it falls back
+    /// to the main topic rather than failing the batch.
+    pub fn topic_for<'a>(&'a self, output: &Outputs<'a>) -> &'a str {
+        match output {
+            Outputs::AnalyticsMain | Outputs::SessionReplayMain => &self.main,
+            Outputs::AnalyticsOverflow => &self.overflow,
+            Outputs::AnalyticsHistorical => &self.historical,
+            Outputs::ClientWarningsMain => &self.client_ingestion_warning,
+            Outputs::HeatmapsMain => &self.heatmaps,
+            Outputs::SessionReplayOverflow => &self.replay_overflow,
+            Outputs::Dlq => &self.dlq,
+            Outputs::ErrorTrackingMain => &self.error_tracking,
+            Outputs::AiMain => self.ai_events_topic_or_fallback(),
+            Outputs::AiOverflow => match self.ai_events_overflow.as_deref() {
+                Some(topic) if !topic.is_empty() => topic,
+                // Unreachable: routing only selects this output when the
+                // valve is armed, i.e. exactly when the topic is set.
+                _ => self.ai_events_topic_or_fallback(),
+            },
+            Outputs::Custom(topic) => topic,
+        }
+    }
+
+    /// Whether the AI overflow valve is armed: the AI overflow topic is wired,
+    /// so routing may select `Outputs::AiOverflow`.
+    pub fn ai_events_overflow_armed(&self) -> bool {
+        self.ai_events_overflow
+            .as_deref()
+            .is_some_and(|t| !t.is_empty())
+    }
+
+    fn ai_events_topic_or_fallback(&self) -> &str {
+        match self.ai_events.as_deref() {
+            Some(topic) if !topic.is_empty() => topic,
+            _ => {
+                warn!(
+                    "CAPTURE_ANALYTICS_AI_EVENTS_TOPIC not configured for an AiEvents record; falling back to main topic"
+                );
+                &self.main
+            }
+        }
+    }
+
+    /// Startup completeness check: every registered output must resolve to a
+    /// non-empty topic. Introduced by Step 3 (#68719) — a misconfigured or
+    /// newly-added-but-unwired output now fails fast at boot instead of at first
+    /// produce. `Custom` is excluded (it carries its own topic per event), as
+    /// are the opt-in AI outputs (validated by setup against the routing mode).
+    pub fn check_complete(&self) -> anyhow::Result<()> {
+        for output in &Outputs::REGISTERED {
+            anyhow::ensure!(
+                !self.topic_for(output).is_empty(),
+                "output '{}' resolves to an empty Kafka topic; every non-custom \
+                 output must be bound to a configured, non-empty topic",
+                output.name(),
+            );
+        }
+        Ok(())
+    }
+}
+
+impl From<&KafkaConfig> for OutputRegistry {
+    fn from(config: &KafkaConfig) -> Self {
+        Self {
+            main: config.kafka_topic.clone(),
+            overflow: config.kafka_overflow_topic.clone(),
+            historical: config.kafka_historical_topic.clone(),
+            client_ingestion_warning: config.kafka_client_ingestion_warning_topic.clone(),
+            heatmaps: config.kafka_heatmaps_topic.clone(),
+            replay_overflow: config.kafka_replay_overflow_topic.clone(),
+            dlq: config.kafka_dlq_topic.clone(),
+            error_tracking: config.kafka_error_tracking_topic.clone(),
+            ai_events: config.capture_analytics_ai_events_topic.clone(),
+            ai_events_overflow: config.capture_analytics_ai_events_overflow_topic.clone(),
+        }
+    }
+}
+
+/// Shared `OutputRegistry` fixture for tests across the capture crate. Used by
+/// sink-side routing tests and pipeline-to-sink E2E tests so every test site
+/// asserts against the same canonical topic names.
+#[cfg(test)]
+pub(crate) fn test_topics() -> OutputRegistry {
+    OutputRegistry {
+        main: "events_plugin_ingestion".to_string(),
+        overflow: "events_plugin_ingestion_overflow".to_string(),
+        historical: "events_plugin_ingestion_historical".to_string(),
+        client_ingestion_warning: "client_ingestion_warning".to_string(),
+        heatmaps: "heatmaps".to_string(),
+        replay_overflow: "replay_overflow".to_string(),
+        dlq: "events_plugin_ingestion_dlq".to_string(),
+        error_tracking: "error_tracking_events".to_string(),
+        ai_events: Some("ai_events".to_string()),
+        ai_events_overflow: Some("ai_events_overflow".to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case(Outputs::AnalyticsMain, "events_plugin_ingestion")]
+    #[case(Outputs::SessionReplayMain, "events_plugin_ingestion")]
+    #[case(Outputs::AnalyticsOverflow, "events_plugin_ingestion_overflow")]
+    #[case(Outputs::AnalyticsHistorical, "events_plugin_ingestion_historical")]
+    #[case(Outputs::ClientWarningsMain, "client_ingestion_warning")]
+    #[case(Outputs::HeatmapsMain, "heatmaps")]
+    #[case(Outputs::SessionReplayOverflow, "replay_overflow")]
+    #[case(Outputs::Dlq, "events_plugin_ingestion_dlq")]
+    #[case(Outputs::ErrorTrackingMain, "error_tracking_events")]
+    #[case(Outputs::AiMain, "ai_events")]
+    #[case(Outputs::AiOverflow, "ai_events_overflow")]
+    fn topic_for_resolves_registered_outputs(
+        #[case] output: Outputs<'static>,
+        #[case] expected: &str,
+    ) {
+        assert_eq!(test_topics().topic_for(&output), expected);
+    }
+
+    #[test]
+    fn topic_for_custom_returns_inline_topic() {
+        let registry = test_topics();
+        assert_eq!(
+            registry.topic_for(&Outputs::Custom("admin_topic")),
+            "admin_topic"
+        );
+    }
+
+    /// Unset AI topics carry no completeness requirement (they are opt-in) and
+    /// degrade to the main topic instead of failing the batch.
+    #[test]
+    fn unset_ai_outputs_fall_back_to_main() {
+        let mut registry = test_topics();
+        registry.ai_events = None;
+        registry.ai_events_overflow = None;
+        assert!(registry.check_complete().is_ok());
+        assert!(!registry.ai_events_overflow_armed());
+        assert_eq!(
+            registry.topic_for(&Outputs::AiMain),
+            "events_plugin_ingestion"
+        );
+        assert_eq!(
+            registry.topic_for(&Outputs::AiOverflow),
+            "events_plugin_ingestion"
+        );
+    }
+
+    #[test]
+    fn check_complete_accepts_full_registry() {
+        assert!(test_topics().check_complete().is_ok());
+    }
+
+    /// Every registered output, blanked one at a time, must fail the check and
+    /// the error must name the offending output — the #68719 completeness seam.
+    #[rstest]
+    #[case("analytics_main", |r: &mut OutputRegistry| r.main.clear())]
+    #[case("analytics_overflow", |r: &mut OutputRegistry| r.overflow.clear())]
+    #[case("analytics_historical", |r: &mut OutputRegistry| r.historical.clear())]
+    #[case("client_warnings_main", |r: &mut OutputRegistry| r.client_ingestion_warning.clear())]
+    #[case("heatmaps_main", |r: &mut OutputRegistry| r.heatmaps.clear())]
+    #[case("session_replay_overflow", |r: &mut OutputRegistry| r.replay_overflow.clear())]
+    #[case("dlq", |r: &mut OutputRegistry| r.dlq.clear())]
+    #[case("error_tracking_main", |r: &mut OutputRegistry| r.error_tracking.clear())]
+    fn check_complete_rejects_empty_topic(
+        #[case] output_name: &str,
+        #[case] blank: fn(&mut OutputRegistry),
+    ) {
+        let mut registry = test_topics();
+        blank(&mut registry);
+        let err = registry
+            .check_complete()
+            .expect_err("blank topic must fail the completeness check");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains(output_name),
+            "error should name the missing output '{output_name}': {msg}"
+        );
+    }
+}

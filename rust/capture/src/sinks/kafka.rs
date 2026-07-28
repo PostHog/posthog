@@ -20,6 +20,7 @@
 use crate::api::CaptureError;
 use crate::config::{EnvelopeCompression, KafkaConfig};
 use crate::sinks::producer::{KafkaProducer, ProduceRecord};
+use crate::sinks::registry::{OutputRegistry, Outputs};
 use crate::sinks::Event;
 use crate::v0_request::{DataType, OverflowReason, ProcessedEvent, ProcessedEventMetadata};
 use async_trait::async_trait;
@@ -30,7 +31,7 @@ use rdkafka::ClientConfig;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::task::JoinSet;
-use tracing::log::{debug, error, info, warn};
+use tracing::log::{debug, error, info};
 use tracing::{info_span, instrument, Instrument};
 
 use super::producer::RdKafkaProducer;
@@ -169,47 +170,6 @@ impl rdkafka::ClientContext for KafkaContext {
     }
 }
 
-/// Topic configuration for the Kafka sink
-#[derive(Clone)]
-pub struct KafkaTopicConfig {
-    pub main_topic: String,
-    pub overflow_topic: String,
-    pub historical_topic: String,
-    pub client_ingestion_warning_topic: String,
-    pub heatmaps_topic: String,
-    pub replay_overflow_topic: String,
-    pub dlq_topic: String,
-    pub error_tracking_topic: String,
-    pub traces_topic: String,
-    /// Dedicated topic for `DataType::AiEvents` (`CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`). Optional
-    /// because the AI lane is opt-in: startup validation guarantees it is set
-    /// whenever the routing policy can produce `AiEvents` records.
-    pub ai_events_topic: Option<String>,
-    /// Overflow topic for the AI lane (`CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`). Unset
-    /// means AI events never overflow; when set, stamped/forced overflow on
-    /// `AiEvents` records reroutes here with the same key semantics as the
-    /// analytics overflow topic.
-    pub ai_events_overflow_topic: Option<String>,
-}
-
-impl From<&KafkaConfig> for KafkaTopicConfig {
-    fn from(config: &KafkaConfig) -> Self {
-        Self {
-            main_topic: config.kafka_topic.clone(),
-            overflow_topic: config.kafka_overflow_topic.clone(),
-            historical_topic: config.kafka_historical_topic.clone(),
-            client_ingestion_warning_topic: config.kafka_client_ingestion_warning_topic.clone(),
-            heatmaps_topic: config.kafka_heatmaps_topic.clone(),
-            replay_overflow_topic: config.kafka_replay_overflow_topic.clone(),
-            dlq_topic: config.kafka_dlq_topic.clone(),
-            error_tracking_topic: config.kafka_error_tracking_topic.clone(),
-            traces_topic: config.kafka_traces_topic.clone(),
-            ai_events_topic: config.capture_analytics_ai_events_topic.clone(),
-            ai_events_overflow_topic: config.capture_analytics_ai_events_overflow_topic.clone(),
-        }
-    }
-}
-
 /// Generic Kafka sink that can use any producer implementation.
 ///
 /// Holds only the producer handle, the topic config, and the replay envelope
@@ -221,7 +181,7 @@ impl From<&KafkaConfig> for KafkaTopicConfig {
 /// is cloned once per spawned prep task.
 pub struct KafkaSinkBase<P: KafkaProducer> {
     producer: Arc<P>,
-    topics: Arc<KafkaTopicConfig>,
+    topics: Arc<OutputRegistry>,
     replay_envelope_compression: EnvelopeCompression,
 }
 
@@ -233,29 +193,6 @@ impl<P: KafkaProducer> Clone for KafkaSinkBase<P> {
             replay_envelope_compression: self.replay_envelope_compression,
         }
     }
-}
-
-/// Which configured topic a routing decision selects. The sink resolves this to
-/// a concrete topic string against its [`KafkaTopicConfig`]. Mirrors v1's
-/// `Destination` split (the Step 12 convergence target); Step 3 promotes this to
-/// the shared `Outputs` enum backing the OutputRegistry.
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum RouteTarget<'a> {
-    Main,
-    Overflow,
-    Historical,
-    ClientIngestionWarning,
-    Heatmaps,
-    ReplayOverflow,
-    Dlq,
-    ErrorTracking,
-    /// Dedicated `$ai_*` topic (`CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`).
-    AiEvents,
-    /// Overflow lane for `AiEvents`; only selected when the AI overflow valve
-    /// (`CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`) is armed.
-    AiEventsOverflow,
-    /// Admin-configured custom topic borrowed from `redirect_to_topic`.
-    Custom(&'a str),
 }
 
 /// How the sink derives the Kafka partition key. Resolved against the event key
@@ -296,7 +233,7 @@ enum RouteEffect {
 /// decision rather than a topic name.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Route<'a> {
-    target: RouteTarget<'a>,
+    target: Outputs<'a>,
     key_policy: KeyPolicy,
     effect: RouteEffect,
 }
@@ -320,7 +257,7 @@ fn route(metadata: &ProcessedEventMetadata, ai_events_overflow_armed: bool) -> R
     // redirect_to_dlq takes priority over all other routing.
     if metadata.redirect_to_dlq {
         return Route {
-            target: RouteTarget::Dlq,
+            target: Outputs::Dlq,
             key_policy: KeyPolicy::EventKey,
             effect: RouteEffect::Dlq,
         };
@@ -328,7 +265,7 @@ fn route(metadata: &ProcessedEventMetadata, ai_events_overflow_armed: bool) -> R
 
     if let Some(ref topic) = metadata.redirect_to_topic {
         return Route {
-            target: RouteTarget::Custom(topic),
+            target: Outputs::Custom(topic),
             key_policy: KeyPolicy::EventKey,
             effect: RouteEffect::CustomTopic,
         };
@@ -338,7 +275,7 @@ fn route(metadata: &ProcessedEventMetadata, ai_events_overflow_armed: bool) -> R
         DataType::AnalyticsHistorical => Route {
             // Historical events never overflow — force_overflow and
             // overflow_reason are deliberately ignored here.
-            target: RouteTarget::Historical,
+            target: Outputs::AnalyticsHistorical,
             key_policy: KeyPolicy::EventKey,
             effect: RouteEffect::Standard,
         },
@@ -347,34 +284,34 @@ fn route(metadata: &ProcessedEventMetadata, ai_events_overflow_armed: bool) -> R
             // (pipeline-stamped) -> default main-topic routing.
             if metadata.force_overflow {
                 Route {
-                    target: RouteTarget::Overflow,
+                    target: Outputs::AnalyticsOverflow,
                     key_policy: person_key_policy(metadata.skip_person_processing),
                     effect: RouteEffect::Standard,
                 }
             } else {
                 match &metadata.overflow_reason {
                     Some(OverflowReason::ForceLimited) => Route {
-                        target: RouteTarget::Overflow,
+                        target: Outputs::AnalyticsOverflow,
                         key_policy: KeyPolicy::Null,
                         effect: RouteEffect::ForceDisablePersonProcessing,
                     },
                     Some(OverflowReason::RateLimited {
                         preserve_locality: true,
                     }) => Route {
-                        target: RouteTarget::Overflow,
+                        target: Outputs::AnalyticsOverflow,
                         key_policy: KeyPolicy::EventKey,
                         effect: RouteEffect::Standard,
                     },
                     Some(OverflowReason::RateLimited {
                         preserve_locality: false,
                     }) => Route {
-                        target: RouteTarget::Overflow,
+                        target: Outputs::AnalyticsOverflow,
                         key_policy: KeyPolicy::Null,
                         effect: RouteEffect::Standard,
                     },
                     // ReplayLimited never applies to AnalyticsMain; fall through to main.
                     Some(OverflowReason::ReplayLimited) | None => Route {
-                        target: RouteTarget::Main,
+                        target: Outputs::AnalyticsMain,
                         key_policy: person_key_policy(metadata.skip_person_processing),
                         effect: RouteEffect::Standard,
                     },
@@ -392,57 +329,57 @@ fn route(metadata: &ProcessedEventMetadata, ai_events_overflow_armed: bool) -> R
             // historical.
             if ai_events_overflow_armed && metadata.force_overflow {
                 Route {
-                    target: RouteTarget::AiEventsOverflow,
+                    target: Outputs::AiOverflow,
                     key_policy: person_key_policy(metadata.skip_person_processing),
                     effect: RouteEffect::Standard,
                 }
             } else if ai_events_overflow_armed {
                 match &metadata.overflow_reason {
                     Some(OverflowReason::ForceLimited) => Route {
-                        target: RouteTarget::AiEventsOverflow,
+                        target: Outputs::AiOverflow,
                         key_policy: KeyPolicy::Null,
                         effect: RouteEffect::ForceDisablePersonProcessing,
                     },
                     Some(OverflowReason::RateLimited {
                         preserve_locality: true,
                     }) => Route {
-                        target: RouteTarget::AiEventsOverflow,
+                        target: Outputs::AiOverflow,
                         key_policy: KeyPolicy::EventKey,
                         effect: RouteEffect::Standard,
                     },
                     Some(OverflowReason::RateLimited {
                         preserve_locality: false,
                     }) => Route {
-                        target: RouteTarget::AiEventsOverflow,
+                        target: Outputs::AiOverflow,
                         key_policy: KeyPolicy::Null,
                         effect: RouteEffect::Standard,
                     },
                     Some(OverflowReason::ReplayLimited) | None => Route {
-                        target: RouteTarget::AiEvents,
+                        target: Outputs::AiMain,
                         key_policy: KeyPolicy::EventKey,
                         effect: RouteEffect::Standard,
                     },
                 }
             } else {
                 Route {
-                    target: RouteTarget::AiEvents,
+                    target: Outputs::AiMain,
                     key_policy: KeyPolicy::EventKey,
                     effect: RouteEffect::Standard,
                 }
             }
         }
         DataType::ClientIngestionWarning => Route {
-            target: RouteTarget::ClientIngestionWarning,
+            target: Outputs::ClientWarningsMain,
             key_policy: KeyPolicy::EventKey,
             effect: RouteEffect::Standard,
         },
         DataType::HeatmapMain => Route {
-            target: RouteTarget::Heatmaps,
+            target: Outputs::HeatmapsMain,
             key_policy: KeyPolicy::EventKey,
             effect: RouteEffect::Standard,
         },
         DataType::ExceptionErrorTracking => Route {
-            target: RouteTarget::ErrorTracking,
+            target: Outputs::ErrorTrackingMain,
             key_policy: KeyPolicy::EventKey,
             effect: RouteEffect::Standard,
         },
@@ -456,41 +393,14 @@ fn route(metadata: &ProcessedEventMetadata, ai_events_overflow_armed: bool) -> R
                     metadata.overflow_reason,
                     Some(OverflowReason::ReplayLimited)
                 ) {
-                RouteTarget::ReplayOverflow
+                Outputs::SessionReplayOverflow
             } else {
-                RouteTarget::Main
+                Outputs::SessionReplayMain
             };
             Route {
                 target,
                 key_policy: KeyPolicy::SessionId,
                 effect: RouteEffect::Standard,
-            }
-        }
-    }
-}
-
-impl KafkaTopicConfig {
-    /// Whether the AI overflow valve is armed: the AI overflow topic is wired,
-    /// so the AI lane may route to its overflow.
-    fn ai_events_overflow_armed(&self) -> bool {
-        self.ai_events_overflow_topic
-            .as_deref()
-            .is_some_and(|t| !t.is_empty())
-    }
-
-    /// The dedicated `$ai_*` topic. An unset topic should be impossible for a
-    /// reachable `AiEvents` route (startup validation requires
-    /// `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC` whenever the routing policy can
-    /// produce `AiEvents`), so it falls back to the main topic rather than
-    /// failing the batch.
-    fn ai_events_topic_or_fallback(&self) -> &str {
-        match self.ai_events_topic.as_deref() {
-            Some(topic) if !topic.is_empty() => topic,
-            _ => {
-                warn!(
-                    "CAPTURE_ANALYTICS_AI_EVENTS_TOPIC not configured for an AiEvents record; falling back to main topic"
-                );
-                &self.main_topic
             }
         }
     }
@@ -526,7 +436,7 @@ mod route_tests {
         assert_eq!(
             route(&m, false),
             Route {
-                target: RouteTarget::Dlq,
+                target: Outputs::Dlq,
                 key_policy: KeyPolicy::EventKey,
                 effect: RouteEffect::Dlq,
             }
@@ -542,7 +452,7 @@ mod route_tests {
         assert_eq!(
             route(&m, false),
             Route {
-                target: RouteTarget::Custom("my_topic"),
+                target: Outputs::Custom("my_topic"),
                 key_policy: KeyPolicy::EventKey,
                 effect: RouteEffect::CustomTopic,
             }
@@ -552,16 +462,16 @@ mod route_tests {
     #[test]
     fn per_datatype_targets() {
         for (dt, target) in [
-            (DataType::AnalyticsMain, RouteTarget::Main),
-            (DataType::AnalyticsHistorical, RouteTarget::Historical),
+            (DataType::AnalyticsMain, Outputs::AnalyticsMain),
+            (DataType::AnalyticsHistorical, Outputs::AnalyticsHistorical),
             (
                 DataType::ClientIngestionWarning,
-                RouteTarget::ClientIngestionWarning,
+                Outputs::ClientWarningsMain,
             ),
-            (DataType::HeatmapMain, RouteTarget::Heatmaps),
-            (DataType::ExceptionErrorTracking, RouteTarget::ErrorTracking),
-            (DataType::AiEvents, RouteTarget::AiEvents),
-            (DataType::SnapshotMain, RouteTarget::Main),
+            (DataType::HeatmapMain, Outputs::HeatmapsMain),
+            (DataType::ExceptionErrorTracking, Outputs::ErrorTrackingMain),
+            (DataType::AiEvents, Outputs::AiMain),
+            (DataType::SnapshotMain, Outputs::SessionReplayMain),
         ] {
             let m = meta(dt);
             let r = route(&m, false);
@@ -578,7 +488,7 @@ mod route_tests {
         assert_eq!(route(&m, false).key_policy, KeyPolicy::EventKey);
         m.skip_person_processing = true;
         assert_eq!(route(&m, false).key_policy, KeyPolicy::Null);
-        assert_eq!(route(&m, false).target, RouteTarget::Overflow);
+        assert_eq!(route(&m, false).target, Outputs::AnalyticsOverflow);
     }
 
     #[test]
@@ -590,7 +500,7 @@ mod route_tests {
         assert_eq!(
             route(&force_limited, false),
             Route {
-                target: RouteTarget::Overflow,
+                target: Outputs::AnalyticsOverflow,
                 key_policy: KeyPolicy::Null,
                 effect: RouteEffect::ForceDisablePersonProcessing,
             }
@@ -601,19 +511,22 @@ mod route_tests {
             preserve_locality: true,
         });
         assert_eq!(route(&preserve, false).key_policy, KeyPolicy::EventKey);
-        assert_eq!(route(&preserve, false).target, RouteTarget::Overflow);
+        assert_eq!(route(&preserve, false).target, Outputs::AnalyticsOverflow);
 
         let mut no_preserve = base.clone();
         no_preserve.overflow_reason = Some(OverflowReason::RateLimited {
             preserve_locality: false,
         });
         assert_eq!(route(&no_preserve, false).key_policy, KeyPolicy::Null);
-        assert_eq!(route(&no_preserve, false).target, RouteTarget::Overflow);
+        assert_eq!(
+            route(&no_preserve, false).target,
+            Outputs::AnalyticsOverflow
+        );
 
         // ReplayLimited never applies to AnalyticsMain: falls through to main.
         let mut replay = base;
         replay.overflow_reason = Some(OverflowReason::ReplayLimited);
-        assert_eq!(route(&replay, false).target, RouteTarget::Main);
+        assert_eq!(route(&replay, false).target, Outputs::AnalyticsMain);
     }
 
     #[test]
@@ -625,14 +538,14 @@ mod route_tests {
         assert_eq!(
             route(&m, false),
             Route {
-                target: RouteTarget::AiEvents,
+                target: Outputs::AiMain,
                 key_policy: KeyPolicy::EventKey,
                 effect: RouteEffect::Standard,
             }
         );
 
         // Valve armed: mirrors the analytics main lane's overflow handling.
-        assert_eq!(route(&m, true).target, RouteTarget::AiEventsOverflow);
+        assert_eq!(route(&m, true).target, Outputs::AiOverflow);
         assert_eq!(route(&m, true).key_policy, KeyPolicy::EventKey);
         m.skip_person_processing = true;
         assert_eq!(route(&m, true).key_policy, KeyPolicy::Null);
@@ -642,12 +555,12 @@ mod route_tests {
         assert_eq!(
             route(&force_limited, true),
             Route {
-                target: RouteTarget::AiEventsOverflow,
+                target: Outputs::AiOverflow,
                 key_policy: KeyPolicy::Null,
                 effect: RouteEffect::ForceDisablePersonProcessing,
             }
         );
-        assert_eq!(route(&force_limited, false).target, RouteTarget::AiEvents);
+        assert_eq!(route(&force_limited, false).target, Outputs::AiMain);
     }
 
     #[test]
@@ -660,7 +573,7 @@ mod route_tests {
             assert_eq!(
                 route(&m, armed),
                 Route {
-                    target: RouteTarget::AiEvents,
+                    target: Outputs::AiMain,
                     key_policy: KeyPolicy::EventKey,
                     effect: RouteEffect::Standard,
                 },
@@ -675,19 +588,19 @@ mod route_tests {
         assert_eq!(
             route(&m, false),
             Route {
-                target: RouteTarget::Main,
+                target: Outputs::SessionReplayMain,
                 key_policy: KeyPolicy::SessionId,
                 effect: RouteEffect::Standard,
             }
         );
 
         m.force_overflow = true;
-        assert_eq!(route(&m, false).target, RouteTarget::ReplayOverflow);
+        assert_eq!(route(&m, false).target, Outputs::SessionReplayOverflow);
         assert_eq!(route(&m, false).key_policy, KeyPolicy::SessionId);
 
         m.force_overflow = false;
         m.overflow_reason = Some(OverflowReason::ReplayLimited);
-        assert_eq!(route(&m, false).target, RouteTarget::ReplayOverflow);
+        assert_eq!(route(&m, false).target, Outputs::SessionReplayOverflow);
     }
 }
 
@@ -816,7 +729,11 @@ impl KafkaSink {
             info!("connected to Kafka brokers");
         };
 
-        let topics = Arc::new(KafkaTopicConfig::from(&config));
+        // Refuse to boot on incomplete output wiring: a blank topic fails
+        // here, at startup, instead of at first produce.
+        let registry = OutputRegistry::from(&config);
+        registry.check_complete()?;
+        let topics = Arc::new(registry);
         let rd_producer = RdKafkaProducer::new(producer);
 
         Ok(KafkaSinkBase {
@@ -831,7 +748,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
     /// Create a new KafkaSinkBase with a custom producer (useful for testing).
     /// No limiters — the sink is a mechanism layer; overflow stamping happens
     /// upstream in the pipeline. See the module header for details.
-    pub fn with_producer(producer: P, topics: KafkaTopicConfig) -> Self {
+    pub fn with_producer(producer: P, topics: OutputRegistry) -> Self {
         Self {
             producer: Arc::new(producer),
             topics: Arc::new(topics),
@@ -842,7 +759,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
     /// Same as `with_producer` but with envelope compression enabled. Used in tests.
     pub fn with_producer_and_compression(
         producer: P,
-        topics: KafkaTopicConfig,
+        topics: OutputRegistry,
         replay_envelope_compression: EnvelopeCompression,
     ) -> Self {
         Self {
@@ -917,26 +834,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
         // it owns, and applies the effect.
         let route = route(&metadata, self.topics.ai_events_overflow_armed());
 
-        let topic: &str = match route.target {
-            RouteTarget::Main => &self.topics.main_topic,
-            RouteTarget::Overflow => &self.topics.overflow_topic,
-            RouteTarget::Historical => &self.topics.historical_topic,
-            RouteTarget::ClientIngestionWarning => &self.topics.client_ingestion_warning_topic,
-            RouteTarget::Heatmaps => &self.topics.heatmaps_topic,
-            RouteTarget::ReplayOverflow => &self.topics.replay_overflow_topic,
-            RouteTarget::Dlq => &self.topics.dlq_topic,
-            RouteTarget::ErrorTracking => &self.topics.error_tracking_topic,
-            RouteTarget::AiEvents => self.topics.ai_events_topic_or_fallback(),
-            RouteTarget::AiEventsOverflow => {
-                match self.topics.ai_events_overflow_topic.as_deref() {
-                    Some(topic) if !topic.is_empty() => topic,
-                    // Unreachable: `route` only selects this target when the
-                    // valve is armed, i.e. exactly when the topic is set.
-                    _ => self.topics.ai_events_topic_or_fallback(),
-                }
-            }
-            RouteTarget::Custom(topic) => topic,
-        };
+        let topic: &str = self.topics.topic_for(&route.target);
 
         let partition_key: Option<&str> = match route.key_policy {
             KeyPolicy::EventKey => Some(event_key.as_str()),
@@ -1202,25 +1100,8 @@ async fn drain_acks(mut ack_set: JoinSet<Result<(), CaptureError>>) -> Result<()
     .await
 }
 
-/// Shared `KafkaTopicConfig` fixture for tests across the capture crate. Used
-/// by sink-side routing tests and pipeline-to-sink E2E tests to ensure every
-/// test site asserts against the same canonical topic names.
 #[cfg(test)]
-pub(crate) fn test_topics() -> KafkaTopicConfig {
-    KafkaTopicConfig {
-        main_topic: "events_plugin_ingestion".to_string(),
-        overflow_topic: "events_plugin_ingestion_overflow".to_string(),
-        historical_topic: "events_plugin_ingestion_historical".to_string(),
-        client_ingestion_warning_topic: "client_ingestion_warning".to_string(),
-        heatmaps_topic: "heatmaps".to_string(),
-        replay_overflow_topic: "replay_overflow".to_string(),
-        dlq_topic: "events_plugin_ingestion_dlq".to_string(),
-        error_tracking_topic: "error_tracking_events".to_string(),
-        traces_topic: "tracing_ingestion".to_string(),
-        ai_events_topic: Some("ai_events".to_string()),
-        ai_events_overflow_topic: Some("ai_events_overflow".to_string()),
-    }
-}
+pub(crate) use crate::sinks::registry::test_topics;
 
 #[cfg(test)]
 mod tests {
@@ -2803,7 +2684,7 @@ mod tests {
             // gated pipeline would not produce anyway) are ignored.
             let producer = MockKafkaProducer::new();
             let mut topics = test_topics();
-            topics.ai_events_overflow_topic = None;
+            topics.ai_events_overflow = None;
             let sink = KafkaSinkBase::with_producer(producer.clone(), topics);
 
             let mut event = create_test_event(&EventInput {
@@ -2933,7 +2814,7 @@ mod tests {
             // misconfigured sink must degrade to the main topic, not error.
             let producer = MockKafkaProducer::new();
             let mut topics = test_topics();
-            topics.ai_events_topic = None;
+            topics.ai_events = None;
             let sink = KafkaSinkBase::with_producer(producer.clone(), topics);
 
             let input = EventInput {
@@ -2952,7 +2833,7 @@ mod tests {
         async fn ai_events_empty_topic_falls_back_to_main() {
             let producer = MockKafkaProducer::new();
             let mut topics = test_topics();
-            topics.ai_events_topic = Some(String::new());
+            topics.ai_events = Some(String::new());
             let sink = KafkaSinkBase::with_producer(producer.clone(), topics);
 
             let input = EventInput {
