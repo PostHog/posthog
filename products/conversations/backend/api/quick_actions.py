@@ -126,8 +126,25 @@ class QuickActionSerializer(serializers.ModelSerializer):
             return attrs[field]
         return getattr(self.instance, field, None)
 
+    def _merged_actions(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # `actions` is a single JSON column DRF replaces wholesale, and the Settings UI has no
+        # assignee control, so when a write omits `assignee` we carry the instance's existing one
+        # forward rather than silently dropping one set via the API. Status/priority/tags stay
+        # full-replace so clearing them in the UI sticks.
+        new_actions = attrs["actions"] or {}
+        existing = getattr(self.instance, "actions", None) or {}
+        if "assignee" not in new_actions and existing.get("assignee"):
+            new_actions = {**new_actions, "assignee": existing["assignee"]}
+        return new_actions
+
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         instance = self.instance
+
+        # Resolve the actions this write persists up front so the "must do something" check below
+        # and the stored value can't disagree (a merged-back assignee makes an otherwise-empty
+        # payload a non-empty action set).
+        if "actions" in attrs:
+            attrs["actions"] = self._merged_actions(attrs)
 
         # A quick action must do something: insert a reply or apply ticket actions.
         has_reply = bool(self._effective(attrs, "content") or self._effective(attrs, "rich_content"))
@@ -147,17 +164,6 @@ class QuickActionSerializer(serializers.ModelSerializer):
                 {"visibility": "Only the creator can make a shared team quick action personal."}
             )
         return attrs
-
-    def update(self, instance: QuickAction, validated_data: dict[str, Any]) -> QuickAction:
-        # `actions` is a single JSON column, so DRF replaces it wholesale. The Settings UI has no
-        # assignee control, so merge the existing assignee back in to avoid silently dropping one
-        # set via the API. Status/priority/tags stay full-replace so clearing them in the UI sticks.
-        if "actions" in validated_data:
-            new_actions = validated_data["actions"] or {}
-            if "assignee" not in new_actions and instance.actions.get("assignee"):
-                new_actions = {**new_actions, "assignee": instance.actions["assignee"]}
-            validated_data["actions"] = new_actions
-        return super().update(instance, validated_data)
 
     def create(self, validated_data: dict[str, Any]) -> QuickAction:
         validated_data["team_id"] = self.context["team_id"]
@@ -184,6 +190,12 @@ class QuickActionViewSet(
     serializer_class = QuickActionSerializer
     lookup_field = "short_id"
 
+    def _should_skip_parents_filter(self) -> bool:
+        # `safely_get_queryset` already scopes by the canonical team via `for_team`. The default
+        # parent-lookup filter would AND the raw URL team id back on top, which for a child
+        # environment can never match a quick action stored under the parent team.
+        return True
+
     def safely_get_queryset(self, queryset: QuerySet[QuickAction]) -> QuerySet[QuickAction]:
         # `for_team` resolves child environments to the canonical (parent) team id, matching the
         # rewrite `RootTeamMixin.save()` performs on write. Filtering by the raw `self.team_id`
@@ -193,7 +205,7 @@ class QuickActionViewSet(
         return queryset.filter(
             Q(visibility=QuickActionVisibility.TEAM)
             | Q(visibility=QuickActionVisibility.PERSONAL, created_by=self.request.user)
-        )
+        ).order_by("-created_at")
 
     def _track(self, event: str, instance: QuickAction) -> None:
         report_user_action(

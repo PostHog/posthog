@@ -2,7 +2,7 @@ from posthog.test.base import APIBaseTest
 
 from rest_framework import status
 
-from posthog.models import User
+from posthog.models import Team, User
 
 from products.conversations.backend.models import QuickAction
 
@@ -96,3 +96,33 @@ class TestQuickActionAPI(APIBaseTest):
     def test_content_over_cap_is_rejected(self) -> None:
         response = self.client.post(self.base_url, {"name": "Too long", "content": "x" * 50_001}, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+
+    def test_quick_actions_visible_from_child_environment(self) -> None:
+        # Regression guard: quick actions are stored under the canonical parent team, so a child
+        # environment must still list them. If the parent-lookup filter re-ANDs the raw child team
+        # id, list/retrieve return nothing and the feature is dead for multi-environment projects.
+        child_team = Team.objects.create(
+            organization=self.organization, project=self.project, parent_team=self.team, name="Child environment"
+        )
+        child_url = f"/api/projects/{child_team.id}/conversations/quick_actions/"
+        created = self.client.post(child_url, {"name": "From child", "content": "Hi"}, format="json").json()
+
+        listed = {q["short_id"] for q in self.client.get(child_url).json()["results"]}
+        self.assertIn(created["short_id"], listed)
+        self.assertEqual(self.client.get(f"{child_url}{created['short_id']}/").status_code, status.HTTP_200_OK)
+
+    def test_assignee_only_action_can_be_resaved_after_clearing_reply(self) -> None:
+        # Regression guard: an assignee-only quick action (assignee is API-only) still counts as
+        # doing something. Clearing the reply and submitting empty actions from the UI must not be
+        # rejected as empty — validate() has to see the assignee that update() merges back.
+        created = self.client.post(
+            self.base_url,
+            {"name": "Route to on-call", "actions": {"assignee": {"type": "user", "id": "42"}}},
+            format="json",
+        ).json()
+        response = self.client.patch(
+            f"{self.base_url}{created['short_id']}/", {"content": "", "actions": {}}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        quick_action = QuickAction.objects.unscoped().get(short_id=created["short_id"])
+        self.assertEqual(quick_action.actions, {"assignee": {"type": "user", "id": "42"}})
