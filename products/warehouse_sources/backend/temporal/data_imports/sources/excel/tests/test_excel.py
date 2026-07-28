@@ -64,6 +64,11 @@ class TestDedupeHeaders(SimpleTestCase):
 
 
 class TestListSheets(SimpleTestCase):
+    def setUp(self) -> None:
+        # Tests reuse the same upload identifiers with different workbook bytes, which the
+        # per-process memo would otherwise conflate.
+        list_sheets.cache_clear()
+
     def test_returns_every_sheet_with_its_columns(self) -> None:
         # One sheet per table is the whole point of routing Excel through the pipeline, so each
         # sheet must be discovered with the header names the column picker will show.
@@ -82,6 +87,18 @@ class TestListSheets(SimpleTestCase):
             sheets = list_sheets(team_id=1, upload_id="u1", filename="book.xlsx")
 
         assert [name for name, _ in sheets] == ["Orders"]
+
+    def test_repeat_discovery_is_served_from_the_memo(self) -> None:
+        # Discovery endpoints call list_sheets twice per request (credential validation, then the
+        # schema list) and can be retried freely; the memo keeps repeat calls for the same immutable
+        # upload from re-downloading and re-parsing a workbook of up to 50 MB in a web worker.
+        data = _workbook_bytes({"Orders": [["id"], [1]]})
+        fake = _FakeS3(data)
+        with patch(f"{MODULE}.get_s3_client", return_value=fake):
+            first = list_sheets(team_id=1, upload_id="u1", filename="book.xlsx")
+            second = list_sheets(team_id=1, upload_id="u1", filename="book.xlsx")
+        assert first == second
+        assert len(fake.opened) == 1
 
     def test_missing_object_raises_a_user_facing_error(self) -> None:
         with patch(f"{MODULE}.get_s3_client", return_value=_FakeS3(None)):
@@ -140,6 +157,9 @@ class TestReadSheetRows(SimpleTestCase):
 
 
 class TestWorkbookBudgets(SimpleTestCase):
+    def setUp(self) -> None:
+        list_sheets.cache_clear()
+
     def test_rejects_an_archive_that_declares_too_much_decompressed_data(self) -> None:
         # A zip bomb fits the 50MB upload cap but declares a huge decompressed payload; the central
         # directory exposes that without decompressing, so it must fail before openpyxl runs — sheet

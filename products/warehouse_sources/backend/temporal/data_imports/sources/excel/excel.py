@@ -11,6 +11,7 @@ costs roughly 13 seconds per million cells, which is fine on a worker and is not
 import io
 import zipfile
 from collections.abc import Iterator
+from functools import lru_cache
 from typing import Any
 
 from django.conf import settings
@@ -147,12 +148,18 @@ def dedupe_headers(header: tuple) -> list[str]:
     return names
 
 
+@lru_cache(maxsize=128)
 def list_sheets(team_id: int, upload_id: str, filename: str) -> list[tuple[str, list[str]]]:
     """Every sheet in the workbook as ``(sheet_name, column_names)``.
 
     Drives schema discovery: one sheet becomes one warehouse table, and the column names feed the
     column-selection picker. A sheet with no usable header row is skipped rather than surfaced as an
     unimportable table.
+
+    Memoized per process: an upload is immutable (replacing the file mints a new upload_id), the
+    result is a few column names, and discovery runs in web requests that call this twice each
+    (credential validation, then the schema list) — without the cache every call re-downloads and
+    re-parses a workbook of up to 50 MB. Callers must not mutate the returned value.
     """
     workbook = _open_workbook(_uploaded_workbook_bytes(team_id, upload_id, filename))
     try:
