@@ -1,9 +1,13 @@
+import json
+from typing import Any
+
 from posthog.test.base import BaseTest
 
 from django.http import QueryDict
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from rest_framework import serializers
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 
@@ -205,29 +209,24 @@ class TestAdvancedActivityLogFilterManager(BaseTest):
         expected_ids = {log1.id, log2.id}
         self.assertEqual(result_ids, expected_ids)
 
-    def test_rejects_dunder_field_paths(self):
-        log = self._create_activity_log({"name": "test"})
-        queryset = ActivityLog.objects.filter(id=log.id)
 
-        filtered = self.filter_manager._apply_detail_filters(
-            queryset, {"user__email": {"operation": "exact", "value": "admin@example.com"}}
-        )
-        self.assertEqual(filtered.count(), 1)
+class TestDetailFilterValidation(SimpleTestCase):
+    # Unsafe filters are rejected before any query is built, so no DB is needed here.
+    @parameterized.expand(
+        [
+            ("relationship_traversal", "user__email", {"operation": "exact", "value": "admin@example.com"}),
+            ("unsupported_operation", "name", {"operation": "regex", "value": ".*"}),
+            ("lookup_suffixed_path", "name.regex", {"operation": "exact", "value": "^(a+)+$"}),
+            ("lookup_named_path", "regex", {"operation": "exact", "value": "^(a+)+$"}),
+            ("array_nesting_fan_out", "a[].b[].c[].d[].e", {"operation": "exact", "value": "x"}),
+            ("non_object_filter_config", "name", "test"),
+        ]
+    )
+    def test_rejects_unsafe_detail_filters(self, _name: str, field_path: str, filter_config: Any) -> None:
+        filter_manager = AdvancedActivityLogFilterManager()
 
-        filtered = self.filter_manager._apply_detail_filters(
-            queryset, {"user__password": {"operation": "contains", "value": "pbkdf2"}}
-        )
-        self.assertEqual(filtered.count(), 1)
-
-    def test_rejects_invalid_operations(self):
-        log = self._create_activity_log({"name": "test"})
-        queryset = ActivityLog.objects.filter(id=log.id)
-
-        filtered = self.filter_manager._apply_detail_filters(queryset, {"name": {"operation": "regex", "value": ".*"}})
-        self.assertEqual(filtered.count(), 1)
-
-        filtered = self.filter_manager._apply_detail_filters(queryset, {"name": {"operation": "gt", "value": "a"}})
-        self.assertEqual(filtered.count(), 1)
+        with self.assertRaises(serializers.ValidationError):
+            filter_manager._apply_detail_filters(ActivityLog.objects.all(), {field_path: filter_config})
 
 
 class TestIpAddressFilter(BaseTest):
@@ -312,6 +311,14 @@ class TestAdvancedActivityLogFiltersSerializerValidation(SimpleTestCase):
         query.appendlist("ip_addresses", value)
         serializer = AdvancedActivityLogFiltersSerializer(data=query)
         self.assertEqual(serializer.is_valid(), expected, serializer.errors)
+
+    def test_serializer_rejects_unsafe_detail_filter_paths(self) -> None:
+        query = QueryDict(mutable=True)
+        query["detail_filters"] = json.dumps({"name.regex": {"operation": "exact", "value": "^(a+)+$"}})
+        serializer = AdvancedActivityLogFiltersSerializer(data=query)
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("detail_filters", serializer.errors)
 
 
 class TestTypeConversionIntegration(BaseTest):
