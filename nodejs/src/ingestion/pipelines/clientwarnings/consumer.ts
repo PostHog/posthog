@@ -7,7 +7,6 @@ import { EventFilterManagerComponent } from '~/ingestion/common/event-filters'
 import { CommonIngestionConsumerConfig, CommonIngestionConsumerScope } from '~/ingestion/common/ingestion-consumer'
 import { ProducerName } from '~/ingestion/common/outputs/producers'
 import { Scope, extend } from '~/ingestion/common/scopes'
-import { extendWithTopHog } from '~/ingestion/common/tophog-scope'
 import { PromiseSchedulerComponent } from '~/ingestion/common/utils/promise-scheduler'
 import { IngestionConsumerConfig, IngestionOutputsConfig } from '~/ingestion/config'
 import { RedisPool } from '~/types'
@@ -48,11 +47,7 @@ export function createClientWarningsConsumer(
             )
     )
 
-    // Own scope (not shared): the registry drains through this consumer's
-    // outputs under this pipeline's labels.
-    const scopeWithTopHog = extendWithTopHog(scope, 'clientwarnings', config)
-
-    return new CommonIngestionConsumerScope('clientwarnings', config, scopeWithTopHog, ({ container }) =>
+    return new CommonIngestionConsumerScope('clientwarnings', config, scope, ({ container }) =>
         createClientWarningsPipeline(container)
     )
 }

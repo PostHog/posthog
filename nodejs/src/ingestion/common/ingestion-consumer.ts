@@ -1,15 +1,19 @@
 import { Message } from 'node-rdkafka'
 import { Gauge } from 'prom-client'
 
+import { TophogOutput } from '~/common/outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { logger } from '~/common/utils/logger'
 import { IngestionConsumerConfig } from '~/ingestion/config'
 import { BatchResult, FeedResult } from '~/ingestion/framework/batching-pipeline'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { OkResultWithContext } from '~/ingestion/framework/pipeline.interface'
+import { TopHog } from '~/ingestion/framework/tophog'
 import { HealthCheckResult, PluginServerService } from '~/types'
 
 import { Scope, extend } from './scopes'
+import { extendWithTopHog } from './tophog-scope'
 import { KafkaConsumerComponent, KafkaConsumerInterface } from './utils/kafka-consumer'
 import { PromiseScheduler } from './utils/promise-scheduler'
 
@@ -61,17 +65,23 @@ const latestOffsetTimestampGauge = new Gauge({
  * consumer, and returns a live `CommonIngestionConsumer` that owns the
  * started handle.
  */
-export class CommonIngestionConsumerScope<S extends ContainerWithPromiseScheduler> {
-    private readonly innerScope: Scope<S & { kafkaConsumer: KafkaConsumerInterface }>
+export class CommonIngestionConsumerScope<
+    S extends ContainerWithPromiseScheduler & { outputs: IngestionOutputs<TophogOutput> },
+> {
+    private readonly innerScope: Scope<S & { topHog: TopHog } & { kafkaConsumer: KafkaConsumerInterface }>
 
     constructor(
         private readonly name: string,
         config: CommonIngestionConsumerConfig,
         scope: Scope<S>,
-        pipelineFactory: PipelineFactory<S>
+        pipelineFactory: PipelineFactory<S & { topHog: TopHog }>
     ) {
         const consumerName = this.name
-        this.innerScope = extend(scope, `${consumerName}-consumer`, (container, builder) => {
+        // Every consumer gets a topHog registry scoped to its own outputs and
+        // pipeline/lane labels — installed here so pipeline factories can rely
+        // on `container.topHog`.
+        const scopeWithTopHog = extendWithTopHog(scope, consumerName, config)
+        this.innerScope = extend(scopeWithTopHog, `${consumerName}-consumer`, (container, builder) => {
             const pipeline = pipelineFactory({ container })
             const handler = new KafkaBatchHandler(config, consumerName, pipeline, container.promiseScheduler)
             return builder.add(

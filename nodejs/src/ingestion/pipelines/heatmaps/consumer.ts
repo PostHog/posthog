@@ -8,7 +8,6 @@ import { EventFilterManagerComponent } from '~/ingestion/common/event-filters'
 import { CommonIngestionConsumerConfig, CommonIngestionConsumerScope } from '~/ingestion/common/ingestion-consumer'
 import { ProducerName } from '~/ingestion/common/outputs/producers'
 import { Scope, extend } from '~/ingestion/common/scopes'
-import { extendWithTopHog } from '~/ingestion/common/tophog-scope'
 import { PromiseSchedulerComponent } from '~/ingestion/common/utils/promise-scheduler'
 import { IngestionConsumerConfig, IngestionOutputsConfig } from '~/ingestion/config'
 import { RedisPool } from '~/types'
@@ -47,11 +46,7 @@ export function createHeatmapsConsumer(config: HeatmapsConsumerConfig, sharedSco
             )
     )
 
-    // Own scope (not shared): the registry drains through this consumer's
-    // outputs under this pipeline's labels.
-    const scopeWithTopHog = extendWithTopHog(scope, 'heatmaps', config)
-
-    return new CommonIngestionConsumerScope('heatmaps', config, scopeWithTopHog, ({ container }) =>
+    return new CommonIngestionConsumerScope('heatmaps', config, scope, ({ container }) =>
         createHeatmapsPipeline(container)
     )
 }
