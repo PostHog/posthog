@@ -136,12 +136,12 @@ export interface notebookNodeSQLV2LogicActions {
     } // notebookNodeStalenessLogic
     nodeRunFinished: (
         nodeId: string,
-        status: import('../Notebook/notebookNodeStalenessLogic').NotebookNodeRunTerminalStatus,
+        status: NotebookNodeRunTerminalStatus,
         content: JSONContent | null
     ) => {
         content: JSONContent | null
         nodeId: string
-        status: import('../Notebook/notebookNodeStalenessLogic').NotebookNodeRunTerminalStatus
+        status: NotebookNodeRunTerminalStatus
     } // notebookNodeStalenessLogic
     registerChainNode: (nodeId: string) => {
         nodeId: string
