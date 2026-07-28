@@ -1296,6 +1296,10 @@ class SignalReportViewSet(
             # `updated_at` is auto_now, but `update_fields` saves only the listed columns, so add it
             # explicitly to keep the edit timestamped.
             update_fields.append("updated_at")
+            # This text has not been through the safety judge, and the report's existing verdict was
+            # reached on the text this edit replaces. Marking the save retracts the report's embedding
+            # rather than indexing unreviewed content under a stale approval (see receivers.py).
+            report._unreviewed_edit = True  # type: ignore[attr-defined]
             with transaction.atomic():
                 report.save(update_fields=update_fields)
                 for content in edit_artefacts:

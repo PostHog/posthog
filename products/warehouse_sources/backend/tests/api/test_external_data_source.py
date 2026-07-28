@@ -2207,6 +2207,7 @@ class TestExternalDataSource(APIBaseTest):
             source_type="Postgres",
             created_by=self.user,
             prefix="Primary database",
+            description="Prod Postgres replica",
             access_method=ExternalDataSource.AccessMethod.DIRECT,
             job_inputs={"host": "localhost", "password": "secret"},
             connection_metadata={"engine": "duckdb", "database": "ducklake", "available_functions": ["date_bin"]},
@@ -2250,6 +2251,7 @@ class TestExternalDataSource(APIBaseTest):
                     "source_type": "Snowflake",
                     "access_method": "direct",
                     "supports_hogql": True,
+                    "description": None,
                 },
                 {
                     "id": str(postgres_source.pk),
@@ -2258,6 +2260,7 @@ class TestExternalDataSource(APIBaseTest):
                     "source_type": "Postgres",
                     "access_method": "direct",
                     "supports_hogql": True,
+                    "description": "Prod Postgres replica",
                 },
                 {
                     "id": str(mysql_source.pk),
@@ -2266,6 +2269,7 @@ class TestExternalDataSource(APIBaseTest):
                     "source_type": "MySQL",
                     "access_method": "direct",
                     "supports_hogql": True,
+                    "description": None,
                 },
             ],
         )
