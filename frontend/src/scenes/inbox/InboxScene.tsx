@@ -134,7 +134,8 @@ function InboxDetailView({ report }: { report: SignalReport }): JSX.Element {
 
     return (
         <div className="flex flex-col min-h-0 flex-1 overflow-auto">
-            <ReportDetail report={report} tab={activeTab} />
+            {/* Key on the report so per-report detail state (e.g. the active diff tab) resets on navigation. */}
+            <ReportDetail key={report.id} report={report} tab={activeTab} />
         </div>
     )
 }

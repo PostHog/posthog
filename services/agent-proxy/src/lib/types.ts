@@ -108,6 +108,8 @@ export interface SandboxEventIngestTokenPayload {
 
 export type StreamConnectionOutcome = 'completed' | 'stream_error' | 'unavailable' | 'client_disconnect'
 
+export type DisconnectClassification = 'run_over' | 'idle' | 'mid_turn'
+
 // ---------------------------------------------------------------------------
 // Ingest HTTP response shape (200 OK body)
 // ---------------------------------------------------------------------------

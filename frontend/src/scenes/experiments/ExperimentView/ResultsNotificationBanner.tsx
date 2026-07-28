@@ -4,28 +4,19 @@ import { useEffect } from 'react'
 import { IconClock } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
-import { Experiment } from '~/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { experimentLogic } from '../experimentLogic'
-import { experimentMetricsLogic } from '../experimentMetricsLogic'
-import { experimentResultsNotificationLogic } from '../experimentResultsNotificationLogic'
-import { isSavedExperiment } from '../utils'
 
 /**
- * "Results are taking a while" banner. On the recalculation flow it reads the standalone
- * experimentResultsNotificationLogic (driven by isRecalculating); the legacy flow keeps reading the
- * equivalent state on experimentLogic.
+ * Legacy "results are taking a while" banner. On the recalculation flow the RecalculationStatus bar
+ * owns the notify affordance, so this renders nothing there.
  */
 export function ResultsNotificationBanner(): JSX.Element | null {
-    const { experiment } = useValues(experimentLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const recalculationFlow = !!featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]
+    const recalculationFlow = useFeatureFlag('EXPERIMENTS_METRICS_RECALCULATION')
 
-    if (recalculationFlow && isSavedExperiment(experiment)) {
-        return <RecalculationNotificationBanner experiment={experiment} />
+    if (recalculationFlow) {
+        return null
     }
     return <LegacyNotificationBanner />
 }
@@ -79,23 +70,6 @@ function NotificationBannerView({
                 </div>
             )}
         </LemonBanner>
-    )
-}
-
-function RecalculationNotificationBanner({ experiment }: { experiment: Experiment }): JSX.Element | null {
-    const notificationLogic = experimentResultsNotificationLogic({ experiment })
-    const { showNotificationOffer, notifyWhenResultsReady } = useValues(notificationLogic)
-    const { subscribeToResultsNotification, dismissNotificationOffer } = useActions(notificationLogic)
-    const { isRecalculating } = useValues(experimentMetricsLogic({ experiment }))
-
-    return (
-        <NotificationBannerView
-            showNotificationOffer={showNotificationOffer}
-            notifyWhenResultsReady={notifyWhenResultsReady}
-            isLoading={isRecalculating}
-            onSubscribe={subscribeToResultsNotification}
-            onDismiss={dismissNotificationOffer}
-        />
     )
 }
 

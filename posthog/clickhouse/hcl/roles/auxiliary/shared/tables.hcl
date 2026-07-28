@@ -95,6 +95,61 @@ database "posthog" {
       default = "today() + toIntervalDay(7)"
     }
   }
+  table "_ingestion_warnings_v2_columns" {
+    abstract = true
+    column "team_id" {
+      type = "Int64"
+    }
+    column "source" {
+      type = "LowCardinality(String)"
+    }
+    column "type" {
+      type = "LowCardinality(String)"
+    }
+    column "details" {
+      type = "String"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "category" {
+      type         = "LowCardinality(String)"
+      default      = "coalesce(nullIf(JSONExtractString(details, 'category'), ''), 'unknown')"
+    }
+    column "severity" {
+      type         = "LowCardinality(String)"
+      default      = "coalesce(nullIf(JSONExtractString(details, 'severity'), ''), 'warning')"
+    }
+    column "pipeline_step" {
+      type         = "LowCardinality(String)"
+      default      = "coalesce(nullIf(JSONExtractString(details, 'pipelineStep'), ''), 'unknown')"
+    }
+    column "event_uuid" {
+      type         = "Nullable(UUID)"
+      default      = "toUUIDOrNull(JSONExtractString(details, 'eventUuid'))"
+    }
+    column "distinct_id" {
+      type         = "Nullable(String)"
+      default      = "nullIf(JSONExtractString(details, 'distinctId'), '')"
+    }
+    column "group_key" {
+      type         = "Nullable(String)"
+      default      = "nullIf(JSONExtractString(details, 'groupKey'), '')"
+    }
+    column "person_id" {
+      type         = "Nullable(UUID)"
+      default      = "toUUIDOrNull(JSONExtractString(details, 'personId'))"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+  }
   table "_marketing_conversions_preaggregated_columns" {
     abstract = true
     column "team_id" {
@@ -972,6 +1027,50 @@ database "posthog" {
       cluster_name    = "aux"
       remote_database = "posthog"
       remote_table    = "hog_invocation_results_data"
+    }
+  }
+  table "ingestion_warnings_v2" {
+    order_by     = ["team_id", "type", "timestamp"]
+    partition_by = "toYYYYMM(timestamp)"
+    ttl          = "toDateTime(timestamp) + toIntervalDay(90)"
+    settings = {
+      index_granularity = "8192"
+    }
+    extend = "_ingestion_warnings_v2_columns"
+    engine "replicated_merge_tree" {
+      zoo_path     = "/clickhouse/tables/noshard/posthog.ingestion_warnings_v2"
+      replica_name = "{replica}-{shard}"
+    }
+  }
+  table "ingestion_warnings_v2_distributed" {
+    extend = "_ingestion_warnings_v2_columns"
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "ingestion_warnings_v2"
+    }
+  }
+  table "kafka_ingestion_warnings_v2" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "source" {
+      type = "LowCardinality(String)"
+    }
+    column "type" {
+      type = "String"
+    }
+    column "details" {
+      type = "String"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    engine "kafka" {
+      broker_list = "warpstream_ingestion"
+      topic_list  = "kafka_topic_list = 'clickhouse_ingestion_warnings'"
+      group_name  = "kafka_group_name = 'clickhouse_ingestion_warnings_v2'"
+      format      = "kafka_format = 'JSONEachRow'"
     }
   }
   table "kafka_message_assets" {
@@ -1904,6 +2003,35 @@ database "posthog" {
     }
     column "is_deleted" {
       type = "UInt8"
+    }
+    column "_timestamp" {
+      type = "Nullable(DateTime)"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+  }
+  materialized_view "ingestion_warnings_v2_mv" {
+    to_table = "posthog.ingestion_warnings_v2"
+    query    = file("sql/ingestion_warnings_v2_mv.sql")
+
+    column "team_id" {
+      type = "Int64"
+    }
+    column "source" {
+      type = "LowCardinality(String)"
+    }
+    column "type" {
+      type = "String"
+    }
+    column "details" {
+      type = "String"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
     }
     column "_timestamp" {
       type = "Nullable(DateTime)"

@@ -15,7 +15,7 @@ vi.mock('@/lib/posthog', () => ({
     })),
 }))
 
-import { trackInitEvent, trackToolCall } from '@/hono/analytics'
+import { trackExecuteSqlGeneration, trackInitEvent, trackToolCall } from '@/hono/analytics'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 
 function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
@@ -62,6 +62,8 @@ function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
         scopeGatedTools: [],
         distinctId: 'distinct-id',
         renderUiEnabled: false,
+        metadata: undefined,
+        groupTypes: undefined,
         ...overrides,
     }
 }
@@ -124,5 +126,57 @@ describe('Hono MCP analytics contexts', () => {
         await trackToolCall('exec', 5, false, makeState())
 
         expect(mockCaptureToolCall.mock.calls[0]![0].properties).not.toHaveProperty('$mcp_tool_category')
+    })
+
+    describe('trackExecuteSqlGeneration', () => {
+        it('emits an $ai_generation carrying the intent as input and the HogQL as output', async () => {
+            await trackExecuteSqlGeneration(
+                'execute-sql',
+                { query: 'SELECT count() FROM events' },
+                makeState(),
+                { durationMs: 1500, isError: false },
+                { intent: 'count yesterday signups' }
+            )
+
+            expect(mockCapture).toHaveBeenCalledTimes(1)
+            const payload = mockCapture.mock.calls[0]![0]
+            expect(payload.event).toBe('$ai_generation')
+            expect(payload.distinctId).toBe('distinct-id')
+            expect(payload.properties).toMatchObject({
+                $ai_span_name: 'execute-sql',
+                $ai_trace_id: 'session-uuid',
+                $session_id: 'session-uuid',
+                $ai_input: [{ role: 'user', content: 'count yesterday signups' }],
+                $ai_output_choices: [{ role: 'assistant', content: 'SELECT count() FROM events' }],
+                $ai_latency: 1.5,
+                $ai_is_error: false,
+                // Rides the same base MCP context as every other event, so
+                // evaluations can condition on client/session properties.
+                $mcp_client_name: 'Claude Desktop',
+            })
+        })
+
+        it('flags failed calls so evaluations can target errored SQL too', async () => {
+            await trackExecuteSqlGeneration('execute-sql', { query: 'SELECT bogus' }, makeState(), {
+                durationMs: 200,
+                isError: true,
+                errorMessage: 'Unknown table',
+            })
+
+            expect(mockCapture.mock.calls[0]![0].properties).toMatchObject({
+                $ai_is_error: true,
+                $ai_error: 'Unknown table',
+            })
+        })
+
+        it.each([
+            ['a different tool', 'query-logs', { query: 'SELECT 1' }],
+            ['a missing query', 'execute-sql', {}],
+            ['a non-string query', 'execute-sql', { query: 42 }],
+        ])('does not emit for %s', async (_case, toolName, args) => {
+            await trackExecuteSqlGeneration(toolName, args, makeState(), { durationMs: 5, isError: false })
+
+            expect(mockCapture).not.toHaveBeenCalled()
+        })
     })
 })

@@ -361,6 +361,75 @@ describe('dataTableLogic', () => {
         })
     })
 
+    it('keeps the dataTableRows reference stable when a reload returns deep-equal results', async () => {
+        // A poll or reload reparses JSON, so a byte-identical response still arrives as all-new
+        // object identities. Without result equality on dataTableRows every row's memoized
+        // TableRow re-renders per cycle — the detached-DOM churn this selector exists to prevent.
+        const makeResults = (eventName: string = 'pageview'): any[][] => [
+            [
+                {
+                    uuid: '01853a90-ba94-0000-8776-e8df5617c3ec',
+                    event: eventName,
+                    properties: {},
+                    team_id: 1,
+                    distinct_id: '123',
+                    timestamp: '2022-12-24T17:00:41.165000Z',
+                },
+                eventName,
+                '2022-12-24T17:00:41.165000Z',
+            ],
+            [
+                {
+                    uuid: '01853a90-ba94-0000-8776-e8df5617c3ed',
+                    event: eventName,
+                    properties: {},
+                    team_id: 1,
+                    distinct_id: '123',
+                    timestamp: '2022-12-24T16:00:41.165000Z',
+                },
+                eventName,
+                '2022-12-24T16:00:41.165000Z',
+            ],
+        ]
+        const responseFor = (results: any[][]): Record<string, any> => ({
+            columns: ['*', 'event', 'timestamp'],
+            types: [
+                "Tuple(UUID, String, String, DateTime64(6, 'UTC'), Int64, String, String, DateTime64(6, 'UTC'), UUID, DateTime64(3), String)",
+                'String',
+                "DateTime64(6, 'UTC')",
+            ],
+            results,
+            hasMore: false,
+        })
+
+        ;(performQuery as any).mockResolvedValueOnce(responseFor(makeResults()))
+        const dataTableQuery = getDataTableQuery()
+        logic = dataTableLogic({
+            dataKey: testUniqueKey,
+            vizKey: testUniqueKey,
+            query: dataTableQuery,
+        })
+        logic.mount()
+        await expectLogic(logic).delay(0).toMatchValues({ responseLoading: false })
+        const initialRows = logic.values.dataTableRows
+        expect(initialRows).toHaveLength(2)
+
+        const builtDataNodeLogic = dataNodeLogic({ key: testUniqueKey, query: dataTableQuery.source })
+        ;(performQuery as any).mockResolvedValueOnce(responseFor(makeResults()))
+        builtDataNodeLogic.actions.loadData('force_blocking')
+        await expectLogic(builtDataNodeLogic).delay(0).toMatchValues({ responseLoading: false })
+
+        expect(logic.values.dataTableRows).toBe(initialRows)
+
+        // The counter-case: a genuinely changed response must produce fresh rows, or tables go stale.
+        ;(performQuery as any).mockResolvedValueOnce(responseFor(makeResults('autocapture')))
+        builtDataNodeLogic.actions.loadData('force_blocking')
+        await expectLogic(builtDataNodeLogic).delay(0).toMatchValues({ responseLoading: false })
+
+        expect(logic.values.dataTableRows).not.toBe(initialRows)
+        expect((logic.values.dataTableRows?.[0]?.result as any[])[1]).toEqual('autocapture')
+    })
+
     it('shows results even when columns in query do not match columns in response', async () => {
         const commonResult = {
             uuid: '01853a90-ba94-0000-8776-e8df5617c3ec',

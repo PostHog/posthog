@@ -9,6 +9,10 @@ from products.notebooks.backend.facade import (
     api as notebooks,
     collab,
 )
+from products.notebooks.backend.facade.content import (
+    build_markdown_notebook_content,
+    convert_notebook_content_to_markdown,
+)
 from products.notebooks.backend.facade.contracts import NotebookData
 from products.posthog_ai.backend.models.assistant import AgentArtifact
 
@@ -178,13 +182,23 @@ async def save_notebook_to_db(
 
     tiptap_doc = blocks_to_tiptap_doc(blocks, title=title, resolve_visualization=resolve_visualization)
 
+    # New notebooks are always markdown. Existing TipTap notebooks keep their stored
+    # format so open editors don't flip formats mid-session.
+    content: dict[str, Any] = tiptap_doc
+    text_content: str | None = None
+    if existing_notebook is None:
+        markdown = convert_notebook_content_to_markdown(tiptap_doc)
+        content = build_markdown_notebook_content(markdown)
+        text_content = markdown
+
     notebook, created = await notebooks.aupsert_notebook(
         team.id,
         artifact.short_id,
         created_by_id=user.id,
         last_modified_by_id=user.id,
         title=title,
-        content=tiptap_doc,
+        content=content,
+        text_content=text_content,
     )
     if not created:
         await collab.apublish_notebook_update(team.id, str(notebook.short_id), notebook.version)

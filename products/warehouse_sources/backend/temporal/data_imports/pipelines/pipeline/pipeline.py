@@ -16,7 +16,11 @@ from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.shutdown import ShutdownMonitor
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, process_incremental_value
+from products.warehouse_sources.backend.models.external_data_schema import (
+    ExternalDataSchema,
+    process_incremental_value,
+    update_sync_type_config_keys,
+)
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
@@ -24,11 +28,16 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     cdp_producer_clear_chunks,
     cleanup_memory,
     finalize_desc_sort_incremental_value,
+    handle_corrupted_delta_log,
     handle_reset_or_full_refresh,
+    persist_primary_keys,
+    person_property_sink_clear_chunks,
     reset_rows_synced_if_needed,
+    resolve_primary_keys,
     run_pre_write_defensive_compact,
     setup_row_tracking_with_billing_check,
     should_check_shutdown,
+    stage_chunk_for_person_property_sink,
     update_incremental_field_values,
     update_row_tracking_after_batch,
     validate_incremental_sync,
@@ -38,13 +47,22 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.l
     notify_revenue_analytics_that_sync_has_completed,
     supports_partial_data_loading,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import sync_revenue_analytics_views
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
+    sync_engineering_analytics_views,
+    sync_revenue_analytics_views,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
     DeltaTableHelper,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.person_property_row_sink import (
+    PersonPropertyRowSink,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.table_stats import (
+    record_source_item_stats,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
     PipelineResult,
     ResumableData,
@@ -54,8 +72,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _append_debug_column_to_pyarrows_table,
     _handle_null_columns_with_definitions,
     evolve_pyarrow_schema,
+    merge_observed_columns_into_schema_metadata,
     normalize_table_column_names,
+    observe_and_project_table,
     setup_partitioning,
+    source_uses_delta_write_column_selection,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
     set_initial_sync_complete,
@@ -159,9 +180,10 @@ class PipelineNonDLT(Generic[ResumableData]):
         self._resource = source_response
         self._resource_name = source_response.name
 
-        # Allow user-specified primary keys to override auto-detected ones
-        if schema.primary_key_columns:
-            self._resource.primary_keys = schema.primary_key_columns
+        # Persisted PK (user override or earlier detection) > live-detected > `id` fallback. Keeps
+        # the merge key stable across runs when live detection (e.g. Snowflake SHOW PRIMARY KEYS)
+        # intermittently returns nothing.
+        self._resource.primary_keys = resolve_primary_keys(schema, self._resource)
 
         self._job = job
         self._reset_pipeline = reset_pipeline
@@ -183,16 +205,31 @@ class PipelineNonDLT(Generic[ResumableData]):
             self._logger,
             chunk_size=source_response.chunk_size,
             chunk_size_bytes=source_response.chunk_size_bytes,
+            source_type=self._source.source_type,
+            team_id=self._job.team_id,
+            schema_name=self._schema.name,
         )
         self._internal_schema = HogQLSchema()
         self._cdp_producer = CDPProducer(
             team_id=self._job.team_id, schema_id=self._schema.id, job_id=job_id, logger=self._logger
+        )
+        self._person_property_sink = PersonPropertyRowSink(
+            team_id=self._job.team_id,
+            schema_id=self._schema.id,
+            job_id=job_id,
+            logger=self._logger,
+            is_incremental=self._is_incremental,
         )
         self._shutdown_monitor = shutdown_monitor
         self._last_incremental_field_value: Any = None
         self._earliest_incremental_field_value: Any = process_incremental_value(
             schema.incremental_field_earliest_value, schema.incremental_field_type
         )
+        # SQL sources project enabled_columns in their SELECT and own schema_metadata via
+        # introspection; managed-schema sources don't allow selection. Everything else gets the
+        # Delta-write-side drop plus observed-columns capture so the column picker has a catalog.
+        self._uses_delta_write_column_selection = source_uses_delta_write_column_selection(source.source_type)
+        self._observed_columns: dict[str, dict[str, Any]] = {}
 
     async def run(self) -> PipelineResult:
         pa_memory_pool = pa.default_memory_pool()
@@ -204,10 +241,13 @@ class PipelineNonDLT(Generic[ResumableData]):
 
         try:
             await cdp_producer_clear_chunks(self._cdp_producer)
+            await person_property_sink_clear_chunks(self._person_property_sink)
 
             await reset_rows_synced_if_needed(self._job, self._is_incremental, self._reset_pipeline, should_resume)
 
             validate_incremental_sync(self._is_incremental, self._resource)
+
+            await persist_primary_keys(self._schema, self._resource, self._is_incremental, self._logger)
 
             await setup_row_tracking_with_billing_check(
                 self._job.team_id,
@@ -222,8 +262,17 @@ class PipelineNonDLT(Generic[ResumableData]):
             row_count = 0
             chunk_index = 0
 
+            # Revive a corrupt-`_delta_log` table (from an interrupted repartition swap or OOM-crashed
+            # merge) before extraction so it self-heals in this run instead of looping forever.
+            await handle_corrupted_delta_log(self._schema, self._job, self._delta_table_helper, self._logger)
+
             await handle_reset_or_full_refresh(
-                self._reset_pipeline, should_resume, self._schema, self._delta_table_helper, self._logger
+                self._reset_pipeline,
+                should_resume,
+                self._schema,
+                self._delta_table_helper,
+                self._logger,
+                webhook_only=self._resource.webhook_only,
             )
 
             # If the schema has no DWH table, it's a first ever sync
@@ -241,6 +290,14 @@ class PipelineNonDLT(Generic[ResumableData]):
 
             async for item in async_iterate(self._resource.items()):
                 py_table = None
+
+                record_source_item_stats(
+                    item,
+                    source_type=self._source.source_type,
+                    logger=self._logger,
+                    team_id=self._job.team_id,
+                    schema_name=self._schema.name,
+                )
 
                 self._batcher.batch(item)
 
@@ -279,11 +336,16 @@ class PipelineNonDLT(Generic[ResumableData]):
                 )
                 chunk_index += 1
 
-            await self._post_run_operations(row_count=row_count)
+            await self._persist_observed_columns()
+
+            prepared_queryable_folder = await self._post_run_operations(row_count=row_count)
 
             await advance_xmin_state(self._resource, self._schema, self._logger)
 
-            return {"should_trigger_cdp_producer": await self._cdp_producer.should_produce_table()}
+            result = PipelineResult(should_trigger_cdp_producer=await self._cdp_producer.should_produce_table())
+            if isinstance(prepared_queryable_folder, str):
+                result["prepared_queryable_folder"] = prepared_queryable_folder
+            return result
         finally:
             # Help reduce the memory footprint of each job. This is best-effort cleanup:
             # `get_delta_table` does object-storage I/O, so a transient storage blip here
@@ -304,6 +366,24 @@ class PipelineNonDLT(Generic[ResumableData]):
 
             cleanup_memory(pa_memory_pool, py_table if "py_table" in locals() else None)
 
+    async def _persist_observed_columns(self) -> None:
+        """Union the columns the source actually returned into `schema_metadata["columns"]`.
+
+        Bookkeeping for the column picker — a failure here must not fail an otherwise
+        successful sync.
+        """
+        if not self._observed_columns:
+            return
+        observed = list(self._observed_columns.values())
+        try:
+            await database_sync_to_async_pool(update_sync_type_config_keys)(
+                self._schema.id,
+                self._job.team_id,
+                mutate=lambda config: merge_observed_columns_into_schema_metadata(config, observed),
+            )
+        except Exception:
+            await self._logger.aexception("Failed to persist observed columns into schema_metadata")
+
     async def _process_pa_table(
         self, pa_table: pa.Table, index: int, resuming_sync: bool, row_count: int, is_first_ever_sync: bool
     ):
@@ -312,6 +392,22 @@ class PipelineNonDLT(Generic[ResumableData]):
 
         pa_table = _append_debug_column_to_pyarrows_table(pa_table, self._load_id)
         pa_table = normalize_table_column_names(pa_table)
+
+        if self._uses_delta_write_column_selection:
+            pa_table = await observe_and_project_table(
+                pa_table,
+                self._schema.enabled_columns,
+                self._resource.primary_keys,
+                self._schema.incremental_field,
+                [
+                    *(self._schema.partitioning_keys_override or []),
+                    *(self._schema.partitioning_keys or []),
+                    *(self._resource.partition_keys or []),
+                ],
+                self._observed_columns,
+                self._logger,
+                "Dropped non-enabled columns before Delta write",
+            )
 
         pa_table = await setup_partitioning(pa_table, delta_table, self._schema, self._resource, self._logger)
 
@@ -336,6 +432,7 @@ class PipelineNonDLT(Generic[ResumableData]):
         self._internal_schema.add_pyarrow_table(pa_table)
 
         await write_chunk_for_cdp_producer(self._cdp_producer, index, pa_table)
+        await stage_chunk_for_person_property_sink(self._person_property_sink, index, pa_table)
 
         (
             self._last_incremental_field_value,
@@ -414,12 +511,12 @@ class PipelineNonDLT(Generic[ResumableData]):
             table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
         )
 
-    async def _post_run_operations(self, row_count: int):
+    async def _post_run_operations(self, row_count: int) -> str | None:
         delta_table = await self._delta_table_helper.get_delta_table()
 
         if delta_table is None:
             await self._logger.adebug("No deltalake table, not continuing with post-run ops")
-            return
+            return None
 
         await self._logger.adebug("Triggering compaction and vacuuming on delta table")
         try:
@@ -498,6 +595,11 @@ class PipelineNonDLT(Generic[ResumableData]):
 
         await self._logger.adebug("Syncing revenue analytics views")
         await database_sync_to_async_pool(sync_revenue_analytics_views)(self._schema, self._source)
+
+        await self._logger.adebug("Syncing engineering analytics views")
+        await database_sync_to_async_pool(sync_engineering_analytics_views)(self._schema, self._source)
+
+        return queryable_folder
 
 
 def _estimate_size(obj: Any) -> int:

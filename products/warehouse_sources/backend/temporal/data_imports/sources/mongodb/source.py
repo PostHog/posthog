@@ -19,7 +19,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MongoDBSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mongodb import (
+    MongoDBSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import (
     DATABASE_NAME_REQUIRED_ERROR,
     _parse_connection_string,
@@ -66,6 +68,16 @@ _MONGO_NOT_AUTHORIZED_MESSAGE = (
 
 _MONGO_CONNECT_FAILED_MESSAGE = (
     "Could not connect to your MongoDB database. Check your connection string and credentials, then try again."
+)
+
+# Connection succeeded but nothing importable came back. This is usually a wrong-database or
+# permission problem rather than a genuinely empty database: a connection string ending in /admin
+# or /test lands on an empty system database, and a user without read access sees no collections.
+_MONGO_NO_COLLECTIONS_MESSAGE = (
+    "PostHog connected to MongoDB but found no collections in the selected database. Check that "
+    "your connection string points at the database that holds your data (a string ending in /admin "
+    "or /test connects to an empty system database) or set the Database name field, and make sure "
+    "your user has read access to that database's collections."
 )
 
 # Substrings pymongo embeds in ServerSelectionTimeoutError when the OS can't resolve the host.
@@ -139,6 +151,16 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             "Topology Description:": _MONGO_UNREACHABLE_MESSAGE,
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # For a `mongodb+srv://` URI, pymongo resolves the SRV record via dnspython inside the
+        # MongoClient constructor, before any of our own connectivity handling runs. dnspython
+        # already retries across nameservers for the whole resolution lifetime before giving up
+        # with a ConfigurationError wrapping its LifetimeTimeout — a momentary DNS blip on the
+        # resolver PostHog's worker queries, unrelated to the user's cluster hostname — so Temporal
+        # retrying the whole activity is self-recovering. Match dnspython's fixed message prefix,
+        # not the variable timeout duration or nameserver address it's followed by.
+        return {"The resolution lifetime expired"}
+
     def get_schemas(
         self,
         config: MongoDBSourceConfig,
@@ -146,6 +168,7 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         mongo_schemas = get_mongo_schemas(config, team_id=team_id, names=names)
 
@@ -184,7 +207,11 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         ]
 
     def validate_credentials(
-        self, config: MongoDBSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: MongoDBSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         from pymongo.errors import OperationFailure, ServerSelectionTimeoutError
 
@@ -209,7 +236,7 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         try:
             collection_names = get_collection_names(config, team_id=team_id)
             if len(collection_names) == 0:
-                return False, "No collections found in database"
+                return False, _MONGO_NO_COLLECTIONS_MESSAGE
         except OperationFailure as e:
             # pymongo's OperationFailure stringifies the full server response — clusterTime,
             # signature hashes, BSON ids — so str(e) must never be surfaced. Map the stable error

@@ -200,6 +200,24 @@ To use Bedrock (either via `X-PostHog-Provider` or `X-PostHog-Use-Bedrock-Fallba
 Credentials are intentionally not loaded through `LLM_GATEWAY_*` settings in the gateway.
 Use your runtime's standard AWS authentication mechanism (e.g. IAM role, IRSA, ECS task role, or pre-existing `AWS_*` env vars provisioned by deployment).
 
+## GLM backends (Cloudflare and Modal)
+
+GLM is served under the public model id `@cf/zai-org/glm-5.2` on every surface (Anthropic Messages, chat/completions, Responses).
+Which backend serves a request is a gateway-internal decision made in `src/llm_gateway/glm_routing.py`:
+
+- **Cloudflare Workers AI** (the incumbent) — configure `LLM_GATEWAY_CLOUDFLARE_API_KEY` and `LLM_GATEWAY_CLOUDFLARE_ACCOUNT_ID`.
+- **Modal** (an OpenAI-compatible vLLM endpoint) — configure `LLM_GATEWAY_MODAL_API_BASE`, `LLM_GATEWAY_MODAL_KEY`, and `LLM_GATEWAY_MODAL_SECRET` (a [Modal proxy-token](https://modal.com/docs/guide/endpoints) pair, sent as `Modal-Key`/`Modal-Secret` headers).
+
+Two knobs opt traffic into Modal (OR semantics, both default off):
+
+- The `tasks-glm-modal-inference` feature flag — the primary ramp control, evaluated server-side against PostHog (`LLM_GATEWAY_POSTHOG_PROJECT_TOKEN`/`_HOST`) with a short per-user cache and a brief global backoff when evaluation fails. Caller-forwarded flag headers are deliberately not trusted for routing.
+- `LLM_GATEWAY_GLM_MODAL_TRAFFIC_FRACTION` (0..1, default 0), bucketed deterministically by user id; `LLM_GATEWAY_GLM_MODAL_PRODUCT_TRAFFIC_FRACTIONS` (e.g. `{"posthog_code": 0.25}`) overrides it per product.
+
+If Cloudflare credentials are absent, Modal serves all GLM traffic regardless of the knobs.
+
+There are no cross-backend retries: a Modal-side failure surfaces to the caller unchanged (each backend's health stays independently visible under its `provider` metric label), and rollback is turning the flag/fraction back down.
+Smoke scripts: `scripts/glm_cf_smoke.py` (Cloudflare) and `scripts/glm_modal_smoke.py` (Modal).
+
 ## Products
 
 Every request is scoped to a **product**. The product determines which models and auth methods are allowed, and is recorded as `ai_product` on `$ai_generation` events so you can filter costs per product.
@@ -213,6 +231,7 @@ OAuth access is permitted only for products with an explicit `allowed_applicatio
 | Product              | Auth            | Models                     | Notes                           |
 | -------------------- | --------------- | -------------------------- | ------------------------------- |
 | `llm_gateway`        | API key only    | All                        | Default when no product in path |
+| `ci`                 | API key only    | All                        | CI / e2e test runs              |
 | `posthog_code`       | OAuth only      | Restricted set             | Desktop coding agent            |
 | `background_agents`  | OAuth only      | Restricted set             | Cloud background agents         |
 | `wizard`             | API key + OAuth | All                        | Max AI assistant                |

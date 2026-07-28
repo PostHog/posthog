@@ -50,6 +50,7 @@ defs = dagster.Definitions(
         data_deletion_requests.data_deletion_request_event_removal,
         data_deletion_requests.data_deletion_request_property_removal,
         data_deletion_requests.verify_queued_deletion_requests_job,
+        data_deletion_requests.auto_approve_deletion_requests_job,
         part_breaker.break_oversized_parts,
     ],
     schedules=[
@@ -63,6 +64,7 @@ defs = dagster.Definitions(
         backups.full_non_sharded_backup_schedule,
         backups.incremental_non_sharded_backup_schedule,
         part_breaker.break_oversized_parts_schedule,
+        data_deletion_requests.auto_approve_deletion_requests_schedule,
     ],
     sensors=[
         deletes.run_deletes_after_squash,

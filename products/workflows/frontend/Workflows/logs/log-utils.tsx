@@ -1,17 +1,12 @@
-import { useValues } from 'kea'
-import { useState } from 'react'
+import { IconTrash } from '@posthog/icons'
+import { Link } from '@posthog/lemon-ui'
 
-import { IconLetter, IconTrash } from '@posthog/icons'
-import { LemonModal, Link } from '@posthog/lemon-ui'
-
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
+import { EmailViewerChip } from '../EmailViewerModal'
 import { getHogFlowStep } from '../hogflows/steps/HogFlowSteps'
 import { HogFlow } from '../hogflows/types'
-import { getMessageAssetContentUrl } from '../messageAssetsApi'
 
 // We pull out actions like [Action:action_function_webhook_13ec288f-10af-4e98-abd4-e2828de3305e] and replace them with a link to the action
 
@@ -22,47 +17,6 @@ const PERSON_REGEX = /\[Person:([a-zA-Z0-9_-]+)\|(.*?)\]/
 const EVENT_REGEX = /\[Event:([a-zA-Z0-9_-]+)\|(.*?)\|(.*?)\]/
 const ACTOR_REGEX = /\[Actor:(.*?)\]/
 const EMAIL_REGEX = /\[Email:([a-zA-Z0-9_-]+):([a-zA-Z0-9_-]*)\]/
-
-function EmailViewerChip({
-    workflowId,
-    invocationId,
-    actionId,
-}: {
-    workflowId: HogFlow['id']
-    invocationId: string
-    actionId: string
-}): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const [open, setOpen] = useState(false)
-    if (!featureFlags[FEATURE_FLAGS.WORKFLOW_EMAIL_ASSETS_UI]) {
-        return null
-    }
-    return (
-        <>
-            <Link
-                className="rounded p-1 -m-1 bg-border text-bg-primary"
-                onClick={(e) => {
-                    e.stopPropagation()
-                    setOpen(true)
-                }}
-            >
-                <span className="mr-1">
-                    <IconLetter />
-                </span>
-                View email
-            </Link>
-            <LemonModal isOpen={open} onClose={() => setOpen(false)} width={720} title="Email">
-                {/* sandbox="" disables scripts so the captured email HTML can't run anything. */}
-                <iframe
-                    title="Rendered email"
-                    sandbox=""
-                    src={getMessageAssetContentUrl(workflowId, invocationId, actionId)}
-                    className="w-full h-[60vh] bg-white rounded border"
-                />
-            </LemonModal>
-        </>
-    )
-}
 
 export const renderWorkflowLogMessage = (workflow: HogFlow, message: string): JSX.Element => {
     // Modifies the rendered log message to auto-detect action or person parts and replace them with a link

@@ -102,10 +102,21 @@ NON_RETRYABLE_ERROR_TYPES = (
     "ServiceAccountOwnershipError",
     # Raised when the BigQuery integration is not found.
     "BigQueryIntegrationNotFoundError",
+    # Raised when the destination table schema is incompatible with the schema of the file we are trying to load.
+    "BigQueryIncompatibleSchemaError",
 )
 
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
+
+
+class BigQueryIncompatibleSchemaError(Exception):
+    """Raised when the destination table schema is incompatible with the schema of the file we are trying to load."""
+
+    def __init__(self, err_msg: str):
+        super().__init__(
+            f"The data being loaded into the destination table is incompatible with the schema of the destination table: {err_msg}"
+        )
 
 
 FileFormat = typing.Literal["Parquet", "JSONLines"]
@@ -213,7 +224,7 @@ def data_type_to_bigquery_type(data_type: pa.DataType) -> BigQueryType:
     elif pa.types.is_timestamp(data_type):
         bq_type = "TIMESTAMP"
 
-    elif pa.types.is_list(data_type) and pa.types.is_string(data_type.value_type):  # type: ignore[attr-defined]
+    elif pa.types.is_list(data_type) and pa.types.is_string(data_type.value_type):
         bq_type = "STRING"
         repeated = True
 
@@ -276,9 +287,11 @@ class BigQueryTable(Table[BigQueryField]):
         primary_key: collections.abc.Iterable[str] = (),
         version_key: collections.abc.Iterable[str] = (),
         time_partitioning: bigquery.table.TimePartitioning | None = None,
+        expires: dt.datetime | None = None,
     ) -> None:
         super().__init__(name, fields, parents, primary_key, version_key)
         self.time_partitioning = time_partitioning
+        self.expires = expires
 
     @classmethod
     def from_bigquery_table(
@@ -291,8 +304,11 @@ class BigQueryTable(Table[BigQueryField]):
         parents = (table.project, table.dataset_id)
         fields = tuple(BigQueryField.from_destination_field(field) for field in table.schema)
         time_partitioning = table.time_partitioning
+        expires = table.expires
 
-        return cls(name, fields, parents, primary_key, version_key, time_partitioning=time_partitioning)
+        return cls(
+            name, fields, parents, primary_key, version_key, time_partitioning=time_partitioning, expires=expires
+        )
 
     @classmethod
     def from_arrow_schema(
@@ -417,12 +433,36 @@ class GoogleCloudCredentialsError(Exception):
 
 
 async def ensure_our_google_cloud_credentials_are_valid():
-    """Raise `InvalidCredentialsError` if we cannot refresh our credentials."""
+    """Raise `GoogleCloudCredentialsError` if we cannot refresh our credentials."""
+
     our_credentials = get_our_google_cloud_credentials()
+    session = _make_requests_session()
     try:
-        await asyncio.to_thread(our_credentials.refresh, google.auth.transport.requests.Request())
+        await asyncio.to_thread(our_credentials.refresh, google.auth.transport.requests.Request(session=session))
     except Exception as e:
         raise GoogleCloudCredentialsError from e
+
+
+def _make_requests_session() -> "requests.Session":
+    """Make a requests.Session for Google credentials refresh requests."""
+    import requests
+    from requests.adapters import HTTPAdapter
+    from urllib3.util.retry import Retry
+
+    retry = Retry(
+        backoff_factor=1.0,  # 0s, 2s, 4s, 6s, ...
+        connect=5,  # Retry on connection errors
+        status=5,  # Retry on statuses matching the ones below
+        status_forcelist=[429, 500, 502, 503],
+        allowed_methods=(*Retry.DEFAULT_ALLOWED_METHODS, "POST"),
+    )
+
+    session = requests.Session()
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+
+    return session
 
 
 async def get_service_account_description(
@@ -619,8 +659,11 @@ class BigQueryClient:
 
         bq_table = bigquery.Table(table.fully_qualified_name, schema=schema)
 
-        if isinstance(table, BigQueryTable) and table.time_partitioning is not None:
-            bq_table.time_partitioning = table.time_partitioning
+        if isinstance(table, BigQueryTable):
+            if table.time_partitioning is not None:
+                bq_table.time_partitioning = table.time_partitioning
+            if table.expires is not None:
+                bq_table.expires = table.expires
 
         created_bq_table = await asyncio.to_thread(self.sync_client.create_table, bq_table, exists_ok=exists_ok)
 
@@ -1046,6 +1089,23 @@ class BigQueryClient:
                 )
                 await asyncio.sleep(backoff)
                 attempt += 1
+            except BadRequest as err:
+                if err.reason != "invalidQuery" or "Required field" not in str(err):
+                    raise
+                try:
+                    field_name = str(err).split(" ")[2]
+                except IndexError:
+                    field_name = "unknown"
+
+                self.external_logger.warning(
+                    "BigQuery load job failed as a nullable field ('%s') is REQUIRED in the destination table."
+                    " Consider updating your table's schema so that the field is not REQUIRED."
+                    " Tables created automatically by the batch export always use non-REQUIRED fields.",
+                    field_name,
+                    error_code=err.code,
+                    exc_info=True,
+                )
+                raise BigQueryIncompatibleSchemaError(repr(field_name))
 
             else:
                 return result
@@ -1463,6 +1523,9 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                         version_key=bigquery_target_table.version_key,
                         # Do not partition the consumer table to avoid running into quota errors.
                         time_partitioning=None,
+                        # Should always be more than largest timeout, could also be shorter
+                        # for intervals with shorter timeouts.
+                        expires=dt.datetime.now(dt.UTC) + dt.timedelta(days=7),
                     )
 
                     if inputs.use_json_type:
@@ -1482,34 +1545,44 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
             merge_semaphore = asyncio.Semaphore(1)
 
             tasks = []
-            async with asyncio.TaskGroup() as tg:
-                for index, consumer_table in enumerate(consumer_tables):
-                    if can_perform_merge:
-                        transformer = _make_parquet_pipeline_transformer(
-                            consumer_table, max_file_size_bytes_per_consumer
-                        )
-                    else:
-                        transformer = _make_jsonl_pipeline_transformer(consumer_table, max_file_size_bytes_per_consumer)
+            try:
+                async with asyncio.TaskGroup() as tg:
+                    for index, consumer_table in enumerate(consumer_tables):
+                        if can_perform_merge:
+                            transformer = _make_parquet_pipeline_transformer(
+                                consumer_table, max_file_size_bytes_per_consumer
+                            )
+                        else:
+                            transformer = _make_jsonl_pipeline_transformer(
+                                consumer_table, max_file_size_bytes_per_consumer
+                            )
 
-                    tasks.append(
-                        tg.create_task(
-                            run_consumer(
-                                client=bq_client,
-                                consumer_table=consumer_table,
-                                target_table=bigquery_target_table,
-                                model=model.name if isinstance(model, BatchExportModel) else "events",
-                                file_format=file_format,
-                                queue=queue,
-                                transformer=transformer,
-                                all_consumers_done=all_consumers_done,
-                                producer_task=producer_task,
-                                merge=can_perform_merge,
-                                merge_semaphore=merge_semaphore,
-                                records_total=inputs.records_total if max_consumers == 1 else None,
-                            ),
-                            name=f"consumer-{index}",
+                        tasks.append(
+                            tg.create_task(
+                                run_consumer(
+                                    client=bq_client,
+                                    consumer_table=consumer_table,
+                                    target_table=bigquery_target_table,
+                                    model=model.name if isinstance(model, BatchExportModel) else "events",
+                                    file_format=file_format,
+                                    queue=queue,
+                                    transformer=transformer,
+                                    all_consumers_done=all_consumers_done,
+                                    producer_task=producer_task,
+                                    merge=can_perform_merge,
+                                    merge_semaphore=merge_semaphore,
+                                    records_total=inputs.records_total if max_consumers == 1 else None,
+                                ),
+                                name=f"consumer-{index}",
+                            )
                         )
-                    )
+            except ExceptionGroup as eg:
+                has_only_one_type = len({type(exc) for exc in eg.exceptions}) == 1
+                if has_only_one_type:
+                    # If all consumers failed with the same exception, assume we can
+                    # raise one of them as a representative example.
+                    raise eg.exceptions[0] from None
+                raise
 
             await raise_on_task_failure(producer_task)
 

@@ -1,7 +1,7 @@
 import { dimensions, makeSeries } from '../testing'
 import { computeBarAtIndex } from './bar-layout'
 import { createComboScales, isLineLike, partitionByType, resolveSeriesType } from './combo-scales'
-import { computePercentStackData, computeStackData } from './scales'
+import { computeDivergingStackData, computePercentStackData, computeStackData } from './scales'
 import type { Series, SeriesType } from './types'
 import { DEFAULT_Y_AXIS_ID } from './types'
 
@@ -130,6 +130,21 @@ describe('combo-scales', () => {
             expect(domainMax).toBeGreaterThanOrEqual(60)
         })
 
+        it('extends the domain below zero for a diverging stack (bottoms count too)', () => {
+            // A diverging stack's negative segments live in `bottom` — if only tops fed the
+            // domain, negative bars would render outside the plot.
+            const pos = makeSeries({ key: 'pos', data: [10, 20, 30], type: 'bar' })
+            const neg = makeSeries({ key: 'neg', data: [-40, -20, -10], type: 'bar' })
+            const scales = createComboScales([pos, neg], ['a', 'b', 'c'], dimensions, {
+                barLayout: 'stacked',
+                seriesTypeOf: typeOfWithDefault('line'),
+                barStackedData: computeDivergingStackData([pos, neg], ['a', 'b', 'c']),
+            })
+            const [domainMin, domainMax] = scales.y.domain()
+            expect(domainMin).toBeLessThanOrEqual(-40)
+            expect(domainMax).toBeGreaterThanOrEqual(30)
+        })
+
         it('keeps bar and line on the same axis under one value scale', () => {
             const bar = makeSeries({ key: 'b', data: [100], type: 'bar' })
             const line = makeSeries({ key: 'l', data: [200], type: 'line' })
@@ -151,6 +166,29 @@ describe('combo-scales', () => {
             expect(scales.yAxes.y1.position).toBe('right')
             const [, leftMax] = scales.yAxes[DEFAULT_Y_AXIS_ID].scale.domain()
             expect(leftMax).toBeLessThan(500)
+        })
+
+        it('pins a sole axis right when the axes override says so', () => {
+            const bar = makeSeries({ key: 'b', data: [1, 2], type: 'bar', yAxisId: 'right' })
+            const scales = createComboScales([bar], ['a', 'b'], dimensions, {
+                seriesTypeOf: typeOfWithDefault('bar'),
+                axes: [{ id: 'right', position: 'right' }],
+            })
+            expect(scales.yAxes.right.position).toBe('right')
+        })
+
+        it('floats a line-only axis with startAtZero false but keeps bar axes on a zero baseline', () => {
+            const bar = makeSeries({ key: 'bar', data: [800, 1000], type: 'bar' })
+            const line = makeSeries({ key: 'line', data: [800, 1000], type: 'line', yAxisId: 'right' })
+            const scales = createComboScales([bar, line], ['a', 'b'], dimensions, {
+                seriesTypeOf: typeOfWithDefault('line'),
+                axes: [
+                    { id: DEFAULT_Y_AXIS_ID, position: 'left', startAtZero: false },
+                    { id: 'right', position: 'right', startAtZero: false },
+                ],
+            })
+            expect(scales.yAxes[DEFAULT_Y_AXIS_ID].scale.domain()[0]).toBe(0)
+            expect(scales.yAxes.right.scale.domain()[0]).toBeGreaterThan(0)
         })
 
         it('points combo.y at the default axis when present', () => {

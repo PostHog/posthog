@@ -1,8 +1,10 @@
+import { DataColorToken } from 'lib/colors'
 import { humanFriendlyCurrency, humanFriendlyLargeNumber, humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 
 import type {
     CustomPropertyDefinitionApi,
     CustomPropertyDisplayTypeEnumApi,
+    CustomPropertyOptionApi,
     CustomPropertySourceApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
@@ -22,7 +24,29 @@ export const DISPLAY_TYPE_OPTIONS: DisplayTypeOption[] = [
     { value: 'date', label: 'Date', isNumeric: false },
     { value: 'datetime', label: 'Date & time', isNumeric: false },
     { value: 'boolean', label: 'True / false', isNumeric: false },
+    { value: 'select', label: 'Select', isNumeric: false },
 ]
+
+// Keep in sync with CUSTOM_PROPERTY_OPTION_COLORS in the backend's constants.py.
+export const OPTION_COLOR_TOKENS: DataColorToken[] = Array.from(
+    { length: 10 },
+    (_, index) => `preset-${index + 1}` as DataColorToken
+)
+
+// New options get a client-side id for a stable React key; the server mints the real id, so
+// these are stripped from the payload on save.
+export const NEW_OPTION_ID_PREFIX = 'new-'
+
+export function optionLabelError(options: CustomPropertyOptionApi[], index: number): string | undefined {
+    const label = options[index].label.trim()
+    if (!label) {
+        return 'Please enter a label.'
+    }
+    if (options.slice(0, index).some((option) => option.label.trim() === label)) {
+        return 'Duplicate option label.'
+    }
+    return undefined
+}
 
 export function labelForDisplayType(displayType: CustomPropertyDisplayTypeEnumApi): string {
     return DISPLAY_TYPE_OPTIONS.find((option) => option.value === displayType)?.label ?? displayType

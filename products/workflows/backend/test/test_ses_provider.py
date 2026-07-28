@@ -2,7 +2,7 @@ from typing import Optional
 
 import pytest
 from unittest import TestCase
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from django.test import override_settings
 
@@ -388,3 +388,30 @@ class TestSESResponseShapeContract(TestCase):
             }
             tenants = provider._list_identity_tenants("test.posthog.com")
         assert tenants == {"team-1", "team-2"}
+
+    def test_delete_identity_removes_tenant_associations_first(self):
+        # SES rejects DeleteIdentity while tenant associations exist, so the
+        # associations must be removed before the identity delete is attempted.
+        provider = SESProvider()
+        with (
+            override_settings(SES_REGION="us-east-1"),
+            patch.object(provider.sts_client, "get_caller_identity", return_value={"Account": "123456789012"}),
+            patch.object(
+                provider.ses_v2_client,
+                "list_resource_tenants",
+                return_value={"ResourceTenants": [{"TenantName": "team-1", "TenantId": "t1", "ResourceArn": "arn"}]},
+            ),
+            patch.object(provider.ses_v2_client, "delete_tenant_resource_association") as mock_delete_association,
+            patch.object(provider.ses_client, "delete_identity") as mock_delete_identity,
+        ):
+            manager = MagicMock()
+            manager.attach_mock(mock_delete_association, "delete_association")
+            manager.attach_mock(mock_delete_identity, "delete_identity")
+
+            provider.delete_identity(TEST_DOMAIN)
+
+        arn = f"arn:aws:ses:us-east-1:123456789012:identity/{TEST_DOMAIN}"
+        assert manager.mock_calls == [
+            call.delete_association(TenantName="team-1", ResourceArn=arn),
+            call.delete_identity(Identity=TEST_DOMAIN),
+        ]

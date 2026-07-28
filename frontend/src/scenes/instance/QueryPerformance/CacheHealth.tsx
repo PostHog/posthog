@@ -41,6 +41,15 @@ function tableLabel(table: string): string {
 }
 
 function TableCard({ table }: { table: CacheTableStats }): JSX.Element {
+    if (table.unavailable) {
+        return (
+            <LemonCard hoverEffect={false} className="flex-1 min-w-72">
+                <div className="font-mono text-xs text-muted">{table.table}</div>
+                <div className="text-xl font-semibold mt-1">Unavailable</div>
+                <div className="text-xs text-muted mt-1">Couldn't read system.parts from this table's cluster</div>
+            </LemonCard>
+        )
+    }
     return (
         <LemonCard hoverEffect={false} className="flex-1 min-w-72">
             <div className="font-mono text-xs text-muted">{table.table}</div>
@@ -112,8 +121,11 @@ export function CacheHealth(): JSX.Element {
 
     return (
         <>
-            <div className="flex items-center gap-2">
-                <h2 className="mb-0">Cache health</h2>
+            <div className="flex items-center justify-between gap-2 mb-2">
+                <p className="text-muted text-sm mb-0">
+                    Physical footprint of the experiment preaggregation tables (active parts across all shards, from
+                    ClickHouse system.parts).
+                </p>
                 <LemonButton
                     type="secondary"
                     size="small"
@@ -123,10 +135,6 @@ export function CacheHealth(): JSX.Element {
                     Refresh
                 </LemonButton>
             </div>
-            <p className="text-muted text-sm mt-1 mb-2">
-                Physical footprint of the experiment preaggregation tables — active parts across all shards, from
-                ClickHouse system.parts.
-            </p>
             <div className="flex flex-wrap gap-4 mb-4">
                 {!cacheHealth && cacheHealthLoading
                     ? [0, 1].map((i) => (

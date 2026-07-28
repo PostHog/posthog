@@ -47,6 +47,11 @@ class DuckgresServer(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     # Region travels with the bucket: set alongside it, left NULL when no bucket is
     # recorded yet (status_for()'s self-heal fills both in once the control plane reports them).
     bucket_region = models.CharField(max_length=50, null=True, blank=True, default=None)
+    # Fleet-wide cap on the batch sink's concurrently processing groups for this
+    # org — each in-flight group holds at most one connection to the org's
+    # duckgres server, so this bounds the sink's connection footprint no matter
+    # how many consumer pods run. Soft cap: enforced at group-claim time.
+    sink_max_concurrency = models.IntegerField(default=4)
 
     class Meta:
         db_table = "posthog_duckgresserver"
@@ -65,50 +70,6 @@ class DuckgresServer(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
             "DUCKLAKE_S3_ACCESS_KEY": "",
             "DUCKLAKE_S3_SECRET_KEY": "",
         }
-
-
-class DuckgresServerTeam(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
-    """Per-team membership of an org's Duckgres warehouse + that team's backfill state.
-
-    A DuckgresServer is org-scoped and can host many teams (1->n). This model records
-    which teams live in a given server and carries the team-specific warehouse backfill
-    configuration (whether backfills are enabled, the per-team table suffix, and the
-    cached backfill floor).
-    """
-
-    server = models.ForeignKey(
-        "posthog.DuckgresServer",
-        on_delete=models.CASCADE,
-        related_name="teams",
-    )
-    team = models.OneToOneField(
-        "posthog.Team",
-        on_delete=models.CASCADE,
-        related_name="duckgres_server_team",
-    )
-    backfill_enabled = models.BooleanField(
-        default=True,
-        help_text="Whether warehouse backfills are enabled for this team",
-    )
-    table_suffix = models.CharField(
-        max_length=63,
-        null=True,
-        blank=True,
-        help_text="Suffix for this team's warehouse tables in the duckling (events_<suffix>, persons_<suffix>). "
-        "User-supplied; falls back to the shared tables when unset.",
-    )
-    earliest_event_date = models.DateField(
-        null=True,
-        blank=True,
-        help_text="Cached earliest event date (clamped to the backfill floor) used to size the historical "
-        "backfill range. Populated lazily by the full-backfill sensor so it never re-queries ClickHouse; "
-        "leave unset to have the sensor resolve and store it on its next tick.",
-    )
-
-    class Meta:
-        db_table = "posthog_duckgresserverteam"
-        verbose_name = "Duckgres server team"
-        verbose_name_plural = "Duckgres server teams"
 
 
 class DuckgresSinkSchemaState(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
@@ -152,6 +113,13 @@ class DuckgresSinkSchemaState(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     chunk_count = models.IntegerField(null=True, blank=True)
     chunks_applied = models.IntegerField(default=0)
     last_error = models.TextField(null=True, blank=True)
+    # Failure streak since the last forward progress. Drives planner retry
+    # backoff and the failing-schema classification that splits these schemas'
+    # backlog out of the pageable blocked gauges. Reset on any progress.
+    consecutive_failures = models.IntegerField(default=0)
+    # When the current failure streak began — the durable "backfill owed since"
+    # anchor. Unlike batch-derived gauges it survives queue retention.
+    first_failed_at = models.DateTimeField(null=True, blank=True)
     # Override CreatedMetaFields.created_by to drop the DB-level FK: a real
     # constraint on posthog_user takes a lock on that hot table when this table
     # is created (HotTableAlterPolicy). App-level enforcement is enough for an
@@ -163,6 +131,13 @@ class DuckgresSinkSchemaState(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         blank=True,
         db_constraint=False,
     )
+
+    # When the sink last applied a live (non-backfill) imported batch to duckgres for this
+    # schema, stamped by the sink at apply time. The web tier reads it from the main DB so
+    # the Data ops UI can report import activity without querying the warehouse-sources
+    # queue DB (which it has no access to). NULL = no live apply recorded since this field
+    # shipped. It's an event timestamp, not a liveness signal — history, never "stale".
+    queue_last_applied_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "posthog_duckgressinkschemastate"

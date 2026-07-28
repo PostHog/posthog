@@ -32,16 +32,18 @@ OutputFn = Callable[[str], object] | None
 
 # Sandbox logs polling from S3
 POLL_INTERVAL_SECONDS = 10
-MAX_POLL_SECONDS = 30 * 60  # 30 minutes (matches sandbox TTL)
+MAX_POLL_SECONDS = 30 * 60  # default per-turn budget; callers with longer turns pass max_poll_seconds
 MAX_CONSECUTIVE_STORAGE_ERRORS = 3
-# Continuous log silence required before salvaging a dropped-finalization turn — one SSE read window
-# (SSE_READ_TIMEOUT_SECONDS). The null-cost finalization fingerprint (_ended_on_pending_finalization)
-# is the real safety gate; this floor only rules out salvaging a turn caught mid-stream. It must sit
-# well below the 1800s poll budget: a floor near the budget would only salvage turns that fell silent
-# in the first few minutes and reject a turn that does real work late and *then* drops end_turn — the
-# exact case this path exists to recover. The relay's true continuous-silence ceiling is
-# 6 × SSE_READ_TIMEOUT_SECONDS = 1800s, which can't be fully observed inside the 1800s budget; keying
-# salvage off a real terminal signal instead of the poll deadline stays the layer-2 follow-up.
+# Turn-relevant log silence required before salvaging a dropped-finalization turn, sized to one SSE
+# read window (SSE_READ_TIMEOUT_SECONDS): if the turn produced no real output for a whole read window,
+# a live stream would have. The poll loop measures this silence over turn-relevant lines only, because
+# the relay keeps appending transient side-channels (network audits, credential refreshes, stdout)
+# after a turn goes quiet; counting those would keep resetting the timer so the floor never clears and
+# a finished-but-noisy turn is never salvaged (the observed dominant failure mode). The null-cost
+# finalization fingerprint (_ended_on_pending_finalization) is the real safety gate; this floor only
+# rules out salvaging a turn caught mid-stream. It must stay well below the per-turn poll budget (the
+# Signals scout passes 900s): a floor near the budget would salvage only turns that fell silent early
+# and reject one that works late and then drops end_turn, the exact case this path exists to recover.
 STALE_TURN_SALVAGE_SECONDS = 300
 
 # Notification method the sandbox agent emits on a terminal failure. The agent
@@ -100,11 +102,26 @@ class CustomPromptSandboxContext:
     Set it alongside a non-default ``model``: the agent server derives the provider from the runtime,
     so a model handed over with no runtime can't be routed and falls back to the server default.
     ``None`` keeps the agent server's default runtime (only valid when ``model`` is also ``None``)."""
+    reasoning_effort: str | None = None
+    """Reasoning-effort tier for ``model`` (e.g. ``"xhigh"``). Only meaningful alongside a pinned
+    ``model`` + ``runtime_adapter``; ``None`` keeps the model's default effort. The supported tiers
+    depend on the (runtime, model) pair — see ``get_reasoning_effort_error``."""
+    initial_permission_mode: str | None = None
+    """Agent approval mode. ``None`` lets ``_build_task`` pick the default (``"auto"`` for Codex). A
+    headless run that calls MCP tools must set ``"full-access"`` (Codex) / ``"bypassPermissions"``
+    (Claude) — ``"auto"`` does NOT auto-approve MCP tool calls, so the agent stalls on an approval
+    prompt no one can answer."""
     sandbox_resources: SandboxResources | None = None
     """Override the sandbox's compute (CPU / memory). Unset fields keep the
     SandboxConfig defaults (4 cores / 16 GB)."""
     sandbox_timeout_seconds: int | None = None
     """Override the sandbox's max lifetime (Modal TTL). Falls back to SANDBOX_TTL_SECONDS."""
+    github_read_access: bool = False
+    """Inject a READ-ONLY GitHub token (``GH_TOKEN``/``GITHUB_TOKEN``) into a repo-less sandbox so
+    the agent can gather evidence via ``gh`` (commit history, PR metadata) without any write
+    capability. Only meaningful when ``repository`` is None — a task with a repository already gets
+    the full-permission credential path. Best-effort: if no team GitHub integration exists or the
+    mint fails, the sandbox starts without a token."""
 
 
 class EmptyAgentTurnError(RuntimeError):
@@ -125,6 +142,7 @@ async def create_task_and_trigger(
     signal_report_id: str | None = None,
     ai_stage: str | None = None,
     internal: bool = False,
+    workflow_id_prefix: str | None = None,
 ):
     title = f"[sandbox_prompt:{step_name}] {description[:80]}" if step_name else description[:100]
     team = await sync_to_async(Team.objects.get)(id=context.team_id)
@@ -149,9 +167,13 @@ async def create_task_and_trigger(
         sandbox_environment_id=context.sandbox_environment_id,
         model=context.model,
         runtime_adapter=context.runtime_adapter,
+        reasoning_effort=context.reasoning_effort,
+        initial_permission_mode=context.initial_permission_mode,
         internal=internal,
         sandbox_resources=context.sandbox_resources,
         sandbox_timeout_seconds=context.sandbox_timeout_seconds,
+        workflow_id_prefix=workflow_id_prefix,
+        github_read_access=context.github_read_access,
     )
     # lambda wrap: task.latest_run is a lazy ORM property; sync_to_async needs a callable
     task_run = await sync_to_async(lambda: task.latest_run)()
@@ -249,9 +271,16 @@ async def poll_for_turn(
                 raise
             continue
         consecutive_storage_errors = 0
-        # Track the timings
+        # Advance the silence marker only on turn-relevant growth. Transient relay side-channels
+        # (network audits, credential refreshes, stdout) keep arriving after a turn goes quiet, so
+        # counting them here would keep resetting the marker and STALE_TURN_SALVAGE_SECONDS would
+        # never clear, starving the dropped-finalization salvage of the silence window it needs. This
+        # mirrors the side-channel discounting the tail check already does in
+        # _ended_on_pending_finalization.
         if total_lines > skip_lines:
-            last_new_lines_at = elapsed
+            new_lines = (full_log or "").strip().split("\n")[skip_lines:]
+            if (total_lines - skip_lines) - _transient_growth(new_lines) > 0:
+                last_new_lines_at = elapsed
         stale_seconds = elapsed - last_new_lines_at
         # Warn once per minute of silence (not every poll) so stalls surface without flooding logs.
         if stale_seconds >= 60 and stale_seconds % 60 < POLL_INTERVAL_SECONDS:

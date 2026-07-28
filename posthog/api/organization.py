@@ -66,7 +66,7 @@ class PremiumMultiorganizationPermission(permissions.BasePermission):
                 user.organization is None
                 or not user.organization.is_feature_available(AvailableFeature.ORGANIZATIONS_PROJECTS)
             )
-            and user.organizations.count() >= 1
+            and user.organizations.exists()
         ):
             return False
         return True
@@ -179,6 +179,7 @@ class OrganizationSerializer(
             "members_can_invite",
             "members_can_create_projects",
             "members_can_use_personal_api_keys",
+            "members_can_see_org_members",
             "allow_publicly_shared_resources",
             "member_count",
             "is_ai_data_processing_approved",
@@ -339,6 +340,15 @@ class OrganizationSerializer(
             if not self.instance.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS):
                 raise serializers.ValidationError(
                     "You must upgrade your plan to configure personal API key permissions.",
+                    code="payment_required",
+                )
+        return value
+
+    def validate_members_can_see_org_members(self, value: bool) -> bool:
+        if self.instance and self.instance.members_can_see_org_members != value:
+            if not self.instance.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS):
+                raise serializers.ValidationError(
+                    "You must upgrade your plan to configure member list visibility.",
                     code="payment_required",
                 )
         return value

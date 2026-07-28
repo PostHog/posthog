@@ -4,10 +4,11 @@ A *policy* is a budget for calls leaving PostHog to a third-party API. Consumers
 budget with a limiter key shaped ``"{domain}:{scope}:{id}"`` (e.g. ``"github:installation:123"``);
 the facade resolves the key to a policy by its ``domain`` (the first segment).
 
-Policies are registered as *providers* — a zero-arg callable returning a ``RatePolicy`` — so a
-budget sourced from Django settings is read at resolve time, not frozen at import. Pass a plain
-``RatePolicy`` for a static budget. This module is backend-agnostic (no Redis, no limiter library),
-which keeps the limiter backend swappable.
+Policies are registered as *providers* — a callable receiving the full limiter key and returning a
+``RatePolicy`` — so a budget can be read from Django settings at resolve time (not frozen at import)
+and can vary per scope (e.g. per GitHub installation tier). Pass a plain ``RatePolicy`` for a static
+budget. This module is backend-agnostic (no Redis, no limiter library), which keeps the limiter
+backend swappable.
 """
 
 from collections.abc import Callable, Mapping
@@ -72,16 +73,17 @@ class RatePolicy:
         return floor(self.reserve_fraction(priority) * count)
 
 
-PolicyProvider = Callable[[], RatePolicy]
+PolicyProvider = Callable[[str], RatePolicy]
 
 _REGISTRY: dict[str, PolicyProvider] = {}
 
 
 def register_policy(domain: str, policy: RatePolicy | PolicyProvider) -> None:
     """Register the budget for a key domain. Pass a ``RatePolicy`` for a static budget, or a
-    zero-arg callable to resolve it lazily (e.g. from settings) on each acquire."""
+    callable taking the full limiter key to resolve it lazily (e.g. from settings, or per scope)
+    on each acquire."""
     if isinstance(policy, RatePolicy):
-        _REGISTRY[domain] = lambda: policy
+        _REGISTRY[domain] = lambda _key: policy
     else:
         _REGISTRY[domain] = policy
 
@@ -96,4 +98,4 @@ def resolve_policy(key: str) -> RatePolicy:
             f"No outbound rate policy registered for domain '{domain}' (key '{key}'); "
             "register one with register_policy() before using this key"
         )
-    return provider()
+    return provider(key)

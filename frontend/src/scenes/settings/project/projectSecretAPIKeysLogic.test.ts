@@ -12,8 +12,8 @@ describe('projectSecretAPIKeysLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/:team_id/project_secret_api_keys': [],
-                '/api/projects/:team_id/project_secret_api_keys/': [],
+                // api.projectSecretApiKeys.list() reads `.results` off a paginated response
+                '/api/projects/:team_id/project_secret_api_keys/': { results: [] },
             },
         })
 

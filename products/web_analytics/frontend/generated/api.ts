@@ -13,6 +13,7 @@ import type {
     AcknowledgeCelebrationRequestApi,
     AcknowledgeCelebrationResponseApi,
     HeatmapEventsResponseApi,
+    HeatmapPrewarmRequestApi,
     HeatmapScreenshotResponseApi,
     HeatmapScreenshotsContentRetrieveParams,
     HeatmapsEventsRetrieveParams,
@@ -269,6 +270,26 @@ export const savedRegenerateCreate = async (
     return apiMutator<HeatmapScreenshotResponseApi>(getSavedRegenerateCreateUrl(projectId, shortId), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getSavedPrewarmCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/saved/prewarm/`
+}
+
+/**
+ * Speculatively render a screenshot for a page URL ahead of heatmap creation, so it's ready (or closer to ready) by the time the user reaches the generation screen. Renders a single preview width. Idempotent within a short window: returns the existing in-flight or completed prewarm render for the same URL and consent setting if one exists (200), otherwise starts a new one (201). The result is reused when a heatmap is later created for the same URL.
+ */
+export const savedPrewarmCreate = async (
+    projectId: string,
+    heatmapPrewarmRequestApi: HeatmapPrewarmRequestApi,
+    options?: RequestInit
+): Promise<HeatmapScreenshotResponseApi> => {
+    return apiMutator<HeatmapScreenshotResponseApi>(getSavedPrewarmCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(heatmapPrewarmRequestApi),
     })
 }
 

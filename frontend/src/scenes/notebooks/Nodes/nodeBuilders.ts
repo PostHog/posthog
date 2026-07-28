@@ -5,7 +5,7 @@
 // `NodeWrapper`, and `NodeWrapper` imports `SlashCommandsPopover` from `SlashCommands` — putting
 // the builders in either node module creates a circular import that surfaces as
 // `createPostHogWidgetNode is not a function` at module-evaluation time.
-import { JSONContent } from '@tiptap/core'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
 
 import { NodeKind, QuerySchema } from '~/queries/schema/schema-general'
 import { InsightQueryNode } from '~/queries/schema/schema-general'

@@ -19,9 +19,9 @@ from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataSchema,
     ExternalDataSource,
+    WarehouseColumnAnnotation,
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
-from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
 
 
 class TestTableDescriptions(APIBaseTest):

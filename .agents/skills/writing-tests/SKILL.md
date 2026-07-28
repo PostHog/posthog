@@ -119,6 +119,10 @@ Escalating to the next rung is the last resort, not the default.
 - One top-level `describe` block per file (house rule).
 - Prefer logic tests over component renders (see the ladder above).
 - `test.each` for variations rather than copied test bodies.
+- **Avoid `*ByRole(..., { name: ... })` on components that render a large DOM** (calendars, the taxonomic filter, whole scenes).
+  Role queries walk every element running `getComputedStyle`-based checks and accessible-name computation — seconds per query in jsdom, multiplied by every `waitFor`/`findBy*` retry; this pattern has produced single tests with 40s p95 in CI.
+  Prefer `getByText`, `getByTestId`/`data-attr` selectors, or `getByLabelText`; scope with `within(<small container>)` if a role query is genuinely needed.
+  The `jest-no-byrole-name-queries` semgrep rule flags this.
 - **No huge snapshots.**
   A snapshot over a large rendered tree or serialized blob is a change-detector test that bloats the repo and breaks on every unrelated change.
   Snapshot a small, intentional value, or assert specific fields instead.

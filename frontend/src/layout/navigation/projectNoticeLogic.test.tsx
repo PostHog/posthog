@@ -30,7 +30,7 @@ describe('projectNoticeLogic', () => {
         beforeEach(() => {
             useMocks({
                 get: {
-                    '/api/organizations/@current/proxy_records': [200, { results: [] }],
+                    '/api/organizations/:organization_id/proxy_records': [200, { results: [] }],
                 },
             })
             initKeaTests()
@@ -265,7 +265,7 @@ describe('projectNoticeLogic', () => {
         beforeEach(() => {
             useMocks({
                 get: {
-                    '/api/organizations/@current/proxy_records': [200, { results: [] }],
+                    '/api/organizations/:organization_id/proxy_records': [200, { results: [] }],
                 },
                 post: {
                     '/api/users/request_email_verification/': [200, { success: true }],

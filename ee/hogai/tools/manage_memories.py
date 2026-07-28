@@ -191,6 +191,7 @@ class ManageMemoriesTool(MaxTool):
                     query_type="ManageMemoriesTool",
                     query=query,
                     team=self._team,
+                    user=self._user,
                     placeholders={
                         "query_text": ast.Constant(value=query_text),
                         "model_name": ast.Constant(value=EMBEDDING_MODEL),

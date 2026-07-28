@@ -27,7 +27,9 @@ from rest_framework import status
 
 from posthog.schema import LogEntryPropertyFilter, RecordingsQuery
 
-from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorTooManySimultaneousQueries
+from posthog.hogql.errors import QueryError
+
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded
 from posthog.models import Organization, SessionRecording, User
 from posthog.models.team import Team
 from posthog.models.utils import uuid7
@@ -1327,9 +1329,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     @parameterized.expand(
         [
             (
-                "too_many_queries",
-                CHQueryErrorTooManySimultaneousQueries("Too many simultaneous queries"),
-                "Too many simultaneous queries. Try again later.",
+                "at_capacity",
+                ClickHouseAtCapacity(),
+                "ClickHouse is at capacity. Try again later.",
             ),
             (
                 "timeout_exceeded",
@@ -1350,14 +1352,40 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "type": "throttled_error",
         }
 
-    def test_sync_execute_ch_cannot_schedule_task_retry_then_503(self):
-        """Test that list_blocks throws CHQueryErrorCannotScheduleTask multiple times and eventually returns 503"""
+    @parameterized.expand(
+        [
+            (
+                "hogql_query_error",
+                QueryError("Field not found: $device_type"),
+                status.HTTP_400_BAD_REQUEST,
+                "Field not found: $device_type",
+            ),
+            (
+                "clickhouse_memory_limit",
+                ClickHouseQueryMemoryLimitExceeded(),
+                513,
+                "ran out of memory",
+            ),
+        ]
+    )
+    @patch("posthog.session_recordings.queries.session_recording_list_from_query.SessionRecordingListFromQuery.run")
+    def test_session_recordings_surfaces_real_error(
+        self, _name, exception, expected_status, expected_detail_substring, mock_run
+    ):
+        mock_run.side_effect = exception
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
+        assert response.status_code == expected_status
+        # the real reason must reach the client, not a generic "internal server error"
+        assert expected_detail_substring in response.json()["detail"]
+
+    def test_sync_execute_ch_at_capacity_retry_then_503(self):
+        """Test that list_blocks throws ClickHouseAtCapacity multiple times and eventually returns 503"""
         call_count = 0
 
         def mock_list_blocks(*args, **kwargs):
             nonlocal call_count
             call_count += 1
-            raise CHQueryErrorCannotScheduleTask("Cannot schedule task", code=439)
+            raise ClickHouseAtCapacity()
 
         # Patch list_blocks where it's imported and used in session_recording_v2_service
         with patch(
@@ -1425,8 +1453,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             ),
             (
                 "too_many_recordings",
-                {"session_recording_ids": [f"bulk_delete_test_{i}" for i in range(21)]},
-                "Cannot process more than 20 recordings at once",
+                {"session_recording_ids": [f"bulk_delete_test_{i}" for i in range(101)]},
+                "Cannot process more than 100 recordings at once",
             ),
         ]
     )
@@ -1470,6 +1498,29 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         mock_delete_via_recording_api.assert_called_once()
         called_ids = sorted(mock_delete_via_recording_api.call_args[0][0])
         assert called_ids == sorted(session_ids)
+
+    @patch(
+        "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._delete_via_recording_api",
+        return_value=[],
+    )
+    def test_bulk_delete_batch_larger_than_default_query_limit(self, mock_delete_via_recording_api):
+        create_person(team=self.team, distinct_ids=["user1"], properties={"email": "test@example.com"})
+
+        base_time = now() - relativedelta(days=1)
+
+        # More than the recordings query's default 50-row limit, to catch silent truncation
+        session_ids = [f"bulk_delete_large_{i}" for i in range(51)]
+        for session_id in session_ids:
+            self.produce_replay_summary("user1", session_id, base_time)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recordings/bulk_delete",
+            {"session_recording_ids": session_ids},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["deleted_count"] == 51
+        assert sorted(mock_delete_via_recording_api.call_args[0][0]) == sorted(session_ids)
 
     def test_bulk_delete_nonexistent_recordings(self):
         session_ids = ["nonexistent_1", "nonexistent_2"]

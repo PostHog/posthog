@@ -41,7 +41,7 @@
         "@parcel/transformer-react-refresh-wrap": "2.16.4",
         "@parcel/transformer-typescript-types": "catalog:",
         "@swc-node/register": "^1.11.1",
-        "@swc/core": "^1.11.4",
+        "@swc/core": "^1.15.18",
         "@swc/jest": "^0.2.37",
         "@types/jest": "catalog:",
         "@types/luxon": "^3.4.2",

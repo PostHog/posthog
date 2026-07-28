@@ -30,12 +30,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.eventzilla
     EVENTZILLA_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import EventzillaSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.eventzilla import (
+    EventzillaSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class EventzillaSource(ResumableSource[EventzillaSourceConfig, EventzillaResumeConfig]):
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://developer.eventzilla.net/docs/"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -54,7 +60,6 @@ class EventzillaSource(ResumableSource[EventzillaSourceConfig, EventzillaResumeC
 You can generate an API key in your Eventzilla account under **Settings > App Management**.""",
             iconPath="/static/services/eventzilla.png",
             docsUrl="https://posthog.com/docs/cdp/sources/eventzilla",
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [
@@ -93,6 +98,7 @@ You can generate an API key in your Eventzilla account under **Settings > App Ma
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _description(endpoint: str) -> str | None:
             if EVENTZILLA_ENDPOINTS[endpoint].fan_out_over_events:
@@ -119,7 +125,11 @@ You can generate an API key in your Eventzilla account under **Settings > App Ma
         return schemas
 
     def validate_credentials(
-        self, config: EventzillaSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: EventzillaSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_eventzilla_credentials(config.api_key):
             return True, None
@@ -138,6 +148,7 @@ You can generate an API key in your Eventzilla account under **Settings > App Ma
         return eventzilla_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )

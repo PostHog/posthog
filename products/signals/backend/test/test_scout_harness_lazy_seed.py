@@ -639,9 +639,7 @@ class TestSyncCanonicalSkills(BaseTest):
         beta = _make_canonical("signals-scout-beta", body="beta body")
         with self._patch_canonicals((alpha, beta)):
             sync_canonical_skills(self.team)
-        assert LLMSkill.objects.filter(
-            team=self.team, name="signals-scout-beta", is_latest=True, deleted=False
-        ).exists()
+        beta_before = LLMSkill.objects.get(team=self.team, name="signals-scout-beta", is_latest=True, deleted=False)
 
         # beta is deleted from disk — only alpha remains canonical.
         with self._patch_canonicals((alpha,)):
@@ -653,6 +651,10 @@ class TestSyncCanonicalSkills(BaseTest):
         beta_row = LLMSkill.objects.get(team=self.team, name="signals-scout-beta")
         assert beta_row.deleted is True
         assert beta_row.is_latest is False
+        # The queryset tombstone bypasses auto_now — it must bump updated_at itself, or the
+        # marketplace plugin version (Max(updated_at) over all rows) never advances and the cached
+        # repo keeps serving the pruned scout.
+        assert beta_row.updated_at > beta_before.updated_at
         assert LLMSkill.objects.filter(
             team=self.team, name="signals-scout-alpha", is_latest=True, deleted=False
         ).exists()

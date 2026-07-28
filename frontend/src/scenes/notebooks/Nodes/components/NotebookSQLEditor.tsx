@@ -1,8 +1,9 @@
-import equal from 'fast-deep-equal'
-import { useActions, useValues } from 'kea'
+import { deepEqual as equal } from 'fast-equals'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
 
 import { wasNotebookNodeJustInserted } from 'lib/components/MarkdownNotebook/freshlyInserted'
+import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { OutputTab, outputPaneLogic } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { SQLEditor, SQLEditorPanel } from 'scenes/data-warehouse/editor/SQLEditor'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
@@ -12,7 +13,10 @@ import { DataVisualizationNode, HogQLQuery, NodeKind, ProductKey, QuerySchema } 
 import { convertDataTableNodeToDataVisualizationNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
+import { notebookKernelInfoLogic } from '../../Notebook/notebookKernelInfoLogic'
 import { NotebookNodeAttributeProperties, NotebookNodeAttributes, NotebookNodeProps } from '../../types'
+import { notebookNodeLogic } from '../notebookNodeLogic'
+import { buildDataframeTreeSection } from './notebookDataframeTree'
 
 export const EMBEDDED_SQL_EDITOR_DEFAULT_HEIGHT = 333
 export const EMBEDDED_SQL_EDITOR_EDIT_DEFAULT_HEIGHT = 150
@@ -21,6 +25,24 @@ export const EMBEDDED_SQL_EDITOR_EDIT_MIN_HEIGHT = 150
 
 export const getNotebookSqlEditorTabId = (nodeId: string | null | undefined, suffix: string | null = null): string =>
     `notebook-sql-${suffix ? `${suffix}-` : ''}${nodeId ?? 'new'}`
+
+/**
+ * The "Dataframes" section this node contributes to the shared database tree (Journey 7).
+ *
+ * Reads only logics notebookLogic already mounts — the document for the names its cells bind,
+ * and notebookKernelInfoLogic for the kernel's catalog — so it adds no requests. It deliberately
+ * does not read queryDatabaseLogic for the search term: reading a logic mounts it, and that one's
+ * afterMount fans out to the warehouse loaders (drafts, joins, tab state), which every notebook
+ * with a SQL cell would then pay on open even with the browser closed. QueryDatabase already
+ * holds the search term and filters these sections itself.
+ */
+function useNotebookDataframeTreeSections(): TreeDataItem[] {
+    const nodeLogic = useMountedLogic(notebookNodeLogic)
+    const { notebookLogic } = useValues(nodeLogic)
+    const { frameNodeSummaries } = useValues(notebookLogic)
+    const { localFrames } = useValues(notebookKernelInfoLogic({ shortId: notebookLogic.props.shortId }))
+    return useMemo(() => buildDataframeTreeSection(frameNodeSummaries, localFrames), [frameNodeSummaries, localFrames])
+}
 
 const withNotebookHogQLTags = (query: DataVisualizationNode): DataVisualizationNode => ({
     ...query,
@@ -398,18 +420,29 @@ export function NotebookCodeSQLEditorSettings<T extends { code: string }>({
     runQueryLoading,
     runQueryDisabledReason,
     runQueryTooltip,
+    onCancelQuery,
+    cancelQueryLoading,
 }: NotebookNodeAttributeProperties<T> & {
     tabIdSuffix: string
-    onRunQuery?: () => void
+    /** Called with the live editor text — `attributes.code` can lag it by a Tiptap round-trip. */
+    onRunQuery?: (code: string) => void
     runQueryLoading?: boolean
     runQueryDisabledReason?: string
     runQueryTooltip?: string
+    /** With onRunQuery: flips the run button to Cancel while runQueryLoading. */
+    onCancelQuery?: () => void
+    cancelQueryLoading?: boolean
 }): JSX.Element {
     const tabId = useMemo(
         () => getNotebookSqlEditorTabId(attributes.nodeId, tabIdSuffix),
         [attributes.nodeId, tabIdSuffix]
     )
     useNotebookCodeSQLEditorSync({ attributes, updateAttributes, tabId })
+    const extraTreeSections = useNotebookDataframeTreeSections()
+    const editorLogic = sqlEditorLogic({ tabId, mode: SQLEditorMode.Embedded })
+    const { queryInput } = useValues(editorLogic)
+    // Prefer what the user sees in the editor; fall back to the attribute before the first sync.
+    const liveCode = queryInput ?? (typeof attributes.code === 'string' ? attributes.code : '')
     // Focus the editor only when this user just inserted the node - a node mounting on
     // notebook load or after a structural re-render must never steal the caret.
     const [autoFocusQueryPane] = useState(() => wasNotebookNodeJustInserted(attributes.nodeId))
@@ -431,11 +464,25 @@ export function NotebookCodeSQLEditorSettings<T extends { code: string }>({
                 mode={SQLEditorMode.Embedded}
                 panel={SQLEditorPanel.Query}
                 defaultShowDatabaseTree={false}
+                extraTreeSections={extraTreeSections}
                 autoFocusQueryPane={autoFocusQueryPane}
-                onRunQuery={onRunQuery}
+                // Read the editor's current text imperatively at run time. The Cmd+Enter keybinding
+                // fires a stale closure (and Monaco's keybinding value can come through empty), so a
+                // captured `liveCode` would run the previous query. The mounted logic's `queryInput`
+                // is the same source the Run button uses; fall back to `liveCode` before first sync.
+                onRunQuery={
+                    onRunQuery
+                        ? () => {
+                              const current = editorLogic.values.queryInput
+                              onRunQuery(typeof current === 'string' && current.trim() ? current : liveCode)
+                          }
+                        : undefined
+                }
                 runQueryLoading={runQueryLoading}
                 runQueryDisabledReason={runQueryDisabledReason}
                 runQueryTooltip={runQueryTooltip}
+                onCancelQuery={onCancelQuery}
+                cancelQueryLoading={cancelQueryLoading}
                 queryPaneDefaultHeight={EMBEDDED_SQL_EDITOR_EDIT_DEFAULT_HEIGHT}
             />
         </div>

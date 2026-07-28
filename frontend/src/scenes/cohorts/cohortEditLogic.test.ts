@@ -717,7 +717,13 @@ describe('cohortEditLogic', () => {
                 is_static: true,
             }
             const createSpy = jest.spyOn(api.cohorts, 'create').mockResolvedValue(createdCohort)
-            const setTimeoutSpy = jest.spyOn(window, 'setTimeout').mockImplementation(() => 0 as never)
+            // Suppress only the 1s calculation poll — kea breakpoints schedule shorter
+            // timers through setTimeout too, and those must still fire
+            const realSetTimeout = window.setTimeout.bind(window)
+            const setTimeoutSpy = jest
+                .spyOn(window, 'setTimeout')
+                .mockImplementation(((handler: TimerHandler, timeout?: number, ...args: any[]) =>
+                    timeout === 1000 ? (0 as any) : realSetTimeout(handler, timeout, ...args)) as any)
 
             await expectLogic(logic, async () => {
                 logic.actions.setCohort({
@@ -757,6 +763,8 @@ describe('cohortEditLogic', () => {
             expect(createPayload.get('filters')).toContain('"values"')
             expect(createPayload.get('filters')).not.toContain('"properties":{}')
 
+            // Let the post-submit refreshPersonsData debounce finish before the test ends
+            await expectLogic(logic).toFinishAllListeners()
             setTimeoutSpy.mockRestore()
         })
 

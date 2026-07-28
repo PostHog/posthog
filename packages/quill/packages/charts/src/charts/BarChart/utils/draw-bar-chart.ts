@@ -81,7 +81,7 @@ export interface DrawBarChartStaticArgs {
     barLayout: BarLayout
     isHorizontal: boolean
     showGrid: boolean
-    showAxisLines: boolean
+    axisLines: { x: boolean; y: boolean }
     xTickFormatter: BarChartConfig['xTickFormatter']
     stackedData: Map<string, StackedBand> | undefined
     topStackedKeyByAxis: Map<string, string>
@@ -101,7 +101,7 @@ export function drawBarChartStatic(
         barLayout,
         isHorizontal,
         showGrid,
-        showAxisLines,
+        axisLines,
         xTickFormatter,
         stackedData,
         topStackedKeyByAxis,
@@ -127,15 +127,16 @@ export function drawBarChartStatic(
 
     // Grid sits behind the bars; the L-axis is drawn after them (below) so a bar doesn't paint over
     // the baseline where it meets the axis.
+    const axisLineStyle = axisLines.x || axisLines.y
     if (showGrid) {
         drawGrid(baseDrawCtx, {
             gridColor: theme.gridColor,
             gridDash: theme.gridDashPattern,
-            frame: !showAxisLines,
+            frame: !axisLineStyle,
             orientation: isHorizontal ? 'horizontal' : 'vertical',
             // In the axis-line style only the value-axis grid guides reading; category lines
             // through the band gaps are noise (line charts never draw them either).
-            categoryTicks: showAxisLines ? [] : computeGridTicks(d3Scales, drawLabels, isHorizontal, xTickFormatter),
+            categoryTicks: axisLineStyle ? [] : computeGridTicks(d3Scales, drawLabels, isHorizontal, xTickFormatter),
         })
     }
 
@@ -202,8 +203,15 @@ export function drawBarChartStatic(
         }
     })
 
-    if (showAxisLines) {
-        drawAxes(baseDrawCtx, { axisColor: resolveAxisLineColor(theme) })
+    if (axisLineStyle) {
+        const hasRightAxis =
+            !isHorizontal && Object.values(d3Scales.yAxes ?? {}).some((axis) => axis.position === 'right')
+        drawAxes(baseDrawCtx, {
+            axisColor: resolveAxisLineColor(theme),
+            xLine: axisLines.x,
+            yLine: axisLines.y,
+            rightAxis: hasRightAxis,
+        })
     }
 }
 

@@ -50,6 +50,11 @@ pub struct Team {
     pub cookieless_server_hash_mode: Option<i16>,
     #[serde(default = "default_timezone")]
     pub timezone: String,
+    // Sourced from the internal-only TeamFeatureFlagsConfig extension, not a posthog_team
+    // column. #[serde(default)] keeps cache entries written before this field existed
+    // deserializing to `false` (full events), fail-safe.
+    #[serde(default)]
+    pub minimal_flag_called_events: bool,
 }
 
 fn default_timezone() -> String {
@@ -81,5 +86,28 @@ impl TeamIdentifier for Team {
 
     fn api_token(&self) -> &str {
         &self.api_token
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_minimal_flag_called_events_defaults_false_on_legacy_cache_blob() {
+        // A HyperCache JSON blob written before this field existed has no
+        // minimal_flag_called_events key. #[serde(default)] must make that
+        // deserialize to `false` (full events) rather than erroring.
+        let legacy_json = serde_json::json!({
+            "id": 1,
+            "name": "test team",
+            "api_token": "test_token",
+            "uuid": Uuid::new_v4().to_string(),
+        });
+
+        let team: Team =
+            serde_json::from_value(legacy_json).expect("legacy blob must still deserialize");
+
+        assert!(!team.minimal_flag_called_events);
     }
 }

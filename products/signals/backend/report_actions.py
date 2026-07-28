@@ -60,4 +60,6 @@ def suppress_report_from_slack(
             content=Dismissal(reason="slack_dismiss", slack_user_id=slack_user_id),
             attribution=attribution,
         )
+    # The linked implementation PR is closed by the post_save receiver on suppression or snooze
+    # (see receivers.close_pr_when_report_dismissed) — no per-caller call needed here.
     return True

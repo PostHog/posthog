@@ -52,15 +52,10 @@ function ResizeHandle2D({ className }: { className?: string } = {}): JSX.Element
 export function DashboardResizeHandles(): JSX.Element {
     return (
         <>
-            {/* Top/bottom resize */}
             <ResizeHandle1D orientation="horizontal" className="top" />
             <ResizeHandle1D orientation="horizontal" className="bottom" />
-
-            {/* Left/right resize */}
             <ResizeHandle1D orientation="vertical" className="right" />
             <ResizeHandle1D orientation="vertical" className="left" />
-
-            {/* Corner handles */}
             <ResizeHandle2D className="bottom-right" />
             <ResizeHandle2D className="bottom-left" />
             <ResizeHandle2D className="top-left" />

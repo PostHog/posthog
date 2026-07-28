@@ -164,6 +164,42 @@ describe('PieChart', () => {
         })
     })
 
+    describe('interactive legend', () => {
+        function legendButtons(container: HTMLElement): HTMLButtonElement[] {
+            return Array.from(
+                container.querySelectorAll<HTMLButtonElement>('[data-attr="hog-chart-pie-legend"] button')
+            )
+        }
+
+        it('renders no legend by default', () => {
+            const { container } = renderHogChart(<PieChart series={SERIES} theme={THEME} />)
+            expect(container.querySelector('[data-attr="hog-chart-pie-legend"]')).toBeNull()
+        })
+
+        it('removes a slice on legend click and restores it on a second click', () => {
+            const { container } = renderHogChart(
+                <PieChart series={SERIES} theme={THEME} config={{ legend: { show: true } }} />
+            )
+            expect(legendButtons(container).map((b) => b.textContent)).toEqual(['Chrome', 'Firefox'])
+            expect(container.querySelector('canvas[aria-label]')?.getAttribute('aria-label')).toBe(
+                'Pie chart with 2 slices'
+            )
+
+            fireEvent.click(legendButtons(container)[1])
+            expect(container.querySelector('canvas[aria-label]')?.getAttribute('aria-label')).toBe(
+                'Pie chart with 1 slices'
+            )
+            // The toggled-off row stays in the legend (dimmed) so it can be restored.
+            const dimmed = legendButtons(container).filter((b) => b.className.includes('opacity-40'))
+            expect(dimmed.map((b) => b.textContent)).toEqual(['Firefox'])
+
+            fireEvent.click(legendButtons(container)[1])
+            expect(container.querySelector('canvas[aria-label]')?.getAttribute('aria-label')).toBe(
+                'Pie chart with 2 slices'
+            )
+        })
+    })
+
     describe('error boundary', () => {
         it('reports render errors through onError', async () => {
             const onError = jest.fn()

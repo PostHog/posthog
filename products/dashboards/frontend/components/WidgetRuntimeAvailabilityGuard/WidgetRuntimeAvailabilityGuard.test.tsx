@@ -45,7 +45,7 @@ describe('WidgetRuntimeAvailabilityGuard', () => {
         )
 
         expect(screen.getByText("You haven't captured any exceptions")).toBeInTheDocument()
-        expect(screen.getByRole('link', { name: 'Enable exception autocapture' })).toBeInTheDocument()
+        expect(screen.getByText('Enable exception autocapture').closest('a')).toBeInTheDocument()
         expect(screen.queryByText('Widget body')).not.toBeInTheDocument()
     })
 

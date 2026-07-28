@@ -101,8 +101,8 @@ describe('DatePicker', () => {
         await userEvent.click(within(container).getByText('January 15, 2023'))
         // Accessible queries (role + name), not implementation-specific CSS classes / data-attrs,
         // so this survives the eventual swap of the backing calendar.
-        await userEvent.click(await screen.findByRole('button', { name: '20' }))
-        await userEvent.click(screen.getByRole('button', { name: 'Apply' }))
+        await userEvent.click(await screen.findByRole('button', { name: '20' })) // nosemgrep: jest-no-byrole-name-queries
+        await userEvent.click(screen.getByRole('button', { name: 'Apply' })) // nosemgrep: jest-no-byrole-name-queries
 
         expect(onChange).toHaveBeenCalledTimes(1)
         expect(onChange.mock.calls[0][0].format('YYYY-MM-DD')).toBe('2023-01-20')
@@ -184,7 +184,7 @@ describe('DatePicker', () => {
         ])('maps %s onto the Quill panel time props', async (_name, props, showTime, showTimeToggle) => {
             const { container } = renderDatePicker(dayjs('2023-01-15'), props)
 
-            await userEvent.click(within(container).getByRole('button', { name: /January 15, 2023/ }))
+            await userEvent.click(within(container).getByRole('button', { name: /January 15, 2023/ })) // nosemgrep: jest-no-byrole-name-queries
 
             expect(mockQuillPanelProps.showTime).toBe(showTime)
             expect(mockQuillPanelProps.showTimeToggle).toBe(showTimeToggle)
@@ -206,15 +206,14 @@ describe('DatePicker', () => {
                 showTimeToggle: true,
             })
 
-            const trigger = within(container).getByRole('button', { name: /January 15, 2023/ })
+            const trigger = within(container).getByRole('button', { name: /January 15, 2023/ }) // nosemgrep: jest-no-byrole-name-queries
             expect(trigger.textContent).toBe('January 15, 2023')
 
             await userEvent.click(trigger)
             await userEvent.click(await screen.findByText('stub-time-on'))
 
-            expect(within(container).getByRole('button', { name: /January 15, 2023/ }).textContent).toBe(
-                'January 15, 2023 09:30'
-            )
+            const updatedTrigger = within(container).getByRole('button', { name: /January 15, 2023/ }) // nosemgrep: jest-no-byrole-name-queries
+            expect(updatedTrigger.textContent).toBe('January 15, 2023 09:30')
             expect(mockQuillPanelProps.showTime).toBe(true)
         })
 

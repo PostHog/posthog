@@ -1,8 +1,10 @@
-import { lazy, Suspense } from 'react'
+import { Suspense } from 'react'
+
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import { CoreFilterDefinition } from '~/types'
 
-const LazyLink = lazy(() => import('lib/lemon-ui/Link').then((m) => ({ default: m.Link })))
+const LazyLink = lazyWithRetry(() => import('lib/lemon-ui/Link').then((m) => ({ default: m.Link })))
 
 type RawCoreFilterDefinition = {
     label: string
