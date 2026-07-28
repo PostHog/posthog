@@ -58,6 +58,14 @@ export interface HogvmNodeModule {
         events: unknown[],
         options?: { parallel?: boolean; maxSteps?: number }
     ): Promise<RustExecResult[]>
+    /**
+     * Validate and token-decode a program once, returning a handle for `executeRegisteredSync`.
+     * Invalid bytecode still gets a handle — executions through it report the validation error.
+     */
+    registerProgram(program: unknown[]): number
+    /** Drop a registered program and free its slot. Releasing an unknown handle is a no-op. */
+    releaseProgram(handle: number): void
+    executeRegisteredSync(handle: number, globals: unknown, options?: { maxSteps?: number }): RustExecResult
 }
 
 let cachedModule: HogvmNodeModule | null | undefined = undefined

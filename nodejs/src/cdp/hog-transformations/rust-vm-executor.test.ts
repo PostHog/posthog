@@ -2,12 +2,15 @@ import { logger } from '~/common/utils/logger'
 
 import { createExampleInvocation } from '../_tests/fixtures'
 import { resetHogvmNodeModuleCacheForTests } from './rust-vm'
-import { RustVmExecutor } from './rust-vm-executor'
+import { MAX_REGISTERED_PROGRAMS, RustVmExecutor } from './rust-vm-executor'
 
 jest.mock('@posthog/hogvm-node', () => ({
     init: jest.fn(),
     executeSync: jest.fn(),
     executeBatch: jest.fn(),
+    registerProgram: jest.fn(),
+    releaseProgram: jest.fn(),
+    executeRegisteredSync: jest.fn(),
 }))
 
 const mockHogvmNode = jest.mocked(jest.requireMock<typeof import('@posthog/hogvm-node')>('@posthog/hogvm-node'))
@@ -22,11 +25,16 @@ const rustResult = (overrides: Partial<ReturnType<typeof mockHogvmNode.executeSy
 
 describe('RustVmExecutor', () => {
     let executor: RustVmExecutor
+    let nextHandle = 0
 
     beforeEach(() => {
         jest.clearAllMocks()
         resetHogvmNodeModuleCacheForTests()
         executor = new RustVmExecutor({ mmdbPath: '/dev/null' })
+        // Fixtures without an `updated_at` take the unregistered `executeSync` path; the
+        // registered path has its own cases below.
+        mockHogvmNode.registerProgram.mockImplementation(() => nextHandle++)
+        mockHogvmNode.executeRegisteredSync.mockReturnValue(rustResult())
     })
 
     it('executes the invocation bytecode against its globals and returns a finished result', () => {
@@ -188,6 +196,62 @@ describe('RustVmExecutor', () => {
 
             expect(await executor.executeBatched(createExampleInvocation(), [])).toBeNull()
             expect(mockHogvmNode.executeBatch).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('registered programs', () => {
+        const versioned = (overrides: { id?: string; updated_at?: string; bytecode?: any[] } = {}) =>
+            createExampleInvocation({
+                id: 'fn-1',
+                updated_at: '2026-01-01T00:00:00Z',
+                bytecode: ['_H', 1, 38],
+                ...overrides,
+            })
+
+        it('registers a versioned program once and reuses the handle across events', () => {
+            // The whole point of the registry: without the cache every event re-marshals and
+            // re-decodes the bytecode across the napi boundary.
+            const first = executor.execute(versioned(), [])
+            const second = executor.execute(versioned(), [])
+
+            expect(mockHogvmNode.registerProgram).toHaveBeenCalledTimes(1)
+            expect(mockHogvmNode.executeSync).not.toHaveBeenCalled()
+            expect(mockHogvmNode.executeRegisteredSync).toHaveBeenCalledTimes(2)
+            expect(mockHogvmNode.executeRegisteredSync.mock.calls.map((call) => call[0])).toEqual([0, 0])
+            expect(first!.error).toBeUndefined()
+            expect(second!.error).toBeUndefined()
+        })
+
+        it('re-registers and releases the old handle when the function is edited', () => {
+            // A cache keyed on id alone would keep running the pre-edit bytecode forever.
+            executor.execute(versioned(), [])
+            executor.execute(versioned({ updated_at: '2026-02-02T00:00:00Z' }), [])
+
+            expect(mockHogvmNode.registerProgram).toHaveBeenCalledTimes(2)
+            expect(mockHogvmNode.releaseProgram).toHaveBeenCalledWith(0)
+            expect(mockHogvmNode.executeRegisteredSync).toHaveBeenLastCalledWith(1, expect.anything(), {
+                maxSteps: 1_000_000,
+            })
+        })
+
+        it('releases the oldest handle once the cache is full so the rust registry stays bounded', () => {
+            for (let i = 0; i < MAX_REGISTERED_PROGRAMS; i++) {
+                executor.execute(versioned({ id: `fn-${i}` }), [])
+            }
+            expect(mockHogvmNode.releaseProgram).not.toHaveBeenCalled()
+
+            executor.execute(versioned({ id: 'one-too-many' }), [])
+
+            expect(mockHogvmNode.releaseProgram).toHaveBeenCalledTimes(1)
+            expect(mockHogvmNode.releaseProgram).toHaveBeenCalledWith(0)
+        })
+
+        it('executes unregistered when the function carries no version to key the cache by', () => {
+            // Without a version key a cached handle could serve stale bytecode after an edit.
+            executor.execute(versioned({ updated_at: undefined }), [])
+
+            expect(mockHogvmNode.registerProgram).not.toHaveBeenCalled()
+            expect(mockHogvmNode.executeSync).toHaveBeenCalledTimes(1)
         })
     })
 })

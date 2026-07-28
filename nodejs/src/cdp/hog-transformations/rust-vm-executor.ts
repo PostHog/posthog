@@ -24,7 +24,9 @@ import { RustVmBatchScheduler } from './rust-vm-batch-scheduler'
  * the Node VM.
  *
  * Two execution paths: `execute` runs one invocation synchronously on the JS thread
- * (`executeSync`); `executeBatched` enqueues into a {@link RustVmBatchScheduler} that coalesces
+ * (`executeRegisteredSync`, against a program registered with the addon once per bytecode version
+ * so the per-event cost is the globals crossing rather than re-marshalling and re-decoding
+ * bytecode); `executeBatched` enqueues into a {@link RustVmBatchScheduler} that coalesces
  * same-program invocations into one `executeBatch` FFI crossing per tick, executed off the JS
  * event loop.
  */
@@ -41,8 +43,30 @@ export const rustVmExecutionDuration = new Histogram({
     buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 25, 50, 100],
 })
 
+export const rustVmProgramRegistrations = new Counter({
+    name: 'hogvm_rust_program_registrations_total',
+    help: 'Programs registered with the Rust HogVM, by why the cached handle missed',
+    labelNames: ['reason'],
+})
+
+/**
+ * How many decoded programs to keep registered at once. Each entry holds one hog function's
+ * decoded token stream, so this bounds registry memory in a process that sees many functions.
+ * Well above the number of transformations a single ingestion process realistically cycles
+ * through, so steady state is all hits.
+ */
+export const MAX_REGISTERED_PROGRAMS = 500
+
 export class RustVmExecutor {
     private scheduler: RustVmBatchScheduler
+
+    /**
+     * Registered-program handles, keyed by hog function id. `updatedAt` is the version guard: a
+     * function whose bytecode was edited must not keep executing the handle registered for its
+     * previous version. Map iteration order is insertion order, which makes the oldest entry the
+     * eviction candidate once the cache is full.
+     */
+    private handles = new Map<string, { updatedAt: string; handle: number }>()
 
     constructor(private options: { mmdbPath: string }) {
         this.scheduler = new RustVmBatchScheduler((program, events) => {
@@ -57,6 +81,45 @@ export class RustVmExecutor {
 
     private getModule(): HogvmNodeModule | null {
         return loadHogvmNodeModule({ mmdbPath: this.options.mmdbPath })
+    }
+
+    /**
+     * The handle for this invocation's program, registering it if this is the first time we've
+     * seen the function or its bytecode changed. Releasing the superseded handle (and the evicted
+     * one) is what keeps the Rust-side registry bounded rather than growing per edit.
+     *
+     * Returns null when the function carries no `updated_at` to version the cache by — without
+     * one we can't tell an edited program from the one we registered, and serving a stale handle
+     * would silently run outdated bytecode. The caller executes those unregistered instead.
+     */
+    private handleFor(
+        module_: HogvmNodeModule,
+        hogFunction: { id: string; updated_at?: string; bytecode: unknown[] }
+    ): number | null {
+        if (!hogFunction.updated_at) {
+            return null
+        }
+
+        const cached = this.handles.get(hogFunction.id)
+        if (cached && cached.updatedAt === hogFunction.updated_at) {
+            return cached.handle
+        }
+
+        if (cached) {
+            module_.releaseProgram(cached.handle)
+            this.handles.delete(hogFunction.id)
+        }
+        rustVmProgramRegistrations.inc({ reason: cached ? 'version_changed' : 'new' })
+
+        if (this.handles.size >= MAX_REGISTERED_PROGRAMS) {
+            const [oldestId, oldest] = this.handles.entries().next().value!
+            module_.releaseProgram(oldest.handle)
+            this.handles.delete(oldestId)
+        }
+
+        const handle = module_.registerProgram(hogFunction.bytecode)
+        this.handles.set(hogFunction.id, { updatedAt: hogFunction.updated_at, handle })
+        return handle
     }
 
     /**
@@ -85,9 +148,13 @@ export class RustVmExecutor {
      * Execute one transformation invocation on the Rust VM. Returns null when the Node VM must
      * run it instead.
      *
-     * Runs through `executeSync` on the JS thread — the same threading model as the Node VM's
-     * exec, minus the work. Executions are sub-millisecond and bounded by the step budget, so a
-     * libuv thread-hop per invocation would cost more than the execution it offloads.
+     * Runs through `executeRegisteredSync` on the JS thread — the same threading model as the
+     * Node VM's exec, minus the work. Executions are sub-millisecond and bounded by the step
+     * budget, so a libuv thread-hop per invocation would cost more than the execution it
+     * offloads; `executeBatched` is the path that amortizes the hop across many events.
+     *
+     * The program is registered (marshalled, validated, token-decoded) once per bytecode version
+     * rather than per event — see `handleFor`.
      */
     public execute(
         invocation: CyclotronJobInvocationHogFunction,
@@ -103,9 +170,15 @@ export class RustVmExecutor {
 
         let rust
         try {
-            rust = module_.executeSync(invocation.hogFunction.bytecode, invocation.state.globals, {
-                maxSteps: RUST_MAX_STEPS,
-            })
+            const handle = this.handleFor(module_, invocation.hogFunction)
+            rust =
+                handle === null
+                    ? module_.executeSync(invocation.hogFunction.bytecode, invocation.state.globals, {
+                          maxSteps: RUST_MAX_STEPS,
+                      })
+                    : module_.executeRegisteredSync(handle, invocation.state.globals, {
+                          maxSteps: RUST_MAX_STEPS,
+                      })
         } catch (error) {
             // A throw here is the boundary or the native side, not the program's own error path —
             // marshalling failures (e.g. globals containing NaN or Infinity, which serde_json
