@@ -29,9 +29,10 @@ export interface ChartPlacements {
  * Only the table extension: it's the one GFM construct that changes where a chart reference lands.
  *
  * The renderer runs all of `remark-gfm`, so the two parses differ on the constructs left out here.
- * Strikethrough is the one that matters: `~~[x](chart:a)~~` reads below as a link in a paragraph,
- * while the renderer nests it under a `<del>` the chart can't sit in. Closing that means pulling in
- * `micromark-extension-gfm` so this parse is the renderer's parse.
+ * They agree on the answer anyway, because placement needs a reference to be the only thing in its
+ * paragraph: `~~[x](chart:a)~~` reads below as a link between two `~~` text nodes and to the renderer
+ * as a link under a `<del>`, and neither one is a reference alone in a paragraph. Reading the whole
+ * dialect would mean pulling in `micromark-extension-gfm`, which buys nothing while that holds.
  */
 function parseSummary(summary: string): { children?: unknown[] } | null {
     try {
@@ -96,6 +97,22 @@ export function resolveChartPlacements(
         return (typeof node?.identifier === 'string' && definitions.get(node.identifier)) || ''
     }
 
+    const isChartRef = (node: any): boolean =>
+        (node?.type === 'link' || node?.type === 'linkReference') && CHART_REF_TARGET.test(destinationOf(node))
+    const isBlank = (node: any): boolean =>
+        node?.type === 'text' && typeof node.value === 'string' && node.value.trim() === ''
+
+    // A reference also has to be all its paragraph holds. `LemonMarkdown` gives up the `<p>`
+    // for those and nothing else, because a paragraph that also carries prose still needs it: the
+    // words around the chart are a paragraph, and a block-level chart inside one is markup the
+    // browser closes early and reparents. It also settles the constructs this parse doesn't read the
+    // way the renderer does — `~~[Daily](chart:daily)~~` reaches here as a link between two `~~`
+    // text nodes rather than under a `<del>`, and either way it isn't alone in its paragraph.
+    const holdsOnlyChartRefs = (node: any): boolean => {
+        const children: any[] = node?.children ?? []
+        return children.some(isChartRef) && children.every((child) => isChartRef(child) || isBlank(child))
+    }
+
     const visit = (node: any, inParagraph: boolean): void => {
         if (inParagraph && (node?.type === 'link' || node?.type === 'linkReference')) {
             const chartId = CHART_REF_TARGET.exec(destinationOf(node))?.[1]
@@ -106,7 +123,7 @@ export function resolveChartPlacements(
             }
         }
         for (const child of node?.children ?? []) {
-            visit(child, node?.type === 'paragraph')
+            visit(child, node?.type === 'paragraph' && holdsOnlyChartRefs(node))
         }
     }
     visit(tree, false)

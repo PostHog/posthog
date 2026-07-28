@@ -179,13 +179,19 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                       p: ({ children, node }: any): JSX.Element => {
                           const siblings: any[] = node?.children ?? []
                           const chartRefs = siblings.filter(isChartRefNode)
-                          if (chartRefs.length === 0) {
+                          // Only a paragraph that holds nothing but references gives up its `<p>`.
+                          // One that also carries prose keeps it: those words are a paragraph, and
+                          // dropping the tag leaves them as bare text the surrounding typography and
+                          // spacing no longer reach. Its reference renders as a label instead —
+                          // `resolveChartPlacements` draws that chart after the prose for the same
+                          // reason, so the two agree on which paragraphs can hold a chart.
+                          if (!siblings.every((n) => isChartRefNode(n) || isBlankNode(n)) || chartRefs.length === 0) {
                               return <p>{children}</p>
                           }
-                          // A paragraph that is nothing but chart references reads as "these belong
-                          // together", so lay them out as a row that wraps back to a column once the
-                          // column is too narrow to give each one a readable width.
-                          if (chartRefs.length > 1 && siblings.every((n) => isChartRefNode(n) || isBlankNode(n))) {
+                          // Two or more of them read as "these belong together", so lay them out as a
+                          // row that wraps back to a column once the column is too narrow to give
+                          // each one a readable width.
+                          if (chartRefs.length > 1) {
                               return (
                                   // Top-aligned rather than stretched: charts in a row can be
                                   // different heights, and stretching pads the shorter one with a

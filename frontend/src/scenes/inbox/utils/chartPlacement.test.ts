@@ -48,6 +48,12 @@ describe('resolveChartPlacements', () => {
         // the `<strong>`/`<em>` and leave the paragraph around it.
         ['wrapped in bold', '**[Daily signups](chart:signups-drop)**'],
         ['wrapped in italics', '*[Daily signups](chart:signups-drop)*'],
+        // Those words are a paragraph. Placing the chart among them means the renderer has to drop
+        // the `<p>` to keep a block-level chart legal, which leaves the prose as bare text.
+        ['sharing a paragraph with prose', 'Before [Daily signups](chart:signups-drop) after'],
+        // The renderer reads the full GFM dialect and nests this under a `<del>`; this parser sees a
+        // link between two `~~` text nodes. Neither is a reference alone in a paragraph.
+        ['inside strikethrough', '~~[Daily signups](chart:signups-drop)~~'],
     ])('leaves a reference %s to render after the prose', (_label, summary) => {
         expect(placedIn(summary)).toEqual([])
     })
@@ -64,7 +70,7 @@ describe('resolveChartPlacements', () => {
     it('places only the first reference to an id', () => {
         // Every extra copy re-runs the chart's query, and pointing back at a chart is what a repeated
         // reference reads as — not a request for a second one.
-        const summary = '[Signups](chart:signups-drop) rose, then fell — see [signups again](chart:signups-drop).'
+        const summary = '[Signups](chart:signups-drop)\n\nRose, then fell.\n\n[Signups again](chart:signups-drop)'
 
         const { inlineByOffset } = resolveChartPlacements(summary, CHARTS)
 
