@@ -16,7 +16,10 @@ from products.batch_exports.backend.temporal.batch_exports import StartBatchExpo
 # `execution_timeout`: the time-skipping environment charges both real activity time and fast-forwarded
 # retry backoffs against a workflow deadline, so it expires for reasons unrelated to the behavior under
 # test and reports `TimeoutError` in place of the error being asserted on.
-WORKFLOW_REAL_TIME_LIMIT_SECONDS = 60
+#
+# Kept above `BATCH_EXPORT_HEARTBEAT_TIMEOUT_SECONDS` so a stalled activity trips Temporal's own
+# timeout, which names the activity, rather than this guard, which raises a bare `TimeoutError`.
+WORKFLOW_REAL_TIME_LIMIT_SECONDS = 360
 
 
 @activity.defn(name="start_batch_export_run")

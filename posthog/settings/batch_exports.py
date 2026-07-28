@@ -1,5 +1,6 @@
 import os
 
+from posthog.settings.base_variables import TEST
 from posthog.settings.utils import get_from_env, get_list
 from posthog.utils import str_to_bool
 
@@ -71,7 +72,14 @@ BATCH_EXPORT_WORKFLOWS_MAX_PENDING_REQUESTS: int = get_from_env(
     "BATCH_EXPORT_WORKFLOWS_MAX_PENDING_REQUESTS", 2_000, type_cast=int
 )
 
-BATCH_EXPORT_HEARTBEAT_TIMEOUT_SECONDS: int = get_from_env("BATCH_EXPORT_HEARTBEAT_TIMEOUT_SECONDS", 30, type_cast=int)
+# The Temporal SDK throttles heartbeats to one every `heartbeat_timeout * 0.8`, so an activity only
+# tolerates a stall of the remaining 20% before a late heartbeat kills it — 6s at 30s. Tests are given
+# a much larger budget because the destination workflow tests do real ClickHouse reads and real
+# destination writes on shared CI runners, where a stall that long is routine and kills the activity
+# with "Activity task timed out" in place of the behavior under test.
+BATCH_EXPORT_HEARTBEAT_TIMEOUT_SECONDS: int = get_from_env(
+    "BATCH_EXPORT_HEARTBEAT_TIMEOUT_SECONDS", 300 if TEST else 30, type_cast=int
+)
 
 BATCH_EXPORT_ORDERLESS_TEAM_IDS: list[str] = get_list(os.getenv("BATCH_EXPORT_ORDERLESS_TEAM_IDS", ""))
 UNCONSTRAINED_TIMESTAMP_TEAM_IDS: list[str] = get_list(os.getenv("UNCONSTRAINED_TIMESTAMP_TEAM_IDS", ""))
