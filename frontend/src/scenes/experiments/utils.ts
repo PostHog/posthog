@@ -313,17 +313,20 @@ export function getExposureFallbackFilter(
     const variantKeys =
         variantKey !== undefined ? [variantKey] : getExperimentVariants(experiment).map((variant) => variant.key)
     const propertyKey = featureFlagVariantProperty(experiment.feature_flag_key)
+    // Typed as an event property, not PropertyFilterType.Feature: the recordings query backend
+    // only routes event-typed filters through its events subquery (see `is_event_property` in
+    // posthog/session_recordings/queries/utils.py) and treats feature-typed ones as unexpected.
     if (variantKeys.length === 0) {
         return {
             key: propertyKey,
-            type: PropertyFilterType.Feature,
+            type: PropertyFilterType.Event,
             value: PropertyOperator.IsSet,
             operator: PropertyOperator.IsSet,
         }
     }
     return {
         key: propertyKey,
-        type: PropertyFilterType.Feature,
+        type: PropertyFilterType.Event,
         value: variantKeys,
         operator: PropertyOperator.Exact,
     }

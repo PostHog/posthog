@@ -180,7 +180,7 @@ describe('experimentReplayTabLogic', () => {
                 values: [
                     {
                         key: '$feature/my-flag',
-                        type: PropertyFilterType.Feature,
+                        type: PropertyFilterType.Event,
                         value: ['control', 'test'],
                         operator: PropertyOperator.Exact,
                     },

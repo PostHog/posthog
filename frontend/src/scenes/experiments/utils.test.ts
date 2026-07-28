@@ -500,7 +500,7 @@ describe('getViewRecordingFiltersForVariant', () => {
                 variantKey: 'variantA',
                 expected: {
                     key: '$feature/my-flag',
-                    type: PropertyFilterType.Feature,
+                    type: PropertyFilterType.Event,
                     value: ['variantA'],
                     operator: PropertyOperator.Exact,
                 },
@@ -511,7 +511,7 @@ describe('getViewRecordingFiltersForVariant', () => {
                 variantKey: undefined,
                 expected: {
                     key: '$feature/my-flag',
-                    type: PropertyFilterType.Feature,
+                    type: PropertyFilterType.Event,
                     value: ['control', 'test'],
                     operator: PropertyOperator.Exact,
                 },
@@ -522,7 +522,7 @@ describe('getViewRecordingFiltersForVariant', () => {
                 variantKey: undefined,
                 expected: {
                     key: '$feature/my-flag',
-                    type: PropertyFilterType.Feature,
+                    type: PropertyFilterType.Event,
                     value: PropertyOperator.IsSet,
                     operator: PropertyOperator.IsSet,
                 },
@@ -648,7 +648,7 @@ describe('applySessionLinkability', () => {
     const purchaseActionFilter: UniversalFiltersGroupValue = { id: 123, name: 'purchase', type: 'actions' }
     const fallbackFilter: UniversalFiltersGroupValue = {
         key: '$feature/my-flag',
-        type: PropertyFilterType.Feature,
+        type: PropertyFilterType.Event,
         value: ['test'],
         operator: PropertyOperator.Exact,
     }
