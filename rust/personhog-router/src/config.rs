@@ -246,6 +246,15 @@ pub struct Config {
     #[envconfig(default = "5")]
     pub coordinator_reconcile_secs: u64,
 
+    /// How long a handoff may run before the coordinator cancels it so a
+    /// later plan can retry. The backstop for a handoff that can never
+    /// satisfy its quorum: nothing else removes one whose new owner is
+    /// alive, and an in-flight handoff pins its partition, so without
+    /// this it waits for a human. Sized well above healthy handoffs,
+    /// which complete in seconds.
+    #[envconfig(default = "120")]
+    pub coordinator_handoff_deadline_secs: u64,
+
     // ── K8s awareness (leader mode only) ────────────────────────
     /// Enable K8s-aware departure classification for smarter rebalancing.
     /// When disabled, falls back to lease-based behavior.
@@ -439,6 +448,10 @@ impl Config {
 
     pub fn coordinator_reconcile_interval(&self) -> Duration {
         Duration::from_secs(self.coordinator_reconcile_secs)
+    }
+
+    pub fn coordinator_handoff_deadline(&self) -> Duration {
+        Duration::from_secs(self.coordinator_handoff_deadline_secs)
     }
 
     pub fn stash_max_wait(&self) -> Duration {

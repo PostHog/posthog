@@ -494,6 +494,16 @@ async def handle_corrupted_delta_log(
     try:
         await delta_table_helper.reset_table()
     except Exception as e:
+        if is_transient_object_store_error(e):
+            # A rate-limited or connectivity blip purging the old table's S3 prefix isn't a bug —
+            # the revive markers stay set, so the next sync attempt retries the same reset from
+            # scratch. Escalating this through the non-retryable-error policy below would burn
+            # through its attempt budget on pure S3 throttling and give up on a revivable schema.
+            await logger.awarning(
+                f"handle_corrupted_delta_log: reset_table transient object-store error, retrying next sync, "
+                f"schema_id={schema.id}: {e}"
+            )
+            return False
         # A reset that can't even complete (e.g. the storage backend rejects the delete) leaves the
         # revive markers in place, so an unguarded re-raise here would repeat this exact same failing
         # reset on every subsequent sync attempt forever. Give up after a few identical failures

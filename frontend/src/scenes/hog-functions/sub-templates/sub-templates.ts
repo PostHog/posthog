@@ -967,6 +967,9 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                         { type: 'divider' },
                         {
                             type: 'actions',
+                            // The alert id in the block_id is what lets the datetimepicker action identify
+                            // its alert — unlike select options, datetimepicker elements carry no value.
+                            block_id: 'insight_alert_snooze:{event.properties.alert_id}',
                             elements: [
                                 {
                                     // Points to the anomaly investigation notebook when present, otherwise falls
@@ -983,6 +986,33 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                                     url: '{project.url}/insights/{event.properties.insight_id}?utm_source=alert&utm_campaign=alert_check_firing&utm_medium=slack',
                                     text: { text: 'View Insight', type: 'plain_text' },
                                     type: 'button',
+                                },
+                                {
+                                    action_id: 'insight_alert_snooze',
+                                    placeholder: { text: 'Snooze…', type: 'plain_text' },
+                                    options: [
+                                        {
+                                            text: { text: 'For 1 hour', type: 'plain_text' },
+                                            value: '{event.properties.alert_id}|1h',
+                                        },
+                                        {
+                                            text: { text: 'For 6 hours', type: 'plain_text' },
+                                            value: '{event.properties.alert_id}|6h',
+                                        },
+                                        {
+                                            text: { text: 'For 1 day', type: 'plain_text' },
+                                            value: '{event.properties.alert_id}|1d',
+                                        },
+                                        {
+                                            text: { text: 'For 1 week', type: 'plain_text' },
+                                            value: '{event.properties.alert_id}|1w',
+                                        },
+                                        {
+                                            text: { text: 'Pick a date & time…', type: 'plain_text' },
+                                            value: '{event.properties.alert_id}|custom',
+                                        },
+                                    ],
+                                    type: 'static_select',
                                 },
                             ],
                         },

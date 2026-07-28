@@ -10,7 +10,7 @@ from django.db.models.functions import Cast
 import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import PageNumberPagination
@@ -946,6 +946,10 @@ class DataWarehouseSavedQueryFolderViewSet(TeamAndOrgViewSetMixin, AccessControl
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class SavedQueryResumeSerializer(serializers.Serializer):
+    resumed = serializers.BooleanField(help_text="False when the query's materialization was not suspended.")
+
+
 class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete Warehouse Tables.
@@ -1131,6 +1135,20 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
 
         return response.Response(status=status.HTTP_200_OK)
 
+    @extend_schema(request=None, responses={200: SavedQueryResumeSerializer})
+    @action(methods=["POST"], detail=True, required_scopes=["warehouse_view:write"])
+    def resume(self, request: request.Request, *args, **kwargs) -> response.Response:
+        """Resume materialization suspended after repeated failures.
+
+        Scheduled runs skip a suspended model and everything downstream of it, so it cannot succeed
+        its way back on its own.
+        """
+        from products.data_modeling.backend.facade.api import resume_saved_query
+
+        resumed = resume_saved_query(self.get_object())
+
+        return response.Response({"resumed": bool(resumed)}, status=status.HTTP_200_OK)
+
     @action(
         methods=["POST"],
         detail=True,
@@ -1204,7 +1222,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         # Enable materialization - this handles model path setup and schedule creation
         # If this fails, it will set is_materialized = False
         try:
-            saved_query.schedule_materialization(unpause=should_unpause)
+            saved_query.schedule_materialization(unpause=should_unpause, trigger_immediate_run=True)
         except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError) as e:
             # The requested cadence can't be honored (e.g. finer than an upstream source
             # delivers) — a request problem, not a server one.

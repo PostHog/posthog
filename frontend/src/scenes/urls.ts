@@ -6,6 +6,7 @@ import { fileSystemTypes, productUrls } from '~/products'
 import {
     DataTableNode,
     DataVisualizationNode,
+    HogQLFilters,
     ProductKey,
     SharingConfigurationSettings,
 } from '~/queries/schema/schema-general'
@@ -76,6 +77,7 @@ export const urls = {
         source,
         connectionId,
         dashboard,
+        filters,
     }: {
         /** Raw SQL, or a node whose visualization settings (display, chartSettings) should survive the trip */
         query?: string | DataVisualizationNode | DataTableNode
@@ -87,6 +89,8 @@ export const urls = {
         source?: string
         connectionId?: string
         dashboard?: number
+        /** Applied on top of the opened query/insight — carries unsaved view-mode filter edits into the editor */
+        filters?: HogQLFilters
     } = {}): string => {
         const params = new URLSearchParams()
 
@@ -121,6 +125,9 @@ export const urls = {
         if (connectionId) {
             hashParams.set('c', connectionId)
         }
+        if (filters) {
+            hashParams.set('filters', JSON.stringify(filters))
+        }
 
         const hashString = hashParams.toString()
         return `/sql${queryString ? `?${queryString}` : ''}${hashString ? `#${hashString}` : ''}`
@@ -146,7 +153,6 @@ export const urls = {
     projectCreateFirst: (): string => '/organization/create-project',
     projectRoot: (): string => '/',
     projectHomepage: (): string => '/home',
-    quickstart: (): string => '/quickstart',
     ai: (chat?: string, ask?: string): string => combineUrl('/ai', { ask, chat }).url,
     aiHistory: (): string => '/ai/history',
     settings: (section: SettingSectionId | SettingLevelId = 'project', setting?: SettingId): string =>

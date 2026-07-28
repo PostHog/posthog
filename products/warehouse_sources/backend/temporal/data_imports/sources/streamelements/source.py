@@ -27,8 +27,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     StreamElementsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.streamelements.settings import (
+    DEFAULT_VERSION,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SUPPORTED_VERSIONS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.streamelements.streamelements import (
     StreamElementsResumeConfig,
@@ -42,8 +44,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class StreamElementsSource(ResumableSource[StreamElementsSourceConfig, StreamElementsResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
-    supported_versions = ("v2",)
-    default_version = "v2"
+    supported_versions = SUPPORTED_VERSIONS
+    default_version = DEFAULT_VERSION
     api_docs_url = "https://dev.streamelements.com/"
 
     @property
@@ -112,7 +114,9 @@ Use the channel JWT token from your StreamElements dashboard: open your account 
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return validate_streamelements_credentials(config.api_token)
+        # Pre-creation calls pass no pin and resolve to default_version (what new rows are
+        # stamped with); a pinned source revalidates under its own kappa/<version> base URL.
+        return validate_streamelements_credentials(config.api_token, self.resolve_api_version(api_version))
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[StreamElementsResumeConfig]:
         return ResumableSourceManager[StreamElementsResumeConfig](inputs, StreamElementsResumeConfig)
@@ -129,6 +133,7 @@ Use the channel JWT token from your StreamElements dashboard: open your account 
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
