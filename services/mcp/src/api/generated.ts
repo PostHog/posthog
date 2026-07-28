@@ -25975,6 +25975,18 @@ export namespace Schemas {
       content?: string;
     }
 
+    /**
+     * * `completed` - completed
+     * * `metrics_unavailable` - metrics_unavailable
+     */
+    export type GenerationStatusEnum = typeof GenerationStatusEnum[keyof typeof GenerationStatusEnum];
+
+
+    export const GenerationStatusEnum = {
+      Completed: 'completed',
+      MetricsUnavailable: 'metrics_unavailable',
+    } as const;
+
     export interface EvaluationReportRunContent {
       /** Evaluation target analyzed by this report run. Legacy runs without this field targeted generations.
        *
@@ -25987,7 +25999,12 @@ export namespace Schemas {
       sections?: EvaluationReportSection[];
       /** References grounding findings in the report. */
       citations?: EvaluationReportCitation[];
-      /** Structured metrics computed for the report period. */
+      /** Whether report generation completed or metrics were temporarily unavailable. Legacy runs without this field completed normally.
+       *
+       * * `completed` - completed
+       * * `metrics_unavailable` - metrics_unavailable */
+      generation_status?: GenerationStatusEnum;
+      /** Structured metrics for completed reports, or null when metrics were temporarily unavailable. */
       metrics?: EvaluationReportMetrics | null;
     }
 
