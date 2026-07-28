@@ -4,6 +4,7 @@ import re
 import ssl
 import math
 import time
+import functools
 import collections
 from collections.abc import Callable, Iterator
 from contextlib import _GeneratorContextManager
@@ -12,6 +13,7 @@ from typing import Any, Literal, Optional
 import pyarrow as pa
 import structlog
 from clickhouse_connect import get_client
+from clickhouse_connect.driver import httputil
 from clickhouse_connect.driver.client import Client as ClickHouseClient
 from clickhouse_connect.driver.exceptions import ClickHouseError, ProgrammingError
 from dlt.common.normalizers.naming.snake_case import NamingConvention
@@ -174,6 +176,19 @@ def _apply_session_settings(client: ClickHouseClient, settings: dict[str, Any]) 
             )
 
 
+@functools.cache
+def _no_env_proxy_pool_manager(verify: bool) -> Any:
+    """A shared urllib3 pool manager that never consults HTTP(S)_PROXY env vars.
+
+    clickhouse-connect only checks the proxy env vars when it builds its own
+    pool manager, so handing it one is the sanctioned per-code-path opt-out
+    from the egress proxy (see posthog/security/outbound_proxy.py for the
+    requests/httpx equivalents). Cached because clients don't own an injected
+    manager (`close()` leaves it alive), so per-call managers would leak.
+    """
+    return httputil.get_pool_manager(verify=verify)
+
+
 def _get_client(
     *,
     host: str,
@@ -185,6 +200,7 @@ def _get_client(
     verify: bool,
     query_timeout: int = DATA_QUERY_TIMEOUT_SECONDS,
     settings: Optional[dict[str, Any]] = None,
+    bypass_env_proxy: bool = False,
 ) -> ClickHouseClient:
     """Create a ClickHouse HTTP client.
 
@@ -192,6 +208,11 @@ def _get_client(
     firewall-friendly, easy to tunnel via SSH, and exposes a streaming Arrow
     reader that we use to read very large tables without buffering them in
     memory.
+
+    `bypass_env_proxy` connects directly instead of honouring the
+    HTTP(S)_PROXY env vars. Only ever set for PostHog-internal teams
+    (`is_team_allowlisted_for_internal_hosts`) — for customer-supplied config
+    the egress proxy is the SSRF backstop and must stay in the path.
     """
     attempt = 0
     while True:
@@ -209,6 +230,7 @@ def _get_client(
                 send_receive_timeout=query_timeout,
                 query_limit=0,  # we manage limits ourselves
                 compress=True,
+                pool_mgr=_no_env_proxy_pool_manager(verify) if bypass_env_proxy else None,
             )
         except (ClickHouseError, OSError, ssl.SSLError) as e:
             # OSError covers socket.gaierror, ConnectionRefusedError, TimeoutError,
@@ -308,6 +330,7 @@ def get_schemas(
     secure: bool,
     verify: bool,
     names: list[str] | None = None,
+    bypass_env_proxy: bool = False,
 ) -> dict[str, list[tuple[str, str, bool]]]:
     """Discover columns for all tables in the given database.
 
@@ -325,6 +348,7 @@ def get_schemas(
         secure=secure,
         verify=verify,
         query_timeout=METADATA_QUERY_TIMEOUT_SECONDS,
+        bypass_env_proxy=bypass_env_proxy,
     )
 
     try:
@@ -415,6 +439,7 @@ def get_clickhouse_row_count(
     secure: bool,
     verify: bool,
     names: list[str] | None = None,
+    bypass_env_proxy: bool = False,
 ) -> dict[str, int]:
     """Return total_rows per table from `system.tables`.
 
@@ -436,6 +461,7 @@ def get_clickhouse_row_count(
         secure=secure,
         verify=verify,
         query_timeout=METADATA_QUERY_TIMEOUT_SECONDS,
+        bypass_env_proxy=bypass_env_proxy,
     )
 
     try:
@@ -539,6 +565,7 @@ def get_connection_metadata(
     password: str | None,
     secure: bool,
     verify: bool,
+    bypass_env_proxy: bool = False,
 ) -> dict[str, Any]:
     """Probe the server for version metadata.
 
@@ -555,6 +582,7 @@ def get_connection_metadata(
         secure=secure,
         verify=verify,
         query_timeout=METADATA_QUERY_TIMEOUT_SECONDS,
+        bypass_env_proxy=bypass_env_proxy,
     )
 
     try:
@@ -789,6 +817,7 @@ def get_primary_keys_for_schemas(
     secure: bool,
     verify: bool,
     table_names: list[str],
+    bypass_env_proxy: bool = False,
 ) -> dict[str, list[str] | None]:
     """Detect primary keys (sorting key columns) for multiple tables.
 
@@ -810,6 +839,7 @@ def get_primary_keys_for_schemas(
             secure=secure,
             verify=verify,
             query_timeout=METADATA_QUERY_TIMEOUT_SECONDS,
+            bypass_env_proxy=bypass_env_proxy,
         )
         try:
             for table_name in table_names:
@@ -1194,6 +1224,7 @@ def clickhouse_source(
     incremental_field_type: Optional[IncrementalFieldType] = None,
     row_filters: Optional[list[ValidatedRowFilter]] = None,
     enabled_columns: Optional[list[str]] = None,
+    bypass_env_proxy: bool = False,
 ) -> SourceResponse:
     """Build a SourceResponse that pulls a single ClickHouse table.
 
@@ -1216,6 +1247,7 @@ def clickhouse_source(
             secure=secure,
             verify=verify,
             query_timeout=METADATA_QUERY_TIMEOUT_SECONDS,
+            bypass_env_proxy=bypass_env_proxy,
         )
 
         try:
@@ -1254,6 +1286,7 @@ def clickhouse_source(
                 secure=secure,
                 verify=verify,
                 names=[table_name],
+                bypass_env_proxy=bypass_env_proxy,
             )
             rows_to_sync: int | None = row_counts.get(table_name)
 
@@ -1298,6 +1331,7 @@ def clickhouse_source(
                 verify=verify,
                 query_timeout=DATA_QUERY_TIMEOUT_SECONDS,
                 settings=_query_settings(chunk_size),
+                bypass_env_proxy=bypass_env_proxy,
             )
 
             try:
