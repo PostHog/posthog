@@ -39,7 +39,10 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, discover_canonical_skills
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
-from products.signals.backend.scout_harness.serializers import SignalScoutConfigUpdateSerializer
+from products.signals.backend.scout_harness.serializers import (
+    MAX_SANDBOX_ALLOWED_DOMAINS,
+    SignalScoutConfigUpdateSerializer,
+)
 from products.signals.backend.scout_harness.team_limits import MAX_RUNS_PER_TEAM_PER_TICK
 from products.signals.backend.scout_harness.tools.profile import compute_project_profile
 from products.signals.backend.temporal.signal_queries import fetch_report_ids_for_source_ids
@@ -1202,6 +1205,55 @@ class TestRunCronScheduleValidation(SimpleTestCase):
         assert serializer.validated_data["run_cron_schedule"] is None
 
 
+class TestSandboxAllowedDomainsValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("wildcard", "*.example.com"),
+            ("bare_wildcard", "*"),
+            ("scheme", "https://example.com"),
+            ("path", "example.com/feed"),
+            ("port", "example.com:8080"),
+            ("bare_tld", "com"),
+            ("ipv4_literal", "203.0.113.10"),
+            ("ipv6_literal", "2001:db8::1"),
+            ("blank", "   "),
+            ("space_separated_pair", "example.com other.example.com"),
+            ("leading_hyphen_label", "-example.com"),
+            ("underscore", "my_host.example.com"),
+        ]
+    )
+    def test_rejects_domain(self, _name: str, domain: str) -> None:
+        serializer = SignalScoutConfigUpdateSerializer(data={"sandbox_allowed_domains": [domain]}, partial=True)
+
+        assert not serializer.is_valid()
+        assert "sandbox_allowed_domains" in serializer.errors
+
+    @parameterized.expand(
+        [
+            ("exact_host", ["example.com"], ["example.com"]),
+            ("subdomain", ["docs.example.com"], ["docs.example.com"]),
+            ("uppercase_normalized", ["Example.COM"], ["example.com"]),
+            ("trailing_dot_stripped", ["example.com."], ["example.com"]),
+            ("surrounding_whitespace_stripped", ["  example.com  "], ["example.com"]),
+            ("duplicates_collapsed", ["example.com", "EXAMPLE.com"], ["example.com"]),
+            ("empty_list_allowed", [], []),
+        ]
+    )
+    def test_accepts_and_normalizes(self, _name: str, domains: list[str], expected: list[str]) -> None:
+        serializer = SignalScoutConfigUpdateSerializer(data={"sandbox_allowed_domains": domains}, partial=True)
+
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["sandbox_allowed_domains"] == expected
+
+    def test_rejects_more_than_the_cap(self) -> None:
+        domains = [f"host{index}.example.com" for index in range(MAX_SANDBOX_ALLOWED_DOMAINS + 1)]
+
+        serializer = SignalScoutConfigUpdateSerializer(data={"sandbox_allowed_domains": domains}, partial=True)
+
+        assert not serializer.is_valid()
+        assert "sandbox_allowed_domains" in serializer.errors
+
+
 class TestScoutHarnessConfigAPI(APIBaseTest):
     def _list_url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/configs/"
@@ -1434,6 +1486,41 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         # 10-minute floor, so this also guards against the floor being reverted.
         response = self.client.patch(self._detail_url(str(config.id)), data={"run_interval_minutes": 20}, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_partial_update_sets_and_clears_sandbox_allowed_domains(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+
+        set_response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"sandbox_allowed_domains": ["docs.example.com"]},
+            format="json",
+        )
+
+        assert set_response.status_code == status.HTTP_200_OK
+        assert set_response.json()["sandbox_allowed_domains"] == ["docs.example.com"]
+        config.refresh_from_db()
+        assert config.sandbox_allowed_domains == ["docs.example.com"]
+
+        clear_response = self.client.patch(
+            self._detail_url(str(config.id)), data={"sandbox_allowed_domains": []}, format="json"
+        )
+
+        assert clear_response.status_code == status.HTTP_200_OK
+        config.refresh_from_db()
+        assert config.sandbox_allowed_domains == []
+
+    def test_partial_update_rejects_invalid_sandbox_allowed_domain(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"sandbox_allowed_domains": ["*.example.com"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        config.refresh_from_db()
+        assert config.sandbox_allowed_domains == []
 
     def test_partial_update_sets_and_clears_cron_schedule(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")

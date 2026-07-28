@@ -1132,6 +1132,19 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # config columns. A Slack destination is active only when both its integration and channel
     # are present; the UI may persist the integration first while the user chooses a channel.
     output_destinations = models.JSONField(default=dict, db_default={})
+    # Extra hosts this scout's sandbox may reach, on top of the default trusted allowlist it
+    # already gets. Empty (the default) leaves the run on the shared TRUSTED environment,
+    # unchanged. Non-empty moves it to a per-scout CUSTOM environment of defaults + these hosts,
+    # so a widening is scoped to one scout on one team rather than the fleet. Strictly additive:
+    # there is no value here that narrows the sandbox or that grants unrestricted egress.
+    # Serializer-validated (see `_validate_sandbox_allowed_domains`) — only written through the
+    # config API, and every change is activity-logged because it moves a security boundary.
+    sandbox_allowed_domains = ArrayField(
+        models.CharField(max_length=255),
+        default=list,
+        db_default=[],
+        blank=True,
+    )
     # Optional five-field cron expression anchoring runs to wall-clock slots (e.g. "30 9 * * *",
     # "0 9,17 * * *", "0 9 * * 1-5"). Takes precedence over the rolling `run_interval_minutes`
     # when set. The coordinator evaluates it in `team.timezone`, so scheduled times follow

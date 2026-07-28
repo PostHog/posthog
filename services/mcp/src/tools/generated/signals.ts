@@ -529,6 +529,9 @@ const scoutConfigCreate = (): ToolBase<typeof ScoutConfigCreateSchema, Schemas.S
         if (params.run_cron_schedule !== undefined) {
             body['run_cron_schedule'] = params.run_cron_schedule
         }
+        if (params.sandbox_allowed_domains !== undefined) {
+            body['sandbox_allowed_domains'] = params.sandbox_allowed_domains
+        }
         if (params.skill_name !== undefined) {
             body['skill_name'] = params.skill_name
         }
@@ -612,6 +615,9 @@ const scoutConfigUpdate = (): ToolBase<typeof ScoutConfigUpdateSchema, WithPostH
         }
         if (params.output_destinations !== undefined) {
             body['output_destinations'] = params.output_destinations
+        }
+        if (params.sandbox_allowed_domains !== undefined) {
+            body['sandbox_allowed_domains'] = params.sandbox_allowed_domains
         }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'PATCH',
@@ -1158,6 +1164,9 @@ const signalsScoutConfigCreate = (): ToolBase<typeof SignalsScoutConfigCreateSch
         if (params.run_cron_schedule !== undefined) {
             body['run_cron_schedule'] = params.run_cron_schedule
         }
+        if (params.sandbox_allowed_domains !== undefined) {
+            body['sandbox_allowed_domains'] = params.sandbox_allowed_domains
+        }
         if (params.skill_name !== undefined) {
             body['skill_name'] = params.skill_name
         }
@@ -1250,6 +1259,9 @@ const signalsScoutConfigUpdate = (): ToolBase<
         }
         if (params.output_destinations !== undefined) {
             body['output_destinations'] = params.output_destinations
+        }
+        if (params.sandbox_allowed_domains !== undefined) {
+            body['sandbox_allowed_domains'] = params.sandbox_allowed_domains
         }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'PATCH',

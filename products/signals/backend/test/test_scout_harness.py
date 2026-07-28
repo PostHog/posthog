@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.apps import apps
 from django.db import OperationalError
+from django.test import SimpleTestCase
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
@@ -28,7 +29,13 @@ from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, 
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.model_selection import ScoutModel
 from products.signals.backend.scout_harness.prompt import build_run_prompt
-from products.signals.backend.scout_harness.runner import RunResult, arun_signals_scout
+from products.signals.backend.scout_harness.runner import (
+    SIGNALS_SCOUT_CUSTOM_ENV_PREFIX,
+    SIGNALS_SCOUT_SANDBOX_ENV_NAME,
+    RunResult,
+    _resolve_sandbox_env_request,
+    arun_signals_scout,
+)
 from products.signals.backend.scout_harness.skill_loader import (
     SkillNotFoundError,
     is_signals_scout_skill,
@@ -37,6 +44,7 @@ from products.signals.backend.scout_harness.skill_loader import (
 from products.signals.backend.scout_harness.tools.runs import _build_task_url, _to_detail, _to_summary
 from products.signals.backend.temporal.agentic.scout_scheduler import RunSignalsScoutInput, run_signals_scout_activity
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile, LLMSkillOwner
+from products.tasks.backend.facade import api as tasks_facade
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
@@ -88,6 +96,29 @@ def _make_task_run(team: Team) -> TaskRun:
         origin_product=Task.OriginProduct.SIGNALS_SCOUT,
     )
     return TaskRun.objects.create(task=task, team=team)
+
+
+class TestSandboxEnvResolution(SimpleTestCase):
+    def test_no_declared_domains_keeps_the_shared_trusted_environment(self) -> None:
+        config = SignalScoutConfig(skill_name="signals-scout-foo", sandbox_allowed_domains=[])
+
+        name, level, kwargs = _resolve_sandbox_env_request(config)
+
+        assert name == SIGNALS_SCOUT_SANDBOX_ENV_NAME
+        assert level == tasks_facade.SandboxNetworkAccessLevel.TRUSTED
+        assert kwargs == {}
+
+    def test_declared_domains_widen_a_per_scout_environment(self) -> None:
+        config = SignalScoutConfig(skill_name="signals-scout-foo", sandbox_allowed_domains=["docs.example.com"])
+
+        name, level, kwargs = _resolve_sandbox_env_request(config)
+
+        # A widened scout must not land on the environment every other scout shares: the policy is
+        # reasserted per run, so it would rewrite theirs.
+        assert name == f"{SIGNALS_SCOUT_CUSTOM_ENV_PREFIX}signals-scout-foo"
+        assert name != SIGNALS_SCOUT_SANDBOX_ENV_NAME
+        assert level == tasks_facade.SandboxNetworkAccessLevel.CUSTOM
+        assert kwargs == {"allowed_domains": ["docs.example.com"], "include_default_domains": True}
 
 
 class TestSkillLoader(BaseTest):

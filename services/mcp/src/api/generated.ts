@@ -50941,6 +50941,11 @@ export namespace Schemas {
       run_cron_schedule?: string | null;
       /** Destinations that receive each finding or report this scout emits. Pass an empty object to disable delivery. */
       output_destinations?: SignalScoutOutputDestinations;
+      /**
+         * Extra hosts this scout's sandbox may reach, on top of the trusted defaults (version control, package registries, and PostHog's own APIs) every scout already gets. Empty - the default - leaves the scout's network access unchanged. Exact hostnames only, e.g. ['example.com', 'docs.example.com']: no wildcards, schemes, ports, paths, or IP addresses, and at most 20 entries. Set this only for a scout that genuinely has to read a source outside PostHog. A scout runs unattended on text it did not choose, so every host added here is a host an injected instruction can name. Pass an empty list to take the extra access away again.
+         * @items.maxLength 255
+         */
+      sandbox_allowed_domains?: string[];
     }
 
     export interface PatchedSignalSourceConfig {
@@ -60360,6 +60365,8 @@ export namespace Schemas {
       readonly run_cron_schedule: string | null;
       /** Destinations that receive each finding or report this scout emits. Empty when none is configured. */
       readonly output_destinations: SignalScoutOutputDestinations;
+      /** Extra hosts this scout's sandbox may reach, on top of the trusted defaults (version control, package registries, and PostHog's own APIs) every scout already gets. Empty - the default - leaves the scout's network access unchanged. Exact hostnames only, e.g. ['example.com', 'docs.example.com']: no wildcards, schemes, ports, paths, or IP addresses, and at most 20 entries. Set this only for a scout that genuinely has to read a source outside PostHog. A scout runs unattended on text it did not choose, so every host added here is a host an injected instruction can name. */
+      readonly sandbox_allowed_domains: readonly string[];
       /**
          * When the coordinator last dispatched this scout. Null if it has never run.
          * @nullable
@@ -60394,6 +60401,11 @@ export namespace Schemas {
          */
       run_cron_schedule?: string | null;
       /**
+         * Extra hosts this scout's sandbox may reach, on top of the trusted defaults (version control, package registries, and PostHog's own APIs) every scout already gets. Empty - the default - leaves the scout's network access unchanged. Exact hostnames only, e.g. ['example.com', 'docs.example.com']: no wildcards, schemes, ports, paths, or IP addresses, and at most 20 entries. Set this only for a scout that genuinely has to read a source outside PostHog. A scout runs unattended on text it did not choose, so every host added here is a host an injected instruction can name.
+         * @items.maxLength 255
+         */
+      sandbox_allowed_domains?: string[];
+      /**
          * The `signals-scout-*` skill to register a config for. The skill must already exist on this project — author it via the skills store first.
          * @maxLength 200
          */
@@ -60422,6 +60434,11 @@ export namespace Schemas {
          * @nullable
          */
       run_cron_schedule?: string | null;
+      /**
+         * Extra hosts this scout's sandbox may reach, on top of the trusted defaults (version control, package registries, and PostHog's own APIs) every scout already gets. Empty - the default - leaves the scout's network access unchanged. Exact hostnames only, e.g. ['example.com', 'docs.example.com']: no wildcards, schemes, ports, paths, or IP addresses, and at most 20 entries. Set this only for a scout that genuinely has to read a source outside PostHog. A scout runs unattended on text it did not choose, so every host added here is a host an injected instruction can name.
+         * @items.maxLength 255
+         */
+      sandbox_allowed_domains?: string[];
     }
 
     /**

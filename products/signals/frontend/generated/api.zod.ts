@@ -245,6 +245,8 @@ export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneChannel
 
 export const signalsScoutCreateBodyConfigOneRunCronScheduleMax = 100
 
+export const signalsScoutCreateBodyConfigOneSandboxAllowedDomainsItemMax = 255
+
 export const SignalsScoutCreateBody = /* @__PURE__ */ zod
     .object({
         name: zod
@@ -334,6 +336,12 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
                     .describe(
                         "Optional five-field cron expression, e.g. '30 9 \* \* \*' (daily at 09:30), '0 9,17 \* \* \*' (twice daily), or '0 9 \* \* 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart."
                     ),
+                sandbox_allowed_domains: zod
+                    .array(zod.string().max(signalsScoutCreateBodyConfigOneSandboxAllowedDomainsItemMax))
+                    .optional()
+                    .describe(
+                        "Extra hosts this scout's sandbox may reach, on top of the trusted defaults (version control, package registries, and PostHog's own APIs) every scout already gets. Empty - the default - leaves the scout's network access unchanged. Exact hostnames only, e.g. ['example.com', 'docs.example.com']: no wildcards, schemes, ports, paths, or IP addresses, and at most 20 entries. Set this only for a scout that genuinely has to read a source outside PostHog. A scout runs unattended on text it did not choose, so every host added here is a host an injected instruction can name."
+                    ),
             })
             .describe('Schedule, enablement, and delivery options accepted while creating a scout.')
             .optional()
@@ -353,6 +361,8 @@ export const signalsScoutConfigCreateBodyRunIntervalMinutesMax = 43200
 export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneChannelMax = 255
 
 export const signalsScoutConfigCreateBodyRunCronScheduleMax = 100
+
+export const signalsScoutConfigCreateBodySandboxAllowedDomainsItemMax = 255
 
 export const signalsScoutConfigCreateBodySkillNameMax = 200
 
@@ -406,6 +416,12 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
             .describe(
                 "Optional five-field cron expression, e.g. '30 9 \* \* \*' (daily at 09:30), '0 9,17 \* \* \*' (twice daily), or '0 9 \* \* 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart."
             ),
+        sandbox_allowed_domains: zod
+            .array(zod.string().max(signalsScoutConfigCreateBodySandboxAllowedDomainsItemMax))
+            .optional()
+            .describe(
+                "Extra hosts this scout's sandbox may reach, on top of the trusted defaults (version control, package registries, and PostHog's own APIs) every scout already gets. Empty - the default - leaves the scout's network access unchanged. Exact hostnames only, e.g. ['example.com', 'docs.example.com']: no wildcards, schemes, ports, paths, or IP addresses, and at most 20 entries. Set this only for a scout that genuinely has to read a source outside PostHog. A scout runs unattended on text it did not choose, so every host added here is a host an injected instruction can name."
+            ),
         skill_name: zod
             .string()
             .max(signalsScoutConfigCreateBodySkillNameMax)
@@ -427,6 +443,8 @@ export const signalsScoutConfigUpdateBodyRunIntervalMinutesMax = 43200
 export const signalsScoutConfigUpdateBodyRunCronScheduleMax = 100
 
 export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneChannelMax = 255
+
+export const signalsScoutConfigUpdateBodySandboxAllowedDomainsItemMax = 255
 
 export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -482,6 +500,12 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Destinations that receive each finding or report this scout emits. Pass an empty object to disable delivery.'
+            ),
+        sandbox_allowed_domains: zod
+            .array(zod.string().max(signalsScoutConfigUpdateBodySandboxAllowedDomainsItemMax))
+            .optional()
+            .describe(
+                "Extra hosts this scout's sandbox may reach, on top of the trusted defaults (version control, package registries, and PostHog's own APIs) every scout already gets. Empty - the default - leaves the scout's network access unchanged. Exact hostnames only, e.g. ['example.com', 'docs.example.com']: no wildcards, schemes, ports, paths, or IP addresses, and at most 20 entries. Set this only for a scout that genuinely has to read a source outside PostHog. A scout runs unattended on text it did not choose, so every host added here is a host an injected instruction can name. Pass an empty list to take the extra access away again."
             ),
     })
     .describe('Editable schedule, enablement, and emit posture for one scout config.')

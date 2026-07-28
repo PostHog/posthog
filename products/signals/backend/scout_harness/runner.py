@@ -45,6 +45,9 @@ logger = logging.getLogger(__name__)
 # network, MCP read scopes injected. Split out later if the agent needs different policy.
 SIGNALS_SCOUT_SANDBOX_ENV_NAME = SIGNALS_REPORT_RESEARCH_ENV_NAME
 
+# Prefix for the per-scout environment a scout with declared `sandbox_allowed_domains` runs in.
+SIGNALS_SCOUT_CUSTOM_ENV_PREFIX = "SIGNALS_SCOUT_"
+
 # The report channel (emit_report/edit_report) is opt-in per skill. A scout's sandbox token
 # carries the report-write scope ONLY when its skill listed one of these in `allowed_tools` (see
 # the posture selection where the sandbox context is built). A baseline scout never carries that
@@ -371,6 +374,30 @@ async def arun_signals_scout(
         raise
 
 
+def _resolve_sandbox_env_request(
+    config: SignalScoutConfig,
+) -> tuple[str, tasks_facade.SandboxNetworkAccessLevel, dict[str, Any]]:
+    """Pick the sandbox environment this scout runs in, and the network policy to assert on it.
+
+    A scout with no declared domains stays on the shared restricted environment, which is the
+    default posture for the whole fleet. Declared domains move it to an environment of its own,
+    because the policy is reasserted on every run: two scouts with different allowlists sharing
+    one environment row would overwrite each other's policy run by run. Naming that environment
+    after the skill also means a 403 in a sandbox log points at the scout that owns it.
+    """
+    domains = list(config.sandbox_allowed_domains or [])
+    if not domains:
+        return SIGNALS_SCOUT_SANDBOX_ENV_NAME, tasks_facade.SandboxNetworkAccessLevel.TRUSTED, {}
+    return (
+        f"{SIGNALS_SCOUT_CUSTOM_ENV_PREFIX}{config.skill_name}",
+        tasks_facade.SandboxNetworkAccessLevel.CUSTOM,
+        # `include_default_domains` keeps this strictly additive: a declared allowlist widens the
+        # default trusted set, it never replaces it, so opting in can't silently take away a host
+        # the scout could reach before.
+        {"allowed_domains": domains, "include_default_domains": True},
+    )
+
+
 async def _spawn_and_run(
     *,
     team: Team,
@@ -392,10 +419,12 @@ async def _spawn_and_run(
     `runtime_adapter` that serves it — the agent server derives the provider from it; all `None` keeps
     the agent-server default Claude runtime). Returns `(last_message, task_run_id)`.
     """
+    env_name, network_access_level, env_kwargs = _resolve_sandbox_env_request(config)
     sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
         team.id,
-        SIGNALS_SCOUT_SANDBOX_ENV_NAME,
-        tasks_facade.SandboxNetworkAccessLevel.TRUSTED,
+        env_name,
+        network_access_level,
+        **env_kwargs,
     )
     report_channel = skill_uses_report_channel(skill.allowed_tools)
     # Scout sandboxes never get the write-capable installation token: task creation attaches the

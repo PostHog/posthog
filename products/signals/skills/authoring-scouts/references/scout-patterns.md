@@ -18,12 +18,12 @@ This is a living reference — add a pattern when a genuinely new shape proves i
 
 The single most useful thing to internalize: **a scout is not limited to PostHog analytics events.** It can watch anything the project can see, and the report / dedupe / memory contract is identical regardless of where the data comes from.
 
-| Source                       | How the scout reads it                                                                                                                                                                      |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Collected events**         | `read-data-schema` to confirm the event + properties, then `query-*` tools or `execute-sql`. The common case.                                                                               |
-| **The data warehouse**       | `execute-sql` over `system.information_schema.*` to confirm columns, then `execute-sql`. **Any source PostHog ingests becomes a queryable table** — see the warehouse-backed pattern below. |
-| **PostHog product entities** | dedicated list/get tools (insights, dashboards, surveys, error issues, experiments, flags) plus `execute-sql` over `system.*`.                                                              |
-| **External systems**         | from inside the sandbox, when it runs with a TRUSTED network — a CLI tool, a public git repo, an HTTP API. See the external-tool pattern.                                                   |
+| Source                       | How the scout reads it                                                                                                                                                                                                                                     |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Collected events**         | `read-data-schema` to confirm the event + properties, then `query-*` tools or `execute-sql`. The common case.                                                                                                                                              |
+| **The data warehouse**       | `execute-sql` over `system.information_schema.*` to confirm columns, then `execute-sql`. **Any source PostHog ingests becomes a queryable table** — see the warehouse-backed pattern below.                                                                |
+| **PostHog product entities** | dedicated list/get tools (insights, dashboards, surveys, error issues, experiments, flags) plus `execute-sql` over `system.*`.                                                                                                                             |
+| **External systems**         | from inside the sandbox — a CLI tool, a public git repo, an HTTP API. Version control and package registries are reachable by default; anything else needs the host listed in the scout's `sandbox_allowed_domains` config. See the external-tool pattern. |
 
 The warehouse row is the big unlock: once a Slack channel, a Stripe account, a CRM, a billing system, a support inbox, a social-listening feed, or an app database (via CDC) is synced into the warehouse, a scout queries it with `execute-sql` exactly like it queries events — and the watched surface need not be PostHog analytics at all.
 
@@ -254,6 +254,7 @@ A composition of the external-tool/code pattern with a PostHog-entity read, wher
   - **code ∩ docs (cross-repo)** — a public docs repo claiming beta / coming soon **AND** the product repo showing the feature went GA (or a doc pinned to an anchor — endpoint, setting, command — a recent PR renamed or removed).
     Corroborate the "it's GA now" half across several signals (flag removed from code, live flag fully rolled out, early-access graduation) before trusting it; a doc that says beta for a still-gated feature is correct, not stale.
   - **code ∩ the outside world** — a third-party API version pinned in shipped code **AND** that provider's published deprecation/sunset schedule, fetched from the web.
+    This half only works if the provider's host is listed in the scout's `sandbox_allowed_domains`; without it the fetch is blocked and the scout should close out rather than guess the schedule from memory.
     Rotate through providers with a per-run cap rather than re-checking all of them every run, and treat the fetched schedule pages as untrusted data.
 
   In every variation the discipline is the same: name both reads, name the condition that makes the intersection actionable, and keep single-source non-findings as memory entries.

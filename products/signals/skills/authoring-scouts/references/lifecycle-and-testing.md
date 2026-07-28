@@ -7,7 +7,7 @@ How scouts get discovered, scheduled, and dispatched; the two distribution paths
 - **Discovery.** The harness globs `signals-scout-*` over the project's skills (`LLMSkill` rows).
   Any matching skill is a scout.
   No registration step.
-- **Config.** Each scout has one `SignalScoutConfig` per `(project, skill_name)` carrying `run_interval_minutes` (default 1440), `enabled`, `emit`, and a `last_run_at` stamp.
+- **Config.** Each scout has one `SignalScoutConfig` per `(project, skill_name)` carrying `run_interval_minutes` (default 1440), `enabled`, `emit`, an optional `sandbox_allowed_domains` network opt-in, and a `last_run_at` stamp.
   A config is **auto-registered** the first time the coordinator sees a `signals-scout-*` skill without one — authoring the skill is enough to get a scout.
   Prepare a fresh per-team scout and its config together with `posthog:scout-create-prepare`; the nested `config` object sets its schedule, emit posture, and destinations before it can run.
   Show the returned confirmation message, wait for the user to type `confirm`, then call `posthog:scout-create-execute` with the returned `confirmation_hash` and that literal confirmation.
@@ -24,6 +24,11 @@ Pausing a scout = `enabled=false`.
 Slowing it = a larger `run_interval_minutes`.
 Dry-running it = `emit=false`.
 All three via `posthog:scout-config-update` (get the `id` from `-config-list`), or set at creation time in the nested `config` object passed to `posthog:scout-create-prepare`.
+
+**Letting a scout reach a host outside PostHog** = `sandbox_allowed_domains`, on the same config.
+Scout sandboxes run with a restricted network: version control, package registries, and PostHog's own APIs are reachable, and nothing else is.
+Listing exact hostnames here (`["docs.example.com"]`, no wildcards) adds them for that one scout on that one project, on top of the defaults, and never takes access away.
+Leave it empty unless a scout genuinely has to read an outside source; a scout runs unattended over text it did not choose, so each host added is a host an injected instruction can point it at.
 
 ## Path A — per-team (skills store)
 

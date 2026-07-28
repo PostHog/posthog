@@ -247,6 +247,15 @@ one sandbox session → zero or more emitted signals.
   `SignalScoutConfig` row (keyed on `(team, skill_name)`) whose `enabled` flag,
   `run_interval_minutes`, and optional project-local cron `run_cron_schedule` the
   coordinator's per-scout due-check honors.
+- Scout sandboxes share one restricted network environment by default (`TRUSTED`: build
+  infrastructure plus PostHog's own APIs, no arbitrary web). A scout whose config lists
+  `sandbox_allowed_domains` runs in a `CUSTOM` environment of its **own** instead
+  (`_resolve_sandbox_env_request`), named `SIGNALS_SCOUT_<skill_name>` and carrying those hosts on
+  top of the defaults. The per-scout environment is not cosmetic: `get_or_create_signals_sandbox_env`
+  reasserts policy on every run, so two scouts with different allowlists sharing one environment row
+  would rewrite each other's policy run by run. Widening is opt-in, additive, and scoped to one
+  scout on one team — there is no config value that grants unrestricted egress, and an empty list
+  (the default) leaves a scout on the shared environment exactly as before.
 - Scout sandbox GitHub credentials are **always read-only**: the runner requests
   `github_read_access` on every scout run, so provisioning mints an ephemeral downscoped
   installation token (`contents`/`metadata`/`pull_requests` read, team-level installs only, never

@@ -9,6 +9,7 @@ shape and Python shape stay in lockstep.
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 
 from django.utils import timezone
@@ -1769,6 +1770,65 @@ def _validate_output_destinations(value: dict, context: dict) -> dict:
     return {"slack": slack}
 
 
+# A declared allowlist widens what a scout's sandbox can reach, so its shape is validated rather
+# than trusted: the sandbox runtimes apply whatever list they are handed.
+MAX_SANDBOX_ALLOWED_DOMAINS = 20
+_DOMAIN_LABEL_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
+
+_SANDBOX_ALLOWED_DOMAINS_HELP = (
+    "Extra hosts this scout's sandbox may reach, on top of the trusted defaults (version control, "
+    "package registries, and PostHog's own APIs) every scout already gets. Empty - the default - "
+    "leaves the scout's network access unchanged. Exact hostnames only, e.g. "
+    "['example.com', 'docs.example.com']: no wildcards, schemes, ports, paths, or IP addresses, and "
+    f"at most {MAX_SANDBOX_ALLOWED_DOMAINS} entries. Set this only for a scout that genuinely has to "
+    "read a source outside PostHog. A scout runs unattended on text it did not choose, so every host "
+    "added here is a host an injected instruction can name."
+)
+
+
+def _validate_sandbox_domain(value: str) -> str:
+    host = value.strip().lower().rstrip(".")
+    if not host:
+        raise serializers.ValidationError("Domains must not be blank.")
+    if any(char in host for char in "/:? "):
+        raise serializers.ValidationError(
+            f"'{value}' must be a bare hostname, with no scheme, port, path, or spaces (e.g. 'example.com')."
+        )
+    # Wildcards are rejected rather than range-checked. `*.example.com` and `*.co.uk` are the same
+    # syntax with wildly different scope, telling them apart needs the public suffix list, and the
+    # two enforcement paths (agentsh, Modal) do not treat wildcards identically. Exact hosts mean
+    # what they say on both. This can be loosened later; it can't be tightened once scouts rely on it.
+    if "*" in host:
+        raise serializers.ValidationError(
+            f"'{value}' cannot use a wildcard. List each hostname you need, e.g. 'docs.example.com'."
+        )
+    labels = host.split(".")
+    if len(labels) < 2:
+        raise serializers.ValidationError(f"'{value}' must be a fully qualified domain, e.g. 'example.com'.")
+    if not all(_DOMAIN_LABEL_PATTERN.match(label) for label in labels):
+        raise serializers.ValidationError(f"'{value}' is not a valid domain name.")
+    # An IPv4 literal parses as valid labels; naming a raw address skips DNS and points the sandbox
+    # at a host nobody can audit by name. (IPv6 is already rejected above by its colons.)
+    if labels[-1].isdigit():
+        raise serializers.ValidationError(f"'{value}' must be a domain name, not an IP address.")
+    if len(host) > 253:
+        raise serializers.ValidationError(f"'{value}' is longer than a domain name can be.")
+    return host
+
+
+def _validate_sandbox_allowed_domains(value: list[str]) -> list[str]:
+    seen: list[str] = []
+    for entry in value:
+        host = _validate_sandbox_domain(entry)
+        if host not in seen:
+            seen.append(host)
+    if len(seen) > MAX_SANDBOX_ALLOWED_DOMAINS:
+        raise serializers.ValidationError(
+            f"A scout may declare at most {MAX_SANDBOX_ALLOWED_DOMAINS} domains (got {len(seen)})."
+        )
+    return seen
+
+
 class SignalScoutConfigSerializer(serializers.ModelSerializer):
     """Read shape for a per-(team, skill) scout config.
 
@@ -1822,6 +1882,11 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         read_only=True,
         help_text="Destinations that receive each finding or report this scout emits. Empty when none is configured.",
     )
+    sandbox_allowed_domains = serializers.ListField(
+        read_only=True,
+        child=serializers.CharField(),
+        help_text=_SANDBOX_ALLOWED_DOMAINS_HELP,
+    )
     last_run_at = serializers.DateTimeField(
         read_only=True,
         allow_null=True,
@@ -1854,6 +1919,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "run_interval_minutes",
             "run_cron_schedule",
             "output_destinations",
+            "sandbox_allowed_domains",
             "last_run_at",
             "created_at",
         ]
@@ -1917,12 +1983,20 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
         required=False,
         help_text="Destinations that receive each finding or report this scout emits. Pass an empty object to disable delivery.",
     )
+    sandbox_allowed_domains = serializers.ListField(
+        required=False,
+        child=serializers.CharField(max_length=255),
+        help_text=f"{_SANDBOX_ALLOWED_DOMAINS_HELP} Pass an empty list to take the extra access away again.",
+    )
 
     def validate_run_cron_schedule(self, value: str | None) -> str | None:
         return _validate_run_cron_schedule(value) if value is not None else None
 
     def validate_output_destinations(self, value: dict) -> dict:
         return _validate_output_destinations(value, self.context)
+
+    def validate_sandbox_allowed_domains(self, value: list[str]) -> list[str]:
+        return _validate_sandbox_allowed_domains(value)
 
     def update(self, instance: SignalScoutConfig, validated_data: dict) -> SignalScoutConfig:
         # Re-anchor the coordinator's cron due-check only when the schedule actually changes —
@@ -1936,7 +2010,14 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SignalScoutConfig
-        fields = ["enabled", "emit", "run_interval_minutes", "run_cron_schedule", "output_destinations"]
+        fields = [
+            "enabled",
+            "emit",
+            "run_interval_minutes",
+            "run_cron_schedule",
+            "output_destinations",
+            "sandbox_allowed_domains",
+        ]
 
 
 class SignalScoutConfigOptionsSerializer(serializers.Serializer):
@@ -1974,8 +2055,17 @@ class SignalScoutConfigOptionsSerializer(serializers.Serializer):
         ),
     )
 
+    sandbox_allowed_domains = serializers.ListField(
+        required=False,
+        child=serializers.CharField(max_length=255),
+        help_text=_SANDBOX_ALLOWED_DOMAINS_HELP,
+    )
+
     def validate_run_cron_schedule(self, value: str | None) -> str | None:
         return _validate_run_cron_schedule(value) if value is not None else None
+
+    def validate_sandbox_allowed_domains(self, value: list[str]) -> list[str]:
+        return _validate_sandbox_allowed_domains(value)
 
     def validate_output_destinations(self, value: dict) -> dict:
         context = self.context
