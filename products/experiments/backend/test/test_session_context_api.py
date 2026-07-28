@@ -18,6 +18,7 @@ from posthog.models import PropertyDefinition, Team, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
 from posthog.rate_limit import SessionContextsBurstRateThrottle
+from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from products.access_control.backend.facade.api import upsert_property_access_control
@@ -650,6 +651,38 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         response = self._get_session_context()
         assert [result["flag_key"] for result in response.json()["results"]] == ["checkout-cta"]
 
+    def test_cached_context_drops_experiments_the_viewer_lost_access_to(self) -> None:
+        self._enable_access_controls()
+        other_user = self._create_user("other-experimenter@posthog.com")
+        self._create_recording()
+        self._create_experiment()
+        revoked_experiment = self._create_experiment(
+            key="revoked-exp", name="Revoked experiment", created_by=other_user
+        )
+        self._create_session_event(
+            properties={"$feature_flag": "checkout-cta", "$feature_flag_response": "test"},
+        )
+        self._create_session_event(
+            properties={"$feature_flag": "revoked-exp", "$feature_flag_response": "control"},
+        )
+        flush_persons_and_events()
+
+        first = self._get_session_context()
+        assert [result["flag_key"] for result in first.json()["results"]] == ["checkout-cta", "revoked-exp"]
+
+        AccessControl.objects.create(
+            team=self.team, resource="experiment", resource_id=str(revoked_experiment.pk), access_level="none"
+        )
+
+        # Both endpoints serve this session from the warm entry, so the revocation is only
+        # honored if the cached items are re-checked on read rather than at compute time.
+        with patch("products.experiments.backend.session_context._compute_session_experiment_contexts") as compute:
+            single = self._get_session_context()
+            batch = self._post_session_contexts([SESSION_ID])
+        compute.assert_not_called()
+        assert [result["flag_key"] for result in single.json()["results"]] == ["checkout-cta"]
+        assert [result["flag_key"] for result in batch.json()["results"][0]["results"]] == ["checkout-cta"]
+
     def test_repeat_request_is_served_from_cache(self) -> None:
         self._create_recording()
         self._create_experiment()
@@ -724,6 +757,25 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
 
         response = self._get_session_context()
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_denies_recordings_blocked_by_object_level_access(self) -> None:
+        self._enable_access_controls()
+        self._create_recording()
+        self._create_experiment()
+        self._create_session_event(properties={"$feature_flag": "checkout-cta", "$feature_flag_response": "test"})
+        self._create_day_two_recording_with_exposure()
+        flush_persons_and_events()
+
+        blocked = SessionRecording.objects.create(team=self.team, session_id=SESSION_ID)
+        AccessControl.objects.create(
+            team=self.team, resource="session_recording", resource_id=str(blocked.id), access_level="none"
+        )
+
+        assert self._get_session_context().status_code == status.HTTP_403_FORBIDDEN
+
+        batch = self._post_session_contexts([SESSION_ID, DAY_TWO_SESSION_ID])
+        assert batch.status_code == status.HTTP_200_OK
+        assert [result["session_id"] for result in batch.json()["results"]] == [DAY_TWO_SESSION_ID]
 
     def test_requires_session_recording_read_scope(self) -> None:
         self._create_recording()
