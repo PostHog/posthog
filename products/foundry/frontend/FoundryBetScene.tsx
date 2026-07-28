@@ -11,7 +11,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { BetStateTag } from './BetStateTag'
-import { BetEventRecord, BetNodeRecord, FoundryBetLogicProps, foundryBetLogic } from './foundryBetLogic'
+import { BetEventRecord, BetNodeRecord, FoundryBetLogicProps, GateAttempt, foundryBetLogic } from './foundryBetLogic'
 
 const NODE_STATUS_TAG_TYPE: Record<string, LemonTagType> = {
     spawned: 'default',
@@ -136,6 +136,17 @@ function GateReportCard({ events }: { events: BetEventRecord[] }): JSX.Element |
     )
 }
 
+function GateAttemptTag({ gateAttempt }: { gateAttempt: GateAttempt | null }): JSX.Element | null {
+    if (!gateAttempt) {
+        return null
+    }
+    return (
+        <LemonTag type="option" data-attr="foundry-gate-attempt">
+            gate attempt {gateAttempt.attempt}/{gateAttempt.max}
+        </LemonTag>
+    )
+}
+
 function KnowledgeLinks({ events }: { events: BetEventRecord[] }): JSX.Element | null {
     const published = events.filter((event) => event.kind === 'knowledge.published')
     if (published.length === 0) {
@@ -201,7 +212,7 @@ function EventPayloadSummary({ event }: { event: BetEventRecord }): JSX.Element 
 }
 
 export function FoundryBetScene(): JSX.Element {
-    const { bet, betLoading, events, eventsLoading, nodes } = useValues(foundryBetLogic)
+    const { bet, betLoading, events, eventsLoading, nodes, gateAttempt } = useValues(foundryBetLogic)
     const { fund, recordVerdict } = useActions(foundryBetLogic)
 
     if (!bet) {
@@ -307,6 +318,7 @@ export function FoundryBetScene(): JSX.Element {
                     )}
                 </div>
             )}
+            <GateAttemptTag gateAttempt={gateAttempt} />
             <GateReportCard events={events} />
             <KnowledgeLinks events={events} />
             <BetNodeTree nodes={nodes} />
