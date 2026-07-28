@@ -654,19 +654,26 @@ def _chart_event_key(chart: ReportChartInput) -> str:
     )
 
 
-def _report_event_uuid(*parts: object) -> str:
+def _report_event_uuid(*parts: object, charted: bool = False) -> str:
     """Deterministic event uuid from the parts that identify a distinct emit/edit. A retried capture of the
     same authored report (or an identical re-applied edit) collapses to one event at ingestion instead of
     double-firing a destination — `emit_report`/`edit_report` are non-idempotent, so the same logical action
     can reach this path more than once. Distinct actions (a different report, a different edit) differ in
     the parts and stay separate events.
 
-    Encoded as JSON rather than joined on a separator, for the reason `_chart_event_key` gives one
-    level down: the parts are scout-authored free text, so any separator can appear inside one of them
-    and two different actions would key the same — a note of `x|<the chart key>` on a chartless edit
-    against a note of `x` on an edit appending that chart. Ingestion would collapse the second, and
-    the team would never hear about it."""
-    key = json.dumps(["" if part is None else str(part) for part in parts], separators=(",", ":"))
+    Two encodings, and the split is deliberate. Every shape that predates charts keeps the key it has
+    always hashed to: a rolling deploy runs both versions at once, so re-encoding those would give the
+    two workers different uuids for one action and ingestion would let the retry through as a second
+    event — the exact double-fire this function exists to prevent.
+
+    An edit carrying charts is a new shape with no key to preserve, so it takes a JSON-encoded one under
+    its own namespace, for the reason `_chart_event_key` gives one level down: the parts are scout-authored
+    free text, so joined on a separator a note of `x|<the chart key>` on a chartless edit would key the
+    same as a note of `x` on an edit appending that chart, and ingestion would drop the second."""
+    if charted:
+        key = json.dumps(["" if part is None else str(part) for part in parts], separators=(",", ":"))
+        return str(uuid.uuid5(uuid.NAMESPACE_URL, f"signals_scout_report_charted:{key}"))
+    key = "|".join("" if part is None else str(part) for part in parts)
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"signals_scout_report:{key}"))
 
 
@@ -854,7 +861,7 @@ def _capture_report_edited(
     return _ReportForward(
         event_name=CUSTOMER_REPORT_EDITED_EVENT,
         distinct_id=f"signals_scout:{run.skill_name}",
-        event_uuid=_report_event_uuid(*parts),
+        event_uuid=_report_event_uuid(*parts, charted=bool(charts)),
         properties=properties,
     )
 

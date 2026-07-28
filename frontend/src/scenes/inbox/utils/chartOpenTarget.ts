@@ -25,11 +25,11 @@ const EMBED_PRESENTATION_KEYS = [
 ] as const
 
 function withoutEmbedFlags(query: Node): Node {
-    const node = { ...(query as Record<string, unknown>) }
+    const node = { ...query } as unknown as Record<string, unknown>
     for (const key of EMBED_PRESENTATION_KEYS) {
         delete node[key]
     }
-    return node as Node
+    return node as unknown as Node
 }
 
 /**

@@ -45,7 +45,7 @@ describe('chartOpenTarget', () => {
         // A scout can copy a query from a surface that embeds it, and the insight scene honors these,
         // so carrying them over opens an editor with its result body or its chrome hidden.
         const copiedFromAnEmbed = {
-            ...(trendsChart as Record<string, unknown>),
+            ...trendsChart,
             showResults: false,
             embedded: true,
             showFilters: false,

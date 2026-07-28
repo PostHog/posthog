@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 import dataclasses
 from datetime import timedelta
 from typing import TYPE_CHECKING
@@ -1308,11 +1309,18 @@ class TestReportEventUuid:
     def test_same_parts_hash_to_one_event(self) -> None:
         assert _report_event_uuid("edit", 1, "note") == _report_event_uuid("edit", 1, "note")
 
+    def test_an_edit_without_charts_keeps_the_key_it_hashed_before_charts(self) -> None:
+        # A rolling deploy runs both versions at once, so re-encoding this hands the two workers
+        # different uuids for one action and ingestion lets a retry through as a second event.
+        legacy = uuid.uuid5(uuid.NAMESPACE_URL, "signals_scout_report:edit|1|note")
+
+        assert _report_event_uuid("edit", 1, "note") == str(legacy)
+
     def test_a_part_containing_the_encoding_separator_stays_distinct(self) -> None:
-        # The parts are scout-authored free text, so a note can contain whatever joins them. Joined on
-        # a delimiter, a note of `x|<the chart key>` on a chartless edit keys the same as a note of `x`
+        # The parts are scout-authored free text, so a note can contain whatever joins them. On one
+        # encoding, a note of `x|<the chart key>` on a chartless edit keys the same as a note of `x`
         # on an edit that appends that chart — ingestion collapses the second and the chart never
         # reaches a destination.
         chart_key = _chart_event_key(ReportChartInput(chart_id="c", title="Signups", query={"kind": "InsightVizNode"}))
 
-        assert _report_event_uuid("edit", f"x|{chart_key}") != _report_event_uuid("edit", "x", chart_key)
+        assert _report_event_uuid("edit", f"x|{chart_key}") != _report_event_uuid("edit", "x", chart_key, charted=True)
