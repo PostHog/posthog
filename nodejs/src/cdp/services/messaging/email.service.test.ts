@@ -725,6 +725,17 @@ describe('EmailService', () => {
                 const testSend = await service.executeSendEmail(invocation, true)
                 expect(testSend.metrics).toEqual([])
             })
+
+            it('marks the captured send event as untracked so customer-built engagement rates can exclude it', async () => {
+                jest.spyOn(
+                    (service as any).teamWorkflowsConfigService,
+                    'shouldCaptureEngagementEvents'
+                ).mockResolvedValue(true)
+                const result = await service.executeSendEmail(invocation)
+                expect(result.capturedPostHogEvents[0].properties).toMatchObject({
+                    $email_tracking_enabled: false,
+                })
+            })
         })
 
         describe('recipient tracking consent', () => {
@@ -879,6 +890,7 @@ describe('EmailService', () => {
                     $workflow_action_id: invocation.state.actionId,
                     $email_to: 'test@example.com',
                     $email_subject: 'Test Subject',
+                    $email_tracking_enabled: true,
                 },
             })
         })
