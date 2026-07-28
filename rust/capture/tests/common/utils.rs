@@ -181,6 +181,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     capture_ingestion_warnings_kafka_message_max_bytes: 1048576,
     capture_ingestion_warnings_kafka_topic: None,
     capture_ingestion_warnings_kafka_hosts: None,
+    capture_ingestion_warnings_kafka_tls: None,
 });
 
 /// Build the per-sink env snapshot the v1 sink loader expects, with every

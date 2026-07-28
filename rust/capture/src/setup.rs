@@ -730,8 +730,8 @@ fn build_warnings_kafka_config(
 /// acks/retries, a small queue) with `observe_delivery` as its delivery
 /// callback — by default it shares only the destination cluster (hosts/TLS) and
 /// the `client_ingestion_warning` topic with capture's main event producer,
-/// never its tuning or connection. Both are overridable via
-/// `CAPTURE_INGESTION_WARNINGS_KAFKA_{HOSTS,TOPIC}`. When built, a background
+/// never its tuning or connection. All three are overridable via
+/// `CAPTURE_INGESTION_WARNINGS_KAFKA_{HOSTS,TLS,TOPIC}`. When built, a background
 /// task heartbeats the advisory lifecycle handle, sweeps the throttle's per-key
 /// state, and flushes the producer once at shutdown.
 ///
@@ -760,6 +760,9 @@ async fn create_ingestion_warning_emitter(
         .capture_ingestion_warnings_kafka_topic
         .clone()
         .unwrap_or_else(|| config.kafka.kafka_client_ingestion_warning_topic.clone());
+    let tls = config
+        .capture_ingestion_warnings_kafka_tls
+        .unwrap_or(config.kafka.kafka_tls);
 
     if hosts.is_empty() {
         warn!(
@@ -790,7 +793,7 @@ async fn create_ingestion_warning_emitter(
 
     let warnings_kafka_config = build_warnings_kafka_config(
         hosts,
-        config.kafka.kafka_tls,
+        tls,
         config.capture_ingestion_warnings_kafka_queue_mib,
         config.capture_ingestion_warnings_kafka_message_max_bytes,
     );

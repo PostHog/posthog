@@ -456,17 +456,21 @@ pub struct Config {
     #[envconfig(default = "1048576")]
     pub capture_ingestion_warnings_kafka_message_max_bytes: u32,
 
-    // Warnings-cluster overrides. When unset, the emitter reuses the
-    // corresponding `kafka_*` value: `kafka_client_ingestion_warning_topic`
-    // and `kafka_hosts`.
+    // Warnings-cluster overrides, same shape as the traces/metrics overrides in
+    // `KafkaConfig` below. When unset, each reuses the corresponding `kafka_*`
+    // value: `kafka_client_ingestion_warning_topic`, `kafka_hosts`, `kafka_tls`.
     //
     // The emitter runs in the v1 analytics handler but its destination has
     // always been read from the v0 `KAFKA_*` block. Retiring that block would
-    // silently fall the topic back to its envconfig default, which is wrong in
-    // every environment, so the emitter owns its own names here. Setting them
-    // in charts makes the fallback dead config.
+    // silently fall these back to their envconfig defaults — an empty topic and
+    // TLS off — which is wrong in every environment, so the emitter owns its own
+    // names here. Setting them in charts makes the fallback dead config. TLS is
+    // separate from `kafka_hosts` on purpose: pointing the emitter at a cluster
+    // with a different TLS requirement than the main one otherwise fails the
+    // producer's startup metadata fetch, which disables it for the pod's life.
     pub capture_ingestion_warnings_kafka_topic: Option<String>,
     pub capture_ingestion_warnings_kafka_hosts: Option<String>,
+    pub capture_ingestion_warnings_kafka_tls: Option<bool>,
 }
 
 #[derive(Envconfig, Clone)]
