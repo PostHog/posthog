@@ -35,25 +35,68 @@ from products.ai_observability.backend.models.evaluations import Evaluation
 
 
 class TestUpdateNextDeliveryDate(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "unavailable_legacy",
+                "metrics_unavailable",
+                True,
+                None,
+                False,
+                ["next_delivery_date", "last_attempted_at"],
+            ),
+            (
+                "completed_legacy",
+                "completed",
+                True,
+                None,
+                True,
+                ["next_delivery_date", "last_attempted_at", "last_delivered_at"],
+            ),
+            (
+                "completed_cursor_only",
+                "completed",
+                False,
+                True,
+                True,
+                ["last_delivered_at"],
+            ),
+        ]
+    )
     @patch("products.ai_observability.backend.models.evaluation_reports.EvaluationReport.objects.get")
-    def test_unavailable_metrics_record_attempt_without_advancing_successful_period(self, get_report) -> None:
+    def test_updates_automatic_report_timing(
+        self,
+        _name: str,
+        generation_status: str,
+        record_attempt: bool,
+        advance_data_cursor: bool | None,
+        expects_delivered_advance: bool,
+        expected_update_fields: list[str],
+        get_report: MagicMock,
+    ) -> None:
         last_delivered = timezone.now() - dt.timedelta(hours=2)
+        last_attempted = timezone.now() - dt.timedelta(hours=1)
         period_end = timezone.now()
-        report = MagicMock(last_delivered_at=last_delivered, last_attempted_at=None)
+        report = MagicMock(last_delivered_at=last_delivered, last_attempted_at=last_attempted)
         get_report.return_value = report
 
         _update_next_delivery_date(
             UpdateNextDeliveryDateInput(
                 report_id="report-id",
                 period_end=period_end.isoformat(),
-                generation_status="metrics_unavailable",
+                generation_status=generation_status,
+                record_attempt=record_attempt,
+                advance_data_cursor=advance_data_cursor,
             )
         )
 
-        self.assertEqual(report.last_delivered_at, last_delivered)
-        self.assertEqual(report.last_attempted_at, period_end)
-        report.set_next_delivery_date.assert_called_once_with()
-        report.save.assert_called_once_with(update_fields=["next_delivery_date", "last_attempted_at"])
+        self.assertEqual(report.last_attempted_at, period_end if record_attempt else last_attempted)
+        self.assertEqual(report.last_delivered_at, period_end if expects_delivered_advance else last_delivered)
+        if record_attempt:
+            report.set_next_delivery_date.assert_called_once_with()
+        else:
+            report.set_next_delivery_date.assert_not_called()
+        report.save.assert_called_once_with(update_fields=expected_update_fields)
 
 
 class TestEvaluationTargetLoading(BaseTest):
@@ -533,6 +576,24 @@ class TestCountTriggeredReportChecks(BaseTest):
         self.assertFalse(result.due)
         self.assertEqual(result.skipped_reason, "daily_cap")
         execute_hogql_query.assert_not_called()
+
+    def test_check_report_does_not_count_unavailable_run_toward_daily_cap(self):
+        now = timezone.now()
+        report = self._create_report(daily_run_cap=1)
+        EvaluationReportRun.objects.create(
+            report=report,
+            content={"generation_status": "metrics_unavailable"},
+            period_start=now - dt.timedelta(hours=1),
+            period_end=now,
+        )
+
+        with patch("posthog.hogql.query.execute_hogql_query") as execute_hogql_query:
+            execute_hogql_query.return_value = Mock(results=[[100]])
+            result = _check_count_triggered_eval_report_sync(str(report.id), now)
+
+        self.assertTrue(result.due)
+        self.assertIsNone(result.skipped_reason)
+        execute_hogql_query.assert_called_once()
 
     def test_batch_skips_gated_reports_without_clickhouse_and_preserves_order(self):
         # Every Postgres-gated report must be resolved without touching ClickHouse — that's

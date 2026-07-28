@@ -124,6 +124,8 @@ class UpdateNextDeliveryDateInput:
     report_id: str
     period_end: str
     generation_status: str = "completed"
+    record_attempt: bool = True
+    advance_data_cursor: bool | None = None
 
 
 @dataclasses.dataclass

@@ -5,6 +5,8 @@ from collections import defaultdict
 from typing import TYPE_CHECKING, NamedTuple
 from zoneinfo import ZoneInfo
 
+from django.db.models import Q
+
 import temporalio.activity
 from dateutil.rrule import rrulestr
 from structlog import get_logger
@@ -187,6 +189,7 @@ def _count_triggered_pg_gate(
 
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     today_runs = EvaluationReportRun.objects.filter(
+        Q(content__generation_status__isnull=True) | ~Q(content__generation_status="metrics_unavailable"),
         report=report,
         created_at__gte=today_start,
     ).count()
@@ -744,18 +747,32 @@ async def deliver_report_activity(
 
 
 def _update_next_delivery_date(inputs: UpdateNextDeliveryDateInput) -> None:
+    """Persist automatic-run timing without creating gaps in the report data cursor.
+
+    `period_end` is captured when report context is prepared. It anchors both the
+    attempt and successful cursor so time spent generating and delivering cannot
+    leave uncovered data between consecutive reports.
+
+    `advance_data_cursor=None` preserves the behavior of activity inputs recorded
+    before attempt and delivery updates were split.
+    """
     from products.ai_observability.backend.models.evaluation_reports import (  # noqa: PLC0415 -- keeps product model loading inside activity execution
         EvaluationReport,
     )
 
     report = EvaluationReport.objects.get(id=inputs.report_id)
     period_end = dt.datetime.fromisoformat(inputs.period_end)
-    report.last_attempted_at = period_end
-    update_fields = ["next_delivery_date", "last_attempted_at"]
-    if inputs.generation_status == "completed":
+    advance_data_cursor = (
+        inputs.generation_status == "completed" if inputs.advance_data_cursor is None else inputs.advance_data_cursor
+    )
+    update_fields: list[str] = []
+    if inputs.record_attempt:
+        report.last_attempted_at = period_end
+        report.set_next_delivery_date()
+        update_fields.extend(["next_delivery_date", "last_attempted_at"])
+    if advance_data_cursor:
         report.last_delivered_at = period_end
         update_fields.append("last_delivered_at")
-    report.set_next_delivery_date()
     report.save(update_fields=update_fields)
 
 
@@ -763,8 +780,6 @@ def _update_next_delivery_date(inputs: UpdateNextDeliveryDateInput) -> None:
 async def update_next_delivery_date_activity(
     inputs: UpdateNextDeliveryDateInput,
 ) -> None:
-    """Schedule the next run and record its automatic generation outcome."""
-
     @database_sync_to_async(thread_sensitive=False)
     def update() -> None:
         _update_next_delivery_date(inputs)

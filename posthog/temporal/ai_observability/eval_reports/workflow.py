@@ -276,13 +276,22 @@ def _log_fan_out_failures(kind: str, report_ids: list[str], results: list) -> No
         )
 
 
-async def _update_report_schedule(report_id: str, period_end: str, generation_status: str) -> None:
+async def _update_report_schedule(
+    report_id: str,
+    period_end: str,
+    generation_status: str,
+    *,
+    record_attempt: bool = True,
+    advance_data_cursor: bool | None = None,
+) -> None:
     await temporalio.workflow.execute_activity(
         update_next_delivery_date_activity,
         UpdateNextDeliveryDateInput(
             report_id=report_id,
             period_end=period_end,
             generation_status=generation_status,
+            record_attempt=record_attempt,
+            advance_data_cursor=advance_data_cursor,
         ),
         start_to_close_timeout=UPDATE_SCHEDULE_ACTIVITY_TIMEOUT,
         retry_policy=UPDATE_SCHEDULE_RETRY_POLICY,
@@ -351,9 +360,15 @@ class GenerateAndDeliverEvalReportWorkflow(PostHogWorkflow):
             else "completed"
         )
         generation_completed = generation_status == "completed"
+        attempt_before_delivery = temporalio.workflow.patched("eval-report-attempt-before-delivery-2026-07")
 
-        if not inputs.manual and not generation_completed:
-            await _update_report_schedule(inputs.report_id, context.period_end, generation_status)
+        if not inputs.manual and (attempt_before_delivery or not generation_completed):
+            await _update_report_schedule(
+                inputs.report_id,
+                context.period_end,
+                generation_status,
+                advance_data_cursor=False if attempt_before_delivery else None,
+            )
 
         # 3b. Emit a signal for this report run (fire-and-forget).
         # Runs on the same LLMA worker as the parent via LLMA_TASK_QUEUE; ABANDON
@@ -407,6 +422,12 @@ class GenerateAndDeliverEvalReportWorkflow(PostHogWorkflow):
             retry_policy=DELIVER_RETRY_POLICY,
         )
 
-        # 5. Update next delivery date (skip for manual runs to avoid disrupting schedule)
+        # 5. Advance the successful data cursor (skip for manual runs to avoid disrupting schedule)
         if not inputs.manual and generation_completed:
-            await _update_report_schedule(inputs.report_id, context.period_end, generation_status)
+            await _update_report_schedule(
+                inputs.report_id,
+                context.period_end,
+                generation_status,
+                record_attempt=not attempt_before_delivery,
+                advance_data_cursor=True,
+            )

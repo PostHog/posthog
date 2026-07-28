@@ -366,21 +366,30 @@ class TestRunEvalReportAgentMetricsUnavailable(SimpleTestCase):
         mock_pha.default_client = None
         mock_metrics.return_value = None
 
-        content = graph.run_eval_report_agent(
-            team_id=1,
-            evaluation_id="eval-1",
-            evaluation_name="Relevance",
-            evaluation_description="",
-            evaluation_prompt="",
-            evaluation_type="llm_judge",
-            period_start="2026-04-08T14:00:00+00:00",
-            period_end="2026-04-08T15:00:00+00:00",
-            previous_period_start="2026-04-08T13:00:00+00:00",
-        )
+        with (
+            patch("posthog.temporal.ai_observability.eval_reports.metrics.increment_errors") as mock_increment_errors,
+            patch(
+                "posthog.temporal.ai_observability.eval_reports.metrics.increment_report_generated"
+            ) as mock_increment_generated,
+        ):
+            content = graph.run_eval_report_agent(
+                team_id=1,
+                evaluation_id="eval-1",
+                evaluation_name="Relevance",
+                evaluation_description="",
+                evaluation_prompt="",
+                evaluation_type="llm_judge",
+                period_start="2026-04-08T14:00:00+00:00",
+                period_end="2026-04-08T15:00:00+00:00",
+                previous_period_start="2026-04-08T13:00:00+00:00",
+            )
 
         mock_create_agent.assert_not_called()
         mock_build_llm.assert_not_called()
+        mock_increment_generated.assert_called_once_with("fallback_metrics_unavailable")
+        mock_increment_errors.assert_called_once_with("metrics_unavailable")
         self.assertEqual(content.generation_status, graph.EvalReportGenerationStatus.METRICS_UNAVAILABLE)
+        self.assertEqual(content.title, "Metrics unavailable for this period")
         self.assertIsNone(content.metrics)
         self.assertEqual(content.sections, [])
 

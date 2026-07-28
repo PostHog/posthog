@@ -24,9 +24,9 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
 )
 from posthog.temporal.ai_observability.eval_reports.report_agent.state import EvalReportAgentState
 from posthog.temporal.ai_observability.eval_reports.report_agent.tools import (
-    RETRIABLE_CH_ERRORS,
     _ch_ts,
     _fetch_period_summary,
+    _is_retriable_ch_error,
     get_eval_report_tools,
 )
 from posthog.temporal.ai_observability.eval_reports.targets import GENERATION_TARGET
@@ -72,18 +72,19 @@ def _compute_metrics(
             previous_total_runs=previous_total,
             previous_result_counts=previous_result_counts,
         )
-    except RETRIABLE_CH_ERRORS:
+    except Exception as error:
+        if not _is_retriable_ch_error(error):
+            raise
         logger.exception("llma_eval_reports_metrics_computation_failed")
         return None
 
 
 def _metrics_unavailable_content(
-    evaluation_name: str,
     evaluation_target: str = "generation",
 ) -> EvalReportContent:
     return EvalReportContent(
         evaluation_target=evaluation_target,
-        title=f"Metrics temporarily unavailable for {evaluation_name}",
+        title="Metrics unavailable for this period",
         sections=[],
         citations=[],
         metrics=None,
@@ -244,12 +245,13 @@ def run_eval_report_agent(
     # which could produce a narrative built on missing data.
     if metrics is None:
         increment_report_generated("fallback_metrics_unavailable")
+        increment_errors("metrics_unavailable")
         logger.warning(
             "llma_eval_reports_metrics_unavailable",
             team_id=team_id,
             evaluation_id=evaluation_id,
         )
-        return _metrics_unavailable_content(evaluation_name, evaluation_target)
+        return _metrics_unavailable_content(evaluation_target)
 
     llm = build_langchain_chat_client(EVAL_REPORT_AGENT_MODEL, EVAL_REPORT_AGENT_TIMEOUT, ai_product="aio_eval_reports")
 

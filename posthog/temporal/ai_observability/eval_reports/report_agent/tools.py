@@ -18,12 +18,14 @@ from typing import TYPE_CHECKING, Annotated, TypeVar
 from django.db.models import Q
 
 import structlog
+from clickhouse_driver.errors import NetworkError, SocketTimeoutError
 from langchain_core.tools import BaseTool, tool
 from langgraph.prebuilt import InjectedState
 
 from posthog.hogql import ast
 
 from posthog.errors import CH_TRANSIENT_ERRORS
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 from posthog.temporal.ai_observability.eval_reports.output_types import (
     EvaluationReportOutcomeDefinition,
     get_outcome_definition,
@@ -193,14 +195,19 @@ def _widened_ts_window(state: dict) -> tuple[datetime, datetime]:
     return ts_start, ts_end
 
 
-# Transient ClickHouse failures (capacity pressure, scheduling contention, read-only
-# replicas) are expected under load and safe to retry. Without backoff the agent's
-# query tools fail one-by-one and whole analyses silently drop out of the report.
-RETRIABLE_CH_ERRORS = CH_TRANSIENT_ERRORS
+# Query timeouts and per-query memory limits need a narrower query, so retrying
+# them without changing the query only adds load.
+RETRIABLE_CH_ERRORS = (*CH_TRANSIENT_ERRORS, NetworkError, SocketTimeoutError)
 _CH_QUERY_MAX_RETRIES = 3
 _CH_QUERY_BASE_DELAY_SECONDS = 8.0
 
 T = TypeVar("T")
+
+
+def _is_retriable_ch_error(error: Exception) -> bool:
+    return isinstance(error, RETRIABLE_CH_ERRORS) or (
+        isinstance(error, ClickHouseQueryMemoryLimitExceeded) and not error.is_per_query_limit
+    )
 
 
 def _execute_ch_query_with_retry(
@@ -220,7 +227,9 @@ def _execute_ch_query_with_retry(
     for attempt in range(max_retries + 1):
         try:
             return run_query()
-        except RETRIABLE_CH_ERRORS as error:
+        except Exception as error:
+            if not _is_retriable_ch_error(error):
+                raise
             if attempt >= max_retries:
                 raise
             # Jitter prevents concurrent report workers from retrying together.
