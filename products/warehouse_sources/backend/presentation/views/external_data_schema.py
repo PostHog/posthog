@@ -10,7 +10,6 @@ from asgiref.sync import async_to_sync
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.exceptions import MethodNotAllowed, PermissionDenied, ValidationError
-from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -21,7 +20,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
-from posthog.permissions import is_service_auth
+from posthog.permissions import AccessControlPermission, is_service_auth
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin, access_level_satisfied_for_resource
 from posthog.utils import str_to_bool
 
@@ -1331,34 +1330,33 @@ class SimpleExternalDataSchemaSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "label", "should_sync", "last_synced_at", "sync_type"]
 
 
-class WarehouseTableSyncPermission(BasePermission):
-    """Requires editor access to the schema's warehouse table for write actions.
+class WarehouseTableAccessPermission(AccessControlPermission):
+    """Resolves a schema's access through the table it syncs.
 
-    Table-level rules take precedence; if the table has none, the source's access level applies.
-    Runs on top of AccessControlPermission's source resource-level gate (scope_object is
-    "external_data_source"). Reads are not gated here."""
-
-    def has_permission(self, request: Request, view) -> bool:
-        return True
+    No access control rules are written against a schema, so the base class - which looks for rules
+    keyed to the object's own id - finds none and lets everything through. Resolve through the
+    table's rules instead, falling back to the source's when the table has none of its own.
+    The required level still comes from the base class: viewer to read, editor to write."""
 
     def has_object_permission(self, request: Request, view, obj: ExternalDataSchema) -> bool:
-        if request.method in SAFE_METHODS:
-            return True
         # Service credentials (PSAK/TST) are synthetic users UserAccessControl can't evaluate; they're
         # gated by API scope + project membership. Mirror AccessControlPermission.
         if is_service_auth(request):
             return True
-        uac = view.user_access_control
-        if uac is None or uac.is_organization_admin:
+        required_level = self._get_required_access_level(request, view)
+        if not required_level:
             return True
-        level = uac.warehouse_table_effective_level(obj.table, obj.source)
-        return level is not None and access_level_satisfied_for_resource("warehouse_table", level, "editor")
+        level = view.user_access_control.warehouse_table_effective_level(obj.table, obj.source)
+        if level is None or not access_level_satisfied_for_resource("warehouse_table", level, required_level):
+            self.message = f"You do not have {required_level} access to this table."
+            return False
+        return True
 
 
 @extend_schema(extensions={"x-product": "warehouse_sources"})
 class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "external_data_source"
-    permission_classes = [WarehouseTableSyncPermission]
+    permission_classes = [WarehouseTableAccessPermission]
     scope_object_write_actions = [
         "update",
         "partial_update",

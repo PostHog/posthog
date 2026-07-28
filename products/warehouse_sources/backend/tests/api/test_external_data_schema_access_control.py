@@ -3,6 +3,7 @@ import uuid
 import pytest
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
@@ -74,47 +75,51 @@ class TestExternalDataSchemaAccessControl(APIBaseTest):
         self.client.force_login(user)
         return self.client.post(f"/api/environments/{self.team.pk}/external_data_schemas/{self.schema.id}/reload/")
 
-    def test_table_lock_blocks_sync_for_source_editor(self):
-        # Editor on the parent source, but the specific table locked to viewer.
-        self._grant(self.editor_user, "external_data_source", None, "editor")
-        self._grant(self.editor_user, "warehouse_table", str(self.table.id), "viewer")
-
-        # The table's own rule is the most specific, so it wins over the source's editor access.
-        self.assertEqual(self._reported_level(self.editor_user), "viewer")
-        # And syncing the locked table is forbidden.
-        self.assertEqual(self._reload(self.editor_user).status_code, status.HTTP_403_FORBIDDEN)
-
-    def test_source_object_restriction_cascades_to_unruled_tables(self):
-        # Restricting the source itself (per-object rule) applies to tables without their own rules.
-        self._grant(self.editor_user, "external_data_source", str(self.source.id), "viewer")
-
-        self.assertEqual(self._reported_level(self.editor_user), "viewer")
-        self.assertEqual(self._reload(self.editor_user).status_code, status.HTTP_403_FORBIDDEN)
-
-    def test_table_grant_overrides_restricted_source(self):
-        # A table-level editor rule takes precedence over the restricted source.
-        self._grant(self.editor_user, "external_data_source", str(self.source.id), "viewer")
-        self._grant(self.editor_user, "warehouse_table", str(self.table.id), "editor")
-
-        self.assertEqual(self._reported_level(self.editor_user), "editor")
-        self.client.force_login(self.editor_user)
-        resp = self.client.patch(f"/api/environments/{self.team.pk}/external_data_schemas/{self.schema.id}/", {})
-        self.assertEqual(resp.status_code, status.HTTP_200_OK)
-
-    def test_table_lock_blocks_schedule_update_for_source_editor(self):
-        # PATCH (changing sync frequency / method) is a write action — gated by the table lock too.
-        self._grant(self.editor_user, "external_data_source", None, "editor")
-        self._grant(self.editor_user, "warehouse_table", str(self.table.id), "viewer")
-
-        self.client.force_login(self.editor_user)
-        resp = self.client.patch(
-            f"/api/environments/{self.team.pk}/external_data_schemas/{self.schema.id}/",
-            {"sync_frequency": "6hour"},
+    def _patch(self, user):
+        self.client.force_login(user)
+        return self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{self.schema.id}/", {"sync_frequency": "6hour"}
         )
-        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_null_table_falls_back_to_source_gate(self):
-        # A schema not yet synced (no table) has no per-table lock — only the source gate applies.
+    @parameterized.expand(
+        [
+            # A rule on the table itself wins over whatever the source says, in both directions.
+            ("table_lock_beats_source_editor", ("external_data_source", None, "editor"), "viewer", "viewer", False),
+            (
+                "table_grant_beats_source_viewer",
+                ("external_data_source", "SOURCE_ID", "viewer"),
+                "editor",
+                "editor",
+                True,
+            ),
+            # Without a table rule the source's access applies, whether it's set on the source
+            # object or across all sources.
+            (
+                "source_object_restriction_cascades",
+                ("external_data_source", "SOURCE_ID", "viewer"),
+                None,
+                "viewer",
+                False,
+            ),
+            ("source_editor_without_table_rule", ("external_data_source", None, "editor"), None, "editor", True),
+        ]
+    )
+    def test_effective_access(self, _name, source_rule, table_level, expected_level, may_write):
+        resource, resource_id, level = source_rule
+        self._grant(self.editor_user, resource, str(self.source.id) if resource_id else None, level)
+        if table_level:
+            self._grant(self.editor_user, "warehouse_table", str(self.table.id), table_level)
+
+        self.assertEqual(self._reported_level(self.editor_user), expected_level)
+        if may_write:
+            self.assertEqual(self._patch(self.editor_user).status_code, status.HTTP_200_OK)
+            self.assertNotEqual(self._reload(self.editor_user).status_code, status.HTTP_403_FORBIDDEN)
+        else:
+            self.assertEqual(self._patch(self.editor_user).status_code, status.HTTP_403_FORBIDDEN)
+            self.assertEqual(self._reload(self.editor_user).status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_unsynced_schema_falls_back_to_source(self):
+        # No table exists until the first sync, so there's nothing to carry a per-table rule.
         self.schema.table = None
         self.schema.save()
         self._grant(self.editor_user, "external_data_source", None, "editor")
@@ -122,7 +127,6 @@ class TestExternalDataSchemaAccessControl(APIBaseTest):
         self.assertEqual(self._reported_level(self.editor_user), "editor")
 
     def test_org_admin_bypasses_table_lock(self):
-        # Org admins bypass object-level access control everywhere.
         admin = User.objects.create_and_join(self.organization, "admin2@posthog.com", "testtest")
         membership = OrganizationMembership.objects.get(user=admin, organization=self.organization)
         membership.level = OrganizationMembership.Level.ADMIN
@@ -130,3 +134,56 @@ class TestExternalDataSchemaAccessControl(APIBaseTest):
         self._grant(admin, "warehouse_table", str(self.table.id), "none")
 
         self.assertEqual(self._reported_level(admin), "manager")
+        self.assertEqual(self._patch(admin).status_code, status.HTTP_200_OK)
+
+    def test_reads_follow_source_access(self):
+        # Reads resolve through the schema's source/table too, so a member restricted from one
+        # source can't read its schemas, while the source they were granted stays readable.
+        other_source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+            prefix="other",
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"}},
+        )
+        other_schema = ExternalDataSchema.objects.create(
+            name="Invoices", team_id=self.team.pk, source_id=other_source.id, table=None
+        )
+        self._grant(self.editor_user, "external_data_source", None, "none")
+        self._grant(self.editor_user, "external_data_source", str(self.source.id), "viewer")
+
+        self.client.force_login(self.editor_user)
+        base = f"/api/environments/{self.team.pk}/external_data_schemas"
+        self.assertEqual(self.client.get(f"{base}/{self.schema.id}/").status_code, status.HTTP_200_OK)
+        self.assertEqual(self.client.get(f"{base}/{other_schema.id}/").status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_source_endpoints_respect_table_lock(self):
+        # These live on the source viewset, which authorizes the source and never resolves a schema
+        # through object permissions, so the per-table check has to happen there explicitly.
+        self._grant(self.editor_user, "external_data_source", None, "editor")
+        self._grant(self.editor_user, "warehouse_table", str(self.table.id), "viewer")
+        self.schema.should_sync = True
+        self.schema.save()
+
+        self.client.force_login(self.editor_user)
+        source_base = f"/api/environments/{self.team.pk}/external_data_sources/{self.source.id}"
+        bulk = self.client.patch(
+            f"{source_base}/bulk_update_schemas/",
+            {"schemas": [{"id": str(self.schema.id), "should_sync": True}]},
+            format="json",
+        )
+        self.assertEqual(bulk.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.client.post(f"{source_base}/reload/").status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_source_wide_sync_allowed_without_locked_tables(self):
+        # The guard above must not break the ordinary case.
+        self._grant(self.editor_user, "external_data_source", None, "editor")
+        self.schema.should_sync = True
+        self.schema.save()
+
+        self.client.force_login(self.editor_user)
+        resp = self.client.post(f"/api/environments/{self.team.pk}/external_data_sources/{self.source.id}/reload/")
+        self.assertNotEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
