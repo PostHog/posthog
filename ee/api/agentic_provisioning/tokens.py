@@ -190,7 +190,12 @@ def remove_team_from_token_scopes(access_token: OAuthAccessToken, team_id: int) 
 
 
 def get_available_teams_for_user(user: User) -> list[dict[str, object]]:
-    """Return the user's non-demo teams for inclusion in the token exchange response."""
+    """Return the user's non-demo teams for inclusion in the token exchange response.
+
+    Access-checked per team like the scoping paths: org membership alone would
+    otherwise expose the names of teams an advanced-permissions org restricts,
+    and list teams the partner can never be scoped to.
+    """
     org_ids = list(user.organization_memberships.values_list("organization_id", flat=True))
     teams = Team.objects.filter(organization_id__in=org_ids, is_demo=False).select_related("organization")
     return [
@@ -201,4 +206,5 @@ def get_available_teams_for_user(user: User) -> list[dict[str, object]]:
             "organization_name": team.organization.name if team.organization else "",
         }
         for team in teams
+        if user_can_access_team(user, team)
     ]
