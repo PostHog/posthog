@@ -7,7 +7,12 @@ from django.core.cache import cache as real_cache
 
 from parameterized import parameterized
 
-from posthog.api.oauth.cimd import _blocked_key, _cache_key
+from posthog.api.oauth.cimd import (
+    _blocked_key,
+    _cache_key,
+    apply_provisioning_defaults,
+    fetch_and_upsert_cimd_application,
+)
 from posthog.models.oauth import OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.user import User
@@ -444,21 +449,23 @@ def _cimd_mock_response(metadata: dict | None, status_code: int = 200):
 
 
 @patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("93.184.216.34")})
-class TestCimdProvisioningAutoRegistration(ProvisioningTestBase):
+class TestCimdProvisioningRegistration(ProvisioningTestBase):
     def setUp(self):
         super().setUp()
         OAuthApplication.objects.filter(cimd_metadata_url=CIMD_PROV_URL).delete()
         real_cache.clear()
 
+    def _register(self) -> OAuthApplication:
+        """Register the partner the way client_registration does."""
+        app = fetch_and_upsert_cimd_application(CIMD_PROV_URL)
+        assert app is not None
+        return apply_provisioning_defaults(app)
+
     @patch("posthog.api.oauth.cimd.requests.Session.get")
-    def test_new_cimd_partner_succeeds_after_background_registration(self, mock_get, _url_mock):
+    def test_registered_cimd_partner_can_create_accounts(self, mock_get, _url_mock):
         mock_get.return_value = _cimd_mock_response(_make_cimd_metadata())
 
-        from posthog.api.oauth.cimd import register_cimd_provisioning_application_task
-
-        register_cimd_provisioning_application_task(CIMD_PROV_URL)
-
-        app = OAuthApplication.objects.get(cimd_metadata_url=CIMD_PROV_URL)
+        app = self._register()
         assert app.is_cimd_client
         assert app.is_provisioning_partner
         assert app.provisioning_active
@@ -482,12 +489,10 @@ class TestCimdProvisioningAutoRegistration(ProvisioningTestBase):
 
     @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_cimd_scope_ceiling_refreshes_on_agentic_auth_after_metadata_edit(self, mock_get, _url_mock):
-        from posthog.api.oauth.cimd import _cache_key, register_cimd_provisioning_application_task
-
         initial = _make_cimd_metadata()
         initial["com.posthog"] = {"scopes": ["insight:read"]}
         mock_get.return_value = _cimd_mock_response(initial)
-        register_cimd_provisioning_application_task(CIMD_PROV_URL)
+        self._register()
 
         app = OAuthApplication.objects.get(cimd_metadata_url=CIMD_PROV_URL)
         assert app.scopes == ["insight:read"]

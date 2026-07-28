@@ -176,6 +176,19 @@ class TestClientRegistration(ProvisioningTestBase):
         assert app.is_provisioning_partner
         assert app.provisioning_active
 
+    def test_deactivated_partner_is_not_reactivated_by_re_registering(self):
+        # Only a client that is not yet a partner gets the defaults applied. Registering again
+        # must not undo an admin turning a partner off, which would make the endpoint a way for
+        # a partner to reinstate itself.
+        self._make_partner(provisioning_active=False)
+
+        res = self._register({"client_id": CIMD_URL})
+
+        assert res.status_code == 400, res.json()
+        assert res.json()["error"]["code"] == "registration_failed"
+        app = OAuthApplication.objects.get(cimd_metadata_url=CIMD_URL)
+        assert app.provisioning_active is False
+
     def test_unreachable_jwks_is_reported_as_a_failed_check(self):
         self._make_partner()
 

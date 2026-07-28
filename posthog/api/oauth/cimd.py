@@ -757,36 +757,6 @@ def refresh_cimd_metadata_task(url: str) -> None:
         capture_exception(e)
 
 
-@shared_task(ignore_result=True, time_limit=30)
-def register_cimd_provisioning_application_task(url: str) -> None:
-    """Celery task: fetch CIMD metadata, create the app, and backfill provisioning defaults."""
-    try:
-        with ph_scoped_capture() as capture_ph_event:
-            app = fetch_and_upsert_cimd_application(url, capture_ph_event=capture_ph_event)
-            if app is None:
-                return
-            if not app.is_provisioning_partner:
-                apply_provisioning_defaults(app)
-                capture_ph_event(
-                    distinct_id=url,
-                    event="cimd_provisioning_partner_registered",
-                    properties={
-                        "cimd_url": url,
-                        "client_name": app.name,
-                        "app_id": str(app.pk),
-                        "account_requests_rate_limit": app.provisioning_rate_limit_account_requests,
-                        "is_verified": app.organization_id is not None,
-                        "organization_id": str(app.organization_id) if app.organization_id else None,
-                    },
-                )
-    except CIMDValidationError as e:
-        # Expected rejection of a non-compliant partner document — log for observability, don't surface as an error.
-        logger.warning("cimd_background_registration_failed", url=url, error=str(e))
-    except CIMDFetchError as e:
-        logger.warning("cimd_background_registration_failed", url=url, error=str(e))
-        capture_exception(e)
-
-
 def get_or_create_cimd_application(url: str) -> OAuthApplication:
     """
     Resolve a CIMD URL to an OAuthApplication.
@@ -838,14 +808,13 @@ def get_application_by_client_id(client_id: str) -> OAuthApplication:
     return OAuthApplication.objects.get(client_id=client_id)
 
 
-# Defaults applied when a CIMD app is first used for provisioning. A self-serve
-# partner can hit /account_requests immediately without manual admin setup; the
-# app is opted into provisioning at the same trust level as other PKCE partners.
-# The account-request rate limit is set to a conservative floor so a single
-# self-serve partner cannot burn through bulk user-onboarding calls — admin can
-# raise it per-partner once a partner demonstrates legitimate volume. Verified
-# partners (those who presented a valid `posthog_verification_token`) get a
-# higher default since abuse is traceable to a real PostHog organization.
+# Defaults applied when a CIMD app is opted into provisioning at client_registration. A
+# self-serve partner gets there without manual admin setup, at the same trust level as other
+# PKCE partners. The account-request rate limit is set to a conservative floor so a single
+# self-serve partner cannot burn through bulk user-onboarding calls - admin can raise it
+# per-partner once a partner demonstrates legitimate volume. Verified partners (those who
+# presented a valid `posthog_verification_token`) get a higher default since abuse is
+# traceable to a real PostHog organization.
 CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT = 10  # per hour, anonymous CIMD
 CIMD_PROVISIONING_ACCOUNT_REQUESTS_VERIFIED_RATE_LIMIT = 100  # per hour, verified CIMD
 CIMD_PROVISIONING_DEFAULTS: dict[str, bool | int | str] = {
@@ -886,37 +855,4 @@ def apply_provisioning_defaults(app: OAuthApplication) -> OAuthApplication:
     for field, value in defaults.items():
         setattr(app, field, value)
     app.save(update_fields=list(defaults.keys()))
-    return app
-
-
-def get_or_create_cimd_provisioning_application(url: str) -> OAuthApplication | None:
-    """
-    Resolve a CIMD URL to an OAuthApplication configured as a provisioning partner.
-
-    Creates the CIMD app via the normal fetch+upsert path if it doesn't exist,
-    then backfills provisioning defaults if they haven't been set. Existing apps
-    that already have provisioning fields configured (e.g. via admin) are left alone.
-
-    Returns None if the URL is blocklisted.
-    Raises CIMDFetchError / CIMDValidationError on fetch failures.
-    """
-    if is_cimd_url_blocked(url):
-        logger.warning("cimd_blocked_url", url=url)
-        return None
-
-    app = get_or_create_cimd_application(url)
-    if not app.is_provisioning_partner:
-        apply_provisioning_defaults(app)
-        posthoganalytics.capture(
-            distinct_id=url,
-            event="cimd_provisioning_partner_registered",
-            properties={
-                "cimd_url": url,
-                "client_name": app.name,
-                "app_id": str(app.pk),
-                "account_requests_rate_limit": app.provisioning_rate_limit_account_requests,
-                "is_verified": app.organization_id is not None,
-                "organization_id": str(app.organization_id) if app.organization_id else None,
-            },
-        )
     return app
