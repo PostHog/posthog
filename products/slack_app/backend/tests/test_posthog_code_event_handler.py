@@ -310,13 +310,14 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         mock_sync_connect.assert_not_called()
         mock_asyncio_run.assert_not_called()
 
+    @patch("posthog.models.integration.WebClient")
     @patch("products.slack_app.backend.api.posthoganalytics.capture")
     @patch("products.slack_app.backend.api._post_slack_user_feedback")
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
     def test_app_mention_from_unknown_user_posts_in_thread_failure_reply(
-        self, mock_sync_connect, mock_asyncio_run, mock_post_feedback, mock_capture
+        self, mock_sync_connect, mock_asyncio_run, mock_post_feedback, mock_capture, mock_webclient_class
     ):
         # A Slack user whose email doesn't map to any PostHog ``User`` in any connected
         # org gets a public in-thread "Sorry, I couldn't find <email>…" reply that names
@@ -325,6 +326,11 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         # No workflow starts.
         SlackUserProfileCache.objects.filter(slack_user_id="U123").delete()
         self._seed_slack_user_cache("U123", "stranger@example.com")
+        # The stale-cache guard re-fetches once on a miss; Slack still returns the same
+        # unknown email, so resolution stays unresolved.
+        mock_webclient_class.return_value.users_info.return_value = self._make_users_info(
+            "U123", "stranger@example.com"
+        )
 
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
 
@@ -349,13 +355,14 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         assert capture_kwargs.get("event") == "posthog code slack mention received"
         assert capture_kwargs.get("properties", {}).get("posthog_user_identified") is False
 
+    @patch("posthog.models.integration.WebClient")
     @patch("products.slack_app.backend.api.posthoganalytics.capture")
     @patch("products.slack_app.backend.api._post_slack_user_feedback")
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
     def test_unknown_user_in_unapproved_ext_shared_channel_suppresses_failure_reply(
-        self, mock_sync_connect, mock_asyncio_run, mock_post_feedback, mock_capture
+        self, mock_sync_connect, mock_asyncio_run, mock_post_feedback, mock_capture, mock_webclient_class
     ):
         # Externally-shared channels that haven't been approved must not receive a
         # public "Sorry, I couldn't find <email>" post — that leaks the integration's
@@ -364,6 +371,9 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         # Analytics still records the event for funnel coverage.
         SlackUserProfileCache.objects.filter(slack_user_id="U123").delete()
         self._seed_slack_user_cache("U123", "stranger@example.com")
+        mock_webclient_class.return_value.users_info.return_value = self._make_users_info(
+            "U123", "stranger@example.com"
+        )
 
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
 
