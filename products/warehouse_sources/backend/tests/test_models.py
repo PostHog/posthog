@@ -9,6 +9,7 @@ from django.db.models import Model
 from django.test import SimpleTestCase
 from django.utils import timezone
 
+from dateutil import parser
 from parameterized import parameterized
 
 from posthog.models.signals import model_activity_signal
@@ -764,6 +765,15 @@ def test_process_incremental_value_xid_returns_value_as_is() -> None:
 )
 def test_process_incremental_value_datetime_handles_epoch_numbers(value, field_type, expected) -> None:
     assert process_incremental_value(value, field_type) == expected
+
+
+@pytest.mark.parametrize(
+    "field_type",
+    [IncrementalFieldType.DateTime, IncrementalFieldType.Timestamp, IncrementalFieldType.Date],
+)
+def test_process_incremental_value_datetime_reraises_unparseable_non_numeric_string(field_type) -> None:
+    with pytest.raises(parser.ParserError):
+        process_incremental_value("not-a-date-at-all", field_type)
 
 
 @pytest.mark.parametrize(
