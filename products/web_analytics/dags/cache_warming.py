@@ -603,7 +603,8 @@ WARMING_SHAPE_CONCURRENCY = 16
 # and a long run is indistinguishable from a hung one.
 WARMING_PROGRESS_LOG_INTERVAL_SECONDS = 120
 
-# Per-shape wall-clock above which the warm is logged with its shape details.
+# Full per-shape wall-clock (runner construction, cache lookups, and the warm
+# itself) above which the shape's log line escalates to WARNING.
 # Aggregate counters say a run is slow but not WHICH shapes made it slow — the
 # forensic gap when diagnosing why passes overrun (deep ranges rebuilding, bucket
 # identity churn re-warming old days, one team's pathological filters).
@@ -664,17 +665,27 @@ def warm_queries_op(context: dagster.OpExecutionContext, config: WarmQueriesConf
         # deep-range rebuilds); per-shape logs make the composition greppable.
         started = time.monotonic()
         outcome = _warm_one_inner(query_info)
-        query_json = query_info.get("query_json") or {}
-        logger.info(
-            "web_analytics_warming_shape",
-            outcome=outcome,
-            seconds=round(time.monotonic() - started, 2),
-            team_id=query_info.get("team_id"),
-            kind=query_json.get("kind"),
-            breakdown_by=query_json.get("breakdownBy"),
-            date_from=(query_json.get("dateRange") or {}).get("date_from"),
-            normalized_query_hash=query_info.get("normalized_query_hash"),
-        )
+        seconds = round(time.monotonic() - started, 2)
+        try:
+            query_json = query_info.get("query_json") or {}
+            date_range = query_json.get("dateRange") if isinstance(query_json, dict) else None
+            log = logger.warning if seconds >= WARMING_SLOW_SHAPE_SECONDS else logger.info
+            log(
+                "web_analytics_warming_shape",
+                outcome=outcome,
+                seconds=seconds,
+                team_id=query_info.get("team_id"),
+                kind=query_json.get("kind") if isinstance(query_json, dict) else None,
+                breakdown_by=query_json.get("breakdownBy") if isinstance(query_json, dict) else None,
+                date_from=date_range.get("date_from") if isinstance(date_range, dict) else None,
+                replay_date_from=query_info.get("_replay_date_from"),
+                was_cold=query_info.get("_was_cold"),
+                normalized_query_hash=query_info.get("normalized_query_hash"),
+            )
+        except Exception:
+            # Observability must never abort the pass: a malformed shape already
+            # produced its outcome above; a logging error is not a warm failure.
+            logger.exception("web_analytics_warming_shape_log_failed")
         return outcome
 
     def _warm_one_inner(query_info: dict) -> str:
@@ -702,6 +713,10 @@ def warm_queries_op(context: dagster.OpExecutionContext, config: WarmQueriesConf
             runner, query_json, lazy_eligible = build_replay_runner(
                 team, query_json, query_info.get("observed_date_froms", [])
             )
+            # Stashed for the wrapper's per-shape log: the REPLAYED range (after
+            # widening/deepening) is what actually executes, and it differs from
+            # the selected shape's range in exactly the cases worth debugging.
+            query_info["_replay_date_from"] = (query_json.get("dateRange") or {}).get("date_from")
             if runner is None:
                 WARMING_QUERIES_COUNTER.labels(outcome="unsupported").inc()
                 return "unsupported"
@@ -727,6 +742,7 @@ def warm_queries_op(context: dagster.OpExecutionContext, config: WarmQueriesConf
                 seen_cache_keys.add((team.pk, cache_key))
 
             entry = QueryCache(team_id=team.pk, cache_key=cache_key).lookup().entry
+            query_info["_was_cold"] = entry is None
 
             # The cache entry doubles as the warm/cold discriminator: a shape
             # warmed at least once has one (possibly stale); a never-warmed shape
@@ -748,21 +764,7 @@ def warm_queries_op(context: dagster.OpExecutionContext, config: WarmQueriesConf
                     return "skipped_fresh"
 
             # TODO: We shouldn't try to run a query if it failed last run
-            run_started = time.monotonic()
             runner.run(analytics_props={"source": EventSource.CACHE_WARMING})
-            warm_seconds = time.monotonic() - run_started
-            if warm_seconds >= WARMING_SLOW_SHAPE_SECONDS:
-                # Module logger: worker thread (see the failure handler below).
-                logger.warning(
-                    "web_analytics_warming_slow_shape",
-                    team_id=team.pk,
-                    kind=query_json.get("kind"),
-                    breakdown_by=query_json.get("breakdownBy"),
-                    date_from=(query_json.get("dateRange") or {}).get("date_from"),
-                    seconds=round(warm_seconds, 1),
-                    was_cold=entry is None,
-                    normalized_query_hash=query_info["normalized_query_hash"],
-                )
             WARMING_QUERIES_COUNTER.labels(outcome="warmed").inc()
             return "warmed"
         except Exception as e:
