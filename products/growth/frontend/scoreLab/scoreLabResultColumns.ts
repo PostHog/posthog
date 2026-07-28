@@ -1,17 +1,12 @@
-import { ScoreLabOutputRow, ScoreLabRunRow } from './scoreLabLogic'
-
-export type OutputColumnType = 'boolean' | 'number' | 'string'
+import { ScoreLabRunRow } from './scoreLabLogic'
+import { ScoreLabOutputFieldType } from './scoreLabOutputFields'
 
 export interface OutputColumnSpec {
     key: string
-    type: OutputColumnType
+    type: ScoreLabOutputFieldType
 }
 
-export function isOutputRow(row: ScoreLabRunRow): row is ScoreLabOutputRow {
-    return 'outputs' in row
-}
-
-function typeOfValue(value: boolean | number | string): OutputColumnType {
+function typeOfValue(value: boolean | number | string): ScoreLabOutputFieldType {
     if (typeof value === 'boolean') {
         return 'boolean'
     }
@@ -26,9 +21,9 @@ function typeOfValue(value: boolean | number | string): OutputColumnType {
 // future read of a saved version's results. Column order follows first-seen key order, which
 // matches the backend's dict insertion order in format_run_row.
 export function deriveOutputColumns(rows: ScoreLabRunRow[]): OutputColumnSpec[] {
-    const typeByKey = new Map<string, OutputColumnType>()
+    const typeByKey = new Map<string, ScoreLabOutputFieldType>()
     for (const row of rows) {
-        if (!isOutputRow(row) || !row.outputs) {
+        if (!row.outputs) {
             continue
         }
         for (const [key, value] of Object.entries(row.outputs)) {

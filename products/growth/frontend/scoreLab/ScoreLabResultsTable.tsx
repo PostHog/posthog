@@ -1,44 +1,12 @@
 import { useValues } from 'kea'
 
-import { LemonTable, LemonTableColumns, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
+import { LemonTable, LemonTableColumns, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import { ScoreLabOutputRow, ScoreLabRunRow, scoreLabLogic } from './scoreLabLogic'
-import { OutputColumnSpec, deriveOutputColumns, isOutputRow } from './scoreLabResultColumns'
-
-function verdictTagType(verdict: string): LemonTagType {
-    switch (verdict) {
-        case 'true':
-            return 'success'
-        case 'false':
-            return 'danger'
-        case 'error':
-            return 'warning'
-        default:
-            return 'muted'
-    }
-}
-
-const legacyColumns: LemonTableColumns<ScoreLabRunRow> = [
-    { title: 'Company', key: 'company', dataIndex: 'company' },
-    {
-        title: 'Domain',
-        key: 'domain',
-        render: (_, row) => row.domain ?? <span className="text-secondary">–</span>,
-    },
-    {
-        title: 'Verdict',
-        key: 'verdict',
-        render: (_, row) =>
-            'verdict' in row ? (
-                <LemonTag type={verdictTagType(row.verdict.toLowerCase())}>{row.verdict}</LemonTag>
-            ) : null,
-    },
-    { title: 'Confidence', key: 'confidence', render: (_, row) => ('confidence' in row ? row.confidence : null) },
-    { title: 'Reasoning', key: 'reasoning', render: (_, row) => ('reasoning' in row ? row.reasoning : null) },
-]
+import { ScoreLabRunRow, scoreLabLogic } from './scoreLabLogic'
+import { OutputColumnSpec, deriveOutputColumns } from './scoreLabResultColumns'
 
 function outputCell(row: ScoreLabRunRow, column: OutputColumnSpec): JSX.Element | string | null {
-    if (!isOutputRow(row) || row.outputs === null) {
+    if (row.outputs === null) {
         return <span className="text-secondary">–</span>
     }
     const value = row.outputs[column.key]
@@ -65,7 +33,7 @@ function columnTitle(key: string): string {
 
 function buildOutputColumns(rows: ScoreLabRunRow[]): LemonTableColumns<ScoreLabRunRow> {
     const outputColumns = deriveOutputColumns(rows)
-    const hasErrorRows = rows.some((row) => isOutputRow(row) && row.outputs === null)
+    const hasErrorRows = rows.some((row) => row.outputs === null)
 
     const columns: LemonTableColumns<ScoreLabRunRow> = [
         { title: 'Company', key: 'company', dataIndex: 'company' },
@@ -86,7 +54,7 @@ function buildOutputColumns(rows: ScoreLabRunRow[]): LemonTableColumns<ScoreLabR
         columns.push({
             title: 'Error',
             key: 'error',
-            render: (_, row) => (isOutputRow(row) && row.error ? <LemonTag type="danger">{row.error}</LemonTag> : null),
+            render: (_, row) => (row.error ? <LemonTag type="danger">{row.error}</LemonTag> : null),
         })
     }
 
@@ -96,8 +64,7 @@ function buildOutputColumns(rows: ScoreLabRunRow[]): LemonTableColumns<ScoreLabR
 export function ScoreLabResultsTable(): JSX.Element {
     const { runRows, runSummary, isRunning } = useValues(scoreLabLogic)
 
-    const isCustomSchema = runRows.some((row): row is ScoreLabOutputRow => isOutputRow(row))
-    const columns = isCustomSchema ? buildOutputColumns(runRows) : legacyColumns
+    const columns = buildOutputColumns(runRows)
 
     return (
         <div className="space-y-2">

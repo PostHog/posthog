@@ -12,42 +12,42 @@ import {
     getGrowthScoreLabRunCreateUrl,
     growthScoreLabActivateCreate,
     growthScoreLabConfigsRetrieve,
+    growthScoreLabInputFieldsRetrieve,
     growthScoreLabLabelsRetrieve,
     growthScoreLabModelsRetrieve,
+    growthScoreLabRenameCreate,
     growthScoreLabSaveCreate,
 } from '../generated/api'
 import type {
     ConfigListResponseApi,
     ConfigVersionApi,
     GatewayModelListResponseApi,
+    InputFieldApi,
+    InputFieldListResponseApi,
+    InputFieldsEnumApi,
     LabelListResponseApi,
     RunRequestApi,
     SaveRequestApi,
 } from '../generated/api.schemas'
-import { SCORE_LAB_FALLBACK_MODELS } from './scoreLabModelOptions'
-import { suggestNextVersion } from './versionBump'
+import { growthScoreLabRunCreateBodySampleDefault } from '../generated/api.zod'
+import { buildInputPayload, hasValidInput, type ScoreLabInputMode } from './scoreLabInputPayload'
+import {
+    DEFAULT_OUTPUT_FIELD_SEED,
+    buildOutputFieldsPayload,
+    hasValidOutputFields,
+    type ScoreLabOutputField,
+} from './scoreLabOutputFields'
 
 // The run endpoint streams application/x-ndjson and isn't part of the generated response types
 // (backend documents it as a raw string body) - these mirror the row/summary shapes described in
-// products/growth/backend/api/score_lab.py's `run` action docstring.
-export interface ScoreLabVerdictRow {
-    company: string
-    domain: string | null
-    verdict: string
-    confidence: string
-    reasoning: string
-}
-
-// Emitted instead of ScoreLabVerdictRow once the config sets output_fields. `outputs` is null
-// and `error` is set when that row's classification call failed.
-export interface ScoreLabOutputRow {
+// products/growth/backend/api/score_lab.py's `run` action docstring. `outputs` is keyed by the
+// config's output_fields; it is null and `error` is set when that row's classification failed.
+export interface ScoreLabRunRow {
     company: string
     domain: string | null
     outputs: Record<string, boolean | number | string> | null
     error?: string
 }
-
-export type ScoreLabRunRow = ScoreLabVerdictRow | ScoreLabOutputRow
 
 export interface ScoreLabRunSummary {
     classified: number
@@ -55,38 +55,21 @@ export interface ScoreLabRunSummary {
     errors: number
 }
 
-export type ScoreLabInputMode = 'fields' | 'query'
-
-export type ScoreLabOutputFieldType = 'boolean' | 'number' | 'string'
-
-export interface ScoreLabOutputField {
-    key: string
-    type: ScoreLabOutputFieldType
-    description: string
+export interface RenameConfigPayload {
+    configId: string
+    label: string
 }
 
 interface ScoreLabEditorSnapshot {
     promptText: string
     model: string
-    inputFields: string[]
+    inputFields: InputFieldsEnumApi[]
     inputMode: ScoreLabInputMode
     inputQuery: string
     outputFields: ScoreLabOutputField[]
 }
 
-// Mirrors DEFAULT_SAMPLE_SIZE / MAX_SAMPLE_SIZE in products/growth/backend/enrichment/lab.py.
-const DEFAULT_SAMPLE_SIZE = 10
-export const SCORE_LAB_MAX_SAMPLE_SIZE = 100
-
 const DEFAULT_MODEL = 'gpt-5-mini'
-
-// Seeded by the "Customize output fields" empty-state button; mirrors the legacy default shape
-// ({<label>: boolean, confidence: number, reasoning: string}) described in RunRequestSerializer.
-const DEFAULT_OUTPUT_FIELD_SEED: ScoreLabOutputField[] = [
-    { key: 'verdict', type: 'boolean', description: 'Whether this company matches the label.' },
-    { key: 'confidence', type: 'number', description: 'Confidence in the verdict, from 0 to 1.' },
-    { key: 'reasoning', type: 'string', description: 'Brief reasoning for the verdict.' },
-]
 
 function sameInputFieldSet(a: string[], b: string[]): boolean {
     if (a.length !== b.length) {
@@ -113,7 +96,7 @@ function configToSnapshot(config: ConfigVersionApi): ScoreLabEditorSnapshot {
     return {
         promptText: config.prompt_text,
         model: config.model,
-        inputFields: config.input_fields ?? [],
+        inputFields: (config.input_fields ?? []) as InputFieldsEnumApi[],
         inputMode: config.input_query ? 'query' : 'fields',
         inputQuery: config.input_query ?? '',
         outputFields: (config.output_fields ?? []).map((field) => ({
@@ -128,17 +111,19 @@ function configToSnapshot(config: ConfigVersionApi): ScoreLabEditorSnapshot {
 export interface scoreLabLogicValues {
     activateResult: ConfigVersionApi | null
     activateResultLoading: boolean
-    canActivateSelectedVersion: boolean
     canRun: boolean
     configs: ConfigListResponseApi | null
     configsLoading: boolean
     containsFilter: string
-    editorInputFields: string[]
+    editorInputFields: InputFieldsEnumApi[]
     editorInputMode: ScoreLabInputMode
     editorInputQuery: string
     editorModel: string
     editorOutputFields: ScoreLabOutputField[]
     editorPromptText: string
+    inputFieldOptions: InputFieldApi[]
+    inputFieldsResponse: InputFieldListResponseApi | null
+    inputFieldsResponseLoading: boolean
     isEditorDirty: boolean
     isRunning: boolean
     labels: LabelListResponseApi | null
@@ -147,7 +132,8 @@ export interface scoreLabLogicValues {
     modelOptions: LemonSelectOption<string>[]
     models: GatewayModelListResponseApi | null
     modelsLoading: boolean
-    newVersionInput: string
+    renameResult: ConfigVersionApi | null
+    renameResultLoading: boolean
     runRows: ScoreLabRunRow[]
     runSummary: ScoreLabRunSummary | null
     sampleSize: number
@@ -206,6 +192,21 @@ export interface scoreLabLogicActions {
             label: string
         }
     }
+    loadInputFields: () => any
+    loadInputFieldsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadInputFieldsSuccess: (
+        inputFieldsResponse: InputFieldListResponseApi,
+        payload?: any
+    ) => {
+        inputFieldsResponse: InputFieldListResponseApi
+        payload?: any
+    }
     loadLabels: () => any
     loadLabelsFailure: (
         error: string,
@@ -242,6 +243,21 @@ export interface scoreLabLogicActions {
     removeOutputField: (index: number) => {
         index: number
     }
+    renameConfig: ({ configId, label }: RenameConfigPayload) => RenameConfigPayload
+    renameConfigFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    renameConfigSuccess: (
+        renameResult: ConfigVersionApi,
+        payload?: RenameConfigPayload
+    ) => {
+        renameResult: ConfigVersionApi
+        payload?: RenameConfigPayload
+    }
     resetRunResults: () => {
         value: true
     }
@@ -269,6 +285,9 @@ export interface scoreLabLogicActions {
     setContainsFilter: (contains: string) => {
         contains: string
     }
+    setEditorInputFields: (fields: InputFieldsEnumApi[]) => {
+        fields: InputFieldsEnumApi[]
+    }
     setEditorInputMode: (mode: ScoreLabInputMode) => {
         mode: ScoreLabInputMode
     }
@@ -284,9 +303,6 @@ export interface scoreLabLogicActions {
     setIsRunning: (isRunning: boolean) => {
         isRunning: boolean
     }
-    setNewVersionInput: (version: string) => {
-        version: string
-    }
     setRunSummary: (summary: ScoreLabRunSummary) => {
         summary: ScoreLabRunSummary
     }
@@ -295,9 +311,6 @@ export interface scoreLabLogicActions {
     }
     setSelectedLabel: (label: string | null) => {
         label: string | null
-    }
-    toggleEditorInputField: (field: string) => {
-        field: string
     }
     updateOutputField: (
         index: number,
@@ -317,7 +330,7 @@ export interface scoreLabLogicMeta {
             loadedSnapshot: ScoreLabEditorSnapshot | null,
             editorPromptText: string,
             editorModel: string,
-            editorInputFields: string[],
+            editorInputFields: InputFieldsEnumApi[],
             editorInputMode: ScoreLabInputMode,
             editorInputQuery: string,
             editorOutputFields: ScoreLabOutputField[]
@@ -326,11 +339,13 @@ export interface scoreLabLogicMeta {
             selectedLabel: string | null,
             editorPromptText: string,
             editorInputMode: ScoreLabInputMode,
+            editorInputFields: InputFieldsEnumApi[],
             editorInputQuery: string,
+            editorOutputFields: ScoreLabOutputField[],
             isRunning: boolean
         ) => boolean
-        canActivateSelectedVersion: (selectedVersion: ConfigVersionApi | null) => boolean
         modelOptions: (models: GatewayModelListResponseApi | null, editorModel: string) => LemonSelectOption<string>[]
+        inputFieldOptions: (inputFieldsResponse: InputFieldListResponseApi | null) => InputFieldApi[]
     }
 }
 
@@ -348,7 +363,7 @@ export const scoreLabLogic = kea<scoreLabLogicType>([
         loadVersionIntoEditor: (config: ConfigVersionApi) => ({ config }),
         setEditorPromptText: (promptText: string) => ({ promptText }),
         setEditorModel: (model: string) => ({ model }),
-        toggleEditorInputField: (field: string) => ({ field }),
+        setEditorInputFields: (fields: InputFieldsEnumApi[]) => ({ fields }),
         setEditorInputMode: (mode: ScoreLabInputMode) => ({ mode }),
         setEditorInputQuery: (query: string) => ({ query }),
         addOutputField: true,
@@ -357,7 +372,6 @@ export const scoreLabLogic = kea<scoreLabLogicType>([
         seedDefaultOutputFields: true,
         setSampleSize: (sampleSize: number) => ({ sampleSize }),
         setContainsFilter: (contains: string) => ({ contains }),
-        setNewVersionInput: (version: string) => ({ version }),
         runClassification: true,
         consumeRunLine: (line: string) => ({ line }),
         appendRunRow: (row: ScoreLabRunRow) => ({ row }),
@@ -378,6 +392,12 @@ export const scoreLabLogic = kea<scoreLabLogicType>([
                 loadModels: async () => await growthScoreLabModelsRetrieve(),
             },
         ],
+        inputFieldsResponse: [
+            null as InputFieldListResponseApi | null,
+            {
+                loadInputFields: async () => await growthScoreLabInputFieldsRetrieve(),
+            },
+        ],
         configs: [
             null as ConfigListResponseApi | null,
             {
@@ -391,6 +411,19 @@ export const scoreLabLogic = kea<scoreLabLogicType>([
                     await growthScoreLabActivateCreate({ config_id: configId }),
             },
         ],
+        renameResult: [
+            null as ConfigVersionApi | null,
+            {
+                renameConfig: async ({ configId, label }: RenameConfigPayload, breakpoint) => {
+                    // Submitting an unchanged name would make the server cascade over every result
+                    // row for the label to write the value it already has.
+                    if (label === values.selectedLabel) {
+                        breakpoint()
+                    }
+                    return await growthScoreLabRenameCreate({ config_id: configId, label })
+                },
+            },
+        ],
         saveResult: [
             null as ConfigVersionApi | null,
             {
@@ -400,12 +433,10 @@ export const scoreLabLogic = kea<scoreLabLogicType>([
                     }
                     const request: SaveRequestApi = {
                         label: values.selectedLabel,
-                        version: values.newVersionInput,
                         prompt_text: values.editorPromptText,
                         model: values.editorModel,
-                        input_fields: values.editorInputMode === 'fields' ? values.editorInputFields : [],
-                        input_query: values.editorInputMode === 'query' ? values.editorInputQuery : null,
-                        output_fields: values.editorOutputFields.filter((field) => field.key.trim().length > 0),
+                        ...buildInputPayload(values.editorInputMode, values.editorInputFields, values.editorInputQuery),
+                        output_fields: buildOutputFieldsPayload(values.editorOutputFields),
                     }
                     return await growthScoreLabSaveCreate(request)
                 },
@@ -449,12 +480,13 @@ export const scoreLabLogic = kea<scoreLabLogicType>([
             },
         ],
         editorInputFields: [
-            [] as string[],
+            [] as InputFieldsEnumApi[],
             {
                 setSelectedLabel: () => [],
-                loadVersionIntoEditor: (_, { config }) => config.input_fields,
-                toggleEditorInputField: (state, { field }) =>
-                    state.includes(field) ? state.filter((existing) => existing !== field) : [...state, field],
+                // The response type is a plain string[]; a stored path outside the allow-list is
+                // legacy data the picker simply won't offer again.
+                loadVersionIntoEditor: (_, { config }) => config.input_fields as InputFieldsEnumApi[],
+                setEditorInputFields: (_, { fields }) => fields,
             },
         ],
         editorInputMode: [
@@ -485,15 +517,8 @@ export const scoreLabLogic = kea<scoreLabLogicType>([
                 seedDefaultOutputFields: () => DEFAULT_OUTPUT_FIELD_SEED.map((field) => ({ ...field })),
             },
         ],
-        newVersionInput: [
-            '',
-            {
-                loadVersionIntoEditor: (_, { config }) => suggestNextVersion(config.version),
-                setNewVersionInput: (_, { version }) => version,
-            },
-        ],
         sampleSize: [
-            DEFAULT_SAMPLE_SIZE as number,
+            growthScoreLabRunCreateBodySampleDefault as number,
             {
                 setSampleSize: (_, { sampleSize }) => sampleSize,
             },
@@ -549,7 +574,7 @@ export const scoreLabLogic = kea<scoreLabLogicType>([
                 loadedSnapshot: ScoreLabEditorSnapshot | null,
                 editorPromptText: string,
                 editorModel: string,
-                editorInputFields: string[],
+                editorInputFields: InputFieldsEnumApi[],
                 editorInputMode: ScoreLabInputMode,
                 editorInputQuery: string,
                 editorOutputFields: ScoreLabOutputField[]
@@ -557,39 +582,53 @@ export const scoreLabLogic = kea<scoreLabLogicType>([
                 if (!loadedSnapshot) {
                     return editorPromptText.trim().length > 0
                 }
+                // Compare the payloads that save/run would actually send, not the raw field/mode/query
+                // triple - otherwise a query typed then abandoned (mode flipped back to fields) reads
+                // as dirty even though it changes nothing about what gets submitted.
+                const loadedPayload = buildInputPayload(
+                    loadedSnapshot.inputMode,
+                    loadedSnapshot.inputFields,
+                    loadedSnapshot.inputQuery
+                )
+                const currentPayload = buildInputPayload(editorInputMode, editorInputFields, editorInputQuery)
                 return (
                     loadedSnapshot.promptText !== editorPromptText ||
                     loadedSnapshot.model !== editorModel ||
-                    !sameInputFieldSet(loadedSnapshot.inputFields, editorInputFields) ||
-                    loadedSnapshot.inputMode !== editorInputMode ||
-                    loadedSnapshot.inputQuery !== editorInputQuery ||
+                    !sameInputFieldSet(loadedPayload.input_fields, currentPayload.input_fields) ||
+                    loadedPayload.input_query !== currentPayload.input_query ||
                     !sameOutputFieldSet(loadedSnapshot.outputFields, editorOutputFields)
                 )
             },
         ],
         canRun: [
-            (s) => [s.selectedLabel, s.editorPromptText, s.editorInputMode, s.editorInputQuery, s.isRunning],
+            (s) => [
+                s.selectedLabel,
+                s.editorPromptText,
+                s.editorInputMode,
+                s.editorInputFields,
+                s.editorInputQuery,
+                s.editorOutputFields,
+                s.isRunning,
+            ],
             (
                 selectedLabel: string | null,
                 editorPromptText: string,
                 editorInputMode: ScoreLabInputMode,
+                editorInputFields: InputFieldsEnumApi[],
                 editorInputQuery: string,
+                editorOutputFields: ScoreLabOutputField[],
                 isRunning: boolean
             ): boolean =>
                 Boolean(selectedLabel) &&
                 editorPromptText.trim().length > 0 &&
-                (editorInputMode === 'fields' || editorInputQuery.trim().length > 0) &&
+                hasValidInput(editorInputMode, editorInputFields, editorInputQuery) &&
+                hasValidOutputFields(editorOutputFields) &&
                 !isRunning,
-        ],
-        canActivateSelectedVersion: [
-            (s) => [s.selectedVersion],
-            (selectedVersion: ConfigVersionApi | null): boolean =>
-                Boolean(selectedVersion) && selectedVersion?.is_active === false,
         ],
         modelOptions: [
             (s) => [s.models, s.editorModel],
             (models: GatewayModelListResponseApi | null, editorModel: string): LemonSelectOption<string>[] => {
-                const ids = new Set(models ? models.results.map((model) => model.id) : SCORE_LAB_FALLBACK_MODELS)
+                const ids = new Set(models ? models.results.map((model) => model.id) : [])
                 if (editorModel) {
                     ids.add(editorModel)
                 }
@@ -597,6 +636,13 @@ export const scoreLabLogic = kea<scoreLabLogicType>([
                     .sort()
                     .map((id) => ({ value: id, label: id }))
             },
+        ],
+        inputFieldOptions: [
+            // Served rather than mirrored: the backend rejects anything outside this list, so a
+            // hand-copied one would offer paths that 400 on save.
+            (s) => [s.inputFieldsResponse],
+            (inputFieldsResponse: InputFieldListResponseApi | null): InputFieldApi[] =>
+                inputFieldsResponse?.results ?? [],
         ],
     }),
     listeners(({ actions, values, cache }) => ({
@@ -618,7 +664,12 @@ export const scoreLabLogic = kea<scoreLabLogicType>([
             }
             const pendingId = cache.pendingSelectAfterSaveId as string | null | undefined
             cache.pendingSelectAfterSaveId = null
-            const target = (pendingId && versions.find((version) => version.id === pendingId)) || versions[0]
+            // Default to what's actually running in production, not the newest draft - a fresh page
+            // load should show the active version unless the caller just saved something else.
+            const target =
+                (pendingId && versions.find((version) => version.id === pendingId)) ||
+                versions.find((version) => version.is_active) ||
+                versions[0]
             actions.loadVersionIntoEditor(target)
         },
         activateVersionSuccess: ({ activateResult }) => {
@@ -629,6 +680,16 @@ export const scoreLabLogic = kea<scoreLabLogicType>([
         },
         activateVersionFailure: () => {
             lemonToast.error('Failed to activate this version.')
+        },
+        renameConfigSuccess: ({ renameResult }) => {
+            lemonToast.success(`Renamed to ${renameResult.name}.`)
+            // A label rename moves sibling configs too, so the whole list is stale, not just this row.
+            cache.pendingSelectAfterSaveId = renameResult.id
+            actions.loadLabels()
+            actions.loadConfigs({ label: renameResult.name })
+        },
+        renameConfigFailure: ({ error }) => {
+            lemonToast.error(error || 'Failed to rename.')
         },
         saveVersionSuccess: ({ saveResult }) => {
             lemonToast.success(`Saved version ${saveResult.version}.`)
@@ -659,9 +720,8 @@ export const scoreLabLogic = kea<scoreLabLogicType>([
                     label: values.selectedLabel,
                     prompt_text: values.editorPromptText,
                     model: values.editorModel,
-                    input_fields: values.editorInputMode === 'fields' ? values.editorInputFields : [],
-                    input_query: values.editorInputMode === 'query' ? values.editorInputQuery : null,
-                    output_fields: values.editorOutputFields.filter((field) => field.key.trim().length > 0),
+                    ...buildInputPayload(values.editorInputMode, values.editorInputFields, values.editorInputQuery),
+                    output_fields: buildOutputFieldsPayload(values.editorOutputFields),
                     sample: values.sampleSize,
                     contains: values.editorInputMode === 'fields' ? values.containsFilter : '',
                 }
@@ -700,6 +760,11 @@ export const scoreLabLogic = kea<scoreLabLogicType>([
                         break
                     }
                 }
+                // The response is a 200 the moment streaming starts, so the only signal that a run
+                // finished rather than died partway is the summary line the backend ends with.
+                if (!values.runSummary) {
+                    lemonToast.error('Score lab run stopped before finishing. Some rows may be missing.')
+                }
             } catch (e) {
                 if (!(e instanceof DOMException && e.name === 'AbortError')) {
                     lemonToast.error('Score lab run failed. Check the prompt and try again.')
@@ -721,7 +786,9 @@ export const scoreLabLogic = kea<scoreLabLogicType>([
                         actions.setRunSummary(parsed.summary as ScoreLabRunSummary)
                         return
                     }
-                    if ('verdict' in parsed || 'outputs' in parsed) {
+                    // An aborted run ends with {error, aborted} and no summary, which the caller
+                    // reports once the stream closes.
+                    if ('outputs' in parsed) {
                         actions.appendRunRow(parsed as ScoreLabRunRow)
                     }
                 }
@@ -734,6 +801,7 @@ export const scoreLabLogic = kea<scoreLabLogicType>([
     afterMount(({ actions }) => {
         actions.loadLabels()
         actions.loadModels()
+        actions.loadInputFields()
     }),
     urlToAction(({ actions, values }) => ({
         '/score_lab': () => {
