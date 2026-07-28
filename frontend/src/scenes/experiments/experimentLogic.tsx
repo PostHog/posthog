@@ -1882,11 +1882,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     const metrics = [...(state?.[metricsKey] || [])]
 
                     const query = savedMetric.query
-                    const name = savedMetric.name
-                        ? `${savedMetric.name} (copy)`
-                        : query.kind === NodeKind.ExperimentMetric
-                          ? `${getDefaultMetricTitle(query)} (copy)`
-                          : undefined
+                    const name = `${savedMetric.name || getDefaultMetricTitle(query)} (copy)`
 
                     /**
                      * Build a single-use (inline) copy of the shared metric. The shared metric's

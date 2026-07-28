@@ -92,7 +92,7 @@ export const MetricHeader = ({
     isPrimaryMetric: boolean
     experiment: Experiment
     onDuplicateMetricClick: (metric: ExperimentMetric) => void
-    onDuplicateAsSingleUseMetricClick?: (metric: ExperimentMetric) => void
+    onDuplicateAsSingleUseMetricClick: (metric: ExperimentMetric) => void
     onBreakdownChange: (breakdown: Breakdown) => void
     onDeleteMetricClick?: (metric: ExperimentMetric) => void
     readOnly?: boolean
@@ -157,14 +157,11 @@ export const MetricHeader = ({
                         </p>
                     </div>
                 ),
-                primaryButton: onDuplicateAsSingleUseMetricClick
-                    ? {
-                          children: 'Duplicate as single-use metric',
-                          type: 'primary',
-                          size: 'small',
-                          onClick: () => onDuplicateAsSingleUseMetricClick(metric),
-                      }
-                    : undefined,
+                primaryButton: {
+                    children: 'Duplicate as single-use metric',
+                    size: 'small',
+                    onClick: () => onDuplicateAsSingleUseMetricClick(metric),
+                },
                 secondaryButton: {
                     children: 'Duplicate as shared metric',
                     to: urls.experimentsSharedMetric(metric.sharedMetricId!, 'duplicate'),
