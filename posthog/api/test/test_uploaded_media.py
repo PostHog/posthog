@@ -108,6 +108,38 @@ class TestMediaAPI(APIBaseTest):
 
             assert UploadedMedia.objects.count() == 0
 
+    def test_accepts_pdf_and_serves_it_as_a_download(self) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            pdf = SimpleUploadedFile(name="invoice.pdf", content=b"%PDF-1.4 fake body", content_type="application/pdf")
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/uploaded_media",
+                {"image": pdf},
+                format="multipart",
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+            media_location = response.json()["image_location"]
+
+            self.client.logout()
+            download_response = self.client.get(media_location)
+
+        assert download_response.status_code == status.HTTP_200_OK
+        # PDFs are never inline-safe, so they must be served as an opaque download.
+        assert download_response.headers["Content-Type"].startswith("application/octet-stream")
+        assert download_response.headers.get("Content-Disposition", "").startswith("attachment")
+
+    def test_rejects_pdf_content_type_without_pdf_magic_bytes(self) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            spoofed = SimpleUploadedFile(
+                name="evil.pdf", content=b"<html>not a pdf</html>", content_type="application/pdf"
+            )
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/uploaded_media",
+                {"image": spoofed},
+                format="multipart",
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+            assert UploadedMedia.objects.count() == 0
+
     def test_made_up_id_is_404(self) -> None:
         response = self.client.get(f"/uploaded_media/{UUIDT()}")
         assert response.status_code == status.HTTP_404_NOT_FOUND

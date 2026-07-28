@@ -439,15 +439,28 @@ export function SupportEditor({
     const dropRef = useRef<HTMLDivElement>(null)
 
     const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
-        onUpload: (url, fileName) => {
+        allowedContentTypes: ['image/*', 'application/pdf'],
+        onUpload: (url, fileName, _id, contentType) => {
             if (ttEditor) {
-                ttEditor.chain().focus().setImage({ src: url, alt: fileName }).run()
+                if (contentType.startsWith('image/')) {
+                    ttEditor.chain().focus().setImage({ src: url, alt: fileName }).run()
+                } else {
+                    // Non-image attachments (e.g. PDFs) render as a download link, matching how inbound attachments appear.
+                    ttEditor
+                        .chain()
+                        .focus()
+                        .insertContent([
+                            { type: 'text', text: fileName, marks: [{ type: 'link', attrs: { href: url } }] },
+                            { type: 'text', text: ' ' },
+                        ])
+                        .run()
+                }
             }
-            posthog.capture('rich text image uploaded', { name: fileName })
+            posthog.capture('rich text attachment uploaded', { name: fileName, content_type: contentType })
         },
         onError: (detail) => {
-            posthog.capture('rich text image upload failed', { error: detail })
-            lemonToast.error(`Error uploading image: ${detail}`)
+            posthog.capture('rich text attachment upload failed', { error: detail })
+            lemonToast.error(`Error uploading attachment: ${detail}`)
         },
     })
 
@@ -635,7 +648,7 @@ export function SupportEditor({
                     <div className="w-px h-4 bg-border mx-1" />
                     <LemonFileInput
                         key="file-upload"
-                        accept={'image/*'}
+                        accept={'image/*,application/pdf'}
                         multiple={false}
                         alternativeDropTargetRef={dropRef}
                         onChange={setFilesToUpload}
@@ -655,9 +668,13 @@ export function SupportEditor({
                                 disabledReason={
                                     objectStorageAvailable
                                         ? undefined
-                                        : 'Enable object storage to add images by dragging and dropping'
+                                        : 'Enable object storage to add images and PDFs by dragging and dropping'
                                 }
-                                tooltip={objectStorageAvailable ? 'Click here or drag and drop to upload images' : null}
+                                tooltip={
+                                    objectStorageAvailable
+                                        ? 'Click here or drag and drop to upload images and PDFs'
+                                        : null
+                                }
                             />
                         }
                     />

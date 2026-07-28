@@ -24,6 +24,11 @@ from posthog.storage import object_storage
 
 FOUR_MEGABYTES = 4 * 1024 * 1024
 
+# Non-image content types accepted by the upload endpoint. These are never
+# rendered inline — download() serves them as forced downloads — so they can be
+# attached to support tickets without the stored-XSS risk that HTML/SVG carry.
+_UPLOADABLE_DOCUMENT_CONTENT_TYPES = frozenset({"application/pdf"})
+
 # Content types safe to render inline in a browser when served from the
 # unauthenticated /uploaded_media endpoint. Anything outside this set is
 # served as a download with a generic content type so stored HTML/SVG/etc.
@@ -108,6 +113,15 @@ def validate_image_file(file: Optional[bytes], user: int) -> bool:
         return False
 
 
+def validate_pdf_file(file: Optional[bytes]) -> bool:
+    """Verify the bytes really are a PDF before we store them under a PDF content
+    type. PDFs are served as forced downloads, so this guards against a spoofed
+    content type being persisted, not against inline execution."""
+    if file is None:
+        return False
+    return file[:5] == b"%PDF-"
+
+
 @csrf_exempt
 def download(request, *args, **kwargs) -> HttpResponse:
     """
@@ -165,9 +179,9 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(
         description="""
-    When object storage is available this API allows upload of media which can be used, for example, in text cards on dashboards.
+    When object storage is available this API allows upload of media which can be used, for example, in text cards on dashboards or as attachments on support tickets.
 
-    Uploaded media must have a content type beginning with 'image/' and be less than 4MB.
+    Uploaded media must be less than 4MB and either an image (content type beginning with 'image/') or a PDF ('application/pdf').
     """,
         responses={201: OpenApiTypes.OBJECT},
     )
@@ -178,50 +192,57 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             if file.size > FOUR_MEGABYTES:
                 raise ValidationError(code="file_too_large", detail="Uploaded media must be less than 4MB")
 
-            if file.content_type.startswith("image/"):
-                uploaded_media = UploadedMedia.save_content(
-                    team=self.team,
-                    created_by=request.user,
-                    file_name=file.name,
-                    content_type=file.content_type,
-                    content=file.file,
-                )
-                if uploaded_media is None:
-                    raise APIException("Could not save media")
-
-                # to save having to copy the stream so that we can read it to verify the image,
-                # save it to minio anyway and then delete the record if it's not valid
-                if uploaded_media.media_location is None:
-                    raise APIException("Could not read uploaded media")
-                bytes_to_verify = object_storage.read_bytes(uploaded_media.media_location)
-                if not validate_image_file(bytes_to_verify, user=request.user.id):
-                    statsd.incr(
-                        "uploaded_media.image_failed_validation",
-                        tags={"file_name": file.name, "team": self.team_id},
-                    )
-                    # TODO a batch process can delete media with no records in the DB or for deleted teams
-                    uploaded_media.delete()
-                    raise ValidationError(
-                        code="invalid_image",
-                        detail="Uploaded media must be a valid image",
-                    )
-
-                headers = self.get_success_headers(uploaded_media.get_absolute_url())
-                statsd.incr(
-                    "uploaded_media.uploaded",
-                    tags={"team_id": self.team.pk, "content_type": file.content_type},
-                )
-                return Response(
-                    {
-                        "id": uploaded_media.id,
-                        "image_location": uploaded_media.get_absolute_url(),
-                        "name": uploaded_media.file_name,
-                    },
-                    status=status.HTTP_201_CREATED,
-                    headers=headers,
-                )
-            else:
+            content_type = _normalize_content_type(file.content_type)
+            is_image = content_type.startswith("image/")
+            if not is_image and content_type not in _UPLOADABLE_DOCUMENT_CONTENT_TYPES:
                 raise UnsupportedMediaType(file.content_type)
+
+            uploaded_media = UploadedMedia.save_content(
+                team=self.team,
+                created_by=request.user,
+                file_name=file.name,
+                content_type=file.content_type,
+                content=file.file,
+            )
+            if uploaded_media is None:
+                raise APIException("Could not save media")
+
+            # to save having to copy the stream so that we can read it to verify the file,
+            # save it to object storage anyway and then delete the record if it's not valid
+            if uploaded_media.media_location is None:
+                raise APIException("Could not read uploaded media")
+            bytes_to_verify = object_storage.read_bytes(uploaded_media.media_location)
+            is_valid = (
+                validate_image_file(bytes_to_verify, user=request.user.id)
+                if is_image
+                else validate_pdf_file(bytes_to_verify)
+            )
+            if not is_valid:
+                statsd.incr(
+                    "uploaded_media.image_failed_validation",
+                    tags={"file_name": file.name, "team": self.team_id},
+                )
+                # TODO a batch process can delete media with no records in the DB or for deleted teams
+                uploaded_media.delete()
+                raise ValidationError(
+                    code="invalid_file",
+                    detail="Uploaded media must be a valid image or PDF",
+                )
+
+            headers = self.get_success_headers(uploaded_media.get_absolute_url())
+            statsd.incr(
+                "uploaded_media.uploaded",
+                tags={"team_id": self.team.pk, "content_type": file.content_type},
+            )
+            return Response(
+                {
+                    "id": uploaded_media.id,
+                    "image_location": uploaded_media.get_absolute_url(),
+                    "name": uploaded_media.file_name,
+                },
+                status=status.HTTP_201_CREATED,
+                headers=headers,
+            )
         except KeyError:
             raise ValidationError(code="no-image-provided", detail="An image file must be provided")
         except ObjectStorageUnavailable:

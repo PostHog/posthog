@@ -71,9 +71,21 @@ function canReduceThisBlobType(file: File): boolean {
     return supportedTypes.includes(file.type)
 }
 
-export async function uploadFile(file: File): Promise<MediaUploadResponse> {
-    if (!file.type.startsWith('image/')) {
-        throw new Error('File is not an image')
+// Callers default to images only; pass a wider list (e.g. 'application/pdf') to opt in.
+const IMAGE_ONLY_CONTENT_TYPES = ['image/*']
+
+function isContentTypeAllowed(fileType: string, allowedContentTypes: string[]): boolean {
+    return allowedContentTypes.some((allowed) =>
+        allowed.endsWith('/*') ? fileType.startsWith(allowed.slice(0, -1)) : fileType === allowed
+    )
+}
+
+export async function uploadFile(
+    file: File,
+    allowedContentTypes: string[] = IMAGE_ONLY_CONTENT_TYPES
+): Promise<MediaUploadResponse> {
+    if (!isContentTypeAllowed(file.type, allowedContentTypes)) {
+        throw new Error('File type is not supported')
     }
 
     let fileToUpload = file
@@ -90,9 +102,11 @@ export async function uploadFile(file: File): Promise<MediaUploadResponse> {
 export function useUploadFiles({
     onUpload,
     onError,
+    allowedContentTypes,
 }: {
-    onUpload?: (url: string, fileName: string, uploadedMediaId: string) => void
+    onUpload?: (url: string, fileName: string, uploadedMediaId: string, contentType: string) => void
     onError: (detail: string) => void
+    allowedContentTypes?: string[]
 }): {
     setFilesToUpload: (files: File[]) => void
     filesToUpload: File[]
@@ -113,8 +127,8 @@ export function useUploadFiles({
                 uploadInProgressRef.current = true
                 setUploading(true)
                 const file: File = filesToUpload[0]
-                const media = await uploadFile(file)
-                onUpload?.(media.image_location, media.name, media.id)
+                const media = await uploadFile(file, allowedContentTypes)
+                onUpload?.(media.image_location, media.name, media.id, file.type)
             } catch (error) {
                 const errorDetail = (error as any).detail || 'unknown error'
                 onError(errorDetail)
