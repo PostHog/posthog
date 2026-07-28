@@ -2103,4 +2103,6 @@ jobs:
                   check_required_result "Product/Turbo tests" "${{ needs.turbo-tests.result }}"
 
                   echo "All backend and product checks passed."
+    # Shadow trial: re-run recovery verification (Verify re-run recovery step) is
+    # depot-exempt — the shadow is non-blocking and doesn't need JUnit cross-checks.
     # Shadow trial: calculate-running-time job stripped (would poison trial metrics).
