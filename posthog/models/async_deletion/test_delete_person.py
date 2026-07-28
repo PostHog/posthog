@@ -9,12 +9,10 @@ from posthog.models.person.util import create_person
 
 
 def _visible_person_count(team_id: int) -> int:
-    # SELECT excludes lightweight-deleted rows (_row_exists = 0), so this counts only
-    # persons that survived the hard delete. Scoped to a team because the ClickHouse
-    # person table is shared across the worker's tests and only truncated at teardown.
-    return sync_execute(
-        "SELECT count() FROM person WHERE team_id = %(team_id)s", {"team_id": team_id}
-    )[0][0]
+    # SELECT excludes lightweight-deleted rows (_row_exists = 0). Scope to the test's team:
+    # the ClickHouse person table is shared across the worker's tests and only truncated at
+    # package teardown, so a whole-table count would see other tests' rows.
+    return sync_execute("SELECT count() FROM person WHERE team_id = %(team_id)s", {"team_id": team_id})[0][0]
 
 
 def _dictionaries_exist() -> bool:
