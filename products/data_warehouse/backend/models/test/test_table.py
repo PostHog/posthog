@@ -162,12 +162,35 @@ class TestTable(BaseTest):
 
     @parameterized.expand(
         [
-            ("direct", ExternalDataSource.AccessMethod.DIRECT, DirectClickHouseTable),
-            ("synced", ExternalDataSource.AccessMethod.WAREHOUSE, HogQLDataWarehouseTable),
+            (
+                "direct",
+                ExternalDataSourceType.CLICKHOUSE,
+                ExternalDataSource.AccessMethod.DIRECT,
+                DirectClickHouseTable,
+            ),
+            (
+                "synced",
+                ExternalDataSourceType.CLICKHOUSE,
+                ExternalDataSource.AccessMethod.WAREHOUSE,
+                HogQLDataWarehouseTable,
+            ),
+            # Both ClickHouse source types share the "clickhouse" engine, so both must resolve alike.
+            (
+                "direct_cloud",
+                ExternalDataSourceType.CLICKHOUSECLOUD,
+                ExternalDataSource.AccessMethod.DIRECT,
+                DirectClickHouseTable,
+            ),
+            (
+                "synced_cloud",
+                ExternalDataSourceType.CLICKHOUSECLOUD,
+                ExternalDataSource.AccessMethod.WAREHOUSE,
+                HogQLDataWarehouseTable,
+            ),
         ]
     )
     def test_clickhouse_table_is_direct_only_for_a_direct_source(
-        self, _name: str, access_method: str, expected_type: type
+        self, _name: str, source_type: str, access_method: str, expected_type: type
     ):
         source = ExternalDataSource.objects.create(
             source_id="source-id",
@@ -176,7 +199,7 @@ class TestTable(BaseTest):
             team=self.team,
             sync_frequency=ExternalDataSource.SyncFrequency.DAILY,
             status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSourceType.CLICKHOUSE,
+            source_type=source_type,
             prefix="Readable Name",
             access_method=access_method,
             job_inputs={"database": "mydb"},
