@@ -147,6 +147,34 @@ Renumbering a migration invalidates your local test database, which will then fa
 `DuplicateColumn: column ... already exists`. That is local-only; rebuild with
 `hogli test <path> -- --create-db`. It is not a CI failure and not something to "fix" in the code.
 
+### A blocked migration has to be split
+
+`Migration risk` failing with `❌ BLOCKED` is not acknowledgeable the way the hot-table and
+`atomic = False` policies are — there is no allowlist file for it. The two rules that catch people:
+a `RunPython` may not share a file with schema changes, and a `RunSQL` may not share a file with
+anything. Both hold their locks for the whole file, so the fix is one operation shape per migration:
+
+```text
+NNNN    AddField / AddField          schema only
+NNNN+1  RunPython                    data only
+NNNN+2  RunSQL                       alone
+NNNN+3  SeparateDatabaseAndState     state only
+```
+
+Splitting has to preserve whatever ordering the original relied on — a backfill reading a column
+must still run before the migration that drops it from the model state, and Postgres needs a default
+before the model stops listing a `NOT NULL` column. Read the original's docstring for the constraints
+before resequencing, then verify:
+
+```sh
+DEBUG=1 python manage.py analyze_migration_risk | grep -E "Summary:|BLOCKED"   # must be 0 Blocked
+DEBUG=1 python manage.py makemigrations --dry-run --check                     # "No changes detected"
+DEBUG=1 python manage.py sqlmigrate posthog <each_new_migration>              # SQL is what you meant
+```
+
+Expect this to surface late: the job that reports it is one of the ones most often lost to runner
+starvation, so a migration can sit blocked for several pushes without anyone seeing it.
+
 ## Changing production code breaks test seams
 
 When you fix a finding by changing how code reaches the network — swapping `requests.get` for a
