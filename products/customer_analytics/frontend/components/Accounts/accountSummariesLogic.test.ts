@@ -66,6 +66,21 @@ describe('accountSummariesLogic', () => {
         })
     })
 
+    it('loadSummariesPage fetches by offset and replaces the current page', async () => {
+        const OLDER = { id: 's-2', cadence: 'weekly', content: '## Older' } as AccountChannelSummaryApi
+        mockRetrieve.mockResolvedValue(ACCOUNT)
+        mockList.mockResolvedValue({ count: 12, next: null, previous: null, results: [SUMMARY] })
+        await mount()
+        mockList.mockResolvedValue({ count: 12, next: null, previous: null, results: [OLDER] })
+
+        logic.actions.loadSummariesPage({ page: 2 })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockList).toHaveBeenLastCalledWith(expect.any(String), 'acc-1', { limit: 5, offset: 5 })
+        expect(logic.values.summariesResult.summaries).toEqual([OLDER])
+        expect(logic.values.page).toBe(2)
+    })
+
     it('surfaces a load-failed result (not an infinite skeleton) and captures the error', async () => {
         mockRetrieve.mockRejectedValue(new Error('network'))
         mockList.mockResolvedValue({ count: 0, next: null, previous: null, results: [] })

@@ -1,18 +1,20 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ReactNode } from 'react'
 
-import { LemonButton, LemonSelect, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { LemonSelect, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { BigLeaguesHog } from 'lib/components/hedgehogs'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { PaginationControl } from 'lib/lemon-ui/PaginationControl'
 
 import {
     AccountChannelSummaryApi,
     SlackSummaryCadenceEnumApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
-import { accountSummariesLogic, NOT_LOADED } from './accountSummariesLogic'
+import { accountSummariesLogic, NOT_LOADED, SUMMARIES_PAGE_SIZE } from './accountSummariesLogic'
 
 const CADENCE_OPTIONS: { value: SlackSummaryCadenceEnumApi | null; label: string }[] = [
     { value: null, label: 'Off' },
@@ -61,10 +63,26 @@ function periodLabel(summary: AccountChannelSummaryApi): string {
     return summary.cadence === 'daily' ? start : `${start} to ${summary.period_end.slice(0, 10)}`
 }
 
-function SummaryCard({ summary }: { summary: AccountChannelSummaryApi }): JSX.Element {
+function SummaryCard({
+    summary,
+    expanded,
+    onToggle,
+}: {
+    summary: AccountChannelSummaryApi
+    expanded: boolean
+    onToggle: () => void
+}): JSX.Element {
     return (
-        <div className="border rounded p-4 bg-surface-primary flex flex-col gap-2">
-            <div className="flex items-center gap-2">
+        <div className="border rounded bg-surface-primary">
+            <div
+                role="button"
+                aria-expanded={expanded}
+                className={clsx(
+                    'flex items-center gap-2 p-4 cursor-pointer hover:bg-surface-secondary',
+                    expanded ? 'rounded-t' : 'rounded'
+                )}
+                onClick={onToggle}
+            >
                 <LemonTag type="default">{summary.cadence}</LemonTag>
                 <span className="font-semibold">{periodLabel(summary)}</span>
                 <span className="text-muted text-xs ml-auto flex items-center gap-1">
@@ -72,16 +90,20 @@ function SummaryCard({ summary }: { summary: AccountChannelSummaryApi }): JSX.El
                     <TZLabel time={summary.generated_at} />
                 </span>
             </div>
-            <LemonMarkdown lowKeyHeadings disableImages disableDocsRedirect className="text-sm">
-                {summary.content}
-            </LemonMarkdown>
+            {expanded && (
+                <LemonMarkdown lowKeyHeadings disableImages disableDocsRedirect className="text-sm px-4 pb-4">
+                    {summary.content}
+                </LemonMarkdown>
+            )}
         </div>
     )
 }
 
 export function AccountSummariesExpansion({ accountId }: { accountId: string }): JSX.Element {
-    const { summariesResult, summariesResultLoading } = useValues(accountSummariesLogic({ accountId }))
-    const { loadMoreSummaries } = useActions(accountSummariesLogic({ accountId }))
+    const { summariesResult, summariesResultLoading, page, expandedSummaryIds } = useValues(
+        accountSummariesLogic({ accountId })
+    )
+    const { loadSummariesPage, toggleSummaryExpanded } = useActions(accountSummariesLogic({ accountId }))
 
     if ((summariesResultLoading && summariesResult === NOT_LOADED) || summariesResult === NOT_LOADED) {
         return <LemonSkeleton className="h-64 w-full" />
@@ -132,18 +154,24 @@ export function AccountSummariesExpansion({ accountId }: { accountId: string }):
                 </div>
             </div>
             {summaries.map((summary) => (
-                <SummaryCard key={summary.id} summary={summary} />
+                <SummaryCard
+                    key={summary.id}
+                    summary={summary}
+                    expanded={!!expandedSummaryIds[summary.id]}
+                    onToggle={() => toggleSummaryExpanded(summary.id)}
+                />
             ))}
-            {summaries.length < totalCount && (
-                <LemonButton
-                    type="secondary"
-                    center
-                    loading={summariesResultLoading}
-                    onClick={() => loadMoreSummaries()}
-                >
-                    Load more
-                </LemonButton>
-            )}
+            <PaginationControl
+                pagination={{ controlled: true, pageSize: SUMMARIES_PAGE_SIZE }}
+                currentPage={page}
+                setCurrentPage={(newPage) => !summariesResultLoading && loadSummariesPage({ page: newPage })}
+                pageCount={Math.max(1, Math.ceil(totalCount / SUMMARIES_PAGE_SIZE))}
+                dataSourcePage={summaries}
+                entryCount={totalCount}
+                currentStartIndex={(page - 1) * SUMMARIES_PAGE_SIZE}
+                currentEndIndex={(page - 1) * SUMMARIES_PAGE_SIZE + summaries.length}
+                nouns={['summary', 'summaries']}
+            />
         </div>
     )
 }

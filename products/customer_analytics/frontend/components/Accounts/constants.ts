@@ -51,6 +51,8 @@ export const AccountsEvents = {
     RelatedUserClicked: 'customer analytics account related user clicked',
     OpportunityClicked: 'customer analytics account opportunity clicked',
     SummaryCadenceChanged: 'customer analytics account summary cadence changed',
+    SummaryExpanded: 'customer analytics account summary expanded',
+    SummariesPageChanged: 'customer analytics account summaries page changed',
     EventStreamMembershipToggled: 'customer analytics account event stream toggled',
     EventStreamConfigSaved: 'customer analytics event stream config saved',
     EventStreamTestMessageSent: 'customer analytics event stream test message sent',
