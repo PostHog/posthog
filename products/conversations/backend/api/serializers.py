@@ -1,5 +1,6 @@
 """Serializers for Conversations API."""
 
+from typing import Any
 from urllib.parse import urlparse
 
 from drf_spectacular.utils import extend_schema_field
@@ -101,7 +102,7 @@ class WidgetMessageSerializer(WidgetAuthSerializer):
         if not isinstance(value, dict):
             raise serializers.ValidationError("traits must be a dictionary")
 
-        validated = {}
+        validated: dict[str, str | None] = {}
         for key, val in value.items():
             if len(validated) >= 50:
                 break
@@ -123,7 +124,7 @@ class WidgetMessageSerializer(WidgetAuthSerializer):
         if not isinstance(value, dict):
             raise serializers.ValidationError("session_context must be a dictionary")
 
-        validated = {}
+        validated: dict[str, Any] = {}
         for key, val in value.items():
             if len(validated) >= 20:
                 break
