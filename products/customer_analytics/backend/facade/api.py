@@ -17,6 +17,7 @@ Do NOT:
 
 from collections.abc import Iterable
 from datetime import datetime
+from enum import Enum
 from typing import TYPE_CHECKING, Any, Optional, cast
 from uuid import UUID
 
@@ -1988,6 +1989,38 @@ def get_account_for_view(
     return _to_account_view(account)
 
 
+class _Unset(Enum):
+    UNSET = "unset"
+
+
+_UNSET = _Unset.UNSET
+
+
+def update_account(
+    account: Account,
+    *,
+    name: str | _Unset = _UNSET,
+    external_id: str | None | _Unset = _UNSET,
+    properties: "dict | _ModelAccountProperties | _Unset" = _UNSET,
+) -> Account:
+    """Field-write primitive shared by every account update path. Only the fields passed are
+    written; ``properties`` replaces the stored JSON wholesale. Product-internal — takes and
+    returns the model, so it must not be called across the product boundary."""
+    update_fields: list[str] = []
+    if not isinstance(name, _Unset):
+        account.name = cap_to_field_length("name", name)
+        update_fields.append("name")
+    if not isinstance(external_id, _Unset):
+        account.external_id = cap_to_field_length("external_id", external_id) if external_id is not None else None
+        update_fields.append("external_id")
+    if not isinstance(properties, _Unset):
+        account._properties = _ModelAccountProperties.from_input(properties).model_dump(mode="json", exclude_unset=True)
+        update_fields.append("_properties")
+    if update_fields:
+        account.save(update_fields=update_fields)
+    return account
+
+
 def create_account(
     *,
     team: Team,
@@ -2076,7 +2109,7 @@ def update_account_for_view(
 
     try:
         with transaction.atomic():
-            account = Account.objects.update_account(account, **update_kwargs)
+            account = update_account(account, **update_kwargs)
             _set_tags(input.tags, account, actor=user)
             if input.properties_provided:
                 _relationships_logic.sync_from_account_properties(account, created_by=user)

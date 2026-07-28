@@ -1,4 +1,3 @@
-from enum import Enum
 from typing import cast
 
 from django.apps import apps
@@ -10,7 +9,6 @@ from django.dispatch import receiver
 
 from pydantic import BaseModel, ConfigDict
 
-from posthog.models.scoping.manager import TeamScopedManager
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
@@ -44,45 +42,12 @@ class AccountProperties(BaseModel):
         return cls.model_validate(data)
 
 
-class _Unset(Enum):
-    UNSET = "unset"
-
-
-_UNSET = _Unset.UNSET
-
-
-class AccountManager(TeamScopedManager["Account"]):
-    def update_account(
-        self,
-        account: "Account",
-        *,
-        name: str | _Unset = _UNSET,
-        external_id: str | None | _Unset = _UNSET,
-        properties: "dict | AccountProperties | _Unset" = _UNSET,
-    ) -> "Account":
-        update_fields: list[str] = []
-        if name is not _UNSET:
-            account.name = cap_to_field_length("name", name)
-            update_fields.append("name")
-        if external_id is not _UNSET:
-            account.external_id = cap_to_field_length("external_id", external_id) if external_id is not None else None
-            update_fields.append("external_id")
-        if properties is not _UNSET:
-            account._properties = AccountProperties.from_input(properties).model_dump(mode="json", exclude_unset=True)
-            update_fields.append("_properties")
-        if update_fields:
-            account.save(update_fields=update_fields)
-        return account
-
-
 class Account(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
 
     external_id = models.CharField(max_length=400, null=True, blank=True)
     name = models.CharField(max_length=400)
     _properties = JSONField(default=dict, db_column="properties")
-
-    objects = AccountManager()  # type: ignore[assignment, misc]
 
     class Meta:
         constraints = [

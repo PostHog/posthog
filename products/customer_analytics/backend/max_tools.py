@@ -13,7 +13,12 @@ from posthog.models import OrganizationMembership
 from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
 
-from products.customer_analytics.backend.facade.api import AccountConflictError, _set_tags, create_account
+from products.customer_analytics.backend.facade.api import (
+    AccountConflictError,
+    _set_tags,
+    create_account,
+    update_account,
+)
 from products.customer_analytics.backend.logic import relationships as relationships_logic
 from products.customer_analytics.backend.models import Account, AccountRelationshipDefinition
 from products.notebooks.backend.models import Notebook, ResourceNotebook
@@ -297,7 +302,7 @@ class UpsertAccountTool(MaxTool):
             properties.update(action.properties.model_dump(exclude_unset=True))
             update_kwargs["properties"] = properties
         with transaction.atomic():
-            account = Account.objects.update_account(account, **update_kwargs)
+            account = update_account(account, **update_kwargs)
             if action.tags is not None:
                 _set_tags(action.tags, account, actor=self._user)
             if action.relationships:

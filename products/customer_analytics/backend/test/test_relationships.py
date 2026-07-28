@@ -117,7 +117,7 @@ class TestSyncFromAccountProperties(BaseTest):
 
     def test_sync_ends_relationship_when_key_cleared(self):
         relationships.sync_from_account_properties(self.account)
-        Account.objects.update_account(self.account, properties={"sfdc_id": "001xx"})
+        facade.update_account(self.account, properties={"sfdc_id": "001xx"})
         relationships.sync_from_account_properties(self.account)
         assert self._get_active_rows_for_account().count() == 0
         assert AccountRelationship.objects.for_team(self.team.id).filter(account=self.account).count() == 1
@@ -125,9 +125,7 @@ class TestSyncFromAccountProperties(BaseTest):
     def test_sync_hands_off_single_holder_on_user_change(self):
         other_user = self._create_user("other@posthog.com")
         relationships.sync_from_account_properties(self.account)
-        Account.objects.update_account(
-            self.account, properties={"csm": {"id": other_user.id, "email": other_user.email}}
-        )
+        facade.update_account(self.account, properties={"csm": {"id": other_user.id, "email": other_user.email}})
         relationships.sync_from_account_properties(self.account)
         rows = self._get_active_rows_for_account()
         assert rows.count() == 1
@@ -137,18 +135,18 @@ class TestSyncFromAccountProperties(BaseTest):
         assert AccountRelationship.objects.for_team(self.team.id).filter(account=self.account).count() == 2
 
     def test_sync_skips_unresolvable_users(self):
-        Account.objects.update_account(self.account, properties={"csm": {"id": 99999999, "email": "gone@example.com"}})
+        facade.update_account(self.account, properties={"csm": {"id": 99999999, "email": "gone@example.com"}})
         relationships.sync_from_account_properties(self.account)
         assert AccountRelationship.objects.for_team(self.team.id).filter(account=self.account).count() == 0
 
     def test_sync_skips_users_outside_the_organization(self):
         outsider = User.objects.create_user(email="outsider@example.com", password=None, first_name="Out")
-        Account.objects.update_account(self.account, properties={"csm": {"id": outsider.id, "email": outsider.email}})
+        facade.update_account(self.account, properties={"csm": {"id": outsider.id, "email": outsider.email}})
         relationships.sync_from_account_properties(self.account)
         assert AccountRelationship.objects.for_team(self.team.id).filter(account=self.account).count() == 0
 
     def test_sync_skips_roles_whose_definition_is_missing(self):
-        Account.objects.update_account(
+        facade.update_account(
             self.account,
             properties={
                 "csm": {"id": self.user.id, "email": self.user.email},

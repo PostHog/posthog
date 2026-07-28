@@ -13,6 +13,7 @@ from pydantic import ValidationError as PydanticValidationError
 from posthog.models import Team, User
 from posthog.models.scoping import team_scope
 
+from products.customer_analytics.backend.facade.api import update_account
 from products.customer_analytics.backend.models import Account, TeamCustomerAnalyticsConfig
 from products.customer_analytics.backend.models.account import AccountAssignment, AccountProperties, cap_to_field_length
 from products.customer_analytics.backend.models.team_scoped_test_base import TeamScopedTestMixin
@@ -109,7 +110,7 @@ class TeamCustomerAnalyticsConfigDriftPolicyTest(TeamScopedTestMixin, BaseTest):
             assert self.config.account_group_type_index == new_index
 
 
-class AccountManagerWriteTest(TeamScopedTestMixin, BaseTest):
+class AccountUpdateWriteTest(TeamScopedTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
         self.user = User.objects.create_user(
@@ -123,7 +124,7 @@ class AccountManagerWriteTest(TeamScopedTestMixin, BaseTest):
             name="Acme",
             _properties={"csm": {"id": self.user.id, "email": self.user.email}},
         )
-        Account.objects.update_account(account, properties={"stripe_customer_id": "cus_123"})
+        update_account(account, properties={"stripe_customer_id": "cus_123"})
         account.refresh_from_db()
         assert account.properties.csm is None
         assert account.properties.stripe_customer_id == "cus_123"
@@ -136,7 +137,7 @@ class AccountManagerWriteTest(TeamScopedTestMixin, BaseTest):
             _properties={"stripe_customer_id": "cus_123"},
         )
 
-        Account.objects.update_account(account, name="Renamed")
+        update_account(account, name="Renamed")
 
         account.refresh_from_db()
         assert account.name == "Renamed"
@@ -144,7 +145,7 @@ class AccountManagerWriteTest(TeamScopedTestMixin, BaseTest):
 
     def test_update_account_updates_name_and_external_id(self):
         account = create_account(team_id=self.team.pk, created_by=self.user, name="Old")
-        Account.objects.update_account(account, name="New", external_id="acme-1")
+        update_account(account, name="New", external_id="acme-1")
         account.refresh_from_db()
         assert account.name == "New"
         assert account.external_id == "acme-1"
