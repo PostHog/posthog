@@ -321,11 +321,19 @@ class RESTClient:
                 paginator.set_resume_state(initial_paginator_state)
             paginator.init_request(request)
 
+        # Flipped once any request in this walk has come back authenticated, which changes how a
+        # later 401 is read — see the 401 branch in ``_send_request``.
+        auth_established = False
+
         while True:
             try:
-                response, body = self._send_request(request, hooks, body_check=malformed_check)
+                response, body = self._send_request(
+                    request, hooks, body_check=malformed_check, auth_established=auth_established
+                )
             except IgnoreResponseException:
                 break
+
+            auth_established = True
 
             data = self._extract_response(
                 body, data_selector, required=data_selector_required, empty_body_ok=data_selector_empty_ok
@@ -350,7 +358,11 @@ class RESTClient:
         reraise=True,
     )
     def _send_request(
-        self, request: Request, hooks: Hooks, body_check: Optional[Callable[[Any], None]] = None
+        self,
+        request: Request,
+        hooks: Hooks,
+        body_check: Optional[Callable[[Any], None]] = None,
+        auth_established: bool = False,
     ) -> tuple[Response, Any]:
         prepared = self.session.prepare_request(request)
         # Fail loud on a pagination/resume URL that points off the expected host before the
@@ -407,6 +419,20 @@ class RESTClient:
                 self._redact(f"HTTP {response.status_code} for {_safe_url(response.url)}"),
                 retry_after=_parse_retry_after(response),
             )
+
+        # A 401 on the first request of a walk is a genuine credential problem, so it stays
+        # fail-fast below. A 401 *after* the same credential has already been accepted is a
+        # different animal: the API's auth tier rejected one request mid-stream. Aborting there
+        # throws away a long paginated export, and for sources that classify "401 Client Error" as
+        # non-retryable it also pauses the schema and tells the user to check a token that
+        # demonstrably works. Retry instead. The message is taken verbatim from `raise_for_status`
+        # so that a credential genuinely revoked mid-run still matches that classification once
+        # the retries are exhausted, rather than degrading into an unrecognized error.
+        if response.status_code == 401 and auth_established:
+            try:
+                response.raise_for_status()
+            except HTTPError as e:
+                raise RESTClientRetryableError(self._redact(str(e))) from None
 
         response_hooks = hooks.get("response", [])
         if response_hooks:

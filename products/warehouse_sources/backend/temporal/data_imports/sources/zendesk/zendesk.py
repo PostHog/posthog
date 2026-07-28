@@ -307,9 +307,14 @@ class ZendeskCursorIncrementalPaginator(BasePaginator):
 
 
 class ZendeskIncrementalEndpointPaginator(BasePaginator):
+    def __init__(self) -> None:
+        super().__init__()
+        self._next_page: Optional[str] = None
+
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         res = response.json()
 
+        current_page = self._next_page
         self._next_page = None
 
         if not res:
@@ -329,6 +334,17 @@ class ZendeskIncrementalEndpointPaginator(BasePaginator):
         next_page = res.get("next_page")
         if not next_page:
             raise ValueError("Zendesk incremental export returned end_of_stream=False without a next_page")
+
+        # The time-based export advances by setting the next `start_time` to the page's `end_time`,
+        # so when more than `per_page` records share that timestamp the link stops moving and
+        # pagination re-fetches the same page forever. `tickets` and `users` escape this via the
+        # cursor export; `ticket_events` and `ticket_metric_events` have no cursor variant, so the
+        # stall has to be detected here rather than spinning against a rate-limited endpoint.
+        if next_page == current_page:
+            raise ValueError(
+                "Zendesk incremental export returned the same next_page twice: pagination is stalled on a "
+                "timestamp shared by more records than one page can hold"
+            )
 
         self._next_page = next_page
         self._has_next_page = True

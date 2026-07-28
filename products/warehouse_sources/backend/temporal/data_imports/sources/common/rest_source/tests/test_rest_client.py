@@ -6,7 +6,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from requests import Response
-from requests.exceptions import ChunkedEncodingError, ProxyError, ReadTimeout
+from requests.exceptions import ChunkedEncodingError, HTTPError, ProxyError, ReadTimeout
 
 from posthog.temporal.common.errors import NonReportableError
 
@@ -68,6 +68,26 @@ def _make_non_json_response(content: bytes, status_code: int = 200) -> Response:
     resp.headers["Content-Type"] = "application/json"
     resp.url = "https://api.example.com/items"
     return resp
+
+
+def _make_unauthorized_response() -> Response:
+    resp = _make_response({"error": "Couldn't authenticate you"}, status_code=401)
+    resp.reason = "Unauthorized"
+    resp.url = "https://api.example.com/items"
+    return resp
+
+
+class _TwoPagePaginator(BasePaginator):
+    def __init__(self) -> None:
+        super().__init__()
+        self._page = 0
+
+    def update_state(self, response, data=None) -> None:
+        self._page += 1
+        self._has_next_page = self._page < 2
+
+    def update_request(self, request) -> None:
+        pass
 
 
 class TestRESTClient:
@@ -357,6 +377,64 @@ class TestRESTClient:
             list(client.paginate(path="/items", paginator=SinglePagePaginator()))
 
         assert mock_session.send.call_count == 5
+
+    @patch("tenacity.nap.time.sleep")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+    )
+    def test_first_request_401_fails_fast(self, MockSession, mock_sleep) -> None:
+        # Nothing has authenticated yet, so a 401 really is a bad credential — surface it
+        # immediately instead of burning the retry budget on a deterministic rejection.
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.return_value = MagicMock()
+        mock_session.send.return_value = _make_unauthorized_response()
+
+        client = RESTClient(base_url="https://api.example.com")
+        with pytest.raises(HTTPError, match="401 Client Error"):
+            list(client.paginate(path="/items", paginator=SinglePagePaginator()))
+
+        assert mock_session.send.call_count == 1
+
+    @patch("tenacity.nap.time.sleep")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+    )
+    def test_401_after_an_authenticated_page_is_retried(self, MockSession, mock_sleep) -> None:
+        # The same credential was accepted for page 1, so a 401 on page 2 is a transient rejection
+        # from the API's auth tier. Retrying it keeps a long paginated export alive.
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.return_value = MagicMock()
+        mock_session.send.side_effect = [
+            _make_response([{"id": 1}]),
+            _make_unauthorized_response(),
+            _make_response([{"id": 2}]),
+        ]
+
+        client = RESTClient(base_url="https://api.example.com")
+        pages = list(client.paginate(path="/items", paginator=_TwoPagePaginator()))
+
+        assert pages == [[{"id": 1}], [{"id": 2}]]
+        assert mock_session.send.call_count == 3
+
+    @patch("tenacity.nap.time.sleep")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+    )
+    def test_persistent_401_mid_walk_keeps_the_client_error_wording(self, MockSession, mock_sleep) -> None:
+        # A credential revoked mid-run exhausts the retries, and sources classify that case by
+        # matching on "401 Client Error" — so the reraised message has to keep the wording.
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.return_value = MagicMock()
+        mock_session.send.side_effect = [_make_response([{"id": 1}]), *[_make_unauthorized_response()] * 8]
+
+        client = RESTClient(base_url="https://api.example.com")
+        with pytest.raises(RESTClientRetryableError, match="401 Client Error"):
+            list(client.paginate(path="/items", paginator=_TwoPagePaginator()))
+
+        assert mock_session.send.call_count == 6
 
     @pytest.mark.parametrize(
         "content",

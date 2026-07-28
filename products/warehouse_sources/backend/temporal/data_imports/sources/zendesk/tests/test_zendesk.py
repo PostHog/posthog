@@ -203,6 +203,18 @@ class TestZendeskIncrementalEndpointPaginator:
         # next_page is a full URL carrying its own query string, so existing params are cleared.
         assert req.params == {}
 
+    def test_raises_when_next_page_does_not_advance(self) -> None:
+        # ticket_events has no cursor export to fall back on, so a timestamp shared by more records
+        # than one page holds would otherwise re-fetch the same page against a 10 req/min endpoint
+        # forever.
+        p = ZendeskIncrementalEndpointPaginator()
+        stalled = {"end_of_stream": False, "next_page": "https://x.zendesk.com/next?start_time=1718485289"}
+
+        p.update_state(_make_response(stalled))
+
+        with pytest.raises(ValueError, match="same next_page twice"):
+            p.update_state(_make_response(stalled))
+
     @pytest.mark.parametrize(
         "body",
         [
