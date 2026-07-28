@@ -118,11 +118,8 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "vision_action": "replay_scanner",
 }
 
-# Access falls back from a child resource to a *concrete* parent - a synced table to the source
-# that syncs it. The parents in RESOURCE_INHERITANCE_MAP are abstract groupings with no rows, so
-# they stand in for the child wholesale; these have real rows, which means they take part at the
-# object layer too, and that an object with no such parent (a self-managed table has no source)
-# skips them entirely rather than inheriting anything.
+# Used to apply the more specific access when it's configured, and fall back to a parent
+# otherwise (e.g. a synced table to the source that syncs it).
 RESOURCE_FALLBACK_MAP: dict[APIScopeObject, APIScopeObject] = {
     "warehouse_table": "external_data_source",
 }
@@ -1354,15 +1351,14 @@ class UserAccessControl:
         explicit: bool = False,
         fallback_parent_id: Optional[str] = None,
     ) -> Optional[AccessControlLevel]:
-        """Row-based object access resolution, most specific first: explicit (role/member) object rows,
-        then the fallback parent's object rows, then resource-level rows, then the fallback parent's
+        """Row-based object access resolution, most specific rule first: explicit (role/member) object
+        rows, then the fallback parent's object rows, then resource-level rows, then the parent's
         resource-level rows, then default object rows, then the resource default. Shared by
         `get_user_access_level` and `bulk_object_access_levels`.
 
         `fallback_parent_id` identifies the RESOURCE_FALLBACK_MAP parent this object belongs to, and is
         None when it has none - a self-managed warehouse table has no source, so a rule written about
-        sources must not reach it. The parent's tiers straddle the object's own resource-level tier:
-        a rule on one source outranks "all tables", which in turn outranks "all sources".
+        sources must not reach it.
         """
         parent = RESOURCE_FALLBACK_MAP.get(resource) if fallback_parent_id else None
 
