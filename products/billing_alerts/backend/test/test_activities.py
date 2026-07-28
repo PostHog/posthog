@@ -59,11 +59,13 @@ class TestBillingAlertActivities(BaseTest):
                 "products.billing_alerts.backend.logic.notifications.produce_alert_internal_event",
                 return_value=MagicMock(),
             ),
-            patch("products.billing_alerts.backend.logic.notifications.flush_alert_internal_events"),
+            patch(
+                "products.billing_alerts.backend.logic.notifications.flush_alert_internal_events"
+            ) as flush_alert_internal_events,
             patch(
                 "products.billing_alerts.backend.logic.notifications.alert_internal_event_delivered",
                 return_value=True,
-            ),
+            ) as alert_internal_event_delivered,
         ):
             event_ids = _evaluate_billing_alerts(
                 EvaluateBillingAlertBatchActivityInputs(alert_ids=[str(failed_alert.id), str(successful_alert.id)])
@@ -82,6 +84,8 @@ class TestBillingAlertActivities(BaseTest):
         assert failed_alert.state == BillingAlertConfiguration.State.NOT_FIRING
         assert successful_event.kind == BillingAlertEvent.Kind.FIRING
         assert successful_alert.state == BillingAlertConfiguration.State.FIRING
+        flush_alert_internal_events.assert_called_once()
+        assert alert_internal_event_delivered.call_count == 2
 
     def test_due_query_applies_billing_eligibility_boundaries(self) -> None:
         now = datetime(2026, 6, 23, 12, tzinfo=UTC)
@@ -108,18 +112,26 @@ class TestBillingAlertActivities(BaseTest):
 
     @freeze_time("2026-06-23T12:00:00Z")
     @patch("products.billing_alerts.backend.temporal.activities.fetch_billing_data")
-    @patch("products.billing_alerts.backend.temporal.activities.evaluate_and_dispatch_billing_alert")
-    def test_one_alert_dispatch_failure_does_not_retry_completed_alerts(
-        self, mock_evaluate_and_dispatch, mock_fetch_billing_data
+    @patch("products.billing_alerts.backend.temporal.activities.flush_pending_billing_alert_dispatches")
+    @patch("products.billing_alerts.backend.temporal.activities.commit_pending_billing_alert_dispatch")
+    @patch("products.billing_alerts.backend.temporal.activities.prepare_billing_alert_dispatch")
+    def test_one_alert_preparation_failure_does_not_block_other_alerts(
+        self,
+        mock_prepare_dispatch,
+        mock_commit_dispatch,
+        _mock_flush_dispatches,
+        mock_fetch_billing_data,
     ) -> None:
         first = self._alert(name="First")
         second = self._alert(name="Second")
         mock_fetch_billing_data.return_value = (_billing_response([60, 60, 100]), 12)
-        mock_evaluate_and_dispatch.side_effect = [RuntimeError("database unavailable"), (MagicMock(), 0)]
+        prepared = MagicMock()
+        mock_prepare_dispatch.side_effect = [RuntimeError("database unavailable"), prepared]
 
         event_ids = _evaluate_billing_alerts(
             EvaluateBillingAlertBatchActivityInputs(alert_ids=[str(first.id), str(second.id)])
         )
 
         assert event_ids == []
-        assert mock_evaluate_and_dispatch.call_count == 2
+        assert mock_prepare_dispatch.call_count == 2
+        mock_commit_dispatch.assert_called_once_with(prepared)

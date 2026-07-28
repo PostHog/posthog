@@ -16,8 +16,11 @@ from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.billing_alerts.backend.logic.evaluator import fetch_billing_data
 from products.billing_alerts.backend.logic.notifications import (
+    PendingBillingAlertDispatch,
+    commit_pending_billing_alert_dispatch,
     dispatch_billing_alert_event,
-    evaluate_and_dispatch_billing_alert,
+    flush_pending_billing_alert_dispatches,
+    prepare_billing_alert_dispatch,
 )
 from products.billing_alerts.backend.models import BillingAlertConfiguration, BillingAlertEvent
 from products.billing_alerts.backend.temporal.types import (
@@ -57,7 +60,7 @@ def _record_group_failure(
     now: datetime,
     is_transient_error: bool,
     reason: str,
-) -> list[str]:
+) -> list[PendingBillingAlertDispatch]:
     first_alert = alert_group[0]
     alert_ids = [str(alert.id) for alert in alert_group]
     capture_exception(error, {"alert_ids": alert_ids, "feature": "billing_alerts"})
@@ -68,22 +71,22 @@ def _record_group_failure(
         reason=reason,
     )
 
-    dispatch_event_ids: list[str] = []
+    pending_dispatches: list[PendingBillingAlertDispatch] = []
     for alert in alert_group:
         try:
-            evaluate_and_dispatch_billing_alert(
-                alert,
-                now=now,
-                error=error,
-                is_transient_error=is_transient_error,
-                failure_reason=reason,
+            pending_dispatches.append(
+                prepare_billing_alert_dispatch(
+                    alert,
+                    now=now,
+                    error=error,
+                    is_transient_error=is_transient_error,
+                    failure_reason=reason,
+                )
             )
         except Exception as dispatch_error:
             capture_exception(dispatch_error, {"alert_id": str(alert.id), "feature": "billing_alerts"})
-            logger.exception("Billing alert failure event dispatch failed", alert_id=str(alert.id))
-        # New checks dispatch before persistence. Returning no IDs keeps the
-        # existing Temporal activity contract safe for in-flight old histories.
-    return dispatch_event_ids
+            logger.exception("Billing alert failure event preparation failed", alert_id=str(alert.id))
+    return pending_dispatches
 
 
 def _evaluate_billing_alerts(inputs: EvaluateBillingAlertBatchActivityInputs) -> list[str]:
@@ -93,13 +96,13 @@ def _evaluate_billing_alerts(inputs: EvaluateBillingAlertBatchActivityInputs) ->
     for alert in alerts:
         grouped[_group_key(alert)].append(alert)
 
-    dispatch_event_ids: list[str] = []
+    pending_dispatches: list[PendingBillingAlertDispatch] = []
     for alert_group in grouped.values():
         first_alert = alert_group[0]
         try:
             organization = Organization.objects.get(id=first_alert.organization_id)
         except Organization.DoesNotExist as e:
-            dispatch_event_ids.extend(
+            pending_dispatches.extend(
                 _record_group_failure(
                     alert_group,
                     e,
@@ -113,7 +116,7 @@ def _evaluate_billing_alerts(inputs: EvaluateBillingAlertBatchActivityInputs) ->
         try:
             billing_response, query_duration_ms = fetch_billing_data(first_alert, organization, now=now)
         except Exception as e:
-            dispatch_event_ids.extend(
+            pending_dispatches.extend(
                 _record_group_failure(
                     alert_group,
                     e,
@@ -126,16 +129,30 @@ def _evaluate_billing_alerts(inputs: EvaluateBillingAlertBatchActivityInputs) ->
 
         for alert in alert_group:
             try:
-                evaluate_and_dispatch_billing_alert(
-                    alert,
-                    now=now,
-                    billing_response=billing_response,
-                    query_duration_ms=query_duration_ms,
+                pending_dispatches.append(
+                    prepare_billing_alert_dispatch(
+                        alert,
+                        now=now,
+                        billing_response=billing_response,
+                        query_duration_ms=query_duration_ms,
+                    )
                 )
             except Exception as dispatch_error:
                 capture_exception(dispatch_error, {"alert_id": str(alert.id), "feature": "billing_alerts"})
-                logger.exception("Billing alert evaluation dispatch failed", alert_id=str(alert.id))
-    return dispatch_event_ids
+                logger.exception("Billing alert evaluation preparation failed", alert_id=str(alert.id))
+
+    flush_pending_billing_alert_dispatches(pending_dispatches)
+    for dispatch in pending_dispatches:
+        try:
+            commit_pending_billing_alert_dispatch(dispatch)
+        except Exception as dispatch_error:
+            alert_id = str(dispatch.check.alert.id)
+            capture_exception(dispatch_error, {"alert_id": alert_id, "feature": "billing_alerts"})
+            logger.exception("Billing alert outcome persistence failed", alert_id=alert_id)
+
+    # New checks dispatch before persistence. Returning no IDs keeps the existing
+    # Temporal activity contract safe for in-flight old histories.
+    return []
 
 
 @temporalio.activity.defn

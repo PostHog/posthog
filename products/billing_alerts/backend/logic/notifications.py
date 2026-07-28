@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass
 from datetime import datetime
 
 from django.db import transaction
 from django.utils import timezone
+
+from posthog.kafka_client.client import ProduceResult
 
 from products.alerts.backend.destinations import (
     alert_internal_event_delivered,
@@ -27,6 +29,14 @@ from products.billing_alerts.backend.models import BillingAlertConfiguration, Bi
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 NOTIFICATION_FLUSH_TIMEOUT_SECONDS = 10
+
+
+@dataclass(frozen=True)
+class PendingBillingAlertDispatch:
+    check: BillingAlertCheck
+    event_name: str | None
+    destination_ids: list[str]
+    produce_result: ProduceResult | None
 
 
 def _kind_for_event(event: BillingAlertEvent) -> EventKind | None:
@@ -84,11 +94,16 @@ def _destination_ids(event: BillingAlertEvent) -> list[str]:
     ]
 
 
-def _deliver(check: BillingAlertCheck) -> tuple[bool, list[str]]:
+def _enqueue(check: BillingAlertCheck) -> PendingBillingAlertDispatch:
     event = check.event
     kind = _kind_for_event(event)
     if kind is None:
-        return True, []
+        return PendingBillingAlertDispatch(
+            check=check,
+            event_name=None,
+            destination_ids=[],
+            produce_result=None,
+        )
 
     event_name = EVENT_KIND_CONFIG[kind].event_id
     destination_ids = _destination_ids(event)
@@ -99,17 +114,77 @@ def _deliver(check: BillingAlertCheck) -> tuple[bool, list[str]]:
         timestamp=check.now,
         uuid=str(event.id),
     )
-    if produce_result is None:
-        return False, destination_ids
-
-    flush_alert_internal_events(NOTIFICATION_FLUSH_TIMEOUT_SECONDS)
-    delivered = alert_internal_event_delivered(
-        produce_result,
-        team_id=event.alert.execution_team_id,
-        alert_id=str(event.alert_id),
+    return PendingBillingAlertDispatch(
+        check=check,
         event_name=event_name,
+        destination_ids=destination_ids,
+        produce_result=produce_result,
     )
-    return delivered, destination_ids
+
+
+def prepare_billing_alert_dispatch(
+    alert: BillingAlertConfiguration,
+    *,
+    now: datetime | None = None,
+    billing_response: dict | None = None,
+    query_duration_ms: int | None = None,
+    error: Exception | None = None,
+    is_transient_error: bool = False,
+    failure_reason: str = "Billing alert evaluation failed.",
+) -> PendingBillingAlertDispatch:
+    """Evaluate an alert and enqueue any internal event without persisting the outcome."""
+    now = now or timezone.now()
+    if error is None:
+        check = prepare_billing_alert_check(
+            alert,
+            now=now,
+            billing_response=billing_response,
+            query_duration_ms=query_duration_ms,
+        )
+    else:
+        check = prepare_billing_alert_failure(
+            alert,
+            error,
+            now=now,
+            query_duration_ms=query_duration_ms,
+            is_transient_error=is_transient_error,
+            reason=failure_reason,
+        )
+    if event_should_dispatch(check.event):
+        return _enqueue(check)
+    return PendingBillingAlertDispatch(
+        check=check,
+        event_name=None,
+        destination_ids=[],
+        produce_result=None,
+    )
+
+
+def flush_pending_billing_alert_dispatches(dispatches: list[PendingBillingAlertDispatch]) -> None:
+    """Flush one activity batch after all internal events have been produced."""
+    if any(dispatch.produce_result is not None for dispatch in dispatches):
+        flush_alert_internal_events(NOTIFICATION_FLUSH_TIMEOUT_SECONDS)
+
+
+def commit_pending_billing_alert_dispatch(
+    dispatch: PendingBillingAlertDispatch,
+) -> tuple[BillingAlertEvent, int]:
+    """Resolve producer acknowledgement, then persist the corresponding lifecycle outcome."""
+    delivered = dispatch.event_name is None
+    if dispatch.event_name is not None and dispatch.produce_result is not None:
+        delivered = alert_internal_event_delivered(
+            dispatch.produce_result,
+            team_id=dispatch.check.event.alert.execution_team_id,
+            alert_id=str(dispatch.check.event.alert_id),
+            event_name=dispatch.event_name,
+        )
+
+    event = commit_billing_alert_check(
+        dispatch.check,
+        notification_delivered=delivered,
+        destination_ids=dispatch.destination_ids,
+    )
+    return event, len(dispatch.destination_ids) if delivered else 0
 
 
 def evaluate_and_dispatch_billing_alert(
@@ -123,42 +198,17 @@ def evaluate_and_dispatch_billing_alert(
     failure_reason: str = "Billing alert evaluation failed.",
 ) -> tuple[BillingAlertEvent, int]:
     """Evaluate, cross the shared delivery barrier, then persist the safe outcome."""
-    now = now or timezone.now()
-
-    def prepare(current_alert: BillingAlertConfiguration) -> BillingAlertCheck:
-        if error is None:
-            return prepare_billing_alert_check(
-                current_alert,
-                now=now,
-                billing_response=billing_response,
-                query_duration_ms=query_duration_ms,
-            )
-        return prepare_billing_alert_failure(
-            current_alert,
-            error,
-            now=now,
-            query_duration_ms=query_duration_ms,
-            is_transient_error=is_transient_error,
-            reason=failure_reason,
-        )
-
-    check = prepare(alert)
-    with transaction.atomic():
-        locked_alert = BillingAlertConfiguration.objects.select_for_update().get(pk=alert.pk)
-        if locked_alert.updated_at != check.configuration_updated_at:
-            check = prepare(locked_alert)
-        else:
-            check = replace(check, alert=locked_alert)
-            check.event.alert = locked_alert
-            check.event.team_id = locked_alert.team_id
-
-        delivered, destination_ids = _deliver(check) if event_should_dispatch(check.event) else (True, [])
-        event = commit_billing_alert_check(
-            check,
-            notification_delivered=delivered,
-            destination_ids=destination_ids,
-        )
-        return event, len(destination_ids) if delivered else 0
+    dispatch = prepare_billing_alert_dispatch(
+        alert,
+        now=now,
+        billing_response=billing_response,
+        query_duration_ms=query_duration_ms,
+        error=error,
+        is_transient_error=is_transient_error,
+        failure_reason=failure_reason,
+    )
+    flush_pending_billing_alert_dispatches([dispatch])
+    return commit_pending_billing_alert_dispatch(dispatch)
 
 
 def dispatch_billing_alert_event(event: BillingAlertEvent, now: datetime | None = None) -> int:
@@ -169,31 +219,33 @@ def dispatch_billing_alert_event(event: BillingAlertEvent, now: datetime | None 
         if locked_event.targets_notified or locked_event.notification_sent_at is not None:
             return 0
 
-        # This path only serves old in-flight workflow histories. Keep the row lock
-        # through delivery so concurrent retries cannot enqueue the same event twice.
-        kind = _kind_for_event(locked_event)
-        if kind is None:
-            return 0
-        destination_ids = _destination_ids(locked_event)
-        event_name = EVENT_KIND_CONFIG[kind].event_id
-        produce_result = produce_alert_internal_event(
-            team_id=locked_event.alert.execution_team_id,
-            event_name=event_name,
-            properties=_properties(locked_event, now, consecutive_failures=locked_event.alert.consecutive_failures),
-            timestamp=now,
-            uuid=str(locked_event.id),
-        )
-        if produce_result is None:
-            return 0
-        flush_alert_internal_events(NOTIFICATION_FLUSH_TIMEOUT_SECONDS)
-        if not alert_internal_event_delivered(
-            produce_result,
-            team_id=locked_event.alert.execution_team_id,
-            alert_id=str(locked_event.alert_id),
-            event_name=event_name,
-        ):
-            return 0
+    kind = _kind_for_event(locked_event)
+    if kind is None:
+        return 0
+    destination_ids = _destination_ids(locked_event)
+    event_name = EVENT_KIND_CONFIG[kind].event_id
+    produce_result = produce_alert_internal_event(
+        team_id=locked_event.alert.execution_team_id,
+        event_name=event_name,
+        properties=_properties(locked_event, now, consecutive_failures=locked_event.alert.consecutive_failures),
+        timestamp=now,
+        uuid=str(locked_event.id),
+    )
+    if produce_result is None:
+        return 0
+    flush_alert_internal_events(NOTIFICATION_FLUSH_TIMEOUT_SECONDS)
+    if not alert_internal_event_delivered(
+        produce_result,
+        team_id=locked_event.alert.execution_team_id,
+        alert_id=str(locked_event.alert_id),
+        event_name=event_name,
+    ):
+        return 0
 
+    with transaction.atomic():
+        locked_event = BillingAlertEvent.objects.select_for_update().select_related("alert").get(id=event.id)
+        if locked_event.targets_notified or locked_event.notification_sent_at is not None:
+            return 0
         locked_event.notification_sent_at = now
         locked_event.targets_notified = {"hog_functions": destination_ids}
         locked_event.save(update_fields=["notification_sent_at", "targets_notified"])
