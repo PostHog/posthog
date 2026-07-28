@@ -36774,6 +36774,37 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
+    export interface LogsRetentionRule {
+      /** Unique identifier for this retention rule. */
+      readonly id: string;
+      /**
+         * User-visible label for this rule.
+         * @maxLength 255
+         */
+      name: string;
+      /** When false, the rule is ignored by ingestion and listing UIs that show active rules only. */
+      enabled?: boolean;
+      /**
+         * Lower numbers are evaluated first; the first matching rule wins. Omit to append after existing rules.
+         * @minimum 0
+         * @nullable
+         */
+      priority?: number | null;
+      /** Retention rule JSON. Required keys: `retention_days` (integer — how long matching logs are kept; must be a tier the organization is entitled to, same as the team-wide Logs retention setting) and `filter_group` (PropertyGroupFilter shape — an AND/OR tree of property predicates evaluated per record to decide which logs this rule matches). Example: `{"retention_days":30,"filter_group":{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}}`. Logs matching no enabled rule keep the environment's default retention. */
+      config: unknown;
+      /** Incremented on each update for worker cache coherency. */
+      readonly version: number;
+      readonly created_by: number;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    export interface LogsRetentionRuleReorder {
+      /** Rule IDs in the desired evaluation order (first element is highest priority / lowest order index). */
+      ordered_ids: string[];
+    }
+
     export type LogsSamplingRuleScopeAttributeFiltersItem = { [key: string]: unknown };
 
     /**
@@ -40880,6 +40911,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: LogsMetricRule[];
+    }
+
+    export interface PaginatedLogsRetentionRuleList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: LogsRetentionRule[];
     }
 
     export interface PaginatedLogsSamplingRuleList {
@@ -48715,6 +48755,32 @@ export namespace Schemas {
          * @items.maxLength 512
          */
       group_by?: string[];
+      /** Incremented on each update for worker cache coherency. */
+      readonly version?: number;
+      readonly created_by?: number;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
+    }
+
+    export interface PatchedLogsRetentionRule {
+      /** Unique identifier for this retention rule. */
+      readonly id?: string;
+      /**
+         * User-visible label for this rule.
+         * @maxLength 255
+         */
+      name?: string;
+      /** When false, the rule is ignored by ingestion and listing UIs that show active rules only. */
+      enabled?: boolean;
+      /**
+         * Lower numbers are evaluated first; the first matching rule wins. Omit to append after existing rules.
+         * @minimum 0
+         * @nullable
+         */
+      priority?: number | null;
+      /** Retention rule JSON. Required keys: `retention_days` (integer — how long matching logs are kept; must be a tier the organization is entitled to, same as the team-wide Logs retention setting) and `filter_group` (PropertyGroupFilter shape — an AND/OR tree of property predicates evaluated per record to decide which logs this rule matches). Example: `{"retention_days":30,"filter_group":{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}}`. Logs matching no enabled rule keep the environment's default retention. */
+      config?: unknown;
       /** Incremented on each update for worker cache coherency. */
       readonly version?: number;
       readonly created_by?: number;
@@ -71447,6 +71513,7 @@ export namespace Schemas {
      * * `Log` - Log
      * * `LogsAlertConfiguration` - LogsAlertConfiguration
      * * `LogsExclusionRule` - LogsExclusionRule
+     * * `LogsRetentionRule` - LogsRetentionRule
      * * `DashboardWidget` - DashboardWidget
      * * `ProductTour` - ProductTour
      * * `Ticket` - Ticket
@@ -71538,6 +71605,7 @@ export namespace Schemas {
       Log: 'Log',
       LogsAlertConfiguration: 'LogsAlertConfiguration',
       LogsExclusionRule: 'LogsExclusionRule',
+      LogsRetentionRule: 'LogsRetentionRule',
       DashboardWidget: 'DashboardWidget',
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
@@ -71615,6 +71683,7 @@ export namespace Schemas {
      * * `Log` - Log
      * * `LogsAlertConfiguration` - LogsAlertConfiguration
      * * `LogsExclusionRule` - LogsExclusionRule
+     * * `LogsRetentionRule` - LogsRetentionRule
      * * `DashboardWidget` - DashboardWidget
      * * `ProductTour` - ProductTour
      * * `Ticket` - Ticket
@@ -71694,6 +71763,7 @@ export namespace Schemas {
       Log: 'Log',
       LogsAlertConfiguration: 'LogsAlertConfiguration',
       LogsExclusionRule: 'LogsExclusionRule',
+      LogsRetentionRule: 'LogsRetentionRule',
       DashboardWidget: 'DashboardWidget',
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
@@ -76768,6 +76838,28 @@ export namespace Schemas {
     export type LogsHasLogsRetrieve200 = { [key: string]: unknown };
 
     export type LogsMetricRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type LogsRetentionRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type LogsRetentionRulesReorderCreateParams = {
     /**
      * Number of results to return per page.
      */
