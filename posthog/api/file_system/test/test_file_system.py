@@ -11,6 +11,7 @@ from django.core.cache import cache
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIRequestFactory
 
@@ -1403,6 +1404,96 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         self.assertEqual(warm_level, "viewer")
         # The warm request skips the short_id->pk translation query the cold request had to run
         self.assertLess(len(warm_ctx), len(cold_ctx))
+
+    def _grant_to_user(self, resource: str, resource_id: str, access_level: str) -> AccessControl:
+        membership = OrganizationMembership.objects.get(organization=self.organization, user=self.user)
+        return self._create_access_control(
+            resource=resource,
+            resource_id=resource_id,
+            access_level=access_level,
+            organization_member=membership,
+        )
+
+    def _sole_entry_for(self, *, file_type: str, ref: str, path: str) -> FileSystem:
+        """Replace the auto-filed tree rows for an object with a single entry at `path`.
+
+        Deleting an entry only reaches the backing object once it is the last row referencing it.
+        """
+        FileSystem.objects.filter(team=self.team, type=file_type, ref=ref).delete()
+        return FileSystem.objects.create(
+            team=self.team,
+            path=path,
+            depth=len(path.split("/")),
+            type=file_type,
+            ref=ref,
+            created_by=self.other_user,
+        )
+
+    @parameterized.expand([("the_entry_itself",), ("an_ancestor_folder",)])
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_destroy_requires_editor_access_to_the_backing_object(self, target, mock_flag):
+        dashboard = Dashboard.objects.create(team=self.team, name="Viewer only", created_by=self.other_user)
+        entry = self._sole_entry_for(file_type="dashboard", ref=str(dashboard.pk), path="Docs/Viewer only")
+        self._grant_to_user("dashboard", str(dashboard.pk), "viewer")
+
+        delete_id = entry.id if target == "the_entry_itself" else self.folder.id
+        response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{delete_id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        dashboard.refresh_from_db()
+        self.assertFalse(dashboard.deleted)
+        self.assertTrue(FileSystem.objects.filter(pk=entry.pk).exists())
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_none_access_hides_entries_whose_ref_is_a_short_id(self, mock_flag):
+        insight = Insight.objects.create(team=self.team, name="Denied insight", created_by=self.other_user)
+        entry = self._sole_entry_for(file_type="insight", ref=insight.short_id, path="Docs/Denied insight")
+        # AccessControl rows are always keyed by pk, while insight entries reference the short_id
+        self._create_access_control(resource="insight", resource_id=str(insight.pk), access_level="none")
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/file_system/")
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK, list_response.content)
+        paths = {item["path"] for item in list_response.json()["results"]}
+        self.assertNotIn("Docs/Denied insight", paths)
+
+        delete_response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{entry.id}/")
+        self.assertEqual(delete_response.status_code, status.HTTP_404_NOT_FOUND, delete_response.content)
+
+    def test_undo_delete_refuses_an_object_that_is_not_deleted(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="paused-flag",
+            name="Paused flag",
+            active=False,
+            created_by=self.other_user,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/undo_delete/",
+            {"items": [{"type": "feature_flag", "ref": str(flag.pk)}]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        flag.refresh_from_db()
+        self.assertFalse(flag.active)
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_undo_delete_requires_editor_access_to_the_backing_object(self, mock_flag):
+        dashboard = Dashboard.objects.create(
+            team=self.team, name="Deleted dashboard", created_by=self.other_user, deleted=True
+        )
+        self._grant_to_user("dashboard", str(dashboard.pk), "viewer")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/undo_delete/",
+            {"items": [{"type": "dashboard", "ref": str(dashboard.pk)}]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        dashboard.refresh_from_db()
+        self.assertTrue(dashboard.deleted)
 
     def test_created_at_filters(self):
         """

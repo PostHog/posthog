@@ -1182,10 +1182,32 @@ class UserAccessControl:
         candidate_resources = {ac.resource for ac in self._cached_access_controls if ac.resource_id is None}
         return sorted(resource for resource in candidate_resources if not self.has_resource_access(resource))
 
-    def filter_and_annotate_file_system_queryset(self, queryset: QuerySet["FileSystem"]) -> QuerySet["FileSystem"]:
+    def none_denied_object_ids(self, resources: Sequence[APIScopeObject]) -> dict[str, set[str]]:
+        """Object ids the user has a 'none' grant on, per resource.
+
+        Mirrors the row matching `filter_and_annotate_file_system_queryset` does in SQL: any
+        applicable row (team default, member, or role) at level 'none' denies the object.
+        """
+        denied: dict[str, set[str]] = {}
+        for resource in resources:
+            object_ids = {
+                access_control.resource_id
+                for access_control in self._get_access_controls(self._access_controls_filters_for_queryset(resource))
+                if access_control.access_level == NO_ACCESS_LEVEL and access_control.resource_id
+            }
+            if object_ids:
+                denied[resource] = object_ids
+        return denied
+
+    def filter_and_annotate_file_system_queryset(
+        self, queryset: QuerySet["FileSystem"], extra_denied_refs: Optional[dict[str, list[str]]] = None
+    ) -> QuerySet["FileSystem"]:
         """
         Annotate each FileSystem with the effective_access_level (either 'none' or 'some')
         and exclude items that end up with 'none', unless the user is the creator or project-admin or org-admin/staff.
+
+        `extra_denied_refs` maps a file system type to refs denied by a grant this queryset's own
+        `ref`-to-`resource_id` comparison can't see, because the ref isn't the object's primary key.
         """
         user = self._user
 
@@ -1252,7 +1274,12 @@ class UserAccessControl:
 
         # 4) Exclude items that are "none" if the user is not the creator,
         #    not a project admin, and not an org-admin/staff (already handled in step #1).
-        queryset = queryset.exclude(Q(effective_access_level="none") & Q(is_project_admin=False) & ~Q(created_by=user))
+        denied = Q(effective_access_level="none")
+        for entry_type, refs in (extra_denied_refs or {}).items():
+            if refs:
+                denied |= Q(type=entry_type, ref__in=refs)
+
+        queryset = queryset.exclude(denied & Q(is_project_admin=False) & ~Q(created_by=user))
 
         return queryset
 

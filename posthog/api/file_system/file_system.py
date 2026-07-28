@@ -1,7 +1,9 @@
 import re
 import time
 import shlex
+import logging
 import builtins
+from functools import cached_property
 from typing import Any, cast
 from uuid import UUID, uuid4
 
@@ -12,13 +14,19 @@ from django.db.models.functions import Concat, Lower
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import filters, pagination, serializers, status, viewsets
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.file_system.access_levels import FileSystemAccessLevelSerializerMixin
+from posthog.api.file_system.access_levels import (
+    FileSystemAccessLevelSerializerMixin,
+    denied_short_id_refs,
+    entries_missing_access_level,
+)
 from posthog.api.file_system.deletion import (
     HOG_FUNCTION_TYPES,
     delete_file_system_object,
+    get_restorable_object,
     is_file_system_type_registered,
     undo_delete as undo_delete_object,
 )
@@ -68,7 +76,13 @@ from posthog.utils import str_to_bool
 
 from products.tasks.backend.facade import api as tasks_facade
 
+logger = logging.getLogger(__name__)
+
 DELETE_PREVIEW_ENTRY_LIMIT = 200
+
+# One message for every reason a restore is refused (missing, already live, or off-limits), so the
+# endpoint can't be used to learn which refs exist.
+UNDO_DELETE_REFUSED = "Couldn't restore this. It may already be restored, or you may not have access to it."
 
 # Search-within-Recents scans this many of the user's most-recent views, then the text filter trims
 # them to a page. Bounds the hydration key set so the query stays cheap on heavy view-log histories.
@@ -233,6 +247,31 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "set_context_generation",
         "publish_canvas",
     ]
+
+    @cached_property
+    def _denied_short_id_refs(self) -> dict[str, builtins.list[str]]:
+        if not self.user_access_control:
+            return {}
+        return denied_short_id_refs(self.user_access_control, self.team.project_id)
+
+    def _filter_by_access_control(self, queryset: QuerySet) -> QuerySet:
+        if not self.user_access_control:
+            return queryset
+        return self.user_access_control.filter_and_annotate_file_system_queryset(
+            queryset, extra_denied_refs=self._denied_short_id_refs
+        )
+
+    def _ensure_can_delete_objects(self, objects: builtins.list[tuple[str, str]]) -> None:
+        """Require editor access on every backing object the delete would reach.
+
+        The tree row itself has no access controls, so without this a delete routed through the
+        file system would bypass the level the object's own resource model requires.
+        """
+        if not objects or not self.user_access_control:
+            return
+        denied = entries_missing_access_level(objects, self.user_access_control, self.team.project_id, "editor")
+        if denied:
+            raise PermissionDenied("You need editor access to delete this. Ask a project admin to grant it.")
 
     def _basename_regex(self, value: str) -> str:
         return rf"(^|(?<!\\)/)([^/]|\\.)*{re.escape(value)}([^/]|\\.)*$"
@@ -417,8 +456,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if search_param:
             queryset = self._apply_search_to_queryset(queryset, search_param, basename_only=search_name_only)
 
-        if self.user_access_control:
-            queryset = self.user_access_control.filter_and_annotate_file_system_queryset(queryset)
+        queryset = self._filter_by_access_control(queryset)
 
         if ref_param:
             queryset = queryset.filter(ref=ref_param)
@@ -493,8 +531,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         search_param = request.query_params.get("search")
 
         base_queryset = FileSystem.objects.filter(surface_q(self.file_system_surface), team_id=self.team.id)
-        if self.user_access_control:
-            base_queryset = self.user_access_control.filter_and_annotate_file_system_queryset(base_queryset)
+        base_queryset = self._filter_by_access_control(base_queryset)
         if search_param:
             base_queryset = self._apply_search_to_queryset(
                 base_queryset, search_param, basename_only=str_to_bool(request.query_params.get("search_name_only"))
@@ -553,8 +590,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if current.type == "folder":
                 descendants = FileSystem.objects.filter(path__startswith=f"{current.path}/")
                 descendants = self._scope_by_project_and_environment(descendants)
-                if self.user_access_control:
-                    descendants = self.user_access_control.filter_and_annotate_file_system_queryset(descendants)
+                descendants = self._filter_by_access_control(descendants)
                 stack.extend(descendants)
                 continue
 
@@ -564,6 +600,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return None
 
         ids_to_remove = [entry.id for entry in entries_to_check]
+        objects_to_delete: builtins.list[tuple[str, str]] = []
 
         for current in entries_to_check:
             remaining = (
@@ -580,6 +617,13 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     {"detail": f"Cannot delete type '{current.type}' without a reference."}
                 )
 
+            # Only the last row referencing an object carries the deletion through to the object
+            # itself; removing one of several rows leaves it untouched.
+            if remaining == 0 and current.ref:
+                objects_to_delete.append((current.type, current.ref))
+
+        self._ensure_can_delete_objects(objects_to_delete)
+
         return None
 
     def _delete_file_system_entry(self, entry: FileSystem) -> builtins.list[dict[str, Any]]:
@@ -592,8 +636,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if entry.type == "folder":
             descendants = FileSystem.objects.filter(path__startswith=f"{entry.path}/")
             descendants = self._scope_by_project_and_environment(descendants)
-            if self.user_access_control:
-                descendants = self.user_access_control.filter_and_annotate_file_system_queryset(descendants)
+            descendants = self._filter_by_access_control(descendants)
             for child in descendants.order_by("depth", "path"):
                 deleted_objects.extend(self._delete_file_system_entry(child))
             entry.delete()
@@ -671,6 +714,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         with transaction.atomic():
             for item in items:
+                self._ensure_can_restore(item["type"], item["ref"])
                 try:
                     restored_instance = undo_delete_object(
                         type_string=item["type"],
@@ -682,16 +726,25 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         organization=getattr(self, "organization", None),
                     )
                 except ValueError:
-                    import logging
-
-                    logging.exception(
+                    logger.exception(
                         "Exception during undo_delete_object (type=%s, ref=%s)", item.get("type"), item.get("ref")
                     )
-                    raise serializers.ValidationError({"detail": "An internal error occurred during undo delete."})
+                    raise serializers.ValidationError({"detail": UNDO_DELETE_REFUSED})
                 self._restore_file_system_path(restored_instance, item)
                 undo_results.append({"type": item["type"], "ref": item["ref"]})
 
         return Response({"undone": undo_results}, status=status.HTTP_200_OK)
+
+    def _ensure_can_restore(self, type_string: str, ref: str) -> None:
+        """`undo_delete` takes a caller-supplied (type, ref) rather than a tree row, so neither
+        the tree's visibility filter nor `get_object` has run by the time we get here."""
+        instance = get_restorable_object(type_string, ref, team_id=self.team.id)
+        allowed = instance is not None and (
+            not self.user_access_control
+            or self.user_access_control.check_access_level_for_object(instance, required_level="editor")
+        )
+        if not allowed:
+            raise serializers.ValidationError({"detail": UNDO_DELETE_REFUSED})
 
     @action(methods=["GET"], detail=False)
     def unfiled(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -705,7 +758,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if self.user_access_control:
             # nosemgrep: idor-lookup-without-team, idor-taint-user-input-to-model-get (IDs from prior team-scoped query)
             qs = FileSystem.objects.filter(id__in=[f.id for f in files])
-            qs = self.user_access_control.filter_and_annotate_file_system_queryset(qs)
+            qs = self._filter_by_access_control(qs)
             file_count = qs.count()
         else:
             file_count = len(files)
@@ -734,8 +787,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             with transaction.atomic():
                 qs = FileSystem.objects.filter(path__startswith=f"{instance.path}/")
                 qs = self._scope_by_project_and_environment(qs)
-                if self.user_access_control:
-                    qs = self.user_access_control.filter_and_annotate_file_system_queryset(qs)
+                qs = self._filter_by_access_control(qs)
                 for file in qs:
                     file.path = new_path + file.path[len(instance.path) :]
                     file.depth = len(split_path(file.path))
@@ -784,8 +836,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             with transaction.atomic():
                 qs = FileSystem.objects.filter(path__startswith=f"{instance.path}/")
                 qs = self._scope_by_project_and_environment(qs)
-                if self.user_access_control:
-                    qs = self.user_access_control.filter_and_annotate_file_system_queryset(qs)
+                qs = self._filter_by_access_control(qs)
 
                 for file in qs:
                     file.pk = None  # This removes the id
@@ -828,8 +879,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         qs = FileSystem.objects.filter(path__startswith=f"{instance.path}/").order_by("depth", "path")
         qs = self._scope_by_project_and_environment(qs)
-        if self.user_access_control:
-            qs = self.user_access_control.filter_and_annotate_file_system_queryset(qs)
+        qs = self._filter_by_access_control(qs)
 
         total_count = qs.count()
         preview_entries = list(qs[:DELETE_PREVIEW_ENTRY_LIMIT])
@@ -901,8 +951,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         qs = FileSystem.objects.filter(path__startswith=f"{path_param}/").order_by("depth", "path")
         qs = self._scope_by_project_and_environment(qs)
-        if self.user_access_control:
-            qs = self.user_access_control.filter_and_annotate_file_system_queryset(qs)
+        qs = self._filter_by_access_control(qs)
 
         total_count = qs.count()
         preview_entries = list(qs[:DELETE_PREVIEW_ENTRY_LIMIT])

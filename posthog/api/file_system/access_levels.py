@@ -10,12 +10,17 @@ from django.db.models.functions import Cast
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from posthog.api.file_system.deletion import ModelRegistration, get_file_system_registration
+from posthog.api.file_system.deletion import (
+    ModelRegistration,
+    get_file_system_registration,
+    get_non_pk_keyed_file_system_types,
+)
 from posthog.rbac.user_access_control import (
     ACCESS_CONTROL_RESOURCES,
     RESOURCE_INHERITANCE_MAP,
     AccessControlLevel,
     UserAccessControl,
+    access_level_satisfied_for_resource,
 )
 from posthog.scopes import APIScopeObject
 
@@ -189,6 +194,68 @@ def bulk_file_system_access_levels(
             results[(entry_type, ref_by_pk[pk])] = level
 
     return results
+
+
+def entries_missing_access_level(
+    entries: Sequence[tuple[str, str]],
+    user_access_control: UserAccessControl,
+    project_id: int,
+    required_level: AccessControlLevel,
+) -> list[tuple[str, str]]:
+    """The (type, ref) pairs whose backing object the user can't act on at `required_level`.
+
+    Types without access controls resolve to no level and are never reported as missing - the
+    file system can only enforce what the object's own resource model defines.
+
+    Creator status is always resolved from the backing object rather than from the file system
+    row, so a row someone filed against an object they don't own can't confer the owner's access.
+    """
+    controlled = [(entry_type, ref) for entry_type, ref in entries if ref and _is_access_controlled_type(entry_type)]
+    if not controlled:
+        return []
+
+    levels = bulk_file_system_access_levels(
+        [(entry_type, ref, None) for entry_type, ref in controlled], user_access_control, project_id
+    )
+    return [
+        (entry_type, ref)
+        for entry_type, ref in controlled
+        if (level := levels.get((entry_type, ref))) is None
+        or not access_level_satisfied_for_resource(cast(APIScopeObject, entry_type), level, required_level)
+    ]
+
+
+def denied_short_id_refs(user_access_control: UserAccessControl, project_id: int) -> dict[str, list[str]]:
+    """Refs denied by a 'none' grant, for the file system types not keyed by primary key.
+
+    AccessControl rows always store the object's pk in `resource_id`, so for types whose file
+    system `ref` is a short_id the grant has to be translated into refs before it can be matched
+    against the tree. With no such grants in play this costs no queries.
+    """
+    # Mirrors the early return in `filter_and_annotate_file_system_queryset` - these users see
+    # everything, so resolving the grants would only cost a query the request doesn't need.
+    if user_access_control.user.is_staff or user_access_control.is_organization_admin:
+        return {}
+
+    resources = [
+        entry_type for entry_type in get_non_pk_keyed_file_system_types() if _is_access_controlled_type(entry_type)
+    ]
+    denied_pks = user_access_control.none_denied_object_ids(cast(Sequence[APIScopeObject], resources))
+
+    denied_refs: dict[str, list[str]] = {}
+    for entry_type, pks in denied_pks.items():
+        registration = get_file_system_registration(entry_type)
+        numeric_pks = [pk for pk in pks if pk.isdigit()]
+        if registration is None or not numeric_pks:
+            continue
+        model = apps.get_model(registration.app_label, registration.model_name)
+        manager = getattr(model, registration.manager_name, model._default_manager)
+        refs = manager.filter(
+            **{f"{registration.team_field}__project_id": project_id, "pk__in": numeric_pks}
+        ).values_list(registration.lookup_field, flat=True)
+        if refs:
+            denied_refs[entry_type] = [str(ref) for ref in refs]
+    return denied_refs
 
 
 # Adds a `user_access_level` field to serializers of models that reference project objects

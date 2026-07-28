@@ -156,6 +156,11 @@ def get_file_system_registration(type_string: str) -> ModelRegistration | None:
     return _MODEL_REGISTRY.get(type_string)
 
 
+def get_non_pk_keyed_file_system_types() -> list[str]:
+    """Registered types whose file system `ref` is something other than the object's primary key."""
+    return [type_string for type_string, reg in _MODEL_REGISTRY.items() if reg.lookup_field != "id"]
+
+
 def _resolve_user(user: Any | None) -> Any | None:
     if user is not None and getattr(user, "is_authenticated", False):
         return user
@@ -340,6 +345,33 @@ def delete_file_system_object(
         can_undo=False,
         undo=registration.undo_message,
     )
+
+
+def get_restorable_object(type_string: str, ref: str, *, team_id: int | None) -> Any | None:
+    """Resolve the object an `undo_delete` would restore, or None when there is nothing to restore.
+
+    Returns None for unregistered types, types that can't be restored, refs with no backing object,
+    and objects that aren't currently soft-deleted. Callers must treat every None the same way:
+    a per-case outcome would let a caller probe which refs exist.
+    """
+    registration = _MODEL_REGISTRY.get(type_string)
+    if registration is None:
+        return None
+
+    capabilities = _introspect_model_capabilities(registration)
+    if not capabilities.has_soft_delete or not capabilities.can_restore:
+        return None
+
+    try:
+        instance = _get_object(registration, ref=ref, team_id=team_id)
+    except ObjectDoesNotExist:
+        return None
+
+    assert capabilities.soft_delete_field is not None
+    if not getattr(instance, capabilities.soft_delete_field, False):
+        return None
+
+    return instance
 
 
 def undo_delete(
