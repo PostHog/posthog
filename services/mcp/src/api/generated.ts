@@ -10936,6 +10936,7 @@ export namespace Schemas {
      * * `events` - Events
      * * `persons` - Persons
      * * `sessions` - Sessions
+     * * `hogql` - Hogql
      */
     export type ModelEnum = typeof ModelEnum[keyof typeof ModelEnum];
 
@@ -10944,6 +10945,7 @@ export namespace Schemas {
       Events: 'events',
       Persons: 'persons',
       Sessions: 'sessions',
+      Hogql: 'hogql',
     } as const;
 
     /**
@@ -11324,7 +11326,8 @@ export namespace Schemas {
        *
        * * `events` - Events
        * * `persons` - Persons
-       * * `sessions` - Sessions */
+       * * `sessions` - Sessions
+       * * `hogql` - Hogql */
       model?: ModelEnum | BlankEnum | null;
       /** Destination configuration (type, config, and optional integration). */
       destination: BatchExportDestination;
@@ -12171,7 +12174,8 @@ export namespace Schemas {
        *
        * * `events` - Events
        * * `persons` - Persons
-       * * `sessions` - Sessions */
+       * * `sessions` - Sessions
+       * * `hogql` - Hogql */
       model?: ModelEnum;
       /** Destination configuration. Required integration_id is enforced per destination type. */
       destination: BatchExportDestinationRequest;
@@ -13456,6 +13460,18 @@ export namespace Schemas {
       failing_workflows?: string[];
     }
 
+    /**
+     * * `pytest` - PYTEST
+     * * `jest` - JEST
+     */
+    export type CITestRunnerEnum = typeof CITestRunnerEnum[keyof typeof CITestRunnerEnum];
+
+
+    export const CITestRunnerEnum = {
+      Pytest: 'pytest',
+      Jest: 'jest',
+    } as const;
+
     export interface EventsHeatMapColumnAggregationResult {
       column: number;
       value: number;
@@ -14155,6 +14171,7 @@ export namespace Schemas {
      * * `high` - high
      * * `xhigh` - xhigh
      * * `max` - max
+     * * `ultracode` - ultracode
      */
     export type ReasoningEffortEnum = typeof ReasoningEffortEnum[keyof typeof ReasoningEffortEnum];
 
@@ -14165,6 +14182,19 @@ export namespace Schemas {
       High: 'high',
       Xhigh: 'xhigh',
       Max: 'max',
+      Ultracode: 'ultracode',
+    } as const;
+
+    /**
+     * * `200k` - 200k
+     * * `1m` - 1m
+     */
+    export type ContextWindowEnum = typeof ContextWindowEnum[keyof typeof ContextWindowEnum];
+
+
+    export const ContextWindowEnum = {
+      '200k': '200k',
+      '1m': '1m',
     } as const;
 
     /**
@@ -14252,8 +14282,19 @@ export namespace Schemas {
        * * `medium` - medium
        * * `high` - high
        * * `xhigh` - xhigh
-       * * `max` - max */
+       * * `max` - max
+       * * `ultracode` - ultracode */
       reasoning_effort?: ReasoningEffortEnum;
+      /** Context window size for models that support the 1M window.
+       *
+       * * `200k` - 200k
+       * * `1m` - 1m */
+      context_window?: ContextWindowEnum;
+      /**
+         * Enable fast mode for models that support it.
+         * @nullable
+         */
+      fast_mode?: boolean | null;
       /** Optional GitHub user token from PostHog Desktop for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
       github_user_token?: string;
       /** Initial permission mode for Claude runtimes.
@@ -14623,8 +14664,19 @@ export namespace Schemas {
        * * `medium` - medium
        * * `high` - high
        * * `xhigh` - xhigh
-       * * `max` - max */
+       * * `max` - max
+       * * `ultracode` - ultracode */
       reasoning_effort?: ReasoningEffortEnum;
+      /** Context window size for models that support the 1M window.
+       *
+       * * `200k` - 200k
+       * * `1m` - 1m */
+      context_window?: ContextWindowEnum;
+      /**
+         * Enable fast mode for models that support it.
+         * @nullable
+         */
+      fast_mode?: boolean | null;
       /** Optional GitHub user token from PostHog Desktop for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
       github_user_token?: string;
       /** Initial permission mode for Codex runtimes.
@@ -19101,6 +19153,11 @@ export namespace Schemas {
      * * `Meltwater` - Meltwater
      * * `UserCom` - UserCom
      * * `Latitude` - Latitude
+     * * `Workato` - Workato
+     * * `SideShift` - SideShift
+     * * `DuckLake` - DuckLake
+     * * `Starburst` - Starburst
+     * * `Easybill` - Easybill
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -20355,6 +20412,11 @@ export namespace Schemas {
       Meltwater: 'Meltwater',
       UserCom: 'UserCom',
       Latitude: 'Latitude',
+      Workato: 'Workato',
+      SideShift: 'SideShift',
+      DuckLake: 'DuckLake',
+      Starburst: 'Starburst',
+      Easybill: 'Easybill',
     } as const;
 
     /**
@@ -21622,7 +21684,12 @@ export namespace Schemas {
        * * `Vturb` - Vturb
        * * `Meltwater` - Meltwater
        * * `UserCom` - UserCom
-       * * `Latitude` - Latitude */
+       * * `Latitude` - Latitude
+       * * `Workato` - Workato
+       * * `SideShift` - SideShift
+       * * `DuckLake` - DuckLake
+       * * `Starburst` - Starburst
+       * * `Easybill` - Easybill */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -22797,6 +22864,20 @@ export namespace Schemas {
       /** Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill. */
       design?: EmailTemplateDesign;
     }
+
+    /**
+     * * `off` - Off
+     * * `opt_out` - Opt Out
+     * * `opt_in` - Opt In
+     */
+    export type EmailTrackingConsentModeEnum = typeof EmailTrackingConsentModeEnum[keyof typeof EmailTrackingConsentModeEnum];
+
+
+    export const EmailTrackingConsentModeEnum = {
+      Off: 'off',
+      OptOut: 'opt_out',
+      OptIn: 'opt_in',
+    } as const;
 
     export type EmbeddingStatusEnum = typeof EmbeddingStatusEnum[keyof typeof EmbeddingStatusEnum];
 
@@ -29196,7 +29277,12 @@ export namespace Schemas {
        * * `Vturb` - Vturb
        * * `Meltwater` - Meltwater
        * * `UserCom` - UserCom
-       * * `Latitude` - Latitude */
+       * * `Latitude` - Latitude
+       * * `Workato` - Workato
+       * * `SideShift` - SideShift
+       * * `DuckLake` - DuckLake
+       * * `Starburst` - Starburst
+       * * `Easybill` - Easybill */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -30477,7 +30563,12 @@ export namespace Schemas {
        * * `Vturb` - Vturb
        * * `Meltwater` - Meltwater
        * * `UserCom` - UserCom
-       * * `Latitude` - Latitude */
+       * * `Latitude` - Latitude
+       * * `Workato` - Workato
+       * * `SideShift` - SideShift
+       * * `DuckLake` - DuckLake
+       * * `Starburst` - Starburst
+       * * `Easybill` - Easybill */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -31401,11 +31492,16 @@ export namespace Schemas {
     } as const;
 
     export interface FlakyTestItem {
-      /** Reconstructed pytest nodeid (the CI span name), e.g. 'posthog/api/test/test_event/TestEvents::test_x'. A stable grouping key, not a runnable selector — use `selector` to run or quarantine the test. */
+      /** Test runner that emitted this signal: 'pytest' or 'jest'.
+       *
+       * * `pytest` - PYTEST
+       * * `jest` - JEST */
+      runner: CITestRunnerEnum;
+      /** Runner-specific stable test identity (the CI span name). This is a grouping key, not necessarily runnable; use `selector` to run or quarantine the test. */
       nodeid: string;
-      /** Runnable pytest selector, e.g. 'posthog/api/test/test_event.py::TestEvents::test_x'. Exact when the CI reporter emitted it; otherwise reconstructed from the nodeid, where the file/class boundary is a best-effort guess. */
+      /** Runnable pytest or Jest selector. Exact when the CI reporter emitted it; older pytest spans use a best-effort reconstruction from the nodeid. */
       selector: string;
-      /** confirmed_flake: one commit both failed and passed the test (a re-run attempt went green, or an in-job retry recovered it), so it is provably nondeterministic. quarantined: it fails while masked as xfail. suspected_regression: only failures were recorded, which is absence of proof, not proof that it is a real break.
+      /** confirmed_flake: one commit both failed and passed the test (a re-run attempt went green, or an in-job retry recovered it), so it is provably nondeterministic. quarantined: a tolerated failure was recorded while it was masked. suspected_regression: only failures were recorded, which is absence of proof, not proof that it is a real break.
        *
        * * `confirmed_flake` - CONFIRMED_FLAKE
        * * `suspected_regression` - SUSPECTED_REGRESSION
@@ -31419,9 +31515,9 @@ export namespace Schemas {
       failed_pr_count: number;
       /** Failed runs on the default branch (master/main approximation): the 'matters right now' signal that a test is breaking the trunk, not just PR branches. */
       master_failed_run_count: number;
-      /** Runs where the test failed while quarantined (xfail): already masked in CI, still failing. */
+      /** Runs where the test recorded a tolerated failure while quarantined: already masked in CI, still failing. */
       quarantined_failed_run_count: number;
-      /** Most recent failure, recovery, or xfail run for this test in the window. */
+      /** Most recent failure, recovery, or quarantined-failure run for this test in the window. */
       last_signal_at: string;
     }
 
@@ -32542,7 +32638,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages should sum to 100 (an unallocated remainder routes to the last cohort). wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
+     * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages should sum to 100 (an unallocated remainder routes to the last cohort). wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
      */
     export type HogFlowActionConfig = { [key: string]: unknown } | {
       /** Property-based wait condition; continues when the person matches. A condition with no property filters is ignored — the wait then relies on 'events' and the max_wait_duration timeout. */
@@ -32592,7 +32688,7 @@ export namespace Schemas {
          * @maxLength 100
          */
       type: string;
-      /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages should sum to 100 (an unallocated remainder routes to the last cohort). wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}. */
+      /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages should sum to 100 (an unallocated remainder routes to the last cohort). wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}. */
       config: HogFlowActionConfig;
       /** Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those. */
       output_variable?: unknown;
@@ -33821,6 +33917,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
       orderBy?: LogsOrderBy | null;
+      /** Show logs for a given person */
+      personId?: string | null;
       resourceFingerprint?: string | null;
       response?: LogsQueryResponse | null;
       searchTerm?: string | null;
@@ -38274,7 +38372,8 @@ export namespace Schemas {
        * * `medium` - medium
        * * `high` - high
        * * `xhigh` - xhigh
-       * * `max` - max */
+       * * `max` - max
+       * * `ultracode` - ultracode */
       reasoning_effort?: ReasoningEffortEnum | null;
       /**
          * Repositories this loop operates on, ordered. Capped at 1 until multi-repo execution ships. May be empty for report-only loops.
@@ -42714,6 +42813,8 @@ export namespace Schemas {
       readonly estimated_monthly_credits: number | null;
       /** Credits this scanner's succeeded observations consumed in the current billing period (1 credit = $0.01). Matches the window of the org-wide quota meter. */
       readonly credits_this_month: number;
+      /** Succeeded observations this scanner produced in the current billing period. */
+      readonly observations_this_month: number;
       /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
       readonly last_swept_at: string;
       readonly created_at: string;
@@ -44908,7 +45009,8 @@ export namespace Schemas {
        * * `medium` - medium
        * * `high` - high
        * * `xhigh` - xhigh
-       * * `max` - max */
+       * * `max` - max
+       * * `ultracode` - ultracode */
       reasoning_effort?: ReasoningEffortEnum | null;
       /**
          * Presigned S3 URL for log access (valid for 1 hour).
@@ -46737,7 +46839,8 @@ export namespace Schemas {
        *
        * * `events` - Events
        * * `persons` - Persons
-       * * `sessions` - Sessions */
+       * * `sessions` - Sessions
+       * * `hogql` - Hogql */
       model?: ModelEnum;
       /** Destination configuration. Required integration_id is enforced per destination type. */
       destination?: BatchExportDestinationRequest;
@@ -49820,7 +49923,8 @@ export namespace Schemas {
        * * `medium` - medium
        * * `high` - high
        * * `xhigh` - xhigh
-       * * `max` - max */
+       * * `max` - max
+       * * `ultracode` - ultracode */
       reasoning_effort?: ReasoningEffortEnum | null;
       /**
          * Repositories this loop operates on, ordered. Capped at 1 until multi-repo execution ships. May be empty for report-only loops.
@@ -50431,6 +50535,12 @@ export namespace Schemas {
     export interface TeamWorkflowsConfig {
       /** When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_*) alongside the existing workflow metrics. */
       capture_workflows_engagement_events?: boolean;
+      /** Recipient-consent enforcement for open/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.
+       *
+       * * `off` - Off
+       * * `opt_out` - Opt Out
+       * * `opt_in` - Opt In */
+      email_tracking_consent_mode?: EmailTrackingConsentModeEnum;
     }
 
     /**
@@ -51452,6 +51562,8 @@ export namespace Schemas {
       readonly estimated_monthly_credits?: number | null;
       /** Credits this scanner's succeeded observations consumed in the current billing period (1 credit = $0.01). Matches the window of the org-wide quota meter. */
       readonly credits_this_month?: number;
+      /** Succeeded observations this scanner produced in the current billing period. */
+      readonly observations_this_month?: number;
       /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
       readonly last_swept_at?: string;
       readonly created_at?: string;
@@ -53005,7 +53117,8 @@ export namespace Schemas {
        * * `medium` - medium
        * * `high` - high
        * * `xhigh` - xhigh
-       * * `max` - max */
+       * * `max` - max
+       * * `ultracode` - ultracode */
       reasoning_effort?: ReasoningEffortEnum | null;
       /**
          * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
@@ -56361,6 +56474,20 @@ export namespace Schemas {
       expires_at?: string | null;
     }
 
+    /**
+     * * `pytest` - PYTEST
+     * * `jest` - JEST
+     * * `playwright` - PLAYWRIGHT
+     */
+    export type QuarantineRequestRunnerEnum = typeof QuarantineRequestRunnerEnum[keyof typeof QuarantineRequestRunnerEnum];
+
+
+    export const QuarantineRequestRunnerEnum = {
+      Pytest: 'pytest',
+      Jest: 'jest',
+      Playwright: 'playwright',
+    } as const;
+
     export interface QuarantineRequest {
       /** What to do: 'quarantine' (add or replace an entry and file a tracking issue), 'extend' (re-stamp an existing entry's expiry, reusing its issue), or 'remove' (delete the entry). All three open a pull request.
        *
@@ -56370,6 +56497,12 @@ export namespace Schemas {
       operation: OperationEnum;
       /** Test selector to act on: an exact test id, a file, a directory, a class prefix, or 'product:<dashed-name>'. */
       selector: string;
+      /** Test runner the selector targets: 'pytest', 'jest', or 'playwright'. Existing entries and Jest file extensions are inferred for older clients that omit it; other selectors default to 'pytest'.
+       *
+       * * `pytest` - PYTEST
+       * * `jest` - JEST
+       * * `playwright` - PLAYWRIGHT */
+      runner?: QuarantineRequestRunnerEnum | null;
       /**
          * Optional 'owner/name' repository override; defaults to the team's most active repo.
          * @nullable
@@ -63260,7 +63393,12 @@ export namespace Schemas {
        * * `Vturb` - Vturb
        * * `Meltwater` - Meltwater
        * * `UserCom` - UserCom
-       * * `Latitude` - Latitude */
+       * * `Latitude` - Latitude
+       * * `Workato` - Workato
+       * * `SideShift` - SideShift
+       * * `DuckLake` - DuckLake
+       * * `Starburst` - Starburst
+       * * `Easybill` - Easybill */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -64554,7 +64692,12 @@ export namespace Schemas {
        * * `Vturb` - Vturb
        * * `Meltwater` - Meltwater
        * * `UserCom` - UserCom
-       * * `Latitude` - Latitude */
+       * * `Latitude` - Latitude
+       * * `Workato` - Workato
+       * * `SideShift` - SideShift
+       * * `DuckLake` - DuckLake
+       * * `Starburst` - Starburst
+       * * `Easybill` - Easybill */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -65840,7 +65983,12 @@ export namespace Schemas {
        * * `Vturb` - Vturb
        * * `Meltwater` - Meltwater
        * * `UserCom` - UserCom
-       * * `Latitude` - Latitude */
+       * * `Latitude` - Latitude
+       * * `Workato` - Workato
+       * * `SideShift` - SideShift
+       * * `DuckLake` - DuckLake
+       * * `Starburst` - Starburst
+       * * `Easybill` - Easybill */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -67323,7 +67471,8 @@ export namespace Schemas {
        * * `medium` - medium
        * * `high` - high
        * * `xhigh` - xhigh
-       * * `max` - max */
+       * * `max` - max
+       * * `ultracode` - ultracode */
       reasoning_effort?: ReasoningEffortEnum | null;
       /**
          * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
@@ -67692,8 +67841,19 @@ export namespace Schemas {
        * * `medium` - medium
        * * `high` - high
        * * `xhigh` - xhigh
-       * * `max` - max */
+       * * `max` - max
+       * * `ultracode` - ultracode */
       reasoning_effort?: ReasoningEffortEnum;
+      /** Context window size for models that support the 1M window.
+       *
+       * * `200k` - 200k
+       * * `1m` - 1m */
+      context_window?: ContextWindowEnum;
+      /**
+         * Enable fast mode for models that support it.
+         * @nullable
+         */
+      fast_mode?: boolean | null;
       /** Ephemeral GitHub user token from PostHog Desktop for user-authored cloud pull requests. */
       github_user_token?: string;
       /** Initial permission mode for the agent session. Claude runtimes accept PostHog permission presets like 'plan'. Codex runtimes accept native Codex modes like 'plan', 'auto', and 'read-only'.
@@ -68305,7 +68465,8 @@ export namespace Schemas {
        * * `medium` - medium
        * * `high` - high
        * * `xhigh` - xhigh
-       * * `max` - max */
+       * * `max` - max
+       * * `ultracode` - ultracode */
       reasoning_effort?: ReasoningEffortEnum | null;
       /**
          * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
@@ -68529,15 +68690,20 @@ export namespace Schemas {
     }
 
     export interface TeamTestSignal {
-      /** Reconstructed pytest nodeid (the CI span name), a stable grouping key. */
+      /** Test runner that emitted this signal: 'pytest' or 'jest'.
+       *
+       * * `pytest` - PYTEST
+       * * `jest` - JEST */
+      runner: CITestRunnerEnum;
+      /** Runner-specific test identity (the CI span name), a stable grouping key. */
       nodeid: string;
-      /** Runnable pytest selector; exact when the CI reporter emitted it. */
+      /** Runnable pytest or Jest selector; exact for newly emitted spans. */
       selector: string;
-      /** Runs in the current window where the test failed, errored, or a retry recovered it (xfail excluded). */
+      /** Runs in the current window where the test failed, errored, or a retry recovered it (quarantined failures excluded). */
       signal_count: number;
       /** Same count over the equal-length window before date_from. */
       signal_count_prior: number;
-      /** Most recent failure, recovery, or xfail run for this test, either window. */
+      /** Most recent failure, recovery, or quarantined-failure run for this test, either window. */
       last_seen_at: string;
     }
 
@@ -68569,11 +68735,11 @@ export namespace Schemas {
       same_commit_recovery_run_count: number;
       /** Same count over the prior window. */
       same_commit_recovery_run_count_prior: number;
-      /** Runs where an owned test failed while quarantined (xfail): masked in CI, still failing. */
+      /** Runs where an owned test recorded a tolerated failure while quarantined: masked in CI, still failing. */
       quarantined_failed_run_count: number;
       /** Same count over the prior window. */
       quarantined_failed_run_count_prior: number;
-      /** Most recent failure, recovery, or xfail run across the team's owned tests, either window. */
+      /** Most recent failure, recovery, or quarantined-failure run across the team's owned tests, either window. */
       last_seen_at: string;
     }
 
@@ -69517,7 +69683,8 @@ export namespace Schemas {
        * * `medium` - medium
        * * `high` - high
        * * `xhigh` - xhigh
-       * * `max` - max */
+       * * `max` - max
+       * * `ultracode` - ultracode */
       reasoning_effort?: ReasoningEffortEnum | null;
       /**
          * Optional sandbox environment to provision before the task is submitted.
@@ -70471,6 +70638,8 @@ export namespace Schemas {
       facetSearch?: string;
       /** Property filters for the query. */
       filterGroup?: _LogPropertyFilter[];
+      /** Scope counts to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
+      personId?: string;
     }
 
     export interface _LogsFacetValuesRequest {
@@ -70657,6 +70826,8 @@ export namespace Schemas {
       excludeAttributes?: boolean;
       /** Custom column expressions evaluated per log row. Each entry is either a source-prefixed shorthand (`attributes.<key>`, `resource_attributes.<key>`, `body.<json.path>`) or a scalar HogQL expression (`upper(level)`, `coalesce(attributes['a'], attributes['b'])`). Aggregations and subqueries are rejected. Values come back on each result row keyed by the aliases echoed in the response `columns` field. */
       customColumns?: string[];
+      /** Scope results to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
+      personId?: string;
     }
 
     export interface _LogsQueryRequest {
@@ -70777,6 +70948,8 @@ export namespace Schemas {
        * * `severity` - severity
        * * `service` - service */
       sparklineBreakdownBy?: SparklineBreakdownByEnum;
+      /** Scope results to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
+      personId?: string;
     }
 
     export interface _LogsSparklineBucket {

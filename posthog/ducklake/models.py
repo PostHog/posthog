@@ -72,50 +72,6 @@ class DuckgresServer(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         }
 
 
-class DuckgresServerTeam(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
-    """Per-team membership of an org's Duckgres warehouse + that team's backfill state.
-
-    A DuckgresServer is org-scoped and can host many teams (1->n). This model records
-    which teams live in a given server and carries the team-specific warehouse backfill
-    configuration (whether backfills are enabled, the per-team table suffix, and the
-    cached backfill floor).
-    """
-
-    server = models.ForeignKey(
-        "posthog.DuckgresServer",
-        on_delete=models.CASCADE,
-        related_name="teams",
-    )
-    team = models.OneToOneField(
-        "posthog.Team",
-        on_delete=models.CASCADE,
-        related_name="duckgres_server_team",
-    )
-    backfill_enabled = models.BooleanField(
-        default=True,
-        help_text="Whether warehouse backfills are enabled for this team",
-    )
-    table_suffix = models.CharField(
-        max_length=63,
-        null=True,
-        blank=True,
-        help_text="Suffix for this team's warehouse tables in the duckling (events_<suffix>, persons_<suffix>). "
-        "User-supplied; falls back to the shared tables when unset.",
-    )
-    earliest_event_date = models.DateField(
-        null=True,
-        blank=True,
-        help_text="Cached earliest event date (clamped to the backfill floor) used to size the historical "
-        "backfill range. Populated lazily by the full-backfill sensor so it never re-queries ClickHouse; "
-        "leave unset to have the sensor resolve and store it on its next tick.",
-    )
-
-    class Meta:
-        db_table = "posthog_duckgresserverteam"
-        verbose_name = "Duckgres server team"
-        verbose_name_plural = "Duckgres server teams"
-
-
 class DuckgresSinkSchemaState(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     r"""Per-schema lifecycle of the Duckgres v3 batch sink.
 

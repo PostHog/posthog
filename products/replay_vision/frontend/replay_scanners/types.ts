@@ -12,7 +12,7 @@ import type {
     UserBasicApi,
     VisionObservationsRetrieveParams,
 } from '../generated/api.schemas'
-import { formatCredits } from '../utils/credits'
+import { formatCreditCount } from '../utils/credits'
 
 export type ScannerType = ScannerTypeEnumApi
 
@@ -162,7 +162,7 @@ const MODEL_NAMES: Record<ScannerModelEnumApi, string> = {
 export const MODEL_OPTIONS: { value: ScannerModelEnumApi; label: string }[] = Object.values(ScannerModelEnumApi).map(
     (value) => ({
         value,
-        label: `${MODEL_NAMES[value]} (${formatCredits(OBSERVATION_CREDITS_BY_MODEL[value])}/observation)`,
+        label: `${MODEL_NAMES[value]} · ${formatCreditCount(OBSERVATION_CREDITS_BY_MODEL[value])}/observation`,
     })
 )
 
@@ -174,11 +174,32 @@ export function modelLabel(model: string | null | undefined): string {
     return MODEL_OPTIONS.find((opt) => opt.value === model)?.label ?? model
 }
 
+/** Plain model name without the price suffix, for surfaces that show the price separately. */
+export function modelName(model: string | null | undefined): string {
+    if (!model) {
+        return '—'
+    }
+    return MODEL_NAMES[model as ScannerModelEnumApi] ?? model
+}
+
 export function scannerTypeLabel(scannerType: ScannerType | null | undefined): string {
     if (!scannerType) {
         return '—'
     }
     return SCANNER_TYPE_OPTIONS.find((opt) => opt.value === scannerType)?.label ?? scannerType
+}
+
+// A plain-language description of what each scanner type produces per session, for people who don't yet
+// know the type names. Kept short so it reads as a chip subtitle / tooltip.
+const SCANNER_TYPE_OUTPUT_HINT: Record<ScannerType, string> = {
+    monitor: 'yes or no',
+    classifier: 'a tag from a set you define',
+    scorer: 'a number score',
+    summarizer: 'a text summary',
+}
+
+export function scannerTypeOutputHint(scannerType: ScannerType): string {
+    return SCANNER_TYPE_OUTPUT_HINT[scannerType]
 }
 
 export function createdByLabel(user: ScannerCreatedBy | null): string {
