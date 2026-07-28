@@ -32,18 +32,18 @@ export interface facetRailLogicActions {
         filterGroup: UniversalFiltersGroup
         openFilterOnInsert: boolean
     } // logsViewerFiltersLogic
-    setServiceNames: (serviceNames: string[]) => {
-        serviceNames: string[]
-    } // logsViewerFiltersLogic
-    setSeverityLevels: (severityLevels: LogSeverityLevel[]) => {
-        severityLevels: LogSeverityLevel[]
-    } // logsViewerFiltersLogic
     setFilters: (
         filters: Partial<LogsViewerFilters>,
         pushToHistory?: boolean | undefined
     ) => {
         filters: Partial<LogsViewerFilters>
         pushToHistory: boolean
+    } // logsViewerFiltersLogic
+    setServiceNames: (serviceNames: string[]) => {
+        serviceNames: string[]
+    } // logsViewerFiltersLogic
+    setSeverityLevels: (severityLevels: LogSeverityLevel[]) => {
+        severityLevels: LogSeverityLevel[]
     } // logsViewerFiltersLogic
     setFacetNameSearch: (search: string) => {
         search: string
