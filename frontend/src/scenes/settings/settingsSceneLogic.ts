@@ -21,6 +21,11 @@ const LEGACY_LLM_ANALYTICS_BYOK_SETTING = 'llm-analytics-byok'
 const LEGACY_SETTINGS_SECTIONS: Record<string, SettingSectionId> = {
     'environment-llm-analytics': AI_OBSERVABILITY_SETTINGS_SECTION,
     'project-llm-analytics': AI_OBSERVABILITY_SETTINGS_SECTION,
+    // Unlike the entries above, `project-members` was never a real section: members and invites are
+    // organization-level, but a project-level id is the intuitive guess, so it turns up in
+    // hand-typed URLs and assistant-suggested links alike. Keep it indefinitely rather than pruning
+    // it as a stale redirect — it only becomes wrong if members ever become project-scoped.
+    'project-members': 'organization-members',
 }
 
 // Settings that moved to a different section, keyed by setting id. Deep links to the old
