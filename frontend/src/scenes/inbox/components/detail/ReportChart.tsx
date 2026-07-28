@@ -68,6 +68,14 @@ const SIZE_MAX_HEIGHTS: Record<SizeEnumApi, string> = {
  */
 export function inferChartSize(query: Node): SizeEnumApi {
     if (!isInsightVizNode(query)) {
+        // A SQL node draws its own display, and a bold number is one line of text — the same case the
+        // insight branch below treats as small, reached by a different route.
+        if (
+            isDataVisualizationNode(query) &&
+            (query as DataVisualizationNode).display === ChartDisplayType.BoldNumber
+        ) {
+            return 'small'
+        }
         return 'medium'
     }
     const source = (query as InsightVizNode).source as any

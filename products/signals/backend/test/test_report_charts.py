@@ -90,6 +90,16 @@ class TestReportCharts(SimpleTestCase):
                     },
                 },
             ),
+            # Postgres `jsonb` refuses a null character, so one that reaches the write fails at the
+            # INSERT — a 500 out of the endpoint rather than the 400 the caller earned.
+            (
+                "a_null_character_anywhere_in_the_query",
+                {
+                    "chart_id": "ok",
+                    "title": "t",
+                    "query": {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "note": "a\u0000b"}},
+                },
+            ),
             # `SuggestedQuestionsQueryRunner` calls `hit_openai`, so a chart carrying one buys an LLM
             # completion every time a reader opens the report, up to the chart cap.
             (

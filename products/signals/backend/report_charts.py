@@ -223,8 +223,14 @@ class ReportChart(BaseModel):
             raise ValueError(f"query.kind must be one of {allowed} (got {kind!r})")
         if _nests_too_deeply(v):
             raise ValueError(f"query must not nest deeper than {_MAX_CHART_QUERY_DEPTH} levels")
-        if len(json.dumps(v)) > _MAX_CHART_QUERY_CHARS:
+        serialized = json.dumps(v)
+        if len(serialized) > _MAX_CHART_QUERY_CHARS:
             raise ValueError(f"query must not exceed {_MAX_CHART_QUERY_CHARS} characters when serialized")
+        # Postgres `jsonb` cannot store a null character, so one anywhere in the query fails at the
+        # INSERT rather than here — past every handler that turns bad input into a 400. Checked on the
+        # serialized form because `json.dumps` escapes it to a fixed sequence wherever it is nested.
+        if "\\u0000" in serialized:
+            raise ValueError("query must not contain a null character")
         executable = _executable_payload(v)
         if executable:
             raise ValueError(f"query must not carry {executable} — a chart renders data, it does not run code")
