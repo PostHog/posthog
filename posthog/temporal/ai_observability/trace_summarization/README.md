@@ -140,7 +140,7 @@ Key constants in `constants.py`:
 | ------------------------------------------- | -------------- | ----------------------------------------------- |
 | `DEFAULT_MAX_ITEMS_PER_WINDOW`              | 15             | Max items per window                            |
 | `DEFAULT_BATCH_SIZE`                        | 5              | Concurrent item processing                      |
-| `DEFAULT_MAX_CONCURRENT_TEAMS`              | 8              | Max teams (and simultaneous sampling queries) per coordinator tick |
+| `DEFAULT_MAX_CONCURRENT_TEAMS`              | 8              | Max teams in parallel = simultaneous CH queries |
 | `DEFAULT_MODE`                              | "detailed"     | Summary detail level                            |
 | `DEFAULT_MODEL`                             | "gpt-4.1-nano" | LLM model for summarization                     |
 | `DEFAULT_WINDOW_MINUTES`                    | 60             | Time window to query                            |
