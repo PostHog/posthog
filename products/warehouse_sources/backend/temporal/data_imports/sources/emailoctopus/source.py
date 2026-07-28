@@ -49,8 +49,8 @@ class EmailOctopusSource(ResumableSource[EmailOctopusSourceConfig, EmailOctopusR
     default_version = "v2"
     api_docs_url = "https://emailoctopus.com/api-documentation"
     # The vendor has retired v1 without announcing a sunset date, so `sunset_at` is None. This
-    # drives the generic in-product deprecation banner; the human-run repin migration moves
-    # source-level pins to v2.
+    # drives the generic in-product deprecation banner. Existing v1 pins are left in place: they
+    # already reach the live API, so nothing stops working and the user repins when convenient.
     deprecated_versions = (VersionDeprecation(version="v1"),)
 
     @property
