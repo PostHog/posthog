@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, isBreakpoint, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -62,17 +62,17 @@ export interface signalTeamConfigLogicActions {
     setDraftBaseBranchBranch: (branch: string) => {
         branch: string
     }
-    updateBaseBranchOverride: (
-        repo: string,
-        branch: string
-    ) => {
-        repo: string
-        branch: string
-    }
     setDraftBaseBranchIntegrationId: (integrationId: number | null) => {
         integrationId: number | null
     }
     setDraftBaseBranchRepo: (repo: string) => {
+        repo: string
+    }
+    updateBaseBranchOverride: (
+        repo: string,
+        branch: string
+    ) => {
+        branch: string
         repo: string
     }
 }
@@ -183,50 +183,65 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
                 isRepositoryKey(draftBaseBranchRepo) && !!draftBaseBranchBranch.trim(),
         ],
     }),
-    listeners(({ actions, values }) => ({
-        addBaseBranchOverride: () => {
-            if (!values.canAddBaseBranchOverride) {
-                return
-            }
-            actions.patchTeamConfig({
-                autostart_base_branches: {
-                    ...values.teamConfig?.autostart_base_branches,
-                    [values.draftBaseBranchRepo.trim().toLowerCase()]: values.draftBaseBranchBranch.trim(),
-                },
-            })
-            actions.clearDraftBaseBranch()
-        },
-        updateBaseBranchOverride: ({ repo, branch }) => {
-            const trimmed = branch.trim()
-            if (!trimmed || values.teamConfig?.autostart_base_branches?.[repo] === trimmed) {
-                return
-            }
-            actions.patchTeamConfig({
-                autostart_base_branches: { ...values.teamConfig?.autostart_base_branches, [repo]: trimmed },
-            })
-        },
-        removeBaseBranchOverride: ({ repo }) => {
-            const next = { ...values.teamConfig?.autostart_base_branches }
-            delete next[repo]
-            actions.patchTeamConfig({ autostart_base_branches: next })
-        },
-        patchTeamConfig: async ({ patch }, breakpoint) => {
-            try {
-                const config = await api.signalTeamConfig.update(patch)
-                // A newer patch was dispatched while this one was in flight — drop the
-                // stale response so out-of-order arrivals can't overwrite the latest value.
-                breakpoint()
-                actions.loadTeamConfigSuccess(config)
-            } catch (error: any) {
-                if (isBreakpoint(error)) {
-                    throw error
+    listeners(({ actions, values }) => {
+        let updateQueue = Promise.resolve()
+        let pendingUpdates = 0
+        let updateFailed = false
+
+        return {
+            addBaseBranchOverride: () => {
+                if (!values.canAddBaseBranchOverride) {
+                    return
                 }
-                lemonToast.error(error?.detail ?? error?.message ?? 'Failed to update team self-driving settings')
-                // Resync so the optimistic value doesn't linger after a failed update.
-                actions.loadTeamConfig()
-            }
-        },
-    })),
+                actions.patchTeamConfig({
+                    autostart_base_branches: {
+                        ...values.teamConfig?.autostart_base_branches,
+                        [values.draftBaseBranchRepo.trim().toLowerCase()]: values.draftBaseBranchBranch.trim(),
+                    },
+                })
+                actions.clearDraftBaseBranch()
+            },
+            updateBaseBranchOverride: ({ repo, branch }) => {
+                const trimmed = branch.trim()
+                if (!trimmed || values.teamConfig?.autostart_base_branches?.[repo] === trimmed) {
+                    return
+                }
+                actions.patchTeamConfig({
+                    autostart_base_branches: { ...values.teamConfig?.autostart_base_branches, [repo]: trimmed },
+                })
+            },
+            removeBaseBranchOverride: ({ repo }) => {
+                const next = { ...values.teamConfig?.autostart_base_branches }
+                delete next[repo]
+                actions.patchTeamConfig({ autostart_base_branches: next })
+            },
+            patchTeamConfig: async ({ patch }) => {
+                pendingUpdates += 1
+                const update = updateQueue.then(() => api.signalTeamConfig.update(patch))
+                updateQueue = update.then(
+                    () => undefined,
+                    () => undefined
+                )
+
+                try {
+                    const config = await update
+                    if (pendingUpdates === 1) {
+                        updateFailed = false
+                        actions.loadTeamConfigSuccess(config)
+                    }
+                } catch (error: any) {
+                    updateFailed = true
+                    lemonToast.error(error?.detail ?? error?.message ?? 'Failed to update team self-driving settings')
+                } finally {
+                    pendingUpdates -= 1
+                    if (pendingUpdates === 0 && updateFailed) {
+                        updateFailed = false
+                        actions.loadTeamConfig()
+                    }
+                }
+            },
+        }
+    }),
     afterMount(({ actions }) => {
         actions.loadTeamConfig()
     }),

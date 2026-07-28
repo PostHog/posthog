@@ -1,3 +1,4 @@
+import { waitFor } from '@testing-library/react'
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
 import { expectLogic } from 'kea-test-utils'
 
@@ -84,6 +85,50 @@ describe('signalTeamConfigLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(lastPostBody?.autostart_base_branches).toEqual({ 'acme/web': 'release', 'acme/api': 'develop' })
+    })
+
+    it('serializes rapid override updates so the latest map is persisted last', async () => {
+        const initialConfig: SignalTeamConfig = {
+            id: 'cfg-1',
+            autostart_enabled: true,
+            default_autostart_priority: 'P4',
+            autostart_base_branches: { 'acme/web': 'staging' },
+        }
+        const postBodies: Partial<SignalTeamConfig>[] = []
+        let resolveFirstUpdate: (() => void) | undefined
+        const firstUpdatePending = new Promise<void>((resolve) => {
+            resolveFirstUpdate = resolve
+        })
+
+        useMocks({
+            get: { '/api/projects/:team_id/signals/config/': () => [200, initialConfig] },
+            post: {
+                '/api/projects/:team_id/signals/config/': async ({ request }) => {
+                    const body = (await request.json()) as Partial<SignalTeamConfig>
+                    postBodies.push(body)
+                    if (postBodies.length === 1) {
+                        await firstUpdatePending
+                    }
+                    return [200, { ...initialConfig, ...body }]
+                },
+            },
+        })
+        initKeaTests()
+        logic = signalTeamConfigLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.updateBaseBranchOverride('acme/web', 'release-one')
+        logic.actions.updateBaseBranchOverride('acme/web', 'release-two')
+
+        await waitFor(() => expect(postBodies).toHaveLength(1))
+        resolveFirstUpdate?.()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(postBodies).toEqual([
+            { autostart_base_branches: { 'acme/web': 'release-one' } },
+            { autostart_base_branches: { 'acme/web': 'release-two' } },
+        ])
     })
 
     it('does not persist an update to the branch already stored', async () => {

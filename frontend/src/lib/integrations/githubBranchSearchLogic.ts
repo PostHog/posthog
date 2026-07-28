@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, isBreakpoint, kea, key, listeners, path, props, reducers } from 'kea'
+import { MakeLogicType, actions, isBreakpoint, kea, key, listeners, path, props, reducers } from 'kea'
 
 import api from 'lib/api'
 
@@ -174,8 +174,4 @@ export const githubBranchSearchLogic = kea<githubBranchSearchLogicType>([
             }
         },
     })),
-
-    afterMount(({ actions }) => {
-        actions.loadPage(0)
-    }),
 ])

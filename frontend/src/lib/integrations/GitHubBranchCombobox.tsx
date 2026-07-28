@@ -28,6 +28,7 @@ export interface GitHubBranchComboboxProps {
     onChange: (value: string | null) => void
     disabled?: boolean
     placeholder?: string
+    allowCustomValues?: boolean
 }
 
 /** Sentinel item value for the "type a new branch name" action. */
@@ -47,6 +48,7 @@ export function GitHubBranchCombobox({
     onChange,
     disabled = false,
     placeholder = 'Select branch...',
+    allowCustomValues = true,
 }: GitHubBranchComboboxProps): JSX.Element {
     const logic = githubBranchSearchLogic({ integrationId, repo })
     const { branches, defaultBranch, loading, hasMore, searchQuery } = useValues(logic)
@@ -68,7 +70,8 @@ export function GitHubBranchCombobox({
     // Offer "Use <typed> as branch name" when the search doesn't match an existing branch — lets the agent
     // work on a brand-new branch.
     const createSentinel = CREATE_BRANCH_PREFIX + trimmedSearchQuery
-    const showCreateItem = trimmedSearchQuery.length > 0 && !loading && !branches.includes(trimmedSearchQuery)
+    const showCreateItem =
+        allowCustomValues && trimmedSearchQuery.length > 0 && !loading && !branches.includes(trimmedSearchQuery)
     const items = showCreateItem ? [...branches, createSentinel] : branches
 
     return (
@@ -87,6 +90,9 @@ export function GitHubBranchCombobox({
             open={open}
             onOpenChange={(nextOpen: boolean) => {
                 setOpen(nextOpen)
+                if (nextOpen && branches.length === 0 && !loading) {
+                    refresh()
+                }
                 if (!nextOpen && trimmedSearchQuery.length > 0) {
                     setSearchQuery('')
                 }

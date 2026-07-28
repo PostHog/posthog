@@ -58,6 +58,7 @@ function BaseBranchOverrideRows(): JSX.Element | null {
                                 integrationId={integration.id}
                                 repo={repo}
                                 value={branch}
+                                allowCustomValues={false}
                                 onChange={(next) => {
                                     if (next) {
                                         updateBaseBranchOverride(repo, next)
@@ -130,6 +131,7 @@ function BaseBranchOverridePicker({ integrationIds }: { integrationIds: number[]
                         integrationId={integrationId}
                         repo={draftBaseBranchRepo}
                         value={draftBaseBranchBranch}
+                        allowCustomValues={false}
                         onChange={(branch) => setDraftBaseBranchBranch(branch ?? '')}
                     />
                 ) : null}
