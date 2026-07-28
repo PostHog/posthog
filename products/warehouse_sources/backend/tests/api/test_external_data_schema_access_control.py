@@ -160,6 +160,14 @@ class TestExternalDataSchemaAccessControl(APIBaseTest):
         self.assertEqual(self.client.get(f"{base}/{self.schema.id}/").status_code, status.HTTP_200_OK)
         self.assertEqual(self.client.get(f"{base}/{other_schema.id}/").status_code, status.HTTP_403_FORBIDDEN)
 
+        # The list must agree with retrieve: the denied source's schemas aren't served at all,
+        # not just blocked on the detail endpoint.
+        listed = self.client.get(f"{base}/")
+        self.assertEqual(listed.status_code, status.HTTP_200_OK)
+        listed_ids = {row["id"] for row in listed.json()["results"]}
+        self.assertIn(str(self.schema.id), listed_ids)
+        self.assertNotIn(str(other_schema.id), listed_ids)
+
     def test_source_endpoints_respect_table_lock(self):
         # These live on the source viewset, which authorizes the source and never resolves a schema
         # through object permissions, so the per-table check has to happen there explicitly.

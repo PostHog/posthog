@@ -1409,6 +1409,26 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             queryset = queryset.select_related("table__credential")
         return queryset.order_by(self.ordering)
 
+    def filter_queryset(self, queryset):
+        queryset = super().filter_queryset(queryset)
+        if self.action != "list" or is_service_auth(self.request):
+            return queryset
+        # A schema has no rules of its own, so the generic queryset filtering can't see its access.
+        # Resolve each row the way retrieve does and drop the ones the user can't view - otherwise
+        # the list serves names and sync metadata for tables and sources they're denied on.
+        schemas = list(queryset)
+        uac = self.user_access_control
+        uac.preload_object_access_controls([schema.table or schema.source for schema in schemas])
+        visible = [
+            schema.id
+            for schema in schemas
+            if (level := uac.get_user_access_level(schema.table or schema.source)) is not None
+            and access_level_satisfied_for_resource("warehouse_table", level, "viewer")
+        ]
+        if len(visible) == len(schemas):
+            return queryset
+        return queryset.filter(id__in=visible)
+
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSchema = self.get_object()
 
