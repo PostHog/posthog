@@ -310,6 +310,7 @@ async def test_insert_into_stage_activity_for_events_model(
     ateam,
     model: BatchExportModel,
     exclude_events,
+    truncate_clickhouse_tables,
 ):
     """Test that the insert_into_internal_stage_activity produces expected data in the internal stage.
 
@@ -348,6 +349,7 @@ async def test_insert_into_stage_activity_reports_records_total_for_events_model
     data_interval_end,
     ateam,
     model: BatchExportModel,
+    truncate_clickhouse_tables,
 ):
     """The activity reports the number of rows written to the stage, from ClickHouse's query summary."""
 
@@ -510,6 +512,7 @@ async def test_insert_into_stage_activity_for_persons_model(
     clickhouse_client,
     model: BatchExportModel,
     limited_export: bool,
+    truncate_clickhouse_tables,
 ):
     """Test that the insert_into_internal_stage_activity produces expected data in the internal stage for the persons
     model.
@@ -956,6 +959,7 @@ async def test_insert_into_stage_activity_writes_dynamic_number_of_files(
     data_interval_end,
     ateam,
     model: BatchExportModel,
+    truncate_clickhouse_tables,
 ):
     """A previous run's row count drives how many staging files the activity writes."""
     batch_export = await _acreate_batch_export_for_test(ateam.pk)
@@ -1015,6 +1019,7 @@ async def test_insert_into_stage_activity_uses_static_default_without_previous_r
     data_interval_end,
     ateam,
     model: BatchExportModel,
+    truncate_clickhouse_tables,
 ):
     """With no previous run to estimate from, the activity writes the static-default number of files."""
     insert_inputs = BatchExportInsertIntoInternalStageInputs(
@@ -1117,7 +1122,9 @@ class TestHogQLModel:
     """Tests for the 'hogql' model, which exports the results of a user-defined HogQL query."""
 
     @pytest_asyncio.fixture
-    async def hogql_model_test_data(self, clickhouse_client, ateam, data_interval_start, data_interval_end):
+    async def hogql_model_test_data(
+        self, clickhouse_client, ateam, data_interval_start, data_interval_end, truncate_clickhouse_tables
+    ):
         """Insert persons and events linked by person and distinct ID for HogQL model tests.
 
         All of this team's events share one session, which is also backfilled into
