@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from datetime import UTC, datetime
 from typing import Any, Optional
 
@@ -488,8 +488,16 @@ class TestUbidotsSourceResponse:
         # The values stream is the only version-dependent surface: "v2.0" reads via the v2.0 Data
         # API, every other pin via the legacy v1.6 endpoint. A misroute would sync the wrong wire.
         called: list[str] = []
+
+        def _recorder(fn_name: str) -> Any:
+            def _fn(**kwargs: Any) -> Iterator[list[dict]]:
+                called.append(fn_name)
+                return iter(())
+
+            return _fn
+
         for name in ("get_values_rows", "get_values_rows_v2"):
-            monkeypatch.setattr(ubidots, name, lambda name=name, **kwargs: called.append(name) or iter(()))
+            monkeypatch.setattr(ubidots, name, _recorder(name))
 
         response = ubidots_source(
             api_token="BBUS-token",
@@ -499,7 +507,8 @@ class TestUbidotsSourceResponse:
             resumable_source_manager=MagicMock(),
             api_version=api_version,
         )
-        list(response.items())
+        # Invoking the lazy items() thunk is what selects and calls the version-specific fetcher.
+        response.items()
         assert called == [expected_fn]
 
 
