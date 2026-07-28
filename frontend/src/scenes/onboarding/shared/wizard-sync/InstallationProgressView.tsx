@@ -369,6 +369,7 @@ export function InstallationProgressView({
     mode,
     runId,
     taskId,
+    workflowId,
     floating = false,
     onDismiss,
     onRetryLocally,
@@ -377,13 +378,17 @@ export function InstallationProgressView({
     /** The TaskRun handle — required for cloud runs, absent for local ones. */
     runId?: string
     taskId?: string
+    /** Wizard program to track. Defaults to the SDK install. */
+    workflowId?: string
     /** Rendered in the floating FAB rather than inline on the install step. */
     floating?: boolean
     onDismiss?: () => void
     /** Forwarded to the failed-run fallback (see InstallationProgressContent). */
     onRetryLocally?: () => void
 }): JSX.Element {
-    const { installationProgress, latestSession } = useValues(installationProgressLogic({ mode, runId, taskId }))
+    const { installationProgress, latestSession } = useValues(
+        installationProgressLogic({ mode, runId, taskId, workflowId })
+    )
     const { setPanelMounted } = useActions(activeCloudRunLogic)
     const { detectedDashboard } = useValues(wizardDashboardLogic)
     const { dismissLocalRun } = useActions(finishedLocalRunLogic)
@@ -444,7 +449,7 @@ export function InstallationProgressView({
  * Installation layer — and with it the wizard session stream — so use it only where the takeover can
  * actually render (the sync-enabled install steps).
  */
-export function useLocalWizardRunActive(): boolean {
-    const { installationProgress } = useValues(installationProgressLogic({ mode: 'local' }))
+export function useLocalWizardRunActive(workflowId?: string): boolean {
+    const { installationProgress } = useValues(installationProgressLogic({ mode: 'local', workflowId }))
     return installationProgress.isCurrent
 }

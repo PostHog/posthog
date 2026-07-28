@@ -7,7 +7,9 @@ import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLog
 import { resolveOnboardingFlowVariant } from './onboardingVariants'
 
 /** Steps of the context-first onboarding flow (`ContextOnboarding.tsx`), in order. */
-export type ContextOnboardingStepId = 'welcome' | 'install' | 'sources' | 'warehouse' | 'billing' | 'invite'
+/** Steps the self-driving flow can report. Earlier versions also emitted `welcome`, `sources`,
+ * `warehouse`, and `invite`; those events still exist in historical funnels. */
+export type ContextOnboardingStepId = 'install' | 'billing'
 
 // GROW-89: both onboarding flows fire the same funnel event names during the transition, told apart
 // by `version` (1 = legacy, 2 = context-first redesign) and `flow_variant`. Reusing names keeps
@@ -242,11 +244,12 @@ export const onboardingEventUsageLogic = kea<onboardingEventUsageLogicType>([
         }) => props,
     }),
     listeners(({ values }) => ({
-        // The flow always enters at the welcome step, so `started` carries a fixed entry point
-        // (legacy uses e.g. 'product_selection').
+        // The flow always enters at the install step, so `started` carries a fixed entry point
+        // (legacy uses e.g. 'product_selection'). Earlier versions opened on a welcome step and
+        // reported `welcome` here.
         reportContextOnboardingStarted: () => {
             posthog.capture('onboarding started', {
-                entry_point: 'welcome',
+                entry_point: 'install',
                 ...CONTEXT_ONBOARDING_EVENT_PROPS,
             })
         },
