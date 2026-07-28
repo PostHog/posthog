@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -124,18 +126,11 @@ class _VerdictWithNA(BaseModel):
         return self
 
 
-def _truncated_json_error() -> ValidationError:
-    # Mirrors a truncated structured-output response the SDK fails to parse.
-    try:
-        _Verdict.model_validate_json('{"')
-    except ValidationError as e:
-        return e
-    raise AssertionError("expected ValidationError")
+def _length_finish_reason_error() -> openai.LengthFinishReasonError:
+    return openai.LengthFinishReasonError(completion=MagicMock(usage=None))
 
 
 def _cross_field_error() -> ValidationError:
-    # Mirrors the model returning applicable=true with a null verdict — valid JSON shape,
-    # rejected by the cross-field validator.
     try:
         _VerdictWithNA.model_validate({"applicable": True, "verdict": None})
     except ValidationError as e:
@@ -209,11 +204,13 @@ class TestOpenAIAdapterErrorMapping:
 
     @parameterized.expand(
         [
-            ("truncated_json", _truncated_json_error),
+            ("length_finish_reason", _length_finish_reason_error),
             ("cross_field_validator", _cross_field_error),
         ]
     )
-    def test_structured_output_validation_error_maps_to_parse_error(self, _name, make_error):
+    def test_structured_output_parse_errors_map_to_parse_error(
+        self, _name: str, make_error: Callable[[], Exception]
+    ) -> None:
         adapter = OpenAIAdapter()
         mock_client = MagicMock()
         mock_client.beta.chat.completions.parse.side_effect = make_error()

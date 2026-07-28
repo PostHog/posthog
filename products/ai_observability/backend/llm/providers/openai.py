@@ -174,10 +174,9 @@ class OpenAIAdapter:
                     if "response_format" in str(e).lower() or "json_schema" in str(e).lower():
                         return self._complete_with_json_fallback(client, request, messages, analytics)
                     raise
-                except ValidationError as e:
-                    # json_schema enforces JSON shape only, so cross-field pydantic validators and
-                    # truncated output still fail parsing here. Surface as a parse error (like the
-                    # JSON-fallback path) so callers skip the item instead of crashing.
+                except (ValidationError, openai.LengthFinishReasonError) as e:
+                    # json_schema does not enforce cross-field validators, while the SDK raises a separate
+                    # exception for length-limited output. Normalize both so callers skip invalid output.
                     raise StructuredOutputParseError(f"Failed to parse structured output: {e}") from e
             else:
                 create_response = client.chat.completions.create(
