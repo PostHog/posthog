@@ -15,6 +15,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.se
     VALUES_ENDPOINT,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.ubidots import (
+    UBIDOTS_API_VERSION_LEGACY,
+    UBIDOTS_API_VERSION_V2_0,
     UbidotsResumeConfig,
     UbidotsRetryableError,
     _start_timestamp_ms,
@@ -23,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.ub
     check_access,
     get_rows,
     get_values_rows,
+    get_values_rows_v2,
     ubidots_source,
     validate_credentials,
 )
@@ -459,6 +462,7 @@ class TestUbidotsSourceResponse:
             endpoint=endpoint,
             logger=MagicMock(),
             resumable_source_manager=MagicMock(),
+            api_version=UBIDOTS_API_VERSION_LEGACY,
         )
         assert response.name == endpoint
         if endpoint == VALUES_ENDPOINT:
@@ -469,3 +473,181 @@ class TestUbidotsSourceResponse:
         else:
             assert response.primary_keys == ["id"]
             assert response.sort_mode == "asc"
+
+    @pytest.mark.parametrize(
+        "api_version,expected_fn",
+        [
+            pytest.param(UBIDOTS_API_VERSION_LEGACY, "get_values_rows", id="legacy"),
+            pytest.param(UBIDOTS_API_VERSION_V2_0, "get_values_rows_v2", id="v2_0"),
+            pytest.param("v9.9", "get_values_rows", id="unknown_pin_falls_back_to_legacy"),
+        ],
+    )
+    def test_values_stream_dispatches_on_api_version(
+        self, api_version: str, expected_fn: str, monkeypatch: Any
+    ) -> None:
+        # The values stream is the only version-dependent surface: "v2.0" reads via the v2.0 Data
+        # API, every other pin via the legacy v1.6 endpoint. A misroute would sync the wrong wire.
+        called: list[str] = []
+        for name in ("get_values_rows", "get_values_rows_v2"):
+            monkeypatch.setattr(ubidots, name, lambda name=name, **kwargs: called.append(name) or iter(()))
+
+        response = ubidots_source(
+            api_token="BBUS-token",
+            api_base_url=None,
+            endpoint=VALUES_ENDPOINT,
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(),
+            api_version=api_version,
+        )
+        list(response.items())
+        assert called == [expected_fn]
+
+
+class TestGetValuesRowsV2:
+    @staticmethod
+    def _collect(
+        manager: _FakeResumableManager,
+        monkeypatch: Any,
+        variable_pages: Mapping[str, tuple[list[dict], Optional[str]]],
+        series_by_variable: Mapping[str, list[dict]],
+        bodies: list[dict] | None = None,
+        should_use_incremental_field: bool = False,
+        db_incremental_field_last_value: Any = None,
+        logger: Any = None,
+    ) -> list[dict]:
+        def fake_fetch_page(session: Any, url: str, log: Any) -> tuple[list[dict], Optional[str]]:
+            return variable_pages[url]
+
+        def fake_fetch_series(session: Any, url: str, body: dict, log: Any) -> list[dict]:
+            if bodies is not None:
+                bodies.append(body)
+            return series_by_variable[body["variables"][0]["variable"]]
+
+        monkeypatch.setattr(ubidots, "_fetch_page", fake_fetch_page)
+        monkeypatch.setattr(ubidots, "_fetch_data_series", fake_fetch_series)
+        monkeypatch.setattr(ubidots, "make_tracked_session", lambda **kwargs: MagicMock())
+
+        rows: list[dict] = []
+        for batch in get_values_rows_v2(
+            api_token="BBUS-token",
+            api_base_url=None,
+            logger=logger or MagicMock(),
+            resumable_source_manager=manager,  # type: ignore[arg-type]
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=db_incremental_field_last_value,
+        ):
+            rows.extend(batch)
+        return rows
+
+    def test_fans_out_per_variable_and_injects_variable_id(self, monkeypatch: Any) -> None:
+        manager = _FakeResumableManager()
+        rows = self._collect(
+            manager,
+            monkeypatch,
+            variable_pages={VARIABLES_FIRST_URL: ([{"id": "var1"}, {"id": "var2"}], None)},
+            series_by_variable={
+                "var1": [{"variable": {"id": "var1"}, "code": 200, "results": [{"timestamp": 2, "value": 1.0}]}],
+                "var2": [{"variable": {"id": "var2"}, "code": 200, "results": [{"timestamp": 3, "value": 2.0}]}],
+            },
+        )
+        assert rows == [
+            {"timestamp": 2, "value": 1.0, "variable": "var1"},
+            {"timestamp": 3, "value": 2.0, "variable": "var2"},
+        ]
+        # The batch endpoint has no per-page cursor, so resume is per completed variable.
+        assert [s.completed_variable_ids for s in manager.saved] == [["var1"], ["var1", "var2"]]
+
+    def test_incremental_watermark_is_sent_as_start(self, monkeypatch: Any) -> None:
+        bodies: list[dict] = []
+        rows = self._collect(
+            _FakeResumableManager(),
+            monkeypatch,
+            variable_pages={VARIABLES_FIRST_URL: ([{"id": "var1"}], None)},
+            series_by_variable={
+                "var1": [{"variable": {"id": "var1"}, "code": 200, "results": [{"timestamp": 1700000000001}]}]
+            },
+            bodies=bodies,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=1700000000000,
+        )
+        assert rows == [{"timestamp": 1700000000001, "variable": "var1"}]
+        assert bodies[0]["start"] == 1700000000000
+        assert bodies[0]["variables"] == [{"variable": "var1"}]
+
+    def test_full_refresh_scans_from_epoch(self, monkeypatch: Any) -> None:
+        bodies: list[dict] = []
+        self._collect(
+            _FakeResumableManager(),
+            monkeypatch,
+            variable_pages={VARIABLES_FIRST_URL: ([{"id": "var1"}], None)},
+            series_by_variable={"var1": [{"variable": {"id": "var1"}, "code": 200, "results": []}]},
+            bodies=bodies,
+        )
+        # No watermark ⇒ start from the epoch; end is a real upper bound so the window is valid.
+        assert bodies[0]["start"] == 0
+        assert bodies[0]["end"] >= bodies[0]["start"]
+
+    def test_variable_with_error_code_is_skipped_but_completed(self, monkeypatch: Any) -> None:
+        manager = _FakeResumableManager()
+        logger = MagicMock()
+        rows = self._collect(
+            manager,
+            monkeypatch,
+            variable_pages={VARIABLES_FIRST_URL: ([{"id": "var1"}], None)},
+            # A per-variable 403/404 arrives as a non-200 code inside the 200 envelope.
+            series_by_variable={"var1": [{"variable": {"id": "var1"}, "code": 403, "results": []}]},
+            logger=logger,
+        )
+        assert rows == []
+        logger.warning.assert_called_once()
+        assert manager.saved[-1].completed_variable_ids == ["var1"]
+
+    def test_resume_skips_completed_variables(self, monkeypatch: Any) -> None:
+        manager = _FakeResumableManager(UbidotsResumeConfig(completed_variable_ids=["var1"]))
+        rows = self._collect(
+            manager,
+            monkeypatch,
+            variable_pages={VARIABLES_FIRST_URL: ([{"id": "var1"}, {"id": "var2"}], None)},
+            # var1 is already complete — its series must never be requested on resume.
+            series_by_variable={"var2": [{"variable": {"id": "var2"}, "code": 200, "results": [{"timestamp": 9}]}]},
+        )
+        assert rows == [{"timestamp": 9, "variable": "var2"}]
+
+
+class TestFetchDataSeries:
+    def _session_returning(self, status_code: int, body: Any = None) -> MagicMock:
+        response = MagicMock()
+        response.status_code = status_code
+        response.ok = status_code < 400
+        response.json.return_value = body if body is not None else {"start": 0, "end": 1, "results": []}
+        response.text = ""
+        response.raise_for_status.side_effect = (
+            requests.HTTPError(f"{status_code} error", response=response) if status_code >= 400 else None
+        )
+        session = MagicMock()
+        session.post.return_value = response
+        return session
+
+    def test_success_returns_results_list(self) -> None:
+        entry = {"variable": {"id": "var1"}, "code": 200, "results": [{"timestamp": 1, "value": 2.0}]}
+        session = self._session_returning(200, {"start": 0, "end": 1, "results": [entry]})
+        results = ubidots._fetch_data_series.__wrapped__(  # type: ignore[attr-defined]
+            session, f"{DEFAULT_UBIDOTS_API_BASE_URL}/api/v2.0/data/series/", {"variables": []}, MagicMock()
+        )
+        assert results == [entry]
+
+    @parameterized.expand([("rate_limited", 429), ("server_error", 500)])
+    def test_retryable_statuses_raise_retryable_error(self, _name: str, status: int) -> None:
+        session = self._session_returning(status)
+        with pytest.raises(UbidotsRetryableError):
+            ubidots._fetch_data_series.__wrapped__(  # type: ignore[attr-defined]
+                session, f"{DEFAULT_UBIDOTS_API_BASE_URL}/api/v2.0/data/series/", {"variables": []}, MagicMock()
+            )
+
+    @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
+    def test_client_errors_raise_for_status(self, _name: str, status: int) -> None:
+        session = self._session_returning(status)
+        with pytest.raises(requests.HTTPError):
+            ubidots._fetch_data_series.__wrapped__(  # type: ignore[attr-defined]
+                session, f"{DEFAULT_UBIDOTS_API_BASE_URL}/api/v2.0/data/series/", {"variables": []}, MagicMock()
+            )

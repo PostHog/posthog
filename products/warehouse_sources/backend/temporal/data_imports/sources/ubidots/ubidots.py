@@ -1,3 +1,4 @@
+import time
 import dataclasses
 from collections.abc import Iterator
 from datetime import datetime
@@ -9,15 +10,25 @@ from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.settings import (
     ALLOWED_UBIDOTS_API_BASE_URLS,
+    DATA_SERIES_PATH,
     DEFAULT_UBIDOTS_API_BASE_URL,
     UBIDOTS_ENDPOINTS,
     VALUES_ENDPOINT,
     VALUES_PATH_TEMPLATE,
 )
+
+# Supported Ubidots API versions, as opaque vendor labels (never parsed or ordered). Every version
+# reads entity endpoints (devices, variables, ...) from the v2.0 entity API and differs only in the
+# Data API used for the `values` stream: the legacy "v1" line reads dots from the v1.6 paginated
+# per-variable endpoint, "v2.0" reads them from the v2.0 `data/series` batch endpoint.
+UBIDOTS_API_VERSION_LEGACY = UNVERSIONED_API_VERSION  # "v1"
+UBIDOTS_API_VERSION_V2_0 = "v2.0"
+SUPPORTED_UBIDOTS_API_VERSIONS = (UBIDOTS_API_VERSION_LEGACY, UBIDOTS_API_VERSION_V2_0)
 
 # The values endpoint defaults to 100 dots per page and the documented examples show page_size is
 # honored; 200 keeps pages modest while halving round trips on large time series.
@@ -246,21 +257,105 @@ def get_values_rows(
         resumable_source_manager.save_state(UbidotsResumeConfig(completed_variable_ids=sorted(completed)))
 
 
+@retry(
+    retry=retry_if_exception_type((UbidotsRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential_jitter(initial=1, max=30),
+    reraise=True,
+)
+def _fetch_data_series(
+    session: requests.Session,
+    url: str,
+    body: dict[str, Any],
+    logger: FilteringBoundLogger,
+) -> list[dict[str, Any]]:
+    """POST the v2.0 `data/series` endpoint and return its per-variable ``results`` list."""
+    response = session.post(url, json=body, timeout=REQUEST_TIMEOUT_SECONDS)
+
+    if response.status_code == 429 or response.status_code >= 500:
+        raise UbidotsRetryableError(f"Ubidots API error (retryable): status={response.status_code}, url={url}")
+
+    if not response.ok:
+        logger.error(f"Ubidots API error: status={response.status_code}, body={response.text}, url={url}")
+        response.raise_for_status()
+
+    data = response.json()
+    if not isinstance(data, dict) or not isinstance(data.get("results"), list):
+        raise UbidotsRetryableError(f"Ubidots returned an unexpected payload for {url}: {type(data).__name__}")
+
+    return data["results"]
+
+
+def get_values_rows_v2(
+    api_token: str,
+    api_base_url: str | None,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[UbidotsResumeConfig],
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
+) -> Iterator[list[dict[str, Any]]]:
+    """Values stream for the v2.0 source version, via the v2.0 Data API `data/series` endpoint.
+
+    Variables are still listed through the v2.0 entity API; dots are then fetched one variable per
+    POST. Unlike the v1.6 endpoint this batch API has no server-side pagination, so a variable's
+    whole ``[start, now]`` window comes back in a single response — resume is therefore per variable
+    (``completed_variable_ids``) rather than per page.
+    """
+    base_url = _validated_api_base_url(api_base_url)
+    session = make_tracked_session(headers=_headers(api_token), redact_values=(api_token,))
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    completed: set[str] = set(resume.completed_variable_ids) if resume else set()
+
+    start = _start_timestamp_ms(db_incremental_field_last_value) if should_use_incremental_field else None
+    # `data/series` requires both bounds; `start` is inclusive so the boundary dot is re-pulled and
+    # deduped by the merge on ["variable", "timestamp"]. A missing watermark scans from the epoch.
+    end = int(time.time() * 1000)
+    url = f"{base_url}{DATA_SERIES_PATH}?{urlencode({'results_format': 'object'})}"
+
+    for variable_id in _iter_variable_ids(session, base_url, logger):
+        if variable_id in completed:
+            continue
+
+        body = {"start": start if start is not None else 0, "end": end, "variables": [{"variable": variable_id}]}
+        results = _fetch_data_series(session, url, body, logger)
+
+        # A single-variable request returns at most one entry; match by id in case the API echoes
+        # extra entries. Per-variable 403/404 arrive as a non-200 ``code`` inside the 200 envelope.
+        entry = next((r for r in results if str((r.get("variable") or {}).get("id")) == variable_id), None)
+        if entry is None or entry.get("code") != 200:
+            logger.warning(f"Ubidots: skipping variable {variable_id} (data/series code={entry and entry.get('code')})")
+            completed.add(variable_id)
+            resumable_source_manager.save_state(UbidotsResumeConfig(completed_variable_ids=sorted(completed)))
+            continue
+
+        points = entry.get("results") or []
+        rows = [{**point, "variable": variable_id} for point in points if isinstance(point, dict)]
+        if rows:
+            yield rows
+
+        completed.add(variable_id)
+        resumable_source_manager.save_state(UbidotsResumeConfig(completed_variable_ids=sorted(completed)))
+
+
 def ubidots_source(
     api_token: str,
     api_base_url: str | None,
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[UbidotsResumeConfig],
+    api_version: str,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
 ) -> SourceResponse:
     config = UBIDOTS_ENDPOINTS[endpoint]
 
     if endpoint == VALUES_ENDPOINT:
+        # The Data API diverges by version; every other stream is version-independent (v2.0 entities).
+        values_fn = get_values_rows_v2 if api_version == UBIDOTS_API_VERSION_V2_0 else get_values_rows
         return SourceResponse(
             name=endpoint,
-            items=lambda: get_values_rows(
+            items=lambda: values_fn(
                 api_token=api_token,
                 api_base_url=api_base_url,
                 logger=logger,
