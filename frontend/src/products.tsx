@@ -191,7 +191,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/replay-vision/:id/triggers': ['ReplayVisionScannerEditor', 'replayVisionScannerTriggers'],
     '/replay-vision/:id/self-driving': ['ReplayVisionScannerEditor', 'replayVisionScannerSelfDriving'],
     '/replay-vision/:id': ['ReplayVisionScanner', 'replayVision'],
-    '/code_review': ['CodeReview', 'codeReview'],
+    '/code-review': ['CodeReview', 'codeReview'],
     '/session-summaries': ['SessionGroupSummariesTable', 'sessionGroupSummariesTable'],
     '/session-summaries/:sessionGroupId': ['SessionGroupSummary', 'sessionGroupSummary'],
     '/skills': ['Skills', 'skills'],
@@ -1304,7 +1304,7 @@ export const productUrls = {
     replayVisionActionNew: (scannerId: string, mode?: 'group_summary' | 'alert'): string =>
         `/replay-vision/${scannerId}/actions/new${mode === 'alert' ? '?mode=alert' : ''}`,
     replayVisionActionEdit: (actionId: string): string => `/replay-vision/actions/${actionId}/edit`,
-    codeReview: (): string => '/code_review',
+    codeReview: (): string => '/code-review',
     sessionSummaries: (): string => '/session-summaries',
     sessionSummary: (sessionGroupId: string): string => `/session-summaries/${sessionGroupId}`,
     skills: (): string => '/skills',
