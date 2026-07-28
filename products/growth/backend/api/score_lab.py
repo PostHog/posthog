@@ -349,13 +349,16 @@ class ScoreLabViewSet(viewsets.ViewSet):
     @action(methods=["POST"], detail=False)
     def activate(self, request: request.Request, **kwargs: Any) -> response.Response:
         config_id = request.validated_data["config_id"]
-        config = EnrichmentPromptConfig.objects.filter(pk=config_id).first()
-        if config is None:
-            raise NotFound(f"Config {config_id} not found.")
-
-        # Deactivate first, then activate: the partial unique constraint
-        # growth_prompt_config_one_active only ever sees at most one active row per label.
+        # The label is read under the row lock, not before it: a rename committing between the
+        # read and the transaction would target the deactivation at the retired name, match no
+        # siblings, and leave two rows active under the new one - which the partial unique
+        # constraint growth_prompt_config_one_active then rejects as a 500.
         with transaction.atomic():
+            config = EnrichmentPromptConfig.objects.select_for_update().filter(pk=config_id).first()
+            if config is None:
+                raise NotFound(f"Config {config_id} not found.")
+            # Deactivate first, then activate, so the constraint only ever sees at most one
+            # active row per label.
             EnrichmentPromptConfig.objects.filter(name=config.name, is_active=True).exclude(pk=config.pk).update(
                 is_active=False
             )

@@ -306,6 +306,22 @@ class TestScoreLabAPI(APIBaseTest):
         self.assertTrue(target.is_active)
         self.assertFalse(old_active.is_active)
 
+    def test_activate_reads_the_label_under_the_row_lock_not_before_it(self):
+        # Reading config.name before the transaction meant a rename landing in between aimed the
+        # deactivation at the retired name, matched no siblings, and left two rows active under
+        # the new one - which growth_prompt_config_one_active rejects as an unhandled 500.
+        old_active = self._config(label="old_label", version="v1", is_active=True)
+        target = self._config(label="old_label", version="v2", is_active=False)
+        EnrichmentPromptConfig.objects.filter(name="old_label").update(name="new_label")
+
+        response = self.client.post("/api/growth_score_lab/activate/", {"config_id": str(target.id)}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        target.refresh_from_db()
+        old_active.refresh_from_db()
+        self.assertTrue(target.is_active)
+        self.assertFalse(old_active.is_active)
+
     def test_activate_unknown_config_returns_404(self):
         response = self.client.post("/api/growth_score_lab/activate/", {"config_id": str(uuid.uuid4())}, format="json")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
