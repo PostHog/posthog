@@ -30,6 +30,7 @@ import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotic
 import api from '~/lib/api'
 import { PERSON_DISPLAY_NAME_COLUMN_NAME } from '~/lib/constants'
 import { CLOUD_HOSTNAMES } from '~/lib/constants'
+import { tagsModel } from '~/models/tagsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import type { Breadcrumb, CommentType, PersonType } from '~/types'
@@ -175,6 +176,7 @@ export interface supportTicketSceneLogicValues {
     draftModeDefault: boolean // conversationsDraftModeLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     user: UserType | null // userLogic
+    availableTags: string[] // tagsModel
     assignee: TicketAssignee
     breadcrumbs: Breadcrumb[]
     chatMessages: ChatMessage[]
@@ -218,6 +220,7 @@ export interface supportTicketSceneLogicActions {
     loadTickets: () => {
         value: true
     } // supportTicketsSceneLogic
+    loadTags: () => any // tagsModel
     dismissKnowledgeGap: (suggestionId: string) => {
         suggestionId: string
     }
@@ -450,7 +453,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
     props({ id: 'new' as string | number }),
     key((props) => props.id),
     connect(() => ({
-        actions: [supportTicketsSceneLogic, ['loadTickets']],
+        actions: [supportTicketsSceneLogic, ['loadTickets'], tagsModel, ['loadTags']],
         values: [
             teamLogic,
             ['currentTeam'],
@@ -460,6 +463,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             ['user'],
             assigneeSelectLogic,
             ['resolveAssignee'],
+            tagsModel,
+            ['tags as availableTags'],
         ],
     })),
     actions({
@@ -1051,6 +1056,12 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.setTicket(ticket)
                 lemonToast.success('Ticket updated')
                 actions.loadTickets()
+                // Saving a ticket creates any newly typed tag as a global Tag row, but the shared
+                // tag pool is loaded once and never reloads. Refresh it when a new tag appears so it
+                // shows up in the dropdown on other tickets without a full page reload.
+                if (values.tags.some((tag) => !values.availableTags.includes(tag))) {
+                    actions.loadTags()
+                }
             } catch (error: any) {
                 if (error?.isBreakpoint) {
                     throw error
