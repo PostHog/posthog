@@ -2622,6 +2622,7 @@ name = "cohort-seeder"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "axum 0.7.9",
  "chrono",
  "chrono-tz",
@@ -2634,6 +2635,7 @@ dependencies = [
  "common-liveness",
  "common-types",
  "envconfig",
+ "futures",
  "governor",
  "hyper-rustls 0.27.7",
  "hyper-util",
@@ -8459,6 +8461,7 @@ dependencies = [
  "k8s-awareness",
  "k8s-openapi",
  "kube",
+ "metrics",
  "serde",
  "serde_json",
  "serial_test",
@@ -8628,6 +8631,8 @@ dependencies = [
  "futures",
  "hdrhistogram",
  "humantime",
+ "k8s-openapi",
+ "kube",
  "metrics",
  "personhog-common",
  "personhog-coordination",
@@ -8960,7 +8965,7 @@ dependencies = [
 
 [[package]]
 name = "posthog-replay-anonymizer"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",
