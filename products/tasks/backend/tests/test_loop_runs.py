@@ -2,7 +2,7 @@ from datetime import timedelta
 
 from unittest.mock import patch
 
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
@@ -579,6 +579,139 @@ class TestFireLoopCreatesRun(LoopRunsTestCase):
             self.assertNotIn("sandbox_environment_id", task_run.state)
 
 
+class TestFireLoopSeedsSkillBundles(LoopRunsTestCase):
+    def _bundle_entry(self, loop: Loop, **overrides) -> dict:
+        # Seeding validates every source path against the owning loop's real prefix.
+        entry = {
+            "id": "abcdef0123456789abcdef0123456789",
+            "name": "my-skill.zip",
+            "type": "skill_bundle",
+            "source": "posthog_code_skill",
+            "size": 9,
+            "content_type": "application/zip",
+            "storage_path": f"{loop.get_skill_bundle_s3_prefix()}/abcdef01_my-skill.zip",
+            "uploaded_at": "2026-07-22T00:00:00+00:00",
+            "metadata": {
+                "skill_name": "my-skill",
+                "skill_source": "user",
+                "content_sha256": "a" * 64,
+                "bundle_format": "zip",
+                "schema_version": 1,
+            },
+        }
+        entry.update(overrides)
+        return entry
+
+    def loop_with_bundles(self, *entry_overrides: dict) -> tuple[Loop, list[dict]]:
+        loop = self.create_loop()
+        entries = [self._bundle_entry(loop, **overrides) for overrides in (entry_overrides or ({},))]
+        loop.skill_bundles = entries
+        loop.save(update_fields=["skill_bundles"])
+        return loop, entries
+
+    def fire_with_post_commit(self, loop: Loop, trigger: LoopTrigger):
+        """Fire once, executing the post-commit seed-and-dispatch tail with the workflow
+        dispatch mocked. Returns (result, mock_dispatch)."""
+        with patch(f"{LOOP_RUNS_MODULE}._execute_task_processing_workflow_for_loop") as mock_dispatch:
+            with self.captureOnCommitCallbacks(execute=True):
+                result = fire_loop(loop, trigger, "fire-1", "ctx")
+        return result, mock_dispatch
+
+    @patch("posthog.storage.object_storage.tag")
+    @patch("posthog.storage.object_storage.copy")
+    def test_fire_copies_loop_skill_bundles_into_the_run_manifest(self, mock_copy, mock_tag):
+        loop, (entry,) = self.loop_with_bundles()
+        trigger = self.create_trigger(loop)
+
+        result, mock_dispatch = self.fire_with_post_commit(loop, trigger)
+
+        self.assertTrue(result.created)
+        assert result.task_run_id is not None
+        task_run = TaskRun.objects.get(id=result.task_run_id)
+        expected_target = f"{task_run.get_artifact_s3_prefix()}/abcdef01_my-skill.zip"
+        mock_copy.assert_called_once_with(entry["storage_path"], expected_target)
+        seeded = [artifact for artifact in task_run.artifacts if artifact["type"] == "skill_bundle"]
+        self.assertEqual(len(seeded), 1)
+        self.assertEqual(seeded[0]["storage_path"], expected_target)
+        self.assertEqual(seeded[0]["metadata"], entry["metadata"])
+        mock_dispatch.assert_called_once()
+        # The fire freezes the bundle set on the run; recovery paths seed from this
+        # snapshot instead of the live loop.
+        self.assertEqual(task_run.state["skill_bundle_seeds"][0]["storage_path"], entry["storage_path"])
+        loop.refresh_from_db()
+        self.assertEqual(loop.skill_bundles[0]["storage_path"], entry["storage_path"])
+
+    def test_fire_without_bundles_does_not_touch_storage(self):
+        loop = self.create_loop()
+        trigger = self.create_trigger(loop)
+
+        with patch("posthog.storage.object_storage.copy") as mock_copy:
+            result, mock_dispatch = self.fire_with_post_commit(loop, trigger)
+
+        self.assertTrue(result.created)
+        mock_copy.assert_not_called()
+        mock_dispatch.assert_called_once()
+
+    def test_seeding_happens_after_commit_not_under_the_fire_lock(self):
+        # S3 copies must never run inside the fire transaction: it holds the team-wide
+        # advisory lock, so an S3 stall there would serialize every fire for the team.
+        loop, _entries = self.loop_with_bundles()
+        trigger = self.create_trigger(loop)
+
+        with patch("posthog.storage.object_storage.copy") as mock_copy:
+            with patch(f"{LOOP_RUNS_MODULE}._execute_task_processing_workflow_for_loop"):
+                with self.captureOnCommitCallbacks(execute=False) as callbacks:
+                    result = fire_loop(loop, trigger, "fire-1", "ctx")
+                mock_copy.assert_not_called()
+                for callback in callbacks:
+                    callback()
+                mock_copy.assert_called_once()
+
+        self.assertTrue(result.created)
+
+    @patch("posthog.storage.object_storage.delete_objects")
+    @patch("posthog.storage.object_storage.copy", side_effect=RuntimeError("s3 down"))
+    def test_a_failed_seed_terminalizes_the_run_and_skips_dispatch(self, mock_copy, mock_delete):
+        loop, _entries = self.loop_with_bundles()
+        trigger = self.create_trigger(loop)
+
+        result, mock_dispatch = self.fire_with_post_commit(loop, trigger)
+
+        # The fire itself committed; the compensation happens post-commit.
+        self.assertTrue(result.created)
+        assert result.task_run_id is not None
+        task_run = TaskRun.objects.get(id=result.task_run_id)
+        self.assertEqual(task_run.status, TaskRun.Status.FAILED)
+        assert task_run.error_message is not None
+        self.assertIn("skill bundles", task_run.error_message)
+        mock_dispatch.assert_not_called()
+        self.assertEqual(self.active_run_count(loop), 0)
+
+    @patch("posthog.storage.object_storage.delete_objects")
+    @patch("posthog.storage.object_storage.tag")
+    @patch("posthog.storage.object_storage.copy")
+    def test_a_partially_seeded_fire_deletes_the_copies_it_made(self, mock_copy, mock_tag, mock_delete):
+        # Nothing ever references a partial copy set (the run is terminalized, and any
+        # later fire mints a new run id) — without cleanup every failed attempt would
+        # strand another set of objects.
+        mock_copy.side_effect = [None, RuntimeError("s3 down")]
+        loop, _entries = self.loop_with_bundles(
+            {},
+            {"id": "fedcba9876543210fedcba9876543210", "name": "other-skill.zip"},
+        )
+        trigger = self.create_trigger(loop)
+
+        result, mock_dispatch = self.fire_with_post_commit(loop, trigger)
+
+        self.assertTrue(result.created)
+        mock_delete.assert_called_once()
+        deleted_paths = mock_delete.call_args.args[0]
+        self.assertEqual(len(deleted_paths), 1)
+        self.assertIn("abcdef01_my-skill.zip", deleted_paths[0])
+        mock_dispatch.assert_not_called()
+        self.assertEqual(self.active_run_count(loop), 0)
+
+
 class TestFireLoopContextTarget(LoopRunsTestCase):
     FOLDER_ID = "11111111-1111-1111-1111-111111111111"
     CANVAS_ID = "22222222-2222-2222-2222-222222222222"
@@ -715,6 +848,7 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
         self.assertNotIn("desktop-file-system", task_run.state["pending_user_message"])
 
 
+@override_settings(CELERY_TASK_ALWAYS_EAGER=True)
 class TestHandleLoopRunTerminal(LoopRunsTestCase):
     def make_terminal_task_run(self, loop: Loop, *, status: str, error_message: str | None = None) -> TaskRun:
         task = Task.objects.create(
@@ -792,24 +926,53 @@ class TestHandleLoopRunTerminal(LoopRunsTestCase):
         loop = self.create_loop(consecutive_failures=3, last_error="previous failure")
         task_run = self.make_terminal_task_run(loop, status=TaskRun.Status.COMPLETED)
 
-        handle_loop_run_terminal(task_run)
+        with self.captureOnCommitCallbacks(execute=True):
+            handle_loop_run_terminal(task_run)
 
         loop.refresh_from_db()
         self.assertEqual(loop.consecutive_failures, 0)
         self.assertIsNone(loop.last_error)
         self.assertEqual(loop.last_run_status, TaskRun.Status.COMPLETED)
-        mock_dispatch.assert_called_once_with(
-            loop,
-            "run_completed",
+        dispatched_loop, dispatched_event, dispatched_payload = mock_dispatch.call_args[0]
+        self.assertEqual(dispatched_loop.id, loop.id)
+        self.assertEqual(dispatched_event, "run_completed")
+        self.assertEqual(
+            dispatched_payload,
             {"task_id": str(task_run.task_id), "task_run_id": str(task_run.id), "status": TaskRun.Status.COMPLETED},
         )
+
+    @patch(f"{LOOP_RUNS_MODULE}.dispatch_loop_event")
+    def test_completed_run_with_final_message_dispatches_report(self, mock_dispatch):
+        loop = self.create_loop(consecutive_failures=0)
+        task_run = self.make_terminal_task_run(loop, status=TaskRun.Status.COMPLETED)
+        task_run.output = {"final_message": "Weekly summary: all green."}
+        task_run.save(update_fields=["output", "updated_at"])
+
+        with self.captureOnCommitCallbacks(execute=True):
+            handle_loop_run_terminal(task_run)
+
+        _, dispatched_event, dispatched_payload = mock_dispatch.call_args[0]
+        self.assertEqual(dispatched_event, "run_completed")
+        self.assertEqual(dispatched_payload["report"], "Weekly summary: all green.")
+
+    @patch(f"{LOOP_RUNS_MODULE}.dispatch_loop_event")
+    def test_completed_run_without_final_message_dispatches_no_report_key(self, mock_dispatch):
+        loop = self.create_loop(consecutive_failures=0)
+        task_run = self.make_terminal_task_run(loop, status=TaskRun.Status.COMPLETED)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            handle_loop_run_terminal(task_run)
+
+        _, _, dispatched_payload = mock_dispatch.call_args[0]
+        self.assertNotIn("report", dispatched_payload)
 
     @patch(f"{LOOP_RUNS_MODULE}.dispatch_loop_event")
     def test_failed_run_increments_consecutive_failures_and_dispatches_run_failed(self, mock_dispatch):
         loop = self.create_loop(consecutive_failures=0)
         task_run = self.make_terminal_task_run(loop, status=TaskRun.Status.FAILED, error_message="boom")
 
-        handle_loop_run_terminal(task_run)
+        with self.captureOnCommitCallbacks(execute=True):
+            handle_loop_run_terminal(task_run)
 
         loop.refresh_from_db()
         self.assertEqual(loop.consecutive_failures, 1)
@@ -828,7 +991,8 @@ class TestHandleLoopRunTerminal(LoopRunsTestCase):
         loop = self.create_loop(consecutive_failures=LOOP_AUTO_PAUSE_THRESHOLD - 1)
         task_run = self.make_terminal_task_run(loop, status=TaskRun.Status.FAILED, error_message="boom")
 
-        handle_loop_run_terminal(task_run)
+        with self.captureOnCommitCallbacks(execute=True):
+            handle_loop_run_terminal(task_run)
 
         loop.refresh_from_db()
         self.assertFalse(loop.enabled)
@@ -845,6 +1009,7 @@ class TestHandleLoopRunTerminal(LoopRunsTestCase):
         )
 
 
+@override_settings(CELERY_TASK_ALWAYS_EAGER=True)
 class TestTerminalizeUnstartedTaskRun(LoopRunsTestCase):
     @patch("products.tasks.backend.models.publish_task_run_stream_event")
     @patch(f"{LOOP_RUNS_MODULE}.dispatch_loop_event")
@@ -862,7 +1027,8 @@ class TestTerminalizeUnstartedTaskRun(LoopRunsTestCase):
         )
         task_run = task.create_run(mode="background", extra_state={"loop_id": str(loop.id)})
 
-        terminalized = _terminalize_unstarted_task_run(str(task_run.id), "workflow start failed")
+        with self.captureOnCommitCallbacks(execute=True):
+            terminalized = _terminalize_unstarted_task_run(str(task_run.id), "workflow start failed")
 
         self.assertTrue(terminalized)
         loop.refresh_from_db()

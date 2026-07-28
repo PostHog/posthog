@@ -87,15 +87,15 @@ export const LoopsCreateBody = /* @__PURE__ */ zod
         reasoning_effort: zod
             .union([
                 zod
-                    .enum(['low', 'medium', 'high', 'xhigh', 'max'])
+                    .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
                     .describe(
-                        '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max'
+                        '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                "Reasoning effort, validated against `runtime_adapter`\/`model`'s supported set.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max"
+                "Reasoning effort, validated against `runtime_adapter`\/`model`'s supported set.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode"
             ),
         repositories: zod
             .array(
@@ -388,15 +388,15 @@ export const LoopsPartialUpdateBody = /* @__PURE__ */ zod
         reasoning_effort: zod
             .union([
                 zod
-                    .enum(['low', 'medium', 'high', 'xhigh', 'max'])
+                    .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
                     .describe(
-                        '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max'
+                        '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                "Reasoning effort, validated against `runtime_adapter`\/`model`'s supported set.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max"
+                "Reasoning effort, validated against `runtime_adapter`\/`model`'s supported set.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode"
             ),
         repositories: zod
             .array(
@@ -642,6 +642,54 @@ export const LoopsPreviewCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Replaces the loop's attached skill bundles wholesale: zipped local skills whose contents are seeded into every fired run's sandbox. Send an empty list to detach every skill. Owner-only on team loops, like other identity-bearing configuration.
+ * @summary Replace a loop's skill bundles
+ */
+export const loopsSkillBundlesUpdateBodyBundlesItemFileNameMax = 255
+
+export const loopsSkillBundlesUpdateBodyBundlesItemSkillNameMax = 255
+
+export const loopsSkillBundlesUpdateBodyBundlesItemContentSha256RegExp = new RegExp('^[a-f0-9]{64}$')
+
+export const LoopsSkillBundlesUpdateBody = /* @__PURE__ */ zod
+    .object({
+        bundles: zod.array(
+            zod
+                .object({
+                    file_name: zod
+                        .string()
+                        .max(loopsSkillBundlesUpdateBodyBundlesItemFileNameMax)
+                        .describe('File name for the stored bundle, e.g. `my-skill.zip`.'),
+                    skill_name: zod
+                        .string()
+                        .max(loopsSkillBundlesUpdateBodyBundlesItemSkillNameMax)
+                        .describe('Name of the skill inside the bundle.'),
+                    skill_source: zod
+                        .enum(['user', 'repo', 'marketplace', 'codex'])
+                        .describe(
+                            '\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
+                        )
+                        .describe(
+                            'Local source the bundle was built from, such as user or repo.\n\n\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
+                        ),
+                    content_sha256: zod
+                        .string()
+                        .regex(loopsSkillBundlesUpdateBodyBundlesItemContentSha256RegExp)
+                        .describe('SHA-256 hex digest of the bundle bytes.'),
+                    bundle_format: zod
+                        .enum(['zip'])
+                        .describe('\* `zip` - zip')
+                        .describe('Archive format used for the bundle.\n\n\* `zip` - zip'),
+                    content_base64: zod.string().describe('Base64-encoded bundle bytes.'),
+                })
+                .describe('One zipped local skill in a skill-bundle replace request.')
+        ),
+    })
+    .describe(
+        "Request body for replacing a loop's attached skill bundles wholesale. Send an empty\nlist to detach every skill."
+    )
+
+/**
  * Authenticated POST trigger for `type=api` triggers. Project secret API key auth (`loop:write` scope), project-wide. Request body (JSON, capped at 64 KB) becomes run context. Send an `Idempotency-Key` header to dedupe retries.
  * @summary Fire a loop externally
  */
@@ -819,6 +867,28 @@ export const SandboxPartialUpdateBody = /* @__PURE__ */ zod
             ),
     })
     .describe('Request body for creating or updating a sandbox environment.')
+
+/**
+ * Clear the unread flag on the requester's feed rows for the given tasks. Read state is per task, so opening a task through any surface clears the same row.
+ * @summary Mark task activity read
+ */
+export const taskActivityMarkReadCreateBodyActivitiesMax = 500
+
+export const TaskActivityMarkReadCreateBody = /* @__PURE__ */ zod
+    .object({
+        activities: zod
+            .array(
+                zod.object({
+                    task_id: zod.uuid().describe('Task whose displayed activity should be marked read.'),
+                    seen_before: zod.iso
+                        .datetime({ offset: true })
+                        .describe('Mark activity at or before this timestamp read without clearing newer activity.'),
+                })
+            )
+            .max(taskActivityMarkReadCreateBodyActivitiesMax)
+            .describe('Displayed task activities to mark read if they have not changed.'),
+    })
+    .describe('Request body for clearing the unread flag on specific tasks.')
 
 /**
  * API for managing scheduled task automations.
@@ -1093,15 +1163,15 @@ export const TasksCreateBody = /* @__PURE__ */ zod
         reasoning_effort: zod
             .union([
                 zod
-                    .enum(['low', 'medium', 'high', 'xhigh', 'max'])
+                    .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
                     .describe(
-                        '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max'
+                        '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max'
+                'Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
             ),
         pending_user_message: zod
             .string()
@@ -1248,15 +1318,15 @@ export const TasksUpdateBody = /* @__PURE__ */ zod
         reasoning_effort: zod
             .union([
                 zod
-                    .enum(['low', 'medium', 'high', 'xhigh', 'max'])
+                    .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
                     .describe(
-                        '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max'
+                        '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max'
+                'Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
             ),
         pending_user_message: zod
             .string()
@@ -1388,15 +1458,15 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod
         reasoning_effort: zod
             .union([
                 zod
-                    .enum(['low', 'medium', 'high', 'xhigh', 'max'])
+                    .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
                     .describe(
-                        '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max'
+                        '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max'
+                'Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
             ),
         pending_user_message: zod
             .string()
@@ -1584,12 +1654,22 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 ),
             model: zod.string().describe('LLM model identifier to run in the Claude runtime.'),
             reasoning_effort: zod
-                .enum(['low', 'medium', 'high', 'xhigh', 'max'])
-                .describe('\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max')
+                .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
+                .describe(
+                    '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+                )
                 .optional()
                 .describe(
-                    'Reasoning effort to request for models that expose an effort control.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max'
+                    'Reasoning effort to request for models that expose an effort control.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
                 ),
+            context_window: zod
+                .enum(['200k', '1m'])
+                .describe('\* `200k` - 200k\n\* `1m` - 1m')
+                .optional()
+                .describe(
+                    'Context window size for models that support the 1M window.\n\n\* `200k` - 200k\n\* `1m` - 1m'
+                ),
+            fast_mode: zod.boolean().nullish().describe('Enable fast mode for models that support it.'),
             github_user_token: zod
                 .string()
                 .optional()
@@ -1721,12 +1801,22 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 ),
             model: zod.string().describe('LLM model identifier to run in the Codex runtime.'),
             reasoning_effort: zod
-                .enum(['low', 'medium', 'high', 'xhigh', 'max'])
-                .describe('\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max')
+                .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
+                .describe(
+                    '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+                )
                 .optional()
                 .describe(
-                    'Reasoning effort to request for models that expose an effort control.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max'
+                    'Reasoning effort to request for models that expose an effort control.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
                 ),
+            context_window: zod
+                .enum(['200k', '1m'])
+                .describe('\* `200k` - 200k\n\* `1m` - 1m')
+                .optional()
+                .describe(
+                    'Context window size for models that support the 1M window.\n\n\* `200k` - 200k\n\* `1m` - 1m'
+                ),
+            fast_mode: zod.boolean().nullish().describe('Enable fast mode for models that support it.'),
             github_user_token: zod
                 .string()
                 .optional()
@@ -2116,12 +2206,20 @@ export const TasksRunsCreateBody = /* @__PURE__ */ zod
             ),
         model: zod.string().optional().describe('LLM model identifier to run in the selected runtime.'),
         reasoning_effort: zod
-            .enum(['low', 'medium', 'high', 'xhigh', 'max'])
-            .describe('\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max')
+            .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
+            .describe(
+                '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+            )
             .optional()
             .describe(
-                'Reasoning effort to request for models that expose an effort control.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max'
+                'Reasoning effort to request for models that expose an effort control.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
             ),
+        context_window: zod
+            .enum(['200k', '1m'])
+            .describe('\* `200k` - 200k\n\* `1m` - 1m')
+            .optional()
+            .describe('Context window size for models that support the 1M window.\n\n\* `200k` - 200k\n\* `1m` - 1m'),
+        fast_mode: zod.boolean().nullish().describe('Enable fast mode for models that support it.'),
         github_user_token: zod
             .string()
             .optional()
@@ -2818,15 +2916,15 @@ export const TasksWarmCreateBody = /* @__PURE__ */ zod
         reasoning_effort: zod
             .union([
                 zod
-                    .enum(['low', 'medium', 'high', 'xhigh', 'max'])
+                    .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
                     .describe(
-                        '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max'
+                        '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Reasoning effort to warm the sandbox on for models that expose an effort control.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max'
+                'Reasoning effort to warm the sandbox on for models that expose an effort control.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
             ),
         sandbox_environment_id: zod
             .uuid()

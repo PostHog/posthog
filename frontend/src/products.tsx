@@ -107,6 +107,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/customer_analytics/journeys/:id/edit': ['CustomerJourneyBuilder', 'customerJourneyEdit'],
     '/customer_analytics/journeys': ['CustomerAnalytics', 'customerAnalyticsJourneys'],
     '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
+    '/data-catalog': ['DataCatalog', 'dataCatalog'],
     '/data-ops': ['DataOps', 'dataOps'],
     '/models': ['Models', 'models'],
     '/models/dags': ['Models', 'models'],
@@ -191,7 +192,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/replay-vision/:id/triggers': ['ReplayVisionScannerEditor', 'replayVisionScannerTriggers'],
     '/replay-vision/:id/self-driving': ['ReplayVisionScannerEditor', 'replayVisionScannerSelfDriving'],
     '/replay-vision/:id': ['ReplayVisionScanner', 'replayVision'],
-    '/code_review': ['CodeReview', 'codeReview'],
+    '/code-review': ['CodeReview', 'codeReview'],
     '/session-summaries': ['SessionGroupSummariesTable', 'sessionGroupSummariesTable'],
     '/session-summaries/:sessionGroupId': ['SessionGroupSummary', 'sessionGroupSummary'],
     '/skills': ['Skills', 'skills'],
@@ -200,6 +201,10 @@ export const productRoutes: Record<string, [string, string]> = {
     '/skills/:name': ['Skill', 'skill'],
     '/stamphog': ['Stamphog', 'stamphog'],
     '/stamphog/install/callback': ['Stamphog', 'stamphogCallback'],
+    '/streamlit-apps': ['StreamlitApps', 'streamlitApps'],
+    '/streamlit-apps/new': ['StreamlitAppEdit', 'streamlitAppNew'],
+    '/streamlit-apps/:id': ['StreamlitApp', 'streamlitApp'],
+    '/streamlit-apps/:id/edit': ['StreamlitAppEdit', 'streamlitAppEdit'],
     '/subscriptions': ['Subscriptions', 'subscriptions'],
     '/subscriptions/new': ['Subscriptions', 'subscriptionNew'],
     '/subscriptions/:subscriptionId/edit': ['Subscriptions', 'subscriptionEdit'],
@@ -527,6 +532,13 @@ export const productConfiguration: Record<string, any> = {
     CustomerAnalyticsConfiguration: { projectBased: true, name: 'Customer analytics configuration' },
     CustomerJourneyBuilder: { projectBased: true, name: 'New journey' },
     CustomerJourneyTemplates: { projectBased: true, name: 'New journey' },
+    DataCatalog: {
+        projectBased: true,
+        name: 'Data catalog',
+        layout: 'app-container',
+        iconType: 'data_warehouse',
+        description: 'Review and manage governed metrics, certifications, and relationships for your data.',
+    },
     DataOps: {
         name: 'Data ops',
         projectBased: true,
@@ -796,6 +808,9 @@ export const productConfiguration: Record<string, any> = {
     },
     Skill: { projectBased: true, name: 'Skill', layout: 'app-container', iconType: 'llm_prompts' },
     Stamphog: { projectBased: true, name: 'Stamphog', iconType: 'stamphog' },
+    StreamlitApps: { name: 'Streamlit apps', projectBased: true },
+    StreamlitApp: { name: 'Streamlit app', projectBased: true },
+    StreamlitAppEdit: { name: 'Edit Streamlit app', projectBased: true },
     Subscriptions: {
         projectBased: true,
         name: 'Subscriptions',
@@ -958,7 +973,8 @@ export const productUrls = {
     customerAnalyticsNotes: (): string => '/customer_analytics/notes',
     customerAnalyticsAnnouncements: (): string => '/customer_analytics/announcements',
     customerAnalyticsJourneys: (): string => '/customer_analytics/journeys',
-    customerAnalyticsConfiguration: (): string => '/customer_analytics/configuration',
+    customerAnalyticsConfiguration: (tab?: string): string =>
+        `/customer_analytics/configuration${tab ? `?tab=${tab}` : ''}`,
     customerJourneyBuilder: (): string => '/customer_analytics/journeys/new',
     customerJourneyTemplates: (): string => '/customer_analytics/journeys/templates',
     customerJourneyEdit: (id: string): string => `/customer_analytics/journeys/${id}/edit`,
@@ -974,7 +990,18 @@ export const productUrls = {
     dashboardSubscription: (id: string | number, subscriptionId: string): string =>
         `/dashboard/${id}/subscriptions/${subscriptionId}`,
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
-    dataOps: (tab?: string): string => (tab ? `/data-ops?tab=${tab}` : '/data-ops'),
+    dataCatalog: (tab?: string): string => `/data-catalog${tab ? `?tab=${tab}` : ''}`,
+    dataOps: (tab?: string, dagId?: string): string => {
+        const params = new URLSearchParams()
+        if (tab) {
+            params.set('tab', tab)
+        }
+        if (dagId) {
+            params.set('dag', dagId)
+        }
+        const query = params.toString()
+        return query ? `/data-ops?${query}` : '/data-ops'
+    },
     models: (tab?: ModelsSceneTab): string => `/models${tab ? `/${tab}` : ''}`,
     nodeDetail: (id: string): string => `/models/${id}`,
     sources: (): string => '/data-management/sources',
@@ -1286,7 +1313,7 @@ export const productUrls = {
     replayVisionActionNew: (scannerId: string, mode?: 'group_summary' | 'alert'): string =>
         `/replay-vision/${scannerId}/actions/new${mode === 'alert' ? '?mode=alert' : ''}`,
     replayVisionActionEdit: (actionId: string): string => `/replay-vision/actions/${actionId}/edit`,
-    codeReview: (): string => '/code_review',
+    codeReview: (): string => '/code-review',
     sessionSummaries: (): string => '/session-summaries',
     sessionSummary: (sessionGroupId: string): string => `/session-summaries/${sessionGroupId}`,
     skills: (): string => '/skills',
@@ -1300,6 +1327,10 @@ export const productUrls = {
     ): string => combineUrl(`/skills/${name}`, params).url,
     stamphog: (): string => '/stamphog',
     stamphogCallback: (): string => '/stamphog/install/callback',
+    streamlitApps: (): string => '/streamlit-apps',
+    streamlitApp: (id: string): string => `/streamlit-apps/${id}`,
+    streamlitAppEdit: (id: string): string => `/streamlit-apps/${id}/edit`,
+    streamlitAppNew: (): string => '/streamlit-apps/new',
     subscriptions: (): string => '/subscriptions',
     subscription: (id: string | number): string => `/subscriptions/${id}`,
     subscriptionNew: (): string => '/subscriptions/new',
@@ -1672,6 +1703,18 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['AIGateway'],
     },
     {
+        path: 'Apps',
+        intents: [ProductKey.STREAMLIT_APPS],
+        href: urls.streamlitApps(),
+        type: 'streamlit_app',
+        category: ProductItemCategory.UNRELEASED,
+        flag: FEATURE_FLAGS.STREAMLIT_APPS,
+        iconType: 'tools',
+        iconColor: ['var(--color-product-data-pipeline-light)'] as FileSystemIconColor,
+        sceneKey: 'StreamlitApps',
+        sceneKeys: ['StreamlitApps', 'StreamlitApp', 'StreamlitAppEdit'],
+    },
+    {
         path: 'Business knowledge',
         intents: [ProductKey.CONVERSATIONS],
         category: ProductItemCategory.AI_ENGINEERING,
@@ -1743,6 +1786,16 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.dashboards(),
         sceneKey: 'Dashboards',
         sceneKeys: ['Dashboard', 'Dashboards'],
+    },
+    {
+        path: 'Data catalog',
+        intents: [ProductKey.DATA_CATALOG],
+        category: ProductItemCategory.ANALYTICS,
+        iconType: 'data_warehouse',
+        href: urls.dataCatalog(),
+        flag: FEATURE_FLAGS.PRODUCT_DATA_CATALOG,
+        sceneKey: 'DataCatalog',
+        sceneKeys: ['DataCatalog'],
     },
     {
         path: 'Data warehouse',

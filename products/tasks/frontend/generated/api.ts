@@ -20,6 +20,7 @@ import type {
     LoopPreviewDTOApi,
     LoopPreviewRequestApi,
     LoopRunPageApi,
+    LoopSkillBundlesWriteApi,
     LoopWriteApi,
     LoopsListParams,
     LoopsRunsRetrieveParams,
@@ -55,6 +56,10 @@ import type {
     SandboxListParams,
     SlackThreadContextResponseApi,
     StreamReadTokenResponseApi,
+    TaskActivityListParams,
+    TaskActivityMarkReadApi,
+    TaskActivityMarkReadResponseApi,
+    TaskActivityPageDTOApi,
     TaskAutomationDTOApi,
     TaskAutomationWriteApi,
     TaskAutomationsListParams,
@@ -320,6 +325,28 @@ export const loopsRunsRetrieve = async (
     return apiMutator<LoopRunPageApi>(getLoopsRunsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getLoopsSkillBundlesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/loops/${id}/skill_bundles/`
+}
+
+/**
+ * Replaces the loop's attached skill bundles wholesale: zipped local skills whose contents are seeded into every fired run's sandbox. Send an empty list to detach every skill. Owner-only on team loops, like other identity-bearing configuration.
+ * @summary Replace a loop's skill bundles
+ */
+export const loopsSkillBundlesUpdate = async (
+    projectId: string,
+    id: string,
+    loopSkillBundlesWriteApi: LoopSkillBundlesWriteApi,
+    options?: RequestInit
+): Promise<LoopDTOApi> => {
+    return apiMutator<LoopDTOApi>(getLoopsSkillBundlesUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(loopSkillBundlesWriteApi),
     })
 }
 
@@ -599,6 +626,58 @@ export const sandboxDestroy = async (projectId: string, id: string, options?: Re
     return apiMutator<void>(getSandboxDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getTaskActivityListUrl = (projectId: string, params?: TaskActivityListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/task_activity/?${stringifiedParams}`
+        : `/api/projects/${projectId}/task_activity/`
+}
+
+/**
+ * Tasks the requester is involved in (created, mentioned, or messaged), one row per task, most-recent activity first, restricted to tasks they can see.
+ * @summary List the requester's task activity
+ */
+export const taskActivityList = async (
+    projectId: string,
+    params?: TaskActivityListParams,
+    options?: RequestInit
+): Promise<TaskActivityPageDTOApi> => {
+    return apiMutator<TaskActivityPageDTOApi>(getTaskActivityListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTaskActivityMarkReadCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/task_activity/mark_read/`
+}
+
+/**
+ * Clear the unread flag on the requester's feed rows for the given tasks. Read state is per task, so opening a task through any surface clears the same row.
+ * @summary Mark task activity read
+ */
+export const taskActivityMarkReadCreate = async (
+    projectId: string,
+    taskActivityMarkReadApi: TaskActivityMarkReadApi,
+    options?: RequestInit
+): Promise<TaskActivityMarkReadResponseApi> => {
+    return apiMutator<TaskActivityMarkReadResponseApi>(getTaskActivityMarkReadCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskActivityMarkReadApi),
     })
 }
 
