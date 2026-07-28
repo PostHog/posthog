@@ -15,6 +15,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status, test
 
+from posthog.api.project import ProjectBackwardCompatSerializer
 from posthog.api.team import (
     TEAM_CONFIG_FIELDS_SET,
     TEAM_CONFIG_MEMBER_FIELDS_SET,
@@ -3437,6 +3438,9 @@ class TestTeamAdminFieldAuthorization(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
 
+_TOO_MANY_WILDCARDS = ["https://*.*.*.*.*.*.example.com"]
+
+
 class TestTeamSerializerValidationNoDB(SimpleTestCase):
     # Field-level input validation runs inside `is_valid()` (in `to_internal_value`),
     # before the object-level `validate()` that needs request context — so these never
@@ -3553,6 +3557,30 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
     )
     def test_invalid_session_replay_config_ai_config(self, _name: str, value: Any, expected_detail: str) -> None:
         self._assert_field_error("session_replay_config", {"ai_config": value}, "invalid", expected_detail)
+
+    # `ProjectBackwardCompatSerializer` keeps its own copy of these validators, so both
+    # serializers are exercised here rather than only the Team one.
+    @parameterized.expand(
+        [
+            ["team app urls", TeamSerializer, "app_urls", _TOO_MANY_WILDCARDS],
+            ["team widget domains", TeamSerializer, "conversations_settings", {"widget_domains": _TOO_MANY_WILDCARDS}],
+            ["project app urls", ProjectBackwardCompatSerializer, "app_urls", _TOO_MANY_WILDCARDS],
+            [
+                "project widget domains",
+                ProjectBackwardCompatSerializer,
+                "conversations_settings",
+                {"widget_domains": _TOO_MANY_WILDCARDS},
+            ],
+        ]
+    )
+    def test_rejects_url_with_too_many_wildcards(
+        self, _name: str, serializer_class: type, field: str, value: Any
+    ) -> None:
+        serializer = serializer_class(data={field: value}, partial=True)
+        assert not serializer.is_valid()
+        assert str(serializer.errors[field][0]) == (
+            "Each URL can include up to 5 wildcards. Remove the extra ones from this entry."
+        )
 
     def test_invalid_autocapture_exceptions_opt_in_not_a_boolean(self) -> None:
         # `autocapture_exceptions_errors_to_ignore` is deliberately not here: its validation
