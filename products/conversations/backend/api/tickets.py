@@ -7,7 +7,7 @@ from datetime import timedelta
 from typing import Any
 
 from django.db import transaction
-from django.db.models import CharField, Exists, OuterRef, Q, QuerySet, Sum
+from django.db.models import CharField, Exists, F, OrderBy, OuterRef, Q, QuerySet, Sum
 from django.db.models.functions import Cast
 from django.http import Http404
 from django.utils import timezone
@@ -408,6 +408,11 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 entry = raw_entry.strip()
                 if entry.lower() == "unassigned":
                     include_unassigned = True
+                elif entry.lower() == "me":
+                    # Dynamic per-viewer token: resolve to the requesting user so a
+                    # shared saved view scoped to "me" means each viewer's own tickets.
+                    if self.request.user and self.request.user.is_authenticated:
+                        user_ids.append(self.request.user.id)
                 elif entry.startswith("user:"):
                     try:
                         user_ids.append(int(entry[5:]))
@@ -579,7 +584,22 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         if order_by not in allowed_orderings:
             order_by = "-updated_at"
 
-        return queryset.order_by(order_by)
+        field_name = order_by.lstrip("-")
+        primary: OrderBy | str
+        if field_name in ("sla_due_at", "snoozed_until"):
+            # A ticket with no SLA (or no snooze) sorts to the bottom either direction — an
+            # absent deadline isn't more urgent than a real one, and it keeps the large NULL
+            # block off the first pages so the SLA-sorted rows are what the user actually sees.
+            descending = order_by.startswith("-")
+            primary = F(field_name).desc(nulls_last=True) if descending else F(field_name).asc(nulls_last=True)
+        else:
+            primary = order_by
+
+        # ticket_number is unique per team (the queryset is already team-scoped), so it breaks
+        # ties deterministically. Without it, rows equal on the primary key — every no-SLA
+        # ticket shares NULL sla_due_at — have no stable order across the separate LIMIT/OFFSET
+        # page queries, so pages overlap or drop rows and the sort looks lost past page 1.
+        return queryset.order_by(primary, "-ticket_number")
 
     def safely_get_object(self, queryset):
         """
@@ -708,7 +728,8 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 description=(
                     "Filter by assignee. Accepts a single value or a comma-separated list "
                     "(matches any, max 100 entries). Each entry is `unassigned` (no assignee), "
-                    "`user:<user_id>`, or `role:<role_uuid>`, e.g. `assignee=unassigned,user:123`."
+                    "`me` (the requesting user), `user:<user_id>`, or `role:<role_uuid>`, "
+                    "e.g. `assignee=unassigned,user:123`."
                 ),
             ),
             OpenApiParameter(

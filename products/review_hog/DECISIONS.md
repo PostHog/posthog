@@ -2080,7 +2080,7 @@ fixes via a companion PR, maximum reuse of a verified engine), skip B.**
 
 #### Conversational / control surface (optional; channel-agnostic)
 
-Per the maintainer the **interaction channel is pluggable** (Slack, GitHub comments, PostHog Code, …) and out of
+Per the maintainer the **interaction channel is pluggable** (Slack, GitHub comments, PostHog Desktop, …) and out of
 scope — design the durable part, leave the UI a thin adapter. **Must-have (ships with Variant A):** `@workflow.query`
 for live state (stage, findings-so-far, lifecycle counts, watermarks — zero history cost; copy `get_buffer_size` /
 `get_paused_state`) and `@workflow.signal` for inject-context / pause / cancel / force-turn (copy `submit_signal` /
@@ -3391,7 +3391,7 @@ reasoning_effort}]` → `get_task_processing_context` reads it back → `start_a
   `build_agent_runtime_env_prefix` (`logic/services/sandbox.py`) emits `env POSTHOG_CODE_{RUNTIME_ADAPTER,PROVIDER,MODEL,
 REASONING_EFFORT}=…` prefixed onto the agent launch command (guarded by `test_agentsh.py`).
 
-**`@posthog/agent` — where they are consumed + applied (the PostHog Code monorepo, _not_ this repo).** Clone via
+**`@posthog/agent` — where they are consumed + applied (the PostHog Desktop monorepo, _not_ this repo).** Clone via
 `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` (legacy alias `LOCAL_TWIG_MONOREPO_ROOT`); package `packages/agent`
 (npm `@posthog/agent`, baked into `Dockerfile.sandbox-base`).
 

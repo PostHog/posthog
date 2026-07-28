@@ -11,7 +11,7 @@ Before any MCP call, get answers to:
 1. **What does this agent do?** One sentence. If you can't write
    the sentence yet, the user can't either — ask more questions.
 2. **What triggers it?** Cron? Slack mentions? Chat from
-   PostHog Code? A webhook from an external system?
+   PostHog Desktop? A webhook from an external system?
 3. **What does it have access to?** PostHog data? Slack? An
    external service via a custom tool or MCP?
 4. **What's the success criterion?** One concrete example of a
@@ -128,7 +128,7 @@ posthog__agent-applications-revisions-create → empty draft revision (with spec
 JSON straight in. Don't create-empty-then-partial-update; that's
 two round-trips for nothing.
 
-**Drive the PostHog Code UI** so the user follows along. Right after
+**Drive the PostHog Desktop UI** so the user follows along. Right after
 `posthog__agent-applications-create` returns, call:
 
 ```text

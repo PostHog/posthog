@@ -120,6 +120,7 @@ export type SettingId =
     | 'csp-reporting'
     | 'customer-analytics-accounts'
     | 'customer-analytics-dashboard-events'
+    | 'customer-analytics-event-stream'
     | 'customer-analytics-group-properties'
     | 'customer-analytics-person-properties'
     | 'customer-analytics-usage-metrics'
@@ -257,6 +258,7 @@ export type SettingId =
     | 'web-analytics-pre-aggregated-tables'
     | 'web-revenue-events'
     | 'web-vitals-autocapture'
+    | 'workflows-email-tracking-consent'
     | 'workflows-engagement-events'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
