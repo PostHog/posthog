@@ -29,7 +29,7 @@ describe('microsoft template', () => {
         expect(response.finished).toEqual(false)
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
-              "body": "{"data":[{"eventType":"custom","eventName":"purchase","eventTime":1735689600,"userData":{"msclkid":"microsoft-id","em":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3"},"eventId":"event-id","customData":{"value":100,"currency":"USD"}}]}",
+              "body": "{"data":[{"eventType":"custom","eventName":"purchase","eventTime":1735689600,"userData":{"msclkid":"microsoft-id","em":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3","ph":"422ce82c6fc1724ac878042f7d055653ab5e983d186e616826a72d4384b68af8"},"eventId":"event-id","customData":{"value":100,"currency":"USD"}}]}",
               "headers": {
                 "Authorization": "Bearer api-token",
                 "Content-Type": "application/json",
@@ -53,7 +53,7 @@ describe('microsoft template', () => {
         expect(response.finished).toEqual(false)
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
-              "body": "{"data":[{"eventType":"custom","eventName":"purchase","eventTime":1735689600,"userData":{"msclkid":"microsoft-id","em":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3"},"eventId":"event-id"}]}",
+              "body": "{"data":[{"eventType":"custom","eventName":"purchase","eventTime":1735689600,"userData":{"msclkid":"microsoft-id","em":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3","ph":"422ce82c6fc1724ac878042f7d055653ab5e983d186e616826a72d4384b68af8"},"eventId":"event-id"}]}",
               "headers": {
                 "Authorization": "Bearer api-token",
                 "Content-Type": "application/json",
@@ -84,23 +84,34 @@ describe('microsoft template', () => {
             `"Error from capi.uet.microsoft.com (status 401): {'error': {'code': 'Unauthorized', 'message': 'You are not authorized to access this resource.'}}"`
         )
     })
-    it('sends the conversion without a click id when email is present', async () => {
+    // Any one identifier is enough for Microsoft to attribute, so none of them may gate the send
+    it.each([
+        ['click id', { email: null, phone: null }, { msclkid: 'microsoft-id' }],
+        [
+            'email',
+            { msclkid: null, phone: null },
+            { em: '3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3' },
+        ],
+        [
+            'phone',
+            { msclkid: null, email: null },
+            { ph: '422ce82c6fc1724ac878042f7d055653ab5e983d186e616826a72d4384b68af8' },
+        ],
+    ])('sends the conversion when only %s is available', async (_, personProperties, expectedUserData) => {
         const response = await tester.invokeMapping(
             'Conversion',
             { tagId: '12345678', apiToken: 'api-token', eventName: 'purchase' },
-            createAdDestinationPayload({ person: { properties: { msclkid: null } } })
+            createAdDestinationPayload({ person: { properties: personProperties } })
         )
         expect(response.error).toBeUndefined()
         const body = parseJSON((response.invocation.queueParameters as { body: string }).body)
-        expect(body.data[0].userData).toEqual({
-            em: '3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3',
-        })
+        expect(body.data[0].userData).toEqual(expectedUserData)
     })
     it('skips when no identifier is available', async () => {
         const response = await tester.invokeMapping(
             'Conversion',
             { tagId: '12345678', apiToken: 'api-token', eventName: 'purchase' },
-            createAdDestinationPayload({ person: { properties: { msclkid: null, email: null } } })
+            createAdDestinationPayload({ person: { properties: { msclkid: null, email: null, phone: null } } })
         )
         expect(response.logs.filter((log) => log.level === 'info').map((log) => log.message)).toMatchInlineSnapshot(
             `

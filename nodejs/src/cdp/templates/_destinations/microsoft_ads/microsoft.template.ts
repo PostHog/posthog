@@ -77,7 +77,7 @@ const build_inputs = (): HogFunctionInputSchemaType[] => {
             label: 'Phone number',
             description:
                 'Phone number for enhanced conversions. Sent SHA-256 hashed; leave blank to omit. Normalize to E.164 format (e.g. +14255551234) for best match rates.',
-            default: '',
+            default: '{person.properties.phone}',
             secret: false,
             required: false,
         },
