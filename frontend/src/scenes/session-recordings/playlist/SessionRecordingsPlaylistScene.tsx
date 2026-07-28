@@ -36,9 +36,8 @@ import {
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
 
-import { isUniversalFilters } from '../utils'
 import { SessionRecordingsPlaylist } from './SessionRecordingsPlaylist'
-import { convertLegacyFiltersToUniversalFilters } from './sessionRecordingsPlaylistLogic'
+import { asUniversalFilters } from './sessionRecordingsPlaylistLogic'
 import {
     SessionRecordingsPlaylistLogicProps,
     sessionRecordingsPlaylistSceneLogic,
@@ -230,11 +229,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                 <SessionRecordingsPlaylist
                     logicKey={playlist.short_id}
                     // backwards compatibility for legacy filters
-                    filters={
-                        playlist.filters && isUniversalFilters(playlist.filters)
-                            ? playlist.filters
-                            : convertLegacyFiltersToUniversalFilters({}, playlist.filters)
-                    }
+                    filters={asUniversalFilters(playlist.filters)}
                     onFiltersChange={setFilters}
                     onPinnedChange={onPinnedChange}
                     pinnedRecordings={pinnedRecordings ?? []}

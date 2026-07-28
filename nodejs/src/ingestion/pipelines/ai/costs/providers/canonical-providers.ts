@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-07-24 20:27:35 UTC
+// Generated at: 2026-07-27 20:28:49 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -38,6 +38,7 @@ export type CanonicalProvider =
     | 'chutes-fp4'
     | 'chutes-fp8'
     | 'chutes-int4'
+    | 'claude-on-aws'
     | 'cloudflare'
     | 'cloudflare-fp8'
     | 'cohere'
@@ -87,7 +88,6 @@ export type CanonicalProvider =
     | 'inceptron-fp4'
     | 'inceptron-fp8'
     | 'inceptron-int4'
-    | 'inflection'
     | 'io-net-fp8'
     | 'ionstream-bf16'
     | 'ionstream-fp4'
@@ -102,6 +102,7 @@ export type CanonicalProvider =
     | 'modelrun-fp4'
     | 'moonshotai-highspeed'
     | 'moonshotai-int4'
+    | 'moonshotai-mxfp4'
     | 'morph'
     | 'morph-fp4'
     | 'nebius-base'

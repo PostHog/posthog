@@ -34,7 +34,7 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
 import type { ProjectSecretAPIKeyAllowedScope } from 'lib/scopes'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
-import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
+import { BreakdownColorConfig } from 'scenes/dashboard/dashboardBreakdownColors'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Params, Scene, SceneConfig, SceneTab } from 'scenes/sceneTypes'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -79,12 +79,6 @@ import type {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
-import type {
-    LLMPromptApi,
-    LLMPromptListApi,
-    LLMPromptResolveResponseApi,
-    LLMPromptVersionSummaryApi,
-} from 'products/ai_observability/frontend/generated/api.schemas'
 import { AlertType } from 'products/alerts/frontend/types'
 import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
@@ -117,6 +111,7 @@ export enum AvailableFeature {
     DATA_PIPELINES = 'data_pipelines',
     RECORDINGS_PLAYLISTS = 'recordings_playlists',
     SESSION_REPLAY_DATA_RETENTION = 'session_replay_data_retention',
+    LOGS_RETENTION_30D = 'logs_retention_30d',
     CONSOLE_LOGS = 'console_logs',
     RECORDINGS_PERFORMANCE = 'recordings_performance',
     SESSION_REPLAY_NETWORK_PAYLOADS = 'session_replay_network_payloads',
@@ -897,6 +892,8 @@ export interface TeamType extends TeamBasicType {
 
 export interface WorkflowsConfig {
     capture_workflows_engagement_events: boolean
+    // Optional so cached team objects from before this field shipped still typecheck.
+    email_tracking_consent_mode?: 'off' | 'opt_out' | 'opt_in'
 }
 
 export interface ProductIntentType {
@@ -7577,6 +7574,12 @@ export interface FeaturePreviewGateConfig {
     title: string
     description: string
     docsURL?: string
+    /**
+     * Support ticket target area for the "Request access" action. Set this for betas that aren't
+     * self-serve early-access features, so the gated state offers a way to request access instead
+     * of dead-ending on the feature previews page.
+     */
+    supportTargetArea?: string
 }
 
 export interface ProductManifest {
@@ -7809,57 +7812,6 @@ export interface DatasetItem {
     updated_at: string
     created_at: string
     deleted: boolean
-}
-
-export interface LLMPrompt {
-    id: string
-    name: string
-    prompt: string
-    version: number
-    version_description?: string | null
-    created_by: UserBasicType
-    created_at: string
-    updated_at: string
-    deleted: boolean
-    is_latest: boolean
-    latest_version: number
-    version_count: number
-    first_version_created_at: string
-    /** Key for this prompt's rows in the activity log (History tab). */
-    activity_item_id: LLMPromptApi['activity_item_id']
-    /** All labels on the prompt with the version each points to. Only present on list responses. */
-    all_labels?: LLMPromptListApi['all_labels']
-}
-
-export interface LLMPromptPublic {
-    id: string
-    name: string
-    prompt: string
-    version: number
-    created_at: string
-    updated_at: string
-    deleted: boolean
-    is_latest: boolean
-    latest_version: number
-    version_count: number
-    first_version_created_at: string
-}
-
-export interface LLMPromptVersionSummary {
-    id: string
-    version: number
-    version_description?: string | null
-    created_by: UserBasicType
-    created_at: string
-    is_latest: boolean
-    labels?: LLMPromptVersionSummaryApi['labels']
-}
-
-export interface LLMPromptResolveResponse {
-    prompt: LLMPrompt
-    versions: LLMPromptVersionSummary[]
-    has_more: boolean
-    labels: LLMPromptResolveResponseApi['labels']
 }
 
 // Managed viewset

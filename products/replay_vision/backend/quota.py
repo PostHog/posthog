@@ -97,8 +97,14 @@ def current_period_bounds(organization_id: UUID) -> BillingPeriod:
     return _current_period_bounds(organization, datetime.now(UTC))
 
 
-def credits_used_by_scanner(organization_id: UUID, scanner_ids: list[UUID]) -> dict[UUID, int]:
-    """Credits each scanner's succeeded observations consumed in the current billing period.
+@dataclass(frozen=True)
+class ScannerSpend:
+    credits: int
+    observations: int
+
+
+def credits_used_by_scanner(organization_id: UUID, scanner_ids: list[UUID]) -> dict[UUID, ScannerSpend]:
+    """Credits and observation counts for each scanner's succeeded observations in the current billing period.
 
     Priced at current rates from each observation's frozen snapshot model. Receipts freeze prices
     at success time, so these totals can drift from the billed ledger after a mid-period price
@@ -117,9 +123,13 @@ def credits_used_by_scanner(organization_id: UUID, scanner_ids: list[UUID]) -> d
             created_at__lt=period_end,
         ).values_list("scanner_id", "scanner_snapshot__model")
     )
-    totals: dict[UUID, int] = {}
+    totals: dict[UUID, ScannerSpend] = {}
     for (scanner_id, model), count in pairs.items():
-        totals[scanner_id] = totals.get(scanner_id, 0) + observation_credits_for_model(model or "") * count
+        prev = totals.get(scanner_id, ScannerSpend(0, 0))
+        totals[scanner_id] = ScannerSpend(
+            credits=prev.credits + observation_credits_for_model(model or "") * count,
+            observations=prev.observations + count,
+        )
     return totals
 
 

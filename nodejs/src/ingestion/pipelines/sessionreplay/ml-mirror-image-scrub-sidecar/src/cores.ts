@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { availableParallelism, totalmem } from 'node:os'
 
 import { numFromEnv } from './env.ts'
+import { limitsFromEnv } from './scale-plan.ts'
 
 /** Max threads a single ONNX session may use. Matches the ceiling numFromEnv enforces below. */
 const ORT_THREADS_MAX = 32
@@ -13,16 +14,21 @@ const NO_QUOTA_CORES = 4
 const SCRUB_WORKERS_MAX = 32
 
 /**
- * Memory to assume each worker needs, measured rather than assumed: peak RSS with every worker
- * scrubbing at once, divided by the worker count, on frames at the SCRUB_MAX_PIXELS cap where it
- * plateaus. That came to 776 MB per worker (278 MB on a 0.33 MP frame, 719 MB on 2 MP, 776 MB at the
- * cap), of which about 76 MB is the isolate and its three ONNX sessions and the rest is the transient
- * a scrub holds. This is that with headroom.
+ * Memory to assume each worker needs, derived from the frame budget it will hold rather than fixed,
+ * because most of a worker's peak is the transient a scrub holds and that scales with frame area.
+ * A fixed number goes stale the moment SCRUB_MAX_PIXELS moves, in whichever direction is unsafe.
  *
- * The earlier figure here was 512 MB, back-solved from the deployed pod's cores-to-memory ratio
- * rather than from any measurement, and it was low enough to have sized the pool into an OOM.
+ * Measured with dev/mem-probe.ts, peak RSS with every worker scrubbing at once on frames at the cap:
+ *
+ *   cap 0.45 MP -> ~300 MB/worker      cap 2.56 MP -> ~700-780 MB/worker
+ *
+ * which is about 240 MB fixed (the isolate, three ONNX sessions, a zxing wasm instance) plus about
+ * 240 MB per megapixel of cap. Rounded up on both terms, since sizing this low crash-loops a pod and
+ * sizing it high only leaves cores idle.
  */
-const WORKER_MEMORY_BUDGET_BYTES = 896 * 1024 * 1024
+const WORKER_FIXED_BYTES = 288 * 1024 * 1024
+const WORKER_BYTES_PER_MEGAPIXEL = 288 * 1024 * 1024
+const WORKER_MEMORY_BUDGET_BYTES = WORKER_FIXED_BYTES + (WORKER_BYTES_PER_MEGAPIXEL * limitsFromEnv().framePixels) / 1e6
 
 /**
  * Held back from the worker budget for everything that is not a worker: the main thread's own heap,

@@ -27,7 +27,11 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
 from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
-from products.warehouse_sources.backend.models.util import CLICKHOUSE_HOGQL_MAPPING, clean_type
+from products.warehouse_sources.backend.models.util import (
+    CLICKHOUSE_HOGQL_MAPPING,
+    clean_type,
+    clickhouse_column_to_dwh_column,
+)
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 
@@ -558,6 +562,21 @@ def test_clean_type_unwraps_low_cardinality(clickhouse_type: str, expected: str)
 
 
 @pytest.mark.parametrize(
+    "clickhouse_type,nullable,expected",
+    [
+        ("String", False, "String"),
+        ("String", True, "Nullable(String)"),
+        ("Nullable(String)", True, "Nullable(String)"),
+        # LowCardinality must stay outermost — ClickHouse rejects Nullable(LowCardinality(...)).
+        ("LowCardinality(String)", True, "LowCardinality(Nullable(String))"),
+        ("LowCardinality(Nullable(String))", True, "LowCardinality(Nullable(String))"),
+    ],
+)
+def test_clickhouse_column_to_dwh_column_nullable_wrapping(clickhouse_type: str, nullable: bool, expected: str) -> None:
+    assert clickhouse_column_to_dwh_column("col", clickhouse_type, nullable)["clickhouse"] == expected
+
+
+@pytest.mark.parametrize(
     "sync_type,expected",
     [
         (ExternalDataSchema.SyncType.XMIN, True),
@@ -717,6 +736,18 @@ def test_process_incremental_value_xid_returns_value_as_is() -> None:
         (datetime(2024, 6, 14, 15, 33, 31), IncrementalFieldType.DateTime, datetime(2024, 6, 14, 15, 33, 31)),
         ("2024-06-14T15:33:31", IncrementalFieldType.DateTime, datetime(2024, 6, 14, 15, 33, 31)),
         ("2024-06-14", IncrementalFieldType.Date, date(2024, 6, 14)),
+        # JS `Date.prototype.toString()` cursors carry a parenthetical timezone name dateutil
+        # can't parse on its own, even though the GMT offset earlier in the string is sufficient.
+        (
+            "Sun Mar 15 2026 16:59:47 GMT+0000 (Coordinated Universal Time)",
+            IncrementalFieldType.DateTime,
+            datetime(2026, 3, 15, 16, 59, 47, tzinfo=timezone.get_fixed_timezone(0)),
+        ),
+        (
+            "Mon Jan 05 2026 09:15:00 GMT-0800 (Pacific Standard Time)",
+            IncrementalFieldType.Date,
+            date(2026, 1, 5),
+        ),
     ],
 )
 def test_process_incremental_value_datetime_handles_epoch_numbers(value, field_type, expected) -> None:

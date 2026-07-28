@@ -533,6 +533,47 @@ class TestNodeSuspension:
         for job in jobs:
             await database_sync_to_async(job.delete)()
 
+    async def test_does_not_resuspend_on_failures_from_before_a_resume(self, ateam, anode, asaved_query, adag):
+        from posthog.temporal.data_modeling.activities.utils import is_node_suspended, maybe_suspend_node_for_engine
+
+        from products.data_modeling.backend.logic.node_suspension import resume_nodes
+
+        jobs = [await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom") for _ in range(5)]
+        first_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom")
+        jobs.append(first_job)
+        assert await maybe_suspend_node_for_engine(
+            node_id=str(anode.id),
+            team_id=ateam.pk,
+            dag_id=str(adag.id),
+            saved_query_id=asaved_query.id,
+            engine=DataModelingJobEngine.CLICKHOUSE,
+            reason="boom",
+            job_id=str(first_job.id),
+        )
+
+        await database_sync_to_async(anode.refresh_from_db)()
+        await database_sync_to_async(resume_nodes)([anode], by="query_edit")
+
+        next_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom again")
+        jobs.append(next_job)
+        suspended_again = await maybe_suspend_node_for_engine(
+            node_id=str(anode.id),
+            team_id=ateam.pk,
+            dag_id=str(adag.id),
+            saved_query_id=asaved_query.id,
+            engine=DataModelingJobEngine.CLICKHOUSE,
+            reason="boom again",
+            job_id=str(next_job.id),
+        )
+
+        assert suspended_again is False
+        await database_sync_to_async(anode.refresh_from_db)()
+        assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is False
+
+        # DataModelingJob.team is SET_NULL, so it survives the ateam fixture's team teardown.
+        for job in jobs:
+            await database_sync_to_async(job.delete)()
+
     async def test_engine_suspension_is_independent(self, ateam, anode, asaved_query, adag):
         from posthog.temporal.data_modeling.activities.utils import is_node_suspended, maybe_suspend_node_for_engine
 

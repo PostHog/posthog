@@ -67,9 +67,13 @@ impl PgChunkStore {
         let result = sqlx::query_as::<_, PlanRow>(
             r#"
             WITH target_run AS (
+                -- Serializes against the completion CAS: an unlocked `seeding` read is evaluated
+                -- against this statement's snapshot, so a run could reach `reconciling` carrying
+                -- freshly inserted pending chunks and certify completion on unseeded days.
                 SELECT id, team_id
                 FROM cohort_backfill_runs
                 WHERE id = $1 AND status = 'seeding'
+                FOR UPDATE
             ), input AS (
                 SELECT * FROM unnest($2::uuid[], $3::date[], $4::smallint[]) AS u(id, day, band)
             ), inserted AS (
