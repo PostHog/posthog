@@ -2,17 +2,26 @@ import pytest
 from unittest.mock import patch
 
 import requests
+from parameterized import parameterized
 from requests import Response
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import (
     DEFAULT_RETRY,
+    MAX_RETRY_AFTER_SECONDS,
+    BoundedRetry,
     TrackedHTTPAdapter,
     _NoRedirectSession,
     make_tracked_adapter,
     make_tracked_session,
 )
+
+
+class _FakeUrllibResponse:
+    # Minimal stand-in for urllib3's HTTPResponse: get_retry_after only reads .headers.
+    def __init__(self, retry_after: str | None) -> None:
+        self.headers = {"Retry-After": retry_after} if retry_after is not None else {}
 
 
 @pytest.fixture
@@ -49,6 +58,38 @@ def test_make_tracked_session_mounts_tracked_adapter_for_both_schemes():
 
     assert isinstance(https_adapter, TrackedHTTPAdapter)
     assert isinstance(http_adapter, TrackedHTTPAdapter)
+
+
+def test_default_retry_is_bounded():
+    assert isinstance(DEFAULT_RETRY, BoundedRetry)
+
+
+@parameterized.expand(
+    [
+        # A giant delta-seconds and a far-future HTTP-date both used to reach
+        # time.sleep() out of C's PyTime_t range and raise OverflowError.
+        ("huge_delta_seconds", "999999999999", MAX_RETRY_AFTER_SECONDS),
+        ("far_future_http_date", "Wed, 21 Oct 9999 07:28:00 GMT", MAX_RETRY_AFTER_SECONDS),
+        # A small, sane value passes through unclamped.
+        ("small_delta_seconds", "5", 5.0),
+    ]
+)
+def test_bounded_retry_caps_retry_after(_name, header_value, expected):
+    retry_after = DEFAULT_RETRY.get_retry_after(_FakeUrllibResponse(header_value))
+    assert retry_after is not None
+    assert retry_after <= MAX_RETRY_AFTER_SECONDS
+    assert retry_after == pytest.approx(expected, abs=1.0)
+
+
+def test_bounded_retry_returns_none_without_header():
+    assert DEFAULT_RETRY.get_retry_after(_FakeUrllibResponse(None)) is None
+
+
+def test_bounded_retry_survives_new():
+    # `.new()` rebuilds via type(self); sources deriving a policy from DEFAULT_RETRY must stay bounded.
+    derived = DEFAULT_RETRY.new(allowed_methods=frozenset(["GET", "POST"]))
+    assert isinstance(derived, BoundedRetry)
+    assert derived.get_retry_after(_FakeUrllibResponse("999999999999")) == MAX_RETRY_AFTER_SECONDS
 
 
 def test_make_tracked_session_uses_default_retry():

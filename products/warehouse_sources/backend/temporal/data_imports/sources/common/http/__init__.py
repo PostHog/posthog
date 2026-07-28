@@ -6,6 +6,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import (
     DEFAULT_RETRY,
+    MAX_RETRY_AFTER_SECONDS,
+    BoundedRetry,
     TrackedHTTPAdapter,
     make_tracked_adapter,
     make_tracked_session,
@@ -13,6 +15,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 
 __all__ = [
     "DEFAULT_RETRY",
+    "MAX_RETRY_AFTER_SECONDS",
+    "BoundedRetry",
     "JobContext",
     "TrackedHTTPAdapter",
     "bind_job_context",

@@ -21,11 +21,36 @@ from typing import Any
 import requests
 from requests import PreparedRequest, Response
 from requests.adapters import HTTPAdapter
+from urllib3.response import HTTPResponse
 from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.observer import record_request
 
-DEFAULT_RETRY = Retry(
+# Upper bound (seconds) on the `Retry-After` delay urllib3 will sleep for before a
+# retry. The tenacity layer in `rest_client` applies the same cap, but urllib3
+# sleeps first — an upstream that reports an absurd delay (a far-future HTTP-date or
+# a giant delta-seconds) would otherwise reach `time.sleep()` with a value larger
+# than C's `PyTime_t` can hold (~292 years) and raise `OverflowError` inside
+# `adapter.send()`, before control ever returns to tenacity.
+MAX_RETRY_AFTER_SECONDS = 300.0
+
+
+class BoundedRetry(Retry):
+    """`Retry` that caps the honored `Retry-After` delay at `MAX_RETRY_AFTER_SECONDS`.
+
+    Clamping in `get_retry_after` keeps a misreported header from ever reaching
+    `time.sleep()` with an out-of-range value. `new()` rebuilds via `type(self)`, so
+    sources that derive their own policy from `DEFAULT_RETRY` inherit the cap.
+    """
+
+    def get_retry_after(self, response: HTTPResponse) -> float | None:
+        retry_after = super().get_retry_after(response)
+        if retry_after is None:
+            return None
+        return min(retry_after, MAX_RETRY_AFTER_SECONDS)
+
+
+DEFAULT_RETRY = BoundedRetry(
     total=3,
     backoff_factor=0.5,
     status_forcelist=(429, 500, 502, 503, 504),

@@ -19,7 +19,10 @@ from tenacity import RetryCallState, retry, retry_if_exception_type
 
 from posthog.temporal.common.errors import NonReportableError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    MAX_RETRY_AFTER_SECONDS,
+    make_tracked_session,
+)
 
 from .auth import auth_secret_values
 from .exceptions import IgnoreResponseException
@@ -75,10 +78,6 @@ def _safe_url(url: str) -> str:
         host = f"{host}:{parts.port}"
     return f"{parts.scheme}://{host}{parts.path}"
 
-
-# Upper bound on how long we'll honor a server-provided retry delay, so a
-# misreported header can't stall a worker for an unbounded amount of time.
-MAX_RETRY_AFTER_SECONDS = 300.0
 
 # Attempts for the default sync path. The inline preview overrides this to 1 so a
 # rate-limited endpoint surfaces an error instead of sleeping on `Retry-After`.

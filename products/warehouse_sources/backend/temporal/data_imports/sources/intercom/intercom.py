@@ -5,7 +5,6 @@ from typing import Any, Optional
 import structlog
 from requests import Request, Response, Session
 from requests.exceptions import HTTPError
-from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
@@ -104,12 +103,8 @@ def _auth_headers(access_token: str, api_version: str) -> dict[str, str]:
 # it's safe to retry it on transient read timeouts and 429/5xx like everything else.
 # Derived from DEFAULT_RETRY so the shared policy stays the single source of
 # truth — the only intentional difference is adding POST to allowed_methods.
-_INTERCOM_RETRY = Retry(
-    total=DEFAULT_RETRY.total,
-    backoff_factor=DEFAULT_RETRY.backoff_factor,
-    status_forcelist=DEFAULT_RETRY.status_forcelist,
+_INTERCOM_RETRY = DEFAULT_RETRY.new(
     allowed_methods=frozenset(DEFAULT_RETRY.allowed_methods or ()) | {"POST"},
-    raise_on_status=DEFAULT_RETRY.raise_on_status,
 )
 
 
