@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -40,6 +41,7 @@ import { FunnelTimeToConvertTable } from 'scenes/insights/views/Funnels/FunnelTi
 import { FunnelTrendsTable } from 'scenes/insights/views/Funnels/FunnelTrendsTable'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
 import { PathsV2 } from 'scenes/paths-v2/PathsV2'
+import { PathsV2RowColumnPrototype } from 'scenes/paths-v2/prototype/PathsV2RowColumnPrototype'
 import { Paths } from 'scenes/paths/Paths'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
@@ -143,6 +145,8 @@ export function InsightVizDisplay({
 }): JSX.Element | null {
     const { insightProps, canEditInsight, isUsingPathsV1, isUsingPathsV2, isInDashboardContext } =
         useValues(insightLogic)
+    // PROTOTYPE (throwaway branch): reactive gate for the row-by-column paths explorations
+    const { searchParams: prototypeSearchParams } = useValues(router)
 
     const { activeView } = useValues(insightNavLogic(insightProps))
 
@@ -380,6 +384,10 @@ export function InsightVizDisplay({
                     />
                 )
             case InsightType.PATHS:
+                // PROTOTYPE (throwaway branch): row-by-column paths v2 explorations via ?paths_v2_proto=a|b|c
+                if (process.env.NODE_ENV !== 'production' && prototypeSearchParams.paths_v2_proto) {
+                    return <PathsV2RowColumnPrototype />
+                }
                 return isUsingPathsV2 ? <PathsV2 /> : <Paths />
             case InsightType.WEB_ANALYTICS:
                 return <WebAnalyticsInsight context={context} editMode={editMode} />
