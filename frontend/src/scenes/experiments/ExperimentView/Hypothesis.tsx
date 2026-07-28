@@ -22,15 +22,21 @@ export function Hypothesis(): JSX.Element {
     }, [experiment.description])
 
     return (
-        <div className="border rounded bg-surface-primary p-4">
-            <div className="flex items-center gap-2 mb-2">
-                <h2 className="font-semibold text-base m-0">Hypothesis</h2>
-                <LemonButton type="secondary" size="xsmall" icon={<IconPencil />} onClick={openDescriptionModal} />
+        <div className="border border-primary rounded bg-[var(--color-bg-table)] px-3 py-2.5">
+            <div className="flex items-center gap-1">
+                <span className="metric-cell-header font-bold">Hypothesis</span>
+                <LemonButton
+                    type="tertiary"
+                    size="xsmall"
+                    icon={<IconPencil className="text-secondary" />}
+                    tooltip="Edit hypothesis"
+                    onClick={openDescriptionModal}
+                />
             </div>
             {experiment.description ? (
-                <p className="m-0 whitespace-pre-wrap">{experiment.description}</p>
+                <p className="metric-cell font-normal m-0 whitespace-pre-wrap">{experiment.description}</p>
             ) : (
-                <p className="m-0 text-secondary italic">Add your hypothesis for this test</p>
+                <p className="metric-cell font-normal m-0 italic">Add your hypothesis for this test</p>
             )}
 
             <LemonModal
