@@ -260,7 +260,15 @@ export function ExperimentView(): JSX.Element {
                         activeKey={tabs.some((tab) => tab.key === activeTabKey) ? activeTabKey : 'metrics'}
                         onChange={(key) => setActiveTabKey(key)}
                         sceneInset
-                        tabs={tabs}
+                        // Keep the tab bar full-width, but cap the content under each tab for readability
+                        tabs={tabs.map((tab) =>
+                            'content' in tab
+                                ? {
+                                      ...tab,
+                                      content: <div className="w-full max-w-[1400px] mx-auto">{tab.content}</div>,
+                                  }
+                                : tab
+                        )}
                     />
 
                     {/* Modern experiment modals */}
