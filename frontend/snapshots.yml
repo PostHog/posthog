@@ -5573,7 +5573,7 @@ snapshots:
     scenes-app-dashboards--show-across-viewports--narrow--dark:
         hash: v1.k794b7964.e919c4955d7113170ab00269c5f628c318afe14f26dc8aafb046b172e17f362e.YDXD84rrb2KR1I36pHMxEsGZ0sN0os_cBBdNIf89Pu8
     scenes-app-dashboards--show-across-viewports--narrow--light:
-        hash: v1.k794b7964.2a88f06991ca4c13ad27ee62db8eaa037c542301e28c24934eedc1bbb78cb338.3Ne0cm6_2xQiGE1wGcRzmw0QBd3QrEYkELz3PCg9J48
+        hash: v1.k794b7964.a46d840722e971910236d6fcd8a8f69e0b1db5ee9d472d62055b02d6569f7a99.kHEdVPNUm5DRKSlMFS12SLKf1TyChQJZKKuZ2PKvtfA
     scenes-app-dashboards--show-across-viewports--superwide--dark:
         hash: v1.k794b7964.9948b52cf842206c1584057a6a16b8caed7a32d95f103dbea07089a02df75a53.AuXGqOvw-P-XuzOL2Zl-BkBPb1-Q3R1949f5-IkTjZA
     scenes-app-dashboards--show-across-viewports--superwide--light:
@@ -7646,6 +7646,10 @@ snapshots:
         hash: v1.k794b7964.9b570a49e8ac8dfc934d386c081f7fae1d4282de06afae86bd7c5a36a7754948.dlJN-Winmieb8CReOxRv0AHUwAkrSYEIX0uT6oFBiMA
     scenes-other-onboarding-shared-installation-progress--floating-dismissible--light:
         hash: v1.k794b7964.e8d02d56edcf2e5ab2998c7407b12d1eef019d6dfe4e468a1299ed6c16ba3882.XkNbvIk-X1rTmnRo8guX8oFQyzVvdjqHxQEDNOLlRK8
+    scenes-other-onboarding-shared-installation-progress--lost-contact--dark:
+        hash: v1.k794b7964.0c823488913bc658132cbacd34dbfa099c952d4285be11f466c1faab2aa176de.2Yn_3R4IZA1r64pwys8AM3xEDicPJSw9gJ0vxCVWwVM
+    scenes-other-onboarding-shared-installation-progress--lost-contact--light:
+        hash: v1.k794b7964.0bfdd92c602253db00b1204978e4e14b4e1562e484f1610f2595465c470eeb8c.mAtv6ApOmQhhgbyFrqf9ye1xKLKGMLGD6C-ORG2AVYQ
     scenes-other-onboarding-shared-installation-progress--playground--dark:
         hash: v1.k794b7964.73dd3b1ca302d1d915814fb1c93516188ee3a6c010a9deedc21aba892b0c4eaa.TED9G6l7yoWOiiXzoG27nGeTlcy4E02tWrI0-iEqOBM
     scenes-other-onboarding-shared-installation-progress--playground--light:
