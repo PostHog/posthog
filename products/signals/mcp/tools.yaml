@@ -479,8 +479,10 @@ tools:
             a draft PR. Each reviewer is a `github_login` and/or a PostHog `user_uuid` (resolved server-side to the
             linked GitHub login). Prefer `append_note` over rewriting a report you didn't author (additive and
             audit-friendly); title/summary edits are best-effort, since the pipeline may later re-research and overwrite
-            them. NOT idempotent — a retried `append_note` appends a second note. Opt-in: only available to scouts that
-            list `edit_report` in their skill's `allowed_tools`.
+            them. Optional `charts` is the full set of queries the inbox renders on the report — it replaces the
+            report's charts rather than adding to them (omit it to leave them alone), so read the report first when you
+            mean to add one. NOT idempotent — a retried `append_note` appends a second note. Opt-in: only available to
+            scouts that list `edit_report` in their skill's `allowed_tools`.
     scout-emit-report:
         operation: signals_scout_emit_report
         enabled: true
@@ -501,8 +503,10 @@ tools:
             to find a prior report and `scout-edit-report` to update it instead. `suggested_reviewers` is the primary
             way a report reaches a human (each a `github_login` and/or a PostHog `user_uuid` resolved server-side); for
             a concrete, fixable issue, passing `repository` + `priority` + `suggested_reviewers` also opens a draft PR
-            automatically (autostart, custom_agent parity); omit them to just surface the report. Opt-in: only available
-            to scouts that list `emit_report` in their skill's `allowed_tools`.
+            automatically (autostart, custom_agent parity); omit them to just surface the report. Optional `charts`
+            attach queries the inbox renders inline — reference one from `summary` as `[label](chart:<chart_id>)` to
+            place it in the body, or leave it unreferenced and it renders below. Opt-in: only available to scouts that
+            list `emit_report` in their skill's `allowed_tools`.
     scout-emit-signal:
         operation: signals_scout_emit_signal
         enabled: true

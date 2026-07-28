@@ -6,6 +6,7 @@ from typing import cast
 from django.db.models import Q
 
 from asgiref.sync import async_to_sync
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
@@ -28,6 +29,7 @@ from .models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
+from .report_charts import CHART_SIZES, MAX_CHART_CAPTION_LENGTH, MAX_CHART_ID_LENGTH, MAX_CHART_TITLE_LENGTH
 from .report_generation.resolve_reviewers import enrich_reviewer_dicts_with_org_members
 
 logger = logging.getLogger(__name__)
@@ -336,8 +338,79 @@ class SignalReportRefundSerializer(serializers.ModelSerializer):
         return obj.billing_synced_at is not None
 
 
+# The chart `query` is free-form JSON by design, and the generated schema has to keep it that way.
+#
+# This is load-bearing, not a style call. The MCP executor dispatches Zod's *parsed* output
+# (`services/mcp/src/tools/exec.ts` — "Dispatch the parsed output so coerced values and defaults
+# apply"), and a generated `zod.object({...})` strips keys it doesn't name. Declaring the node's
+# shape — even just `kind` — would therefore drop `source` / `display` / `shortId` on the way through
+# the tool and hand the backend a bare `{"kind": ...}`: valid per `ReportChart`, and a chart that
+# renders nothing. `additionalProperties` doesn't save it either; it reaches the TypeScript type but
+# not the Zod schema.
+#
+# So the field stays untyped in the schema (the `spec: zod.unknown()` precedent), and the contract
+# lives in `help_text` where the scout reads it, enforced by `ReportChart` server-side.
+@extend_schema_field(OpenApiTypes.ANY)
+class ChartQueryField(serializers.JSONField):
+    """The query node on a report chart. Typed for the schema pipeline so the generated MCP tool and
+    frontend types describe a query node instead of an opaque `unknown`, while still carrying the
+    node's per-kind fields through untouched."""
+
+
+class ReportChartSerializer(serializers.Serializer):
+    """One chart attached to a report — rendered in the inbox and referenceable from the summary."""
+
+    chart_id = serializers.CharField(
+        max_length=MAX_CHART_ID_LENGTH,
+        help_text=(
+            "Stable slug for this chart within the report (lowercase letters, numbers, underscores, "
+            "hyphens; must start with a letter or number). Reference it from `summary` as a markdown "
+            "link with a `chart:` target — `[Daily signups](chart:signups-drop)` — to place the chart "
+            "at that point in the body. A chart you don't reference still renders, below the summary."
+        ),
+    )
+    title = serializers.CharField(
+        max_length=MAX_CHART_TITLE_LENGTH,
+        help_text="Short heading shown above the chart.",
+    )
+    query = ChartQueryField(
+        help_text=(
+            "The query node to render. `kind` must be `InsightVizNode` (an ad-hoc product analytics "
+            "chart), `DataVisualizationNode` (a SQL series — a `HogQLQuery` source plus a `display`), "
+            "or `SavedInsightNode` (an existing insight by `shortId`). Pin the window to absolute "
+            "dates where the node supports it, so the reader sees the data you wrote about rather "
+            "than whatever a relative range resolves to when they open the report."
+        ),
+    )
+    caption = serializers.CharField(
+        required=False,
+        allow_null=True,
+        max_length=MAX_CHART_CAPTION_LENGTH,
+        help_text="Optional one-line note on what to look at in the chart.",
+    )
+    size = serializers.ChoiceField(
+        choices=CHART_SIZES,
+        required=False,
+        allow_null=True,
+        help_text=(
+            "How much height the chart gets: `small` for a single number or a short series, `medium` "
+            "for an ordinary graph, `large` when there are rows or a grid to read (retention, paths, "
+            "a wide breakdown). Leave it out unless the default looks wrong — the inbox sizes a chart "
+            "from its query, and two charts referenced from the same paragraph sit side by side."
+        ),
+    )
+
+
 class SignalReportSerializer(serializers.ModelSerializer):
     artefact_count = serializers.IntegerField(read_only=True)
+    charts = ReportChartSerializer(
+        many=True,
+        read_only=True,
+        help_text=(
+            "Charts the report shows, in the order they were written. The summary places one with a "
+            "`[label](chart:<chart_id>)` link; the rest render below it."
+        ),
+    )
     refund_ineligibility_reason = serializers.SerializerMethodField(
         help_text=(
             "Why refunding this report's PR would be rejected right now, or null when a refund "
@@ -393,6 +466,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "artefact_count",
+            "charts",
             "priority",
             "actionability",
             "already_addressed",

@@ -1,4 +1,16 @@
-import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    isBreakpoint,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -720,9 +732,15 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
 
             try {
                 const response = await api.conversationsTickets.list(params)
+                // Drop responses that were superseded while in flight, so a slow reply
+                // to an older query can't overwrite newer results.
+                breakpoint()
                 actions.setTickets(response.results || [])
                 actions.setTotalCount(response.count ?? response.results?.length ?? 0)
-            } catch {
+            } catch (error: any) {
+                if (isBreakpoint(error)) {
+                    throw error
+                }
                 lemonToast.error('Failed to load tickets')
                 actions.setTicketsLoading(false)
             }

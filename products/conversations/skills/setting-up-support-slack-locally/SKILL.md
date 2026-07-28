@@ -68,10 +68,11 @@ At [api.slack.com/apps](https://api.slack.com/apps), create an app in a throwawa
 
 1. **App Home** → enable a **bot user** (give it a display name). Without this, install fails with "requesting
    permission to install a bot ... but it's not currently configured with a bot".
-2. **OAuth & Permissions → Bot Token Scopes** — the flow requests these (from `SUPPORTHOG_SLACK_SCOPE` in
+2. **OAuth & Permissions → Bot Token Scopes** — the flow requests these (from `SUPPORTHOG_SLACK_SCOPES` in
    `products/conversations/backend/api/slack_oauth.py`): `channels:history`, `channels:read`, `chat:write`,
-   `chat:write.customize`, `groups:history`, `groups:read`, `reactions:read`, `users:read`,
-   `users:read.email`.
+   `chat:write.customize`, `files:read`, `files:write`, `groups:history`, `groups:read`, `reactions:read`,
+   `users:read`, `users:read.email`. Attachments need the two `files:` scopes in both directions, so a
+   workspace installed without them shows a "reconnect" banner in support settings.
 3. **OAuth & Permissions → Redirect URLs** — add `http://localhost:8010/api/conversations/v1/slack/callback`
    and Save. If Slack refuses a plain-http localhost URL, use the tunnel URL for the callback too and log in
    once on the tunnel origin (see [references/troubleshooting.md](references/troubleshooting.md)).

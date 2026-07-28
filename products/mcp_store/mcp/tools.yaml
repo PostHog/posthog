@@ -6,7 +6,7 @@
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
 category: MCP Store
 feature: mcp_store
-url_prefix: /settings/environment-mcp-servers
+url_prefix: /settings/mcp-servers
 ui_apps: {}
 tools:
     mcp-connection-tools-list:

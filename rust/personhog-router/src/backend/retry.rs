@@ -2,7 +2,7 @@ use std::future::Future;
 use std::time::Duration;
 
 use metrics::counter;
-use personhog_common::grpc::current_client_name;
+use personhog_common::grpc::{code_as_str, current_client_name};
 use rand::Rng;
 use tonic::{Code, Status};
 use tracing::warn;
@@ -11,28 +11,6 @@ use crate::config::RetryConfig;
 
 fn is_retryable(code: Code) -> bool {
     matches!(code, Code::Unavailable | Code::DeadlineExceeded)
-}
-
-fn code_as_str(code: Code) -> &'static str {
-    match code {
-        Code::Ok => "ok",
-        Code::Cancelled => "cancelled",
-        Code::Unknown => "unknown",
-        Code::InvalidArgument => "invalid_argument",
-        Code::DeadlineExceeded => "deadline_exceeded",
-        Code::NotFound => "not_found",
-        Code::AlreadyExists => "already_exists",
-        Code::PermissionDenied => "permission_denied",
-        Code::ResourceExhausted => "resource_exhausted",
-        Code::FailedPrecondition => "failed_precondition",
-        Code::Aborted => "aborted",
-        Code::OutOfRange => "out_of_range",
-        Code::Unimplemented => "unimplemented",
-        Code::Internal => "internal",
-        Code::Unavailable => "unavailable",
-        Code::DataLoss => "data_loss",
-        Code::Unauthenticated => "unauthenticated",
-    }
 }
 
 /// Executes an async operation with exponential backoff and jitter on transient gRPC errors.
