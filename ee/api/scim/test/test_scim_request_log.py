@@ -36,10 +36,10 @@ class TestSCIMRequestLogCapture(APILicensedTest):
             domain="example.com",
             verified_at="2024-01-01T00:00:00Z",
         )
-        _token = generate_scim_token()
-        self.plain_token, hashed_token = _token.plain, _token.hashed
+        token = generate_scim_token()
+        self.plain_token = token.plain
         config = IdentityProviderConfig.objects.create(
-            organization=self.organization, scim_enabled=True, scim_bearer_token=hashed_token
+            organization=self.organization, scim_enabled=True, scim_bearer_token=token.hashed
         )
         self.domain.identity_provider_config = config
         self.domain.save()

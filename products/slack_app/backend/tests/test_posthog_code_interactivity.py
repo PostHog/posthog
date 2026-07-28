@@ -28,14 +28,13 @@ class TestPostHogCodeInteractivityHandler(TestCase):
         payload = {"team": {"id": "T12345"}, **payload}
         body_str = f"payload={json.dumps(payload)}"
         body = body_str.encode()
-        _signed = sign_slack_request(body, self.signing_secret)
-        signature, ts = _signed.signature, _signed.timestamp
+        signed = sign_slack_request(body, self.signing_secret)
         return self.client.post(
             "/slack/interactivity-callback/",
             data=body_str,
             content_type="application/x-www-form-urlencoded",
-            HTTP_X_SLACK_SIGNATURE=signature,
-            HTTP_X_SLACK_REQUEST_TIMESTAMP=ts,
+            HTTP_X_SLACK_SIGNATURE=signed.signature,
+            HTTP_X_SLACK_REQUEST_TIMESTAMP=signed.timestamp,
             **extra_headers,
         )
 
@@ -90,13 +89,12 @@ class TestRepoPickerOptions(TestCase):
         payload = {"team": {"id": "T12345"}, **payload}
         body_str = f"payload={json.dumps(payload)}"
         body = body_str.encode()
-        _signed = sign_slack_request(body, self.signing_secret)
-        signature, ts = _signed.signature, _signed.timestamp
+        signed = sign_slack_request(body, self.signing_secret)
         return self.client.post(
             "/slack/interactivity-callback/",
             data=body_str,
             content_type="application/x-www-form-urlencoded",
-            headers={"x-slack-signature": signature, "x-slack-request-timestamp": ts},
+            headers={"x-slack-signature": signed.signature, "x-slack-request-timestamp": signed.timestamp},
         )
 
     @patch("products.slack_app.backend.api._get_full_repo_names")
@@ -637,15 +635,14 @@ class TestInteractivityRegionRouting(TestCase):
         payload = {"team": {"id": "T12345"}, **payload}
         body_str = f"payload={json.dumps(payload)}"
         body = body_str.encode()
-        _signed = sign_slack_request(body, self.signing_secret)
-        signature, ts = _signed.signature, _signed.timestamp
+        signed = sign_slack_request(body, self.signing_secret)
         return self.client.post(
             "/slack/interactivity-callback/",
             data=body_str,
             content_type="application/x-www-form-urlencoded",
             HTTP_HOST=host,
-            HTTP_X_SLACK_SIGNATURE=signature,
-            HTTP_X_SLACK_REQUEST_TIMESTAMP=ts,
+            HTTP_X_SLACK_SIGNATURE=signed.signature,
+            HTTP_X_SLACK_REQUEST_TIMESTAMP=signed.timestamp,
             **extra_headers,
         )
 
@@ -898,14 +895,13 @@ class TestSignalsDismissReport(TestCase):
 
     def _post_interactivity(self, payload: dict) -> Any:
         body_str = f"payload={json.dumps(payload)}"
-        _signed = sign_slack_request(body_str.encode(), self.signing_secret)
-        signature, ts = _signed.signature, _signed.timestamp
+        signed = sign_slack_request(body_str.encode(), self.signing_secret)
         return self.client.post(
             "/slack/interactivity-callback/",
             data=body_str,
             content_type="application/x-www-form-urlencoded",
-            HTTP_X_SLACK_SIGNATURE=signature,
-            HTTP_X_SLACK_REQUEST_TIMESTAMP=ts,
+            HTTP_X_SLACK_SIGNATURE=signed.signature,
+            HTTP_X_SLACK_REQUEST_TIMESTAMP=signed.timestamp,
         )
 
     @patch("products.slack_app.backend.api._is_org_member")

@@ -32,14 +32,13 @@ class TestSlackWorkspaceClaimsView(TestCase):
 
     def _post(self, payload: dict, signing_secret: str | None = None) -> Any:
         body = json.dumps(payload).encode()
-        _signed = sign_slack_request(body, signing_secret or self.signing_secret)
-        signature, ts = _signed.signature, _signed.timestamp
+        signed = sign_slack_request(body, signing_secret or self.signing_secret)
         return self.client.post(
             "/slack/workspace/claims/",
             data=body,
             content_type="application/json",
-            HTTP_X_SLACK_SIGNATURE=signature,
-            HTTP_X_SLACK_REQUEST_TIMESTAMP=ts,
+            HTTP_X_SLACK_SIGNATURE=signed.signature,
+            HTTP_X_SLACK_REQUEST_TIMESTAMP=signed.timestamp,
         )
 
     def test_method_not_allowed(self):

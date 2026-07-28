@@ -71,13 +71,12 @@ class _ChannelApprovalTestBase(TestCase):
         payload = {"team": {"id": self.slack_team_id}, **payload}
         body_str = f"payload={json.dumps(payload)}"
         body = body_str.encode()
-        _signed = sign_slack_request(body, self.signing_secret)
-        signature, ts = _signed.signature, _signed.timestamp
+        signed = sign_slack_request(body, self.signing_secret)
         return self.client.post(
             "/slack/interactivity-callback/",
             data=body_str,
             content_type="application/x-www-form-urlencoded",
-            headers={"x-slack-signature": signature, "x-slack-request-timestamp": ts},
+            headers={"x-slack-signature": signed.signature, "x-slack-request-timestamp": signed.timestamp},
         )
 
     def _approve_payload(self, slack_user_id: str) -> dict[str, Any]:
