@@ -1,7 +1,5 @@
 import { useActions, useValues } from 'kea'
 
-import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
-
 import {
     AlertNotificationDestinationEditor,
     AlertNotificationDestinationView,
@@ -27,6 +25,9 @@ export function BillingAlertNotifications(props: BillingAlertNotificationLogicPr
     const {
         pendingDestinations,
         selectedType,
+        integrationsLoading,
+        integrationsFailed,
+        slackIntegrations,
         selectedSlackIntegration,
         slackChannel,
         webhookUrl,
@@ -41,6 +42,7 @@ export function BillingAlertNotifications(props: BillingAlertNotificationLogicPr
         addSelectedDestination,
         removePendingDestination,
         deleteDestination,
+        loadIntegrations,
     } = useActions(logic)
 
     const existingDestinations: AlertNotificationDestinationView[] = (props.alert?.destinations ?? []).map(
@@ -55,8 +57,8 @@ export function BillingAlertNotifications(props: BillingAlertNotificationLogicPr
     )
     const pendingViews: PendingAlertNotificationDestinationView[] = pendingDestinations.map((destination) => ({
         key: destination.key,
-        label: destination.label,
-        status: '(pending, save alert to apply)',
+        title: destination.label,
+        detail: 'Save the alert to apply this notification',
         onRemove: () => removePendingDestination(destination.key),
     }))
 
@@ -78,14 +80,12 @@ export function BillingAlertNotifications(props: BillingAlertNotificationLogicPr
                 }}
                 slack={{
                     notificationType: 'slack',
+                    integrationsLoading,
+                    integrationsFailed,
+                    onRetryIntegrations: loadIntegrations,
+                    integrations: slackIntegrations,
                     integration: selectedSlackIntegration,
-                    workspaceSelector: selectedSlackIntegration ? (
-                        <IntegrationChoice
-                            integration="slack"
-                            value={selectedSlackIntegration.id}
-                            onChange={setSelectedIntegrationId}
-                        />
-                    ) : undefined,
+                    onIntegrationChange: setSelectedIntegrationId,
                     channelValue: slackChannel,
                     onChannelValueChange: setSlackChannel,
                 }}

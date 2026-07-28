@@ -45,6 +45,8 @@ export interface billingAlertNotificationLogicValues {
     currentOrganization: OrganizationType | null
     currentTeamId: number | null
     integrations: IntegrationType[] | null
+    integrationsLoading: boolean
+    integrationsFailed: boolean
     slackIntegrations: IntegrationType[]
     selectedSlackIntegration: IntegrationType | undefined
     pendingDestinations: PendingBillingAlertDestination[]
@@ -74,6 +76,11 @@ export interface billingAlertNotificationLogicActions {
     }
     loadAlerts: () => void
     alertUpdated: (alert: BillingAlertConfigurationApi) => { alert: BillingAlertConfigurationApi }
+    loadIntegrations: () => void
+    loadIntegrationsFailure: (error: string) => { error: string }
+    loadIntegrationsSuccess: (integrations: IntegrationType[] | null) => {
+        integrations: IntegrationType[] | null
+    }
 }
 
 export type billingAlertNotificationLogicType = MakeLogicType<
@@ -93,9 +100,14 @@ export const billingAlertNotificationLogic = kea<billingAlertNotificationLogicTy
             teamLogic,
             ['currentTeamId'],
             integrationsLogic,
-            ['integrations'],
+            ['integrations', 'integrationsLoading'],
         ],
-        actions: [billingAlertsLogic, ['loadAlerts', 'alertUpdated']],
+        actions: [
+            billingAlertsLogic,
+            ['loadAlerts', 'alertUpdated'],
+            integrationsLogic,
+            ['loadIntegrations', 'loadIntegrationsFailure', 'loadIntegrationsSuccess'],
+        ],
     }),
     actions({
         setSelectedType: (selectedType: BillingAlertNotificationType) => ({ selectedType }),
@@ -122,6 +134,14 @@ export const billingAlertNotificationLogic = kea<billingAlertNotificationLogicTy
         selectedType: [
             'slack' as BillingAlertNotificationType,
             { setSelectedType: (_, { selectedType }) => selectedType },
+        ],
+        integrationsFailed: [
+            false,
+            {
+                loadIntegrations: () => false,
+                loadIntegrationsFailure: () => true,
+                loadIntegrationsSuccess: () => false,
+            },
         ],
         // null means "no explicit choice": selectedSlackIntegration falls back to the first workspace.
         selectedIntegrationId: [
