@@ -378,6 +378,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         saveAsEndpoint,
         saveAsMetric,
         updateEditingMetric,
+        setEditingMetricName,
         setSourceQuery,
         setSuggestedQueryInput,
         reportAIQueryPromptOpen,
@@ -723,33 +724,16 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                     tooltip={closeObjectTooltip}
                                 />
                             </>
-                        ) : (
+                        ) : editingMetricName ? (
                             <>
-                                {editingMetricName && (
-                                    <LemonButton
-                                        type="primary"
-                                        size="small"
-                                        onClick={() => updateEditingMetric()}
-                                        data-attr="sql-editor-update-metric"
-                                    >
-                                        Update metric
-                                    </LemonButton>
-                                )}
                                 <LemonButton
-                                    type={editingMetricName ? 'secondary' : 'primary'}
+                                    type="primary"
                                     size="small"
-                                    onClick={onPrimarySaveClick}
-                                    disabledReason={
-                                        saveAsDisabledReason ??
-                                        (saveAsMenuItems.primary.action === 'endpoint'
-                                            ? saveAsEndpointAccessDisabledReason
-                                            : saveAsMenuItems.primary.action === 'view'
-                                              ? saveAsViewAccessDisabledReason
-                                              : undefined)
-                                    }
+                                    onClick={() => updateEditingMetric()}
+                                    disabledReason={saveAsDisabledReason}
+                                    data-attr="sql-editor-update-metric"
                                     sideAction={{
                                         icon: <IconChevronDown />,
-                                        'data-attr': 'sql-editor-save-options-button',
                                         dropdown: {
                                             placement: 'bottom-end',
                                             overlay: (
@@ -764,9 +748,48 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                         },
                                     }}
                                 >
-                                    {saveAsMenuItems.primary.label}
+                                    Update metric
                                 </LemonButton>
+                                <LemonButton
+                                    onClick={() => setEditingMetricName(null)}
+                                    icon={<IconX />}
+                                    type="tertiary"
+                                    size="small"
+                                    aria-label="Stop editing metric"
+                                    tooltip="Stop editing this metric and start a new query"
+                                />
                             </>
+                        ) : (
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                onClick={onPrimarySaveClick}
+                                disabledReason={
+                                    saveAsDisabledReason ??
+                                    (saveAsMenuItems.primary.action === 'endpoint'
+                                        ? saveAsEndpointAccessDisabledReason
+                                        : saveAsMenuItems.primary.action === 'view'
+                                          ? saveAsViewAccessDisabledReason
+                                          : undefined)
+                                }
+                                sideAction={{
+                                    icon: <IconChevronDown />,
+                                    'data-attr': 'sql-editor-save-options-button',
+                                    dropdown: {
+                                        placement: 'bottom-end',
+                                        overlay: (
+                                            <LemonMenuOverlay
+                                                items={secondarySaveMenuItems.map((item) => ({
+                                                    ...item,
+                                                    disabledReason: saveAsDisabledReason ?? item.accessDisabledReason,
+                                                }))}
+                                            />
+                                        ),
+                                    },
+                                }}
+                            >
+                                {saveAsMenuItems.primary.label}
+                            </LemonButton>
                         )}
                     </div>
                 }
