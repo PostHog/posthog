@@ -339,16 +339,13 @@ class TestMetricsBlockHtml(SimpleTestCase):
         self.assertNotIn("pp vs previous", html)
 
     def test_unavailable_metrics_render_notice_not_zero_table(self):
-        metrics = EvalReportMetrics(
-            total_runs=0,
+        html = _render_metrics_block_html(
+            None,
             period_start="2026-04-08T14:00:00+00:00",
             period_end="2026-04-08T15:00:00+00:00",
-            metrics_available=False,
         )
 
-        html = _render_metrics_block_html(metrics)
-
-        self.assertIn("could not be computed", html)
+        self.assertIn("could not be calculated", html)
         self.assertNotIn("Total runs", html)
         self.assertIn("Apr 08, 2026 14:00 UTC", html)  # period still shown
 

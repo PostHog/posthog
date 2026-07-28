@@ -24,7 +24,6 @@ from langgraph.prebuilt import InjectedState
 from posthog.hogql import ast
 
 from posthog.errors import CH_TRANSIENT_ERRORS
-from posthog.exceptions import ClickHouseAtCapacity
 from posthog.temporal.ai_observability.eval_reports.output_types import (
     EvaluationReportOutcomeDefinition,
     get_outcome_definition,
@@ -32,6 +31,7 @@ from posthog.temporal.ai_observability.eval_reports.output_types import (
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     MAX_REPORT_SECTIONS,
     Citation,
+    EvalReportGenerationStatus,
     ReportSection,
     calculate_boolean_pass_rate,
     calculate_result_rates,
@@ -106,6 +106,11 @@ def _report_run_target_filter(evaluation_target: str) -> Q:
     if resolve_evaluation_target(evaluation_target) == TRACE_TARGET:
         return Q(content__evaluation_target=TRACE_TARGET)
     return Q(content__evaluation_target=GENERATION_TARGET) | Q(content__evaluation_target__isnull=True)
+
+
+def _completed_report_run_filter() -> Q:
+    unavailable = EvalReportGenerationStatus.METRICS_UNAVAILABLE.value
+    return Q(content__generation_status__isnull=True) | ~Q(content__generation_status=unavailable)
 
 
 def _ch_ts(iso_str: str) -> datetime:
@@ -191,7 +196,7 @@ def _widened_ts_window(state: dict) -> tuple[datetime, datetime]:
 # Transient ClickHouse failures (capacity pressure, scheduling contention, read-only
 # replicas) are expected under load and safe to retry. Without backoff the agent's
 # query tools fail one-by-one and whole analyses silently drop out of the report.
-RETRIABLE_CH_ERRORS = (ClickHouseAtCapacity, *CH_TRANSIENT_ERRORS)
+RETRIABLE_CH_ERRORS = CH_TRANSIENT_ERRORS
 _CH_QUERY_MAX_RETRIES = 3
 _CH_QUERY_BASE_DELAY_SECONDS = 8.0
 
@@ -1097,6 +1102,7 @@ def list_recent_report_runs(
         period_end__gte=since,
     )
     runs = runs.filter(_report_run_target_filter(evaluation_target))
+    runs = runs.filter(_completed_report_run_filter())
     runs = runs.order_by("-period_end")[:limit]
 
     result = []
@@ -1151,6 +1157,7 @@ def get_report_run(
     evaluation_target = resolve_evaluation_target(state.get("evaluation_target"))
     runs = EvaluationReportRun.objects.filter(id=run_id, report__evaluation_id=evaluation_id)
     runs = runs.filter(_report_run_target_filter(evaluation_target))
+    runs = runs.filter(_completed_report_run_filter())
     try:
         run = runs.get()
     except EvaluationReportRun.DoesNotExist:

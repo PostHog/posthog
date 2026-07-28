@@ -86,12 +86,13 @@ class TestComputeMetrics(SimpleTestCase):
             output_type="sentiment",
         )
 
+        self.assertIsNotNone(metrics)
+        assert metrics is not None
         self.assertEqual(metrics.result_rates, {"positive": 50.0, "neutral": 25.0, "negative": 25.0})
         self.assertEqual(metrics.previous_result_rates, {"positive": 50.0, "neutral": 50.0, "negative": 0.0})
-        self.assertTrue(metrics.metrics_available)
 
     @patch.object(graph, "_fetch_period_summary")
-    def test_transient_query_failure_flags_metrics_unavailable_not_zero_runs(self, mock_fetch):
+    def test_transient_query_failure_returns_no_metrics(self, mock_fetch):
         mock_fetch.side_effect = ClickHouseAtCapacity()
 
         metrics = graph._compute_metrics(
@@ -102,8 +103,7 @@ class TestComputeMetrics(SimpleTestCase):
             previous_period_start="2026-04-08T13:00:00+00:00",
         )
 
-        self.assertFalse(metrics.metrics_available)
-        self.assertEqual(metrics.total_runs, 0)
+        self.assertIsNone(metrics)
 
     @patch.object(graph, "_fetch_period_summary")
     def test_non_transient_query_failure_propagates(self, mock_fetch):
@@ -133,17 +133,6 @@ class TestFallbackContent(SimpleTestCase):
         self.assertIn("No evaluation runs", content.sections[0].content)
         self.assertIn("agent timed out", content.sections[0].content)
         self.assertEqual(content.metrics, metrics)
-
-    def test_unavailable_metrics_do_not_claim_no_runs(self):
-        metrics = EvalReportMetrics(total_runs=0, metrics_available=False)
-
-        content = _fallback_content("Relevance", metrics, "metrics query failed after retries")
-        body = content.sections[0].content
-
-        self.assertNotIn("No evaluation runs", body)
-        self.assertIn("could not be computed", body)
-        self.assertIn("does not mean no evaluations ran", body)
-        self.assertIn("next time this report runs", body)
 
     def test_trace_zero_runs_uses_trace_specific_ingestion_hint(self):
         metrics = EvalReportMetrics(total_runs=0)
@@ -375,7 +364,7 @@ class TestRunEvalReportAgentMetricsUnavailable(SimpleTestCase):
         self, mock_metrics, mock_create_agent, mock_build_llm, mock_pha
     ):
         mock_pha.default_client = None
-        mock_metrics.return_value = EvalReportMetrics(metrics_available=False)
+        mock_metrics.return_value = None
 
         content = graph.run_eval_report_agent(
             team_id=1,
@@ -391,8 +380,9 @@ class TestRunEvalReportAgentMetricsUnavailable(SimpleTestCase):
 
         mock_create_agent.assert_not_called()
         mock_build_llm.assert_not_called()
-        self.assertFalse(content.metrics.metrics_available)
-        self.assertIn("could not be computed", content.sections[0].content)
+        self.assertEqual(content.generation_status, graph.EvalReportGenerationStatus.METRICS_UNAVAILABLE)
+        self.assertIsNone(content.metrics)
+        self.assertEqual(content.sections, [])
 
 
 class TestRunEvalReportAgentCallbackGating(SimpleTestCase):

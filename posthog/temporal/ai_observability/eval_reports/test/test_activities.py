@@ -36,22 +36,24 @@ from products.ai_observability.backend.models.evaluations import Evaluation
 
 class TestUpdateNextDeliveryDate(SimpleTestCase):
     @patch("products.ai_observability.backend.models.evaluation_reports.EvaluationReport.objects.get")
-    def test_unavailable_metrics_keep_last_successful_period_for_retry(self, get_report) -> None:
+    def test_unavailable_metrics_record_attempt_without_advancing_successful_period(self, get_report) -> None:
         last_delivered = timezone.now() - dt.timedelta(hours=2)
-        report = MagicMock(last_delivered_at=last_delivered)
+        period_end = timezone.now()
+        report = MagicMock(last_delivered_at=last_delivered, last_attempted_at=None)
         get_report.return_value = report
 
         _update_next_delivery_date(
             UpdateNextDeliveryDateInput(
                 report_id="report-id",
-                period_end=timezone.now().isoformat(),
-                metrics_available=False,
+                period_end=period_end.isoformat(),
+                generation_status="metrics_unavailable",
             )
         )
 
         self.assertEqual(report.last_delivered_at, last_delivered)
+        self.assertEqual(report.last_attempted_at, period_end)
         report.set_next_delivery_date.assert_called_once_with()
-        report.save.assert_called_once_with(update_fields=["next_delivery_date"])
+        report.save.assert_called_once_with(update_fields=["next_delivery_date", "last_attempted_at"])
 
 
 class TestEvaluationTargetLoading(BaseTest):
@@ -119,7 +121,7 @@ async def test_run_agent_activity_loads_target_and_forwards_output_type(
 
     assert result.content["metrics"]["output_type"] == output_type
     assert result.content["evaluation_target"] == evaluation_target
-    assert result.metrics_available
+    assert result.generation_status == "completed"
     assert run_agent.call_args.kwargs["output_type"] == output_type
     assert run_agent.call_args.kwargs["evaluation_target"] == evaluation_target
     load_target.assert_called_once_with(inputs.team_id, inputs.evaluation_id)
@@ -219,6 +221,43 @@ async def test_store_legacy_boolean_report_emits_normalized_generic_metrics() ->
     assert properties["$ai_report_evaluation_target"] == "generation"
     assert properties["$ai_report_referenced_generation_ids"] == ["generation-id"]
     assert properties["$ai_report_referenced_trace_ids"] == ["customer/trace:42"]
+
+
+@pytest.mark.asyncio
+async def test_store_metrics_unavailable_report_omits_placeholder_metrics() -> None:
+    report_run = MagicMock(id="run-id", report_id="report-id")
+    content: dict[str, object] = {
+        "title": "Metrics temporarily unavailable",
+        "sections": [],
+        "citations": [],
+        "generation_status": "metrics_unavailable",
+        "metrics": None,
+    }
+    inputs = StoreReportRunInput(
+        report_id="report-id",
+        team_id=1,
+        evaluation_id="evaluation-id",
+        content=content,
+        period_start="2026-07-01T00:00:00+00:00",
+        period_end="2026-07-02T00:00:00+00:00",
+    )
+
+    with (
+        patch(
+            "products.ai_observability.backend.models.evaluation_reports.EvaluationReportRun.objects.create",
+            return_value=report_run,
+        ) as create_report_run,
+        patch("posthog.models.team.Team.objects.get", return_value=MagicMock()),
+        patch("posthog.models.event.util.create_event") as create_event,
+    ):
+        await store_report_run_activity(inputs)
+
+    properties = create_event.call_args.kwargs["properties"]
+    assert create_report_run.call_args.kwargs["metadata"] == {}
+    assert properties["$ai_report_generation_status"] == "metrics_unavailable"
+    assert "$ai_report_total_runs" not in properties
+    assert "$ai_report_result_counts" not in properties
+    assert "$ai_report_pass_rate" not in properties
 
 
 def test_count_trigger_uses_current_output_type() -> None:
@@ -454,6 +493,21 @@ class TestCountTriggeredReportChecks(BaseTest):
         now = timezone.now()
         report = self._create_report(
             last_delivered_at=now - dt.timedelta(minutes=5),
+            cooldown_minutes=60,
+        )
+
+        with patch("posthog.hogql.query.execute_hogql_query") as execute_hogql_query:
+            result = _check_count_triggered_eval_report_sync(str(report.id), now)
+
+        self.assertFalse(result.due)
+        self.assertEqual(result.skipped_reason, "cooldown")
+        execute_hogql_query.assert_not_called()
+
+    def test_check_report_uses_latest_attempt_for_cooldown_and_success_for_count_window(self):
+        now = timezone.now()
+        report = self._create_report(
+            last_delivered_at=now - dt.timedelta(hours=2),
+            last_attempted_at=now - dt.timedelta(minutes=5),
             cooldown_minutes=60,
         )
 

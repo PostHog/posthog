@@ -95,7 +95,7 @@ class RunEvalReportAgentOutput:
     content: dict[str, Any]
     period_start: str
     period_end: str
-    metrics_available: bool = True
+    generation_status: str = "completed"
 
 
 @dataclasses.dataclass
@@ -123,7 +123,7 @@ class DeliverReportInput:
 class UpdateNextDeliveryDateInput:
     report_id: str
     period_end: str
-    metrics_available: bool = True
+    generation_status: str = "completed"
 
 
 @dataclasses.dataclass

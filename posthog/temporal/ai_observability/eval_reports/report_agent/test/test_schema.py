@@ -8,6 +8,7 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     MIN_REPORT_SECTIONS,
     Citation,
     EvalReportContent,
+    EvalReportGenerationStatus,
     EvalReportMetrics,
     ReportSection,
 )
@@ -87,7 +88,6 @@ class TestEvalReportMetrics(SimpleTestCase):
                 "previous_total_runs": 90,
                 "previous_result_counts": {"pass": 60, "fail": 20, "na": 10},
                 "previous_result_rates": {"pass": 66.67, "fail": 22.22, "na": 11.11},
-                "metrics_available": True,
                 "pass_rate": 81.63,
                 "previous_pass_rate": 75.0,
             },
@@ -154,15 +154,6 @@ class TestEvalReportMetrics(SimpleTestCase):
         )
         self.assertNotIn("pass_count", original.to_dict())
 
-    def test_metrics_available_survives_roundtrip(self):
-        # A failed-query report must stay flagged after being stored and reloaded,
-        # otherwise the "0 runs" masquerade reappears once it round-trips through JSON.
-        original = EvalReportMetrics(period_start="2026-04-08T00:00:00+00:00", metrics_available=False)
-        self.assertFalse(EvalReportMetrics.from_dict(original.to_dict()).metrics_available)
-
-    def test_metrics_available_defaults_true_for_legacy_rows(self):
-        self.assertTrue(EvalReportMetrics.from_dict({"total_runs": 5}).metrics_available)
-
     def test_roundtrip_with_nulls(self):
         original = EvalReportMetrics(
             total_runs=5,
@@ -224,6 +215,8 @@ class TestEvalReportContent(SimpleTestCase):
         self.assertEqual(len(c.sections), 2)
         self.assertEqual(c.sections[1].content, "C2")
         self.assertEqual(c.citations[0].reason, "r")
+        self.assertIsNotNone(c.metrics)
+        assert c.metrics is not None
         self.assertEqual(c.metrics.total_runs, 10)
 
     def test_roundtrip(self):
@@ -241,6 +234,25 @@ class TestEvalReportContent(SimpleTestCase):
         self.assertEqual(roundtripped.citations[0], original.citations[0])
         self.assertEqual(roundtripped.metrics, original.metrics)
         self.assertEqual(roundtripped.evaluation_target, "trace")
+
+    def test_metrics_unavailable_roundtrip_has_no_placeholder_metrics(self):
+        original = EvalReportContent(
+            generation_status=EvalReportGenerationStatus.METRICS_UNAVAILABLE,
+            metrics=None,
+        )
+
+        roundtripped = EvalReportContent.from_dict(original.to_dict())
+
+        self.assertEqual(roundtripped.generation_status, EvalReportGenerationStatus.METRICS_UNAVAILABLE)
+        self.assertIsNone(roundtripped.metrics)
+
+    def test_historical_content_defaults_to_completed(self):
+        content = EvalReportContent.from_dict({"metrics": {"total_runs": 5}})
+
+        self.assertEqual(content.generation_status, EvalReportGenerationStatus.COMPLETED)
+        self.assertIsNotNone(content.metrics)
+        assert content.metrics is not None
+        self.assertEqual(content.metrics.total_runs, 5)
 
 
 class TestSectionBounds(SimpleTestCase):

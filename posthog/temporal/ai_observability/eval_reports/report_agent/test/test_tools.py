@@ -726,6 +726,27 @@ class TestListAndGetReportRun(BaseTest):
         self.assertEqual(entry["result_rates"], {"pass": 75.0, "fail": 25.0, "na": 0.0})
         self.assertEqual(entry["total_runs"], 8)
 
+    def test_metrics_unavailable_runs_are_not_agent_history(self):
+        now = timezone.now()
+        unavailable_run = self.EvaluationReportRun.objects.create(
+            report=self.report,
+            content={
+                "title": "Metrics temporarily unavailable",
+                "sections": [],
+                "generation_status": "metrics_unavailable",
+                "metrics": None,
+            },
+            metadata={},
+            period_start=now - dt.timedelta(hours=2),
+            period_end=now - dt.timedelta(hours=1),
+        )
+
+        listed_run_ids = {run["run_id"] for run in json.loads(_list_recent_report_runs_fn(state=self.state))}
+        fetched = json.loads(_get_report_run_fn(state=self.state, run_id=str(unavailable_run.id)))
+
+        self.assertNotIn(str(unavailable_run.id), listed_run_ids)
+        self.assertIn("error", fetched)
+
     def test_get_rejects_non_uuid(self):
         result = json.loads(_get_report_run_fn(state=self.state, run_id="not-a-uuid"))
         self.assertIn("error", result)
@@ -768,13 +789,11 @@ class TestListAndGetReportRun(BaseTest):
 
 
 class TestExecuteChQueryWithRetry(SimpleTestCase):
-    """The query helpers must ride out transient ClickHouse errors instead of dropping analyses."""
-
     @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools.time.sleep")
-    def test_retries_transient_error_then_succeeds(self, mock_sleep):
+    def test_retries_transient_error_then_succeeds(self, mock_sleep: MagicMock) -> None:
         attempts = {"n": 0}
 
-        def run_query():
+        def run_query() -> str:
             attempts["n"] += 1
             if attempts["n"] < 3:
                 raise ClickHouseAtCapacity()
@@ -787,8 +806,8 @@ class TestExecuteChQueryWithRetry(SimpleTestCase):
         self.assertEqual(mock_sleep.call_count, 2)
 
     @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools.time.sleep")
-    def test_reraises_after_exhausting_retries(self, mock_sleep):
-        def run_query():
+    def test_reraises_after_exhausting_retries(self, mock_sleep: MagicMock) -> None:
+        def run_query() -> str:
             raise ClickHouseAtCapacity()
 
         with self.assertRaises(ClickHouseAtCapacity):
@@ -797,8 +816,8 @@ class TestExecuteChQueryWithRetry(SimpleTestCase):
         self.assertEqual(mock_sleep.call_count, 2)
 
     @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools.time.sleep")
-    def test_does_not_retry_non_transient_error(self, mock_sleep):
-        def run_query():
+    def test_does_not_retry_non_transient_error(self, mock_sleep: MagicMock) -> None:
+        def run_query() -> str:
             raise ValueError("bug")
 
         with self.assertRaises(ValueError):

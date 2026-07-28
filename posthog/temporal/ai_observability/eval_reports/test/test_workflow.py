@@ -73,12 +73,12 @@ async def test_generate_workflow_forwards_sentiment_output_type() -> None:
 
 
 @pytest.mark.parametrize(
-    ("preserve_patch_enabled", "expected_metrics_available"),
-    [(True, False), (False, True)],
+    ("generation_status_patch_enabled", "expected_generation_status"),
+    [(True, "metrics_unavailable"), (False, "completed")],
 )
 @pytest.mark.asyncio
-async def test_generate_workflow_forwards_unavailable_metrics_to_schedule(
-    preserve_patch_enabled: bool, expected_metrics_available: bool
+async def test_generate_workflow_forwards_generation_status_to_schedule(
+    generation_status_patch_enabled: bool, expected_generation_status: str
 ) -> None:
     activity_inputs: list[object] = []
     responses = iter(
@@ -97,10 +97,10 @@ async def test_generate_workflow_forwards_unavailable_metrics_to_schedule(
             ),
             RunEvalReportAgentOutput(
                 report_id="report-id",
-                content={"metrics": {"metrics_available": False}},
+                content={"generation_status": "metrics_unavailable", "metrics": None},
                 period_start="2026-07-01T00:00:00+00:00",
                 period_end="2026-07-02T00:00:00+00:00",
-                metrics_available=False,
+                generation_status="metrics_unavailable",
             ),
             StoreReportRunOutput(report_run_id="run-id"),
             None,
@@ -120,7 +120,7 @@ async def test_generate_workflow_forwards_unavailable_metrics_to_schedule(
         patch(
             "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.patched",
             side_effect=lambda patch_id: (
-                preserve_patch_enabled and patch_id == "eval-report-preserve-unavailable-period-2026-07"
+                generation_status_patch_enabled and patch_id == "eval-report-generation-status-2026-07"
             ),
         ),
     ):
@@ -130,7 +130,58 @@ async def test_generate_workflow_forwards_unavailable_metrics_to_schedule(
 
     schedule_input = activity_inputs[4]
     assert isinstance(schedule_input, UpdateNextDeliveryDateInput)
-    assert schedule_input.metrics_available is expected_metrics_available
+    assert schedule_input.generation_status == expected_generation_status
+
+
+@pytest.mark.asyncio
+async def test_generate_workflow_does_not_emit_signal_without_metrics() -> None:
+    responses = iter(
+        [
+            PrepareReportContextOutput(
+                report_id="report-id",
+                team_id=1,
+                evaluation_id="evaluation-id",
+                evaluation_name="Evaluation",
+                evaluation_description="",
+                evaluation_prompt="",
+                evaluation_type="llm_judge",
+                period_start="2026-07-01T00:00:00+00:00",
+                period_end="2026-07-02T00:00:00+00:00",
+                previous_period_start="2026-06-30T00:00:00+00:00",
+            ),
+            RunEvalReportAgentOutput(
+                report_id="report-id",
+                content={"generation_status": "metrics_unavailable", "metrics": None},
+                period_start="2026-07-01T00:00:00+00:00",
+                period_end="2026-07-02T00:00:00+00:00",
+                generation_status="metrics_unavailable",
+            ),
+            StoreReportRunOutput(report_run_id="run-id"),
+            None,
+        ]
+    )
+
+    async def fake_execute_activity(_activity, _inputs, **_kwargs):
+        return next(responses)
+
+    with (
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.execute_activity",
+            new=fake_execute_activity,
+        ),
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.patched",
+            return_value=True,
+        ),
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.start_child_workflow"
+        ) as start_child_workflow,
+    ):
+        await GenerateAndDeliverEvalReportWorkflow().run(
+            GenerateAndDeliverEvalReportWorkflowInput(report_id="report-id", manual=True)
+        )
+
+    start_child_workflow.assert_not_called()
 
 
 @pytest.mark.asyncio

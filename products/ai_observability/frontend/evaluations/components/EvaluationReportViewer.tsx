@@ -130,6 +130,9 @@ const RESULT_ORDER: Record<EvaluationOutputType, string[]> = {
     sentiment: ['positive', 'neutral', 'negative'],
 }
 
+const METRICS_UNAVAILABLE_MESSAGE =
+    'Metrics could not be calculated for this period because evaluation data was temporarily unavailable. This does not mean that no evaluations ran.'
+
 interface EvaluationReportResultMetric {
     key: string
     label: string
@@ -194,9 +197,6 @@ function getBooleanPassRate(
 }
 
 export function summarizeEvaluationReportResults(metrics: EvaluationReportStoredMetrics): string {
-    if (metrics.metrics_available === false) {
-        return 'Metrics unavailable'
-    }
     const resultMetrics = getResultMetrics(metrics)
     if ((metrics.output_type ?? 'boolean') === 'boolean') {
         const passRate = getBooleanPassRate(metrics, resultMetrics)
@@ -223,16 +223,6 @@ export function summarizeEvaluationReportResults(metrics: EvaluationReportStored
 }
 
 function MetricsCard({ metrics }: { metrics: EvaluationReportStoredMetrics }): JSX.Element {
-    // A failed metrics query must not render as a real "0 runs" period.
-    if (metrics.metrics_available === false) {
-        return (
-            <div className="bg-bg-light border rounded p-3 mb-3 text-sm text-muted">
-                Metrics could not be computed for this period because the analytics store was temporarily unavailable.
-                This does not mean no evaluations ran.
-            </div>
-        )
-    }
-
     const resultMetrics = getResultMetrics(metrics)
     const isBooleanMetrics = (metrics.output_type ?? 'boolean') === 'boolean'
     const passRate = isBooleanMetrics ? getBooleanPassRate(metrics, resultMetrics) : undefined
@@ -327,6 +317,7 @@ export function EvaluationReportViewer({
     const content = reportRun.content
     const sections = useMemo(() => content.sections ?? [], [content.sections])
     const metrics = content.metrics ?? reportRun.metadata
+    const metricsUnavailable = content.generation_status === 'metrics_unavailable'
     const citations = useMemo(() => content.citations ?? [], [content.citations])
 
     // Default to executive summary (first section) expanded. Memoized so Expand/Collapse all
@@ -387,7 +378,13 @@ export function EvaluationReportViewer({
                 </div>
             )}
 
-            {metrics && <MetricsCard metrics={metrics} />}
+            {metricsUnavailable ? (
+                <div className="bg-bg-light border rounded p-3 mb-3 text-sm text-muted">
+                    {METRICS_UNAVAILABLE_MESSAGE}
+                </div>
+            ) : (
+                metrics && <MetricsCard metrics={metrics} />
+            )}
 
             {sections.length > 0 && (
                 <>

@@ -25551,8 +25551,6 @@ export namespace Schemas {
          * @nullable
          */
       previous_pass_rate?: number | null;
-      /** False when the metrics query failed rather than the period being genuinely empty; counts and rates are then placeholders and must not be shown as real results. Absent on historical reports, which count as available. */
-      metrics_available?: boolean;
     }
 
     export interface EvaluationReportSection {
@@ -25561,6 +25559,18 @@ export namespace Schemas {
       /** Markdown narrative for this section. */
       content?: string;
     }
+
+    /**
+     * * `completed` - completed
+     * * `metrics_unavailable` - metrics_unavailable
+     */
+    export type GenerationStatusEnum = typeof GenerationStatusEnum[keyof typeof GenerationStatusEnum];
+
+
+    export const GenerationStatusEnum = {
+      Completed: 'completed',
+      MetricsUnavailable: 'metrics_unavailable',
+    } as const;
 
     export interface EvaluationReportRunContent {
       /** Evaluation target analyzed by this report run. Legacy runs without this field targeted generations.
@@ -25574,7 +25584,12 @@ export namespace Schemas {
       sections?: EvaluationReportSection[];
       /** References grounding findings in the report. */
       citations?: EvaluationReportCitation[];
-      /** Structured metrics computed for the report period. */
+      /** Whether report generation completed or metrics were temporarily unavailable. Legacy runs without this field completed normally.
+       *
+       * * `completed` - completed
+       * * `metrics_unavailable` - metrics_unavailable */
+      generation_status?: GenerationStatusEnum;
+      /** Structured metrics for completed reports, or null when metrics were temporarily unavailable. */
       metrics?: EvaluationReportMetrics | null;
     }
 
