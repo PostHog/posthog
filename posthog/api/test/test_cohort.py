@@ -6443,11 +6443,7 @@ class TestCohortTypeIntegration(APIBaseTest):
         self.assertEqual(response.data["condition_type"], expected_condition_type)
 
     def test_filter_test_accounts_persists_and_forces_batch_calculation(self):
-        """The same person-property filter classifies as realtime without the flag (see
-        test_cohort_type_not_set_when_not_provided). With filterTestAccounts on, the flag must
-        survive the serializer round-trip and the cohort must be forced off the realtime path,
-        because realtime bytecode can't see the injected test account filters."""
-
+        # Forced off the realtime path because realtime bytecode can't see the injected test account filters.
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts/",
             {
@@ -6477,10 +6473,6 @@ class TestCohortTypeIntegration(APIBaseTest):
         self.assertNotEqual(cohort.cohort_type, CohortType.REALTIME)
 
     def test_filter_test_accounts_patch_toggles_realtime_routing(self):
-        """Editing an existing realtime cohort to turn the flag on must flip it to the batch path,
-        and turning it back off must restore realtime eligibility. Covers the update path, which is
-        separate from create."""
-
         person_property_filters = {
             "type": "AND",
             "values": [{"type": "person", "key": "email", "operator": "icontains", "value": "@posthog.com"}],
