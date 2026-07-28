@@ -10,6 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
     rest_api_resources,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import AuthConfigBase
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BasePaginator,
     SinglePagePaginator,
@@ -93,18 +94,20 @@ class ResendEmailsPaginator(BasePaginator):
             self._has_next_page = True
 
 
-def _client_config(api_key: str) -> ClientConfig:
-    # Framework Bearer auth (not a hand-built header) so the key is redacted from logged URLs/headers.
+def _client_config(auth: AuthConfigBase) -> ClientConfig:
+    # Framework auth object (not a hand-built header) so the credential is redacted from logged
+    # URLs/headers. Both auth methods pass a bearer here: a static API key, or the Resend OAuth
+    # access token wrapped in an auth that re-mints it through the integration row (see oauth.py).
     return {
         "base_url": RESEND_BASE_URL,
         "headers": {"Accept": "application/json"},
-        "auth": {"type": "bearer", "token": api_key},
+        "auth": auth,
     }
 
 
 def _simple_resource(
     config: ResendEndpointConfig,
-    api_key: str,
+    auth: AuthConfigBase,
     team_id: int,
     job_id: str,
     manager: ResumableSourceManager[ResendResumeConfig],
@@ -130,7 +133,7 @@ def _simple_resource(
     }
 
     rest_config: RESTAPIConfig = {
-        "client": _client_config(api_key),
+        "client": _client_config(auth),
         "resources": [{"name": config.name, "endpoint": endpoint}],
     }
 
@@ -167,7 +170,7 @@ def _inject_audience_id(row: dict[str, Any]) -> dict[str, Any]:
 
 def _fan_out_resource(
     config: ResendEndpointConfig,
-    api_key: str,
+    auth: AuthConfigBase,
     team_id: int,
     job_id: str,
     manager: ResumableSourceManager[ResendResumeConfig],
@@ -184,7 +187,7 @@ def _fan_out_resource(
     }
 
     rest_config: RESTAPIConfig = {
-        "client": _client_config(api_key),
+        "client": _client_config(auth),
         "resources": [
             {
                 "name": config.parent,
@@ -233,7 +236,7 @@ def _fan_out_resource(
 
 
 def resend_source(
-    api_key: str,
+    auth: AuthConfigBase,
     endpoint: str,
     team_id: int,
     job_id: str,
@@ -242,9 +245,9 @@ def resend_source(
     config = RESEND_ENDPOINTS[endpoint]
 
     if config.parent is not None:
-        resource = _fan_out_resource(config, api_key, team_id, job_id, resumable_source_manager)
+        resource = _fan_out_resource(config, auth, team_id, job_id, resumable_source_manager)
     else:
-        resource = _simple_resource(config, api_key, team_id, job_id, resumable_source_manager)
+        resource = _simple_resource(config, auth, team_id, job_id, resumable_source_manager)
 
     return SourceResponse(
         name=endpoint,
@@ -259,12 +262,13 @@ def resend_source(
     )
 
 
-def validate_credentials(api_key: str) -> bool:
-    # /domains is a cheap read-only call that requires a valid API key with at least read scope —
-    # Resend returns 401 for bad keys and 200 for good ones.
+def validate_credentials(token: str) -> bool:
+    # /domains is a cheap read-only call that requires a valid credential with at least read scope —
+    # Resend returns 401 for bad tokens and 200 for good ones. Works for a static API key or an OAuth
+    # access token (both are sent as bearer tokens).
     ok, _status = validate_via_probe(
-        lambda: make_tracked_session(redact_values=(api_key,)),
+        lambda: make_tracked_session(redact_values=(token,)),
         f"{RESEND_BASE_URL}/domains",
-        headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
     )
     return ok

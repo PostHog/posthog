@@ -20,7 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import OpenAISourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openai import OpenAISourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.openai.openai import (
     OpenAIResumeConfig,
     openai_source,
@@ -91,6 +91,7 @@ Create an Admin API key (prefixed `sk-admin...`) in your [OpenAI organization se
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = OPENAI_ENDPOINTS[endpoint]
@@ -110,7 +111,11 @@ Create an Admin API key (prefixed `sk-admin...`) in your [OpenAI organization se
         return schemas
 
     def validate_credentials(
-        self, config: OpenAISourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: OpenAISourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_openai_credentials(config.api_key):
             return True, None

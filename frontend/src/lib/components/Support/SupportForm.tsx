@@ -55,7 +55,14 @@ const SUPPORT_TICKET_KIND_TO_PROMPT: Record<SupportTicketKind, string> = {
     support: 'What can we help you with?',
 }
 
-export function SupportForm(): JSX.Element | null {
+interface SupportFormProps {
+    /** Overrides the message field label (e.g. "Anything to add?" for the PostHog AI ticket flow) */
+    messageLabel?: string
+    /** Overrides the message field placeholder */
+    messagePlaceholder?: string
+}
+
+export function SupportForm({ messageLabel, messagePlaceholder }: SupportFormProps = {}): JSX.Element | null {
     const { sendSupportRequest, conversationsFlagEnabled } = useValues(supportLogic)
     const { setSendSupportRequestValue } = useActions(supportLogic)
     const { objectStorageAvailable } = useValues(preflightLogic)
@@ -177,12 +184,19 @@ export function SupportForm(): JSX.Element | null {
             )}
             <LemonField
                 name="message"
-                label={sendSupportRequest.kind ? SUPPORT_TICKET_KIND_TO_PROMPT[sendSupportRequest.kind] : 'Content'}
+                label={
+                    messageLabel ??
+                    (sendSupportRequest.kind ? SUPPORT_TICKET_KIND_TO_PROMPT[sendSupportRequest.kind] : 'Content')
+                }
             >
                 {(props) => (
                     <div ref={dropRef} className="flex flex-col gap-2" onPaste={handlePaste}>
                         <LemonTextArea
-                            placeholder={SUPPORT_TICKET_TEMPLATES[sendSupportRequest.kind] ?? 'Type your message here'}
+                            placeholder={
+                                messagePlaceholder ??
+                                SUPPORT_TICKET_TEMPLATES[sendSupportRequest.kind] ??
+                                'Type your message here'
+                            }
                             data-attr="support-form-content-input"
                             minRows={5}
                             {...props}

@@ -26,7 +26,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PersonioSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.personio import (
+    PersonioSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.personio.personio import (
     PersonioResumeConfig,
     personio_source,
@@ -108,11 +110,16 @@ An admin can create API credentials in Personio under Settings > Integrations > 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: PersonioSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: PersonioSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_personio_credentials(config.client_id, config.client_secret):
             return True, None

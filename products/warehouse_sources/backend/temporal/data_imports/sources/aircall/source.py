@@ -32,7 +32,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AircallSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.aircall import (
+    AircallSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -103,11 +105,16 @@ You can create an API key (API ID + API token) in your [Aircall dashboard](https
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: AircallSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: AircallSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_aircall_credentials(config.api_id, config.api_token):
             return True, None

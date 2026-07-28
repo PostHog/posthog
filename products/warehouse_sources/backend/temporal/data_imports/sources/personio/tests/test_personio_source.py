@@ -7,7 +7,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     OAUTH2_PERMANENT_ERROR_MARKER,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PersonioSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.personio import (
+    PersonioSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.personio.personio import PersonioResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.personio.settings import (
     ENDPOINTS,

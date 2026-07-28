@@ -5,7 +5,7 @@ from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInp
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ZoomSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zoom import ZoomSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.zoom.source import ZoomSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.zoom.zoom import ZoomResumeConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType

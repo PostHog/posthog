@@ -55,14 +55,34 @@ const SIDE_BY_SIDE_DIFF_EDITOR_OPTIONS: editor.IDiffEditorConstructionOptions = 
     renderSideBySideInlineBreakpoint: 560,
 }
 
+// Show-everything variants for evidence cards that cap height themselves — collapsing unchanged
+// regions AND capping would hide the same content twice and make the expand affordance lie.
+const SHOW_ALL_DIFF_EDITOR_OPTIONS: editor.IDiffEditorConstructionOptions = {
+    ...DIFF_EDITOR_OPTIONS,
+    hideUnchangedRegions: { enabled: false },
+}
+const SIDE_BY_SIDE_SHOW_ALL_DIFF_EDITOR_OPTIONS: editor.IDiffEditorConstructionOptions = {
+    ...SIDE_BY_SIDE_DIFF_EDITOR_OPTIONS,
+    hideUnchangedRegions: { enabled: false },
+}
+
+function pickDiffEditorOptions(sideBySide: boolean, hideUnchanged: boolean): editor.IDiffEditorConstructionOptions {
+    if (sideBySide) {
+        return hideUnchanged ? SIDE_BY_SIDE_DIFF_EDITOR_OPTIONS : SIDE_BY_SIDE_SHOW_ALL_DIFF_EDITOR_OPTIONS
+    }
+    return hideUnchanged ? DIFF_EDITOR_OPTIONS : SHOW_ALL_DIFF_EDITOR_OPTIONS
+}
+
 export function DiffEditor({
     diff,
     path,
     sideBySide,
+    hideUnchanged = true,
 }: {
     diff: ToolCallDiffContent
     path?: string
     sideBySide?: boolean
+    hideUnchanged?: boolean
 }): JSX.Element {
     // Lazy-mount: only instantiate the Monaco diff editor once the card scrolls near the viewport.
     const { ref, inView } = useInView({ rootMargin: '500px', triggerOnce: true })
@@ -78,7 +98,7 @@ export function DiffEditor({
                     modified={diff.newText ?? ''}
                     language={languageFromPath(path)}
                     theme={isDarkModeOn ? 'vs-dark' : 'vs'}
-                    options={sideBySide ? SIDE_BY_SIDE_DIFF_EDITOR_OPTIONS : DIFF_EDITOR_OPTIONS}
+                    options={pickDiffEditorOptions(!!sideBySide, hideUnchanged)}
                     loading={<EditorSkeleton />}
                 />
             ) : (

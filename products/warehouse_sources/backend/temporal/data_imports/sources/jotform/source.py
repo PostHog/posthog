@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import JotformSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.jotform import (
+    JotformSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.jotform.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
@@ -124,6 +126,7 @@ Supported tables:
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -154,7 +157,11 @@ Supported tables:
         return True, None
 
     def validate_credentials(
-        self, config: JotformSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: JotformSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         enterprise_domain = config.enterprise_domain
 

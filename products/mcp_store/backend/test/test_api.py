@@ -1,4 +1,5 @@
 import hashlib
+from datetime import timedelta
 from urllib.parse import parse_qs, urlparse
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
@@ -6,10 +7,13 @@ from unittest.mock import patch
 
 from django.http import HttpResponse
 from django.test import TestCase
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
+
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 
 from products.mcp_store.backend.models import MCPOAuthState, MCPServerInstallation, MCPServerTemplate
 from products.mcp_store.backend.presentation.views import _is_valid_posthog_code_callback_url
@@ -175,6 +179,35 @@ class TestMCPServerAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "linear.app", theme=expected_theme, fallback="404", team_id=self.team.id
         )
 
+    def test_icon_allows_oauth_project_read_scope(self):
+        oauth_application = OAuthApplication.objects.create(
+            name="MCP icon test",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.user,
+        )
+        access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=oauth_application,
+            token="pha_test_mcp_icon",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="project:read",
+        )
+        client = APIClient()
+
+        with patch("products.mcp_store.backend.presentation.views.CDPIconsService") as service:
+            service.return_value.get_icon_http_response.return_value = HttpResponse(b"png", content_type="image/png")
+            response = client.get(
+                f"/api/environments/{self.team.id}/mcp_servers/icon/",
+                data={"domain": "linear.app"},
+                headers={"authorization": f"Bearer {access_token.token}"},
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+
     def test_unauthenticated_access(self):
         client = APIClient()
         response = client.get(f"/api/environments/{self.team.id}/mcp_servers/")
@@ -211,7 +244,7 @@ class TestMCPServerInstallationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchi
     def test_list_installation_icon_fields_from_template(self):
         # Pass non-normalized icon values to confirm the model's save() normalizes them and
         # both flow through the serializer — icon_key must stay exposed alongside icon_domain
-        # until PostHog Code stops reading it.
+        # until PostHog Desktop stops reading it.
         template = MCPServerTemplate.objects.create(
             name="PostHog MCP",
             url="https://mcp.notion.example/mcp",

@@ -24,7 +24,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import TeamworkSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.teamwork import (
+    TeamworkSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.teamwork.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
@@ -107,11 +109,16 @@ Find your API key under **Profile → Edit my details → API & Mobile** in Team
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: TeamworkSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: TeamworkSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         host = normalize_host(config.site)
 

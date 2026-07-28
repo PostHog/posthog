@@ -1,7 +1,7 @@
 import { HogFunctionInputSchemaType } from '~/cdp/types'
 import { HogFunctionTemplate } from '~/cdp/types'
 
-// Based on https://developers.google.com/google-ads/api/reference/rpc/v21/ClickConversion
+// Based on https://developers.google.com/google-ads/api/reference/rpc/v24/ClickConversion
 
 const build_inputs = (): HogFunctionInputSchemaType[] => {
     return [
@@ -137,7 +137,7 @@ let body := {
     'partialFailure': true
 }
 
-let res := fetch(f'https://googleads.googleapis.com/v21/customers/{splitByString('/', inputs.customerId)[1]}:uploadClickConversions', {
+let res := fetch(f'https://googleads.googleapis.com/v24/customers/{splitByString('/', inputs.customerId)[1]}:uploadClickConversions', {
     'method': 'POST',
     'headers': {
         'Authorization': f'Bearer {inputs.oauth.access_token}',

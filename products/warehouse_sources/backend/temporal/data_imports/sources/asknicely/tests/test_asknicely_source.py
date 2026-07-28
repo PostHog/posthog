@@ -9,7 +9,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.sources.asknicely.asknicely import AskNicelyResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.asknicely.source import AsknicelySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AsknicelySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.asknicely import (
+    AsknicelySourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

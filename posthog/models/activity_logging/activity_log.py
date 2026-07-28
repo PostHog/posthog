@@ -80,6 +80,7 @@ ActivityScope = Literal[
     "ExternalDataSource",
     "ExternalDataSchema",
     "Evaluation",
+    "LLMPrompt",
     "LLMPromptLabel",
     "LLMTrace",
     "AIGatewayCredit",
@@ -98,6 +99,7 @@ ActivityScope = Literal[
     "Metric",
     "TableCertification",
     "Billing",
+    "Loop",
 ]
 ChangeAction = Literal[
     "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out", "copied"
@@ -276,6 +278,15 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
         # Full content snapshot including action inputs (auth headers, API keys) — record that a
         # draft was staged/published/discarded, never its contents.
         "draft",
+        # Encrypted secret function inputs (Fernet ciphertext) — a diff would be noise at best and
+        # leak-adjacent at worst; record that they changed, never the values.
+        "encrypted_inputs",
+        "draft_encrypted_inputs",
+        # The action graph can carry secret function inputs (auth headers, API keys). New writes strip
+        # them into encrypted_inputs, but a legacy row's first write would diff its still-plaintext
+        # `before` against the stripped `after`, leaking the secret. Record that actions changed, never
+        # the contents — the per-version content audit lives in the revisions feature instead.
+        "actions",
     ],
     "OrganizationDomain": [
         "_scim_bearer_token",
@@ -356,6 +367,12 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
         "last_checked_at",
         "consecutive_failures",
         "state",
+    ],
+    "Loop": [
+        "last_run_at",
+        "last_run_status",
+        "last_error",
+        "consecutive_failures",
     ],
     "PersonalAPIKey": [
         "last_used_at",
@@ -438,6 +455,21 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "last_run_at",
         "source_insight_query_hash",
         "referenced_table_names",
+    ],
+    "Loop": [
+        # FK relations are not JSON-serializable for the change detail (same reason
+        # FeatureFlag/Subscription exclude theirs).
+        "team",
+        "sandbox_environment",
+        # Reverse FKs (LoopTrigger, LoopFire): reading them goes through those models' own
+        # fail-closed TeamScopedManagers with no ambient team scope at signal-handling time.
+        "triggers",
+        "fires",
+        # Run bookkeeping, not user-meaningful config.
+        "last_run_at",
+        "last_run_status",
+        "last_error",
+        "consecutive_failures",
     ],
     "OrganizationDomain": [
         "organization",

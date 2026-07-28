@@ -11,7 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.brex.brex 
 from products.warehouse_sources.backend.temporal.data_imports.sources.brex.settings import ENDPOINTS, INCREMENTAL_FIELDS
 from products.warehouse_sources.backend.temporal.data_imports.sources.brex.source import BrexSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BrexSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.brex import BrexSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

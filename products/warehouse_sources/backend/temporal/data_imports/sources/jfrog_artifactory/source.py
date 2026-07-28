@@ -21,7 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.jfrogartifactory import (
     JfrogArtifactorySourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.jfrog_artifactory.jfrog_artifactory import (
@@ -117,6 +117,7 @@ The `artifacts` and `repositories` tables work with any authenticated token that
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _description(endpoint: str) -> str | None:
             if endpoint == "builds":
@@ -144,7 +145,11 @@ The `artifacts` and `repositories` tables work with any authenticated token that
         return schemas
 
     def validate_credentials(
-        self, config: JfrogArtifactorySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: JfrogArtifactorySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
             host_valid, host_error = self.is_database_host_valid(hostname_of(config.base_url), team_id)
@@ -180,7 +185,7 @@ The `artifacts` and `repositories` tables work with any authenticated token that
         return False, "Could not connect to JFrog with the provided platform URL and access token"
 
     def get_endpoint_permissions(
-        self, config: JfrogArtifactorySourceConfig, team_id: int, endpoints: list[str]
+        self, config: JfrogArtifactorySourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
     ) -> dict[str, str | None]:
         permissions: dict[str, str | None] = {}
         for endpoint in endpoints:

@@ -4,7 +4,9 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GoCardlessSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gocardless import (
+    GoCardlessSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.gocardless.gocardless import (
     GoCardlessResumeConfig,
 )

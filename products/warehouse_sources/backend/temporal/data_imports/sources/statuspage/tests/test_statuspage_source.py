@@ -9,7 +9,9 @@ from posthog.schema import (
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import StatuspageSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.statuspage import (
+    StatuspageSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.statuspage.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.statuspage.source import StatuspageSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.statuspage.statuspage import (

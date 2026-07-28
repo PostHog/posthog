@@ -31,7 +31,7 @@ class TestGetLlmClient:
         mock_settings.LLM_GATEWAY_URL = ""
         mock_settings.LLM_GATEWAY_API_KEY = "test-key"
 
-        with pytest.raises(ValueError, match="LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured"):
+        with pytest.raises(ValueError, match="LLM_GATEWAY_URL and an API key must be configured"):
             get_llm_client(product="django", team_id=1)
 
     @patch("posthog.llm.gateway_client.settings")
@@ -39,7 +39,7 @@ class TestGetLlmClient:
         mock_settings.LLM_GATEWAY_URL = "http://gateway:8080"
         mock_settings.LLM_GATEWAY_API_KEY = ""
 
-        with pytest.raises(ValueError, match="LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured"):
+        with pytest.raises(ValueError, match="LLM_GATEWAY_URL and an API key must be configured"):
             get_llm_client(product="django", team_id=1)
 
     @patch("posthog.llm.gateway_client.settings")
@@ -51,6 +51,15 @@ class TestGetLlmClient:
 
         assert str(client.base_url) == "http://gateway:8080/django/v1/"
         assert client.api_key == "test-key"
+
+    @patch("posthog.llm.gateway_client.settings")
+    def test_uses_explicit_api_key(self, mock_settings):
+        mock_settings.LLM_GATEWAY_URL = "http://gateway:8080"
+        mock_settings.LLM_GATEWAY_API_KEY = "shared-key"
+
+        client = get_llm_client(product="custom_image_scans", team_id=1, api_key="server-minted-token")
+
+        assert client.api_key == "server-minted-token"
 
     @pytest.mark.parametrize(
         "product,expected_path",

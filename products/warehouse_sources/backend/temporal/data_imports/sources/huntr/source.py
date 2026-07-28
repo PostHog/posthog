@@ -23,7 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import HuntrSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.huntr import HuntrSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.huntr.huntr import (
     HuntrResumeConfig,
     huntr_source,
@@ -95,13 +95,14 @@ You can generate an access token in your Huntr organization admin dashboard. The
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — no resource exposes a reliable updated_after cursor, so
         # there is no incremental cursor to advance across every stream (INCREMENTAL_FIELDS is empty).
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: HuntrSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: HuntrSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         # The access token is organization-wide, so a single probe validates access to every schema.
         return validate_credentials(config.access_token)

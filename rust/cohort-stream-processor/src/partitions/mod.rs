@@ -20,7 +20,7 @@ pub use cohort_core::partitioner;
 pub use backpressure::{Backpressure, PartitionHoldover};
 pub use follower::{Follower, FollowerSet, PartitionMirror};
 pub use intake::{Admission, MeteredReceiver, PartitionIntake};
-pub use offset_tracker::{MarkOutcome, OffsetTracker};
+pub use offset_tracker::{DeferredOffset, MarkOutcome, OffsetTracker};
 pub use partitioner::{
     merge_partition_key, murmur2, partition_for, partition_of, COHORT_PARTITION_COUNT,
 };

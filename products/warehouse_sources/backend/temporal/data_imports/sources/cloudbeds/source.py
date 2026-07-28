@@ -33,7 +33,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CloudbedsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cloudbeds import (
+    CloudbedsSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -113,13 +115,18 @@ If your account manages multiple properties, enter the ID of the property you wa
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only for now (INCREMENTAL_FIELDS is empty) - see the note in
         # settings.py about the unverified `modifiedSince` filter on getReservations.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: CloudbedsSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: CloudbedsSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # One probe validates the token itself; per-endpoint OAuth scopes surface at sync time via
         # get_non_retryable_errors.

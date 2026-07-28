@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import LaunchDarklySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.launchdarkly import (
+    LaunchDarklySourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.launchdarkly.launchdarkly import (
     LaunchDarklyResumeConfig,
     launchdarkly_source,
@@ -94,6 +96,7 @@ You can create a personal or service access token in your [LaunchDarkly account 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # LaunchDarkly's API exposes no server-side timestamp filter on these resources,
         # so every endpoint is full-refresh only (no incremental/append support).
@@ -112,7 +115,11 @@ You can create a personal or service access token in your [LaunchDarkly account 
         return schemas
 
     def validate_credentials(
-        self, config: LaunchDarklySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: LaunchDarklySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # Fan-out endpoints can't be probed without a project key, so confirm scope against
         # /projects (their prerequisite); top-level endpoints probe their own path.

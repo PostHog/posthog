@@ -1,49 +1,26 @@
 //! URL scrub. `None` means "unchanged".
 //!
+//! Hostnames identify the customer (the business running PostHog), not an individual user, so
+//! they pass through intact; the parts of a URL that can identify a user or a machine are
+//! scrubbed:
+//!
 //! - Numbers (a bare run of digits) are masked to `$` per digit (length-preserving; `$` rather than
 //!   `#` so it doesn't clash with the fragment separator).
+//! - Host: an IP-address host -> `[ip_address]`; a port -> `:[port]`; domain names are kept.
 //! - Path: keep allow-listed segments; a number -> `$$`; anything else -> `[redacted]`.
 //! - Query: a param survives only if its key or value is an allow-listed alphanumeric token.
 //! - Fragment: kept only if it is an allow-listed alphanumeric token.
 //! - Userinfo (`user:pass@`) is always stripped from the authority.
 //! - A scheme without slashes (`mailto:`, `tel:`) is kept; the rest is scrubbed as a path.
-//! - With `collapse_host`, or when the host matches the context's first-party host patterns
-//!   (the team's recording domains), it additionally drops the port and collapses the host to
-//!   `example.com` (keeping a leading allow-listed subdomain label).
+
+use url::Host;
 
 use crate::allow_lists::AllowLists;
 use crate::context::Ctx;
 
 pub const URL_ALLOWLIST: &[&str] = &["about:blank", "about:srcdoc"];
 
-fn strip_port(host: &mut String) {
-    if let Some(ci) = host.rfind(':') {
-        let after = &host[ci + 1..];
-        if !after.is_empty() && after.bytes().all(|b| b.is_ascii_digit()) {
-            host.truncate(ci);
-        }
-    }
-}
-
-fn is_first_party_host(ctx: &Ctx<'_>, host_port: &str) -> bool {
-    if ctx.first_party_hosts.is_empty() {
-        return false;
-    }
-    let mut host = host_port.to_ascii_lowercase();
-    strip_port(&mut host);
-    ctx.first_party_hosts.iter().any(|pattern| {
-        host == *pattern
-            || (host.len() > pattern.len()
-                && host.ends_with(pattern.as_str())
-                && host.as_bytes()[host.len() - pattern.len() - 1] == b'.')
-    })
-}
-
 pub fn scrub_url(ctx: &Ctx<'_>, input: &str) -> Option<String> {
-    scrub_url_opts(ctx, input, false)
-}
-
-pub fn scrub_url_opts(ctx: &Ctx<'_>, input: &str, collapse_host: bool) -> Option<String> {
     let allow = ctx.allow;
     if URL_ALLOWLIST.contains(&input) {
         return None;
@@ -71,14 +48,8 @@ pub fn scrub_url_opts(ctx: &Ctx<'_>, input: &str, collapse_host: bool) -> Option
             // parse as the authority) must not pass through as if it were a hostname.
             out.push_str("[redacted]");
             changed = true;
-        } else if collapse_host || is_first_party_host(ctx, host_port) {
-            let collapsed = collapsed_host(allow, host_port);
-            if collapsed != host_port {
-                changed = true;
-            }
-            out.push_str(&collapsed);
         } else {
-            out.push_str(host_port);
+            changed |= push_host_port(host_port, &mut out);
         }
     }
 
@@ -172,25 +143,6 @@ fn scrub_tail(allow: &AllowLists, tail: &str) -> String {
         out.push_str(frag);
     }
     out
-}
-
-// Drop the port and rewrite the host to example.com. Keep a leading *subdomain* label
-// (only when there is one, i.e. >=3 labels) if it's url-allow-listed: `us.test.com` -> `us.example.com`.
-fn collapsed_host(allow: &AllowLists, host_port: &str) -> String {
-    let mut host = host_port;
-    if let Some(ci) = host.rfind(':') {
-        let after = &host[ci + 1..];
-        if !after.is_empty() && after.bytes().all(|b| b.is_ascii_digit()) {
-            host = &host[..ci];
-        }
-    }
-    let labels: Vec<&str> = host.split('.').collect();
-    let first = labels.first().copied().unwrap_or("");
-    if labels.len() > 2 && !first.is_empty() && allow.url_contains(first) {
-        format!("{first}.example.com")
-    } else {
-        "example.com".to_string()
-    }
 }
 
 // Pinned by `tests/fixtures/url-scheme-allowlist.json` (see `tests/parity.rs`).
@@ -317,6 +269,43 @@ fn split_url(s: &str) -> (&str, &str, &str) {
         None => (scheme, rest, ""),
         Some(path_off) => (scheme, &rest[..path_off], &rest[path_off..]),
     }
+}
+
+// A domain name passes through, but an IP address identifies a machine (possibly an end user's)
+// and a port is infrastructure detail, so both are masked. Returns whether anything was masked.
+// `host_port` has already passed `is_valid_host_port`, so a colon outside brackets can only
+// introduce a port.
+fn push_host_port(host_port: &str, out: &mut String) -> bool {
+    let (host, port) = match host_port.split_once(']') {
+        Some((bracketed, rest)) => (&host_port[..bracketed.len() + 1], rest.strip_prefix(':')),
+        None => match host_port.split_once(':') {
+            Some((host, port)) => (host, Some(port)),
+            None => (host_port, None),
+        },
+    };
+    let mut changed = false;
+    if is_ip_host(host) {
+        out.push_str("[ip_address]");
+        changed = true;
+    } else {
+        out.push_str(host);
+    }
+    if port.is_some() {
+        out.push_str(":[port]");
+        changed = true;
+    }
+    changed
+}
+
+// The WHATWG host parser (what browsers use) decides what is an IP: bracketed IPv6, plus every
+// IPv4 encoding browsers resolve (`192.168.0.1`, hex `0xc0a80101`, octal `0300.0250.0.1`, decimal
+// `3232235777`). Unparseable hosts mask too, incidentally — a browser can't have produced a
+// replay from one, so the case doesn't matter.
+fn is_ip_host(host: &str) -> bool {
+    if host.is_empty() {
+        return false;
+    }
+    !matches!(Host::parse(host), Ok(Host::Domain(_)))
 }
 
 // Host or `[ipv6]`, with an optional `:digits` port.

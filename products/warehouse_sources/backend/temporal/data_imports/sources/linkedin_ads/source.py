@@ -34,7 +34,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.linkedinads import (
+    LinkedinAdsSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 from .client import API_VERSION, LinkedinAdsApiError, LinkedinAdsDailyRateLimitError
@@ -111,6 +113,18 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
             # user must re-authorize. Model-specific so we don't swallow unrelated `DoesNotExist`
             # errors from other models, which may be real bugs.
             "Integration matching query does not exist": "Your LinkedIn Ads connection is no longer available — it may have been disconnected. Please re-authorize the LinkedIn Ads integration.",
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `client.py`'s `_call_finder` already retries these in-process via tenacity (5 attempts,
+        # exponential backoff honoring Retry-After) before re-raising `LinkedinAdsRetryableError`. A
+        # 429/5xx/malformed-body that survives all 5 attempts is a transient LinkedIn/edge blip, not
+        # a bug — Temporal's activity retry recovers once the upstream issue clears, so keep it out
+        # of error tracking as noise. Match the stable message prefix LinkedIn's own status/body are
+        # appended to, not the volatile status code or body.
+        return {
+            "LinkedIn API error (retryable, ",
+            "LinkedIn API returned a malformed (non-JSON) response",
         }
 
     @property
@@ -203,7 +217,11 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
         ]
 
     def validate_credentials(
-        self, config: LinkedinAdsSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: LinkedinAdsSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if not config.account_id or not config.linkedin_ads_integration_id:
             return False, "Account ID and LinkedIn Ads integration are required"
@@ -233,6 +251,7 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         linkedin_ads_schemas = get_linkedin_ads_schemas()
         ads_incremental_fields = get_linkedin_ads_incremental_fields()

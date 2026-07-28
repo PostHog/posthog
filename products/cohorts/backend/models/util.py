@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import copy
 import uuid
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Optional, Union, cast
 
 from django.conf import settings
+from django.db import DEFAULT_DB_ALIAS, InterfaceError, OperationalError, connections
 from django.utils import timezone
 
 import structlog
@@ -35,6 +36,7 @@ from posthog.exceptions import (
     ClickHouseQuerySizeExceeded,
     ClickHouseQueryTimeOut,
 )
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Filter, Team
 from posthog.models.person.sql import (
     DELETE_PERSON_FROM_STATIC_COHORT,
@@ -147,6 +149,30 @@ def parse_error_code(e: Exception) -> CohortErrorCode:
 COHORT_STATS_COLLECTION_DELAY_SECONDS = 60  # Short delay to allow query_log to flush before collecting stats
 
 logger = structlog.get_logger(__name__)
+
+
+def save_recovery_bookkeeping(save_fn: Callable[[], None], *, cohort_id: int, team_id: int) -> None:
+    """Persist post-calculation bookkeeping, surviving a Postgres connection dropped mid-recalculation.
+
+    A long recalculation can outlive its connection (the server closes it unexpectedly); the first
+    write afterwards then raises a connection error. Left unguarded on the error/finally recovery
+    path, that cascades into "the connection is closed" - burying the real root-cause error and
+    leaving the cohort stuck with is_calculating=True. Reconnect and retry once so the bookkeeping
+    still lands and the original error is what propagates; if the retry fails too, swallow it (a
+    recovery write must never mask the failure it is recording).
+    """
+    try:
+        save_fn()
+    except (InterfaceError, OperationalError):
+        connections[DEFAULT_DB_ALIAS].close()  # next query opens a fresh connection
+        try:
+            save_fn()
+        except Exception as retry_error:
+            # A swallowed retry means the cohort is stuck with is_calculating=True and no bookkeeping
+            # recorded. Surface it to error tracking, matching how other swallowed cohort-calculation
+            # errors are captured, so it alerts rather than only living in structured logs.
+            logger.warning("cohort_recalc_recovery_save_failed", cohort_id=cohort_id, team_id=team_id, exc_info=True)
+            capture_exception(retry_error, additional_properties={"cohort_id": cohort_id, "team_id": team_id})
 
 
 def run_cohort_query(
@@ -290,7 +316,11 @@ def format_person_query(cohort: Cohort, index: int) -> tuple[str, dict[str, Any]
         return "SELECT generateUUIDv4() as id WHERE 0 = 19", {}
 
     # Compile the cohort criteria via HogQLCohortQuery and embed the result as a person-id subquery.
-    cohort_query, cohort_context = hogql_cohort_subquery_sql(cohort, team=cohort.team)
+    # SECURITY-SENSITIVE: executes a saved, team-owned cohort definition with no acting user in
+    # scope - warehouse access is enforced when the definition is saved (CohortSerializer).
+    cohort_query, cohort_context = hogql_cohort_subquery_sql(
+        cohort, team=cohort.team, bypass_warehouse_access_control=True
+    )
     return _prefix_cohort_hogql_params(cohort_query, cohort_context.values, cohort=cohort, index=index)
 
 
@@ -338,6 +368,18 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
     uses_actor_id = False
 
     for select_query in extract_select_queries(query):
+        # Ordering is meaningless for an unbounded cohort, and an ORDER BY that references a
+        # computed select alias (e.g. `ai_active_days`) would dangle once we collapse the
+        # SELECT to just the actor column below, breaking HogQL resolution. Drop it — but only
+        # when the query is unbounded. With a LIMIT/OFFSET the ordering decides which rows
+        # survive, so dropping it would silently make membership a non-deterministic subset;
+        # keep both so a bounded "top N" cohort stays deterministic.
+        is_bounded = (
+            select_query.limit is not None or select_query.offset is not None or select_query.limit_by is not None
+        )
+        if not is_bounded:
+            select_query.order_by = None
+
         columns: dict[str, ast.Expr] = {}
 
         for expr in select_query.select:
@@ -598,6 +640,9 @@ def _cohort_distinct_ids_sql(cohort: Cohort, index: int, *, team: Team) -> tuple
         modifiers=_cohort_calculation_modifiers(),
         team=team,
         limit_context=LimitContext.COHORT_CALCULATION,
+        # SECURITY-SENSITIVE: executes a saved, team-owned cohort definition with no acting user
+        # in scope - warehouse access is enforced when the definition is saved (CohortSerializer).
+        bypass_warehouse_access_control=True,
         settings=HogQLGlobalSettings(),
     ).generate_clickhouse_sql()
     sql = _trim_trailing_settings(sql)
@@ -739,14 +784,29 @@ def _recalculate_cohortpeople_for_team(cohort: Cohort, pending_version: int, tea
         history.finished_at = timezone.now()
         history.error = str(e)
         history.error_code = parse_error_code(e)
-        history.save(update_fields=["finished_at", "error", "error_code"])
+        # The recalculation may have died because Postgres dropped the connection; record the
+        # failure resiliently so it reconnects instead of re-raising "connection is closed" and
+        # masking the real error e.
+        save_recovery_bookkeeping(
+            lambda: history.save(update_fields=["finished_at", "error", "error_code"]),
+            cohort_id=cohort.pk,
+            team_id=team.id,
+        )
         raise
 
 
-def hogql_cohort_subquery_sql(cohort: Cohort, *, team: Team) -> tuple[str, HogQLContext]:
+def hogql_cohort_subquery_sql(
+    cohort: Cohort,
+    *,
+    team: Team,
+    bypass_warehouse_access_control: bool = False,
+) -> tuple[str, HogQLContext]:
     from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
 
-    sql, hogql_context = HogQLCohortQuery(cohort=cohort, team=team).get_query_executor().generate_clickhouse_sql()
+    executor = HogQLCohortQuery(cohort=cohort, team=team).get_query_executor(
+        bypass_warehouse_access_control=bypass_warehouse_access_control
+    )
+    sql, hogql_context = executor.generate_clickhouse_sql()
 
     return _trim_trailing_settings(sql), hogql_context
 
@@ -765,7 +825,11 @@ def _recalculate_cohortpeople_for_team_hogql(
         history.save(update_fields=["finished_at", "count", "error", "error_code"])
         return 0
     else:
-        cohort_query, hogql_context = hogql_cohort_subquery_sql(cohort, team=team)
+        # SECURITY-SENSITIVE: recalculation always executes without warehouse access control.
+        # It is internal maintenance of a team-owned definition with no acting user - access is
+        # enforced when the filters are saved (CohortSerializer), and failing here would only
+        # silently freeze the cohort's membership.
+        cohort_query, hogql_context = hogql_cohort_subquery_sql(cohort, team=team, bypass_warehouse_access_control=True)
         cohort_params = hogql_context.values
 
     recalculate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_query)
@@ -1122,7 +1186,9 @@ def insert_actors_into_cohort_by_query(
 
 
 def insert_cohort_query_actors_into_ch(cohort: Cohort, *, team: Team):
-    context = HogQLContext(enable_select_queries=True, team_id=team.id)
+    # SECURITY-SENSITIVE: background population from the cohort's saved source query, with no
+    # acting user - the query was run by its author when they created the cohort from it.
+    context = HogQLContext(enable_select_queries=True, team_id=team.id, bypass_warehouse_access_control=True)
     query = print_cohort_hogql_query(cohort, context, team=team)
     insert_actors_into_cohort_by_query(cohort, query, {}, context, team_id=team.id)
 
@@ -1131,7 +1197,9 @@ def build_static_cohort_filters_query(cohort: Cohort, *, team: Team) -> tuple[st
     # Compile the cohort's criteria (cohort.properties) to ClickHouse SQL. The cohort is static, but
     # it's being populated for the first time, so we evaluate the criteria rather than reading the
     # (still-empty) static cohort table — HogQLCohortQuery builds from cohort.properties regardless of is_static.
-    cohort_query, hogql_context = hogql_cohort_subquery_sql(cohort, team=team)
+    # SECURITY-SENSITIVE: background population of a saved, team-owned definition with no acting
+    # user - warehouse access is enforced when the definition is saved (CohortSerializer).
+    cohort_query, hogql_context = hogql_cohort_subquery_sql(cohort, team=team, bypass_warehouse_access_control=True)
 
     # Params live on hogql_context.values, which the consumer already spreads — pass {} to avoid spreading twice.
     return f"SELECT id AS actor_id FROM ({cohort_query})", {}, hogql_context

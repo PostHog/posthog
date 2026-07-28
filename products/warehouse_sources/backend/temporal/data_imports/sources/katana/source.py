@@ -23,7 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import KatanaSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.katana import KatanaSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.katana.katana import (
     KatanaResumeConfig,
     katana_source,
@@ -98,11 +98,16 @@ Generate an API key in Katana under **Settings > API** (an active API access add
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: KatanaSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: KatanaSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_katana_credentials(config.api_key):
             return True, None

@@ -29,7 +29,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BigQuerySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bigquery import (
+    BigQuerySourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 __all__ = ["BigQuerySource", "build_destination_table_prefix"]
@@ -261,7 +263,11 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
         }
 
     def validate_credentials(
-        self, config: BigQuerySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: BigQuerySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         region: str | None = None
         if (
