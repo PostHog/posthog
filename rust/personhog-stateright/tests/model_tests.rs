@@ -32,12 +32,14 @@ fn base() -> HandoffModel {
     HandoffModel {
         pods: 2,
         routers: 2,
+        late_routers: 0,
         partitions: 1,
         variant: Variant::Current,
         writes: 2,
         reads: 1,
         crashes: 0,
         rejoins: 0,
+        router_joins: 0,
         zombie_window: 0,
         probes: false,
     }
@@ -230,6 +232,196 @@ fn epoch_fenced_two_partitions_double_zombie_is_safe() {
     .join();
     assert!(checker.discovery("no_lost_acked_write").is_none());
     assert!(checker.discovery("no_split_write_acceptance").is_none());
+}
+
+/// A router that joins mid-run — the rolling-deploy scenario behind the
+/// freeze-quorum snapshot. The joiner starts with an empty (fail-closed)
+/// table, is excluded from the quorum of every handoff created before
+/// it, and the checker explores every interleaving of its bootstrap
+/// (`Observe`) with the coordinator's advancement — including the silent
+/// joiner whose bootstrap never runs. Every safety property must hold
+/// across all of them, and the run must still converge.
+///
+/// The crash budget also reaches the same-name rejoin: a snapshot
+/// member lease-expires, self-fences, and rejoins as a fresh process —
+/// required again (snapshot member, live), empty table, while its dead
+/// incarnation's freeze ack persists in etcd (acks are not
+/// lease-bound, exactly as in production). The checker judges those
+/// interleavings here too; safety holds because the fresh process
+/// fails closed until its bootstrap converges it.
+#[test]
+fn late_router_join_is_safe_and_live() {
+    HandoffModel {
+        routers: 1,
+        late_routers: 1,
+        router_joins: 1,
+        crashes: 1,
+        ..base()
+    }
+    .checker()
+    .spawn_bfs()
+    .join()
+    .assert_properties();
+}
+
+/// Reachability probe for the snapshot doing its job: a handoff advances
+/// past Freezing while a registered late joiner has acked nothing.
+/// Under the pre-snapshot live-set rule this state is unreachable — the
+/// joiner's ack would be required, which is precisely the wedge — so its
+/// reachability is the machine statement that the fix works, and the
+/// same run asserts no safety property breaks in any interleaving that
+/// reaches it.
+#[test]
+fn probe_silent_late_joiner_advance_is_reachable_and_safe() {
+    let checker = HandoffModel {
+        routers: 1,
+        late_routers: 1,
+        router_joins: 1,
+        writes: 1,
+        reads: 0,
+        probes: true,
+        ..base()
+    }
+    .checker()
+    .spawn_bfs()
+    .join();
+    assert!(
+        checker
+            .discovery("advances_past_silent_late_joiner")
+            .is_some(),
+        "a handoff must be able to advance while a registered late joiner has not acked"
+    );
+    assert!(
+        checker.discovery("no_lost_acked_write").is_none(),
+        "advancing past a silent late joiner must not lose acked writes"
+    );
+    assert!(
+        checker.discovery("no_split_write_acceptance").is_none(),
+        "advancing past a silent late joiner must not create dual write acceptance"
+    );
+}
+
+/// A rebalance that fires while zero routers are registered writes a
+/// captured-but-empty snapshot, and a router joining afterward must not
+/// be required by it — `Some([])` means nobody was routing, not "apply
+/// the legacy live-set fallback". The unit test pins the predicate in
+/// isolation; this checks the semantics end to end — snapshot capture,
+/// shared predicate, advancement, convergence — and the probe confirms
+/// the handoff genuinely advances while the joiner has acked nothing.
+#[test]
+fn zero_router_creation_with_late_joiner_is_safe_and_live() {
+    let checker = HandoffModel {
+        routers: 0,
+        late_routers: 1,
+        router_joins: 1,
+        writes: 1,
+        reads: 0,
+        probes: true,
+        ..base()
+    }
+    .checker()
+    .spawn_bfs()
+    .join();
+    assert!(
+        checker
+            .discovery("advances_past_silent_late_joiner")
+            .is_some(),
+        "an empty snapshot must advance without the late joiner's ack"
+    );
+    for safety in [
+        "no_lost_acked_write",
+        "no_split_write_acceptance",
+        "drained_ack_is_final",
+        "strong_reads_complete",
+        "no_double_planned_handoff",
+    ] {
+        assert!(
+            checker.discovery(safety).is_none(),
+            "{safety} must hold under zero-router creation"
+        );
+    }
+    assert!(
+        checker.discovery("converges_to_stable").is_none(),
+        "runs must still converge when handoffs were created router-less"
+    );
+}
+
+/// Two in-flight handoffs carrying different snapshots: the first
+/// rebalance's handoff (pre-join quorum) is still pinned while a pod
+/// crash forces a second rebalance whose handoff captures the post-join
+/// registry. Each handoff's requirement must be judged against its own
+/// snapshot — this is the config that would catch a refactor computing
+/// one requirement from live state and sharing it across handoffs,
+/// which no single-partition config can distinguish from correct.
+#[test]
+fn probe_divergent_quorums_are_reachable_and_safe() {
+    let checker = HandoffModel {
+        partitions: 2,
+        routers: 1,
+        late_routers: 1,
+        router_joins: 1,
+        crashes: 1,
+        writes: 1,
+        reads: 0,
+        probes: true,
+        ..base()
+    }
+    .checker()
+    .spawn_bfs()
+    .join();
+    assert!(
+        checker
+            .discovery("handoffs_with_divergent_quorums")
+            .is_some(),
+        "concurrent handoffs with different creation-time snapshots must be reachable"
+    );
+    assert!(
+        checker.discovery("no_lost_acked_write").is_none(),
+        "divergent quorums must not lose acked writes"
+    );
+    assert!(
+        checker.discovery("no_double_planned_handoff").is_none(),
+        "pinning must hold while snapshots diverge"
+    );
+    assert!(
+        checker.discovery("no_split_write_acceptance").is_none(),
+        "divergent quorums must not create dual write acceptance"
+    );
+}
+
+/// The snapshot made the freeze quorum smaller, so the sharpest question
+/// is whether the shrink reopens the residual epoch fencing closed. The
+/// worst mix: a zombie router (a departed snapshot member — now exempt —
+/// still routing on a stale table), a zombie pod, and a late joiner
+/// outside every snapshot, all at once. Fencing is broker-side and
+/// membership-independent, so the guarantee must survive; this run
+/// checks that argument instead of trusting it.
+#[test]
+fn epoch_fenced_double_zombie_with_late_joiner_is_safe() {
+    let checker = HandoffModel {
+        variant: Variant::EpochFenced,
+        routers: 1,
+        late_routers: 1,
+        router_joins: 1,
+        crashes: 2,
+        zombie_window: 1,
+        ..base()
+    }
+    .checker()
+    .spawn_bfs()
+    .join();
+    assert!(
+        checker.discovery("no_lost_acked_write").is_none(),
+        "the shrunken quorum must not reopen acked-write loss under fencing"
+    );
+    assert!(
+        checker.discovery("no_split_write_acceptance").is_none(),
+        "the shrunken quorum must not reopen dual write acceptance under fencing"
+    );
+    assert!(
+        checker.discovery("drained_ack_is_final").is_none(),
+        "a drained ack must remain final with membership churn"
+    );
 }
 
 /// Reachability probe: concurrent handoffs are a real scenario — one
