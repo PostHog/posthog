@@ -157,9 +157,7 @@ function DomainOrganizationPanel(): JSX.Element {
         <PaperDeskCard>
             <CardTitle
                 title={
-                    organizationName
-                        ? 'Your team is already on PostHog'
-                        : `Someone at ${domain} already uses PostHog`
+                    organizationName ? 'Your team is already on PostHog' : `Someone at ${domain} already uses PostHog`
                 }
                 sub={
                     <span>
