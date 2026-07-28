@@ -1140,7 +1140,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
-        all_indices = []
+        all_indices: list[str] = []
         cursor = None
         for _ in range(5):
             with freeze_time("2020-01-12"):
