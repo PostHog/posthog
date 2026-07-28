@@ -895,6 +895,12 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             # stop and point at the config the user can change. Matches the stable prefix
             # RESTClientNonRetryableError uses, not the variable URL that follows.
             "Non-JSON response from": "The upstream API returned a non-JSON response (for example an HTML or plain-text error page) instead of data. Check that the resource's URL and path in the manifest point at a JSON API endpoint and that any required authentication is configured, then try again.",
+            # `_is_host_safe` raises this when a manifest's base_url, token_url, or resource
+            # host doesn't resolve via DNS — a hostname the customer typed wrong or a host
+            # that's no longer publicly reachable. Deterministic and permanent until the
+            # manifest is edited, so stop retrying. Match the stable prefix, not the
+            # customer's hostname that follows it.
+            "Couldn't resolve the host": "A host in the manifest (base_url, token_url, or a resource's URL) could not be resolved via DNS. Check that it's spelled correctly and reachable from the public internet, then try again.",
         }
 
     def _assemble_manifest(self, config: CustomSourceConfig) -> dict[str, Any]:
