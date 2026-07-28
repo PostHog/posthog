@@ -112,6 +112,11 @@ def _get_s3_credentials() -> AWSKeyPair | None:
     access_key_id = settings.OBJECT_STORAGE_ACCESS_KEY_ID
     secret_access_key = settings.OBJECT_STORAGE_SECRET_ACCESS_KEY
     if access_key_id is None or secret_access_key is None:
+        if (access_key_id is None) != (secret_access_key is None):
+            LOGGER.warning(
+                "Only one of OBJECT_STORAGE_ACCESS_KEY_ID and OBJECT_STORAGE_SECRET_ACCESS_KEY is set, "
+                "falling back to keyless S3 auth"
+            )
         return None
     return AWSKeyPair.unsafe_from_strings(access_key_id, secret_access_key)
 
