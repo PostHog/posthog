@@ -16,16 +16,21 @@ from common.alerting.state_machine import AlertSnapshot, AlertState, Notificatio
 NOW = datetime(2026, 6, 23, 12, 30, tzinfo=UTC)
 
 
-def _snapshot(**overrides) -> AlertSnapshot:
-    defaults = {
-        "state": AlertState.NOT_FIRING,
-        "cooldown": timedelta(hours=24),
-        "last_notified_at": None,
-        "snooze_until": None,
-        "consecutive_failures": 0,
-    }
-    defaults.update(overrides)
-    return AlertSnapshot(**defaults)
+def _snapshot(
+    *,
+    state: AlertState = AlertState.NOT_FIRING,
+    cooldown: timedelta = timedelta(hours=24),
+    last_notified_at: datetime | None = None,
+    snooze_until: datetime | None = None,
+    consecutive_failures: int = 0,
+) -> AlertSnapshot:
+    return AlertSnapshot(
+        state=state,
+        cooldown=cooldown,
+        last_notified_at=last_notified_at,
+        snooze_until=snooze_until,
+        consecutive_failures=consecutive_failures,
+    )
 
 
 def _evaluation(*, breached: bool, inconclusive: bool = False) -> BillingAlertEvaluation:
