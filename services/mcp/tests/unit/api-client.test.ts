@@ -184,6 +184,48 @@ describe('ApiClient', () => {
         vi.unstubAllGlobals()
     })
 
+    // Regression: OAuth apps whose registered `client_name` contained a non-Latin-1
+    // character (an em-dash) failed every outbound Django call. Header values are
+    // ByteStrings, so `fetch` threw `Cannot convert argument to a ByteString ...` before
+    // the request was sent — a cosmetic attribution value taking down the whole call.
+    describe('attribution headers are always representable', () => {
+        it('sanitizes non-Latin-1 identity values instead of throwing', async () => {
+            const mockFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }))
+            vi.stubGlobal('fetch', mockFetch)
+
+            const client = new ApiClient({
+                apiToken: 'test-token-123',
+                baseUrl: 'https://example.com',
+                // Reaches us straight from the Redis token cache, which may still hold a value
+                // written before the sanitizer folded these characters.
+                oauthClientName: 'Acme — Analytics',
+                clientUserAgent: 'Café/1.0',
+                mcpClientName: 'Acme — Client',
+            })
+
+            await expect(
+                (client as any).fetch('https://example.com/api/test', { method: 'GET' })
+            ).resolves.toBeDefined()
+
+            const [, options] = mockFetch.mock.calls[0]!
+            expect(options.headers['x-posthog-mcp-oauth-client-name']).toBe('Acme - Analytics')
+            expect(options.headers['x-posthog-mcp-user-agent']).toBe('Cafe/1.0')
+            expect(options.headers['x-posthog-mcp-client-name']).toBe('Acme - Client')
+            // `getUserAgent` splices clientUserAgent into the UA, so it is exposed too.
+            expect(options.headers['User-Agent']).not.toMatch(/[^\x20-\x7e]/)
+            // The property that actually matters: undici can build these headers.
+            expect(() => new Headers(options.headers)).not.toThrow()
+
+            vi.unstubAllGlobals()
+        })
+
+        it('confirms the unsanitized value would have been fatal', () => {
+            // Guards the test above from silently passing if header validation ever stops
+            // being enforced in this environment.
+            expect(() => new Headers({ 'x-posthog-mcp-oauth-client-name': 'Acme — Analytics' })).toThrow(/ByteString/)
+        })
+    })
+
     it.each([
         [
             'both ids set',

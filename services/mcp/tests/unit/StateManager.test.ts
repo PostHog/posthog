@@ -100,6 +100,14 @@ describe('StateManager', () => {
         it.each([
             { label: 'an OAuth app name', clientName: 'Claude', expected: 'Claude' },
             { label: 'no OAuth app name', clientName: null, expected: undefined },
+            {
+                // An app registered with a non-Latin-1 name must not reach the header layer
+                // intact — header values are ByteStrings and `fetch` throws on anything above
+                // 0xff, which failed every later API call for the token that cached it.
+                label: 'an OAuth app name containing an em-dash',
+                clientName: 'Acme — Analytics',
+                expected: 'Acme - Analytics',
+            },
         ])('stamps $label onto the live client so the same request forwards it', async ({ clientName, expected }) => {
             const api = oauthApi(clientName)
             stateManager = new StateManager(cache, api)

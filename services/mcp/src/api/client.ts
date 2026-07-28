@@ -1,7 +1,7 @@
 import { createParser } from 'eventsource-parser'
 import { z } from 'zod'
 
-import { getUserAgent } from '@/lib/constants'
+import { getUserAgent, USER_AGENT } from '@/lib/constants'
 import {
     ErrorCode,
     parseRetryAfterSeconds,
@@ -10,7 +10,7 @@ import {
     PostHogRateLimitError,
     PostHogValidationError,
 } from '@/lib/errors'
-import { getSearchParamsFromRecord } from '@/lib/utils.js'
+import { getSearchParamsFromRecord, sanitizeHeaderValue } from '@/lib/utils.js'
 import type {
     ApiEventDefinition,
     ApiOAuthIntrospection,
@@ -158,37 +158,57 @@ export class ApiClient {
         return `${this.publicBaseUrl}/project/${projectId}`
     }
 
-    private async fetch(url: string, options?: RequestInit): Promise<Response> {
-        const defaultHeaders: HeadersInit = {
-            Authorization: `Bearer ${this.config.apiToken}`,
-            'User-Agent': getUserAgent({ clientUserAgent: this.config.clientUserAgent }),
-            ...(this.config.clientUserAgent
-                ? {
-                      // Forward the originating client's User-Agent as a custom header so the
-                      // PostHog API can attach it to analytics events for MCP source attribution.
-                      'x-posthog-mcp-user-agent': this.config.clientUserAgent,
-                  }
-                : {}),
+    /**
+     * Headers carrying caller-supplied identity, for attribution only.
+     *
+     * Every value is re-run through `sanitizeHeaderValue` here, at the last point before the
+     * request. Callers are expected to sanitize at ingest, but a value that slips through
+     * used to be fatal rather than cosmetic: header values are ByteStrings, so one non-ASCII
+     * character made `fetch` throw and killed the entire API call. Sanitizing at the egress
+     * point makes that impossible, and heals values already cached from an earlier request.
+     */
+    private attributionHeaders(): Record<string, string> {
+        const candidates: Record<string, string | undefined> = {
+            // Forward the originating client's User-Agent as a custom header so the
+            // PostHog API can attach it to analytics events for MCP source attribution.
+            'x-posthog-mcp-user-agent': this.config.clientUserAgent,
             // Forward MCP clientInfo fields from the initialize request so the
             // PostHog API can attach them to analytics events.
-            ...(this.config.mcpClientName ? { 'x-posthog-mcp-client-name': this.config.mcpClientName } : {}),
-            ...(this.config.mcpClientVersion ? { 'x-posthog-mcp-client-version': this.config.mcpClientVersion } : {}),
-            ...(this.config.mcpProtocolVersion
-                ? { 'x-posthog-mcp-protocol-version': this.config.mcpProtocolVersion }
-                : {}),
-            ...(this.config.mcpConsumer ? { 'x-posthog-mcp-consumer': this.config.mcpConsumer } : {}),
-            ...(this.config.oauthClientName ? { 'x-posthog-mcp-oauth-client-name': this.config.oauthClientName } : {}),
+            'x-posthog-mcp-client-name': this.config.mcpClientName,
+            'x-posthog-mcp-client-version': this.config.mcpClientVersion,
+            'x-posthog-mcp-protocol-version': this.config.mcpProtocolVersion,
+            'x-posthog-mcp-consumer': this.config.mcpConsumer,
+            'x-posthog-mcp-oauth-client-name': this.config.oauthClientName,
             // Forward MCP session and conversation ids so backend logs and OTLP
             // spans for downstream API hops can correlate with the same MCP context
             // the events carry. This is attribute-based correlation only — we do
             // not forward `traceparent` (the Worker emits no OTLP today), so the
             // Django-rooted span is not a child of any Worker-side span.
-            ...(this.config.mcpSessionId ? { 'x-posthog-mcp-session-id': this.config.mcpSessionId } : {}),
-            ...(this.config.mcpConversationId
-                ? { 'x-posthog-mcp-conversation-id': this.config.mcpConversationId }
-                : {}),
+            'x-posthog-mcp-session-id': this.config.mcpSessionId,
+            'x-posthog-mcp-conversation-id': this.config.mcpConversationId,
             // Forward the sandbox task id so API writes are attributed to the agent's task.
-            ...(this.config.taskId ? { 'X-PostHog-Task-Id': this.config.taskId } : {}),
+            'X-PostHog-Task-Id': this.config.taskId,
+        }
+
+        const headers: Record<string, string> = {}
+        for (const [name, value] of Object.entries(candidates)) {
+            const safe = sanitizeHeaderValue(value)
+            if (safe) {
+                headers[name] = safe
+            }
+        }
+        return headers
+    }
+
+    private async fetch(url: string, options?: RequestInit): Promise<Response> {
+        const defaultHeaders: HeadersInit = {
+            Authorization: `Bearer ${this.config.apiToken}`,
+            // `getUserAgent` splices the caller's own User-Agent into the value, so it is
+            // exposed to the same hazard as the attribution headers below. Fall back to the
+            // static UA if sanitizing leaves nothing usable.
+            'User-Agent':
+                sanitizeHeaderValue(getUserAgent({ clientUserAgent: this.config.clientUserAgent })) ?? USER_AGENT,
+            ...this.attributionHeaders(),
             'X-PostHog-Client': 'mcp',
         }
         if (options?.body) {

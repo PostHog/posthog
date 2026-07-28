@@ -178,8 +178,27 @@ describe('utils', () => {
             ['strips then trims', '\x00  hello  \x1f', 'hello'],
             ['whitespace only is undefined', ' ', undefined],
             ['undefined is undefined', undefined, undefined],
+            // Header values are ByteStrings: anything above 0xff makes `fetch` throw
+            // `Cannot convert argument to a ByteString ...` and takes the whole API call
+            // down, so these must never survive.
+            ['folds an em-dash to a hyphen', 'Acme — MCP', 'Acme - MCP'],
+            ['folds an en-dash to a hyphen', 'Acme – MCP', 'Acme - MCP'],
+            ['folds curly quotes', '“Acme’s app”', `"Acme's app"`],
+            ['folds an ellipsis', 'Acme…', 'Acme...'],
+            ['folds accents to their base letter', 'Café Analytics', 'Cafe Analytics'],
+            ['drops unfoldable non-ASCII and collapses the gap', 'Acme 🚀 MCP', 'Acme MCP'],
+            ['drops CJK entirely', '株式会社 Acme', 'Acme'],
+            ['non-ASCII only is undefined', '🚀', undefined],
         ])('%s', (_name, input, expected) => {
             expect(sanitizeHeaderValue(input)).toBe(expected)
+        })
+
+        it('always returns a value safe to put on a request', () => {
+            // The regression: an OAuth app registered as "Acme — Analytics" poisoned every
+            // outbound call. Assert the real constraint rather than a specific string.
+            const sanitised = sanitizeHeaderValue('Acme — Analytics')!
+            expect(() => new Headers({ 'x-posthog-mcp-oauth-client-name': sanitised })).not.toThrow()
+            expect([...sanitised].every((c) => c.charCodeAt(0) <= 0x7e)).toBe(true)
         })
     })
 

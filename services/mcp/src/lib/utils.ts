@@ -47,15 +47,50 @@ export function formatPrompt(template: string, vars: Record<string, string>): st
 
 const MAX_HEADER_VALUE_LENGTH = 1000
 
+// Non-ASCII punctuation that turns up constantly in human-authored names (OAuth app names,
+// MCP client names) and has an obvious ASCII stand-in. Folding these first keeps the value
+// legible: an em-dash separator becomes " - " rather than vanishing and joining two words.
+// Spelled as escapes rather than literals on purpose: these are exactly the characters you
+// cannot tell apart by eye, and the outage this guards against was one of them in a string.
+const ASCII_PUNCTUATION_FOLDS: ReadonlyArray<readonly [RegExp, string]> = [
+    [/[\u2010-\u2015\u2212]/g, '-'], // hyphens, en/em dashes, minus sign
+    [/[\u2018-\u201b\u2032]/g, "'"], // single curly quotes, prime
+    [/[\u201c-\u201f\u2033]/g, '"'], // double curly quotes, double prime
+    [/\u2026/g, '...'], // horizontal ellipsis
+    [/[\u00a0\u2007\u202f]/g, ' '], // non-breaking spaces; keep the word separation
+]
+
+/**
+ * Normalise a caller-supplied value for use as an outbound HTTP header.
+ *
+ * Header values are ByteStrings, so a single code point above 255 makes `fetch` throw
+ * `TypeError: Cannot convert argument to a ByteString ...` before the request is even sent —
+ * an em-dash in an OAuth app's registered name is enough to fail every API call made on its
+ * behalf. These values are attribution-only, so restricting them to printable ASCII costs
+ * nothing: fold what has a sensible ASCII equivalent and drop the rest. The result is always
+ * a legal header value, and always safe to log.
+ */
 export function sanitizeHeaderValue(value?: string): string | undefined {
     if (!value) {
         return undefined
     }
-    // Strip control characters, then trim and truncate
-    const sanitised = value
-        .replace(/[\x00-\x1f\x7f]/g, '')
+    let sanitised = value
+    for (const [pattern, replacement] of ASCII_PUNCTUATION_FOLDS) {
+        sanitised = sanitised.replace(pattern, replacement)
+    }
+    sanitised = sanitised
+        // Compatibility-decompose so accented letters keep their base character: "Café"
+        // becomes "Cafe" once the trailing combining mark is dropped below, not "Caf".
+        .normalize('NFKD')
+        // Drop everything that isn't printable ASCII — non-Latin-1 code points (the
+        // ByteString hazard), leftover combining marks, control characters, and DEL.
+        .replace(/[^\x20-\x7e]/g, '')
+        // Collapse space runs left behind by dropped characters.
+        .replace(/ {2,}/g, ' ')
         .trim()
         .slice(0, MAX_HEADER_VALUE_LENGTH)
+        // Truncation can land on a space; header values must not end in whitespace.
+        .trim()
     return sanitised || undefined
 }
 
