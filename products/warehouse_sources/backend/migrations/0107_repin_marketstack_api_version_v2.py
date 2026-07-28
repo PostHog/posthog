@@ -24,7 +24,7 @@ def repin_marketstack_to_v2(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    dependencies = [("warehouse_sources", "0105_repin_harvey_api_version_v2")]
+    dependencies = [("warehouse_sources", "0106_repin_clockodo_api_version")]
 
     operations = [
         # Reverse is a no-op: once repinned, v2 rows are indistinguishable from natively-created ones,
