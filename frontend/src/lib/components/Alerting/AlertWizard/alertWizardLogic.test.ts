@@ -1,4 +1,11 @@
+import { HOG_FUNCTION_SUB_TEMPLATES } from 'scenes/hog-functions/sub-templates/sub-templates'
+
 import { CyclotronJobFiltersType, PropertyFilterType, PropertyOperator } from '~/types'
+
+import {
+    ERROR_TRACKING_DESTINATIONS,
+    ERROR_TRACKING_TRIGGERS,
+} from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/alerting/alertWizardConfig'
 
 import { applyKindFilter, decorateAlertName } from './alertWizardLogic'
 
@@ -89,4 +96,26 @@ describe('decorateAlertName', () => {
             'Email when a Health check fires (some_future_kind)'
         )
     })
+})
+
+// The recommendation "Create alert" entry point presets a trigger and skips the Trigger
+// step, so every destination offered for error tracking must have a sub-template for every
+// trigger — otherwise the combo dead-ends at submit with "Template not found for this
+// combination". This guards against adding a trigger/destination without its sub-template.
+describe('error-tracking trigger/destination sub-template coverage', () => {
+    const combos = ERROR_TRACKING_TRIGGERS.flatMap((trigger) =>
+        ERROR_TRACKING_DESTINATIONS.map((destination) => ({
+            triggerKey: trigger.key,
+            destinationKey: destination.key,
+            templateId: destination.templateId,
+        }))
+    )
+
+    it.each(combos)(
+        'has a sub-template for trigger $triggerKey → destination $destinationKey',
+        ({ triggerKey, templateId }) => {
+            const subTemplates = HOG_FUNCTION_SUB_TEMPLATES[triggerKey]
+            expect(subTemplates.some((t) => t.template_id === templateId)).toBe(true)
+        }
+    )
 })

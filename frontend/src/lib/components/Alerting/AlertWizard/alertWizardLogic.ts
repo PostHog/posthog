@@ -146,6 +146,7 @@ export interface alertWizardLogicValues {
     alertCreated: boolean
     alertCreationView: AlertCreationView
     allDestinations: WizardDestination[]
+    availableDestinations: WizardDestination[]
     availableTriggers: WizardTrigger[]
     configuration: {
         inputs: Record<
@@ -273,9 +274,13 @@ export interface alertWizardLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         usedDestinationKeys: (existingAlerts: HogFunctionType[], allDestinations: WizardDestination[]) => Set<string>
+        availableDestinations: (
+            selectedTriggerKey: HogFunctionSubTemplateIdType | null,
+            allDestinations: WizardDestination[]
+        ) => WizardDestination[]
         sortedDestinations: (
             usedDestinationKeys: Set<string>,
-            allDestinations: WizardDestination[]
+            availableDestinations: WizardDestination[]
         ) => WizardDestination[]
         primaryDestinations: (sortedDestinations: WizardDestination[]) => WizardDestination[]
         extraDestinations: (sortedDestinations: WizardDestination[]) => WizardDestination[]
@@ -473,10 +478,30 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
             },
         ],
 
+        // Destinations that actually have a sub-template for the active trigger. When a
+        // trigger is already chosen (the recommendation entry point presets it and skips
+        // the Trigger step), showing an unsupported channel leads to a dead-end
+        // "Template not found for this combination" toast on submit — so filter it out.
+        // With no trigger selected yet (normal flow, Destination step first), show all.
+        availableDestinations: [
+            (s) => [s.selectedTriggerKey, s.allDestinations],
+            (
+                selectedTriggerKey: HogFunctionSubTemplateIdType | null,
+                allDestinations: WizardDestination[]
+            ): WizardDestination[] => {
+                if (!selectedTriggerKey) {
+                    return allDestinations
+                }
+                return allDestinations.filter((destination) =>
+                    hasSubTemplateForDestination(selectedTriggerKey, destination)
+                )
+            },
+        ],
+
         sortedDestinations: [
-            (s) => [s.usedDestinationKeys, s.allDestinations],
-            (usedDestinationKeys: Set<string>, allDestinations: WizardDestination[]): WizardDestination[] => {
-                return [...allDestinations].sort((a, b) => {
+            (s) => [s.usedDestinationKeys, s.availableDestinations],
+            (usedDestinationKeys: Set<string>, availableDestinations: WizardDestination[]): WizardDestination[] => {
+                return [...availableDestinations].sort((a, b) => {
                     const aUsed = usedDestinationKeys.has(a.key) ? 1 : 0
                     const bUsed = usedDestinationKeys.has(b.key) ? 1 : 0
                     return bUsed - aUsed
