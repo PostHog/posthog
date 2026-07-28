@@ -13,7 +13,12 @@ const LEVEL_SOURCE: FacetSource = {
     filterKey: 'severityLevels',
     exclusionKey: 'severity_level',
 }
-const SERVICE_SOURCE: FacetSource = { type: 'column', column: 'service_name', filterKey: 'serviceNames' }
+const SERVICE_SOURCE: FacetSource = {
+    type: 'column',
+    column: 'service_name',
+    filterKey: 'serviceNames',
+    exclusionKey: 'service_name',
+}
 const NAMESPACE_SOURCE: FacetSource = { type: 'resourceAttribute', key: 'k8s.namespace.name' }
 
 describe('facetRailLogic', () => {
@@ -80,13 +85,31 @@ describe('facetRailLogic', () => {
         })
     })
 
-    describe('service name toggling', () => {
-        it('adds then removes a service on the shared filters logic', async () => {
+    describe('service name cycling', () => {
+        it('cycles a service across the two stores: dedicated field, then is_not log filter, then cleared', async () => {
             await expectLogic(logic, () => logic.actions.toggleFacetValue(SERVICE_SOURCE, 'api')).toFinishAllListeners()
             expect(filtersLogic.values.serviceNames).toEqual(['api'])
+            expect(logFilterExclusions(filtersLogic.values.filterGroup, 'service_name')).toEqual([])
 
             await expectLogic(logic, () => logic.actions.toggleFacetValue(SERVICE_SOURCE, 'api')).toFinishAllListeners()
             expect(filtersLogic.values.serviceNames).toEqual([])
+            expect(logFilterExclusions(filtersLogic.values.filterGroup, 'service_name')).toEqual(['api'])
+
+            await expectLogic(logic, () => logic.actions.toggleFacetValue(SERVICE_SOURCE, 'api')).toFinishAllListeners()
+            expect(logFilterExclusions(filtersLogic.values.filterGroup, 'service_name')).toEqual([])
+            expect((filtersLogic.values.filterGroup.values[0] as UniversalFiltersGroup).values).toEqual([])
+        })
+
+        it('keeps service and severity exclusions under their own keys', async () => {
+            // Both column facets store exclusions as is_not log filters — a service exclusion must
+            // not clobber a severity exclusion already in the group, or vice versa.
+            await expectLogic(logic, () => logic.actions.toggleFacetValue(LEVEL_SOURCE, 'error')).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.toggleFacetValue(LEVEL_SOURCE, 'error')).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.toggleFacetValue(SERVICE_SOURCE, 'api')).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.toggleFacetValue(SERVICE_SOURCE, 'api')).toFinishAllListeners()
+
+            expect(logFilterExclusions(filtersLogic.values.filterGroup, 'severity_level')).toEqual(['error'])
+            expect(logFilterExclusions(filtersLogic.values.filterGroup, 'service_name')).toEqual(['api'])
         })
     })
 

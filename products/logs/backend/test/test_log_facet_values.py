@@ -129,22 +129,34 @@ class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
         ]
         self.assertEqual(self._facet_attr("k8s.namespace.name", filterGroup=filter_group), base)
 
-    def test_level_facet_ignores_its_own_severity_exclusion(self):
-        # The rail stores Level exclusions as an is_not severity_level filter in the group; the
-        # counts query must strip it when faceting on severity_text, or an excluded level's own
+    @parameterized.expand(
+        [
+            ("severity_text", "severity_level"),
+            ("service_name", "service_name"),
+        ]
+    )
+    def test_facet_ignores_its_own_log_filter_exclusion(self, facet_field, log_filter_key):
+        # The rail stores column-facet exclusions as an is_not log filter in the group; the counts
+        # query must strip it when faceting on that facet's own field, or an excluded value's own
         # count would zero out.
-        base = self._facet("severity_text")
+        base = self._facet(facet_field)
         own_value = next(iter(base))
-        filter_group = [{"key": "severity_level", "type": "log", "operator": "is_not", "value": [own_value]}]
-        self.assertEqual(self._facet("severity_text", filterGroup=filter_group), base)
+        filter_group = [{"key": log_filter_key, "type": "log", "operator": "is_not", "value": [own_value]}]
+        self.assertEqual(self._facet(facet_field, filterGroup=filter_group), base)
 
-    def test_facet_honors_severity_exclusion(self):
-        # An is_not severity_level filter must remove that severity's rows from other facets'
-        # counts — proves the NotIn translation end to end on real data.
-        base = self._facet("service_name")
-        one_severity = next(iter(self._facet("severity_text")))
-        filter_group = [{"key": "severity_level", "type": "log", "operator": "is_not", "value": [one_severity]}]
-        scoped = self._facet("service_name", filterGroup=filter_group)
+    @parameterized.expand(
+        [
+            ("service_name", "severity_text", "severity_level"),
+            ("severity_text", "service_name", "service_name"),
+        ]
+    )
+    def test_facet_honors_other_facets_log_filter_exclusion(self, facet_field, other_facet_field, log_filter_key):
+        # An is_not log filter must remove matching rows from other facets' counts — proves the
+        # NOT IN translation end to end on real data.
+        base = self._facet(facet_field)
+        one_value = next(iter(self._facet(other_facet_field)))
+        filter_group = [{"key": log_filter_key, "type": "log", "operator": "is_not", "value": [one_value]}]
+        scoped = self._facet(facet_field, filterGroup=filter_group)
         self.assertTrue(set(scoped).issubset(set(base)))
         self.assertLess(sum(scoped.values()), sum(base.values()))
 
