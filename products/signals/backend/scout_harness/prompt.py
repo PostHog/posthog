@@ -359,7 +359,7 @@ _REPORT_CHARTS = f"""# Attaching charts
 - **Pin the window.** Use absolute dates wherever the node supports it, so the reader sees the data you wrote about rather than whatever a relative range resolves to when they open the report days later.
 - **Size only when the default is wrong.** The inbox sizes a chart from its query. Set `size` to `small` (a single number, a short series), `medium`, or `large` (rows or a grid to read — retention, paths, a wide breakdown) when it isn't.
 - **At most {MAX_REPORT_CHARTS} per report**, which is far more than most reports should use. Every chart runs its query when someone opens the report, so attach the ones that carry the argument rather than everything you looked at — three charts a reader studies beat a dozen they scroll past.
-- **`charts` on an edit is the report's whole set, not an addition.** It replaces what the report had, the way `summary` replaces the summary — so to keep a chart, send it again. Leave `charts` out entirely and the report keeps the ones it has. Read the report first (`inbox-reports-retrieve` returns its `charts`) when you mean to add to them rather than start over.
+- **`charts` on an edit is the report's whole set, not an addition.** It replaces what the report had, the way `summary` replaces the summary — so to keep a chart, send it again. Leave `charts` out entirely and the report keeps the ones it has. Read the report first (`inbox-reports-retrieve` returns its `charts`) when you mean to add to them rather than start over. Send `charts: []` to take every chart down, which is what you want when the finding has moved on and the old chart would now mislead.
 
 A trends chart and a graph built from SQL, as they arrive in `charts`:
 

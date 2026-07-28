@@ -343,8 +343,12 @@ def _canonical_team_id(view: TeamAndOrgViewSetMixin) -> int:
 def _to_report_charts(entries: list[dict] | None) -> list[ReportChartInput] | None:
     """Map validated `charts` entries to `ReportChartInput`s for the report tools. Content validation
     lives in `ReportChart`, which the tools build from these; this only crosses the DRF boundary so a
-    malformed chart still surfaces as an invalid-report error. Empty/None yields None ("no charts")."""
-    if not entries:
+    malformed chart still surfaces as an invalid-report error.
+
+    An absent or null `charts` yields None, which an edit reads as "leave the report's charts alone".
+    An empty list is preserved as an empty list, because on an edit that is the instruction to take
+    the report's charts down (see `_build_edit_charts`). Emit treats both the same way."""
+    if entries is None:
         return None
     return [
         ReportChartInput(
