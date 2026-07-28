@@ -944,6 +944,9 @@ export function MetricRowGroup({
                         isPrimaryMetric={!isSecondary}
                         experiment={experiment}
                         onDuplicateMetricClick={() => onDuplicateMetric?.()}
+                        onDuplicateAsSingleUseMetricClick={
+                            onDuplicateAsSingleUseMetric ? () => onDuplicateAsSingleUseMetric() : undefined
+                        }
                         onDeleteMetricClick={onDeleteMetric ? () => onDeleteMetric() : undefined}
                         onBreakdownChange={onBreakdownChange}
                     />
