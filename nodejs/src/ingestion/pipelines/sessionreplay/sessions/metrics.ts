@@ -1,5 +1,21 @@
 import { Counter, Histogram } from 'prom-client'
 
+import {
+    E2E_LAG_BOUNDARIES,
+    recordBytesWritten,
+    recordE2eLag,
+    recordEventsFlushed,
+    recordEventsRateLimited,
+    recordNewSessionsRateLimited,
+    recordS3UploadError,
+    recordS3UploadLatency,
+    recordS3UploadTimeout,
+    recordSessionsBlocked,
+    recordSessionsDroppedMissingRetention,
+    recordSessionsFlushed,
+    recordSessionsRateLimited,
+} from '~/ingestion/pipelines/sessionreplay/otel-metrics'
+
 export class SessionBatchMetrics {
     private static readonly batchesFlushed = new Counter({
         name: 'recording_blob_ingestion_v2_batches_flushed_total',
@@ -13,6 +29,7 @@ export class SessionBatchMetrics {
 
     public static incrementSessionsDroppedMissingRetention(count: number = 1): void {
         this.sessionsDroppedMissingRetention.inc(count)
+        recordSessionsDroppedMissingRetention(count)
     }
 
     private static readonly sessionsFlushed = new Counter({
@@ -147,20 +164,29 @@ export class SessionBatchMetrics {
         buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
     })
 
+    private static readonly e2eLag = new Histogram({
+        name: 'recording_blob_ingestion_v2_e2e_lag_seconds',
+        help: 'Per-session staleness at flush: wall clock minus the newest flushed event timestamp',
+        buckets: E2E_LAG_BOUNDARIES,
+    })
+
     public static incrementBatchesFlushed(): void {
         this.batchesFlushed.inc()
     }
 
     public static incrementSessionsFlushed(count: number = 1): void {
         this.sessionsFlushed.inc(count)
+        recordSessionsFlushed(count)
     }
 
     public static incrementEventsFlushed(count: number = 1): void {
         this.eventsFlushed.inc(count)
+        recordEventsFlushed(count)
     }
 
     public static incrementBytesWritten(bytes: number): void {
         this.bytesWritten.inc(bytes)
+        recordBytesWritten(bytes)
     }
 
     public static incrementConsoleLogsStored(count: number = 1): void {
@@ -178,14 +204,17 @@ export class SessionBatchMetrics {
 
     public static incrementS3UploadErrors(): void {
         this.s3UploadErrors.inc()
+        recordS3UploadError()
     }
 
     public static incrementS3UploadTimeouts(): void {
         this.s3UploadTimeouts.inc()
+        recordS3UploadTimeout()
     }
 
     public static observeS3UploadLatency(seconds: number): void {
         this.s3UploadLatency.observe(seconds)
+        recordS3UploadLatency(seconds)
     }
 
     public static incrementS3BytesWritten(bytes: number): void {
@@ -194,10 +223,12 @@ export class SessionBatchMetrics {
 
     public static incrementSessionsRateLimited(count: number = 1): void {
         this.sessionsRateLimited.inc(count)
+        recordSessionsRateLimited(count)
     }
 
     public static incrementEventsRateLimited(count: number = 1): void {
         this.eventsRateLimited.inc(count)
+        recordEventsRateLimited(count)
     }
 
     public static incrementNewSessionsDetected(count: number = 1): void {
@@ -206,6 +237,7 @@ export class SessionBatchMetrics {
 
     public static incrementNewSessionsRateLimited(teamId: number, count: number = 1): void {
         this.newSessionsRateLimited.labels({ team_id: teamId }).inc(count)
+        recordNewSessionsRateLimited(teamId, count)
     }
 
     public static incrementSessionTrackerCacheHit(count: number = 1): void {
@@ -222,6 +254,12 @@ export class SessionBatchMetrics {
 
     public static incrementSessionsBlocked(count: number = 1): void {
         this.sessionsBlocked.inc(count)
+        recordSessionsBlocked(count)
+    }
+
+    public static observeE2eLag(seconds: number): void {
+        this.e2eLag.observe(seconds)
+        recordE2eLag(seconds)
     }
 
     public static incrementSessionFilterCacheHit(count: number = 1): void {

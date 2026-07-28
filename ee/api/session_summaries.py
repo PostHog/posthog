@@ -11,7 +11,7 @@ from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.db.models import Func, IntegerField, QuerySet, Subquery
 from django.db.models.fields.json import KeyTransform
-from django.http import StreamingHttpResponse
+from django.http.response import HttpResponseBase
 
 import structlog
 from asgiref.sync import async_to_sync
@@ -503,7 +503,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         required_scopes=["session_recording:read"],
         renderer_classes=[ServerSentEventRenderer],
     )
-    def stream_batch_session_summaries(self, request: Request, **kwargs) -> StreamingHttpResponse:
+    def stream_batch_session_summaries(self, request: Request, **kwargs) -> HttpResponseBase:
         user = self._validate_user(request)
         # Use _parse_input (not _validate_input) — the individual flow must surface bad
         # session IDs as per-session error events, not fail the whole batch up front.

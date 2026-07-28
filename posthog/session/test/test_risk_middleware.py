@@ -12,6 +12,7 @@ from django.test import RequestFactory, override_settings
 from django.utils import timezone
 
 from loginas import settings as la_settings
+from parameterized import parameterized
 
 from posthog.models import User
 from posthog.session.middleware import SessionRiskMiddleware
@@ -153,6 +154,61 @@ class TestEvaluateSessionRisk(BaseTest):
 
         self.assertEqual(evaluate_session_risk(request), RiskTier.NONE)
         self.assertTrue(request.session.get("step_up_required"))
+
+    @parameterized.expand([("within_cooldown", 3600.0, 1), ("cooldown_elapsed", 0.0, 2)])
+    def test_persistent_anomaly_emits_once_per_cooldown(self, _name, cooldown, expected_calls):
+        # A flagged session is re-scored on every request; the same anomaly must emit once per cooldown
+        # window, not once per request (the bug that inflated per-user counts into the hundreds).
+        request = self._authed_request_with_baseline(self._make_user())
+        with (
+            override_settings(RISK_REEMIT_COOLDOWN_S=cooldown),
+            patch("posthog.session.risk.current_request_context", return_value=UA_CHANGE_CTX),
+            patch("posthog.session.risk.risk_flags", return_value=RiskFlags(True, True, False)),
+            patch("posthog.session.risk.posthoganalytics.capture") as mock_capture,
+        ):
+            evaluate_session_risk(request)
+            evaluate_session_risk(request)
+        self.assertEqual(mock_capture.call_count, expected_calls)
+
+    @patch("posthog.session.risk.posthoganalytics.capture")
+    @patch("posthog.session.risk.risk_flags", return_value=RiskFlags(True, True, True))
+    def test_new_signature_re_emits_within_cooldown(self, _flags, mock_capture):
+        # An escalation to a different anomaly (MEDIUM ua_change -> HIGH impossible travel) is a new
+        # incident and must re-emit even inside the cooldown window.
+        request = self._authed_request_with_baseline(self._make_user())
+        with patch("posthog.session.risk.current_request_context", return_value=UA_CHANGE_CTX):
+            evaluate_session_risk(request)
+        with patch("posthog.session.risk.current_request_context", return_value=IMPOSSIBLE_TRAVEL_CTX):
+            evaluate_session_risk(request)
+        self.assertEqual(mock_capture.call_count, 2)
+
+    @patch("posthog.session.risk.current_request_context", return_value=IMPOSSIBLE_TRAVEL_CTX)
+    @patch("posthog.session.risk.posthoganalytics.capture")
+    @patch("posthog.session.risk.risk_flags", return_value=RiskFlags(True, False, True))
+    def test_dedup_suppresses_telemetry_not_session_end(self, _flags, mock_capture, _ctx):
+        # Dedup gates only the emit, never the acted-on tier: a repeated HIGH request within the
+        # cooldown still returns HIGH so the middleware ends the session.
+        request = self._authed_request_with_baseline(self._make_user())
+        first = evaluate_session_risk(request)
+        second = evaluate_session_risk(request)
+        self.assertEqual(first, RiskTier.HIGH)
+        self.assertEqual(second, RiskTier.HIGH)
+        mock_capture.assert_called_once()
+
+    @patch("posthog.session.risk.current_request_context", return_value=UA_CHANGE_CTX)
+    @patch("posthog.session.risk.posthoganalytics.capture")
+    def test_step_up_applied_when_enabled_after_report_only(self, mock_capture, _ctx):
+        # Enabling step-up mid-session must enforce an already-flagged session even though the
+        # identical anomaly's telemetry is deduped within the cooldown: enforcement is independent
+        # of the emit gate, otherwise a rollout flip leaves flagged sessions unenforced for an hour.
+        request = self._authed_request_with_baseline(self._make_user())
+        with patch("posthog.session.risk.risk_flags", return_value=RiskFlags(True, False, False)):
+            evaluate_session_risk(request)  # report-only: emits telemetry, sets no step-up
+        self.assertNotIn("step_up_required", request.session)
+        with patch("posthog.session.risk.risk_flags", return_value=RiskFlags(True, True, False)):
+            evaluate_session_risk(request)  # step-up now enabled, same anomaly within cooldown
+        self.assertTrue(request.session.get("step_up_required"))
+        mock_capture.assert_called_once()  # telemetry stays deduped
 
     @patch("posthog.session.risk.current_request_context", return_value=IMPOSSIBLE_TRAVEL_CTX)
     @patch("posthog.session.risk.posthoganalytics.capture")

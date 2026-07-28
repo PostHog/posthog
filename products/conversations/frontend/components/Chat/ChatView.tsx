@@ -2,9 +2,9 @@ import { JSONContent } from '@tiptap/core'
 
 import { LemonCard } from '@posthog/lemon-ui'
 
-import type { AiReplyFeedbackRating, ChatMessage, Ticket } from '../../types'
+import type { AiReplyFeedbackRating, ChatMessage, Ticket, TicketChannel, TicketStatus } from '../../types'
 import { MessageInput } from './MessageInput'
-import { MessageList } from './MessageList'
+import { MessageList, type TimelineExtra } from './MessageList'
 
 export interface ChatViewProps {
     messages: ChatMessage[]
@@ -13,11 +13,19 @@ export interface ChatViewProps {
     hasMoreMessages?: boolean
     olderMessagesLoading?: boolean
     ticket?: Ticket
-    onSendMessage: (content: string, richContent: JSONContent | null, isPrivate: boolean, onSuccess: () => void) => void
+    onSendMessage: (
+        content: string,
+        richContent: JSONContent | null,
+        isPrivate: boolean,
+        onSuccess: () => void,
+        statusAfterSend?: TicketStatus
+    ) => void
     onLoadOlderMessages?: () => void
     header?: React.ReactNode
     minHeight?: string
     maxHeight?: string
+    /** Channel the ticket came from; drives the reply placeholder and send-button logo */
+    channel?: TicketChannel
     /** Whether to show the "Send as private" option in the message input */
     showPrivateOption?: boolean
     /** Number of team messages that haven't been read by the customer */
@@ -34,8 +42,20 @@ export interface ChatViewProps {
     onPrivateChange?: (isPrivate: boolean) => void
     /** Extra actions rendered next to the send button in MessageInput */
     extraActions?: React.ReactNode
+    /** Non-message thread entries, placed by their own timestamp (e.g. team-only agent findings) */
+    threadExtras?: TimelineExtra[]
     /** Blocks sending customer-facing messages (private notes stay available) */
     replyDisabledReason?: string | JSX.Element
+    /** Whether draft mode is on: tints the composer green and confirms the recipient before sending */
+    draftMode?: boolean
+    /** Called when the draft-mode toggle changes */
+    onDraftModeChange?: (enabled: boolean) => void
+    /** Recipient description shown in the draft-mode send confirmation */
+    sendConfirmationMessage?: string
+    /** When provided, renders a dropdown next to the send button to send and set the ticket status in one go */
+    sendAndSetStatusOptions?: { value: TicketStatus; statusLabel: string }[]
+    /** Other unsaved ticket edits that sending with a status would also persist */
+    unsavedTicketChanges?: string[]
     latestAiMessageId?: string | null
     feedbackByMessageId?: Record<string, AiReplyFeedbackRating>
     showAiReplyFeedback?: boolean
@@ -53,15 +73,22 @@ export function ChatView({
     header,
     minHeight,
     maxHeight,
+    channel,
     showPrivateOption = false,
     unreadCustomerCount,
     showDeliveryStatus = false,
     draftContent,
     onDraftChange,
     isPrivate,
+    threadExtras,
     onPrivateChange,
     extraActions,
     replyDisabledReason,
+    draftMode,
+    onDraftModeChange,
+    sendConfirmationMessage,
+    sendAndSetStatusOptions,
+    unsavedTicketChanges,
     latestAiMessageId,
     feedbackByMessageId,
     showAiReplyFeedback,
@@ -88,11 +115,13 @@ export function ChatView({
                 feedbackByMessageId={feedbackByMessageId}
                 showAiReplyFeedback={showAiReplyFeedback}
                 onSubmitAiReplyFeedback={onSubmitAiReplyFeedback}
+                extras={threadExtras}
             />
             <div className="border-t pt-3">
                 <MessageInput
                     onSendMessage={onSendMessage}
                     messageSending={messageSending}
+                    channel={channel}
                     showPrivateOption={showPrivateOption}
                     draftContent={draftContent}
                     onDraftChange={onDraftChange}
@@ -100,6 +129,11 @@ export function ChatView({
                     onPrivateChange={onPrivateChange}
                     extraActions={extraActions}
                     replyDisabledReason={replyDisabledReason}
+                    draftMode={draftMode}
+                    onDraftModeChange={onDraftModeChange}
+                    sendConfirmationMessage={sendConfirmationMessage}
+                    sendAndSetStatusOptions={sendAndSetStatusOptions}
+                    unsavedTicketChanges={unsavedTicketChanges}
                 />
             </div>
         </LemonCard>

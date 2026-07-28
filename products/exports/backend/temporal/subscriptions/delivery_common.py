@@ -1,4 +1,5 @@
 from collections.abc import Awaitable, Callable
+from typing import Any
 
 from slack_sdk.errors import SlackApiError
 from structlog import get_logger
@@ -25,6 +26,26 @@ from ee.tasks.subscriptions.auto_disable import (
 from ee.tasks.subscriptions.slack_subscriptions import SlackDeliveryResult, get_slack_integration_for_team
 
 LOGGER = get_logger(__name__)
+
+
+def strip_null_bytes(value: Any) -> Any:
+    """Recursively remove NUL (\\x00) from strings — Postgres text/jsonb columns cannot store it.
+
+    Anything written to ``SubscriptionDelivery.content_snapshot`` that originates outside a Postgres
+    text column (ClickHouse query results, LLM output, user-supplied prompts) must pass through this
+    first, or the NUL surfaces as a unicode escape that fails the whole delivery write with a DataError.
+    """
+    if isinstance(value, str):
+        return value.replace("\x00", "")
+    if isinstance(value, list):
+        return [strip_null_bytes(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(strip_null_bytes(v) for v in value)
+    if isinstance(value, dict):
+        # Strip keys too: a Map(String, …) column can produce data-derived keys carrying NUL,
+        # and Postgres rejects it in a jsonb key just as it does in a value.
+        return {strip_null_bytes(k): strip_null_bytes(v) for k, v in value.items()}
+    return value
 
 
 async def auto_disable_and_return(

@@ -5,10 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::{
-    error::{EventError, UnhandledError},
-    types::exception_properties::ExceptionProperties,
-};
+use crate::error::{EventError, UnhandledError};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct AnyEvent {
@@ -24,13 +21,13 @@ pub struct AnyEvent {
 }
 
 pub trait PropertiesContainer: Send + Clone + 'static {
-    fn set_properties(&mut self, new_props: ExceptionProperties) -> Result<(), UnhandledError>;
+    fn set_properties(&mut self, new_props: Value) -> Result<(), UnhandledError>;
     fn attach_error(&mut self, error: String) -> Result<(), UnhandledError>;
 }
 
 impl PropertiesContainer for AnyEvent {
-    fn set_properties(&mut self, new_props: ExceptionProperties) -> Result<(), UnhandledError> {
-        self.properties = serde_json::to_value(&new_props)?;
+    fn set_properties(&mut self, new_props: Value) -> Result<(), UnhandledError> {
+        self.properties = new_props;
         Ok(())
     }
 
@@ -73,7 +70,7 @@ impl TryFrom<ClickHouseEvent> for AnyEvent {
 
 #[cfg(test)]
 mod test {
-    use crate::types::exception_properties::MAX_EXCEPTION_VALUE_LENGTH;
+    use crate::types::exception_event::{ExceptionEvent, Parsed, MAX_EXCEPTION_VALUE_LENGTH};
 
     use super::*;
     use uuid::Uuid;
@@ -119,9 +116,9 @@ mod test {
         let long_value = "x".repeat(MAX_EXCEPTION_VALUE_LENGTH + 100);
         let event = make_exception_event(&long_value);
         let any_event = AnyEvent::try_from(event).unwrap();
-        let exc_props = ExceptionProperties::try_from(any_event).unwrap();
+        let exc_props = ExceptionEvent::<Parsed>::try_from(any_event).unwrap();
 
         let expected = format!("{}...", "x".repeat(MAX_EXCEPTION_VALUE_LENGTH));
-        assert_eq!(exc_props.exception_list[0].exception_message, expected);
+        assert_eq!(exc_props.exception_list()[0].exception_message, expected);
     }
 }

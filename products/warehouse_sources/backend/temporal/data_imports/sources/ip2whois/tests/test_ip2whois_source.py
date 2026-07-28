@@ -6,7 +6,9 @@ import structlog
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import IP2WhoisSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ip2whois import (
+    IP2WhoisSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.ip2whois.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.ip2whois.source import IP2WhoisSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -44,7 +46,6 @@ class TestIP2WhoisSource:
         assert config.name.value == "IP2Whois"
         assert config.label == "IP2WHOIS"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.iconPath == "/static/services/ip2whois.png"
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/ip2whois"
 

@@ -15,6 +15,7 @@ import { urls } from 'scenes/urls'
 
 import {
     currentTaskLabel,
+    elapsedLabel,
     formatElapsed,
     pipClass,
     prNameLabel,
@@ -35,6 +36,9 @@ export function StatusGlyph({ progress }: { progress: InstallationProgress }): J
     }
     if (progress.phase === 'error') {
         return <IconWarning className="text-danger text-xl shrink-0" />
+    }
+    if (progress.prMerged) {
+        return <IconPullRequest className="text-purple text-xl shrink-0" />
     }
     return <Spinner className="text-xl shrink-0 text-accent" textColored />
 }
@@ -59,6 +63,7 @@ export function WizardSyncCard({
     progress,
     elapsedSeconds,
     mode,
+    stale = false,
     dashboard,
     onDashboardClick,
     onExpand,
@@ -68,6 +73,8 @@ export function WizardSyncCard({
     progress: InstallationProgress
     elapsedSeconds: number
     mode: WizardSyncMode
+    /** The run has gone quiet: the clock is replaced by the reason it stopped meaning anything. */
+    stale?: boolean
     /** Dashboard the wizard built, when detected — the completed card's payoff for runs with no PR. */
     dashboard?: DetectedDashboard | null
     /** Telemetry hook for the dashboard CTA — navigation itself rides the button's `to`. */
@@ -105,7 +112,9 @@ export function WizardSyncCard({
                         </p>
                         <p className="m-0 text-xs text-muted truncate">{syncHeadline(progress)}</p>
                     </div>
-                    <span className="text-xs text-muted tabular-nums shrink-0">{formatElapsed(elapsedSeconds)}</span>
+                    <span className="text-xs text-muted tabular-nums shrink-0" title={formatElapsed(elapsedSeconds)}>
+                        {elapsedLabel(elapsedSeconds, stale)}
+                    </span>
                 </div>
 
                 {total > 0 ? (

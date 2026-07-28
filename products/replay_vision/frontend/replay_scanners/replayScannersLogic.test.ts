@@ -15,10 +15,10 @@ import {
 import { ScannerConfig, ScannerType, ReplayScanner } from './types'
 
 const quotaFixture = makeQuotaFixture({
-    monthly_quota: 1000,
-    usage_this_month: 100,
+    credit_limit: 1000,
+    credits_used: 100,
     remaining: 900,
-    projected_monthly_observations: 500,
+    projected_monthly_credits: 500,
 })
 
 function defaultConfigForType(scannerType: ScannerType): ScannerConfig {
@@ -44,7 +44,7 @@ function makeScanner(overrides: Partial<ReplayScanner> = {}): ReplayScanner {
         sampling_rate: 0.1,
         query: null,
         provider: 'google',
-        model: 'gemini-3-flash-preview',
+        model: 'gemini-3.6-flash',
         emits_signals: false,
         scanner_version: 1,
         last_swept_at: '2026-05-12T00:00:00Z',
@@ -322,13 +322,13 @@ describe('replayScannersLogic', () => {
             quotaLogic.mount()
             quotaLogic.actions.loadQuotaSuccess(quotaFixture)
             logic.actions.loadScannersSuccess(
-                [makeScanner({ id: 'a', enabled: true, estimated_monthly_observations: 200 })],
+                [makeScanner({ id: 'a', enabled: true, estimated_monthly_credits: 200 })],
                 1
             )
 
             logic.actions.toggleScannerEnabled('a') // disabling → subtract the stored estimate
 
-            expect(quotaLogic.values.quota?.projected_monthly_observations).toBe(300)
+            expect(quotaLogic.values.quota?.projected_monthly_credits).toBe(300)
             quotaLogic.unmount()
         })
 
@@ -338,17 +338,17 @@ describe('replayScannersLogic', () => {
             quotaLogic.actions.loadQuotaSuccess(quotaFixture)
             logic.actions.loadScannersSuccess(
                 [
-                    makeScanner({ id: 'a', enabled: true, estimated_monthly_observations: 200 }),
-                    makeScanner({ id: 'b', name: 'other', enabled: false, estimated_monthly_observations: 999 }),
+                    makeScanner({ id: 'a', enabled: true, estimated_monthly_credits: 200 }),
+                    makeScanner({ id: 'b', name: 'other', enabled: false, estimated_monthly_credits: 999 }),
                 ],
                 2
             )
 
             logic.actions.deleteScanner('b') // disabled — contributes nothing to the sum
-            expect(quotaLogic.values.quota?.projected_monthly_observations).toBe(500)
+            expect(quotaLogic.values.quota?.projected_monthly_credits).toBe(500)
 
             logic.actions.deleteScanner('a')
-            expect(quotaLogic.values.quota?.projected_monthly_observations).toBe(300)
+            expect(quotaLogic.values.quota?.projected_monthly_credits).toBe(300)
             quotaLogic.unmount()
         })
 
@@ -362,13 +362,13 @@ describe('replayScannersLogic', () => {
             quotaLogic.mount()
             quotaLogic.actions.loadQuotaSuccess(quotaFixture)
             logic.actions.loadScannersSuccess(
-                [makeScanner({ id: 'a', enabled: true, estimated_monthly_observations: 200 })],
+                [makeScanner({ id: 'a', enabled: true, estimated_monthly_credits: 200 })],
                 1
             )
 
             await expectLogic(logic, () => logic.actions.deleteScanner('a')).toFinishAllListeners()
 
-            expect(quotaLogic.values.quota?.projected_monthly_observations).toBe(500)
+            expect(quotaLogic.values.quota?.projected_monthly_credits).toBe(500)
             quotaLogic.unmount()
         })
     })

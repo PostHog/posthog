@@ -37,8 +37,16 @@ export const manifest: ProductManifest = {
         tracing: (): string => '/tracing',
         // Query params rather than path segments: span names ("GET /api/stats") contain slashes
         // and arbitrary characters that break path routing.
-        tracingOperation: (serviceName: string, spanName: string): string =>
-            combineUrl('/tracing/operation', { service: serviceName, name: spanName }).url,
+        tracingOperation: (
+            serviceName: string,
+            spanName: string,
+            dateRange?: { date_from?: string | null; date_to?: string | null }
+        ): string =>
+            combineUrl('/tracing/operation', {
+                service: serviceName,
+                name: spanName,
+                ...(dateRange ? { dateRange: JSON.stringify(dateRange) } : {}),
+            }).url,
     },
     fileSystemTypes: {},
     treeItemsNew: [],
@@ -51,7 +59,7 @@ export const manifest: ProductManifest = {
             iconColor: ['var(--color-product-tracing-light)'] as FileSystemIconColor,
             href: urls.tracing(),
             flag: FEATURE_FLAGS.TRACING,
-            tags: ['alpha'],
+            tags: ['beta'],
             sceneKey: 'Tracing',
         },
     ],

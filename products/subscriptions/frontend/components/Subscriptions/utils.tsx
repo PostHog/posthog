@@ -17,6 +17,8 @@ export interface SubscriptionBaseProps {
     insightShortId?: InsightShortId
 }
 
+export type SubscriptionsLogicProps = SubscriptionBaseProps
+
 export const urlForSubscriptions = ({ dashboardId, insightShortId }: SubscriptionBaseProps): string => {
     if (insightShortId) {
         return urls.insightSubcriptions(insightShortId)
@@ -26,6 +28,20 @@ export const urlForSubscriptions = ({ dashboardId, insightShortId }: Subscriptio
     // Parent-less (e.g. AI prompt) subscriptions live at the top-level list.
     return urls.subscriptions()
 }
+
+/**
+ * Deep-link params the subscribe-nudge uses to open the new-subscription form prefilled.
+ * Single source of truth shared by the producer (dashboard toast) and the consumer (this
+ * logic's urlToAction). The backend notification's source_url must mirror these — see the
+ * comment on source_url in products/dashboards/backend/api/dashboard.py.
+ */
+export const SUBSCRIPTION_PREFILL_PARAMS = {
+    param: 'prefill',
+    nudge: 'nudge',
+    viaParam: 'via',
+    viaToast: 'toast',
+    viaNotification: 'notification',
+} as const
 
 export const urlForSubscription = (
     id: number | 'new',

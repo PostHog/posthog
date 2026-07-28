@@ -1,31 +1,29 @@
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.retently.settings import (
-    RETENTLY_ENDPOINTS,
-    RetentlyEndpointConfig,
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
+    SinglePagePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+from products.warehouse_sources.backend.temporal.data_imports.sources.retently.settings import RETENTLY_ENDPOINTS
 
 RETENTLY_BASE_URL = "https://app.retently.com/api/v2"
 # Documented maximum page size; the largest page minimises round trips against the ~150 req/min
 # rate limit.
 PAGE_SIZE = 1000
 FIRST_PAGE = 1
-REQUEST_TIMEOUT_SECONDS = 60
-MAX_RETRIES = 5
-
-
-class RetentlyRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
@@ -36,8 +34,10 @@ class RetentlyResumeConfig:
     page: int = FIRST_PAGE
 
 
-def _get_headers(api_key: str) -> dict[str, str]:
-    return {"X-Api-Key": api_key, "Accept": "application/json"}
+def _non_secret_headers() -> dict[str, str]:
+    # The API key rides in the X-Api-Key header via the framework `api_key` auth so its value is
+    # redacted from logs and error messages; only the non-secret Accept header is set here.
+    return {"Accept": "application/json"}
 
 
 def _format_start_date(value: Any) -> str:
@@ -53,129 +53,73 @@ def _format_start_date(value: Any) -> str:
     return str(value)
 
 
-def _extract_items(body: Any, config: RetentlyEndpointConfig) -> list[dict[str, Any]]:
-    """Locate the record array in a Retently response.
+class RetentlyPaginator(BasePaginator):
+    """Page-number pagination for Retently list endpoints.
 
-    The docs are inconsistent about envelope nesting (records under ``data.<key>`` for most
-    endpoints, a bare list under ``data`` for /reports, a top-level array for campaigns/templates),
-    so all documented shapes are handled.
+    Prefers the `pages` metadata when the API returns it — the docs place it inside `data` on some
+    endpoints (feedback, companies, outbox) and at the top level on others (customers), so both
+    spots are checked. Falls back to "a full page keeps going, a short page ends the loop" when the
+    metadata is missing. An empty page always ends the loop.
     """
-    if not isinstance(body, dict):
-        raise RetentlyRetryableError(f"Retently returned an unexpected payload for {config.path}")
 
-    data = body.get("data")
-    if isinstance(data, list):
-        return data
-    if isinstance(data, dict):
-        items = data.get(config.data_key)
-        if isinstance(items, list):
-            return items
+    def __init__(self, page: int = FIRST_PAGE, page_size: int = PAGE_SIZE, page_param: str = "page") -> None:
+        super().__init__()
+        self.page = page
+        self.page_size = page_size
+        self.page_param = page_param
 
-    top_level = body.get(config.data_key)
-    if isinstance(top_level, list):
-        return top_level
+    def init_request(self, request: Request) -> None:
+        if request.params is None:
+            request.params = {}
+        request.params[self.page_param] = self.page
 
-    if isinstance(data, dict):
-        # Defensive fallback: a single list-valued entry in `data` is unambiguous even if the
-        # documented key drifts.
-        lists = [value for value in data.values() if isinstance(value, list)]
-        if len(lists) == 1:
-            return lists[0]
+    def update_request(self, request: Request) -> None:
+        if request.params is None:
+            request.params = {}
+        request.params[self.page_param] = self.page
 
-    raise RetentlyRetryableError(f"Retently returned an unexpected payload for {config.path}")
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        item_count = len(data) if data else 0
+        if item_count == 0:
+            self._has_next_page = False
+            return
+        if self._has_more(response, self.page, item_count):
+            self.page += 1
+            self._has_next_page = True
+        else:
+            self._has_next_page = False
 
+    def _has_more(self, response: Response, page: int, item_count: int) -> bool:
+        try:
+            body = response.json()
+        except Exception:
+            body = {}
+        data = body.get("data") if isinstance(body, dict) else None
+        for meta in (data if isinstance(data, dict) else {}, body if isinstance(body, dict) else {}):
+            pages = meta.get("pages")
+            if isinstance(pages, int):
+                return page < pages
+        return item_count >= self.page_size
 
-def _has_more(body: dict[str, Any], page: int, item_count: int) -> bool:
-    # Prefer the `pages` metadata when the API returns it — the docs place it inside `data` on
-    # some endpoints (feedback, companies, outbox) and at the top level on others (customers), so
-    # both spots are checked. Fall back to "a short page ends the loop" when it's missing.
-    data = body.get("data")
-    for meta in (data if isinstance(data, dict) else {}, body):
-        pages = meta.get("pages")
-        if isinstance(pages, int):
-            return page < pages
-    return item_count >= PAGE_SIZE
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        # self.page already points at the next page to fetch (update_state incremented it).
+        return {"page": self.page} if self._has_next_page else None
 
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        page = state.get("page")
+        if page is not None:
+            self.page = int(page)
+            self._has_next_page = True
 
-def get_rows(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[RetentlyResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Optional[Any] = None,
-) -> Iterator[list[dict[str, Any]]]:
-    config = RETENTLY_ENDPOINTS[endpoint]
-    # `redact_values` masks the API key (sent in the X-Api-Key header) from captured HTTP samples.
-    session = make_tracked_session(headers=_get_headers(api_key), redact_values=(api_key,))
-
-    @retry(
-        retry=retry_if_exception_type((RetentlyRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(MAX_RETRIES),
-        wait=wait_exponential_jitter(initial=1, max=60),
-        reraise=True,
-    )
-    def fetch_page(params: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-        response = session.get(
-            f"{RETENTLY_BASE_URL}{config.path}",
-            params=params,
-            timeout=REQUEST_TIMEOUT_SECONDS,
-        )
-
-        # Retently rate-limits at ~150 req/min and returns 429 on exceed; 5xx are transient.
-        if response.status_code == 429 or response.status_code >= 500:
-            raise RetentlyRetryableError(
-                f"Retently API error (retryable): status={response.status_code}, path={config.path}"
-            )
-
-        if not response.ok:
-            logger.error(f"Retently API error: status={response.status_code}, body={response.text}, path={config.path}")
-            response.raise_for_status()
-
-        body = response.json()
-        # Extraction happens inside the retried scope so a transiently malformed payload (e.g. an
-        # HTML error page from a proxy) retries this one request instead of failing the sync.
-        return _extract_items(body, config), body
-
-    base_params: dict[str, Any] = {}
-    if config.paginated:
-        base_params["limit"] = PAGE_SIZE
-        if config.sort_param is not None:
-            base_params["sort"] = config.sort_param
-    if config.incremental_fields and should_use_incremental_field and db_incremental_field_last_value is not None:
-        # `startDate` is inclusive of the boundary as far as the docs indicate; the watermark row
-        # is re-fetched and merge dedupes it on the primary key.
-        base_params["startDate"] = _format_start_date(db_incremental_field_last_value)
-
-    if not config.paginated:
-        items, _ = fetch_page(base_params)
-        if items:
-            yield items
-        return
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    page = resume.page if resume is not None else FIRST_PAGE
-    if resume is not None:
-        logger.debug(f"Retently: resuming {endpoint} from page {page}")
-
-    while True:
-        items, body = fetch_page({**base_params, "page": page})
-        if items:
-            yield items
-
-        if not items or not _has_more(body, page, len(items)):
-            break
-
-        page += 1
-        # Save AFTER yielding so a crash re-fetches from the next page (already-yielded pages are
-        # persisted); merge dedupes any re-pulled rows on the primary key.
-        resumable_source_manager.save_state(RetentlyResumeConfig(page=page))
+    def __str__(self) -> str:
+        return f"RetentlyPaginator(page={self.page})"
 
 
 def retently_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[RetentlyResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
@@ -183,16 +127,73 @@ def retently_source(
     config = RETENTLY_ENDPOINTS[endpoint]
     supports_incremental = bool(config.incremental_fields)
 
+    params: dict[str, Any] = {}
+    paginator: BasePaginator
+    if config.paginated:
+        params["limit"] = PAGE_SIZE
+        if config.sort_param is not None:
+            params["sort"] = config.sort_param
+        paginator = RetentlyPaginator()
+    else:
+        # Campaigns, templates and reports are documented without pagination and return the full
+        # collection in one response — no page/limit/sort params.
+        paginator = SinglePagePaginator()
+
+    endpoint_config: Endpoint = {
+        "path": config.path,
+        "params": params,
+        "data_selector": config.data_selector,
+        # A 200 whose payload isn't the expected list shape (an HTML proxy error, a transient
+        # error envelope) is retried, matching the old transport which raised a retryable error
+        # from its extraction step so one malformed page reissues instead of failing the sync.
+        "data_selector_malformed_retryable": True,
+        "paginator": paginator,
+    }
+
+    # `startDate` filters feedback server-side by creation date. Only sent when the endpoint is
+    # incremental, incremental sync is on, and we have a watermark — the first incremental run and
+    # full refreshes send no filter (the watermark row is re-fetched and merge dedupes it).
+    if supports_incremental and should_use_incremental_field and db_incremental_field_last_value is not None:
+        endpoint_config["incremental"] = {
+            "start_param": "startDate",
+            "cursor_path": config.incremental_fields[0]["field"],
+            "convert": _format_start_date,
+        }
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": RETENTLY_BASE_URL,
+            "headers": _non_secret_headers(),
+            "auth": {"type": "api_key", "api_key": api_key, "name": "X-Api-Key", "location": "header"},
+        },
+        "resource_defaults": {},
+        "resources": [{"name": endpoint, "endpoint": endpoint_config}],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = {"page": resume.page}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist AFTER a page is yielded and only when a next page remains, so a crash re-fetches
+        # from the next page (already-yielded pages are persisted) and merge dedupes any overlap.
+        if state and state.get("page") is not None:
+            resumable_source_manager.save_state(RetentlyResumeConfig(page=int(state["page"])))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value if supports_incremental and should_use_incremental_field else None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         # The incremental endpoint requests ascending creation order via `sort=createdDate`, but we
         # could not verify against a live account that the param is honored, so "desc" keeps the
@@ -204,34 +205,26 @@ def retently_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
+        column_hints=resource.column_hints,
     )
 
 
-def check_access(api_key: str) -> tuple[int, Optional[str]]:
+def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     """Probe /ping to validate the API key.
 
-    Returns ``(status, message)``: ``200`` reachable, ``401``/``403`` auth failure, ``0`` for a
-    connection problem, other HTTP status otherwise.
+    ``200`` reachable, ``401``/``403`` auth failure, any other HTTP status is inconclusive, and a
+    transport failure (``status`` None) means the probe never reached Retently.
     """
-    session = make_tracked_session(headers=_get_headers(api_key), redact_values=(api_key,))
-    try:
-        response = session.get(f"{RETENTLY_BASE_URL}/ping", timeout=15)
-    except Exception as e:
-        return 0, f"Could not connect to Retently: {e}"
-
-    if response.status_code in (401, 403):
-        return response.status_code, None
-
-    if not response.ok:
-        return response.status_code, f"Retently returned HTTP {response.status_code}"
-
-    return 200, None
-
-
-def validate_credentials(api_key: str) -> tuple[bool, str | None]:
-    status, message = check_access(api_key)
-    if status == 200:
+    ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        f"{RETENTLY_BASE_URL}/ping",
+        headers={"X-Api-Key": api_key, "Accept": "application/json"},
+        timeout=15,
+    )
+    if ok:
         return True, None
     if status in (401, 403):
         return False, "Invalid Retently API key"
-    return False, message or "Could not validate Retently API key"
+    if status is not None:
+        return False, f"Retently returned HTTP {status}"
+    return False, "Could not connect to Retently"

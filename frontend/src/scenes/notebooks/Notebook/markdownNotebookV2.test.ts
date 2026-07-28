@@ -529,7 +529,7 @@ after`)
         expect(parsed.nodes.map((node) => node.type)).toEqual(['heading', 'list', 'component', 'blockquote'])
     })
 
-    it('splits embedded cards and headings out of blockquotes instead of quoting their tags', () => {
+    it('splits embedded cards out of blockquotes while keeping headings quoted', () => {
         const content: JSONContent = {
             type: 'doc',
             content: [
@@ -564,7 +564,7 @@ after`)
 
         expect(markdown).toContain('> Quoted context')
         expect(markdown).toContain('\n\n<Query ')
-        expect(markdown).toContain('\n\n## Where to improve')
+        expect(markdown).toContain('> ## Where to improve')
         expect(markdown).toContain('\n\n<Python ')
         expect(markdown).not.toContain('> <')
 
@@ -574,6 +574,8 @@ after`)
             'Query',
             'Python',
         ])
+        const quotedHeading = parsed.nodes.find((node) => node.type === 'heading')
+        expect(quotedHeading?.type === 'heading' && quotedHeading.blockquote).toBe(true)
     })
 
     it('splits embedded cards out of callouts while keeping the emoji and text quoted', () => {

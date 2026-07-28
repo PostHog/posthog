@@ -433,6 +433,74 @@ describe('experimentLogic', () => {
             )
         })
     })
+    describe('duplicateSharedMetricAsInlineMetric', () => {
+        const sharedMetricId = 555
+        const breakdown = { property: '$browser', type: 'event' } as Breakdown
+        const sharedSavedMetric = {
+            id: 1,
+            experiment: experiment.id as number,
+            saved_metric: sharedMetricId,
+            name: 'Shared conversion metric',
+            query: {
+                uuid: 'shared-metric-uuid',
+                kind: NodeKind.ExperimentMetric,
+                metric_type: ExperimentMetricType.MEAN,
+                source: { kind: NodeKind.EventsNode, event: '$pageview' },
+            },
+            metadata: { type: 'primary', breakdowns: [breakdown] },
+            created_at: '2024-01-01T00:00:00Z',
+        } as unknown as ExperimentSavedMetric
+
+        it('appends an inline copy of the shared metric without the shared link', async () => {
+            logic.actions.setExperiment({
+                ...experiment,
+                metrics: [],
+                metrics_secondary: [],
+                saved_metrics: [sharedSavedMetric],
+            } as unknown as Experiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.duplicateSharedMetricAsInlineMetric({
+                    sharedMetricId,
+                    isSecondary: false,
+                    newUuid: 'new-inline-uuid',
+                })
+            })
+
+            expect(logic.values.experiment.metrics).toEqual([
+                {
+                    uuid: 'new-inline-uuid',
+                    kind: NodeKind.ExperimentMetric,
+                    metric_type: ExperimentMetricType.MEAN,
+                    source: { kind: NodeKind.EventsNode, event: '$pageview' },
+                    name: 'Shared conversion metric (copy)',
+                    breakdownFilter: { breakdowns: [breakdown] },
+                },
+            ])
+            // The original shared metric link is left untouched
+            expect(logic.values.experiment.saved_metrics).toEqual([sharedSavedMetric])
+        })
+
+        it('is a no-op when the shared metric is not linked as the requested type', async () => {
+            logic.actions.setExperiment({
+                ...experiment,
+                metrics: [],
+                metrics_secondary: [],
+                saved_metrics: [sharedSavedMetric],
+            } as unknown as Experiment)
+
+            await expectLogic(logic, () => {
+                // The shared metric is a primary link, so duplicating it as secondary finds nothing
+                logic.actions.duplicateSharedMetricAsInlineMetric({
+                    sharedMetricId,
+                    isSecondary: true,
+                    newUuid: 'new-inline-uuid',
+                })
+            })
+
+            expect(logic.values.experiment.metrics_secondary).toEqual([])
+        })
+    })
     describe('saveMetricsReorder', () => {
         const primaryMetric = {
             kind: 'ExperimentMetric',
@@ -2064,9 +2132,9 @@ describe('experimentLogic', () => {
     })
 
     describe('variants', () => {
-        const parameterVariants: MultivariateFlagVariant[] = [
+        const draftVariants: MultivariateFlagVariant[] = [
             { key: 'control', rollout_percentage: 50 },
-            { key: 'param-test', rollout_percentage: 50 },
+            { key: 'draft-test', rollout_percentage: 50 },
         ]
         const flagVariants: MultivariateFlagVariant[] = [
             { key: 'control', rollout_percentage: 50 },
@@ -2075,23 +2143,23 @@ describe('experimentLogic', () => {
 
         it.each<{
             desc: string
-            parameterVariants?: MultivariateFlagVariant[]
+            draftVariants?: MultivariateFlagVariant[]
             flagVariants?: MultivariateFlagVariant[]
             expected: MultivariateFlagVariant[]
         }>([
             {
-                desc: 'prefers the linked flag variants over the parameters mirror',
-                parameterVariants,
+                desc: 'prefers the linked flag variants over the draft config',
+                draftVariants,
                 flagVariants,
                 expected: flagVariants,
             },
             {
-                desc: 'falls back to parameters.feature_flag_variants when the flag has no variants (creation flow)',
-                parameterVariants,
-                expected: parameterVariants,
+                desc: 'falls back to the draft flag config when the flag has no variants (creation flow)',
+                draftVariants,
+                expected: draftVariants,
             },
             {
-                desc: 'reads the linked flag variants when parameters has no mirror',
+                desc: 'reads the linked flag variants when there is no draft config',
                 flagVariants,
                 expected: flagVariants,
             },
@@ -2103,7 +2171,9 @@ describe('experimentLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.setExperiment({
                     ...experiment,
-                    parameters: { ...experiment.parameters, feature_flag_variants: row.parameterVariants },
+                    feature_flag_config: row.draftVariants
+                        ? { filters: { multivariate: { variants: row.draftVariants } } }
+                        : undefined,
                     feature_flag: {
                         ...experiment.feature_flag,
                         filters: {

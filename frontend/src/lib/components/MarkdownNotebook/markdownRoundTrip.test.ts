@@ -131,6 +131,7 @@ describe('markdown round trip', () => {
                     id: '',
                     type: 'heading',
                     level: count(6) as NotebookTextBlockNode['level'],
+                    blockquote: random() < 0.25 ? true : undefined,
                     children: [makeInlineRun(false)],
                 }
             }

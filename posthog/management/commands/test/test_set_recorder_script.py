@@ -1,6 +1,7 @@
 from io import StringIO
 
 from posthog.test.base import BaseTest
+from unittest import mock
 
 from django.core.management import call_command
 
@@ -139,12 +140,23 @@ class TestSetRecorderScriptCommand(BaseTest):
         )
 
         out = StringIO()
-        call_command(
-            "set_recorder_script",
-            "--script=test-recorder",
-            "--sample-rate=1.0",
-            stdout=out,
-        )
+        # team.save() fans out to unrelated post_save receivers that each do per-team work:
+        # the team-token cache write runs a full DRF serialization plus a cache write, and
+        # hog function / hog flow refresh each run their own DB query. Irrelevant to this
+        # command's batching behaviour, just 2500x avoidable overhead each — mock them out
+        # like any other unrelated side effect that isn't under test. With these mocked,
+        # each save is a single UPDATE, which is this test's floor.
+        with (
+            mock.patch("products.cdp.backend.tasks.hog_functions.refresh_affected_hog_functions.delay"),
+            mock.patch("products.workflows.backend.tasks.hog_flows.refresh_affected_hog_flows.delay"),
+            mock.patch("posthog.models.team.team.set_team_in_cache"),
+        ):
+            call_command(
+                "set_recorder_script",
+                "--script=test-recorder",
+                "--sample-rate=1.0",
+                stdout=out,
+            )
 
         output = out.getvalue()
         assert "Updated 1000 teams so far..." in output

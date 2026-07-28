@@ -42,19 +42,10 @@ class TestEvaluationConfigViewSet(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/llm_analytics/evaluation_config/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        self.assertIn("trial_eval_limit", response.data)
-        self.assertIn("trial_evals_used", response.data)
-        self.assertIn("trial_evals_remaining", response.data)
         self.assertIn("active_provider_key", response.data)
-        self.assertEqual(response.data["trial_eval_limit"], 100)
-        self.assertEqual(response.data["trial_evals_used"], 0)
-        self.assertEqual(response.data["trial_evals_remaining"], 100)
         self.assertIsNone(response.data["active_provider_key"])
-        # The frontend gates the terminal/grandfathered UI on these two fields.
-        self.assertIn("trial_grandfathered", response.data)
-        self.assertFalse(response.data["trial_grandfathered"])
-        self.assertIn("trial_deprecation_date", response.data)
-        self.assertIsNotNone(response.data["trial_deprecation_date"])
+        self.assertIn("created_at", response.data)
+        self.assertIn("updated_at", response.data)
 
     def test_get_creates_config_if_missing(self):
         self.assertEqual(EvaluationConfig.objects.filter(team=self.team).count(), 0)
@@ -65,22 +56,12 @@ class TestEvaluationConfigViewSet(APIBaseTest):
         self.assertEqual(EvaluationConfig.objects.filter(team=self.team).count(), 1)
 
     def test_get_returns_existing_config(self):
-        EvaluationConfig.objects.create(team=self.team, trial_evals_used=50)
+        existing = EvaluationConfig.objects.create(team=self.team)
 
         response = self.client.get(f"/api/environments/{self.team.id}/llm_analytics/evaluation_config/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["trial_evals_used"], 50)
-        self.assertEqual(response.data["trial_evals_remaining"], 50)
-
-    def test_trial_grandfathered_field_reflects_is_trial_grandfathered_property(self):
-        # The field must track the model property; pin the cutoff for wall-clock determinism.
-        with self.settings(AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE="2999-12-31T00:00:00+00:00"):
-            EvaluationConfig.objects.create(team=self.team, trial_eval_limit=100, trial_evals_used=50)
-
-            response = self.client.get(f"/api/environments/{self.team.id}/llm_analytics/evaluation_config/")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue(response.data["trial_grandfathered"])
+        self.assertEqual(EvaluationConfig.objects.filter(team=self.team).count(), 1)
+        self.assertEqual(EvaluationConfig.objects.get(team=self.team).pk, existing.pk)
 
     def test_can_set_active_key(self):
         key = LLMProviderKey.objects.create(
@@ -169,20 +150,6 @@ class TestEvaluationConfigViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data["attr"], "key_id")
         self.assertEqual(response.data["code"], "required")
-
-    def test_trial_evals_remaining_calculated_correctly(self):
-        EvaluationConfig.objects.create(team=self.team, trial_eval_limit=100, trial_evals_used=75)
-
-        response = self.client.get(f"/api/environments/{self.team.id}/llm_analytics/evaluation_config/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["trial_evals_remaining"], 25)
-
-    def test_trial_evals_remaining_never_negative(self):
-        EvaluationConfig.objects.create(team=self.team, trial_eval_limit=100, trial_evals_used=150)
-
-        response = self.client.get(f"/api/environments/{self.team.id}/llm_analytics/evaluation_config/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["trial_evals_remaining"], 0)
 
     def test_can_change_active_key(self):
         key1 = LLMProviderKey.objects.create(

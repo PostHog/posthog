@@ -2,11 +2,7 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { Placeholder } from '@tiptap/extension-placeholder'
 import { useState } from 'react'
 
-import {
-    markdownToTextCardDoc,
-    textCardDocToMarkdown,
-    TEXT_CARD_MARKDOWN_EXTENSIONS,
-} from 'lib/components/Cards/TextCard/textCardMarkdown'
+import { TEXT_CARD_MARKDOWN_EXTENSIONS, textCardConverter } from 'lib/components/Cards/TextCard/textCardMarkdown'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 import { RichMarkdownEditor, type RichMarkdownEditorProps } from './RichMarkdownEditor'
@@ -19,8 +15,8 @@ const TEXT_CARD_LIKE_EXTENSIONS = [
 
 const storyDefaults = {
     extensions: TEXT_CARD_LIKE_EXTENSIONS,
-    markdownToDoc: markdownToTextCardDoc,
-    docToMarkdown: textCardDocToMarkdown,
+    markdownToDoc: textCardConverter.markdownToDoc,
+    docToMarkdown: textCardConverter.docToMarkdown,
     renderPreview: (markdown: string): JSX.Element => <LemonMarkdown>{markdown}</LemonMarkdown>,
     dataAttr: 'story-rich-markdown-editor',
 }

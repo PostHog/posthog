@@ -19,9 +19,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import WufooSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.wufoo.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.wufoo import WufooSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.wufoo.settings import (
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.wufoo.wufoo import (
     SUBDOMAIN_REGEX,
     WufooResumeConfig,
@@ -33,6 +39,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class WufooSource(ResumableSource[WufooSourceConfig, WufooResumeConfig]):
+    supported_versions = ("v3",)
+    default_version = "v3"
+    api_docs_url = "https://www.wufoo.com/docs/api/v3/"
+
     # `get_schemas` iterates a static endpoint catalog with no I/O, so the table list is safe to
     # render in public docs without credentials.
     lists_tables_without_credentials = True
@@ -56,7 +66,7 @@ class WufooSource(ResumableSource[WufooSourceConfig, WufooResumeConfig]):
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            # Auth failures surface as a requests HTTPError when `_fetch_page` calls
+            # Auth failures surface as a requests HTTPError raised by the REST client's
             # `raise_for_status()`. Retrying can never satisfy a credential problem, so stop the
             # sync. The host is subdomain-specific, so match the stable status text only.
             "401 Client Error: Unauthorized for url": "Your Wufoo API key is invalid, or the subdomain is wrong. Check both under Account → API Information and reconnect.",
@@ -70,25 +80,15 @@ class WufooSource(ResumableSource[WufooSourceConfig, WufooResumeConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — Wufoo's account-level list endpoints expose no
-        # server-side timestamp filter, so there is no incremental cursor to advance.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # server-side timestamp filter, so there is no incremental cursor to advance (INCREMENTAL_FIELDS
+        # is empty, so build_endpoint_schemas marks every endpoint non-incremental / non-append).
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: WufooSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: WufooSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         if not SUBDOMAIN_REGEX.match(config.subdomain):
             return False, "Wufoo subdomain is invalid"
@@ -114,8 +114,10 @@ class WufooSource(ResumableSource[WufooSourceConfig, WufooResumeConfig]):
             api_key=config.api_key,
             subdomain=config.subdomain,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every Wufoo endpoint is full refresh
         )
 
     @property

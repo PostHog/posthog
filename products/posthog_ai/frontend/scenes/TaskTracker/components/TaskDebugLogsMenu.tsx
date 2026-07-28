@@ -7,7 +7,7 @@ import { debugLogsLogic } from '../../../logics/debugLogsLogic'
 /**
  * Staff-only menu exposing the debug-logs toggle for the run thread. Renders nothing unless the current
  * user may control debug logs (staff or local dev) — impersonated sessions force debug logs on and have
- * no toggle. The checkmark reflects the persisted (localStorage) preference, on by default.
+ * no toggle. The checkmark reflects the persisted (localStorage) preference, off by default.
  */
 export function TaskDebugLogsMenu(): JSX.Element | null {
     const { canControlDebugLogs, debugLogsEnabled } = useValues(debugLogsLogic)

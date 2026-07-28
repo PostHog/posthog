@@ -3,6 +3,8 @@ from typing import Optional
 
 from django.utils import timezone
 
+from openai.types.chat import ChatCompletionMessageParam
+
 from posthog.schema import (
     CachedSuggestedQuestionsQueryResponse,
     SuggestedQuestionsQuery,
@@ -10,10 +12,9 @@ from posthog.schema import (
     TeamTaxonomyQuery,
 )
 
-from posthog.hogql.ai import hit_openai
-
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.llm.completions import hit_openai
 from posthog.utils import get_instance_region
 
 from products.posthog_ai.backend.models.assistant import CoreMemory
@@ -36,7 +37,7 @@ class SuggestedQuestionsQueryRunner(QueryRunner):
             query_id=self.query_id,
         ).calculate()
 
-        messages = [
+        messages: list[ChatCompletionMessageParam] = [
             {
                 "role": "system",
                 "content": (

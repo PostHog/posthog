@@ -30,7 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.financial_
     ENDPOINTS,
     FINANCIAL_MODELLING_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.financialmodelling import (
     FinancialModellingSourceConfig,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -38,6 +38,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FinancialModellingSource(ResumableSource[FinancialModellingSourceConfig, FinancialModellingResumeConfig]):
+    supported_versions = ("stable",)
+    default_version = "stable"
+    api_docs_url = "https://site.financialmodelingprep.com/developer/docs/stable"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -51,7 +55,6 @@ class FinancialModellingSource(ResumableSource[FinancialModellingSourceConfig, F
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Financial Modeling Prep",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Financial Modeling Prep API key to pull market and company financial data into the PostHog Data warehouse.
 
 You can find your API key in your [Financial Modeling Prep dashboard](https://site.financialmodelingprep.com/developer/docs/dashboard).
@@ -103,6 +106,7 @@ The symbol-keyed tables (company profiles, financial statements, historical pric
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = FINANCIAL_MODELLING_ENDPOINTS[endpoint]
@@ -122,7 +126,11 @@ The symbol-keyed tables (company profiles, financial statements, historical pric
         return schemas
 
     def validate_credentials(
-        self, config: FinancialModellingSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: FinancialModellingSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_financial_modelling_credentials(config.api_key):
             return True, None

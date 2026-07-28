@@ -11,29 +11,54 @@ from posthog.models.user_integration import UserIntegration
 
 from products.tasks.backend.constants import (
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
+    CONTINUE_AS_NEW_FEATURE_FLAG,
     MODAL_DIRECTORY_RESUME_SNAPSHOTS_FEATURE_FLAG,
     MODAL_VM_SANDBOX_FEATURE_FLAG,
     RTK_DISABLED_FEATURE_FLAG,
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
     vm_sandbox_allowed_origin_products,
+    vm_sandbox_default_base_origin_products,
 )
 from products.tasks.backend.exceptions import TaskInvalidStateError, TaskRunNotReadyError
 from products.tasks.backend.models import SandboxEnvironment, Task
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
     GetTaskProcessingContextInput,
     TaskProcessingContext,
+    _is_agent_otel_telemetry_enabled,
     _is_agent_proxy_keep_stream_open_enabled,
     _is_burstable_sandbox_resources_enabled,
+    _is_continue_as_new_enabled,
     _is_modal_vm_sandbox_enabled,
     _is_rtk_enabled,
     _is_sandbox_event_ingest_enabled,
     get_task_processing_context,
 )
+from products.tasks.backend.temporal.process_task.utils import get_actor_distinct_id
 
 VM_FLAG_PAYLOAD_TARGET = "products.tasks.backend.constants.posthoganalytics.get_feature_flag_payload"
 
 
 @pytest.mark.requires_secrets
+class TestIsAgentOtelTelemetryEnabled:
+    @pytest.mark.parametrize(
+        "debug,state,expected",
+        [
+            # DEBUG must win over the stamp: local dev always stamps False (SDK disabled),
+            # and the SANDBOX_AGENT_OTEL_* settings are the local opt-in.
+            (True, {"agent_otel_telemetry_enabled": False}, True),
+            (True, {}, True),
+            (False, {"agent_otel_telemetry_enabled": True}, True),
+            (False, {"agent_otel_telemetry_enabled": False}, False),
+        ],
+    )
+    def test_debug_wins_then_stamp(self, debug, state, expected):
+        with override_settings(DEBUG=debug):
+            assert (
+                _is_agent_otel_telemetry_enabled(distinct_id="d", organization_id="o", run_id="r", state=state)
+                is expected
+            )
+
+
 class TestGetTaskProcessingContextActivity:
     def _create_task_with_repo(self, team, user, github_integration, repo_config):
         return Task.objects.create(
@@ -130,7 +155,13 @@ class TestGetTaskProcessingContextActivity:
             description="Clone a repo later from chat",
             origin_product=Task.OriginProduct.SLACK,
         )
-        task_run = task.create_run(extra_state={"interaction_origin": "slack", "pr_authorship_mode": "user"})
+        task_run = task.create_run(
+            extra_state={
+                "interaction_origin": "slack",
+                "pr_authorship_mode": "user",
+                "slack_actor_user_id": user.id,
+            }
+        )
 
         result = async_to_sync(activity_environment.run)(
             get_task_processing_context,
@@ -141,6 +172,49 @@ class TestGetTaskProcessingContextActivity:
         assert result.github_integration_id is None
         assert result.github_user_integration_id == str(user_integration.id)
         assert result.has_github_credentials is True
+
+    @pytest.mark.django_db(transaction=True)
+    def test_get_task_processing_context_requires_valid_slack_actor(self, activity_environment, team, user):
+        task = Task.objects.create(
+            team=team,
+            created_by=user,
+            title="Slack task with unresolvable actor",
+            description="Summarize the thread",
+            origin_product=Task.OriginProduct.SLACK,
+        )
+        task_run = task.create_run(
+            extra_state={
+                "interaction_origin": "slack",
+                "pr_authorship_mode": "user",
+                "slack_actor_user_id": user.id + 999_999,
+            }
+        )
+
+        with pytest.raises(TaskInvalidStateError):
+            async_to_sync(activity_environment.run)(
+                get_task_processing_context,
+                GetTaskProcessingContextInput(run_id=str(task_run.id)),
+            )
+
+    @pytest.mark.django_db(transaction=True)
+    def test_get_task_processing_context_grandfathers_slack_runs_without_actor_state(
+        self, activity_environment, team, user
+    ):
+        task = Task.objects.create(
+            team=team,
+            created_by=user,
+            title="Slack task started before actor tracking",
+            description="Summarize the thread",
+            origin_product=Task.OriginProduct.SLACK,
+        )
+        task_run = task.create_run(extra_state={"interaction_origin": "slack", "pr_authorship_mode": "bot"})
+
+        result = async_to_sync(activity_environment.run)(
+            get_task_processing_context,
+            GetTaskProcessingContextInput(run_id=str(task_run.id)),
+        )
+
+        assert result.distinct_id == get_actor_distinct_id(user)
 
     @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_uses_team_integration_without_repository(
@@ -154,7 +228,13 @@ class TestGetTaskProcessingContextActivity:
             origin_product=Task.OriginProduct.SLACK,
             github_integration=github_integration,
         )
-        task_run = task.create_run(extra_state={"interaction_origin": "slack", "pr_authorship_mode": "bot"})
+        task_run = task.create_run(
+            extra_state={
+                "interaction_origin": "slack",
+                "pr_authorship_mode": "bot",
+                "slack_actor_user_id": user.id,
+            }
+        )
 
         result = async_to_sync(activity_environment.run)(
             get_task_processing_context,
@@ -273,7 +353,7 @@ class TestGetTaskProcessingContextActivity:
         assert result.sandbox_event_ingest_enabled is False
         args, kwargs = feature_enabled_mock.call_args_list[0]
         assert args[0] == "tasks-pr-loop"
-        assert kwargs["distinct_id"] == (test_task.created_by.distinct_id or "process_task_workflow")
+        assert kwargs["distinct_id"] == get_actor_distinct_id(test_task.created_by)
         org_id = str(test_task.team.organization_id)
         assert kwargs["groups"] == {"organization": org_id}
         assert kwargs["group_properties"] == {"organization": {"id": org_id}}
@@ -362,6 +442,25 @@ class TestGetTaskProcessingContextActivity:
                     state={"sandbox_event_ingest_enabled": True},
                 )
                 is True
+            )
+
+        feature_enabled_mock.assert_not_called()
+
+    def test_sandbox_event_ingest_disabled_for_slack_runs_regardless_of_override(self):
+        # Permission brokering and Slack approval cards only exist on the relay path;
+        # a Slack run in ingest mode would stall forever on its first gated tool call.
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            return_value=True,
+        ) as feature_enabled_mock:
+            assert (
+                _is_sandbox_event_ingest_enabled(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                    state={"interaction_origin": "slack", "sandbox_event_ingest_enabled": True},
+                )
+                is False
             )
 
         feature_enabled_mock.assert_not_called()
@@ -520,6 +619,62 @@ class TestGetTaskProcessingContextActivity:
                 is False
             )
 
+    @pytest.mark.parametrize("flag_value, expected", [(True, True), (False, False)])
+    @override_settings(TASKS_CONTINUE_AS_NEW_ENABLED=False)
+    def test_continue_as_new_flag_uses_organization_rollout(self, flag_value, expected):
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            return_value=flag_value,
+        ) as feature_enabled_mock:
+            assert (
+                _is_continue_as_new_enabled(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                )
+                is expected
+            )
+
+        feature_enabled_mock.assert_called_once_with(
+            CONTINUE_AS_NEW_FEATURE_FLAG,
+            distinct_id="distinct-id",
+            groups={"organization": "organization-id"},
+            group_properties={"organization": {"id": "organization-id"}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+
+    @override_settings(TASKS_CONTINUE_AS_NEW_ENABLED=False)
+    def test_continue_as_new_fails_closed_on_flag_error(self):
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            side_effect=RuntimeError("flag service failed"),
+        ):
+            assert (
+                _is_continue_as_new_enabled(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                )
+                is False
+            )
+
+    @override_settings(TASKS_CONTINUE_AS_NEW_ENABLED=True)
+    def test_continue_as_new_env_setting_force_enables_without_flag(self):
+        # The force-on env setting must not depend on the flag service.
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+        ) as feature_enabled_mock:
+            assert (
+                _is_continue_as_new_enabled(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                )
+                is True
+            )
+        feature_enabled_mock.assert_not_called()
+
     @pytest.mark.parametrize(
         "payload, expected",
         [
@@ -539,6 +694,7 @@ class TestGetTaskProcessingContextActivity:
                     run_id="run-id",
                     origin_product="user_created",
                     allowed_domains=None,
+                    custom_image_available=True,
                 )
                 is expected
             )
@@ -568,7 +724,15 @@ class TestGetTaskProcessingContextActivity:
                 is False
             )
 
-    def test_modal_vm_sandbox_state_override_skips_flag_check(self):
+    @pytest.mark.parametrize(
+        "origin_product, custom_image_available, expected",
+        [
+            ("image_builder", False, True),
+            ("user_created", False, False),
+            ("user_created", True, True),
+        ],
+    )
+    def test_modal_vm_sandbox_state_override_skips_flag_check(self, origin_product, custom_image_available, expected):
         with patch(
             VM_FLAG_PAYLOAD_TARGET,
             return_value=None,
@@ -578,11 +742,12 @@ class TestGetTaskProcessingContextActivity:
                     distinct_id="distinct-id",
                     organization_id="organization-id",
                     run_id="run-id",
-                    origin_product="user_created",
+                    origin_product=origin_product,
                     allowed_domains=None,
+                    custom_image_available=custom_image_available,
                     state={"use_modal_vm_sandbox": True},
                 )
-                is True
+                is expected
             )
 
         payload_mock.assert_not_called()
@@ -624,18 +789,83 @@ class TestGetTaskProcessingContextActivity:
 
         payload_mock.assert_not_called()
 
+    def test_modal_vm_sandbox_restricted_egress_overrides_default_base(self):
+        # Restricted egress must win over the default-base allowlist: VM can't enforce Modal's
+        # outbound domain allowlist, so a default-base origin with a custom domain list stays on
+        # gVisor and the flag is never consulted (the egress gate returns before the fetch).
+        with patch(
+            VM_FLAG_PAYLOAD_TARGET,
+            return_value='{"default_base_origin_products": ["user_created"]}',
+        ) as payload_mock:
+            assert (
+                _is_modal_vm_sandbox_enabled(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                    origin_product="user_created",
+                    allowed_domains=["github.com"],
+                )
+                is False
+            )
+
+        payload_mock.assert_not_called()
+
+    def test_modal_vm_sandbox_false_state_override_forces_gvisor_over_default_base(self):
+        # A trusted server-set use_modal_vm_sandbox=False forces gVisor even when the org's payload
+        # would place this origin on the VM base; the bool override also skips the flag fetch.
+        with patch(
+            VM_FLAG_PAYLOAD_TARGET,
+            return_value='{"default_base_origin_products": ["user_created"]}',
+        ) as payload_mock:
+            assert (
+                _is_modal_vm_sandbox_enabled(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                    origin_product="user_created",
+                    allowed_domains=None,
+                    custom_image_available=True,
+                    state={"use_modal_vm_sandbox": False},
+                )
+                is False
+            )
+
+        payload_mock.assert_not_called()
+
     @pytest.mark.parametrize(
-        "origin_product, payload, expected",
+        "origin_product, payload, custom_image_available, expected",
         [
-            ("user_created", None, False),
-            ("signals_scout", None, False),
-            ("signals_scout", {"origin_products": ["signals_scout"]}, True),
-            ("signals_scout", ["signals_scout", "user_created"], True),
-            ("user_created", {"origin_products": ["signals_scout"]}, False),
-            ("user_created", '{"origin_products": ["user_created"]}', True),
+            ("user_created", None, True, False),
+            ("signals_scout", None, False, False),
+            ("signals_scout", {"origin_products": ["signals_scout"]}, False, False),
+            ("signals_scout", ["signals_scout", "user_created"], False, False),
+            ("signals_scout", {"origin_products": ["signals_scout"]}, True, True),
+            ("image_builder", {"origin_products": ["image_builder"]}, False, True),
+            ("user_created", {"origin_products": ["signals_scout"]}, True, False),
+            ("user_created", '{"origin_products": ["user_created"]}', False, False),
+            ("user_created", '{"origin_products": ["user_created"]}', True, True),
+            # default_base_origin_products: listed origins run on the bare VM base image
+            # with no custom image at all — the "VM as default" rollout knob.
+            (
+                "user_created",
+                {"origin_products": ["user_created"], "default_base_origin_products": ["user_created"]},
+                False,
+                True,
+            ),
+            # default-base alone (no origin_products) is enough for a no-custom-image run.
+            ("user_created", {"default_base_origin_products": ["user_created"]}, False, True),
+            # the waiver is scoped per origin — an unlisted origin still gets gVisor.
+            ("signals_scout", {"default_base_origin_products": ["user_created"]}, False, False),
+            # origin_products membership alone does NOT waive the custom-image requirement.
+            (
+                "user_created",
+                {"origin_products": ["user_created"], "default_base_origin_products": ["signals_scout"]},
+                False,
+                False,
+            ),
         ],
     )
-    def test_modal_vm_sandbox_origin_product_gating(self, origin_product, payload, expected):
+    def test_modal_vm_sandbox_origin_product_gating(self, origin_product, payload, custom_image_available, expected):
         with patch(
             VM_FLAG_PAYLOAD_TARGET,
             return_value=payload,
@@ -647,6 +877,7 @@ class TestGetTaskProcessingContextActivity:
                     run_id="run-id",
                     origin_product=origin_product,
                     allowed_domains=None,
+                    custom_image_available=custom_image_available,
                 )
                 is expected
             )
@@ -665,6 +896,23 @@ class TestGetTaskProcessingContextActivity:
     )
     def test_vm_sandbox_allowed_origin_products_parsing(self, payload, expected):
         assert vm_sandbox_allowed_origin_products(payload) == expected
+
+    @pytest.mark.parametrize(
+        "payload, expected",
+        [
+            (None, set()),
+            ({"default_base_origin_products": ["user_created"]}, {"user_created"}),
+            ('{"default_base_origin_products": ["a", "b"]}', {"a", "b"}),
+            # Distinct from vm_sandbox_allowed_origin_products: read only from the explicit
+            # dict key, and a bare list is never an opt-in (it keeps origin_products meaning).
+            ({"origin_products": ["user_created"]}, set()),
+            (["user_created"], set()),
+            ("not-json", set()),
+            ({"default_base_origin_products": [1, 2]}, set()),
+        ],
+    )
+    def test_vm_sandbox_default_base_origin_products_parsing(self, payload, expected):
+        assert vm_sandbox_default_base_origin_products(payload) == expected
 
     @pytest.mark.parametrize(
         "state,expected",
@@ -753,6 +1001,7 @@ class TestGetTaskProcessingContextActivity:
                 "provider": "openai",
                 "model": "gpt-5.3-codex",
                 "reasoning_effort": "high",
+                "initial_permission_mode": "plan",
             }
         )
 
@@ -763,3 +1012,4 @@ class TestGetTaskProcessingContextActivity:
         assert result.provider == "openai"
         assert result.model == "gpt-5.3-codex"
         assert result.reasoning_effort == "high"
+        assert result.initial_permission_mode == "plan"
