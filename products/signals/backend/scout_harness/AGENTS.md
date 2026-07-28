@@ -39,17 +39,22 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
   states the overlap rule in both directions — don't restate a sibling's finding, but don't
   defer a finding you hold evidence for either, since an uncovered surface is invisible where
   a duplicate is not. Skills keep their own domain ownership map. Both channels also share the
-  **self-validation follow-up** discipline (`_SELF_VALIDATION_FOLLOWUPS` + `FOLLOWUP_KEY_PREFIX`):
-  every scout keeps a queue of `followup:<skill-name>:<entity>` scratchpad entries for work whose
-  fix is measurable later (probe + baseline + validate-after date in the content), checks due
-  entries in passing, and re-surfaces a fix that didn't hold through its normal channel. The
-  matching **focus section** (`_followup_focus_section`) renders only when the runner marks the
-  run (`followup_focus=True` — see `_should_focus_on_followups` below): the run then leads with
-  working the queue, with the re-surface clause matched per-tool to the same fail-closed rule as
-  the channel sections, and defers resolved-inbox-report re-measurement to the canonical
-  `signals-scout-inbox-validation` scout when the `scout_fleet` roster shows it actively running —
-  the per-scout queue exists precisely because that fleet scout may not be enabled, and because
-  signal-channel findings and recorded watches never become resolved reports it could re-measure. The report persona is further gated per-tool: it names only
+  **self-validation follow-up** discipline (`_self_validation_followups_section` +
+  `FOLLOWUP_KEY_PREFIX`): every scout keeps a queue of `followup:<skill-name>:<entity>` scratchpad
+  entries for work whose fix is measurable later (probe + baseline + validate-after date in the
+  content), and decides for itself, run by run, whether to spend the run validating that queue —
+  the cadence is the scout's judgment, not a harness schedule, so the section carries the decision
+  criteria (due entries accumulated, a while since the queue was last worked, a dismissal note
+  saying a fix shipped) and there is no harness trigger. A validation pass is self-reported in the
+  close-out summary and in the touched entries, which is also how future runs know when the queue
+  was last worked. The section is composed per-run because its re-surface clause is matched
+  per-tool to the same fail-closed rule as the channel sections, and it defers
+  resolved-inbox-report re-measurement to the canonical `signals-scout-inbox-validation` scout
+  when the `scout_fleet` roster shows it actively running — the per-scout queue exists precisely
+  because that fleet scout may not be enabled, and because signal-channel findings and recorded
+  watches never become resolved reports it could re-measure. Queue entries are team-shared data:
+  the section tells the scout to check `created_by_skill` and re-derive, rather than execute, a
+  probe from an entry its own runs didn't write. The report persona is further gated per-tool: it names only
   the report tool(s) actually in `allowed_tools` (emit-only, edit-only, or both), and
   drops the author-time sections for an edit-only scout — the report endpoints fail
   closed on the exact tool, so the prompt must never steer a scout toward one it lacks.
@@ -175,12 +180,7 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
   Runtime ceilings as module constants: `DEFAULT_MAX_RUNTIME_S` (per-run budget),
   `ACTIVITY_SLACK_S`, and `WORKFLOW_HARD_CEILING_S` (`= DEFAULT_MAX_RUNTIME_S +
 ACTIVITY_SLACK_S`, the activity-level ceiling that gates the workflow's
-  `start_to_close_timeout`). Also `SELF_VALIDATION_RUN_INTERVAL`, the follow-up focus cadence:
-  every Nth run per `(team, skill)` lane becomes a self-validation run
-  (`runner._should_focus_on_followups` — the last `N - 1` runs form the lookback window, a
-  `run_focus`-stamped run inside it means not due, fewer rows means the lane is too young, and a
-  due cadence still requires pending `followup:<skill>:` scratchpad entries so an empty queue
-  never costs a run; best-effort, any failure resolves to a normal run).
+  `start_to_close_timeout`).
 - `team_limits.py`
   Single source of truth for a team's effective scout caps + metadata, resolved from the
   `signals-scout` flag payload in one read. The same three-layer cap resolution
@@ -270,10 +270,7 @@ one sandbox session → zero or more emitted signals.
   API-native record of run context that isn't worth a dedicated column. Known keys today:
   `model` / `runtime_adapter` / `reasoning_effort`, the triple the run was routed on when the
   `scouts-model-selection` gate (or a runtime pin) overrode the agent-server default (`{}` on the
-  default path), and `run_focus` (`"self_validation"` when the harness dedicated the run to the
-  scout's `followup:` queue — the stamp `_should_focus_on_followups` keys its lookback window on,
-  so dropping it would make every subsequent run a focus run; absent on normal runs). Surfaced
-  verbatim on the run serializers / `scout-runs-*` MCP tools; new
+  default path). Surfaced verbatim on the run serializers / `scout-runs-*` MCP tools; new
   operationally-relevant run dimensions should be stamped there by `_create_run_row`, not grown
   as ad-hoc columns.
 - Each run emits scout-owned lifecycle analytics events (best-effort, keyed on the team):
@@ -286,8 +283,6 @@ one sandbox session → zero or more emitted signals.
   When the `scouts-model-selection` gate (or a runtime pin) routes the run, `started` and
   `finished` also carry `model` / `runtime_adapter`, so run outcomes are sliceable by model
   without joining through `$ai_generation`; absence means the agent-server default served it.
-  Both also carry `run_focus` when the harness dedicated the run (self-validation focus runs
-  today), so focus-run outcomes are sliceable without joining through the bridge row's metadata.
   The report channel adds `signals_scout_report_emitted` / `signals_scout_report_edited`
   (plus customer-facing `$scout_report_*` copies), stamped with derived classification
   properties (`report_kind` = `finding`/`self_improvement`, `is_self_improvement_report`)

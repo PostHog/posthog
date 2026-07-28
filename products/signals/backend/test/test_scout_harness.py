@@ -23,17 +23,12 @@ from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.agent_runtime import AgentRuntime
-from products.signals.backend.models import SignalScoutConfig, SignalScoutRun, SignalScratchpad
+from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, _compute_row_hash
-from products.signals.backend.scout_harness.limits import SELF_VALIDATION_RUN_INTERVAL, STALE_RUN_CUTOFF_S
+from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.model_selection import ScoutModel
 from products.signals.backend.scout_harness.prompt import build_run_prompt
-from products.signals.backend.scout_harness.runner import (
-    RUN_FOCUS_SELF_VALIDATION,
-    RunResult,
-    _should_focus_on_followups,
-    arun_signals_scout,
-)
+from products.signals.backend.scout_harness.runner import RunResult, arun_signals_scout
 from products.signals.backend.scout_harness.skill_loader import (
     SkillNotFoundError,
     is_signals_scout_skill,
@@ -319,12 +314,11 @@ class TestPromptBuilder(BaseTest):
         assert "Working alongside the rest of the fleet" in prompt
         assert "scout_fleet" in prompt
         # The self-validation follow-up discipline is shared too: every scout keeps a
-        # skill-namespaced `followup:` queue (a domain-only key would collide across scouts).
+        # skill-namespaced `followup:` queue (a domain-only key would collide across scouts),
+        # and the decision to spend a run validating it belongs to the scout, not the harness.
         assert "Follow up on your own past work" in prompt
         assert "followup:<your-skill-name>:<entity>" in prompt
-        # The focus section renders only when the harness marks the run — leaking it into every
-        # run would tell every scout its queue takes priority over investigation.
-        assert "self-validation run" not in prompt
+        assert "You decide when a run becomes a validation run" in prompt
         # Recency lens references the started_at anchor.
         assert "Recency lens" in prompt
         assert "2026-05-01T12:34:56+00:00" in prompt
@@ -674,107 +668,38 @@ class TestPromptBuilder(BaseTest):
 
     @parameterized.expand(
         [
-            # (label, allowed_tools, resurface_tool, forbidden_tools). The re-surface clause inside
-            # the focus section must follow the same fail-closed rule as the channel sections: a
-            # focus run steering a scout at a report tool it never opted into (or a signal tool a
-            # report scout lacks) routes the failed-validation re-surface into a PermissionDenied.
-            ("signal_channel", [], "scout-emit-signal", ["scout-emit-report", "scout-edit-report"]),
-            ("report_both", ["emit_report", "edit_report"], "scout-emit-report", ["scout-emit-signal"]),
-            ("report_emit_only", ["emit_report"], "scout-emit-report", ["scout-edit-report", "scout-emit-signal"]),
-            ("report_edit_only", ["edit_report"], "scout-edit-report", ["scout-emit-report", "scout-emit-signal"]),
+            # (label, allowed_tools, resurface_tool). The section's re-surface clause must follow
+            # the same fail-closed rule as the channel sections — steering a scout at a tool it
+            # never opted into routes the failed-validation re-surface into a PermissionDenied.
+            # The wrong-tool half of that rule is already policed by the channel tests above
+            # (they assert the unheld tool appears nowhere in the whole prompt); these rows pin
+            # that the clause names a re-surface path the scout actually holds, on every variant.
+            ("signal_channel", [], "scout-emit-signal"),
+            ("report_both", ["emit_report", "edit_report"], "scout-emit-report"),
+            ("report_emit_only", ["emit_report"], "scout-emit-report"),
+            ("report_edit_only", ["edit_report"], "scout-edit-report"),
         ]
     )
-    def test_followup_focus_section_gated_and_channel_matched(
-        self, _name: str, allowed_tools: list[str], resurface_tool: str, forbidden_tools: list[str]
+    def test_followup_section_resurface_clause_channel_matched(
+        self, _name: str, allowed_tools: list[str], resurface_tool: str
     ) -> None:
-        name = "signals-scout-focus-" + (_name.replace("_", "-"))
+        name = "signals-scout-fu-" + (_name.replace("_", "-"))
         LLMSkill.objects.create(team=self.team, name=name, description="d", body="b", allowed_tools=allowed_tools)
-        kwargs: dict = {
-            "run_id": "00000000-0000-0000-0000-000000000abc",
-            "team_id": self.team.id,
-            "started_at": datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
-        }
-        focused = build_run_prompt(load_skill_for_run(self.team, name), **kwargs, followup_focus=True)
-        assert "This run: validate your follow-ups" in focused
-        assert "self-validation run" in focused
-        # The focus run must defer resolved-report re-measurement to the canonical inbox-validation
-        # scout when it runs — otherwise every focus run duplicates that scout's whole surface.
-        assert "signals-scout-inbox-validation" in focused
-        assert resurface_tool in focused
-        for tool in forbidden_tools:
-            assert tool not in focused
-        # Default (no harness mark): the focus section must not render — it reprioritizes the whole
-        # run, so leaking it into normal runs would put the queue above every scout's real job.
-        assert "self-validation run" not in build_run_prompt(load_skill_for_run(self.team, name), **kwargs)
-
-
-class TestFollowupFocusCadence(BaseTest):
-    SKILL = "signals-scout-errors"
-
-    def _create_runs(self, count: int, *, focus_stamped_latest: bool = False) -> None:
-        for index in range(count):
-            is_latest = index == count - 1
-            SignalScoutRun.objects.unscoped().create(
-                team=self.team,
-                task_run=_make_task_run(self.team),
-                skill_name=self.SKILL,
-                skill_version=1,
-                metadata=({"run_focus": RUN_FOCUS_SELF_VALIDATION} if focus_stamped_latest and is_latest else {}),
-            )
-
-    @parameterized.expand(
-        [
-            # (label, prior_runs, latest_run_focus_stamped, followup_key, expected). The window is
-            # the last SELF_VALIDATION_RUN_INTERVAL - 1 runs; each row targets a distinct way the
-            # cadence could misfire: burning early runs on a young lane, spending focus runs on an
-            # empty queue, going dead entirely, firing every run once due, or triggering off a
-            # sibling scout's queue.
-            ("young_lane_never_focuses", SELF_VALIDATION_RUN_INTERVAL - 2, False, "followup:{skill}:checkout", False),
-            ("due_with_pending_entry", SELF_VALIDATION_RUN_INTERVAL - 1, False, "followup:{skill}:checkout", True),
-            ("due_with_empty_queue", SELF_VALIDATION_RUN_INTERVAL - 1, False, None, False),
-            (
-                "due_with_only_sibling_entries",
-                SELF_VALIDATION_RUN_INTERVAL - 1,
-                False,
-                "followup:signals-scout-logs:checkout",
-                False,
-            ),
-            (
-                "focus_run_still_in_window",
-                SELF_VALIDATION_RUN_INTERVAL - 1,
-                True,
-                "followup:{skill}:checkout",
-                False,
-            ),
-        ]
-    )
-    def test_focus_cadence(
-        self, _name: str, prior_runs: int, focus_stamped: bool, followup_key: str | None, expected: bool
-    ) -> None:
-        self._create_runs(prior_runs, focus_stamped_latest=focus_stamped)
-        if followup_key is not None:
-            SignalScratchpad.objects.unscoped().create(
-                team=self.team,
-                key=followup_key.format(skill=self.SKILL),
-                content="baseline 42/day, re-check after 2026-05-05",
-            )
-        assert _should_focus_on_followups(team_id=self.team.id, skill_name=self.SKILL) is expected
-
-    def test_focus_run_older_than_window_no_longer_suppresses(self) -> None:
-        # The stamped run must age out of the lookback window — if the check scanned all history
-        # instead of the window, one focus run would suppress the cadence forever.
-        SignalScoutRun.objects.unscoped().create(
-            team=self.team,
-            task_run=_make_task_run(self.team),
-            skill_name=self.SKILL,
-            skill_version=1,
-            metadata={"run_focus": RUN_FOCUS_SELF_VALIDATION},
+        prompt = build_run_prompt(
+            load_skill_for_run(self.team, name),
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=self.team.id,
+            started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
         )
-        self._create_runs(SELF_VALIDATION_RUN_INTERVAL - 1)
-        SignalScratchpad.objects.unscoped().create(
-            team=self.team, key=f"followup:{self.SKILL}:checkout", content="baseline 42/day"
-        )
-        assert _should_focus_on_followups(team_id=self.team.id, skill_name=self.SKILL) is True
+        assert "Follow up on your own past work" in prompt
+        # The validation cadence is the scout's own judgment — the section must say so rather
+        # than reference a harness trigger that no longer exists.
+        assert "You decide when a run becomes a validation run" in prompt
+        # A validation pass must defer resolved-report re-measurement to the canonical
+        # inbox-validation scout when it runs — otherwise it duplicates that scout's whole surface.
+        assert "signals-scout-inbox-validation" in prompt
+        section = prompt[prompt.index("Follow up on your own past work") :]
+        assert resurface_tool in section.split("# ")[0]
 
 
 # Orchestration tests run as plain pytest functions because the async runner uses
@@ -887,53 +812,6 @@ async def test_run_tags_session_with_scout_ai_stage(ateam, aerrors_skill):
         await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
 
     assert captured["ai_stage"] == "scout"
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_followup_focus_run_gets_focus_prompt_and_metadata_stamp(ateam, aerrors_skill):
-    # End-to-end wiring for the self-validation cadence: with the lane due (a full lookback window
-    # of unstamped runs) and a pending `followup:` entry, the runner must both hand the agent the
-    # focus prompt AND stamp `run_focus` on the bridge row — the stamp is what spaces the next
-    # focus run out, so a run that gets the prompt without the stamp would focus every run after.
-    def _seed_history() -> None:
-        for _ in range(SELF_VALIDATION_RUN_INTERVAL - 1):
-            SignalScoutRun.objects.unscoped().create(
-                team=ateam,
-                task_run=_make_task_run(ateam),
-                skill_name="signals-scout-errors",
-                skill_version=1,
-            )
-        SignalScratchpad.objects.unscoped().create(
-            team=ateam, key="followup:signals-scout-errors:checkout-500s", content="baseline 42/day"
-        )
-
-    await database_sync_to_async(_seed_history, thread_sensitive=False)()
-    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
-    captured: dict = {}
-
-    async def _capture_start(*args, prompt=None, on_task_run_created=None, **kwargs):
-        captured["prompt"] = prompt
-        if on_task_run_created is not None:
-            await on_task_run_created(session.task_run)
-        return session, result
-
-    with (
-        patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=_capture_start),
-        patch(
-            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
-            return_value="env-id",
-        ),
-        patch(
-            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
-            return_value=42,
-        ),
-    ):
-        run_result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
-
-    assert "This run: validate your follow-ups" in captured["prompt"]
-    bridge = await database_sync_to_async(SignalScoutRun.objects.unscoped().get)(id=run_result.run_id)
-    assert bridge.metadata.get("run_focus") == RUN_FOCUS_SELF_VALIDATION
 
 
 @pytest.mark.asyncio

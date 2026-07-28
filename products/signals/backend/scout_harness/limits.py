@@ -30,13 +30,6 @@ WORKFLOW_HARD_CEILING_S = DEFAULT_MAX_RUNTIME_S + ACTIVITY_SLACK_S
 # ticks.
 STALE_RUN_CUTOFF_S = 2 * WORKFLOW_HARD_CEILING_S
 
-# Self-validation cadence: every Nth run for a (team, skill) lane becomes a follow-up focus run —
-# the scout leads with re-measuring its own pending `followup:` scratchpad entries before new
-# investigation (see `runner._should_focus_on_followups` and the prompt's focus section). On the
-# default daily cadence this lands roughly weekly. The focus is additionally gated on pending
-# entries actually existing, so a scout with an empty queue never spends a run on it.
-SELF_VALIDATION_RUN_INTERVAL = 7
-
 # Per-team ceiling on ENABLED scout configs — the per-team cost cap. Each enabled scout
 # is a recurring LLM sandbox run, so this bounds what one team can switch on. Set high so
 # teams can freely author scouts with minimal friction; it's a backstop against runaway
