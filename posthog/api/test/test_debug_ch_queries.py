@@ -17,14 +17,13 @@ class TestDebugCHQuery(APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
     def test_denied(self):
-        with patch("posthog.api.debug_ch_queries.is_cloud", return_value=True):
-            with patch("posthog.api.debug_ch_queries.DEBUG", True):
-                resp = self.client.get("/api/debug_ch_queries/")
-                self.assertEqual(resp.status_code, HTTP_200_OK)
+        with patch("posthog.api.debug_ch_queries.DEBUG", True):
+            resp = self.client.get("/api/debug_ch_queries/")
+            self.assertEqual(resp.status_code, HTTP_200_OK)
 
-            with patch("posthog.api.debug_ch_queries.DEBUG", False):
-                resp = self.client.get("/api/debug_ch_queries/")
-                self.assertEqual(resp.status_code, HTTP_403_FORBIDDEN)
+        with patch("posthog.api.debug_ch_queries.DEBUG", False):
+            resp = self.client.get("/api/debug_ch_queries/")
+            self.assertEqual(resp.status_code, HTTP_403_FORBIDDEN)
 
             self.user.is_staff = True
             self.user.save()
@@ -32,9 +31,34 @@ class TestDebugCHQuery(APIBaseTest):
             resp = self.client.get("/api/debug_ch_queries/")
             self.assertEqual(resp.status_code, HTTP_200_OK)
 
-        with patch("posthog.api.debug_ch_queries.is_cloud", return_value=False):
-            resp = self.client.get("/api/debug_ch_queries/")
-            self.assertEqual(resp.status_code, HTTP_200_OK)
+    def test_non_staff_denied_off_cloud(self):
+        # Self-hosted is not single-tenant: a plain member of one team must not read the executed
+        # query text of every other team on the instance.
+        self.assertFalse(self.user.is_staff)
+
+        with self.is_cloud(False), patch("posthog.api.debug_ch_queries.DEBUG", False):
+            resp = self.client.get("/api/debug_ch_queries/?insight_id=1")
+
+        self.assertEqual(resp.status_code, HTTP_403_FORBIDDEN, resp.content)
+
+    @patch("posthog.api.debug_ch_queries.sync_execute")
+    def test_filtered_queries_are_scoped_to_the_requesting_users_team(self, mock_sync_execute):
+        # insight ids are sequential and the log_comment filter alone matches any team's rows,
+        # so every filtered read must also bind the requester's team.
+        def fake_sync_execute(sql, params):
+            return [(0, 0, 0.0, 0.0, 0.0)] if "total_queries" in sql else []
+
+        mock_sync_execute.side_effect = fake_sync_execute
+        self.user.is_staff = True
+        self.user.save()
+
+        resp = self.client.get("/api/debug_ch_queries/?insight_id=1")
+
+        self.assertEqual(resp.status_code, HTTP_200_OK, resp.content)
+        self.assertTrue(mock_sync_execute.call_args_list)
+        for sql, params in (call.args for call in mock_sync_execute.call_args_list):
+            self.assertIn("%(team_id)s", sql)
+            self.assertEqual(params["team_id"], self.team.pk)
 
     def _create_pat(self, scopes: list[str]) -> str:
         token = generate_random_token_personal()

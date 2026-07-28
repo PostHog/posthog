@@ -29,7 +29,6 @@ from posthog.clickhouse.preaggregation.experiment_metric_events_sql import (
     SHARDED_EXPERIMENT_METRIC_EVENTS_TABLE,
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.cloud_utils import is_cloud
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.permissions import APIScopePermission
@@ -188,14 +187,22 @@ class DebugCHQueries(viewsets.ViewSet):
     _ALLOWED_FILTER_KEYS = frozenset({"insight_id", "experiment_id"})
 
     def _log_comment_filter(self, filter_key: str, filter_value: str) -> str:
-        """Build a WHERE clause filtering on a log_comment JSON field."""
+        """Build a WHERE clause filtering on a log_comment JSON field, scoped to one team.
+
+        Insight and experiment ids are sequential integers, so the log_comment match on its own
+        reads any team's rows — every caller binds `team_id` alongside it.
+        """
         if filter_key not in self._ALLOWED_FILTER_KEYS:
             raise ValueError(f"Invalid filter_key: {filter_key!r}")
-        return f"JSONExtractRaw(log_comment, '{filter_key}') = %(filter_value)s"
+        return (
+            f"JSONExtractRaw(log_comment, '{filter_key}') = %(filter_value)s"
+            " AND JSONExtractInt(log_comment, 'team_id') = %(team_id)s"
+        )
 
-    def hourly_stats(self, filter_key: str, filter_value: str):
+    def hourly_stats(self, filter_key: str, filter_value: str, team_id: int):
         params = {
             "filter_value": filter_value,
+            "team_id": team_id,
             "start_time": (datetime.now() - timedelta(days=14)).timestamp(),
             "not_query": "%request:_api_debug_ch_queries_%",
             "cluster": CLICKHOUSE_CLUSTER,
@@ -247,9 +254,10 @@ class DebugCHQueries(viewsets.ViewSet):
             for resp in response
         ]
 
-    def stats(self, filter_key: str, filter_value: str):
+    def stats(self, filter_key: str, filter_value: str, team_id: int):
         params = {
             "filter_value": filter_value,
+            "team_id": team_id,
             "start_time": (datetime.now(UTC) - timedelta(days=14)).timestamp(),
             "cluster": CLICKHOUSE_CLUSTER,
         }
@@ -285,7 +293,13 @@ class DebugCHQueries(viewsets.ViewSet):
             "exception_percentage": response[0][4],
         }
 
-    def queries(self, request: Request, filter_key: Optional[str] = None, filter_value: Optional[str] = None):
+    def queries(
+        self,
+        request: Request,
+        team_id: Optional[int] = None,
+        filter_key: Optional[str] = None,
+        filter_value: Optional[str] = None,
+    ):
         params: dict = {
             "not_query": "%request:_api_debug_ch_queries_%",
             "cluster": CLICKHOUSE_CLUSTER,
@@ -296,6 +310,7 @@ class DebugCHQueries(viewsets.ViewSet):
             # nosemgrep: clickhouse-fstring-param-audit - where_clause from internal _log_comment_filter
             where_clause = self._log_comment_filter(filter_key, filter_value)
             params["filter_value"] = filter_value
+            params["team_id"] = team_id
             limit_clause = "LIMIT 10"
         else:
             where_clause = "query LIKE %(query)s AND event_time > %(start_time)s"
@@ -350,7 +365,7 @@ class DebugCHQueries(viewsets.ViewSet):
         ]
 
     def list(self, request):
-        if not (request.user.is_staff or DEBUG or is_impersonated_session(request) or not is_cloud()):
+        if not (request.user.is_staff or DEBUG or is_impersonated_session(request)):
             raise exceptions.PermissionDenied("You're not allowed to see queries.")
 
         tag_queries(product=Product.INTERNAL, feature=Feature.DEBUG_QUERY)
@@ -365,11 +380,18 @@ class DebugCHQueries(viewsets.ViewSet):
         elif experiment_id:
             filter_key, filter_value = "experiment_id", experiment_id
 
-        queries = self.queries(request, filter_key, filter_value)
-        response = {"queries": queries}
+        team_id: Optional[int] = None
         if filter_key and filter_value:
-            response["stats"] = self.stats(filter_key, filter_value)
-            response["hourly_stats"] = self.hourly_stats(filter_key, filter_value)
+            team = request.user.team
+            if team is None:
+                raise exceptions.PermissionDenied("You're not allowed to see queries.")
+            team_id = team.pk
+
+        queries = self.queries(request, team_id, filter_key, filter_value)
+        response = {"queries": queries}
+        if filter_key and filter_value and team_id is not None:
+            response["stats"] = self.stats(filter_key, filter_value, team_id)
+            response["hourly_stats"] = self.hourly_stats(filter_key, filter_value, team_id)
         return Response(response)
 
     def _serialize_precomputation_team(
