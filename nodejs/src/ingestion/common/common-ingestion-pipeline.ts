@@ -294,9 +294,19 @@ export class CommonPreTeamStage<
         )
     }
 
-    /** Parse the message body; after this, body-dependent steps can be piped. */
-    parseMessage(): CommonPreTeamStage<TInput, TContext, ROut, CBatch, TCurrent & { event: IncomingEvent }> {
-        return this.pipe(createParseKafkaMessageStep())
+    /**
+     * Parse the message body; after this, body-dependent steps can be piped.
+     *
+     * `options.wrap` decorates the parse step while preserving its types —
+     * e.g. a topHog metrics wrapper for parse timing and message sizes.
+     */
+    parseMessage(options?: {
+        wrap?: (
+            step: ProcessingStep<TCurrent, TCurrent & { event: IncomingEvent }>
+        ) => ProcessingStep<TCurrent, TCurrent & { event: IncomingEvent }, ROut>
+    }): CommonPreTeamStage<TInput, TContext, ROut, CBatch, TCurrent & { event: IncomingEvent }> {
+        const step = createParseKafkaMessageStep<TCurrent>()
+        return this.pipe(options?.wrap ? options.wrap(step) : step)
     }
 
     /**
