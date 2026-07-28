@@ -65,7 +65,9 @@ WARMING_SHAPES_SELECTED_GAUGE = Gauge(
 WARMING_QUERIES_COUNTER = Counter(
     "posthog_web_analytics_warming_queries_total",
     "Web analytics warming outcomes per query shape",
-    ["outcome"],  # warmed | skipped_fresh | skipped_duplicate | skipped_raw_low_demand | failed | unsupported
+    # warmed | skipped_fresh | skipped_duplicate | skipped_raw_low_demand |
+    # skipped_cold | skipped_already_warmed | failed | unsupported
+    ["outcome"],
 )
 
 logger = structlog.get_logger(__name__)
@@ -536,8 +538,36 @@ def _team_still_exists(team_id: int) -> bool:
     return Team.objects.filter(pk=team_id).exists()
 
 
+class WarmQueriesConfig(dagster.Config):
+    """Launchpad knobs for targeted warming runs. The hourly schedule passes no
+    config, so it keeps the defaults; a manual launch can scope a run.
+
+    The concurrent-run guard makes launches of this job mutually exclusive with
+    the hourly schedule, so bound a manual backfill with `limit` — an unbounded
+    cold backfill can run for hours and starve the hourly refresh the whole time.
+    """
+
+    # full: warm everything selected (schedule default). refresh: only shapes
+    # already warmed once (cache entry exists) — cheap freshness pass, no cold
+    # builds. backfill: only never-warmed shapes (no cache entry) — coverage
+    # expansion without re-touching the warm set.
+    mode: str = "full"
+    # Restrict to specific teams (empty = all selected teams).
+    team_ids: list[int] = []
+    # Process at most this many shapes, hottest first (0 = no limit).
+    limit: int = 0
+
+
 @dagster.op(retry_policy=cache_warming_retry_policy)
-def warm_queries_op(context: dagster.OpExecutionContext, queries: list[dict]) -> None:
+def warm_queries_op(context: dagster.OpExecutionContext, config: WarmQueriesConfig, queries: list[dict]) -> None:
+    if config.mode not in ("full", "refresh", "backfill"):
+        raise ValueError(f"Unknown warming mode {config.mode!r} (expected full, refresh, or backfill)")
+    if config.team_ids:
+        wanted = set(config.team_ids)
+        queries = [q for q in queries if q["team_id"] in wanted]
+    if config.limit > 0:
+        queries = queries[: config.limit]
+
     team_ids = {q["team_id"] for q in queries}
     teams: dict[int, Team] = {t.pk: t for t in Team.objects.filter(pk__in=team_ids)}
     missing_teams = team_ids - teams.keys()
@@ -597,6 +627,18 @@ def warm_queries_op(context: dagster.OpExecutionContext, queries: list[dict]) ->
                 seen_cache_keys.add((team.pk, cache_key))
 
             entry = QueryCache(team_id=team.pk, cache_key=cache_key).lookup().entry
+
+            # The cache entry doubles as the warm/cold discriminator: a shape
+            # warmed at least once has one (possibly stale); a never-warmed shape
+            # doesn't. refresh keeps the warm set fresh without paying for cold
+            # builds; backfill expands coverage without re-touching the warm set.
+            if config.mode == "refresh" and entry is None:
+                WARMING_QUERIES_COUNTER.labels(outcome="skipped_cold").inc()
+                return "skipped_cold"
+            if config.mode == "backfill" and entry is not None:
+                WARMING_QUERIES_COUNTER.labels(outcome="skipped_already_warmed").inc()
+                return "skipped_already_warmed"
+
             cached_data = entry.as_full_response() if entry else None
 
             if cached_data is not None:
@@ -648,7 +690,9 @@ def warm_queries_op(context: dagster.OpExecutionContext, queries: list[dict]) ->
     processed = 0
     started_at = time.monotonic()
     last_log_at = started_at
-    context.log.info(f"Warming {total} shapes across {len(teams)} teams (concurrency={concurrency})")
+    context.log.info(
+        f"Warming {total} shapes across {len(teams)} teams (mode={config.mode}, concurrency={concurrency})"
+    )
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
         # Futures are consumed by completion, not input order: with pool.map one
         # slow early shape would block this loop — and the heartbeat — while later
@@ -676,12 +720,10 @@ def warm_queries_op(context: dagster.OpExecutionContext, queries: list[dict]) ->
     queries_failed = outcomes.get("failed", 0)
     queries_unsupported = outcomes.get("unsupported", 0)
 
+    final_breakdown = ", ".join(f"{k}={v}" for k, v in sorted(outcomes.items()))
     context.log.info(
         f"Warmed {queries_warmed} queries in {(time.monotonic() - started_at) / 60:.1f}m "
-        f"({queries_skipped} already fresh, {outcomes.get('skipped_duplicate', 0)} duplicate, "
-        f"{outcomes.get('skipped_raw_low_demand', 0)} low-demand raw, "
-        f"{outcomes.get('team_missing', 0)} churned/missing teams, "
-        f"{queries_failed} failed, {queries_unsupported} unsupported kinds)"
+        f"(mode={config.mode}: {final_breakdown})"
     )
     context.add_output_metadata(
         {
@@ -689,10 +731,13 @@ def warm_queries_op(context: dagster.OpExecutionContext, queries: list[dict]) ->
             "queries_skipped": queries_skipped,
             "queries_skipped_duplicate": outcomes.get("skipped_duplicate", 0),
             "queries_skipped_raw_low_demand": outcomes.get("skipped_raw_low_demand", 0),
+            "queries_skipped_cold": outcomes.get("skipped_cold", 0),
+            "queries_skipped_already_warmed": outcomes.get("skipped_already_warmed", 0),
             "teams_missing": outcomes.get("team_missing", 0),
             "queries_failed": queries_failed,
             "queries_unsupported": queries_unsupported,
             "concurrency": concurrency,
+            "mode": config.mode,
         }
     )
 
