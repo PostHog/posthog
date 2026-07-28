@@ -185,6 +185,9 @@ function FacetValueButton({
     // already active (selected or excluded), so an active-but-now-empty value can still be cycled off.
     const isActive = selected || excluded
     const isZero = dimZeroCounts && option.count === 0
+    // The tri-state is otherwise only visual (checkbox / red minus / line-through), so spell the
+    // current state out for screen readers — the button cycles included → excluded → not filtered.
+    const stateLabel = excluded ? 'excluded' : selected ? 'included' : 'not filtered'
     return (
         <LemonButton
             type="tertiary"
@@ -192,15 +195,21 @@ function FacetValueButton({
             fullWidth
             className={cn(isZero && 'opacity-50')}
             disabledReason={isZero && !isActive ? 'No matching logs for the current filters' : undefined}
+            aria-label={`${option.label}, ${stateLabel}`}
             icon={
                 excluded ? (
                     // Deliberately not LemonCheckbox's `indeterminate` — that means "partially
                     // selected", while this box means "negated".
-                    <span className="flex items-center justify-center w-4 h-4 rounded border-[1.5px] border-danger text-danger shrink-0 pointer-events-none">
+                    <span
+                        aria-hidden
+                        className="flex items-center justify-center w-4 h-4 rounded border-[1.5px] border-danger text-danger shrink-0 pointer-events-none"
+                    >
                         <IconMinusSmall className="text-sm" />
                     </span>
                 ) : (
-                    <LemonCheckbox checked={selected} className="pointer-events-none" />
+                    <span aria-hidden className="flex">
+                        <LemonCheckbox checked={selected} className="pointer-events-none" />
+                    </span>
                 )
             }
             onClick={() => onToggle(option.value)}
