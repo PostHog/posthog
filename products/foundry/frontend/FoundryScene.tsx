@@ -14,6 +14,8 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { BetStateTag } from './BetStateTag'
+import { exposureProgressFromBet } from './foundryBetLogic'
+import { ExposureProgressTag } from './FoundryBetScene'
 import { BetRecord, foundryLogic } from './foundryLogic'
 
 export const scene: SceneExport = {
@@ -78,6 +80,14 @@ export function FoundryScene(): JSX.Element {
                         title: 'Iteration',
                         key: 'iteration',
                         render: (_, bet: BetRecord) => <>{bet.iteration}</>,
+                    },
+                    {
+                        title: 'Exposure',
+                        key: 'exposure',
+                        render: (_, bet: BetRecord) => {
+                            const progress = exposureProgressFromBet(bet)
+                            return progress ? <ExposureProgressTag exposureProgress={progress} /> : <>—</>
+                        },
                     },
                     {
                         title: 'Budget (USD)',

@@ -11,7 +11,15 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { BetStateTag } from './BetStateTag'
-import { BetEventRecord, BetNodeRecord, FoundryBetLogicProps, GateAttempt, foundryBetLogic } from './foundryBetLogic'
+import {
+    BetEventRecord,
+    BetNodeRecord,
+    ExposureProgress,
+    FoundryBetLogicProps,
+    GateAttempt,
+    PendingVerdict,
+    foundryBetLogic,
+} from './foundryBetLogic'
 
 const NODE_STATUS_TAG_TYPE: Record<string, LemonTagType> = {
     spawned: 'default',
@@ -147,6 +155,72 @@ function GateAttemptTag({ gateAttempt }: { gateAttempt: GateAttempt | null }): J
     )
 }
 
+export function ExposureProgressTag({
+    exposureProgress,
+}: {
+    exposureProgress: ExposureProgress | null
+}): JSX.Element | null {
+    if (!exposureProgress) {
+        return null
+    }
+    return (
+        <span className="flex items-center gap-1" data-attr="foundry-exposure-progress">
+            <LemonTag type={exposureProgress.halted ? 'danger' : 'option'}>
+                exposure step {exposureProgress.advanced}/{exposureProgress.total}
+            </LemonTag>
+            {exposureProgress.halted ? <LemonTag type="danger">halted</LemonTag> : null}
+        </span>
+    )
+}
+
+const VERDICT_RECOMMENDATION_LABEL: Record<string, string> = {
+    promoted: 'Promote',
+    rolled_back: 'Roll back',
+    iterate: 'Iterate',
+}
+
+const VERDICT_RECOMMENDATION_TAG_TYPE: Record<string, LemonTagType> = {
+    promoted: 'success',
+    rolled_back: 'danger',
+    iterate: 'warning',
+}
+
+const EVIDENCE_CONDITION_LABEL: Record<string, string> = {
+    guardrail_breach: 'A guardrail breached',
+    experiment_significant: 'The experiment reached significance',
+    ttl_reached: 'The bet reached its TTL',
+    exposure_completed: 'The exposure ramp finished with no guardrail breach',
+}
+
+function VerdictBanner({ pendingVerdict }: { pendingVerdict: PendingVerdict | null }): JSX.Element | null {
+    if (!pendingVerdict) {
+        return null
+    }
+    const condition = String(pendingVerdict.evidence.condition ?? '')
+    const evidenceEntries = Object.entries(pendingVerdict.evidence).filter(([key]) => key !== 'condition')
+
+    return (
+        <div className="border rounded p-3 flex flex-col gap-2" data-attr="foundry-verdict-banner">
+            <div className="flex items-center gap-2 flex-wrap">
+                <strong>Scout recommendation</strong>
+                <LemonTag type={VERDICT_RECOMMENDATION_TAG_TYPE[pendingVerdict.recommendation] ?? 'default'}>
+                    {VERDICT_RECOMMENDATION_LABEL[pendingVerdict.recommendation] ?? pendingVerdict.recommendation}
+                </LemonTag>
+            </div>
+            <div className="text-sm">{EVIDENCE_CONDITION_LABEL[condition] ?? condition}</div>
+            {evidenceEntries.length > 0 && (
+                <ul className="text-xs text-muted flex flex-col gap-1">
+                    {evidenceEntries.map(([key, value]) => (
+                        <li key={key}>
+                            {key}: {typeof value === 'object' ? JSON.stringify(value) : String(value)}
+                        </li>
+                    ))}
+                </ul>
+            )}
+        </div>
+    )
+}
+
 function KnowledgeLinks({ events }: { events: BetEventRecord[] }): JSX.Element | null {
     const published = events.filter((event) => event.kind === 'knowledge.published')
     if (published.length === 0) {
@@ -212,7 +286,8 @@ function EventPayloadSummary({ event }: { event: BetEventRecord }): JSX.Element 
 }
 
 export function FoundryBetScene(): JSX.Element {
-    const { bet, betLoading, events, eventsLoading, nodes, gateAttempt } = useValues(foundryBetLogic)
+    const { bet, betLoading, events, eventsLoading, nodes, gateAttempt, exposureProgress, pendingVerdict } =
+        useValues(foundryBetLogic)
     const { fund, recordVerdict } = useActions(foundryBetLogic)
 
     if (!bet) {
@@ -318,7 +393,11 @@ export function FoundryBetScene(): JSX.Element {
                     )}
                 </div>
             )}
-            <GateAttemptTag gateAttempt={gateAttempt} />
+            <div className="flex flex-wrap items-center gap-2">
+                <GateAttemptTag gateAttempt={gateAttempt} />
+                <ExposureProgressTag exposureProgress={exposureProgress} />
+            </div>
+            <VerdictBanner pendingVerdict={pendingVerdict} />
             <GateReportCard events={events} />
             <KnowledgeLinks events={events} />
             <BetNodeTree nodes={nodes} />
