@@ -15,7 +15,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     SourceInputs,
     SourceResponse,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FieldType,
+    ResumableSource,
+    VersionDeprecation,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
@@ -51,6 +55,12 @@ class ZonkaFeedbackSource(ResumableSource[ZonkaFeedbackSourceConfig, ZonkaFeedba
 
     supported_versions = (ZONKA_API_VERSION_V1, ZONKA_API_VERSION_V2_1)
     default_version = ZONKA_API_VERSION_V2_1
+    # Zonka deprecated its older API generation (vendor "API 2.0", docs.api2.zonkafeedback.com) in
+    # favor of the current v2.1 API; no sunset date is published. Our legacy `v1` label is the
+    # pre-versioning placeholder that already resolves to the current v2.1 host (apis.zonkafeedback.com),
+    # so it stays supported for existing pins but carries the flag that fires the generic in-product
+    # deprecation warning.
+    deprecated_versions = (VersionDeprecation(version=ZONKA_API_VERSION_V1, sunset_at=None),)
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
