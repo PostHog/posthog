@@ -71,10 +71,15 @@ else
         .payload as $p
         | if ($p.skipped // false) then
             "  skipped (\($p.reason // "no reason given"))"
-          elif ($p.pass // false) then
-            "  PASS"
           else
-            "  FAIL\n" + (($p.violations // []) | map("    - [\(.severity // "?")] \(.code // "?"): \(.message // "?")") | join("\n"))
+            (if ($p.pass // false) then "  PASS" else "  FAIL" end),
+            (
+              ($p.checks // []) | map(
+                "    [\(if .pass then "pass" else "fail" end)]"
+                + (if .required then "" else " (optional)" end)
+                + " \(.name) (\(.type)): \(.details // "")"
+              ) | .[]
+            )
           end
     '
 fi

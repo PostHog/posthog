@@ -7,7 +7,8 @@
 #   slug, hypothesis, success_metric {name, target?, description?},
 #   guardrails? [{name, constraint?}], budget? {usd?, time_hours?, iterations?},
 #   exposure_plan? {}, sources? [{label, url?}], ttl?, execution_mode? (external|managed),
-#   run_config? {}, memory_repo_url?
+#   run_config? {}, memory_repo_url?,
+#   gate_config? {checks?: [{name, check_type, required?, params}], protected_paths?: [...], artifact?: {template?}}
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib.sh

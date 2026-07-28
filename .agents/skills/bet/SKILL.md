@@ -53,6 +53,36 @@ still gets enforced by a human (you). Get:
   the recursive-spawn protocol) and, if they want memory, which repo.
 - Optional **rollout KPIs** — see step (c). Ask, but don't push: most bets
   are simple and skip this.
+- **The gauntlet** (`gate_config`) — the constraint battery a builder can't
+  weaken, since it's authored here, before the build, not by the agent doing
+  the building. Recommend a default battery and let the user adjust it:
+  - `tests` (`command`, required): the artifact's own test suite.
+  - `typecheck` (`command`, required): a type-check command, if the language
+    has one.
+  - `coverage` (required, `min_changed_line_pct: 80`): changed-line coverage
+    of the diff, not overall repo coverage.
+  - `protected_paths` (the top-level field, not a check): non-empty whenever
+    the bet uses the test-writer → builder pattern (see below) — this is the
+    structural guarantee that the builder can't edit its own acceptance
+    tests to make them pass.
+  - Offer `mutation` (required=false unless the bet is genuinely high-stakes,
+    e.g. billing, auth, data integrity) — it's expensive (time-boxed,
+    `max_minutes`) and a copy-text bet doesn't need it; a payments bet does.
+  - `reviewhog` is available as a check type too, but isn't part of the
+    default battery — only add it if the user specifically wants an
+    automatic ReviewHog pass as part of the gauntlet.
+    Full check-type reference (params, defaults, the `command`/`coverage`/
+    `mutation`/`flag_guard`/`reviewhog` shapes): read
+    `products/foundry/backend/presentation/serializers.py`
+    (`GateCheckSerializer` and the per-type params serializers) — it's the
+    ground truth, don't guess at param names. For a `managed` bet using the
+    test-writer → builder pattern, see
+    [references/managed-run-config.md](references/managed-run-config.md)
+    ("Triggering the gauntlet") for the `run_config` convention that produces
+    an `artifact_ready` event the gauntlet can actually check out and diff.
+    A bet with an empty `gate_config` (the default) never gets an automatic
+    gauntlet run — it stays on the pre-ADR-4 manual `gate.result` path, which
+    is still fine for a low-stakes or exploratory bet.
 
 Write the spec to a JSON file matching `CreateBetSerializer`
 (`products/foundry/backend/presentation/serializers.py` is the ground truth
@@ -108,12 +138,15 @@ nothing further; funding already started the run.
 ## `/bet status <slug>` — the scout report
 
 Run `scripts/status.sh <slug>` and relay its output. It renders: state,
-hypothesis, guardrails, the node tree (indented by depth), the gate outcome
-(pass/fail-with-violations/skipped/none-yet), any `knowledge.published`
-entries, the KPI dashboard link if one exists, and the linked feature
-flag/experiment (with a best-effort fetch of experiment start/end dates).
-This has to be legible to someone who has read none of the code — don't just
-dump JSON, narrate what the script printed.
+hypothesis, guardrails, the node tree (indented by depth), the gate outcome —
+pass/fail/skipped, and if the gauntlet ran, a per-check breakdown (name,
+type, required/optional, pass/fail, details — this is the "gate card" the UI
+also shows) — any `knowledge.published` entries, the KPI dashboard link if
+one exists, and the linked feature flag/experiment (with a best-effort fetch
+of experiment start/end dates). This has to be legible to someone who has
+read none of the code — don't just dump JSON, narrate what the script
+printed, and call out a failing _required_ check distinctly from a failing
+optional one.
 
 ## `/bet verdict <slug>` — decide and record
 

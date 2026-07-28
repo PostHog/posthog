@@ -48,6 +48,7 @@ Payload types (`type` field):
 
 - `spawn_child`: `{node_id, parent_node_id?, command, runner?, cost?, max_cost?, max_depth?, max_children?}`
 - `knowledge_published`: `{repo, ref?, path?, title?}`
+- `artifact_ready`: `{repo_url, ref, base_ref, pr_url?}` — see "Triggering the gauntlet" below.
 - `note`: `{message}`
 
 ## Worked example: root → 2 children → 1 grandchild
@@ -86,3 +87,34 @@ tree from the value set on the root.
 If the bet's `memory_repo_url` is set, it's `git clone --depth 1`'d into
 `/memory` in every node's sandbox before `command` runs. An unreachable repo
 degrades to a note in the node's output rather than failing the run.
+
+## Triggering the gauntlet: test-writer → builder → artifact_ready
+
+The gauntlet (ADR 4) needs a checked-out artifact — `{repo_url, ref, base_ref}`
+— to diff and run checks against. A managed bet's own `run_config.command`
+is what produces that artifact, by convention, not by any new machinery:
+
+1. **Test-writer node** (optional, but this is the whole point of
+   `gate_config.protected_paths`): the root (or a first child, `runner:
+"test-writer"`) clones the bet's demo/fixture repo, writes acceptance
+   tests under whatever prefix `protected_paths` names (e.g.
+   `tests/acceptance/`), commits, and pushes a base ref (a branch or tag —
+   this becomes `base_ref`).
+2. **Builder node** (`runner: "builder"`), spawned as a child of the
+   test-writer step: checks out that base ref, implements the change on a
+   new branch, commits, and pushes — this branch becomes `ref`.
+3. Whichever node finishes last emits `artifact_ready` with
+   `{repo_url, ref, base_ref}` (and `pr_url` if the demo also opens a PR).
+   If `gate_config.checks` is non-empty and the `foundry-reviewhog-gate` flag
+   is on for the team, this is what makes the automatic gauntlet fire for a
+   managed bet — no manual `gate.result` needed.
+
+A builder that edits a file under `protected_paths` (the sabotage case) still
+produces a valid artifact — the gauntlet catches it structurally via the
+`protected_paths` check, not by the builder's own honesty. That's the
+Uncle-Bob invariant this whole design exists for: don't rely on the builder
+grading its own homework.
+
+For `external` bets, the orchestrator just POSTs `artifact.ready` directly
+via the events API instead of this in-sandbox helper — same payload shape,
+same trigger condition.
