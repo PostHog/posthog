@@ -834,9 +834,11 @@ def test_evolve_pyarrow_schema_time_columns_reconcile_to_stored_seconds(
             "redeem_time": incoming_column,
         }
     )
-    delta_schema = deltalake.Schema.from_arrow(
-        pa.schema([pa.field("id", pa.int64(), nullable=False), pa.field("redeem_time", pa.float64(), nullable=True)])
-    )
+    fields: list[pa.Field] = [
+        pa.field("id", pa.int64(), nullable=False),
+        pa.field("redeem_time", pa.float64(), nullable=True),
+    ]
+    delta_schema = deltalake.Schema.from_arrow(pa.schema(fields))
 
     evolved_table = evolve_pyarrow_schema(arrow_table, delta_schema)
 
