@@ -84,10 +84,23 @@ jobs:
         # A draft PR labeled `no-ci` skips this workflow entirely (prototypes):
         # every other job needs this one, and the gates treat skipped as success.
         # ready_for_review re-runs everything, so the merge gate is unaffected.
+        #
+        # The labeled/unlabeled triggers exist only for the four labels this workflow
+        # reads, so every other label is ignored here. Without this, any unrelated
+        # label re-dispatches the full Django and product matrices against a SHA that
+        # already went green, and both adding and removing one costs a full run.
         if: >-
             github.event_name != 'pull_request'
-            || github.event.pull_request.draft != true
-            || !contains(github.event.pull_request.labels.*.name, 'no-ci')
+            || (
+                (
+                    !contains(fromJSON('["labeled", "unlabeled"]'), github.event.action)
+                    || contains(fromJSON('["no-ci", "no-snapshot-update", "run-ci-backend", "test-new-events-schema"]'), github.event.label.name)
+                )
+                && (
+                    github.event.pull_request.draft != true
+                    || !contains(github.event.pull_request.labels.*.name, 'no-ci')
+                )
+            )
         name: Determine need to run backend and migration checks
         # Set job outputs to values from filter step
         outputs:

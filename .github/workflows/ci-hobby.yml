@@ -29,7 +29,16 @@ jobs:
     changes:
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: github.event_name == 'pull_request'
+        # `hobby-preview` is the only label this workflow reads (on add to create the
+        # droplet, on remove to tear it down), and the labeled/unlabeled triggers exist
+        # for it alone. Ignore every other label so an unrelated one doesn't re-dispatch
+        # the droplet smoke test against a SHA that already ran it.
+        if: >-
+            github.event_name == 'pull_request'
+            && (
+                !contains(fromJSON('["labeled", "unlabeled"]'), github.event.action)
+                || github.event.label.name == 'hobby-preview'
+            )
         name: Determine need to run hobby checks
         outputs:
             should_run: ${{ steps.filter.outputs.hobby == 'true' || steps.check-label.outputs.has_label == 'true' }}
