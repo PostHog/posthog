@@ -6,7 +6,6 @@ import { LemonBanner, LemonButton, LemonDivider, LemonSelect, LemonSwitch, Popov
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
-import { IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { urls } from 'scenes/urls'
 
 import { MarketingAnalyticsAttributionBreakdown } from '~/queries/schema/schema-general'
@@ -38,7 +37,6 @@ export function AttributionTab(): JSX.Element {
         attributionWindowDays,
         effectiveLookbackDays,
         effectiveAllowMultipleConversions,
-        activeOptionCount,
     } = useValues(marketingAttributionLogic)
     const {
         setBreakdownBy,
@@ -165,11 +163,7 @@ export function AttributionTab(): JSX.Element {
                         <LemonButton
                             type="secondary"
                             size="small"
-                            icon={
-                                <IconWithCount count={activeOptionCount} showZero={false}>
-                                    <IconGear />
-                                </IconWithCount>
-                            }
+                            icon={<IconGear />}
                             onClick={() => setOptionsOpen(!optionsOpen)}
                             data-attr="marketing-attribution-options"
                         >

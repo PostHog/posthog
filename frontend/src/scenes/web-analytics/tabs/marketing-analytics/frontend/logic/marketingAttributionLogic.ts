@@ -52,7 +52,6 @@ export interface marketingAttributionLogicValues {
     } // marketingAnalyticsLogic
     conversion_goals: ConversionGoalFilter[] // marketingAnalyticsSettingsLogic
     marketingAnalyticsConfig: MarketingAnalyticsConfig | null // marketingAnalyticsSettingsLogic
-    activeOptionCount: number
     allowMultipleConversionsPerVisitor: boolean | null
     attributableGoals: ConversionGoalFilter[]
     attributionWindowDays: number
@@ -97,7 +96,6 @@ export interface marketingAttributionLogicMeta {
             selectedGoalId: string | null,
             attributableGoals: ConversionGoalFilter[]
         ) => boolean
-        activeOptionCount: (excludeDirectTraffic: boolean, allowMultipleConversionsPerVisitor: boolean | null) => number
         query: (
             selectedGoalId: string | null,
             breakdownBy: MarketingAnalyticsAttributionBreakdown,
@@ -209,12 +207,6 @@ export const marketingAttributionLogic = kea<marketingAttributionLogicType>([
                 const goal = attributableGoals.find((g) => g.conversion_goal_id === selectedGoalId)
                 return goal?.math !== BaseMathType.UniqueUsers
             },
-        ],
-        activeOptionCount: [
-            (s) => [s.excludeDirectTraffic, s.allowMultipleConversionsPerVisitor],
-            // Only counts options the user actively changed, so the badge means "you have overrides".
-            (excludeDirectTraffic: boolean, allowMultipleConversionsPerVisitor: boolean | null): number =>
-                (excludeDirectTraffic ? 1 : 0) + (allowMultipleConversionsPerVisitor !== null ? 1 : 0),
         ],
         query: [
             (s) => [
