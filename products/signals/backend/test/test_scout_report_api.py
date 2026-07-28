@@ -640,7 +640,7 @@ class TestScoutReportAPI(APIBaseTest):
 
         def forward(reviewers: list[ReviewerInput]) -> str:
             with patch(CAPTURE_PATH):
-                return _capture_report_edited(
+                captured = _capture_report_edited(
                     team=self.team,
                     run=run,
                     result=result,
@@ -648,7 +648,9 @@ class TestScoutReportAPI(APIBaseTest):
                     summary=None,
                     note=None,
                     suggested_reviewers=reviewers,
-                ).event_uuid
+                )
+            assert captured is not None
+            return captured.event_uuid
 
         alice = forward([ReviewerInput(github_login="alice")])
         bob = forward([ReviewerInput(github_login="bob")])
@@ -665,7 +667,7 @@ class TestScoutReportAPI(APIBaseTest):
 
         def forward(charts: list[ReportChartInput]) -> str:
             with patch(CAPTURE_PATH):
-                return _capture_report_edited(
+                captured = _capture_report_edited(
                     team=self.team,
                     run=run,
                     result=result,
@@ -673,7 +675,9 @@ class TestScoutReportAPI(APIBaseTest):
                     summary=None,
                     note=None,
                     charts=charts,
-                ).event_uuid
+                )
+            assert captured is not None
+            return captured.event_uuid
 
         def chart(chart_id: str) -> ReportChartInput:
             return ReportChartInput(chart_id=chart_id, title="Daily signups", query={"kind": "InsightVizNode"})
@@ -705,6 +709,29 @@ class TestScoutReportAPI(APIBaseTest):
         # chart-bearing report from a plain one; without them both event streams look identical.
         run = _make_run(self.team)
         charts = [{"chart_id": "signups-drop", "title": "Daily signups", "query": {"kind": "InsightVizNode"}}]
+        # The edit refreshes the chart rather than re-sending it verbatim: an edit that restates what
+        # the report already holds changes nothing, and the lifecycle events stay quiet for those.
+        refreshed = [{**charts[0], "title": "Daily signups (rerun)"}]
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()), patch(CAPTURE_PATH) as capture:
+            created = self.client.post(
+                self._emit_url(str(run.id)), data={**self._payload(), "charts": charts}, format="json"
+            ).json()
+            self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": created["report_id"], "charts": refreshed},
+                format="json",
+            )
+        emitted = next(c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_report_emitted")
+        edited = next(c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_report_edited")
+        assert emitted.kwargs["properties"]["chart_count"] == 1
+        assert edited.kwargs["properties"]["charts_set"] == 1
+
+    def test_an_edit_that_changes_nothing_fires_no_lifecycle_event(self) -> None:
+        # `edit_report` is non-idempotent, so a retry re-sends the charts the report already holds.
+        # Nothing moved, and there is no earlier edit event for ingestion to collapse this into, so
+        # firing one hands a CDP destination an edit that never happened.
+        run = _make_run(self.team)
+        charts = [{"chart_id": "signups-drop", "title": "Daily signups", "query": {"kind": "InsightVizNode"}}]
         with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()), patch(CAPTURE_PATH) as capture:
             created = self.client.post(
                 self._emit_url(str(run.id)), data={**self._payload(), "charts": charts}, format="json"
@@ -714,10 +741,8 @@ class TestScoutReportAPI(APIBaseTest):
                 data={"report_id": created["report_id"], "charts": charts},
                 format="json",
             )
-        emitted = next(c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_report_emitted")
-        edited = next(c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_report_edited")
-        assert emitted.kwargs["properties"]["chart_count"] == 1
-        assert edited.kwargs["properties"]["charts_set"] == 1
+
+        assert not [c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_report_edited"]
 
     @parameterized.expand(
         [

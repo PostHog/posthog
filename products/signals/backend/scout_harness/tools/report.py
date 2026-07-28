@@ -173,6 +173,17 @@ class EditReportResult:
     # (`_report_classification_props`) even when the edit didn't touch the title.
     report_title: str | None = None
 
+    @property
+    def changed(self) -> bool:
+        """Whether the edit actually mutated the report.
+
+        `edit_report` is non-idempotent, so a call can restate what the report already holds — a title
+        rewritten to its current value, or the charts a previous call stored. Everything an edit sets in
+        motion downstream (the run tally, the work-log link, the Slack delivery, the lifecycle events)
+        keys off this, so a call that changed nothing stays silent instead of telling the team their
+        report moved."""
+        return bool(self.updated_fields or self.note_appended or self.reviewers_set or self.charts_set)
+
 
 def _surfaced(status: SignalReport.Status) -> bool:
     return status in (SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT)
@@ -799,7 +810,7 @@ def _capture_report_edited(
     note: str | None,
     suggested_reviewers: list[ReviewerInput] | None = None,
     charts: list[ReportChartInput] | None = None,
-) -> _ReportForward:
+) -> _ReportForward | None:
     """Emit the scout-owned `signals_scout_report_edited` event when a scout mutates an existing report via
     `edit_report`, so edits are observable separately from fresh authorship. `updated_fields` /
     `note_appended` / `reviewers_set` distinguish a title/summary rewrite from a note-only append from a
@@ -808,7 +819,12 @@ def _capture_report_edited(
     that something did. Classification (`_report_classification_props`) reads `result.report_title` — the
     report's effective title after the edit — so a note-only append to a self-improvement report still
     classifies correctly. Best-effort; never fails the edit. Accesses `team.organization` — call on a sync
-    thread. Returns the customer-facing fan-out payload for the caller to forward."""
+    thread. Returns the customer-facing fan-out payload for the caller to forward, or None when the call
+    left the report as it was: `edit_report` is non-idempotent, so a retry restates content the report
+    already holds, and there is no earlier event for ingestion to collapse the second one into. Both
+    streams stay quiet rather than telling a CDP destination a report changed when it didn't."""
+    if not result.changed:
+        return None
     properties = {
         **_report_event_base(run),
         **_report_classification_props(result.report_title),
@@ -1223,7 +1239,7 @@ def _do_edit_report(
     # Record the edit on the run tally only when something actually changed — a no-op edit (e.g. a
     # title rewrite to its current value, or re-sending the charts already stored) must not claim the
     # run touched the report, or notify its destination a second time about nothing.
-    if updated_fields or note_appended or reviewers_set or charts_changed:
+    if result.changed:
         record_report_edit(team_id=team.id, run_id=run.id, report_id=report_id)
         # Also link the run itself on the report's work log (deduped), so the editing scout's
         # transcript is reachable from the report — not just the run-side `edited_report_ids` tally.
@@ -1324,5 +1340,6 @@ def edit_report_sync(
         suggested_reviewers=suggested_reviewers,
         charts=charts,
     )
-    _forward_report_event_to_team(team=team, forward=forward)
+    if forward is not None:
+        _forward_report_event_to_team(team=team, forward=forward)
     return result
