@@ -90,7 +90,9 @@ export const resolveAuthorizationServerUrl = (): string => {
     if (isCloudApi()) {
         return OAUTH_PROXY_URL
     }
-    return getCustomApiBaseUrl()!
+    // A browser follows this URL, so it must be publicly reachable — the API base
+    // may be loopback-only (devbox) or cluster-internal.
+    return getPublicBaseUrl() ?? getCustomApiBaseUrl()!
 }
 
 // Generated from `posthog/scopes.py` — keep in sync with `hogli build:openapi`.

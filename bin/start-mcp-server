@@ -18,18 +18,23 @@ if [ ! -f .env ]; then
     fi
 fi
 
-# SITE_URL on devboxes points at the public per-workspace subdomain; rewrite
-# the three PostHog-pointing keys so MCP's OAuth metadata advertises a host
-# browsers can actually reach. Runs every start (not just first creation) so
-# .env stays in sync when the workspace subdomain changes.
+# SITE_URL on devboxes points at the public per-workspace subdomain; rewrite the
+# browser-facing keys so MCP's OAuth metadata and rendered links advertise a host
+# browsers can actually reach. Runs every start (not just first creation) so .env
+# stays in sync when the workspace subdomain changes.
+#
+# POSTHOG_API_BASE_URL deliberately stays on loopback: it is the server-to-server
+# API base, and the workspace subdomain sits behind the devbox auth proxy, which
+# answers every API call with a login redirect instead of JSON.
 loopback_re='^https?://(localhost|127\.0\.0\.1)([:/]|$)'
 if [ -n "${SITE_URL:-}" ] && ! [[ "${SITE_URL}" =~ $loopback_re ]]; then
     tmp=$(mktemp)
-    grep -Ev '^(POSTHOG_API_BASE_URL|POSTHOG_MCP_APPS_ANALYTICS_BASE_URL|POSTHOG_ANALYTICS_HOST)=' .env > "$tmp" || true
+    grep -Ev '^(POSTHOG_API_BASE_URL|POSTHOG_PUBLIC_URL|POSTHOG_MCP_APPS_ANALYTICS_BASE_URL|POSTHOG_ANALYTICS_HOST)=' .env > "$tmp" || true
     mv "$tmp" .env
     # Leading \n guards against the prior file missing a trailing newline.
-    printf '\n%s\n%s\n%s\n' \
-        "POSTHOG_API_BASE_URL=${SITE_URL}" \
+    printf '\n%s\n%s\n%s\n%s\n' \
+        "POSTHOG_API_BASE_URL=${MCP_LOCAL_API_BASE_URL:-http://localhost:8010}" \
+        "POSTHOG_PUBLIC_URL=${SITE_URL}" \
         "POSTHOG_MCP_APPS_ANALYTICS_BASE_URL=${SITE_URL}" \
         "POSTHOG_ANALYTICS_HOST=${SITE_URL}" \
         >> .env
