@@ -95,22 +95,22 @@ Additional properties:
 
 Captured once per DB transition to `CANCELLED`, by whichever component performs that transition. Every writer of the status is covered:
 
-| Writer                                                     | Cancellations it owns                                                | `cancel_source`                                          |
-| ---------------------------------------------------------- | -------------------------------------------------------------------- | -------------------------------------------------------- |
-| `update_task_run_status` Temporal activity                 | Workflow-driven cancellations                                        | Read off `TaskRun.state`, `unspecified` when absent      |
-| Facade run PATCH (`facade/api.py::update_task_run`)        | API, webhook and workflow-gone fallback cancellations                | Read off `TaskRun.state`, `unspecified` when absent      |
-| `loop_runs.py::fire_loop` (`CANCEL_PREVIOUS` overlap)      | A run displaced by a newer fire of the same loop                     | `loop_overlap_cancel_previous`                           |
-| `loop_lifecycle.py` (loop pause, runs authored by the user) | In-flight loop runs cancelled on owner deactivation or org removal   | `owner_deactivated` / `owner_removed_from_org`           |
+| Writer                                                      | Cancellations it owns                                              | `cancel_source`                                     |
+| ----------------------------------------------------------- | ------------------------------------------------------------------ | --------------------------------------------------- |
+| `update_task_run_status` Temporal activity                  | Workflow-driven cancellations                                      | Read off `TaskRun.state`, `unspecified` when absent |
+| Facade run PATCH (`facade/api.py::update_task_run`)         | API, webhook and workflow-gone fallback cancellations              | Read off `TaskRun.state`, `unspecified` when absent |
+| `loop_runs.py::fire_loop` (`CANCEL_PREVIOUS` overlap)       | A run displaced by a newer fire of the same loop                   | `loop_overlap_cancel_previous`                      |
+| `loop_lifecycle.py` (loop pause, runs authored by the user) | In-flight loop runs cancelled on owner deactivation or org removal | `owner_deactivated` / `owner_removed_from_org`      |
 
 The loop paths bulk-update the rows and then signal `complete_task`, so the status activity that follows finds no transition left and skips its capture. They call `loop_service.capture_loop_runs_cancelled_terminal` instead, which is also why their property values are per-site literals rather than reads off `TaskRun.state`.
 
 Not to be confused with [`task_run_cancelled`](#task_run_cancelled-no-longer-emitted-by-the-process_task-workflow), a different event with a different shape: the `execute_sandbox` workflow emits it (for any origin product) when the workflow itself is cancelled, and `capture_relay_command_telemetry` emits it for PostHog AI relay turn-cancels, meaning "the agent's current turn was cancelled". Neither is keyed on the run reaching a terminal state. Additional properties:
 
-| Property           | Type    | Description                                                |
-| ------------------ | ------- | ---------------------------------------------------------- |
+| Property           | Type    | Description                                                                                                                                                           |
+| ------------------ | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `cancel_reason`    | `str`   | Cancellation message. The activity and PATCH paths pass the run's message through (truncated to the **last** 500 chars), the loop paths use a fixed per-site sentence |
-| `cancel_source`    | `str`   | Cancellation origin, per the table above                                                                                                                             |
-| `duration_seconds` | `float` | Time from creation to cancellation                                                                                                                                   |
+| `cancel_source`    | `str`   | Cancellation origin, per the table above                                                                                                                              |
+| `duration_seconds` | `float` | Time from creation to cancellation                                                                                                                                    |
 
 ## Loop Fire Metrics
 
