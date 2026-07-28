@@ -1,5 +1,5 @@
 # LLM models
-SESSION_SUMMARIES_MODEL = "o3"
+SESSION_SUMMARIES_MODEL = "gpt-5.4"
 SESSION_SUMMARIES_REASONING_EFFORT = "medium"
 
 # Ensure to cut LLM response if longer than expected to avoid hanging connections

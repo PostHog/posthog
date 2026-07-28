@@ -142,6 +142,7 @@ describe('HogFlowBatchPersonQueryService', () => {
                         filters,
                         group_type_index: 2,
                         cursor: null,
+                        dedupe_key: null,
                     }),
                 },
             })
@@ -153,12 +154,16 @@ describe('HogFlowBatchPersonQueryService', () => {
                         filters,
                         group_type_index: 2,
                         cursor: 'next-cursor',
+                        dedupe_key: null,
                     }),
                 },
             })
         })
 
-        it('sends cursor as null when not provided', async () => {
+        it.each([
+            ['email dedupe key is forwarded', 'email' as const, 'email'],
+            ['missing dedupe key is sent as null', undefined, null],
+        ])('%s', async (_name, dedupeKey, expectedBodyValue) => {
             const service = createService()
 
             fetchMock.mockResolvedValue({
@@ -170,7 +175,7 @@ describe('HogFlowBatchPersonQueryService', () => {
                 fetchError: null,
             })
 
-            await service.getBlastRadiusPersons(team, filters)
+            await service.getBlastRadiusPersons(team, filters, undefined, null, dedupeKey)
 
             expect(fetchMock).toHaveBeenCalledWith({
                 urlPath: '/api/projects/123/internal/hog_flows/user_blast_radius_persons',
@@ -180,6 +185,7 @@ describe('HogFlowBatchPersonQueryService', () => {
                         filters,
                         group_type_index: undefined,
                         cursor: null,
+                        dedupe_key: expectedBodyValue,
                     }),
                 },
             })

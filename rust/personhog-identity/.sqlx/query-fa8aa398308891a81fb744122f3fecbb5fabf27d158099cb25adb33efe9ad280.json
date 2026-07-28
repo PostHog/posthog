@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                INSERT INTO posthog_personlessdistinctid (distinct_id, is_merged, created_at, team_id)\n                SELECT d, true, now(), t FROM unnest($1::int[], $2::text[]) AS u(t, d)\n                ON CONFLICT (team_id, distinct_id) DO UPDATE SET is_merged = true\n                    WHERE posthog_personlessdistinctid.is_merged = false\n                RETURNING team_id::bigint as \"team_id!\", distinct_id, (xmax = 0) as \"inserted!\"\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "team_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "distinct_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "inserted!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4Array",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      null,
+      false,
+      null
+    ]
+  },
+  "hash": "fa8aa398308891a81fb744122f3fecbb5fabf27d158099cb25adb33efe9ad280"
+}

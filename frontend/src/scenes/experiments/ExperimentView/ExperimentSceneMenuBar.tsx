@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useAsyncActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
@@ -83,10 +83,10 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
         createExposureCohort,
         createExperimentDashboard,
         resetRunningExperiment,
-        freezeExposure,
-        unfreezeExposure,
         toggleDebugPanel,
     } = useActions(experimentLogic)
+    // Promise-returning dispatch so the confirm dialogs can await completion (shouldAwaitSubmit).
+    const { freezeExposure, unfreezeExposure } = useAsyncActions(experimentLogic)
     const { currentProjectId } = useValues(projectLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { openPauseExperimentModal, openResumeExperimentModal } = useActions(modalsLogic)
@@ -305,7 +305,7 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
                                 {showFreezeExposure && (
                                     <SceneMenuBarItem
                                         opensFloatingUi
-                                        onClick={() => confirmFreezeExposure(freezeExposure)}
+                                        onClick={() => confirmFreezeExposure(() => freezeExposure())}
                                         disabled={freezeExposureLoading}
                                         tooltip={freezeExposureLoading ? 'Freezing exposure…' : undefined}
                                         data-attr={`${RESOURCE_TYPE}-menubar-freeze-exposure`}
@@ -317,7 +317,7 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
                                 {isExperimentExposureFrozen(experiment) && (
                                     <SceneMenuBarItem
                                         opensFloatingUi
-                                        onClick={() => confirmUnfreezeExposure(unfreezeExposure)}
+                                        onClick={() => confirmUnfreezeExposure(() => unfreezeExposure())}
                                         disabled={unfreezeExposureLoading}
                                         tooltip={unfreezeExposureLoading ? 'Unfreezing exposure…' : undefined}
                                         data-attr={`${RESOURCE_TYPE}-menubar-unfreeze-exposure`}

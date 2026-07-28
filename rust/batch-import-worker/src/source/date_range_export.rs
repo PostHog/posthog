@@ -478,10 +478,10 @@ impl DateRangeExportSource {
         );
 
         // A 200 with a zero-byte body is an export interval with no data (some
-        // export APIs return this instead of a 404). It is not a decodable gzip
-        // stream, so report it as an empty part - mirroring the 404 branch above
-        // and s3_gzip's zero-byte handling - rather than handing the decoder an
-        // empty file it would reject as "unexpected end of file".
+        // export APIs return this instead of a 404). Report it as an empty part
+        // with its size known immediately - mirroring the 404 branch above and
+        // s3_gzip's zero-byte handling - rather than staging a streaming part
+        // for a file we already know is empty.
         if total_bytes == 0 {
             info!("No data available for key: {} (empty response body)", key);
             if let Err(e) = tokio::fs::remove_file(&raw_file_path).await {
@@ -608,6 +608,20 @@ impl DataSource for DateRangeExportSource {
         self.cleanup_local_resources().await;
         debug!("Job resources released (remote staging kept for resume)");
         Ok(())
+    }
+
+    async fn cleanup_after_data_error(&self) -> Result<(), Error> {
+        // Data-error pause: quarantine staged plaintext for post-mortem (it is
+        // the exact byte stream the failing offset points into), so the resume
+        // re-downloads a clean copy while support can still inspect the bytes
+        // that failed to parse.
+        let quarantine_result = match &self.remote_staging {
+            Some(remote) => remote.quarantine_job().await,
+            None => Ok(()),
+        };
+        self.cleanup_local_resources().await;
+        debug!("Job data-error cleanup complete (staged parts quarantined)");
+        quarantine_result
     }
 
     // We call this every time we process a chunk from a key/part
@@ -814,8 +828,8 @@ mod tests {
     async fn test_empty_200_body_is_an_empty_part_by_design() {
         // A 200 with a zero-byte body (an export day with no events, without gzip
         // framing) must become an empty part with its size known immediately after
-        // prepare - mirroring the 404 branch and s3_gzip's zero-byte handling - not
-        // a streaming part whose first read hits "unexpected end of file".
+        // prepare - mirroring the 404 branch and s3_gzip's zero-byte handling -
+        // not a streaming part.
         let server = MockServer::start();
         let _mock = server.mock(|when, then| {
             when.method(httpmock::Method::GET).path("/export");

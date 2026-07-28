@@ -9,13 +9,17 @@ use tokio::sync::Semaphore;
 use crate::{
     error::UnhandledError,
     stages::{
-        pipeline::ExceptionEventPipelineItem,
+        pipeline::ParsedPipelineItem,
         resolution::{
             exception::ExceptionResolver, frame::FrameResolver, remote::pool::EndpointPool,
             ResolutionStage,
         },
     },
-    types::{batch::Batch, exception_properties::ExceptionProperties, Exception, ExceptionList},
+    types::{
+        batch::Batch,
+        exception_event::{ExceptionEvent, Parsed},
+        Exception, ExceptionList,
+    },
 };
 
 use super::config::RemoteResolutionConfig;
@@ -65,10 +69,10 @@ impl RemoteResolutionContext {
 /// Each event passes through exactly one bucket and writes itself into the
 /// output exactly once. There is no shared mutation across RPC boundaries.
 pub async fn resolve_batch(
-    batch: Batch<ExceptionEventPipelineItem>,
+    batch: Batch<ParsedPipelineItem>,
     ctx: RemoteResolutionContext,
     local_stage: ResolutionStage,
-) -> Result<Batch<ExceptionEventPipelineItem>, UnhandledError> {
+) -> Result<Batch<ParsedPipelineItem>, UnhandledError> {
     let batch_len = batch.len();
     let partition = partition_batch(batch, ctx.config.sample_rate)?;
 
@@ -86,17 +90,16 @@ pub async fn resolve_batch(
 
 fn assemble_output(
     batch_len: usize,
-    errors: Vec<(usize, ExceptionEventPipelineItem)>,
-    empty: Vec<(usize, ExceptionEventPipelineItem)>,
-    local: Vec<(usize, ExceptionEventPipelineItem)>,
-    remote: Vec<(usize, ExceptionEventPipelineItem)>,
-) -> Result<Batch<ExceptionEventPipelineItem>, UnhandledError> {
-    let mut output: Vec<Option<ExceptionEventPipelineItem>> =
-        (0..batch_len).map(|_| None).collect();
+    errors: Vec<(usize, ParsedPipelineItem)>,
+    empty: Vec<(usize, ParsedPipelineItem)>,
+    local: Vec<(usize, ParsedPipelineItem)>,
+    remote: Vec<(usize, ParsedPipelineItem)>,
+) -> Result<Batch<ParsedPipelineItem>, UnhandledError> {
+    let mut output: Vec<Option<ParsedPipelineItem>> = (0..batch_len).map(|_| None).collect();
     for (idx, item) in errors.into_iter().chain(empty).chain(local).chain(remote) {
         output[idx] = Some(item);
     }
-    let resolved: Vec<ExceptionEventPipelineItem> = output
+    let resolved: Vec<ParsedPipelineItem> = output
         .into_iter()
         .enumerate()
         .map(|(idx, slot)| {
@@ -120,7 +123,7 @@ fn assemble_output(
 /// batch bookkeeping.
 struct RemoteEvent {
     batch_index: usize,
-    evt: ExceptionProperties,
+    evt: ExceptionEvent<Parsed>,
     /// One serialized exception per `evt.exception_list` entry, in order.
     exception_jsons: Vec<Vec<u8>>,
     /// Shared across this event's exceptions on the wire. The proto carries
@@ -136,7 +139,7 @@ impl RemoteEvent {
 
 struct RemoteEventSlot {
     batch_index: usize,
-    evt: ExceptionProperties,
+    evt: ExceptionEvent<Parsed>,
     resolved: Vec<Option<Exception>>,
 }
 
@@ -170,13 +173,13 @@ struct ResolvedRemoteItem {
 // ─────────────────────────────────────────────────────────────────────────────
 
 async fn resolve_local_events(
-    local_events: Vec<(usize, ExceptionProperties)>,
+    local_events: Vec<(usize, ExceptionEvent<Parsed>)>,
     local_stage: ResolutionStage,
-) -> Result<Vec<(usize, ExceptionEventPipelineItem)>, UnhandledError> {
+) -> Result<Vec<(usize, ParsedPipelineItem)>, UnhandledError> {
     if local_events.is_empty() {
         return Ok(Vec::new());
     }
-    let (indexes, events): (Vec<usize>, Vec<ExceptionProperties>) =
+    let (indexes, events): (Vec<usize>, Vec<ExceptionEvent<Parsed>>) =
         local_events.into_iter().unzip();
     let batch = Batch::from(events.into_iter().map(Ok).collect::<Vec<_>>())
         .apply_operator(ExceptionResolver, local_stage.clone())
@@ -193,7 +196,7 @@ async fn resolve_local_events(
 async fn resolve_remote_events(
     ctx: &RemoteResolutionContext,
     events: Vec<RemoteEvent>,
-) -> Result<Vec<(usize, ExceptionEventPipelineItem)>, UnhandledError> {
+) -> Result<Vec<(usize, ParsedPipelineItem)>, UnhandledError> {
     if events.is_empty() {
         return Ok(Vec::new());
     }
@@ -248,7 +251,9 @@ async fn resolve_remote_events(
                     })
                 })
                 .collect::<Result<Vec<_>, _>>()?;
-            event.evt.exception_list = ExceptionList::from(exceptions);
+            event
+                .evt
+                .replace_exception_list(ExceptionList::from(exceptions));
             Ok((event.batch_index, Ok(event.evt)))
         })
         .collect()
@@ -264,7 +269,7 @@ fn build_work_items(
     for event in events {
         let event_slot = event_slots.len();
         let item_count = event.item_count();
-        let team_id = event.evt.team_id;
+        let team_id = event.evt.team_id();
         let routing_keys = routing_keys_for_event(&event.evt);
 
         for (exception_slot, exception_json) in event.exception_jsons.iter().cloned().enumerate() {
@@ -309,10 +314,13 @@ fn build_work_items(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use serde_json::json;
     use uuid::Uuid;
 
     use super::*;
+    use crate::types::event::AnyEvent;
 
     #[test]
     fn build_work_items_assigns_client_tokens_and_slots_without_batch_ids() {
@@ -411,12 +419,15 @@ mod tests {
         batch_index: usize,
         exceptions: Vec<serde_json::Value>,
     ) -> RemoteEvent {
-        let mut evt: ExceptionProperties = serde_json::from_value(json!({
-            "$exception_list": exceptions,
-        }))
+        let evt = ExceptionEvent::<Parsed>::try_from(AnyEvent {
+            uuid: Uuid::from_u128(0xABCD_0000_0000_0000 ^ (batch_index as u128)),
+            event: "$exception".to_string(),
+            team_id,
+            timestamp: String::new(),
+            properties: json!({ "$exception_list": exceptions }),
+            others: HashMap::new(),
+        })
         .expect("valid exception properties");
-        evt.team_id = team_id;
-        evt.uuid = Uuid::from_u128(0xABCD_0000_0000_0000 ^ (batch_index as u128));
 
         let exception_jsons = evt
             .exception_list

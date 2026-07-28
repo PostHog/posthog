@@ -54,6 +54,15 @@ class GithubEndpointConfig:
     # repo history. The webhook carries steady-state, so only the one-off backfill
     # needs a bound; later syncs advance from the stored watermark and ignore this.
     initial_lookback_days: Optional[int] = None
+    # Steady-state reconciliation for a webhook-fed fan-out child whose events GitHub does not
+    # always deliver: after each webhook drain, re-fan parents created within this many days so
+    # child rows that never got a webhook (deployment statuses marked inactive) are still
+    # collected from the list API. None = webhook drain only.
+    webhook_reconcile_lookback_days: Optional[int] = None
+    # Parent field bumped whenever a child row is created (deployments.updated_at). When set,
+    # an incremental fan-out skips parents whose value predates the child watermark — they can
+    # hold no unseen children — keeping the reconciliation window cheap to re-walk every sync.
+    fan_out_parent_recency_field: Optional[str] = None
 
 
 GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
@@ -97,6 +106,52 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         ],
         default_incremental_field="updated_at",
         sort_mode="desc",  # Use descending sort to enable incremental sync
+    ),
+    "reviews": GithubEndpointConfig(
+        name="reviews",
+        # Child of pull_requests: {pull_number} is filled per parent PR during fan-out. GitHub has no
+        # repo-wide reviews list, so review metrics (reviews per PR, time-to-first-review, approval
+        # latency) can only be assembled by fanning out over pull requests one at a time.
+        path="/repos/{repository}/pulls/{pull_number}/reviews",
+        partition_key="submitted_at",  # Immutable once submitted; non-null after the PENDING filter below.
+        incremental_fields=[
+            {
+                "label": "submitted_at",
+                "type": IncrementalFieldType.DateTime,
+                "field": "submitted_at",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+        default_incremental_field="submitted_at",
+        # Review ids are globally unique, so no composite key is needed even though reviews are a
+        # fan-out child (the composite-key rule only applies to children whose id is unique just
+        # within a parent, like team_members).
+        primary_key="id",
+        sort_mode="desc",  # Rows land parent-newest-first, same as workflow_jobs.
+        fan_out_parent="pull_requests",
+        fan_out_path_param="pull_number",
+        fan_out_parent_field="number",
+        # The raw review only carries pull_request_url, so inject the PR number for trivial attribution
+        # joins against the pull_requests table.
+        fan_out_include_parent_fields={"number": "pr_number"},
+        # The parent walk bounds on the PR's updated_at (the parent's own default cursor); the
+        # invariant making that sound against the submitted_at watermark is documented at
+        # parent_cursor_field in github.py.
+        # One /reviews call per PR: any poll backfill re-fans every PR bumped for any reason, and a
+        # historical crawl is one request per PR over the repo's whole life. So poll does no
+        # backfill: the pull_request_review webhook is the source of truth for reviews, and the
+        # poll only re-fans the tiny window since the latest synced review. Repos that want history
+        # should run a deliberate one-off backfill, not pay for it on every connect.
+        initial_lookback_days=0,
+        # A review can emit several webhook events sharing an id (submitted, then edited or
+        # dismissed) and the delta merge doesn't dedupe within a batch, so collapse each batch to
+        # one row per id. submitted_at is constant across those events, so they always tie; the
+        # dedupe transformer breaks ties by keeping the later-arriving row (rows arrive in
+        # delivery order), so a submit followed by a dismissal in one drain keeps the dismissal.
+        version_keys=["submitted_at"],
+        # Reviews need only the repo Pull requests read grant the source already validates at
+        # create, unlike the org-scoped teams tables, so leave the table selectable by default.
+        should_sync_default=True,
     ),
     "commits": GithubEndpointConfig(
         name="commits",
@@ -157,6 +212,13 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         # workflow_run carries updated_at, which GitHub bumps on every status change — the natural
         # recency key so a completed run is never frozen by a stale earlier webhook event.
         version_keys=["updated_at"],
+        # Webhook-only marker, like workflow_jobs and reviews: the webhook is the source of truth.
+        # initial_lookback_days == 0 makes source.py report this schema as webhook_only, activates
+        # webhook mode from the first sync (skips the initial_sync_complete gate in github.py), and
+        # makes the poll path yield no rows instead of crawling the full /actions/runs history.
+        # Crawling a busy repo's whole run history on connect is huge against a shared, rate-limited
+        # budget. History, if wanted, is a deliberate one-off backfill.
+        initial_lookback_days=0,
     ),
     "workflow_jobs": GithubEndpointConfig(
         name="workflow_jobs",
@@ -202,6 +264,76 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         # (terminal) outranks started_at (running) outranks created_at (queued). Each is NULL until
         # the job reaches that stage, so NULLs-last ordering keeps the latest state.
         version_keys=["completed_at", "started_at", "created_at"],
+    ),
+    "deployments": GithubEndpointConfig(
+        name="deployments",
+        path="/repos/{repository}/deployments",
+        partition_key="created_at",
+        incremental_fields=[
+            # The deployments list endpoint returns newest-first by created_at and (like
+            # /actions/runs) does not honor sort/direction, so created_at is the only viable
+            # cursor. We sync incrementally by paginating newest-first and stopping once we cross
+            # below the cursor (see github.py). created_at is immutable; a deployment's latest
+            # state lives on its deployment_statuses children and on updated_at, so the
+            # created_at cursor won't refresh a deployment once newer ones land — that is handled
+            # by the deployment webhook, not by re-scanning history.
+            {
+                "label": "created_at",
+                "type": IncrementalFieldType.DateTime,
+                "field": "created_at",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+        default_incremental_field="created_at",
+        sort_mode="desc",  # API returns newest-first and ignores sort/direction, like workflow_runs
+        # deployment carries updated_at (bumped when a new status is added), the recency key so a
+        # completed deployment is never frozen by a stale earlier webhook event.
+        version_keys=["updated_at"],
+        # Webhook-only marker, like workflow_runs: the deployment webhook is the source of truth.
+        # initial_lookback_days == 0 makes source.py report this schema as webhook_only, activates
+        # webhook mode from the first sync, and makes the poll path yield no rows instead of
+        # crawling the full /deployments history against a shared, rate-limited budget. History,
+        # if wanted, is a deliberate one-off backfill.
+        initial_lookback_days=0,
+    ),
+    "deployment_statuses": GithubEndpointConfig(
+        name="deployment_statuses",
+        # Child of deployments: {deployment_id} is filled per parent deployment during fan-out.
+        # GitHub has no repo-wide deployment-statuses list, so a deployment's status history (the
+        # success/failure/inactive transitions that mark a rollback) can only be assembled by
+        # fanning out over deployments one at a time.
+        path="/repos/{repository}/deployments/{deployment_id}/statuses",
+        partition_key="created_at",  # Set at status creation; immutable and non-null.
+        incremental_fields=[
+            {
+                "label": "created_at",
+                "type": IncrementalFieldType.DateTime,
+                "field": "created_at",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+        default_incremental_field="created_at",
+        # Deployment-status ids are globally unique (like review ids), so no composite key is
+        # needed even though this is a fan-out child.
+        primary_key="id",
+        sort_mode="desc",  # Rows land parent-newest-first, same as workflow_jobs and reviews.
+        fan_out_parent="deployments",
+        fan_out_path_param="deployment_id",
+        fan_out_parent_field="id",
+        # The raw status only carries the deployment API URL, so inject the deployment id for
+        # trivial attribution joins against the deployments table (mirrors reviews' pr_number).
+        fan_out_include_parent_fields={"id": "deployment_id"},
+        # Webhook-first (zero first-sync backfill), but not webhook-alone: GitHub never fires a
+        # deployment_status webhook for the inactive state, so a pure webhook feed would miss
+        # rollbacks and auto_inactive transitions, leaving a superseded deployment looking current.
+        # Each sync therefore chases the webhook drain with a bounded reconciliation fan-out over
+        # deployments created in the last 30 days; the updated_at recency skip keeps that to
+        # parents that actually gained a status since the child watermark.
+        initial_lookback_days=0,
+        webhook_reconcile_lookback_days=30,
+        fan_out_parent_recency_field="updated_at",
+        # A deployment status is append-only (each transition is a new, immutable id), so no
+        # webhook dedupe is needed — unlike reviews/runs, one id never emits multiple events.
     ),
     "teams": GithubEndpointConfig(
         name="teams",

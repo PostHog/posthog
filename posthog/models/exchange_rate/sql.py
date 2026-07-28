@@ -106,16 +106,13 @@ def HISTORICAL_EXCHANGE_RATE_TUPLES():
             yield (date, currency, rate)
 
 
-EXCHANGE_RATE_TABLE_NAME = "exchange_rate"
-EXCHANGE_RATE_DICTIONARY_NAME = "exchange_rate_dict"
-
-# Storing 10 decimal places is more than enough
-# Ideally we should have gone with 4 because that's all we need for most currencies
-# but Bitcoin messes this up because it's so valuable compared to the Dollar (our base currency)
-#
-# If Bitcoin ever moons it even further, we can increase this to 12 or 14
-# but for now 10 is more than enough
-EXCHANGE_RATE_DECIMAL_PRECISION = 10
+# Re-exported from the Django-free posthog.exchange_rate_constants module so the HogQL engine can
+# use them without booting Django; kept importable here for existing callers.
+from posthog.exchange_rate_constants import (  # noqa: E402
+    EXCHANGE_RATE_DECIMAL_PRECISION,
+    EXCHANGE_RATE_DICTIONARY_NAME,
+    EXCHANGE_RATE_TABLE_NAME,
+)
 
 
 # `version` is used to ensure the latest version is kept, see https://clickhouse.com/docs/engines/table-engines/mergetree-family/replacingmergetree

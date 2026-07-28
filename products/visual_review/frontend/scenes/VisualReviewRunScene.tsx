@@ -7,12 +7,12 @@ import { LemonButton, LemonCheckbox, LemonSkeleton, Link } from '@posthog/lemon-
 import { PostHogCaptureOnViewed } from '@posthog/react'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 

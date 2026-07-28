@@ -8,8 +8,10 @@ import pytest
 # phase only adds pauses (seconds on a full-tree CI shard collection). Run the boot
 # with GC off, then freeze the survivors into the permanent generation so the
 # collector never rescans them during the test phase. Tests themselves run with GC
-# enabled as usual. (django.setup() runs in pytest-django's load_initial_conftests,
-# before conftest files load, so it stays outside the window.)
+# enabled as usual. The window normally opens even earlier, in the pytest_boot_gc
+# plugin (`-p pytest_boot_gc` in pytest.ini), so that django.setup() (which
+# pytest-django runs before conftest files load) sits inside it too; the disable
+# here is the fallback for runs that don't load that plugin.
 gc.disable()
 
 
@@ -278,3 +280,13 @@ def _clean_persons_db_for_direct_tests(request):
         if tables:
             cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} RESTART IDENTITY CASCADE")
     yield
+
+
+@pytest.fixture(autouse=True)
+def _query_cache_raw_redis_uses_fakeredis(monkeypatch):
+    """In tests the query_cache alias is backed by LocMem, which has no Redis connection
+    to hand out, so raw-client lookups against it get the shared fakeredis instead."""
+    from posthog import redis  # noqa: PLC0415
+    from posthog.query_cache import size_tracker  # noqa: PLC0415
+
+    monkeypatch.setattr(size_tracker, "get_redis_connection", lambda alias: redis.get_client())

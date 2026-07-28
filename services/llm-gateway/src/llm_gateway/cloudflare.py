@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 import litellm
@@ -11,6 +11,7 @@ from litellm.llms.anthropic.experimental_pass_through.adapters.handler import (
     LiteLLMMessagesToCompletionTransformationHandler,
 )
 
+from llm_gateway.anthropic_stream import observe_anthropic_stream
 from llm_gateway.config import Settings
 from llm_gateway.rate_limiting.cost_refresh import COST_ALIASES
 
@@ -96,7 +97,10 @@ def make_cloudflare_anthropic_call(api_base: str, api_key: str) -> Callable[...,
 
     async def llm_call(**kwargs: Any) -> Any:
         _inject_cloudflare_params(kwargs, api_base, api_key)
-        return await LiteLLMMessagesToCompletionTransformationHandler.async_anthropic_messages_handler(**kwargs)
+        response = await LiteLLMMessagesToCompletionTransformationHandler.async_anthropic_messages_handler(**kwargs)
+        if isinstance(response, AsyncIterator):
+            return observe_anthropic_stream(response, "cloudflare")
+        return response
 
     return llm_call
 

@@ -24,6 +24,7 @@ from rest_framework.views import APIView
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Tag, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
+from posthog.models.activity_logging.model_activity import ActivityTriggerContext
 from posthog.models.tag import tagify
 
 from products.conversations.backend.api.tickets import assign_ticket
@@ -167,34 +168,6 @@ def _workflow_trigger_from_request(request: Request) -> Trigger | None:
     except (ValueError, TypeError):
         return None
     return Trigger(job_type="hog_flow", job_id=hog_flow_id, payload={})
-
-
-def _log_ticket_tag_removals(ticket: Ticket, team: Team, removed_tags: set[str], trigger: Trigger | None) -> None:
-    """Mirror tag removals onto the ticket's activity stream.
-
-    Tag *additions* go through ``TaggedItem`` saves that fire the model activity signal,
-    which already logs them to the ticket. Removals use a bulk queryset delete that bypasses
-    that signal, so they would otherwise leave no trace — this fills that gap (and, when a
-    workflow made the change, attributes it via ``trigger``).
-    """
-    if not removed_tags:
-        return
-    changes = [
-        Change(type="Ticket", field="tag", action="deleted", before=tag_name) for tag_name in sorted(removed_tags)
-    ]
-    try:
-        log_activity(
-            organization_id=team.organization_id,
-            team_id=team.id,
-            user=None,
-            was_impersonated=False,
-            item_id=str(ticket.id),
-            scope="Ticket",
-            activity="updated",
-            detail=Detail(name=f"Ticket #{ticket.ticket_number}", changes=changes, trigger=trigger),
-        )
-    except Exception as e:
-        capture_exception(e, {"ticket_id": str(ticket.id)})
 
 
 class ExternalTicketView(APIView):
@@ -459,36 +432,34 @@ class ExternalTicketView(APIView):
             try:
                 tags_mode = serializer.validated_data.get("tags_mode", "add")
                 normalized_tags = {tagify(t) for t in serializer.validated_data["tags"]}
-                existing_tags = set(ticket.tagged_items.values_list("tag__name", flat=True))
 
-                # Additions log themselves via the TaggedItem model activity signal; only bulk
-                # deletes bypass it, so we track removals to log them explicitly below.
-                removed_tags: set[str] = set()
-
-                if tags_mode == "remove":
-                    removed_tags = existing_tags & normalized_tags
-                    ticket.tagged_items.filter(tag__name__in=normalized_tags).delete()
-                    Tag.objects.filter(team_id=team.id, tagged_items__isnull=True).delete()
-                elif tags_mode == "set":
-                    removed_tags = existing_tags - normalized_tags
-                    for tag_name in normalized_tags:
-                        tag_instance, _ = Tag.objects.get_or_create(name=tag_name, team_id=team.id)
-                        ticket.tagged_items.get_or_create(tag_id=tag_instance.id)
-                    ticket.tagged_items.exclude(tag__name__in=normalized_tags).delete()
-                    Tag.objects.filter(team_id=team.id, tagged_items__isnull=True).delete()
-                else:
-                    for tag_name in normalized_tags:
-                        tag_instance, _ = Tag.objects.get_or_create(name=tag_name, team_id=team.id)
-                        ticket.tagged_items.get_or_create(tag_id=tag_instance.id)
+                # Tag adds and removes are both logged by the TaggedItem model activity signal
+                # (to the ticket's timeline and the Tag audit stream). Removals must go through
+                # the per-instance delete() so the signal fires for them too; a bulk queryset
+                # delete would skip it. The trigger context attributes every resulting entry
+                # to the workflow that made the change.
+                with ActivityTriggerContext(workflow_trigger):
+                    if tags_mode == "remove":
+                        for tagged_item in ticket.tagged_items.filter(tag__name__in=normalized_tags).select_related(
+                            "tag__team", "ticket"
+                        ):
+                            tagged_item.delete()
+                        Tag.objects.filter(team_id=team.id, tagged_items__isnull=True).delete()
+                    elif tags_mode == "set":
+                        for tag_name in normalized_tags:
+                            tag_instance, _ = Tag.objects.get_or_create(name=tag_name, team_id=team.id)
+                            ticket.tagged_items.get_or_create(tag_id=tag_instance.id)
+                        for tagged_item in ticket.tagged_items.exclude(tag__name__in=normalized_tags).select_related(
+                            "tag__team", "ticket"
+                        ):
+                            tagged_item.delete()
+                        Tag.objects.filter(team_id=team.id, tagged_items__isnull=True).delete()
+                    else:
+                        for tag_name in normalized_tags:
+                            tag_instance, _ = Tag.objects.get_or_create(name=tag_name, team_id=team.id)
+                            ticket.tagged_items.get_or_create(tag_id=tag_instance.id)
             except Exception as e:
                 capture_exception(e, {"ticket_id": str(ticket.id)})
                 return Response({"error": "Failed to update tags"}, status=status.HTTP_400_BAD_REQUEST)
-
-            _log_ticket_tag_removals(
-                ticket=ticket,
-                team=team,
-                removed_tags=removed_tags,
-                trigger=workflow_trigger,
-            )
 
         return Response({"ok": True})

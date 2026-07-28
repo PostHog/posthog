@@ -16,6 +16,7 @@ import { Intro } from '../Intro'
 import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from '../maxThreadLogic'
+import { phaiAiComposerSeedLogic } from '../phaiAiComposerSeedLogic'
 import { Thread } from '../Thread'
 import { MaxNotConfigured } from './MaxNotConfigured'
 import { PhaiViewToggle } from './PhaiViewToggle'
@@ -107,7 +108,9 @@ export function AiFirstMaxInstance({ tabId }: AiFirstMaxInstanceProps): JSX.Elem
                     <PhaiViewToggle variant="lemon" />
                 </div>
                 <div className="flex flex-col flex-1 min-h-0">
-                    <EmbeddedRunner />
+                    <BindLogic logic={phaiAiComposerSeedLogic} props={{}}>
+                        <EmbeddedRunner />
+                    </BindLogic>
                 </div>
             </div>
         )

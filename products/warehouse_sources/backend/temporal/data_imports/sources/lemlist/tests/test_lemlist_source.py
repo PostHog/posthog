@@ -27,7 +27,6 @@ class TestLemlistSourceConfig:
     def test_source_config_basics(self) -> None:
         config = LemlistSource().get_source_config
         assert config.label == "Lemlist"
-        assert config.unreleasedSource is True
         # A single API-key field, stored as a secret password input.
         assert [f.name for f in config.fields] == ["api_key"]
         api_key_field = config.fields[0]

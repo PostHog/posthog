@@ -20,7 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import NoCRMSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.nocrm import NoCRMSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.nocrm.nocrm import (
     NoCRMResumeConfig,
     nocrm_source,
@@ -37,6 +37,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class NoCRMSource(ResumableSource[NoCRMSourceConfig, NoCRMResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://www.nocrm.io/api"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -55,7 +58,6 @@ class NoCRMSource(ResumableSource[NoCRMSourceConfig, NoCRMResumeConfig]):
             category=DataWarehouseSourceCategory.CRM,
             label="noCRM.io",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your noCRM.io account subdomain and API key to automatically pull your noCRM.io data into the PostHog Data warehouse.
 
 Your subdomain is the first part of your noCRM.io URL — for `acme.nocrm.io`, enter `acme`.
@@ -108,6 +110,7 @@ You can create an API key as an account admin under **Admin panel → API & Webh
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = NOCRM_ENDPOINTS[endpoint]
@@ -127,7 +130,7 @@ You can create an API key as an account admin under **Admin panel → API & Webh
         return schemas
 
     def validate_credentials(
-        self, config: NoCRMSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: NoCRMSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         if validate_nocrm_credentials(config.api_key, config.subdomain):
             return True, None
@@ -147,7 +150,8 @@ You can create an API key as an account admin under **Admin panel → API & Webh
             api_key=config.api_key,
             subdomain=config.subdomain,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

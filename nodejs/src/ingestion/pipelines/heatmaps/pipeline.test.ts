@@ -1,7 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
-import { APP_METRICS_OUTPUT, DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT } from '~/common/outputs'
+import { APP_METRICS_OUTPUT, DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, TOPHOG_OUTPUT } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
 import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
@@ -14,6 +14,7 @@ import { EventFilterManager } from '~/ingestion/common/event-filters'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { drop, ok } from '~/ingestion/framework/results'
 import { createTestTeam } from '~/tests/helpers/team'
+import { createNoopTopHog } from '~/tests/helpers/tophog'
 
 import { HEATMAPS_OUTPUT } from './outputs'
 import { HeatmapsPipelineConfig, createHeatmapsPipeline } from './pipeline'
@@ -79,9 +80,8 @@ describe('HeatmapsPipeline', () => {
         await pipeline.feed(batch)
         let result = await pipeline.next()
         while (result !== null) {
-            for (const sideEffect of result.sideEffects ?? []) {
-                void promiseScheduler.schedule(sideEffect)
-            }
+            // The pipeline handles its own side effects; none may leak to drivers.
+            expect(result.sideEffects ?? []).toEqual([])
             result = await pipeline.next()
         }
         await promiseScheduler.waitForAll()
@@ -146,7 +146,9 @@ describe('HeatmapsPipeline', () => {
                     mockKafkaProducer,
                     'test'
                 ),
+                [TOPHOG_OUTPUT]: new SingleIngestionOutput(TOPHOG_OUTPUT, 'tophog_test', mockKafkaProducer, 'test'),
             }),
+            topHog: createNoopTopHog(),
             teamManager: mockTeamManager,
             eventIngestionRestrictionManager: mockEventIngestionRestrictionManager,
             eventFilterManager: mockEventFilterManager,

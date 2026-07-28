@@ -208,6 +208,9 @@ export class CyclotronJobQueuePostgres implements JobQueue {
         )
     }
 
+    // Legacy V1 has no per-job heartbeat API; stall recovery works differently there.
+    public async heartbeatInvocations(_invocations: CyclotronJobInvocation[]): Promise<void> {}
+
     public async releaseInvocations(invocations: CyclotronJobInvocation[]) {
         // Called specially for jobs that came from postgres but are being requeued to kafka
         const worker = this.getCyclotronWorker()

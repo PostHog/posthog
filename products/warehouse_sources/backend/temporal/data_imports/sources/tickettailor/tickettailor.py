@@ -1,14 +1,18 @@
 import dataclasses
-from collections.abc import Iterator
 from typing import Any, Optional
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import HttpBasicAuth
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.tickettailor.settings import (
     TICKET_TAILOR_ENDPOINTS,
 )
@@ -17,14 +21,9 @@ TICKET_TAILOR_BASE_URL = "https://api.tickettailor.com"
 # List endpoints cap `limit` at 100; the largest page minimises round trips against the
 # 5000 requests / 30 minutes rate limit.
 PAGE_SIZE = 100
-REQUEST_TIMEOUT_SECONDS = 60
 # Cheap endpoint used to confirm an API key is genuine. Keys are scoped to a whole box office,
 # so one probe validates access to every list endpoint.
 DEFAULT_PROBE_PATH = "/v1/events"
-
-
-class TicketTailorRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
@@ -35,106 +34,117 @@ class TicketTailorResumeConfig:
     cursor: str | None = None
 
 
-def _make_session(api_key: str) -> requests.Session:
-    # Ticket Tailor authenticates via HTTP Basic with the API key as the username and no password.
-    session = make_tracked_session(headers={"Accept": "application/json"}, redact_values=(api_key,))
-    session.auth = (api_key, "")
-    return session
+class TicketTailorPaginator(BasePaginator):
+    """Ticket Tailor cursor pagination.
 
+    Lists are returned newest-first; the next page is fetched by sending the last item's object
+    id as ``starting_after``. The body carries ``links.next`` (null on the last page), which is
+    the authoritative stop signal — the cursor itself is always present while rows remain, so we
+    must not infer termination from it.
+    """
 
-@retry(
-    retry=retry_if_exception_type((TicketTailorRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_page(
-    session: requests.Session,
-    path: str,
-    cursor: str | None,
-    limit: int,
-    logger: FilteringBoundLogger,
-) -> tuple[list[dict[str, Any]], bool]:
-    params: dict[str, Any] = {"limit": limit}
-    if cursor is not None:
-        params["starting_after"] = cursor
+    def __init__(self) -> None:
+        super().__init__()
+        # `starting_after` id for the NEXT request; None means the (uncursored) first page.
+        self._cursor: Optional[str] = None
 
-    response = session.get(
-        f"{TICKET_TAILOR_BASE_URL}{path}",
-        params=params,
-        timeout=REQUEST_TIMEOUT_SECONDS,
-    )
+    def _apply_cursor(self, request: Request) -> None:
+        if self._cursor is not None:
+            if request.params is None:
+                request.params = {}
+            request.params["starting_after"] = self._cursor
 
-    if response.status_code == 429 or response.status_code >= 500:
-        logger.warning("Ticket Tailor API error (retryable)", status=response.status_code, path=path)
-        raise TicketTailorRetryableError(
-            f"Ticket Tailor API error (retryable): status={response.status_code}, path={path}"
-        )
+    def init_request(self, request: Request) -> None:
+        # Seed a resumed run (or a no-op on a fresh run where the cursor is still None).
+        self._apply_cursor(request)
 
-    if not response.ok:
-        logger.error("Ticket Tailor API error", status=response.status_code, body=response.text, path=path)
-        response.raise_for_status()
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        try:
+            body = response.json()
+        except Exception:
+            body = None
+        links = body.get("links") if isinstance(body, dict) else None
+        has_next = isinstance(links, dict) and bool(links.get("next"))
+        # Advance only while the API reports another page AND this one carried rows; an empty page
+        # or a null `links.next` terminates without issuing a further request.
+        if has_next and data:
+            self._cursor = data[-1]["id"]
+            self._has_next_page = True
+        else:
+            self._has_next_page = False
 
-    body = response.json()
-    # List endpoints wrap records in {"data": [...], "links": {"next": ..., "previous": ...}},
-    # where `links.next` is null on the last page.
-    if not isinstance(body, dict) or not isinstance(body.get("data"), list):
-        logger.warning("Ticket Tailor returned an unexpected payload", body_type=type(body).__name__, path=path)
-        raise TicketTailorRetryableError(
-            f"Ticket Tailor returned an unexpected payload for {path}: {type(body).__name__}"
-        )
+    def update_request(self, request: Request) -> None:
+        self._apply_cursor(request)
 
-    items: list[dict[str, Any]] = body["data"]
-    links = body.get("links") or {}
-    has_more = bool(links.get("next")) if isinstance(links, dict) else False
-    return items, has_more
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        return {"cursor": self._cursor} if self._has_next_page and self._cursor is not None else None
 
-
-def get_rows(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[TicketTailorResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
-    config = TICKET_TAILOR_ENDPOINTS[endpoint]
-    session = _make_session(api_key)
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    cursor = resume.cursor if resume else None
-    if resume and resume.cursor is not None:
-        logger.debug("Ticket Tailor: resuming from saved cursor", endpoint=endpoint, cursor=cursor)
-
-    while True:
-        items, has_more = _fetch_page(session, config.path, cursor, PAGE_SIZE, logger)
-        if items:
-            yield items
-
-        if not has_more or not items:
-            break
-
-        # Cursor pagination advances by the last item's id — there is no numeric offset.
-        cursor = items[-1]["id"]
-        # Save AFTER yielding so a crash re-fetches from the next page (already-yielded pages are
-        # persisted); merge dedupes the re-pulled page on the primary key.
-        resumable_source_manager.save_state(TicketTailorResumeConfig(cursor=cursor))
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        cursor = state.get("cursor")
+        if cursor is not None:
+            self._cursor = cursor
+            self._has_next_page = True
 
 
 def tickettailor_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[TicketTailorResumeConfig],
+    team_id: int,
+    job_id: str,
 ) -> SourceResponse:
     config = TICKET_TAILOR_ENDPOINTS[endpoint]
 
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": TICKET_TAILOR_BASE_URL,
+            # Ticket Tailor authenticates via HTTP Basic with the API key as the username and no
+            # password. Supplied through the framework auth config so the credential is redacted.
+            "auth": {"type": "http_basic", "username": api_key, "password": ""},
+            "headers": {"Accept": "application/json"},
+            "paginator": TicketTailorPaginator(),
+        },
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": {"limit": PAGE_SIZE},
+                    "data_selector": "data",
+                    # List endpoints wrap records in {"data": [...], "links": {...}}. A 200 whose
+                    # body isn't that shape (non-dict, or missing/non-list `data`) is treated as a
+                    # transient truncation and retried rather than ingested as a stray row.
+                    "data_selector_malformed_retryable": True,
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.cursor is not None:
+            initial_paginator_state = {"cursor": resume.cursor}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields
+        # the last page (merge dedupes on `id`) rather than skipping it.
+        if state and state.get("cursor") is not None:
+            resumable_source_manager.save_state(TicketTailorResumeConfig(cursor=str(state["cursor"])))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        None,  # every endpoint is full refresh — see settings.py for why there is no cursor
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         # Not every object carries a stable creation timestamp (discounts, vouchers,
         # membership types), so we don't partition.
@@ -146,32 +156,20 @@ def tickettailor_source(
     )
 
 
-def check_access(api_key: str, path: str = DEFAULT_PROBE_PATH) -> tuple[int, Optional[str]]:
-    """Probe a single endpoint to validate the API key.
-
-    Returns ``(status, message)``: ``200`` reachable, ``401``/``403`` auth failure, ``0`` for a
-    connection problem, other HTTP status otherwise. Ticket Tailor answers unauthenticated and
-    invalid-key requests with 403.
-    """
-    session = _make_session(api_key)
-    try:
-        response = session.get(f"{TICKET_TAILOR_BASE_URL}{path}", params={"limit": 1}, timeout=15)
-    except Exception as e:
-        return 0, f"Could not connect to Ticket Tailor: {e}"
-
-    if response.status_code in (401, 403):
-        return response.status_code, None
-
-    if not response.ok:
-        return response.status_code, f"Ticket Tailor returned HTTP {response.status_code}"
-
-    return 200, None
-
-
-def validate_credentials(api_key: str) -> tuple[bool, str | None]:
-    status, message = check_access(api_key)
-    if status == 200:
+def validate_credentials(api_key: str, path: str = DEFAULT_PROBE_PATH) -> tuple[bool, str | None]:
+    # The API key is box-office-wide, so a single probe validates access to every schema. Ticket
+    # Tailor answers unauthenticated and invalid-key requests with 403 (it reserves 401 for
+    # malformed auth headers) — both are permanent credential failures.
+    ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        f"{TICKET_TAILOR_BASE_URL}{path}?limit=1",
+        auth=HttpBasicAuth(username=api_key, password=""),
+        timeout=15,
+    )
+    if ok:
         return True, None
     if status in (401, 403):
         return False, "Invalid Ticket Tailor API key"
-    return False, message or "Could not validate Ticket Tailor API key"
+    if status is None:
+        return False, "Could not validate Ticket Tailor API key"
+    return False, f"Ticket Tailor returned HTTP {status}"

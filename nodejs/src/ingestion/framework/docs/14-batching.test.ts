@@ -7,6 +7,12 @@
  * per-batch setup/teardown: prefetching data all the items in a batch will
  * need, or flushing an accumulated write once the batch is done.
  *
+ * A batch is not the same as a chunk. A batch is one `feed()` call's worth of
+ * elements, tracked here by `batchId` and the `beforeBatch`/`afterBatch` hooks.
+ * A chunk is the array a pipeline stage processes at once, and chunk boundaries
+ * need not align with batch boundaries. See chapter 2's "Chunks vs batches"
+ * section for the distinction.
+ *
  * ## Key concepts
  *
  * - **A batch is one `feed()` call.** The batching pipeline does not accumulate
@@ -15,6 +21,9 @@
  * - **`beforeBatch`** runs once per batch before its items enter the
  *   sub-pipeline. It receives the batch's elements and a `batchContext`, and
  *   can enrich both (e.g. attach a shared store) for the whole batch.
+ *   Enrich only: it must return exactly the elements it received (same
+ *   count). Filtering belongs in sub-pipeline steps that return `drop()`
+ *   results - a count-changing hook throws (see below).
  * - **`callback`** builds the per-item sub-pipeline (the same builder DSL as
  *   the other chapters).
  * - **`afterBatch`** runs once per batch after all its items exit, receiving
@@ -29,7 +38,7 @@
  * feed(batch B) ─► beforeBatch(B) ─► [ sub-pipeline ] ─► afterBatch(B) ─► next()
  * ```
  *
- * Unlike a plain `BatchPipeline`, `feed()` is async and returns a `FeedResult`:
+ * Unlike a plain `ChunkPipeline`, `feed()` is async and returns a `FeedResult`:
  * `{ ok: true }` when accepted, or `{ ok: false, kind, reason }` when rejected.
  * `next()` returns a `BatchResult` (`{ elements, sideEffects }`) per completed
  * batch, or `null` when fully drained. Batches are returned in completion
@@ -41,6 +50,21 @@
  * once. When the pipeline is at capacity, `feed()` returns
  * `{ ok: false, kind: 'at_capacity' }` instead of accepting the batch -
  * the caller must drain a batch (via `next()`) to free a slot before retrying.
+ *
+ * ## The lifecycle hooks contract
+ *
+ * Batch completion is tracked by counting messages, so a batch's element
+ * count is load-bearing:
+ *
+ * - **An empty `feed()` is a no-op.** It returns `{ ok: true }` without
+ *   running hooks, consuming a batchId, or occupying a capacity slot - a
+ *   zero-message batch could never complete.
+ * - **`beforeBatch` must preserve the element count.** A hook that returns
+ *   fewer (or more) elements than it received breaks completion tracking:
+ *   the batch could never complete and would leak its capacity slot. That is
+ *   a logic error in the hook, so `feed()` throws rather than returning a
+ *   `FeedResult`. To discard items, use sub-pipeline steps that return
+ *   `drop()` results (chapter 7) - dropped items still count as completed.
  */
 import { newBatchingPipeline } from '~/ingestion/framework/builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
@@ -163,5 +187,62 @@ describe('Batching Pipelines', () => {
 
         // Now a new batch is accepted again
         expect(await pipeline.feed([{ id: 3 }].map((e) => createOkContext(e, {})))).toEqual({ ok: true })
+    })
+
+    /**
+     * An empty feed() is a no-op: it is accepted, but no batch exists - hooks
+     * do not run, no batchId or capacity slot is consumed, and next() has
+     * nothing to return.
+     */
+    it('an empty feed() is a no-op that runs no hooks and consumes no capacity', async () => {
+        let beforeBatchRan = false
+
+        const pipeline = newBatchingPipeline<Event, Event, NoCtx>(
+            (builder) =>
+                builder.pipe(function recordingBefore(input) {
+                    beforeBatchRan = true
+                    return Promise.resolve(ok({ elements: input.elements, batchContext: input.batchContext }))
+                }),
+            (builder) => builder,
+            (builder) =>
+                builder.pipe(function passThroughAfter(input) {
+                    return Promise.resolve(ok(input))
+                }),
+            { concurrentBatches: 1 }
+        )
+
+        expect(await pipeline.feed([])).toEqual({ ok: true })
+        expect(beforeBatchRan).toBe(false)
+        expect(await pipeline.next()).toBeNull()
+
+        // No capacity was consumed: a real batch still fits in the single slot
+        expect(await pipeline.feed([{ id: 1 }].map((e) => createOkContext(e, {})))).toEqual({ ok: true })
+        expect(await pipeline.next()).not.toBeNull()
+    })
+
+    /**
+     * beforeBatch is enrich-only: it must return exactly the elements it
+     * received. Returning a different count is a logic error - feed() throws.
+     * To discard items, use sub-pipeline steps that return drop() results
+     * instead; dropped items still count toward batch completion.
+     */
+    it('a beforeBatch that changes the element count throws', async () => {
+        const pipeline = newBatchingPipeline<Event, Event, NoCtx>(
+            (builder) =>
+                builder.pipe(function filteringBefore(input) {
+                    // Wrong: hooks must not filter elements
+                    return Promise.resolve(ok({ elements: input.elements.slice(1), batchContext: input.batchContext }))
+                }),
+            (builder) => builder,
+            (builder) =>
+                builder.pipe(function passThroughAfter(input) {
+                    return Promise.resolve(ok(input))
+                }),
+            { concurrentBatches: 1 }
+        )
+
+        await expect(pipeline.feed([{ id: 1 }, { id: 2 }].map((e) => createOkContext(e, {})))).rejects.toThrow(
+            'changed element count (2 -> 1)'
+        )
     })
 })

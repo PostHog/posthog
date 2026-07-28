@@ -19,8 +19,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RetentlySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.retently import (
+    RetentlySourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.retently.retently import (
     RetentlyResumeConfig,
     retently_source,
@@ -36,6 +41,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RetentlySource(ResumableSource[RetentlySourceConfig, RetentlyResumeConfig]):
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://www.retently.com/api/"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -69,7 +78,6 @@ You can create an API key under **Settings → Integrations → API** in [Retent
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -92,26 +100,19 @@ You can create an API key under **Settings → Integrations → API** in [Retent
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Only feedback supports incremental sync — its `startDate` query param filters responses
         # server-side by creation date. See settings.py for why the other endpoints are full
         # refresh only.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=endpoint in INCREMENTAL_FIELDS,
-                supports_append=endpoint in INCREMENTAL_FIELDS,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: RetentlySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: RetentlySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The API key is account-wide, so a single /ping probe validates access to every schema.
         return validate_retently_credentials(config.api_key)
@@ -131,7 +132,8 @@ You can create an API key under **Settings → Integrations → API** in [Retent
         return retently_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

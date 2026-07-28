@@ -4,26 +4,27 @@
 
 use std::sync::Arc;
 
-use rdkafka::consumer::{Consumer, StreamConsumer};
+use rdkafka::consumer::{Consumer, ConsumerContext, StreamConsumer};
 use rdkafka::TopicPartitionList;
 use tracing::warn;
 
 use crate::partitions::rebalance::CohortConsumerContext;
 
-/// Pause/resume Kafka fetching for specific partitions of the events topic.
+/// Pause/resume Kafka fetching for specific partitions of one input topic.
 pub trait PartitionPauser: Send + Sync {
     fn pause(&self, partitions: &[i32]);
     fn resume(&self, partitions: &[i32]);
 }
 
-/// Production [`PartitionPauser`]: drives `pause`/`resume` on the events `StreamConsumer`.
-pub struct ConsumerPauser {
-    consumer: Arc<StreamConsumer<CohortConsumerContext>>,
+/// Production [`PartitionPauser`]: drives `pause`/`resume` on a `StreamConsumer`. Generic over
+/// the consumer context so the events consumer and the seed follower share it.
+pub struct ConsumerPauser<C: ConsumerContext + 'static = CohortConsumerContext> {
+    consumer: Arc<StreamConsumer<C>>,
     topic: String,
 }
 
-impl ConsumerPauser {
-    pub fn new(consumer: Arc<StreamConsumer<CohortConsumerContext>>, topic: String) -> Self {
+impl<C: ConsumerContext + 'static> ConsumerPauser<C> {
+    pub fn new(consumer: Arc<StreamConsumer<C>>, topic: String) -> Self {
         Self { consumer, topic }
     }
 
@@ -36,7 +37,7 @@ impl ConsumerPauser {
     }
 }
 
-impl PartitionPauser for ConsumerPauser {
+impl<C: ConsumerContext + 'static> PartitionPauser for ConsumerPauser<C> {
     fn pause(&self, partitions: &[i32]) {
         if partitions.is_empty() {
             return;

@@ -275,6 +275,23 @@ export interface _HasMetricsResponseApi {
     hasMetrics: boolean
 }
 
+/**
+ * * `gauge` - gauge
+ * * `sum` - sum
+ * * `histogram` - histogram
+ * * `exponential_histogram` - exponential_histogram
+ * * `summary` - summary
+ */
+export type OtelMetricTypeEnumApi = (typeof OtelMetricTypeEnumApi)[keyof typeof OtelMetricTypeEnumApi]
+
+export const OtelMetricTypeEnumApi = {
+    Gauge: 'gauge',
+    Sum: 'sum',
+    Histogram: 'histogram',
+    ExponentialHistogram: 'exponential_histogram',
+    Summary: 'summary',
+} as const
+
 export interface _MetricGroupByApi {
     /**
      * Attribute name to split series by (e.g. 'k8s.pod.name', 'env').
@@ -323,6 +340,14 @@ export interface _MetricClauseApi {
      * @maxLength 255
      */
     metricName: string
+    /** Constrain the query to one metric type. A name can exist as several types (e.g. a counter and a gauge); without this, rows of every type sharing the name are blended into one aggregate. Get the type from 'metric-names-list'.
+     *
+     * * `gauge` - gauge
+     * * `sum` - sum
+     * * `histogram` - histogram
+     * * `exponential_histogram` - exponential_histogram
+     * * `summary` - summary */
+    metricType?: OtelMetricTypeEnumApi | null
     /** Aggregation applied per time bucket; same semantics as the top-level aggregation.
      *
      * * `sum` - sum
@@ -352,6 +377,14 @@ export interface _MetricQueryBodyApi {
      * @maxLength 255
      */
     metricName?: string
+    /** Constrain the query to one metric type. A name can exist as several types (e.g. a counter and a gauge); without this, rows of every type sharing the name are blended into one aggregate. Get the type from 'metric-names-list'.
+     *
+     * * `gauge` - gauge
+     * * `sum` - sum
+     * * `histogram` - histogram
+     * * `exponential_histogram` - exponential_histogram
+     * * `summary` - summary */
+    metricType?: OtelMetricTypeEnumApi | null
     /** Aggregation applied per time bucket. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'.
      *
      * * `sum` - sum

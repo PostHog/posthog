@@ -1,6 +1,5 @@
 import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
 import { useMemo, useState } from 'react'
 
 import {
@@ -10,7 +9,6 @@ import {
     IconInfo,
     IconLeave,
     IconPeople,
-    IconPlusSmall,
     IconTarget,
     IconWarning,
     IconWebhooks,
@@ -23,16 +21,13 @@ import {
     LemonInput,
     LemonLabel,
     LemonSelect,
-    LemonTag,
     Spinner,
     Tooltip,
-    lemonToast,
 } from '@posthog/lemon-ui'
 
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconAdsClick } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
@@ -50,9 +45,9 @@ import 'products/workflows/frontend/Workflows/hogflows/registry/triggers'
 
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowEventFilters, WORKFLOW_OPERATOR_ALLOWLIST } from '../filters/HogFlowFilters'
-import { getRegisteredTriggerTypes } from '../registry/triggers/triggerTypeRegistry'
+import { TriggerFrequencyOption, getRegisteredTriggerTypes } from '../registry/triggers/triggerTypeRegistry'
 import { HogFlowAction } from '../types'
-import { batchTriggerLogic } from './batchTriggerLogic'
+import { batchTriggerLogic, getAudienceDedupeKey } from './batchTriggerLogic'
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
 import { RecurringSchedulePicker } from './components/RecurringSchedulePicker'
 import { ScheduleStatusBadge } from './components/ScheduleStatusBadge'
@@ -209,7 +204,7 @@ function TriggerTypeDropdownItem({
 }
 
 export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }): JSX.Element {
-    const { setWorkflowActionConfig } = useActions(workflowLogic)
+    const { setWorkflowActionConfig, setWorkflowValue } = useActions(workflowLogic)
     const { actionValidationErrorsById } = useValues(workflowLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -286,6 +281,11 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
     const registeredMatch = getRegisteredTriggerTypes().find((t) => t.matchConfig?.(node.data.config))
 
     const handleSelect = (value: string): void => {
+        // The frequency hash lives on the workflow, not the trigger config, and hashes are
+        // trigger-specific ({person.id} vs event-keyed) — a stale one silently disables masking.
+        if (value !== displayType) {
+            setWorkflowValue('trigger_masking', null)
+        }
         const registered = getRegisteredTriggerTypes().find((t) => t.value === value)
         if (registered) {
             setWorkflowActionConfig(node.id, registered.buildConfig())
@@ -337,7 +337,18 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
                 {type === 'schedule' && <ScheduleStatusBadge />}
             </div>
             {registeredMatch?.ConfigComponent ? (
-                <registeredMatch.ConfigComponent node={node} />
+                <>
+                    <registeredMatch.ConfigComponent node={node} />
+                    {registeredMatch.frequencyOptions ? (
+                        <>
+                            <LemonDivider />
+                            <FrequencySection
+                                options={registeredMatch.frequencyOptions}
+                                description={registeredMatch.frequencyDescription}
+                            />
+                        </>
+                    ) : null}
+                </>
             ) : node.data.config.type === 'event' ? (
                 <StepTriggerConfigurationEvents action={node.data} config={node.data.config} />
             ) : node.data.config.type === 'webhook' ? (
@@ -494,7 +505,9 @@ function StepTriggerConfigurationManual(): JSX.Element {
 }
 
 function StepTriggerAffectedUsers({ actionId, filters }: { actionId: string; filters: any }): JSX.Element | null {
-    const logic = batchTriggerLogic({ id: actionId, filters })
+    const { workflow } = useValues(workflowLogic)
+    const dedupeKey = getAudienceDedupeKey(workflow)
+    const logic = batchTriggerLogic({ id: actionId, filters, dedupeKey })
     const { blastRadiusLoading, blastRadius, blastRadiusError } = useValues(logic)
 
     if (blastRadiusLoading) {
@@ -690,10 +703,10 @@ function StepTriggerConfigurationTrackingPixel({
 const MASKING_HASH_PER_PERSON_PER_DAY = "{concat(toString(person.id), '-', formatDateTime(now(), '%Y-%m-%d'))}"
 const CALENDAR_DAY_TTL = 24 * 60 * 60
 
-const FREQUENCY_OPTIONS = [
+const FREQUENCY_OPTIONS: TriggerFrequencyOption[] = [
     { value: null, label: 'Every time the trigger fires' },
     { value: '{person.id}', label: 'One time' },
-    { value: MASKING_HASH_PER_PERSON_PER_DAY, label: 'Once per calendar day' },
+    { value: MASKING_HASH_PER_PERSON_PER_DAY, label: 'Once per calendar day', fixedTtl: CALENDAR_DAY_TTL },
 ]
 
 const TTL_OPTIONS = [
@@ -729,9 +742,17 @@ function TTLSelect({
     )
 }
 
-function FrequencySection(): JSX.Element {
+function FrequencySection({
+    options = FREQUENCY_OPTIONS,
+    description = 'Limit how often users can enter this workflow',
+}: {
+    options?: TriggerFrequencyOption[]
+    description?: string
+}): JSX.Element {
     const { setWorkflowValue } = useActions(workflowLogic)
     const { workflow } = useValues(workflowLogic)
+
+    const selectedOption = options.find((option) => option.value === (workflow.trigger_masking?.hash ?? null))
 
     return (
         <div className="flex flex-col w-full py-2">
@@ -739,30 +760,27 @@ function FrequencySection(): JSX.Element {
                 <IconClock className="text-lg" />
                 <span className="text-md font-semibold">Frequency</span>
             </span>
-            <p>Limit how often users can enter this workflow</p>
+            <p>{description}</p>
 
             <LemonField.Pure>
                 <div className="flex flex-wrap gap-1 items-center">
                     <LemonSelect
-                        options={FREQUENCY_OPTIONS}
+                        options={options.map(({ value, label }) => ({ value, label }))}
                         value={workflow.trigger_masking?.hash ?? null}
-                        onChange={(val) =>
+                        onChange={(val) => {
+                            const option = options.find((candidate) => candidate.value === val)
                             setWorkflowValue(
                                 'trigger_masking',
                                 val
                                     ? {
                                           hash: val,
-                                          ttl:
-                                              val === MASKING_HASH_PER_PERSON_PER_DAY
-                                                  ? CALENDAR_DAY_TTL
-                                                  : (workflow.trigger_masking?.ttl ?? 60 * 30),
+                                          ttl: option?.fixedTtl ?? workflow.trigger_masking?.ttl ?? 60 * 30,
                                       }
                                     : null
                             )
-                        }
+                        }}
                     />
-                    {workflow.trigger_masking?.hash &&
-                    workflow.trigger_masking.hash !== MASKING_HASH_PER_PERSON_PER_DAY ? (
+                    {workflow.trigger_masking?.hash && !selectedOption?.fixedTtl ? (
                         <TTLSelect
                             value={workflow.trigger_masking.ttl}
                             onChange={(val) =>
@@ -779,9 +797,7 @@ function FrequencySection(): JSX.Element {
 function ConversionGoalSection(): JSX.Element {
     const { setWorkflowValue } = useActions(workflowLogic)
     const { workflow } = useValues(workflowLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
-    const waitUntilEventEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_WAIT_UNTIL_EVENT]
     const conversionEventFilters = workflow.conversion?.events?.[0]?.filters ?? {}
 
     return (
@@ -818,35 +834,19 @@ function ConversionGoalSection(): JSX.Element {
                 </div>
 
                 <div className="flex flex-col gap-1 items-start w-full">
-                    <LemonLabel>
-                        Detect conversion from events
-                        {!waitUntilEventEnabled && <LemonTag>Coming soon</LemonTag>}
-                    </LemonLabel>
-                    {waitUntilEventEnabled ? (
-                        <HogFlowEventFilters
-                            filtersKey="workflow-conversion-events"
-                            filters={conversionEventFilters}
-                            setFilters={(newFilters) =>
-                                setWorkflowValue('conversion', {
-                                    ...workflow.conversion,
-                                    events: newFilters ? [{ filters: newFilters }] : undefined,
-                                })
-                            }
-                            typeKey="workflow-conversion-event"
-                            buttonCopy="Add event"
-                        />
-                    ) : (
-                        <LemonButton
-                            type="secondary"
-                            icon={<IconPlusSmall />}
-                            onClick={() => {
-                                posthog.capture('workflows workflow event conversion clicked')
-                                lemonToast.info('Event targeting coming soon!')
-                            }}
-                        >
-                            Add event conversion
-                        </LemonButton>
-                    )}
+                    <LemonLabel>Detect conversion from events</LemonLabel>
+                    <HogFlowEventFilters
+                        filtersKey="workflow-conversion-events"
+                        filters={conversionEventFilters}
+                        setFilters={(newFilters) =>
+                            setWorkflowValue('conversion', {
+                                ...workflow.conversion,
+                                events: newFilters ? [{ filters: newFilters }] : undefined,
+                            })
+                        }
+                        typeKey="workflow-conversion-event"
+                        buttonCopy="Add event"
+                    />
                 </div>
             </div>
         </div>
