@@ -128,8 +128,7 @@ async fn v1_batch_round_trip() -> Result<()> {
     let surface = build_v1_surface(topic.topic_name()).await;
     let ctx = v1_test_context();
 
-    let batch = test_utils::realistic_batch();
-    let events = batch;
+    let events = test_utils::realistic_batch();
 
     let results = publish(&surface, &ctx, &events).await;
 

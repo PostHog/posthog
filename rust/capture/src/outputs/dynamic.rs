@@ -182,8 +182,14 @@ fn apply(state: &RwLock<RoutingState>, factory: &SinkFactory, change: Change) {
         Change::BrokerRemoved { id } => {
             if let Some(sink) = state.sinks.remove(&id) {
                 // Drain what the departing broker's producer still buffers
-                // before dropping it — the transport half of the fence.
-                sink.flush().expect("flush of removed broker failed");
+                // before dropping it — the transport half of the fence. A
+                // failed drain may strand buffered records, but the broker is
+                // leaving either way: log it rather than panicking the apply
+                // loop (a real coordinator client would report the failure
+                // back on the ack).
+                if let Err(e) = sink.flush() {
+                    tracing::error!("flush of removed broker {id} failed: {e:#}");
+                }
             }
         }
         Change::MappingChanged {
