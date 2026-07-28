@@ -20952,26 +20952,31 @@ export namespace Schemas {
 
     /**
      * * `slack` - Slack
+     * * `webhook` - Webhook
      */
     export type DeliveryTargetTypeEnum = typeof DeliveryTargetTypeEnum[keyof typeof DeliveryTargetTypeEnum];
 
 
     export const DeliveryTargetTypeEnum = {
       Slack: 'slack',
+      Webhook: 'webhook',
     } as const;
 
     /**
-     * A single delivery destination. MVP supports Slack only.
+     * A single delivery destination: a Slack channel or an HTTP webhook URL.
      */
     export interface DeliveryTarget {
-      /** Destination channel type. MVP supports 'slack' only.
+      /** Destination type: 'slack' posts to a Slack channel; 'webhook' POSTs a JSON payload to a URL.
        *
-       * * `slack` - Slack */
+       * * `slack` - Slack
+       * * `webhook` - Webhook */
       type: DeliveryTargetTypeEnum;
-      /** ID of the Slack Integration on this team used to deliver the summary. */
-      integration_id: number;
-      /** Slack channel ID or name the summary is posted to. */
-      channel: string;
+      /** ID of the Slack Integration on this team used to deliver. Required when type is 'slack'. */
+      integration_id?: number;
+      /** Slack channel ID or name the summary is posted to. Required when type is 'slack'. */
+      channel?: string;
+      /** HTTPS endpoint the summary is POSTed to as JSON. Required when type is 'webhook'. Redacted to scheme+host in responses for users without editor access to the scanner. */
+      url?: string;
     }
 
     export interface DependentFlag {
@@ -28108,12 +28113,13 @@ export namespace Schemas {
     };
 
     /**
-     * Lightweight parent-source summary (id, source_type, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
+     * Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
      * @nullable
      */
     export type ExternalDataSchemaSource = {
       readonly id?: string;
       readonly source_type?: string;
+      readonly access_method?: string;
       readonly supports_column_selection?: boolean;
       readonly supports_row_filters?: boolean;
       /** @nullable */
@@ -28301,7 +28307,7 @@ export namespace Schemas {
       /** Column metadata (name, data type, nullable) for this schema. For SQL sources this is the source-side schema discovered via `refresh_schemas`; for other sources (and once synced) it falls back to the synced table's columns. Empty only before the first successful sync/refresh. */
       readonly available_columns: readonly ExternalDataSchemaAvailableColumnsItem[];
       /**
-         * Lightweight parent-source summary (id, source_type, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
+         * Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
          * @nullable
          */
       readonly source: ExternalDataSchemaSource;
@@ -48825,12 +48831,13 @@ export namespace Schemas {
     };
 
     /**
-     * Lightweight parent-source summary (id, source_type, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
+     * Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
      * @nullable
      */
     export type PatchedExternalDataSchemaSource = {
       readonly id?: string;
       readonly source_type?: string;
+      readonly access_method?: string;
       readonly supports_column_selection?: boolean;
       readonly supports_row_filters?: boolean;
       /** @nullable */
@@ -48934,7 +48941,7 @@ export namespace Schemas {
       /** Column metadata (name, data type, nullable) for this schema. For SQL sources this is the source-side schema discovered via `refresh_schemas`; for other sources (and once synced) it falls back to the synced table's columns. Empty only before the first successful sync/refresh. */
       readonly available_columns?: readonly PatchedExternalDataSchemaAvailableColumnsItem[];
       /**
-         * Lightweight parent-source summary (id, source_type, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
+         * Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
          * @nullable
          */
       readonly source?: PatchedExternalDataSchemaSource;
