@@ -12,7 +12,10 @@ use k8s_awareness::types::ControllerKind;
 use k8s_awareness::{DepartureReason, K8sAwareness};
 
 use crate::error::{Error, Result};
-use crate::protocol::{drain_satisfied, freeze_quorum_met, plan_partial_rebalance, warm_satisfied};
+use crate::protocol::{
+    drain_satisfied, freeze_quorum_met, missing_freeze_ackers, plan_partial_rebalance,
+    warm_satisfied,
+};
 use crate::store::{self, PersonhogStore};
 use crate::strategy::AssignmentStrategy;
 use crate::types::{AssignmentPrecondition, HandoffPhase, HandoffState, PodStatus, RegisteredPod};
@@ -871,12 +874,23 @@ impl Coordinator {
             {
                 continue;
             }
+            // A wedge in Freezing is almost always one specific router
+            // not acking; naming it turns the diagnosis into reading a
+            // label. Only a Freezing cancellation pays for these reads.
+            let missing_ackers = if current.phase == HandoffPhase::Freezing {
+                let freeze_acks = store.list_freeze_acks(current.partition).await?;
+                let routers = store.list_routers().await?;
+                missing_freeze_ackers(&routers, &freeze_acks, &current)
+            } else {
+                Vec::new()
+            };
             tracing::error!(
                 partition = current.partition,
                 phase = ?current.phase,
                 age_secs = age,
                 new_owner = %current.new_owner,
                 old_owner = ?current.old_owner,
+                missing_freeze_ackers = ?missing_ackers,
                 "handoff exceeded its deadline; cancelling so a later plan can retry"
             );
             if store
@@ -889,6 +903,13 @@ impl Coordinator {
                     "reason" => "phase_deadline",
                 )
                 .increment(1);
+                for router in &missing_ackers {
+                    counter!(
+                        "personhog_coordination_freeze_ack_missing_total",
+                        "router" => router.clone(),
+                    )
+                    .increment(1);
+                }
             }
         }
         Ok(cancelled)

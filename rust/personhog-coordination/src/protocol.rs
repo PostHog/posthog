@@ -167,6 +167,27 @@ pub fn required_freeze_ackers<'a>(
         })
 }
 
+/// The subset of [`required_freeze_ackers`] whose ack for `handoff` has
+/// not arrived. Acks are correlated by handoff id, exactly as in
+/// [`freeze_quorum_met`]: a stale ack left over from a predecessor
+/// handoff of the same partition must not mask a router that has yet to
+/// observe this one.
+pub fn missing_freeze_ackers(
+    routers: &[RegisteredRouter],
+    freeze_acks: &[RouterFreezeAck],
+    handoff: &HandoffState,
+) -> Vec<String> {
+    let acked: HashSet<&str> = freeze_acks
+        .iter()
+        .filter(|a| a.handoff_id == handoff.handoff_id)
+        .map(|a| a.router_name.as_str())
+        .collect();
+    required_freeze_ackers(routers, handoff)
+        .filter(|name| !acked.contains(name))
+        .map(str::to_string)
+        .collect()
+}
+
 /// Whether the drain requirement for `handoff` is satisfied.
 ///
 /// "Alive" here means the old owner's etcd registration key still exists
@@ -253,6 +274,25 @@ mod tests {
         assert!(
             freeze_quorum_met(&[router("router-0"), router("late-joiner")], &acks, &h),
             "a router registered after creation must not block the quorum"
+        );
+    }
+
+    /// Attribution mirror of the quorum predicate: the missing set names
+    /// exactly the required routers whose ack for *this* handoff hasn't
+    /// arrived — a stale ack from a predecessor handoff must not hide
+    /// one.
+    #[test]
+    fn missing_ackers_names_the_holdout_and_ignores_stale_acks() {
+        let mut h = handoff(0, Some("pod-a"), "pod-b");
+        h.freeze_quorum = Some(vec!["router-0".to_string(), "router-1".to_string()]);
+        let mut stale = freeze_ack("router-1", &h);
+        stale.handoff_id = "a-previous-handoff".to_string();
+        let acks = [freeze_ack("router-0", &h), stale];
+
+        assert_eq!(
+            missing_freeze_ackers(&[router("router-0"), router("router-1")], &acks, &h),
+            vec!["router-1".to_string()],
+            "router-1's stale ack proves nothing about this handoff"
         );
     }
 
