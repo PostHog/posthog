@@ -39,6 +39,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads
     GoogleAdsTable,
     _get_integration,
     _get_versioned_service,
+    _installed_google_ads_api_versions,
     _is_rejected_page_token_error,
     _is_stale_page_token_error,
     _is_transient_client_init_error,
@@ -389,9 +390,12 @@ class TestGetVersionedService:
         client.get_service.assert_not_called()
 
     def test_available_api_version_delegates_to_get_service(self):
+        # Derive the version from the SDK actually installed rather than hardcoding one, so this
+        # exercises the real find_spec lookup without assuming a particular version ships.
+        version = _installed_google_ads_api_versions()[0]
         client = mock.MagicMock()
-        service = _get_versioned_service(client, "GoogleAdsFieldService", version="v23")
-        client.get_service.assert_called_once_with("GoogleAdsFieldService", version="v23", interceptors=None)
+        service = _get_versioned_service(client, "GoogleAdsFieldService", version=version)
+        client.get_service.assert_called_once_with("GoogleAdsFieldService", version=version, interceptors=None)
         assert service is client.get_service.return_value
 
 
