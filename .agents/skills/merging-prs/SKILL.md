@@ -40,9 +40,11 @@ Within ~2 minutes, confirm Trunk picked it up — a check run whose name starts 
 
 ```bash
 SHA=$(gh pr view <n> --json headRefOid -q .headRefOid)
-gh api repos/$REPO/commits/$SHA/check-runs \
+gh api --paginate "repos/$REPO/commits/$SHA/check-runs?per_page=100" \
   --jq '.check_runs[] | select(.name | startswith("Trunk Merge Queue")) | {name, status, conclusion, details_url}'
 ```
+
+Always paginate. A PR head SHA here carries 200–350 check runs, and an unpaginated call returns only the first 30 — the queue check is very unlikely to be in them, so you'd conclude Trunk never picked the PR up.
 
 If nothing appears after a couple of minutes, check in this order:
 
@@ -72,12 +74,16 @@ PR=<n>; REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner); prev=""
 while true; do
   state=$(gh pr view "$PR" --json state -q .state 2>/dev/null || echo UNKNOWN)
   sha=$(gh pr view "$PR" --json headRefOid -q .headRefOid 2>/dev/null)
-  queue=$(gh api "repos/$REPO/commits/$sha/check-runs" \
-    --jq '.check_runs[] | select(.name | startswith("Trunk Merge Queue")) | "\(.status)/\(.conclusion // "-")"' 2>/dev/null | head -n1)
+  queue=$(gh api --paginate "repos/$REPO/commits/$sha/check-runs?per_page=100" \
+    --jq '[.check_runs[] | select(.name | startswith("Trunk Merge Queue"))]
+          | if length == 0 then empty
+            else (sort_by(.started_at) | last | "\(.status)/\(.conclusion // "-")") end' 2>/dev/null)
   cur="pr=$state queue=${queue:-none}"
   [ "$cur" != "$prev" ] && echo "$cur"
   prev="$cur"
   case "$state" in MERGED|CLOSED) exit 0 ;; esac
+  # A kicked PR stays OPEN, so the failed queue check is the only terminal signal.
+  case "$queue" in completed/success) ;; completed/*) exit 0 ;; esac
   sleep 60
 done
 ```
@@ -88,6 +94,7 @@ Never block on a foreground `sleep`.
 
 - `state == "MERGED"` → done. Report success with the merge commit.
 - The queue check moves `queued` → `in_progress` → `completed`. Relay each transition so the developer can follow along.
+- The monitor also exits on `completed/<anything but success>`: a PR the queue kicks out stays `OPEN`, so the check run is the only signal that it's over. Go straight to step 4 — don't wait for the timeout.
 - A queue run can take a while — the full CI fan-out runs on Trunk's branch. Stop at the timeout with a status summary rather than re-arming forever.
 
 ## 4. Handle failure
