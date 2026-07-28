@@ -6,7 +6,7 @@ from posthog.test.base import APIBaseTest
 from rest_framework import status
 
 from posthog.api.file_system.folder_instructions_service import FOLDER_INSTRUCTIONS_MAX_BYTES
-from posthog.models import Organization, Team
+from posthog.models import Organization, Team, User
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.file_system.folder_instructions import FileSystemFolderInstructions
 
@@ -175,7 +175,7 @@ class TestDesktopFolderInstructionsAPI(APIBaseTest):
         folder_id = self._create_desktop_folder("me")
         self.client.patch(self._instructions_url(folder_id), {"content": "private"})
 
-        other_user = self.create_organization_user("other")
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "testpass")
         other_user.is_staff = True
         other_user.save()
         self.client.force_login(other_user)
