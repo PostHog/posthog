@@ -4484,6 +4484,10 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "pending_dispatch",
                     "pending_external_followups",
                     "pending_external_followups_generation",
+                    "runtime_adapter",
+                    "provider",
+                    "model",
+                    "reasoning_effort",
                     "scratch",
                 ],
             },
@@ -4503,6 +4507,13 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["pending_dispatch"] == {"workflow_id_prefix": "review-real", "create_pr": True}
         assert run.state["pending_external_followups"] == pending_external_followups
         assert run.state["pending_external_followups_generation"] == 7
+        # Dropping the model posture is as good as repointing it: the processing context reads these
+        # back with .get(), so an absent key silently falls back to the runtime's default rather than
+        # the pin the server chose.
+        assert run.state["runtime_adapter"] == "claude"  # protected key survives removal
+        assert run.state["provider"] == "anthropic"  # protected key survives removal
+        assert run.state["model"] == "claude-sonnet-5"  # protected key survives removal
+        assert run.state["reasoning_effort"] == "low"  # protected key survives removal
         assert "scratch" not in run.state  # non-protected key removed
 
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")
