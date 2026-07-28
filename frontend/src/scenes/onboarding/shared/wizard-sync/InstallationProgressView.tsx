@@ -20,7 +20,6 @@ import { inStorybookTestRunner } from 'lib/utils/dom'
 import { urls } from 'scenes/urls'
 
 import { onboardingEventUsageLogic } from '../../onboardingEventUsageLogic'
-import { activeCloudRunLogic } from './activeCloudRunLogic'
 import { finishedLocalRunLogic } from './finishedLocalRunLogic'
 import { prNameLabel } from './helpers'
 import {
@@ -32,6 +31,7 @@ import {
     SELF_DRIVING_WORKFLOW_ID,
 } from './installationProgressLogic'
 import { DetectedDashboard, wizardDashboardLogic } from './wizardDashboardLogic'
+import { wizardSyncUiLogic } from './wizardSyncUiLogic'
 
 const HedgehogWizard = pngHoggie(wizardPng)
 
@@ -393,7 +393,7 @@ export function InstallationProgressContent({
  * Container: streams a run's progress from the Installation layer and renders it — the same view for
  * both modes, cloud runs just additionally track the TaskRun pipeline (`mode: 'cloud'` with the run
  * handle; `mode: 'local'` reads only the wizard session stream). Inline on the install step (sets
- * `panelMounted` to hide the floating FAB) or inside the FAB itself (`floating`).
+ * the inline-panel claim to hide the detached widget) or inside the FAB itself (`floating`).
  */
 export function InstallationProgressView({
     mode,
@@ -422,7 +422,7 @@ export function InstallationProgressView({
     const { installationProgress, latestSession } = useValues(
         installationProgressLogic({ mode, runId, taskId, workflowId })
     )
-    const { setPanelMounted } = useActions(activeCloudRunLogic)
+    const { claimInlinePanel, releaseInlinePanel } = useActions(wizardSyncUiLogic)
     const { detectedDashboard } = useValues(wizardDashboardLogic)
     const { dismissLocalRun } = useActions(finishedLocalRunLogic)
     const { reportWizardSyncHandoffShown, reportWizardSyncDashboardCtaShown, reportWizardSyncDashboardCtaClicked } =
@@ -433,9 +433,9 @@ export function InstallationProgressView({
         if (floating) {
             return
         }
-        setPanelMounted(true)
-        return () => setPanelMounted(false)
-    }, [floating, setPanelMounted])
+        claimInlinePanel()
+        return () => releaseInlinePanel()
+    }, [floating, claimInlinePanel, releaseInlinePanel])
 
     const runKey = mode === 'cloud' ? runId : latestSession?.session_id
     const completed = installationProgress.phase === 'completed'
