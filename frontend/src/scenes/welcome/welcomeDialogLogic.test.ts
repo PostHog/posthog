@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { userLogic } from 'scenes/userLogic'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { UserType } from '~/types'
@@ -149,5 +150,73 @@ describe('welcomeDialogLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadWelcomeDataSuccess'])
         logic.actions.trackCardClick('dashboards', '/project/1/dashboard/42')
         expect(logic.values.interactedCards.dashboards).toBe(true)
+    })
+
+    describe('failed loads', () => {
+        beforeEach(silenceKeaLoadersErrors)
+        afterEach(resumeKeaLoadersErrors)
+
+        // The 2FA gate denies every non-whitelisted endpoint until the session is verified, so these
+        // say nothing about the welcome data and the global auth flow already owns recovery.
+        it.each([
+            ['401 with no code', 401, undefined],
+            ['403 two_factor_verification_required', 403, 'two_factor_verification_required'],
+            ['403 two_factor_setup_required', 403, 'two_factor_setup_required'],
+            ['403 sensitive_action_required_reauth', 403, 'sensitive_action_required_reauth'],
+        ])('does not blame team activity for a blocked session: %s', async (_name, status, code) => {
+            useMocks({
+                get: {
+                    '/api/organizations/@current/welcome/current/': () => [status, { detail: 'Denied', code }],
+                },
+            })
+            userLogic.actions.loadUserSuccess(INVITED_USER)
+            logic = welcomeDialogLogic()
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadWelcomeData', 'loadWelcomeDataFailure'])
+            expect(logic.values.welcomeDataError).toBe(false)
+            expect(logic.values.blockedByAuthGate).toBe(true)
+            expect(logic.values.hasLoadedOnce).toBe(false)
+        })
+
+        it('surfaces a genuine failure without recording it as a completed load', async () => {
+            useMocks({
+                get: {
+                    '/api/organizations/@current/welcome/current/': () => [500, { detail: 'Server error' }],
+                },
+            })
+            userLogic.actions.loadUserSuccess(INVITED_USER)
+            logic = welcomeDialogLogic()
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadWelcomeData', 'loadWelcomeDataFailure'])
+            expect(logic.values.welcomeDataError).toBe(true)
+            expect(logic.values.blockedByAuthGate).toBe(false)
+            expect(logic.values.hasLoadedOnce).toBe(false)
+        })
+
+        it('loads once the session is usable again', async () => {
+            let sessionGated = true
+            useMocks({
+                get: {
+                    '/api/organizations/@current/welcome/current/': () =>
+                        sessionGated
+                            ? [403, { detail: 'Denied', code: 'two_factor_verification_required' }]
+                            : [200, mockPayload],
+                },
+            })
+            userLogic.actions.loadUserSuccess(INVITED_USER)
+            logic = welcomeDialogLogic()
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadWelcomeDataFailure'])
+            sessionGated = false
+            // Completing 2FA refetches the user, which is our cue that gated endpoints work again.
+            userLogic.actions.loadUserSuccess({ ...INVITED_USER })
+
+            await expectLogic(logic).toDispatchActions(['loadWelcomeData', 'loadWelcomeDataSuccess'])
+            expect(logic.values.welcomeData.organization_name).toBe('Acme Inc')
+            expect(logic.values.blockedByAuthGate).toBe(false)
+        })
     })
 })

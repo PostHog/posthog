@@ -48,6 +48,7 @@ export function WelcomeDialog(): JSX.Element | null {
         welcomeData,
         welcomeDataLoading,
         welcomeDataError,
+        blockedByAuthGate,
         organizationName,
         inviter,
         shouldShowDialog,
@@ -60,7 +61,9 @@ export function WelcomeDialog(): JSX.Element | null {
     const { dismissWelcome, closeDialog, loadWelcomeData } = useActions(welcomeDialogLogic)
     const { user } = useValues(userLogic)
 
-    if (!shouldShowDialog) {
+    // While a 2FA/re-auth gate is blocking the API there's nothing to welcome anyone with, and the
+    // sign-in prompt the auth flow raises should have the screen to itself.
+    if (!shouldShowDialog || blockedByAuthGate) {
         return null
     }
 

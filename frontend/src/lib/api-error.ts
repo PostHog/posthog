@@ -6,6 +6,29 @@ export function isAccessDeniedError(error: { status?: number; code?: string | nu
     return error.status === 403 && error.code === 'permission_denied'
 }
 
+/** DRF `code`s raised by the session gates (2FA enforcement, re-authentication for sensitive
+ * actions). They are returned for every non-whitelisted path until the session is verified, so they
+ * say nothing about the resource that was requested. */
+const AUTH_GATE_ERROR_CODES = new Set([
+    'two_factor_setup_required',
+    'two_factor_verification_required',
+    'sensitive_action_required_reauth',
+])
+
+/** A request that failed because the session isn't usable yet, rather than because the request or
+ * the resource was wrong. `apiStatusLogic` owns recovery for these (2FA modal, re-auth prompt,
+ * logout), so callers should stay quiet instead of reporting a problem of their own. */
+export function isAuthGateError(error: unknown): boolean {
+    if (typeof error !== 'object' || error === null) {
+        return false
+    }
+    const { status, code } = error as { status?: unknown; code?: unknown }
+    if (status === 401) {
+        return true
+    }
+    return status === 403 && typeof code === 'string' && AUTH_GATE_ERROR_CODES.has(code)
+}
+
 export class ApiError extends Error {
     /** Django REST Framework `detail` - used in downstream error handling. */
     detail: string | null

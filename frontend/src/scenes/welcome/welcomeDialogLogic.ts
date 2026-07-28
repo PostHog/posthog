@@ -4,6 +4,7 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { isAuthGateError } from 'lib/api-error'
 import { userLogic } from 'scenes/userLogic'
 
 import type { UserType } from '../../types'
@@ -137,6 +138,7 @@ function wasLookedAround(orgId: string | undefined): boolean {
 export interface welcomeDialogLogicValues {
     isProvisionedUser: boolean // userLogic
     user: UserType | null // userLogic
+    blockedByAuthGate: boolean
     hasLoadedOnce: boolean
     interactedCards: Record<WelcomeCardKind, boolean>
     inviter: WelcomeInviter | null
@@ -190,9 +192,6 @@ export interface welcomeDialogLogicActions {
     resetForOrgChange: () => {
         value: true
     }
-    setWelcomeDataError: (error: boolean) => {
-        error: boolean
-    }
     trackCardClick: (
         card: WelcomeCardKind,
         targetHref: string
@@ -242,7 +241,6 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
         trackCardClick: (card: WelcomeCardKind, targetHref: string) => ({ card, targetHref }),
         markCardInteracted: (card: WelcomeCardKind) => ({ card }),
         markShown: true,
-        setWelcomeDataError: (error: boolean) => ({ error }),
         // Bumped when another tab writes to localStorage (dismisses) so the current tab's
         // shouldShowDialog selector re-evaluates without needing a full page navigation.
         acknowledgeStorageChange: true,
@@ -282,8 +280,19 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
         welcomeDataError: [
             false,
             {
-                setWelcomeDataError: (_, { error }) => error,
                 loadWelcomeData: () => false,
+                loadWelcomeDataFailure: (_, { errorObject }) => !isAuthGateError(errorObject),
+                resetForOrgChange: () => false,
+            },
+        ],
+        // A 2FA/re-auth gate denies every non-whitelisted endpoint until the session is verified,
+        // so it isn't a welcome-data problem: the dialog stays hidden and retries once the session
+        // works, rather than blaming team activity for it and offering a retry that can't succeed.
+        blockedByAuthGate: [
+            false,
+            {
+                loadWelcomeData: () => false,
+                loadWelcomeDataFailure: (_, { errorObject }) => isAuthGateError(errorObject),
                 resetForOrgChange: () => false,
             },
         ],
@@ -298,29 +307,18 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
         ],
     }),
 
-    loaders(({ actions }) => ({
+    loaders({
         welcomeData: [
             EMPTY_PAYLOAD,
             {
-                loadWelcomeData: async () => {
-                    try {
-                        return await api.get<WelcomePayload>('api/organizations/@current/welcome/current/')
-                    } catch (error) {
-                        const status =
-                            typeof error === 'object' && error !== null && 'status' in error
-                                ? (error as { status?: unknown }).status
-                                : undefined
-                        console.warn('Failed to load welcome data', error)
-                        actions.setWelcomeDataError(true)
-                        // Surface in PostHog so fleet-level error rate is observable; console.warn
-                        // alone is invisible at scale.
-                        posthog.capture('welcome_screen_load_failed', { status })
-                        return EMPTY_PAYLOAD
-                    }
-                },
+                // Failures deliberately propagate: swallowing them into EMPTY_PAYLOAD would fire
+                // `loadWelcomeDataSuccess`, flipping `hasLoadedOnce` so the automatic refetch never
+                // runs again for this mount.
+                loadWelcomeData: async () =>
+                    await api.get<WelcomePayload>('api/organizations/@current/welcome/current/'),
             },
         ],
-    })),
+    }),
 
     selectors({
         inviter: [(s) => [s.welcomeData], (data: WelcomePayload): WelcomeInviter | null => data.inviter],
@@ -371,11 +369,7 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
 
     listeners(({ actions, values }) => ({
         loadWelcomeDataSuccess: ({ welcomeData }) => {
-            if (!values.shouldShowDialog || values.welcomeDataError) {
-                return
-            }
-            if (!welcomeData.organization_name) {
-                // Empty payload = backend error that was caught and returned EMPTY_PAYLOAD.
+            if (!values.shouldShowDialog) {
                 return
             }
             actions.markShown()
@@ -386,6 +380,15 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
                 had_recent_activity: welcomeData.recent_activity.length > 0,
                 from_invite_type: welcomeData.inviter ? 'invite' : 'unknown',
             })
+        },
+        loadWelcomeDataFailure: ({ errorObject }) => {
+            if (isAuthGateError(errorObject)) {
+                return
+            }
+            console.warn('Failed to load welcome data', errorObject)
+            // Surface in PostHog so fleet-level error rate is observable; console.warn
+            // alone is invisible at scale.
+            posthog.capture('welcome_screen_load_failed', { status: errorObject?.status })
         },
         closeDialog: () => {
             // Persist "I'll look around" across remounts in the same tab.
@@ -420,6 +423,12 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
             const nextOrgId = nextUser?.organization?.id
             if (prevOrgId && nextOrgId && prevOrgId !== nextOrgId) {
                 actions.resetForOrgChange()
+                return
+            }
+            // The user is refetched once 2FA setup/verification completes, which is the signal that
+            // the session can reach gated endpoints again — so pick the welcome fetch back up.
+            if (values.blockedByAuthGate && values.shouldShowDialog && !values.welcomeDataLoading) {
+                actions.loadWelcomeData()
             }
         },
         shouldShowDialog: (shouldShow: boolean) => {

@@ -40,6 +40,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadExistingSubscription', // Background eligibility check for the dashboard subscribe nudge
     'loadFreeTierSubscriptionCount', // Background free-tier limit check for the dashboard subscribe nudge
     'sendNudgeNotification', // Background delivery request for the dashboard subscribe nudge
+    'loadWelcomeData', // The welcome dialog shows its own banner
 ]
 
 /*
