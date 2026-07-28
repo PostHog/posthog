@@ -172,6 +172,10 @@ class TestCommunitySkillSync(APIBaseTest):
             # A falsy non-list `files` normalized to [] would count as "no files" — the upsert
             # deletes the existing files first, so a live skill would lose its whole bundle.
             ("falsy_non_list_files", {"files": {}}),
+            # Blank passes the type and length checks but leaves a nameless catalog card, and a
+            # blank description is refused by marketplace.packaging.validate_for_export.
+            ("blank_name", {"name": "   "}),
+            ("blank_description", {"description": ""}),
             # Case-only collisions break a case-insensitive filesystem, and the marketplace
             # tree-safety check drops the entire skill from the generated clone.
             (

@@ -86,6 +86,13 @@ def _validate_entry_shape(entry: dict[str, Any]) -> None:
     ):
         raise ValueError(f"slug '{slug}' is not a valid, routable skill identifier")
 
+    # Blank passes both the type and length checks but leaves an unusable entry: a nameless card in
+    # the catalog, and a blank description that `marketplace.packaging.validate_for_export` refuses,
+    # so the skill installs and then can't be exported. The install path rejects it too.
+    for required in ("name", "description"):
+        if not _text(entry, required, f"'{required}'").strip():
+            raise ValueError(f"'{required}' is required and must be non-blank")
+
     metadata = entry.get("metadata")
     if metadata is not None and not isinstance(metadata, dict):
         raise ValueError("metadata must be an object")
@@ -268,6 +275,9 @@ def sync_community_skills_from_github(registry_url: str = COMMUNITY_SKILLS_REGIS
         # from a malformed registry) would raise TypeError here, outside the per-entry boundary,
         # and abort the whole sync. Full slug validation still happens inside the upsert.
         if not slug or not isinstance(slug, str):
+            # Unidentifiable: we can't tell which catalog row it meant, so it can't be marked seen.
+            # Logged because it's otherwise invisible — it never reaches the per-entry handler.
+            logger.warning("community_skills_sync_unidentifiable_entry", slug_type=type(slug).__name__)
             continue
         # Mark the slug seen before upserting so a malformed entry can't soft-delete the
         # existing row for a skill that's still present in the registry.
