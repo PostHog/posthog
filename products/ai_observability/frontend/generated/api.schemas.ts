@@ -3017,6 +3017,28 @@ export type LlmPromptsListParams = {
      */
     offset?: number
     /**
+     * Field to sort the prompt list by. Prefix with '-' for descending order.
+     *
+     * * `name` - name
+     * * `-name` - -name
+     * * `created_at` - created_at
+     * * `-created_at` - -created_at
+     * * `updated_at` - updated_at
+     * * `-updated_at` - -updated_at
+     * * `version` - version
+     * * `-version` - -version
+     * * `latest_version` - latest_version
+     * * `-latest_version` - -latest_version
+     * * `version_count` - version_count
+     * * `-version_count` - -version_count
+     * * `first_version_created_at` - first_version_created_at
+     * * `-first_version_created_at` - -first_version_created_at
+     * * `prompt_size_bytes` - prompt_size_bytes
+     * * `-prompt_size_bytes` - -prompt_size_bytes
+     * @minLength 1
+     */
+    order_by?: string
+    /**
      * Optional substring filter applied to prompt names and prompt content.
      */
     search?: string

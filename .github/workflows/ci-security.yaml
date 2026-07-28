@@ -62,7 +62,6 @@ jobs:
                       js:
                         - 'frontend/**'
                         - 'nodejs/**'
-                        - 'products/agent_platform/**'
                         - 'services/agent-proxy/**'
                         - 'services/mcp/**'
                         - 'services/oauth-proxy/**'
@@ -232,7 +231,7 @@ jobs:
                       --metrics=off \
                       --verbose \
                       --timeout 300 \
-                      frontend/ nodejs/ products/agent_platform/ services/agent-proxy/ services/mcp/ services/oauth-proxy/ services/stripe-app/
+                      frontend/ nodejs/ services/agent-proxy/ services/mcp/ services/oauth-proxy/ services/stripe-app/
 
     semgrep-products-frontend:
         needs: changes

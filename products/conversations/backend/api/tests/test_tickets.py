@@ -25,7 +25,7 @@ from posthog.schema import HogQLQueryModifiers, MaterializationMode
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models import ActivityLog, Comment, Organization, Tag, User
+from posthog.models import ActivityLog, Comment, Organization, Tag, Team, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.persons import create_person
@@ -698,6 +698,36 @@ class TestTicketAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 0)
+
+    def test_search_excludes_other_team_comments(self, mock_on_commit):
+        # The comment pre-query filters by the request's team; a matching comment in
+        # another team pointing at this ticket's id must not surface the ticket, while
+        # the same content on a same-team ticket must — so a search that filters
+        # everything out (or nothing) can't pass this test.
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        Comment.objects.create(
+            team=other_team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="zebra migration question",
+        )
+        same_team_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="zebra-session",
+            distinct_id="zebra-user",
+        )
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(same_team_ticket.id),
+            content="zebra migration question",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?search=zebra")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], str(same_team_ticket.id))
 
     def test_search_ignores_too_long_query(self, mock_on_commit):
         long_query = "a" * 201
