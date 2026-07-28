@@ -114,37 +114,4 @@ describe('TaxonomicFilterMenu input trigger', () => {
         const searchInput = screen.getByTestId('menu-filter-search')
         expect(iconButton.closest('.LemonInput')).toContainElement(searchInput)
     })
-
-    it('commits curated properties through their declared canonical group', async () => {
-        const onChange = jest.fn()
-        render(
-            <Provider>
-                <TaxonomicFilterHeadless.Root
-                    taxonomicGroupTypes={[
-                        TaxonomicFilterGroupType.ErrorTrackingProperties,
-                        TaxonomicFilterGroupType.EventProperties,
-                    ]}
-                    onChange={onChange}
-                >
-                    <TaxonomicFilterMenu triggerVariant="input" />
-                </TaxonomicFilterHeadless.Root>
-            </Provider>
-        )
-
-        await userEvent.click(screen.getByTestId('taxonomic-filter-menu-input'))
-        const searchInput = await screen.findByTestId('menu-filter-search')
-        await userEvent.type(searchInput, '$exception_types')
-        const matches = await screen.findAllByText('$exception_types')
-        const propertyRow = matches
-            .map((match) => match.closest('[data-slot="taxonomic-filter-menu-row"]'))
-            .find(Boolean)
-        expect(propertyRow).toBeInTheDocument()
-        await userEvent.click(propertyRow!)
-
-        expect(onChange).toHaveBeenCalledWith(
-            expect.objectContaining({ type: TaxonomicFilterGroupType.EventProperties }),
-            '$exception_types',
-            expect.objectContaining({ name: '$exception_types' })
-        )
-    })
 })
