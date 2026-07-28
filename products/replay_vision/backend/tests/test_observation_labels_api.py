@@ -55,9 +55,8 @@ class TestObservationLabels(_VisionAPITestCase):
         self.assertEqual(label, {"is_correct": False, "feedback": "should be yes"})
 
     def test_rating_reports_calibration_event(self) -> None:
-        # The rating is the core calibration signal, so the thumb direction, whether feedback was left,
-        # and the calling surface must all ride on the event. Asserted at the capture boundary because
-        # the source tag is merged in from the request by report_user_action itself.
+        # The thumb direction, feedback presence, and calling surface must all ride on the event.
+        # Asserted at the capture boundary, where the source tag lands.
         with patch("posthoganalytics.capture") as capture:
             resp = self.client.post(
                 self._label_url(self.observation), {"is_correct": False, "feedback": "should be yes"}, format="json"

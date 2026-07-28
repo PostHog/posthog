@@ -499,8 +499,7 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
         return scanner
 
     def update(self, instance: ReplayScanner, validated_data: dict[str, Any]) -> ReplayScanner:
-        # Snapshot the written fields' current values: the UI PATCHes the whole form on save, so the
-        # submitted keys alone would report every field as edited on every save.
+        # The UI PATCHes the whole form on save, so edits are detected by comparing values, not keys.
         before = {field: getattr(instance, field) for field in validated_data}
         was_enabled = instance.enabled
         try:
@@ -526,8 +525,7 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
                 team=team,
                 request=request,
             )
-        # A config edit is any change beyond the enable/disable toggle, so a pure toggle fires only the
-        # enabled/disabled event above and a config save (which may also flip enabled) additionally fires this.
+        # A pure enable/disable toggle is not a config edit. A save that also flips enabled fires both events.
         if any(field != "enabled" for field in changed_fields):
             report_user_action(
                 user,
@@ -1082,7 +1080,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         return response
 
     def perform_destroy(self, instance: ReplayScanner) -> None:
-        # Capture lifecycle props before the delete, since the row is gone afterwards.
+        # Snapshot lifecycle props before the row is deleted.
         properties = _scanner_lifecycle_properties(instance)
         super().perform_destroy(instance)
         report_user_action(
@@ -1256,9 +1254,8 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             team=self.team,
             request=request,
         )
-        # Fire only when a session was actually left unscanned for quota. Checking the outcomes (not
-        # skip_reason) matters: skip_reason names the limit that WOULD bind, so a batch that never
-        # reached the cap (some sessions already running or failed) must not report exhaustion.
+        # Key off the outcomes, not skip_reason: skip_reason only names the limit that would bind
+        # first, and a batch that never reached the cap must not report exhaustion.
         if any(result["scan_outcome"] == "skipped_quota" for result in results):
             self._report_quota_exhausted(scanner, "bulk")
         return Response(

@@ -704,9 +704,8 @@ class ReplayObservationViewSet(
         observation = self.get_object()
         context = {**self.get_serializer_context(), "neighbors": self._observation_neighbors(observation)}
         response = Response(self.get_serializer(observation, context=context).data)
-        # Funnel step (created → viewed → rated). Only terminal observations count as viewed results:
-        # the observation scene polls this endpoint every few seconds while a scan is in flight, which
-        # would otherwise emit one event per tick.
+        # Viewed step of the created → viewed → rated funnel. In-flight observations are excluded
+        # because the observation scene polls this endpoint every few seconds while a scan runs.
         if observation.status not in IN_FLIGHT_STATUSES:
             report_user_action(
                 cast(User, request.user),

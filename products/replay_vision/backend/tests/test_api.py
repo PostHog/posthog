@@ -685,9 +685,8 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
 
 class TestScannerLifecycleTelemetry(_VisionAPITestCase):
     def test_create_reports_config_choices(self) -> None:
-        # Launch dashboards read these to see whether the 100%/comprehensive defaults get changed;
-        # dropped properties or a silent non-fire makes that read a lie. Asserted at the capture
-        # boundary because the source tag is merged in from the request by report_user_action itself.
+        # Launch dashboards read these config choices, so a dropped property or a silent non-fire
+        # makes that read a lie. Asserted at the capture boundary, where the source tag lands.
         with patch("posthoganalytics.capture") as capture:
             resp = self.client.post(
                 self.scanners_url,
@@ -713,8 +712,7 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
         self.assertTrue(properties["has_filters"])
         self.assertTrue(properties["enabled"])
         self.assertEqual(properties["organization_id"], str(self.team.organization_id))
-        # The calling surface rides on every product event. Session auth resolves to "web" (the app
-        # UI), MCP callers to "mcp".
+        # Session auth resolves to "web" (the app UI), MCP callers to "mcp".
         self.assertEqual(properties["source"], "web")
 
     @parameterized.expand(
@@ -986,8 +984,7 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
     def test_retrieve_reports_viewed_only_for_terminal_observations(
         self, _name: str, status_value: ObservationStatus, expected_events: list[str]
     ) -> None:
-        # The observation scene polls this endpoint every few seconds while a scan is in flight, so an
-        # in-flight fetch is a poll tick, not a person viewing results. Losing the gate spams the funnel.
+        # An in-flight fetch is a poll tick (the scene polls every few seconds), not a person viewing results.
         completed_at = timezone.now() if status_value == ObservationStatus.SUCCEEDED else None
         observation = self._create_observation(session_id="viewed", status=status_value, completed_at=completed_at)
         with patch("products.replay_vision.backend.api.observations.report_user_action") as report:
@@ -1753,7 +1750,7 @@ class TestObserveAction(_VisionAPITestCase):
     def test_quota_blocked_observe_reports_exhaustion(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
     ) -> None:
-        # The 402 must still carry the quota event, since it is the GA signal for who hits the cap.
+        # A quota-blocked 402 must still report the exhaustion event.
         mock_sync_connect.return_value = MagicMock()
         mock_async_to_sync.return_value = MagicMock()
 
@@ -1853,7 +1850,6 @@ class TestBulkObserveAction(_VisionAPITestCase):
         body = resp.json()
         self.assertEqual(body["started"], 1)
         self.assertEqual([r["scan_outcome"] for r in body["results"]], ["started", "skipped_quota"])
-        # A session actually left unscanned for quota is the GA-cap signal.
         events = [call.args[1] for call in report.call_args_list]
         self.assertEqual(events, ["replay_vision_bulk_scan_started", "replay_vision_quota_exhausted"])
         self.assertEqual(report.call_args.args[2]["trigger"], "bulk")
@@ -1870,9 +1866,8 @@ class TestBulkObserveAction(_VisionAPITestCase):
         mock_async_to_sync.return_value = MagicMock(side_effect=_start)
         # Claims left by earlier tests' mocked starts would shrink the in-flight headroom below the quota.
         get_client().delete(_team_key(self.team.id), _scanner_key(self.scanner.id))
-        # Quota is the tighter limit, but the whole batch fits under it: one session is merely already
-        # running, none is skipped for quota. Reporting exhaustion off the headroom label alone would
-        # flag every partial batch as a quota hit.
+        # Quota is the tighter limit, but the whole batch fits under it: one session is merely
+        # already running, so no exhaustion should be reported.
         cost = observation_credits_for_model(self.scanner.model)
         with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 2 * cost):
             with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
