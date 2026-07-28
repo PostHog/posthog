@@ -1,12 +1,12 @@
 import json
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
-from functools import cached_property
+from functools import cache, cached_property
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast, get_args
 
-from django.db.models import Case, CharField, Exists, F, Model, OuterRef, Q, QuerySet, Value, When
+from django.db.models import Case, CharField, Exists, F, ForeignKey, Model, OuterRef, Q, QuerySet, Value, When
 from django.db.models.functions import Cast
 
 from opentelemetry import trace
@@ -118,12 +118,22 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "vision_action": "replay_scanner",
 }
 
+# Access falls back from a child resource to a *concrete* parent - a synced table to the source
+# that syncs it. The parents in RESOURCE_INHERITANCE_MAP are abstract groupings with no rows, so
+# they stand in for the child wholesale; these have real rows, which means they take part at the
+# object layer too, and that an object with no such parent (a self-managed table has no source)
+# skips them entirely rather than inheriting anything.
+RESOURCE_FALLBACK_MAP: dict[APIScopeObject, APIScopeObject] = {
+    "warehouse_table": "external_data_source",
+}
+
 WAREHOUSE_ACCESS_SCOPES: frozenset[str] = frozenset(
     {
         "warehouse_objects",
         *(child for child, parent in RESOURCE_INHERITANCE_MAP.items() if parent == "warehouse_objects"),
     }
 )
+
 
 tracer = trace.get_tracer(__name__)
 
@@ -181,6 +191,21 @@ def ordered_access_levels(resource: APIScopeObject) -> list[AccessControlLevel]:
     if resource in ["project", "organization"]:
         return list(ACCESS_CONTROL_LEVELS_MEMBER)
     return list(ACCESS_CONTROL_LEVELS_RESOURCE)
+
+
+def _validate_resource_fallback_map() -> None:
+    """A fallback parent's level is compared on the child's scale, so both have to use the same one -
+    pairing a resource-scale child with a member-scale parent would shift every comparison by a level.
+    Run at import so a bad entry fails loudly instead of at whichever request first hits that resource.
+    """
+    for child, parent in RESOURCE_FALLBACK_MAP.items():
+        if child == parent or RESOURCE_FALLBACK_MAP.get(parent) == child:
+            raise ValueError(f"RESOURCE_FALLBACK_MAP: `{child}` -> `{parent}` is cyclic")
+        if ordered_access_levels(child) != ordered_access_levels(parent):
+            raise ValueError(f"RESOURCE_FALLBACK_MAP: `{child}` and `{parent}` use different level scales")
+
+
+_validate_resource_fallback_map()
 
 
 def default_access_level(resource: APIScopeObject) -> AccessControlLevel:
@@ -454,6 +479,35 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return None
 
     return cast(APIScopeObject, name)
+
+
+@cache
+def _fallback_parent_field(model: type[Model], parent_resource: APIScopeObject) -> Optional[str]:
+    """Attribute holding the id of `model`'s `parent_resource` foreign key, if it has one.
+
+    Found by introspection rather than a declared field map so the relationship is read off the
+    schema that already defines it. Cached because it depends only on the model class.
+    """
+    for field in model._meta.get_fields():
+        # ForeignKey covers OneToOneField too, and excludes the reverse relations get_fields() also returns.
+        if not isinstance(field, ForeignKey) or field.related_model is None:
+            continue
+        if model_to_resource(cast(Model, field.related_model)) == parent_resource:
+            return field.attname
+    return None
+
+
+def fallback_parent_object_id(obj: Model, parent_resource: APIScopeObject) -> Optional[str]:
+    """Id of the object `obj` falls back to for access, or None when it has no such parent.
+
+    None is what makes a self-managed table skip its source tiers rather than inherit from a
+    source it doesn't have - so an "all sources" rule can't reach a table no source owns.
+    """
+    field = _fallback_parent_field(type(obj), parent_resource)
+    if field is None:
+        return None
+    parent_id = getattr(obj, field, None)
+    return str(parent_id) if parent_id is not None else None
 
 
 class UserAccessControl:
@@ -1294,27 +1348,56 @@ class UserAccessControl:
         ).access_level
 
     def _object_access_level_from_rows(
-        self, resource: APIScopeObject, object_access_controls: list[_AccessControl], explicit: bool = False
+        self,
+        resource: APIScopeObject,
+        object_access_controls: list[_AccessControl],
+        explicit: bool = False,
+        fallback_parent_id: Optional[str] = None,
     ) -> Optional[AccessControlLevel]:
-        """Row-based object access resolution: explicit (role/member) object rows win, then
+        """Row-based object access resolution, most specific first: explicit (role/member) object rows,
+        then the fallback parent's object rows, then resource-level rows, then the fallback parent's
         resource-level rows, then default object rows, then the resource default. Shared by
         `get_user_access_level` and `bulk_object_access_levels`.
+
+        `fallback_parent_id` identifies the RESOURCE_FALLBACK_MAP parent this object belongs to, and is
+        None when it has none - a self-managed warehouse table has no source, so a rule written about
+        sources must not reach it. The parent's tiers straddle the object's own resource-level tier:
+        a rule on one source outranks "all tables", which in turn outranks "all sources".
         """
+        parent = RESOURCE_FALLBACK_MAP.get(resource) if fallback_parent_id else None
+
         explicit_rows = [
             ac for ac in object_access_controls if ac.role_id is not None or ac.organization_member_id is not None
         ]
         if explicit_rows:
             return self._highest_access_level_from_rows(resource, explicit_rows)
 
+        if parent:
+            parent_rows = self._get_access_controls(
+                self._access_controls_filters_for_object(parent, cast(str, fallback_parent_id))
+            )
+            if parent_rows:
+                return self._highest_access_level_from_rows(parent, parent_rows)
+
         if self.has_access_levels_for_resource(resource):
             access_level_for_resource = self.access_level_for_resource(resource)
             if access_level_for_resource:
                 return access_level_for_resource
 
+        if parent and self.has_access_levels_for_resource(parent):
+            access_level_for_parent = self.access_level_for_resource(parent)
+            if access_level_for_parent:
+                return access_level_for_parent
+
         if object_access_controls:
             return self._highest_access_level_from_rows(resource, object_access_controls)
 
         return None if explicit else default_access_level(resource)
+
+    @staticmethod
+    def _fallback_parent_id(obj: Model, resource: APIScopeObject) -> Optional[str]:
+        parent = RESOURCE_FALLBACK_MAP.get(resource)
+        return fallback_parent_object_id(obj, parent) if parent else None
 
     def get_user_access_level(self, obj: Model, explicit=False) -> Optional[AccessControlLevel]:
         resource = model_to_resource(obj)
@@ -1329,18 +1412,29 @@ class UserAccessControl:
         object_access_controls = self._get_access_controls(
             self._access_controls_filters_for_object(resource, str(obj.id))  # type: ignore
         )
-        return self._object_access_level_from_rows(resource, object_access_controls, explicit=explicit)
+        return self._object_access_level_from_rows(
+            resource,
+            object_access_controls,
+            explicit=explicit,
+            fallback_parent_id=self._fallback_parent_id(obj, resource),
+        )
 
     def bulk_object_access_levels(
         self,
         resource: APIScopeObject,
         objects: Sequence[tuple[str, Optional[int]]],
+        fallback_parent_ids: Optional[Mapping[str, Optional[str]]] = None,
     ) -> dict[str, Optional[AccessControlLevel]]:
         """Resolve the user's access level for many objects of one resource type at once.
 
         `objects` is a sequence of (object_pk_str, created_by_id) pairs. Semantics match
         `get_user_access_level`, but object rows come from the bulk preload grouped in memory,
         so no per-object queries are issued.
+
+        When `resource` has a RESOURCE_FALLBACK_MAP parent, callers should pass `fallback_parent_ids`
+        mapping each object id to its parent's id - the resolver can't read that off the database from
+        here. Omitting it resolves as though every object were parentless, which is right for objects
+        that have no parent and too permissive for those that do.
         """
         if not objects:
             return {}
@@ -1360,7 +1454,11 @@ class UserAccessControl:
                 for ac in self._get_access_controls(self._access_controls_filters_for_queryset(resource)):
                     rows_by_object_id[ac.resource_id].append(ac)
 
-            results[object_id] = self._object_access_level_from_rows(resource, rows_by_object_id.get(object_id, []))
+            results[object_id] = self._object_access_level_from_rows(
+                resource,
+                rows_by_object_id.get(object_id, []),
+                fallback_parent_id=(fallback_parent_ids or {}).get(object_id),
+            )
 
         return results
 

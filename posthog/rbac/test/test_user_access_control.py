@@ -23,6 +23,7 @@ from posthog.rbac.user_access_control import (
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 
 try:
     from ee.models.rbac.access_control import AccessControl
@@ -2046,3 +2047,110 @@ class TestBlockedResourceIdsByScope(BaseTest):
             organization_member=self.membership,
         )
         assert self._blocked() == {"10"}
+
+
+@pytest.mark.ee
+class TestUserAccessControlFallbackParent(BaseUserAccessControlTest):
+    """Resolution through RESOURCE_FALLBACK_MAP: a synced table falls back to the source that syncs it."""
+
+    def setUp(self):
+        super().setUp()
+        self.membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        self.source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id="src",
+            connection_id="conn",
+            destination_id="dest",
+            source_type="Stripe",
+            prefix="test",
+        )
+        self.sourced_table = DataWarehouseTable.objects.create(
+            name="customers", format="Parquet", team=self.team, external_data_source=self.source, columns={}
+        )
+        self.self_managed_table = DataWarehouseTable.objects.create(
+            name="uploads", format="Parquet", team=self.team, columns={}
+        )
+
+    def _rule(self, resource, resource_id, level):
+        self._create_access_control(
+            resource=resource, resource_id=resource_id, access_level=level, organization_member=self.membership
+        )
+        self._clear_uac_caches()
+
+    def _level(self, table):
+        return self.user_access_control.get_user_access_level(table)
+
+    @parameterized.expand(
+        [
+            # A rule about sources reaches the tables that source syncs, at both the object and the
+            # resource layer - this is the whole point of the fallback.
+            ("source_object_denies_its_table", [("external_data_source", "SOURCE", "none")], "none"),
+            ("all_sources_denies_sourced_table", [("external_data_source", None, "none")], "none"),
+            # A rule on the table itself outranks anything the source says, in either direction.
+            (
+                "table_rule_beats_source",
+                [("external_data_source", "SOURCE", "none"), ("warehouse_table", "TABLE", "editor")],
+                "editor",
+            ),
+            (
+                "table_deny_beats_source_grant",
+                [("external_data_source", "SOURCE", "editor"), ("warehouse_table", "TABLE", "none")],
+                "none",
+            ),
+            # "All tables & views" sits above "all sources": a broad table grant is not capped by a
+            # source denial, which is what lets an editor on tables sync a schema they only view.
+            (
+                "all_tables_beats_all_sources",
+                [("external_data_source", None, "none"), ("warehouse_objects", None, "viewer")],
+                "viewer",
+            ),
+            # ...but a rule about one source is more specific than "all tables & views".
+            (
+                "source_object_beats_all_tables",
+                [("external_data_source", "SOURCE", "none"), ("warehouse_objects", None, "editor")],
+                "none",
+            ),
+        ]
+    )
+    def test_sourced_table_resolution(self, _name, rules, expected):
+        for resource, resource_id, level in rules:
+            ids = {"SOURCE": str(self.source.id), "TABLE": str(self.sourced_table.id)}
+            self._rule(resource, ids.get(resource_id, resource_id), level)
+
+        assert self._level(self.sourced_table) == expected
+
+    @parameterized.expand(
+        [
+            # A self-managed table has no source, so no rule about sources may reach it - at either
+            # layer. Without this the "all sources" rule would silently lock S3 tables and direct
+            # connections that no source has ever touched.
+            ("all_sources_denied", [("external_data_source", None, "none")], "editor"),
+            ("one_source_denied", [("external_data_source", "SOURCE", "none")], "editor"),
+            # It is still governed by the rules that do apply to it.
+            ("all_tables_denied", [("warehouse_objects", None, "none")], "none"),
+            ("own_rule", [("warehouse_table", "TABLE", "viewer")], "viewer"),
+        ]
+    )
+    def test_self_managed_table_skips_the_source(self, _name, rules, expected):
+        for resource, resource_id, level in rules:
+            ids = {"SOURCE": str(self.source.id), "TABLE": str(self.self_managed_table.id)}
+            self._rule(resource, ids.get(resource_id, resource_id), level)
+
+        assert self._level(self.self_managed_table) == expected
+
+    def test_source_denial_does_not_leak_across_sources(self):
+        other_source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id="src2",
+            connection_id="conn2",
+            destination_id="dest2",
+            source_type="Stripe",
+            prefix="other",
+        )
+        other_table = DataWarehouseTable.objects.create(
+            name="invoices", format="Parquet", team=self.team, external_data_source=other_source, columns={}
+        )
+        self._rule("external_data_source", str(self.source.id), "none")
+
+        assert self._level(self.sourced_table) == "none"
+        assert self._level(other_table) == "editor"
