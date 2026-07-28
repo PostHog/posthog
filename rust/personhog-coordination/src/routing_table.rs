@@ -380,35 +380,66 @@ impl RoutingTable {
                             }
                             EventType::Delete => {
                                 // Handoff cancelled (typically by
-                                // cleanup_stale_handoffs). Drain any stash
-                                // back to whoever the routing table still
-                                // points at — during Freezing/Warming the
-                                // assignment never moved, so that's the old
-                                // owner (or an initial target with no prior
-                                // assignment yet).
+                                // cleanup_stale_handoffs). Disposal depends on
+                                // who can still receive the stash. During
+                                // Freezing/Warming the assignment never moved,
+                                // so the routing table still points at the old
+                                // owner: if that owner is registered, drain
+                                // back to it and resume normal routing. If it
+                                // is dead — or there is no assignment at all —
+                                // leave the stash intact: a partition without
+                                // a live owner is guaranteed a successor
+                                // handoff, and its completion drains the stash
+                                // to whichever pod actually wins ownership.
+                                // Draining toward a dead pod would never
+                                // converge — nothing can be delivered while
+                                // new arrivals keep the queue alive.
                                 let Some(kv) = event.kv() else { continue };
                                 let key = std::str::from_utf8(kv.key()).unwrap_or("");
                                 let Some(partition) = store::extract_partition_from_key(key) else {
                                     continue
                                 };
                                 let target = table.read().await.get(&partition).cloned();
-                                match target {
-                                    Some(owner) => {
+                                let Some(owner) = target else {
+                                    tracing::warn!(
+                                        router = %router_name,
+                                        partition,
+                                        "handoff cancelled with no current assignment; stash left intact"
+                                    );
+                                    continue;
+                                };
+                                // A linearizable read: any owner death that
+                                // led to this cancellation is already visible
+                                // in etcd. On a read error, fall back to
+                                // draining — no worse than assuming alive.
+                                let owner_registered = match store.get_pod(&owner).await {
+                                    Ok(pod) => pod.is_some(),
+                                    Err(e) => {
                                         tracing::warn!(
                                             router = %router_name,
                                             partition,
                                             owner = %owner,
-                                            "handoff cancelled, draining stash back to current owner"
+                                            error = %e,
+                                            "could not verify owner registration; assuming alive"
                                         );
-                                        handler.drain_stash(partition, &owner).await?;
+                                        true
                                     }
-                                    None => {
-                                        tracing::warn!(
-                                            router = %router_name,
-                                            partition,
-                                            "handoff cancelled with no current assignment; stash left intact"
-                                        );
-                                    }
+                                };
+                                if owner_registered {
+                                    tracing::warn!(
+                                        router = %router_name,
+                                        partition,
+                                        owner = %owner,
+                                        "handoff cancelled, draining stash back to current owner"
+                                    );
+                                    handler.drain_stash(partition, &owner).await?;
+                                } else {
+                                    tracing::warn!(
+                                        router = %router_name,
+                                        partition,
+                                        owner = %owner,
+                                        "handoff cancelled but current owner is not registered; stash left intact for successor handoff"
+                                    );
                                 }
                             }
                         }

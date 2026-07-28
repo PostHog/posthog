@@ -21,7 +21,8 @@ use async_trait::async_trait;
 use common::{
     revoke_lease_of_key, start_coordinator, start_coordinator_named, start_pod,
     start_pod_with_lease_ttl, start_router_with_lease_ttl, test_store, test_store_with_prefix,
-    wait_for_condition, HandoffEvent, POLL_INTERVAL, WAIT_TIMEOUT,
+    wait_for_condition, CutoverEvent, HandoffEvent, MockCutoverHandler, POLL_INTERVAL,
+    WAIT_TIMEOUT,
 };
 use personhog_coordination::error::Result;
 use personhog_coordination::routing_table::{RoutingTable, RoutingTableConfig, StashHandler};
@@ -1373,6 +1374,148 @@ async fn late_joining_router_stashes_before_populating_table() {
         calls.contains(&(0, false)),
         "begin_stash must fire before the table exposes the partition; observed: {calls:?}"
     );
+
+    cancel.cancel();
+}
+
+// ============================================================
+// Cancellation disposal: drain back only to a live owner
+// ============================================================
+
+/// Shared fixture for the cancellation-disposal tests: an assignment for
+/// partition 0 owned by `pod-old`, an in-flight Freezing handoff toward
+/// `pod-new`, and a running routing table with a recording stash handler.
+/// Returns the recorded events and the shutdown token.
+async fn start_router_with_frozen_handoff(
+    store: &Arc<PersonhogStore>,
+    router_name: &str,
+) -> (Arc<Mutex<Vec<CutoverEvent>>>, CancellationToken) {
+    assert!(store
+        .create_assignments_and_handoffs(
+            &[PartitionAssignment {
+                partition: 0,
+                owner: "pod-old".to_string(),
+                status: AssignmentStatus::Active,
+                advertise_address: None,
+            }],
+            &[],
+            &[],
+        )
+        .await
+        .expect("write assignment"));
+    put_handoff(store, 0, Some("pod-old"), "pod-new", HandoffPhase::Freezing).await;
+
+    let router = RoutingTable::new(
+        Arc::clone(store),
+        RoutingTableConfig {
+            router_name: router_name.to_string(),
+            ..RoutingTableConfig::default()
+        },
+    );
+    let (handler, events) = MockCutoverHandler::new();
+    let cancel = CancellationToken::new();
+    let token = cancel.child_token();
+    tokio::spawn(async move { router.run(token, Arc::new(handler)).await });
+
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let events = Arc::clone(&events);
+        async move { !events.lock().await.is_empty() }
+    })
+    .await;
+
+    (events, cancel)
+}
+
+/// A cancellation whose current owner is no longer registered must not
+/// drain the stash toward it: nothing can be delivered to a dead pod,
+/// while new arrivals keep the queue alive — the drain loop would never
+/// converge and, run inline in the watch loop, would stall every
+/// subsequent handoff event. The stash stays intact until the successor
+/// handoff completes, which drains it to the pod that actually won
+/// ownership.
+#[tokio::test]
+async fn cancellation_with_dead_owner_leaves_stash_intact_until_successor() {
+    let store = test_store("cancel-dead-owner").await;
+
+    // `pod-old` is never registered: it is dead.
+    let (events, cancel) = start_router_with_frozen_handoff(&store, "cdo-router").await;
+
+    store.delete_handoff(0).await.expect("cancel handoff");
+
+    // The successor handoff completes toward a different pod; its drain
+    // is the next stash event. Waiting for it (rather than a negative
+    // wait) also proves no drain-back squeezed in before it: events are
+    // recorded in order and asserted exactly below.
+    put_handoff(&store, 0, Some("pod-old"), "pod-new-2", HandoffPhase::Complete).await;
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let events = Arc::clone(&events);
+        async move {
+            events.lock().await.contains(&CutoverEvent::StashDrained {
+                partition: 0,
+                target: "pod-new-2".to_string(),
+            })
+        }
+    })
+    .await;
+
+    let recorded = events.lock().await.clone();
+    assert_eq!(
+        recorded,
+        vec![
+            CutoverEvent::StashBegan {
+                partition: 0,
+                new_owner: "pod-new".to_string(),
+            },
+            CutoverEvent::StashDrained {
+                partition: 0,
+                target: "pod-new-2".to_string(),
+            },
+        ],
+        "stash must not drain toward the dead owner"
+    );
+
+    cancel.cancel();
+}
+
+/// The mirror case: when the current owner is still registered, a
+/// cancellation drains the stash straight back to it — parked requests
+/// resume immediately rather than waiting on a successor handoff that a
+/// live-owner cancellation does not guarantee.
+#[tokio::test]
+async fn cancellation_with_live_owner_drains_back() {
+    let store = test_store("cancel-live-owner").await;
+
+    let lease = store.grant_lease(60).await.expect("lease");
+    store
+        .register_pod(
+            &RegisteredPod {
+                pod_name: "pod-old".to_string(),
+                generation: String::new(),
+                status: PodStatus::Ready,
+                registered_at: 0,
+                last_heartbeat: 0,
+                controller: None,
+                advertise_address: None,
+            },
+            lease,
+        )
+        .await
+        .expect("register pod-old");
+
+    let (events, cancel) = start_router_with_frozen_handoff(&store, "clo-router").await;
+
+    store.delete_handoff(0).await.expect("cancel handoff");
+
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let events = Arc::clone(&events);
+        async move {
+            events.lock().await.contains(&CutoverEvent::StashDrained {
+                partition: 0,
+                target: "pod-old".to_string(),
+            })
+        }
+    })
+    .await;
 
     cancel.cancel();
 }
