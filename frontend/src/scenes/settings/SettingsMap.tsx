@@ -2031,7 +2031,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'sidebar-items',
                 title: 'Navigation items',
                 description:
-                    'Choose which items appear in your sidebar. These preferences only apply to you. Settings always stays visible.',
+                    'Choose which items appear in your sidebar. These preferences only apply to you. Activity and Settings always stay visible.',
                 component: <SidebarItemsSetting />,
                 keywords: ['sidebar', 'navigation', 'navbar', 'menu', 'hide', 'show', 'customize', 'starred'],
             },

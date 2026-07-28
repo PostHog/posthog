@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 
-import { IconGear } from '@posthog/icons'
 import { LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -29,19 +28,35 @@ export function SidebarItemsSetting(): JSX.Element {
     const { setSidebarSectionShown, setSidebarItemShown } = useActions(uiCustomizationLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const renderItemSwitch = (item: SidebarCustomizableItem, disabledReason?: string | false): JSX.Element => (
-        <LemonSwitch
-            key={item.key}
-            checked={isSidebarItemShown(item.key)}
-            onChange={(checked) => setSidebarItemShown(item.key, checked)}
-            loading={userLoading}
-            disabledReason={disabledReason || undefined}
-            label={<ItemLabel icon={item.icon} label={item.label} />}
-            bordered
-            fullWidth
-            data-attr={`sidebar-customization-item-${item.key}`}
-        />
-    )
+    const renderItemSwitch = (item: SidebarCustomizableItem, sectionHiddenReason?: string | false): JSX.Element => {
+        const { key } = item
+        if (!key) {
+            return (
+                <LemonSwitch
+                    key={item.label}
+                    checked={true}
+                    disabledReason={sectionHiddenReason || `${item.label} always stays visible`}
+                    label={<ItemLabel icon={item.icon} label={item.label} />}
+                    bordered
+                    fullWidth
+                    data-attr={`sidebar-customization-item-${item.label.toLowerCase()}`}
+                />
+            )
+        }
+        return (
+            <LemonSwitch
+                key={key}
+                checked={isSidebarItemShown(key)}
+                onChange={(checked) => setSidebarItemShown(key, checked)}
+                loading={userLoading}
+                disabledReason={sectionHiddenReason || undefined}
+                label={<ItemLabel icon={item.icon} label={item.label} />}
+                bordered
+                fullWidth
+                data-attr={`sidebar-customization-item-${key}`}
+            />
+        )
+    }
 
     return (
         <div className="flex flex-col gap-4 max-w-160">
@@ -79,14 +94,6 @@ export function SidebarItemsSetting(): JSX.Element {
                 {SIDEBAR_CUSTOMIZABLE_FOOTER_ITEMS.filter(
                     (item) => !item.flag || (featureFlags as Record<string, boolean | string>)[item.flag]
                 ).map((item) => renderItemSwitch(item))}
-                <LemonSwitch
-                    checked={true}
-                    disabledReason="Settings always stays visible"
-                    label={<ItemLabel icon={<IconGear />} label="Settings" />}
-                    bordered
-                    fullWidth
-                    data-attr="sidebar-customization-item-settings"
-                />
             </div>
         </div>
     )

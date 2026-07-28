@@ -6409,7 +6409,6 @@ class SidebarItemsConfiguration(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    activity: UIVisibilityConfig | None = Field(default=None, description='"Activity" link in the Project section.')
     data: UIVisibilityConfig | None = Field(default=None, description='"Data" panel trigger in the Project section.')
     files: UIVisibilityConfig | None = Field(default=None, description='"Files" panel trigger in the Project section.')
     help: UIVisibilityConfig | None = Field(default=None, description='"Help" entry in the sidebar footer.')

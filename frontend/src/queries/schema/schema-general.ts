@@ -8629,14 +8629,12 @@ export interface SidebarSectionsConfiguration {
     my_tools?: UIVisibilityConfig
 }
 
-/** Individual items of the main navigation sidebar. Items inside a hidden section are hidden regardless of their own config. */
+/** Individual items of the main navigation sidebar. Items inside a hidden section are hidden regardless of their own config. Activity and Settings are deliberately absent: they can't be hidden individually. */
 export interface SidebarItemsConfiguration {
     /** "Home" link in the Project section. */
     home?: UIVisibilityConfig
     /** "Inbox" link in the Project section. Only rendered when the inbox feature is available. */
     inbox?: UIVisibilityConfig
-    /** "Activity" link in the Project section. */
-    activity?: UIVisibilityConfig
     /** "Data" panel trigger in the Project section. */
     data?: UIVisibilityConfig
     /** "Files" panel trigger in the Project section. */

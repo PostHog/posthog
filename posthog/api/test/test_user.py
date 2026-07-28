@@ -269,7 +269,7 @@ class TestUserAPI(APIBaseTest):
             "version": 1,
             "sidebar": {
                 "sections": {"recents": {"visible": False}},
-                "items": {"activity": {"visible": False}},
+                "items": {"data": {"visible": False}},
             },
         }
 
@@ -2188,6 +2188,7 @@ class TestUserUIConfigurationValidation(SimpleTestCase):
             ("unknown_top_level_key", {"version": 1, "surprise": True}),
             ("unknown_section", {"version": 1, "sidebar": {"sections": {"bogus": {"visible": False}}}}),
             ("unknown_item", {"version": 1, "sidebar": {"items": {"bogus": {"visible": False}}}}),
+            ("activity_not_customizable", {"version": 1, "sidebar": {"items": {"activity": {"visible": False}}}}),
             ("non_boolean_visible", {"version": 1, "sidebar": {"items": {"home": {"visible": "nope"}}}}),
             ("unknown_node_key", {"version": 1, "sidebar": {"items": {"home": {"visible": False, "size": 1}}}}),
         ]
@@ -2211,7 +2212,6 @@ class TestUserUIConfigurationValidation(SimpleTestCase):
                         "items": {
                             "home": {"visible": False},
                             "inbox": {"visible": False},
-                            "activity": {"visible": False},
                             "data": {"visible": False},
                             "files": {"visible": False},
                             "tools": {"visible": False},

@@ -45201,12 +45201,8 @@
         },
         "SidebarItemsConfiguration": {
             "additionalProperties": false,
-            "description": "Individual items of the main navigation sidebar. Items inside a hidden section are hidden regardless of their own config.",
+            "description": "Individual items of the main navigation sidebar. Items inside a hidden section are hidden regardless of their own config. Activity and Settings are deliberately absent: they can't be hidden individually.",
             "properties": {
-                "activity": {
-                    "$ref": "#/definitions/UIVisibilityConfig",
-                    "description": "\"Activity\" link in the Project section."
-                },
                 "data": {
                     "$ref": "#/definitions/UIVisibilityConfig",
                     "description": "\"Data\" panel trigger in the Project section."

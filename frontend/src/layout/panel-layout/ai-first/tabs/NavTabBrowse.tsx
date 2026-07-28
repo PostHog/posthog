@@ -243,16 +243,14 @@ export function NavTabBrowse(): JSX.Element {
                             />
                         )}
 
-                        {isSidebarItemShown('activity') && (
-                            <NavLink
-                                to={urls.activity(ActivityTab.ExploreEvents)}
-                                label="Activity"
-                                icon={<IconClock />}
-                                isCollapsed={isLayoutNavCollapsed}
-                                data-attr="nav-item-activity"
-                                onClick={() => posthog.capture('nav item clicked', { item: 'activity' })}
-                            />
-                        )}
+                        <NavLink
+                            to={urls.activity(ActivityTab.ExploreEvents)}
+                            label="Activity"
+                            icon={<IconClock />}
+                            isCollapsed={isLayoutNavCollapsed}
+                            data-attr="nav-item-activity"
+                            onClick={() => posthog.capture('nav item clicked', { item: 'activity' })}
+                        />
 
                         <div className={cn('flex flex-col gap-px', isLayoutNavCollapsed && 'items-center')}>
                             {panelTriggerItems

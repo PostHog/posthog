@@ -37,7 +37,7 @@ describe('uiCustomizationLogic', () => {
     it('shows everything when the user has no configuration', () => {
         seedUser(null)
 
-        expect(logic.values.isSidebarItemShown('activity')).toBe(true)
+        expect(logic.values.isSidebarItemShown('data')).toBe(true)
         expect(logic.values.isSidebarSectionShown('my_tools')).toBe(true)
     })
 
@@ -46,29 +46,29 @@ describe('uiCustomizationLogic', () => {
             version: 1,
             sidebar: {
                 sections: { recents: { visible: false } },
-                items: { activity: { visible: false }, home: { visible: true } },
+                items: { data: { visible: false }, home: { visible: true } },
             },
         })
 
-        expect(logic.values.isSidebarItemShown('activity')).toBe(false)
+        expect(logic.values.isSidebarItemShown('data')).toBe(false)
         expect(logic.values.isSidebarItemShown('home')).toBe(true)
-        expect(logic.values.isSidebarItemShown('data')).toBe(true)
+        expect(logic.values.isSidebarItemShown('files')).toBe(true)
         expect(logic.values.isSidebarSectionShown('recents')).toBe(false)
         expect(logic.values.isSidebarSectionShown('project')).toBe(true)
     })
 
     it('applies a toggle optimistically and persists the complete configuration', async () => {
-        seedUser({ version: 1, sidebar: { items: { data: { visible: false } } } })
+        seedUser({ version: 1, sidebar: { items: { starred: { visible: false } } } })
 
         await expectLogic(logic, () => {
-            logic.actions.setSidebarItemShown('activity', false)
+            logic.actions.setSidebarItemShown('data', false)
         }).toFinishAllListeners()
 
-        expect(logic.values.isSidebarItemShown('activity')).toBe(false)
         expect(logic.values.isSidebarItemShown('data')).toBe(false)
+        expect(logic.values.isSidebarItemShown('starred')).toBe(false)
         expect(patchedUser?.ui_configuration).toEqual({
             version: 1,
-            sidebar: { items: { data: { visible: false }, activity: { visible: false } } },
+            sidebar: { items: { starred: { visible: false }, data: { visible: false } } },
         })
     })
 
@@ -81,11 +81,11 @@ describe('uiCustomizationLogic', () => {
             },
         }
 
-        expect(withSidebarItemVisibility(existing, 'activity', false)).toEqual({
+        expect(withSidebarItemVisibility(existing, 'files', false)).toEqual({
             version: 2,
             sidebar: {
                 sections: { recents: { visible: false } },
-                items: { data: { visible: false }, activity: { visible: false } },
+                items: { data: { visible: false }, files: { visible: false } },
             },
         })
         expect(withSidebarSectionVisibility(null, 'my_tools', false)).toEqual({
