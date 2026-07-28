@@ -219,6 +219,8 @@ mod tests {
             started_at: 0,
             handoff_id: String::new(),
             freeze_quorum: None,
+            created_at_ms: 0,
+            phase_entered_at_ms: 0,
             new_owner_address: None,
         }
     }
