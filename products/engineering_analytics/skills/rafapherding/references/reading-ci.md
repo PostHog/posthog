@@ -37,6 +37,26 @@ Jobs named `<Something> Tests Pass`, `<Something> Checks Pass`, `Check matrix ou
 dependency results`. They fail in seconds with a step that just reads its dependencies' results.
 They tell you a matrix leg failed; they never tell you which or why. Find the matrix leg.
 
+### Superseded runs (not yours either)
+
+A push cancels the run already in flight for that branch, and every aggregation gate then reports its
+CANCELLED dependencies as FAILURE. So a wall of `Tests Pass` failures appearing right after you push
+means _superseded_, not broken. Check the state breakdown before reading anything:
+
+```sh
+gh pr checks <n> --json name,state --jq 'group_by(.state)[] | "\(.[0].state): \(length)"'
+```
+
+A large `CANCELLED` count next to `IN_PROGRESS` is the signature. The gates will be replaced as the
+new run's legs finish. This is worth filtering out of any CI monitor you set up, or it will wake you
+for every push you make:
+
+```sh
+# Real failures only: drop the gates, which carry nothing the underlying job doesn't
+gh pr checks <n> --json name,state --jq '.[] | select(.state=="FAILURE")
+  | select(.name | test("Tests Pass|tests pass|CI Pass|Checks Pass|does not block merge") | not) | .name'
+```
+
 ### Real failures
 
 The job has steps, ran for a plausible duration, and `--log-failed` returns content.

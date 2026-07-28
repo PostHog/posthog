@@ -159,6 +159,19 @@ thing that still covers the path; when you must patch something process-wide (`r
 expect unrelated traffic to land on the mock, and tighten raw `assert_called_once` /
 `assert_not_called` assertions to filter for the call you actually mean.
 
+**Grep the whole repo for the old seam, not just the files you already know about.** A stale patch
+does not always fail. If the URL under test resolves for real, the test quietly makes a live request
+and passes on whatever production returns — green locally, and failing in CI for some unrelated
+reason like an IPv4-only runner. That is worse than a red test, because it looks finished.
+
+```sh
+rg -n "module\.requests\.get|module\.old_helper_name" --type py
+```
+
+Every hit is either a seam to retarget or a deliberate exception you can name. Do this immediately
+after moving a seam, before running anything: the local suite going green is not evidence that you
+found them all.
+
 ## Before you call a PR done
 
 - Every failing check is either green or classified as infra with the evidence for that.
