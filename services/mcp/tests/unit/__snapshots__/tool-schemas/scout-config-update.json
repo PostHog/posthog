@@ -67,6 +67,14 @@
             "maximum": 43200,
             "minimum": 30,
             "type": "number"
+        },
+        "sandbox_allowed_domains": {
+            "description": "Extra hosts this scout's sandbox may reach, on top of the trusted defaults (version control, package registries, and PostHog's own APIs) every scout already gets. Empty - the default - leaves the scout's network access unchanged. Exact hostnames only, e.g. ['example.com', 'docs.example.com']: no wildcards, schemes, ports, paths, or IP addresses, and at most 20 entries. Set this only for a scout that genuinely has to read a source outside PostHog. A scout runs unattended on text it did not choose, so every host added here is a host an injected instruction can name. Pass an empty list to take the extra access away again.",
+            "items": {
+                "maxLength": 255,
+                "type": "string"
+            },
+            "type": "array"
         }
     },
     "required": ["id"],
