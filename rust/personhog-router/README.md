@@ -54,13 +54,22 @@ phases and replaying them once the handoff completes:
   still being collected). Subsequent writes for that partition are
   parked on a `oneshot` instead of being forwarded.
 
-- **Drain** (on `Complete`): the router replays the parked writes to the
-  new owner via `LeaderBackend::update_person_properties_no_stash`,
-  bypassing the stash hook so each replayed request actually reaches
-  the leader. New requests that arrive during drain land on the same
-  queue and are picked up by the next loop iteration — drain only
-  evicts the partition from the stash table when it observes the queue
-  empty under the lock, preserving FIFO ordering across the cutover.
+- **Drain** (on `Complete`, or back to a still-registered owner on
+  cancellation): the router replays each parked request to the method
+  it arrived on via the raw forward path, bypassing the stash hook so
+  each replayed request actually reaches the leader. New requests that
+  arrive during drain land on the same queue and are picked up by the
+  next loop iteration — drain only evicts the partition from the stash
+  table when it observes the queue empty under the lock, preserving
+  FIFO ordering across the cutover. Drains run off the coordination
+  watch loop in per-partition lanes: a drain's duration is data-plane
+  work and must never gate freeze acks or routing updates for other
+  partitions. A newer drain for the same partition supersedes the one
+  in flight — the old drain yields at a batch boundary, leaving
+  unprocessed queue contents parked for its successor. On a
+  cancellation whose current owner is no longer registered, no drain
+  runs at all: the stash stays intact until the successor handoff
+  completes toward a live owner.
 
 Two policies layer on the raw mechanism:
 
@@ -84,6 +93,12 @@ Two policies layer on the raw mechanism:
    Because `FAILED_PRECONDITION` reads as "do not retry" to clients,
    drain remaps it to `UNAVAILABLE` so callers retry, consistent with
    the deadline and bounds contracts above.
+
+4. **Cooperative cancellation**: a superseded drain stops at the next
+   batch or chunk boundary. Unprocessed queue contents stay parked for
+   the successor drain, while requests already taken off the queue get
+   a definitive `UNAVAILABLE` so their clients retry — never a silent
+   drop.
 
 Bounds are configurable per partition (`STASH_MAX_MESSAGES_PER_PARTITION`,
 `STASH_MAX_BYTES_PER_PARTITION`); requests that would exceed either bound
