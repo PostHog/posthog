@@ -4,7 +4,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { uuid } from 'lib/utils/dom'
 import { isObject } from 'lib/utils/guards'
 import { teamLogic } from 'scenes/teamLogic'
@@ -12,6 +12,7 @@ import { urls } from 'scenes/urls'
 
 import { llmEvaluationLogic } from '../evaluations/llmEvaluationLogic'
 import type { EvaluationConfig } from '../evaluations/types'
+import { llmPromptsCreate, llmPromptsNamePartialUpdate, llmPromptsNameRetrieve } from '../generated/api'
 import { normalizeMessage } from '../messageNormalization'
 import { llmPromptLogic } from '../prompts/llmPromptLogic'
 import { getApiErrorDetail } from '../prompts/utils'
@@ -1201,8 +1202,13 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                         const versionParam = payload.sourcePromptVersion
                             ? { version: payload.sourcePromptVersion }
                             : undefined
-                        const fetchedPrompt = await api.llmPrompts.getByName(payload.sourcePromptName, versionParam)
-                        actions.setSystemPrompt(fetchedPrompt.prompt || DEFAULT_SYSTEM_PROMPT, promptId)
+                        const fetchedPrompt = await llmPromptsNameRetrieve(
+                            String(ApiConfig.getCurrentTeamId()),
+                            payload.sourcePromptName,
+                            versionParam
+                        )
+                        // Generated schemas type the payload as unknown; this app only stores strings.
+                        actions.setSystemPrompt((fetchedPrompt.prompt as string) || DEFAULT_SYSTEM_PROMPT, promptId)
                         actions.setSourceNames(fetchedPrompt.name ?? null, null, promptId)
                         const sourceParams: Record<string, string> = {
                             source_prompt_name: payload.sourcePromptName,
@@ -1358,8 +1364,11 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 return
             }
             try {
-                const current = await api.llmPrompts.getByName(linkedSource.promptName)
-                await api.llmPrompts.update(linkedSource.promptName, {
+                const current = await llmPromptsNameRetrieve(
+                    String(ApiConfig.getCurrentTeamId()),
+                    linkedSource.promptName
+                )
+                await llmPromptsNamePartialUpdate(String(ApiConfig.getCurrentTeamId()), linkedSource.promptName, {
                     prompt: prompt.systemPrompt,
                     base_version: current.latest_version,
                 })
@@ -1449,7 +1458,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 return
             }
             try {
-                await api.llmPrompts.create({ name, prompt: prompt.systemPrompt })
+                await llmPromptsCreate(String(ApiConfig.getCurrentTeamId()), { name, prompt: prompt.systemPrompt })
                 // Link the playground to the newly created prompt
                 actions.setPromptConfigs(
                     updatePromptConfigs(values.promptConfigs, prompt.id, (p) => ({

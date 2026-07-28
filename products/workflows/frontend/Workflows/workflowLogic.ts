@@ -485,6 +485,7 @@ export interface workflowLogicActions {
                                 message_category_type?: 'marketing' | 'transactional' | undefined
                                 template_id: 'template-email'
                                 template_uuid?: string | undefined
+                                tracking_enabled?: boolean | undefined
                             }
                             created_at?: number | undefined
                             description: string
@@ -1270,6 +1271,7 @@ export interface workflowLogicActions {
                                 message_category_type?: 'marketing' | 'transactional' | undefined
                                 template_id: 'template-email'
                                 template_uuid?: string | undefined
+                                tracking_enabled?: boolean | undefined
                             }
                             created_at?: number | undefined
                             description: string
@@ -2032,22 +2034,6 @@ export interface workflowLogicActions {
                   >
                   message_category_id?: string | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
-                  template_id: 'template-email'
-                  template_uuid?: string | undefined
-              }
-            | {
-                  inputs: Record<
-                      string,
-                      {
-                          bytecode?: any
-                          order?: number | undefined
-                          secret?: boolean | undefined
-                          templating?: 'hog' | 'liquid' | undefined
-                          value: any
-                      }
-                  >
-                  message_category_id?: string | undefined
-                  message_category_type?: 'marketing' | 'transactional' | undefined
                   template_id: 'template-native-push'
                   template_uuid?: string | undefined
               }
@@ -2077,6 +2063,23 @@ export interface workflowLogicActions {
                   time: [string, string] | 'any'
                   timezone: string | null
                   use_person_timezone?: boolean | undefined
+              }
+            | {
+                  inputs: Record<
+                      string,
+                      {
+                          bytecode?: any
+                          order?: number | undefined
+                          secret?: boolean | undefined
+                          templating?: 'hog' | 'liquid' | undefined
+                          value: any
+                      }
+                  >
+                  message_category_id?: string | undefined
+                  message_category_type?: 'marketing' | 'transactional' | undefined
+                  template_id: 'template-email'
+                  template_uuid?: string | undefined
+                  tracking_enabled?: boolean | undefined
               }
         >
     }
@@ -2361,22 +2364,6 @@ export interface workflowLogicActions {
                   >
                   message_category_id?: string | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
-                  template_id: 'template-email'
-                  template_uuid?: string | undefined
-              }
-            | {
-                  inputs: Record<
-                      string,
-                      {
-                          bytecode?: any
-                          order?: number | undefined
-                          secret?: boolean | undefined
-                          templating?: 'hog' | 'liquid' | undefined
-                          value: any
-                      }
-                  >
-                  message_category_id?: string | undefined
-                  message_category_type?: 'marketing' | 'transactional' | undefined
                   template_id: 'template-native-push'
                   template_uuid?: string | undefined
               }
@@ -2406,6 +2393,23 @@ export interface workflowLogicActions {
                   time: [string, string] | 'any'
                   timezone: string | null
                   use_person_timezone?: boolean | undefined
+              }
+            | {
+                  inputs: Record<
+                      string,
+                      {
+                          bytecode?: any
+                          order?: number | undefined
+                          secret?: boolean | undefined
+                          templating?: 'hog' | 'liquid' | undefined
+                          value: any
+                      }
+                  >
+                  message_category_id?: string | undefined
+                  message_category_type?: 'marketing' | 'transactional' | undefined
+                  template_id: 'template-email'
+                  template_uuid?: string | undefined
+                  tracking_enabled?: boolean | undefined
               }
     }
     setWorkflowActionEdges: (

@@ -99,6 +99,7 @@ IDENTITY_FIELDS: frozenset[str] = frozenset(
         "connectors",
         "context_target",
         "triggers",
+        "skill_bundles",
     }
 )
 _PAUSE_FIELD = "enabled"
@@ -213,6 +214,19 @@ class LoopContextTargetDTO:
 
 
 @dataclass(frozen=True)
+class LoopSkillBundleDTO:
+    """A skill bundle attached to a loop, sans storage internals. `content_sha256` lets the
+    client detect when its local copy of the skill has drifted from the stored snapshot."""
+
+    id: str
+    skill_name: str
+    skill_source: str
+    size: int
+    content_sha256: str
+    uploaded_at: str
+
+
+@dataclass(frozen=True)
 class LoopTriggerDTO:
     """A single loop trigger. `config` shape depends on `type` — see LOOPS.md `LoopTrigger`."""
 
@@ -257,6 +271,7 @@ class LoopDTO:
     updated_at: datetime
     context_target: LoopContextTargetDTO | None = None
     triggers: list[LoopTriggerDTO] = Field(default_factory=list)
+    skill_bundles: list[LoopSkillBundleDTO] = Field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -425,7 +440,27 @@ def _loop_to_dto(loop: Loop) -> LoopDTO:
         updated_at=loop.updated_at,
         context_target=_context_target_dto(loop.context_target),
         triggers=[_trigger_to_dto(trigger) for trigger in triggers],
+        skill_bundles=_skill_bundle_dtos(loop.skill_bundles),
     )
+
+
+def _skill_bundle_dtos(entries: list | None) -> list[LoopSkillBundleDTO]:
+    dtos: list[LoopSkillBundleDTO] = []
+    for entry in entries or []:
+        if not isinstance(entry, dict):
+            continue
+        metadata = entry.get("metadata") or {}
+        dtos.append(
+            LoopSkillBundleDTO(
+                id=str(entry.get("id", "")),
+                skill_name=str(metadata.get("skill_name", "")),
+                skill_source=str(metadata.get("skill_source", "")),
+                size=int(entry.get("size", 0)),
+                content_sha256=str(metadata.get("content_sha256", "")),
+                uploaded_at=str(entry.get("uploaded_at", "")),
+            )
+        )
+    return dtos
 
 
 def _parse_uuid(value: Any) -> UUID | None:
@@ -560,7 +595,7 @@ def _authorize_update(loop: Loop, user: User | None, validated_data: dict) -> No
             return
         raise LoopPermissionError(
             "Only the loop owner may change identity-bearing configuration (instructions, "
-            "repositories, connectors, behaviors, model config, or triggers)."
+            "repositories, connectors, behaviors, model config, triggers, or skill bundles)."
         )
 
 
@@ -955,6 +990,274 @@ def update_loop(loop_id: str | UUID, team_id: int, user: User | None, validated_
     return _loop_to_dto(loop)
 
 
+MAX_LOOP_SKILL_BUNDLES = 10
+# Decoded per-bundle ceiling. The request is JSON with base64 content and the endpoint
+# caps the declared body at 20MB before parsing, leaving roughly 15MB of decoded budget
+# per request — 10MB keeps this advertised limit honestly reachable within it instead of
+# promising the run-artifact 30MB that a JSON upload can never hit.
+MAX_LOOP_SKILL_BUNDLE_SIZE_BYTES = 10 * 1024 * 1024
+# Expansion ceilings, checked against the zip's central directory before anything is
+# stored. The sandbox extracts every stored bundle on every fire, so a zip bomb would
+# wedge each scheduled run; these mirror the client bundler's own build-time caps.
+MAX_LOOP_SKILL_BUNDLE_FILES = 1000
+MAX_LOOP_SKILL_BUNDLE_UNCOMPRESSED_BYTES = 30 * 1024 * 1024
+# Aggregate expansion ceiling across every bundle in one replace. The sandbox extracts
+# the whole set on every fire, so without this a loop could legitimately carry
+# MAX_LOOP_SKILL_BUNDLES * 30MB of highly-compressible content and inflate ~300MB per run.
+MAX_LOOP_SKILL_BUNDLES_TOTAL_UNCOMPRESSED_BYTES = 60 * 1024 * 1024
+# Ceiling on the zip central directory itself, checked from the trailer before ZipFile
+# parses it. This is what actually bounds parse-time ZipInfo allocation (zipfile walks
+# the directory by size, not by the forgeable entry-count field). 300KB comfortably fits
+# MAX_LOOP_SKILL_BUNDLE_FILES entries with long names while capping a hostile directory
+# at a few thousand records instead of hundreds of thousands.
+MAX_LOOP_SKILL_BUNDLE_CENTRAL_DIR_BYTES = 300 * 1024
+
+
+def _zip_trailer(content_bytes: bytes) -> tuple[int, int] | None:
+    """(entry count, central directory size in bytes) from the zip's
+    end-of-central-directory trailer, without materializing per-entry metadata. Mirrors
+    how `zipfile` locates the trailer (last well-formed record within the max 64KB
+    comment window), so the values validated here are the ones `ZipFile` will use.
+    Returns None when no trailer is found. Like `zipfile._EndRecData`, only the LAST
+    signature occurrence is considered — retrying earlier ones would both diverge from
+    what ZipFile will parse and let a tail stuffed with fake signatures force repeated
+    64KB scans. A last occurrence that fails validation falls through to ZipFile, which
+    rejects the archive as bad. The directory SIZE is the load-bearing number:
+    `ZipFile.infolist()` walks exactly that many directory bytes (one ZipInfo per
+    record, each at least 46 bytes) and ignores the count field, so bounding the size
+    bounds parse-time allocation even when the count field lies. Zip64 archives report
+    sentinel maxima in both fields, which exceed the caps and are rejected."""
+    eocd_size = 22
+    tail = content_bytes[-(eocd_size + 65535) :]
+    offset = tail.rfind(b"PK\x05\x06")
+    if offset == -1:
+        return None
+    record = tail[offset:]
+    if len(record) < eocd_size:
+        return None
+    comment_length = int.from_bytes(record[20:22], "little")
+    if len(record) != eocd_size + comment_length:
+        return None
+    entry_count = int.from_bytes(record[10:12], "little")
+    central_dir_size = int.from_bytes(record[12:16], "little")
+    return entry_count, central_dir_size
+
+
+def _delete_skill_bundle_objects(loop_id: UUID, paths: list[str]) -> None:
+    """Best-effort removal of loop skill bundle objects. Failures are logged, not raised:
+    a leaked object is recoverable garbage, while failing the caller's operation over
+    cleanup is not. Only for objects nothing references (this request's own discarded
+    uploads); superseded objects go through `_expire_skill_bundle_objects` instead."""
+    if not paths:
+        return
+    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
+
+    try:
+        object_storage.delete_objects(paths)
+    except Exception as exc:
+        logger.warning(
+            "loop.skill_bundle_cleanup_failed",
+            extra={"loop_id": str(loop_id), "paths": paths, "error": str(exc)},
+        )
+
+
+def _expire_skill_bundle_objects(loop_id: UUID, team_id: int, paths: list[str]) -> None:
+    """Retire superseded bundle objects via a short retention tag rather than deleting
+    them outright: a fire that committed just before this write may still be running its
+    post-commit S3 copy from these paths, and an immediate delete would fail that run
+    for no reason. The lifecycle rule reaps them after the grace day."""
+    if not paths:
+        return
+    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
+
+    for path in paths:
+        try:
+            object_storage.tag(path, {"ttl_days": "1", "team_id": str(team_id)})
+        except Exception as exc:
+            logger.warning(
+                "loop.skill_bundle_expire_failed",
+                extra={"loop_id": str(loop_id), "path": path, "error": str(exc)},
+            )
+
+
+def replace_loop_skill_bundles(
+    loop_id: str | UUID, team_id: int, user: User | None, *, bundles: list[dict]
+) -> LoopDTO | None:
+    """Replace the loop's attached skill bundles wholesale — the client sends the full
+    declarative set on every save, so there is no per-bundle add/remove surface. Bundle
+    bytes land under the loop's own S3 prefix (not any run's, so run retention never
+    reaps them). Every bundle is validated before the first byte is written, a failed
+    write deletes what this request already wrote, and the manifest swap happens under
+    a row lock with superseded paths read from the locked row — so neither a partial
+    failure nor a concurrent replace strands unreferenced objects. Owner-gated like
+    every other identity-bearing field. Returns `None` if the loop is not
+    found/reachable."""
+    import io  # noqa: PLC0415
+    import hashlib  # noqa: PLC0415
+    import zipfile  # noqa: PLC0415
+
+    from django.utils import timezone as django_timezone  # noqa: PLC0415
+
+    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
+
+    from products.tasks.backend.logic.services.staged_artifacts import get_safe_artifact_name  # noqa: PLC0415
+
+    if len(bundles) > MAX_LOOP_SKILL_BUNDLES:
+        raise LoopValidationError(f"A loop can carry at most {MAX_LOOP_SKILL_BUNDLES} skill bundles.")
+
+    loop = _fetch_loop_for_write(loop_id, team_id, user)
+    if loop is None:
+        return None
+    _authorize_update(loop, user, {"skill_bundles": bundles})
+
+    decoded: list[tuple[dict, bytes]] = []
+    total_uncompressed = 0
+    for bundle in bundles:
+        try:
+            content_bytes = base64.b64decode(bundle["content_base64"], validate=True)
+        except (ValueError, TypeError):
+            raise LoopValidationError(f"Skill bundle for '{bundle['skill_name']}' is not valid base64.")
+        if len(content_bytes) > MAX_LOOP_SKILL_BUNDLE_SIZE_BYTES:
+            raise LoopValidationError(
+                f"Skill bundle for '{bundle['skill_name']}' exceeds the "
+                f"{MAX_LOOP_SKILL_BUNDLE_SIZE_BYTES // (1024 * 1024)}MB limit."
+            )
+        if hashlib.sha256(content_bytes).hexdigest() != bundle["content_sha256"]:
+            raise LoopValidationError(f"Skill bundle for '{bundle['skill_name']}' does not match its declared sha256.")
+        # Trailer prechecks run BEFORE ZipFile parses the archive: infolist()
+        # materializes a ZipInfo per directory record, so a small zip carrying a huge
+        # central directory would otherwise allocate tens of MB of metadata just to be
+        # rejected. The directory-size cap is the real allocation bound; the count is a
+        # cheap fast-fail for honest oversized archives.
+        trailer = _zip_trailer(content_bytes)
+        if trailer is None:
+            raise LoopValidationError(f"Skill bundle for '{bundle['skill_name']}' is not a valid zip archive.")
+        entry_count, central_dir_size = trailer
+        if entry_count > MAX_LOOP_SKILL_BUNDLE_FILES or central_dir_size > MAX_LOOP_SKILL_BUNDLE_CENTRAL_DIR_BYTES:
+            raise LoopValidationError(
+                f"Skill bundle for '{bundle['skill_name']}' contains more than {MAX_LOOP_SKILL_BUNDLE_FILES} files."
+            )
+        # Central-directory metadata only — nothing is decompressed here. The parsed
+        # entry list is re-checked against the cap in case the trailer undercounted:
+        # a lying count can shave the fast-fail, but the size cap above already bounds
+        # how much ZipFile can allocate getting here.
+        try:
+            with zipfile.ZipFile(io.BytesIO(content_bytes)) as archive:
+                archive_entries = archive.infolist()
+        except zipfile.BadZipFile:
+            raise LoopValidationError(f"Skill bundle for '{bundle['skill_name']}' is not a valid zip archive.")
+        if len(archive_entries) > MAX_LOOP_SKILL_BUNDLE_FILES:
+            raise LoopValidationError(
+                f"Skill bundle for '{bundle['skill_name']}' contains more than {MAX_LOOP_SKILL_BUNDLE_FILES} files."
+            )
+        uncompressed_total = sum(entry.file_size for entry in archive_entries)
+        if uncompressed_total > MAX_LOOP_SKILL_BUNDLE_UNCOMPRESSED_BYTES:
+            raise LoopValidationError(
+                f"Skill bundle for '{bundle['skill_name']}' expands to more than "
+                f"{MAX_LOOP_SKILL_BUNDLE_UNCOMPRESSED_BYTES // (1024 * 1024)}MB."
+            )
+        total_uncompressed += uncompressed_total
+        if total_uncompressed > MAX_LOOP_SKILL_BUNDLES_TOTAL_UNCOMPRESSED_BYTES:
+            raise LoopValidationError(
+                "The loop's skill bundles together expand to more than "
+                f"{MAX_LOOP_SKILL_BUNDLES_TOTAL_UNCOMPRESSED_BYTES // (1024 * 1024)}MB."
+            )
+        decoded.append((bundle, content_bytes))
+
+    prefix = loop.get_skill_bundle_s3_prefix()
+    entries: list[dict] = []
+    written_paths: list[str] = []
+    try:
+        for bundle, content_bytes in decoded:
+            bundle_id = uuid4().hex
+            safe_name = get_safe_artifact_name(bundle["file_name"])
+            storage_path = f"{prefix}/{bundle_id[:8]}_{safe_name}"
+            object_storage.write(storage_path, content_bytes, {"ContentType": "application/zip"})
+            written_paths.append(storage_path)
+            try:
+                object_storage.tag(storage_path, {"team_id": str(loop.team_id)})
+            except Exception as exc:
+                logger.warning(
+                    "loop.skill_bundle_tag_failed",
+                    extra={"loop_id": str(loop.id), "storage_path": storage_path, "error": str(exc)},
+                )
+            entries.append(
+                {
+                    "id": bundle_id,
+                    "name": safe_name,
+                    "type": "skill_bundle",
+                    "source": "posthog_code_skill",
+                    "size": len(content_bytes),
+                    "content_type": "application/zip",
+                    "storage_path": storage_path,
+                    "uploaded_at": django_timezone.now().isoformat(),
+                    "metadata": {
+                        "skill_name": bundle["skill_name"],
+                        "skill_source": bundle["skill_source"],
+                        "content_sha256": bundle["content_sha256"],
+                        "bundle_format": bundle["bundle_format"],
+                        "schema_version": 1,
+                    },
+                }
+            )
+    except Exception:
+        _delete_skill_bundle_objects(loop.id, written_paths)
+        raise
+
+    # Previous paths come from the row read under the lock, not the earlier fetch: if a
+    # concurrent replace committed in between, its objects are what this swap supersedes
+    # and must be the ones deleted, or they'd be stranded with no manifest referencing them.
+    # A delete that committed in between is re-checked the same way — its lock-holder
+    # already cleared the manifest, so this request must discard its own uploads instead
+    # of resurrecting bundles on a deleted loop.
+    previous_paths: list[str] = []
+    lost_delete_race = False
+    denied: LoopPermissionError | None = None
+    try:
+        with transaction.atomic():
+            locked = Loop.objects.unscoped().select_for_update().get(pk=loop.pk)
+            if locked.deleted:
+                lost_delete_race = True
+            else:
+                try:
+                    # Ownership can change (takeover) while the bundle bytes were uploading,
+                    # so the swap is re-authorized against the row as locked — otherwise a
+                    # former owner's in-flight replace lands a skill that every future fire
+                    # executes under the new owner's credentials.
+                    _authorize_update(locked, user, {"skill_bundles": bundles})
+                except LoopPermissionError as exc:
+                    denied = exc
+                else:
+                    previous_paths = [
+                        entry["storage_path"]
+                        for entry in (locked.skill_bundles or [])
+                        if isinstance(entry, dict) and entry.get("storage_path")
+                    ]
+                    locked.skill_bundles = entries
+                    locked.save(update_fields=["skill_bundles", "updated_at"])
+    except Exception:
+        # A failed swap (lock timeout, database error) rolls back the manifest but not
+        # the objects this request already wrote — release them before surfacing.
+        _delete_skill_bundle_objects(loop.id, written_paths)
+        raise
+
+    if lost_delete_race:
+        _delete_skill_bundle_objects(loop.id, written_paths)
+        return None
+
+    if denied is not None:
+        _delete_skill_bundle_objects(loop.id, written_paths)
+        raise denied
+
+    new_paths = {entry["storage_path"] for entry in entries}
+    _expire_skill_bundle_objects(
+        loop.id, loop.team_id, [path for path in previous_paths if path.startswith(prefix) and path not in new_paths]
+    )
+
+    loop.refresh_from_db()
+    return _loop_to_dto(loop)
+
+
 def soft_delete_loop(loop_id: str | UUID, team_id: int, user: User | None) -> bool:
     loop = _fetch_loop_for_write(loop_id, team_id, user)
     if loop is None:
@@ -969,8 +1272,22 @@ def soft_delete_loop(loop_id: str | UUID, team_id: int, user: User | None) -> bo
     elif not (_is_owner(loop, user) or _is_team_admin(loop, user)):
         raise LoopPermissionError("Only the owner or a project admin may delete a loop.")
 
-    loop.deleted = True
-    loop.save(update_fields=["deleted", "updated_at"])
+    # A deleted loop never fires again, so its skill bundle objects are dead weight with
+    # no retention TTL — release them now and clear the manifest so the row stays honest.
+    # The paths are read under the same row lock the skill-bundle replace takes, so a
+    # replace racing this delete either commits first (its objects are what we read and
+    # remove here) or locks after us, sees `deleted`, and cleans up its own uploads.
+    with transaction.atomic():
+        locked = Loop.objects.unscoped().select_for_update().get(pk=loop.pk)
+        bundle_paths = [
+            entry["storage_path"]
+            for entry in (locked.skill_bundles or [])
+            if isinstance(entry, dict) and entry.get("storage_path")
+        ]
+        locked.deleted = True
+        locked.skill_bundles = []
+        locked.save(update_fields=["deleted", "skill_bundles", "updated_at"])
+    _expire_skill_bundle_objects(loop.id, loop.team_id, bundle_paths)
     loop_service.delete_loop_schedules(loop)
     return True
 
@@ -1242,6 +1559,9 @@ __all__ = [
     "LoopRunDTO",
     "LoopRunPageDTO",
     "LoopScheduleSyncStatus",
+    "LoopSkillBundleDTO",
+    "MAX_LOOP_SKILL_BUNDLES",
+    "MAX_LOOP_SKILL_BUNDLE_SIZE_BYTES",
     "LoopTriggerDTO",
     "LoopTriggerType",
     "LoopVisibility",
@@ -1266,6 +1586,7 @@ __all__ = [
     "pause_loops_for_removed_member",
     "pause_loops_referencing_integrations",
     "preview_loop",
+    "replace_loop_skill_bundles",
     "repository_accessible_via_integration",
     "sandbox_environment_queryset",
     "soft_delete_loop",

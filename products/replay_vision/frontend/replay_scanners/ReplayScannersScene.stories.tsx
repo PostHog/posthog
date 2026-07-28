@@ -43,6 +43,7 @@ const scanner = (overrides: Partial<ReplayScannerApi> = {}): ReplayScannerApi =>
         created_at: '2026-05-12T00:00:00Z',
         updated_at: '2026-05-12T00:00:00Z',
         created_by: null,
+        credits_this_month: 0,
         ...overrides,
     }) as ReplayScannerApi
 
@@ -54,6 +55,7 @@ const scanners = {
         scanner({
             id: '00000000-0000-0000-0000-00000000000a',
             name: 'Confused checkout',
+            credits_this_month: 1250,
             description: 'Flags sessions where the user hesitated at payment.',
             scanner_type: 'monitor',
             sampling_rate: 1,
@@ -62,6 +64,7 @@ const scanners = {
         scanner({
             id: '00000000-0000-0000-0000-00000000000b',
             name: 'Frustration tags',
+            credits_this_month: 0,
             scanner_type: 'classifier',
             scanner_config: { prompt: 'Tag this session.', tags: ['rage-click', 'dead-end'], multi_label: true },
             enabled: false,
@@ -71,6 +74,7 @@ const scanners = {
         scanner({
             id: '00000000-0000-0000-0000-00000000000c',
             name: 'Session summary',
+            credits_this_month: 5,
             scanner_type: 'summarizer',
             scanner_config: { prompt: 'Summarize this session.', length: 'medium' },
             sampling_rate: 0.05,
@@ -79,6 +83,7 @@ const scanners = {
         scanner({
             id: '00000000-0000-0000-0000-00000000000d',
             name: 'Intent score',
+            credits_this_month: 320,
             scanner_type: 'scorer',
             scanner_config: { prompt: 'Score this session.', scale: { min: 0, max: 10 } },
             sampling_rate: 1,

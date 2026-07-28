@@ -135,6 +135,17 @@ pub struct Config {
     #[envconfig(default = "false")]
     pub clickhouse_secure: bool,
 
+    /// Validate the server certificate against the public root CAs. Defaults on so an unconfigured
+    /// deployment fails closed; the chart sets it to `false` for internal ClickHouse.
+    #[envconfig(default = "true")]
+    pub clickhouse_verify: bool,
+
+    /// PEM CA bundle to validate the ClickHouse server certificate against, as Django's
+    /// `CLICKHOUSE_CA`. Naming a CA is an explicit request to authenticate the server, so it wins
+    /// over `clickhouse_verify` rather than being downgraded by an inherited `CLICKHOUSE_VERIFY=false`.
+    #[envconfig(default = "")]
+    pub clickhouse_ca: String,
+
     #[envconfig(from = "REALTIME_COHORT_TEAM_ALLOWLIST", default = "2")]
     pub team_allowlist: TeamAllowlist,
 
@@ -180,6 +191,53 @@ pub struct Config {
 
     #[envconfig(default = "100")]
     pub seeder_queue_full_backoff_ms: u64,
+
+    /// Enable the dark-by-default automatic reconcile dispatch driver. Enabling it without
+    /// [`Config::seeder_confirm_register_backfilled`] is a startup error.
+    #[envconfig(default = "false")]
+    pub seeder_reconcile_auto_dispatch_enabled: bool,
+
+    /// Attest that every run's data tiles were seeded after membership-register writers deployed —
+    /// the automatic equivalent of the CLI's `--confirm-register-backfilled`. Required to arm
+    /// automatic dispatch.
+    #[envconfig(default = "false")]
+    pub seeder_confirm_register_backfilled: bool,
+
+    /// How many reconcile dispatches this replica may run at once — the bound on how hard a backlog
+    /// of completed runs can press the producer queue the chunk pipeline shares. Separate from
+    /// [`Config::seeder_max_inflight_tiles`], which bounds a single dispatch.
+    #[envconfig(default = "4")]
+    pub seeder_reconcile_max_concurrent_dispatches: usize,
+
+    /// The membership-change topic whose high watermarks anchor the marker watcher's start
+    /// positions, captured at dispatch time. The observer reads markers from the same topic.
+    #[envconfig(default = "cohort_membership_changed_shadow")]
+    pub cohort_membership_changed_topic: String,
+
+    /// Enable the dark-by-default reconcile observer: the marker-watch task and the driver's
+    /// observation pass. A separate gate from auto-dispatch — observation can run against
+    /// CLI-dispatched runs without auto-dispatch, and vice versa.
+    #[envconfig(default = "false")]
+    pub seeder_reconcile_observer_enabled: bool,
+
+    /// The seed processor's consumer group id. The observer queries this group's committed offsets on
+    /// the seed topic as the reconcile-liveness signal; it never commits to it.
+    #[envconfig(default = "cohort-stream-seeds")]
+    pub kafka_seed_consumer_group: String,
+
+    /// Timeout for the seed-group OffsetFetch and membership-topic watermark metadata calls the
+    /// observer makes.
+    #[envconfig(default = "10000")]
+    pub seeder_reconcile_offsets_timeout_ms: u64,
+
+    /// Flush the marker watcher's accumulated bits and positions at least this often.
+    #[envconfig(default = "5000")]
+    pub seeder_reconcile_persist_interval_ms: u64,
+
+    /// Flush the marker watcher after this many consumed messages even if the interval has not
+    /// elapsed, bounding how many observations a crash can lose.
+    #[envconfig(default = "5000")]
+    pub seeder_reconcile_persist_max_batch: u64,
 }
 
 impl Config {
@@ -286,6 +344,14 @@ mod tests {
                 .cohort_partition_count,
             8
         );
+    }
+
+    /// The fail-closed TLS posture lives entirely in these defaults, so pin them.
+    #[test]
+    fn clickhouse_tls_defaults_are_fail_closed() {
+        let config = default_config();
+        assert!(config.clickhouse_verify);
+        assert!(config.clickhouse_ca.is_empty());
     }
 
     #[test]

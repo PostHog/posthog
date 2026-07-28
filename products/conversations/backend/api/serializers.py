@@ -99,7 +99,7 @@ class WidgetMessageSerializer(WidgetAuthSerializer):
     """Serializer for incoming widget messages."""
 
     distinct_id = serializers.CharField(required=False, max_length=400, help_text="PostHog distinct_id")
-    message = serializers.CharField(required=True, max_length=5000, help_text="Message content")
+    message = serializers.CharField(required=True, max_length=10000, help_text="Message content")
     # JSONField (not DictField) so malformed values reach the sanitizing validators
     # instead of being rejected with a 400 before they run
     traits = serializers.JSONField(

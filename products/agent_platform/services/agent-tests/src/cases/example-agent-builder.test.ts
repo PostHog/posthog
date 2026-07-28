@@ -4,7 +4,7 @@
  * The Agent Builder authors + operates other agents through the PostHog MCP
  * (one `spec.mcps[]` entry authed by the trigger-edge PostHog bearer), acting
  * as the asking user. It keeps only its own runtime natives (`@posthog/memory-*`
- * plus `@posthog/web-search`) and the PostHog Code client/UI tools. Destructive authoring ops
+ * plus `@posthog/web-search`) and the PostHog Desktop client/UI tools. Destructive authoring ops
  * (`promote` / `archive` / `destroy`) are approval-gated on the MCP `tools[]`
  * via `level: 'approve'` + `approval_policy`, so the platform — not
  * just the prompt — holds them. This case pins that wiring net; drift here
@@ -110,7 +110,7 @@ describe('example: agent-builder bundle', () => {
     it('uses trigger-edge PostHog auth without provisioning a second OAuth connection', async () => {
         const { spec, files } = await loadBundle()
         const parsed = AgentSpecSchema.parse(spec)
-        // PostHog Code already seeds `posthog_api` from trigger auth. An empty
+        // PostHog Desktop already seeds `posthog_api` from trigger auth. An empty
         // list selects the implicit seed-only provider instead of offering a
         // redundant OAuth connection that cannot improve the session identity.
         expect(parsed.identity_providers).toEqual([])

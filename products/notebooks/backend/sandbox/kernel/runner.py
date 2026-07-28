@@ -13,6 +13,7 @@ sql_v2_kernel_architecture.md.
 """
 
 import json
+import time
 import logging
 import threading
 import urllib.error
@@ -76,6 +77,7 @@ def execute_run(payload: dict[str, Any]) -> None:
             logger.warning("nb_kernel ignoring duplicate /run for in-flight run %s", run_id)
             return
         _cancel_states[run_id] = {"event": cancel_event, "kernel": is_kernel_node}
+    started = time.monotonic()
     try:
         # Interrupt-caused failures are labeled at the source (DataPlaneInterrupted, a
         # SIGINT'd cell), so a real failure that merely raced the cancel keeps its error —
@@ -87,6 +89,11 @@ def execute_run(payload: dict[str, Any]) -> None:
     finally:
         with _cancel_states_lock:
             _cancel_states.pop(run_id, None)
+    # The whole sandbox-side run — dominated by the phases below it but also covering
+    # kernel boot and queueing behind another run's cell. Backed out into metrics by the
+    # backend callback (sql_v2_metrics.py).
+    timings = result.setdefault("timings", {})
+    timings["sandbox_total_s"] = round(time.monotonic() - started, 3)
     _post_callback(payload["callback_url"], payload["callback_token"], result)
 
 
@@ -156,24 +163,35 @@ def _build_envelope(payload: dict[str, Any], cancel_event: threading.Event | Non
 
     page_limit = int(payload.get("page_limit") or _DEFAULT_PAGE_LIMIT)
     cache_limit = max(int(payload.get("cache_limit") or _DEFAULT_CACHE_LIMIT), page_limit)
+    # The data-plane wait for the display fetch — the same phase a kernel node's input
+    # materialization reports, so one metric covers both lanes. Attached on error paths
+    # too: a run that died waiting on the data plane must still report where its time went.
+    timings: dict[str, float] = {}
     try:
-        result = _fetch_capped_page(payload, limit=cache_limit, offset=0, cancel_event=cancel_event)
+        fetch_started = time.monotonic()
+        try:
+            result = _fetch_capped_page(payload, limit=cache_limit, offset=0, cancel_event=cancel_event)
+        finally:
+            timings["input_wait_s"] = round(time.monotonic() - fetch_started, 3)
         rows = envelope.json_safe_rows(result["rows"])
         run_id = str(payload.get("run_id") or "")
         if run_id:
             _cache_result(run_id, result["columns"], result["types"], rows, complete=not result["has_more"])
-        return envelope.from_columns_and_rows(
+        built = envelope.from_columns_and_rows(
             result["columns"],
             result["rows"][:page_limit],
             result["types"],
             has_more=result["has_more"] or len(rows) > page_limit,
         )
     except data_plane.DataPlaneInterrupted:
-        return envelope.as_interrupted(envelope.from_error(envelope.INTERRUPTED_MESSAGE))
+        built = envelope.as_interrupted(envelope.from_error(envelope.INTERRUPTED_MESSAGE))
     except data_plane.DataPlaneError as exc:
-        return envelope.from_error(str(exc))
+        built = envelope.from_error(str(exc))
     except Exception as exc:  # noqa: BLE001 — any failure must still produce a callback
-        return envelope.from_error(f"Run failed in the sandbox: {exc}")
+        built = envelope.from_error(f"Run failed in the sandbox: {exc}")
+    if timings:
+        built["timings"] = timings
+    return built
 
 
 def fetch_page(payload: dict[str, Any]) -> dict[str, Any]:
