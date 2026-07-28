@@ -189,7 +189,7 @@ function SelectedColumnRow({ column }: { column: LogsColumnConfig }): JSX.Elemen
 export function LogsColumnConfigurator(): JSX.Element {
     const { id } = useValues(logsViewerLogic)
     const configuratorLogic = logsColumnConfiguratorLogic({ id })
-    const { isOpen, draft, draftErrors } = useValues(configuratorLogic)
+    const { isOpen, draft, draftErrors, addableBuiltInColumns } = useValues(configuratorLogic)
     const { openConfigurator, closeConfigurator, setDraft, addDraftColumn, moveDraftColumn, applyDraft } =
         useActions(configuratorLogic)
 
@@ -261,6 +261,28 @@ export function LogsColumnConfigurator(): JSX.Element {
                     </div>
                     <div className="w-full">
                         <h4 className="secondary uppercase text-secondary">Available columns</h4>
+                        {/*
+                         * Built-ins are offered as their own quick-add row instead of through the
+                         * taxonomic list below, because the Logs taxonomic group is shared with log
+                         * filters, drop rules and alerts. Adding timestamp and source to that group
+                         * would surface them as filterable properties on all of those surfaces.
+                         */}
+                        {addableBuiltInColumns.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-1 pb-2">
+                                {addableBuiltInColumns.map((type) => (
+                                    <LemonButton
+                                        key={type}
+                                        size="small"
+                                        type="secondary"
+                                        icon={<IconPlusSmall />}
+                                        onClick={() => addDraftColumn({ type })}
+                                        data-attr={`logs-add-built-in-column-${type}`}
+                                    >
+                                        {LOGS_COLUMN_REGISTRY[type].label}
+                                    </LemonButton>
+                                ))}
+                            </div>
+                        )}
                         <div className="h-[min(480px,60vh)]">
                             <AutoSizer
                                 renderProp={({ height, width }) =>

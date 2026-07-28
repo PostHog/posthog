@@ -45,6 +45,9 @@ export const DEFAULT_LOGS_COLUMNS: LogsColumnConfig[] = [
     { id: 'message', type: 'message' },
 ]
 
+/** Every built-in column type, in the order the configurator offers them. */
+export const BUILT_IN_COLUMN_TYPES = Object.keys(LOGS_COLUMN_REGISTRY) as Exclude<LogsColumnType, 'custom'>[]
+
 /**
  * Message is pinned to the end: it's the flex fill column, and the row FAB (whose scroll
  * buttons drive the message cell) anchors to the row's right edge.

@@ -104,6 +104,18 @@ describe('logsColumnConfiguratorLogic', () => {
         expect(logic.values.draft.find((c) => c.expression === 'attributes.http.url')).toBeTruthy()
     })
 
+    it('offers every built-in column that is not visible, so a removed one can be re-added', () => {
+        // Defaults are timestamp + message, leaving the rest of the registry addable
+        expect(logic.values.addableBuiltInColumns).toEqual(['level', 'source', 'trace_id', 'span_id'])
+
+        const timestampId = logic.values.draft.find((c) => c.type === 'timestamp')!.id
+        logic.actions.removeDraftColumn(timestampId)
+        expect(logic.values.addableBuiltInColumns).toContain('timestamp')
+
+        logic.actions.addDraftColumn({ type: 'timestamp' })
+        expect(logic.values.addableBuiltInColumns).not.toContain('timestamp')
+    })
+
     it('adding a column from the available-columns list preserves an in-progress add-column form', () => {
         logic.actions.setNewColumnType('custom')
         logic.actions.setNewColumnName('Status')
