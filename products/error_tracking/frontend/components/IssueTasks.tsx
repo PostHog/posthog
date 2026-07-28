@@ -62,7 +62,8 @@ const createTaskForm = (
             if (exception.stacktrace && exception.stacktrace.type === 'resolved') {
                 description += `## Stack Trace\n\n`
 
-                const frames = exception.stacktrace.frames.slice().reverse() // Reverse to show call order
+                // stored order is canonical bottom-up; present most recent call first
+                const frames = exception.stacktrace.frames.slice().reverse()
                 frames.forEach((frame, index) => {
                     description += `**${index + 1}.** `
                     const resolvedName = formatResolvedName(frame)
