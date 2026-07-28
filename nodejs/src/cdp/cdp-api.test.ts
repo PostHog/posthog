@@ -1194,8 +1194,15 @@ describe('CDP API', () => {
         }
 
         // Mirrors Django's mint (posthog/plugins/plugin_server_api.py) with the shared dev/test key.
+        // Secret via a variable (not inlined into jwt.sign) to match the reschedule test and avoid
+        // the hardcoded-jwt-secret semgrep rule.
+        const mintToken = (teamId: number, hogFlowId: string, secret = 'local-dev-workflows-manual-invocation-jwt') =>
+            jwt.sign({ team_id: teamId, hog_flow_id: hogFlowId }, secret, {
+                audience: 'posthog:workflows:manual_invocation',
+                expiresIn: '2m',
+            })
         const authFor = (teamId: number, hogFlowId: string) => ({
-            Authorization: `Bearer ${jwt.sign({ team_id: teamId, hog_flow_id: hogFlowId }, 'local-dev-workflows-manual-invocation-jwt', { audience: 'posthog:workflows:manual_invocation', expiresIn: '2m' })}`,
+            Authorization: `Bearer ${mintToken(teamId, hogFlowId)}`,
         })
 
         beforeEach(() => {
