@@ -24,6 +24,38 @@ class TestSlackImageIngest(SimpleTestCase):
         assert image_bytes is None
         mock_build_opener.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("sign_in_page_for_a_pdf", "text/html; charset=utf-8", "application/pdf", None),
+            ("sign_in_page_for_an_image", "text/html", "image/png", None),
+            ("genuine_html_attachment", "text/html", "text/html", b"<html>report</html>"),
+            ("matching_content_type", "application/pdf", "application/pdf", b"%PDF-1.4 fake content"),
+        ]
+    )
+    @patch("products.conversations.backend.slack.build_opener")
+    def test_download_rejects_slack_sign_in_page(
+        self,
+        _label: str,
+        content_type: str,
+        expected_mimetype: str,
+        expected_bytes: bytes | None,
+        mock_build_opener: MagicMock,
+    ) -> None:
+        body = expected_bytes or b"<html>Sign in to Slack</html>"
+        fake_response = MagicMock()
+        fake_response.getcode.return_value = 200
+        fake_response.headers = {"Content-Type": content_type}
+        fake_response.read.return_value = body
+        mock_build_opener.return_value.open.return_value.__enter__.return_value = fake_response
+
+        payload = _download_slack_image_bytes(
+            "https://files.slack.com/files-pri/T/F/report.pdf",
+            "xoxb-token",
+            expected_mimetype=expected_mimetype,
+        )
+
+        assert payload == expected_bytes
+
     @patch("products.conversations.backend.slack.save_file_to_uploaded_media")
     @patch("products.conversations.backend.slack._download_slack_image_bytes")
     def test_extract_slack_files_copies_to_uploaded_media(self, mock_download: MagicMock, mock_save: MagicMock) -> None:
@@ -50,16 +82,30 @@ class TestSlackImageIngest(SimpleTestCase):
         mock_download.assert_called_once()
         mock_save.assert_called_once()
 
+    @parameterized.expand(
+        [
+            ("with_permalink", "https://acme.slack.com/files/U1/F123/test.jpg", True),
+            ("with_untrusted_permalink", "https://phish.example.com/files/U1/F123/test.jpg", False),
+            ("without_permalink", None, False),
+        ]
+    )
     @patch("products.conversations.backend.slack.save_file_to_uploaded_media")
     @patch("products.conversations.backend.slack._download_slack_image_bytes")
-    def test_extract_slack_files_skips_failed_downloads(self, mock_download: MagicMock, mock_save: MagicMock) -> None:
+    def test_extract_slack_files_falls_back_to_slack_link_when_download_fails(
+        self,
+        _label: str,
+        permalink: str | None,
+        expects_link: bool,
+        mock_download: MagicMock,
+        mock_save: MagicMock,
+    ) -> None:
         mock_download.return_value = None
         fake_team = MagicMock()
         fake_team.id = 1
         fake_client = MagicMock()
         fake_client.token = "xoxb-token"
 
-        files = [
+        files: list[dict] = [
             {
                 "id": "F123",
                 "mimetype": "image/jpeg",
@@ -67,10 +113,21 @@ class TestSlackImageIngest(SimpleTestCase):
                 "url_private_download": "https://files.slack.com/files-pri/T/F/test.jpg",
             }
         ]
-        images = extract_slack_files(files, fake_team, fake_client)
+        if permalink:
+            files[0]["permalink"] = permalink
+        attachments = extract_slack_files(files, fake_team, fake_client)
+        images, file_attachments = split_slack_attachments(attachments)
 
-        assert images == []
         mock_save.assert_not_called()
+        # Nothing is re-hosted, so nothing can be inlined
+        assert images == []
+        if expects_link:
+            # Rendered as a link instead of vanishing from the ticket
+            assert file_attachments == [
+                {"url": permalink, "name": "test.jpg", "mimetype": "image/jpeg", "unavailable": True}
+            ]
+        else:
+            assert file_attachments == []
 
     @patch("products.conversations.backend.slack.save_file_to_uploaded_media")
     @patch("products.conversations.backend.slack._download_slack_image_bytes")

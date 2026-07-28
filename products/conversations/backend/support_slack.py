@@ -22,6 +22,10 @@ if TYPE_CHECKING:
 
 SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES = ("slack.com", "slack-edge.com", "slack-files.com")
 
+# Attachment sync in both directions depends on these. Older installs were authorized without
+# them, so the settings page asks those teams to reconnect.
+SUPPORT_SLACK_FILE_SCOPES = frozenset({"files:read", "files:write"})
+
 
 def get_support_slack_settings() -> dict:
     return get_instance_settings(
@@ -29,6 +33,17 @@ def get_support_slack_settings() -> dict:
             "SUPPORT_SLACK_SIGNING_SECRET",
         ]
     )
+
+
+def supporthog_missing_file_scopes(team: "Team") -> list[str]:
+    """File scopes this install hasn't granted, for logging why attachments failed.
+
+    Installs authorized before we recorded scopes report both as missing, which is what
+    they are: neither was requested at the time.
+    """
+    settings = team.conversations_settings
+    granted = settings.get("slack_scopes") if isinstance(settings, dict) else None
+    return sorted(SUPPORT_SLACK_FILE_SCOPES.difference(granted or []))
 
 
 def get_support_slack_bot_token(team: "Team") -> str:
@@ -89,6 +104,7 @@ def save_supporthog_slack_token(
     is_impersonated_session: bool,
     bot_token: str,
     slack_team_id: str,
+    granted_scopes: list[str] | None = None,
 ) -> None:
     config = get_or_create_team_extension(team, TeamConversationsSlackConfig)
     old_token = config.slack_bot_token
@@ -96,6 +112,10 @@ def save_supporthog_slack_token(
 
     settings = team.conversations_settings or {}
     settings["slack_enabled"] = True
+    if granted_scopes is not None:
+        # Left untouched when the caller doesn't know them, so we never replace a real
+        # install's scopes with an empty list and prompt a pointless reconnect.
+        settings["slack_scopes"] = sorted(set(granted_scopes))
     team.conversations_settings = settings
 
     with transaction.atomic():
@@ -149,6 +169,7 @@ def clear_supporthog_slack_token(
     settings["slack_enabled"] = False
     settings.pop("slack_bot_display_name", None)
     settings.pop("slack_bot_icon_url", None)
+    settings.pop("slack_scopes", None)
     team.conversations_settings = settings
 
     with transaction.atomic():
