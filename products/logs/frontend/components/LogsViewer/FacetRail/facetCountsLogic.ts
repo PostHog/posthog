@@ -1,4 +1,17 @@
-import { MakeLogicType, actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    BreakPointFunction,
+    MakeLogicType,
+    actions,
+    connect,
+    events,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
@@ -207,10 +220,17 @@ export const facetCountsLogic = kea<facetCountsLogicType>([
 
         // Fetch each facet independently and merge into the existing record. allSettled (not all) so
         // one facet's failed request leaves the others' counts intact instead of wiping the batch.
-        const mergeFetched = async (facets: FacetConfig[]): Promise<Record<string, _LogFacetValueApi[]>> => {
+        // Takes the caller's breakpoint so it can bail out right after the network round-trip: the
+        // facet rail (and this logic) unmounts when the user collapses it, and reading `values.facetValues`
+        // once unmounted throws "Can not find path ... in the store" instead of just discarding the result.
+        const mergeFetched = async (
+            facets: FacetConfig[],
+            breakpoint: BreakPointFunction
+        ): Promise<Record<string, _LogFacetValueApi[]>> => {
             const settled = await Promise.allSettled(
                 facets.map(async (facet) => [facet.key, await fetchFacet(facet)] as const)
             )
+            breakpoint()
             const fetched = settled
                 .filter(
                     (s): s is PromiseFulfilledResult<readonly [string, _LogFacetValueApi[]]> => s.status === 'fulfilled'
@@ -229,18 +249,17 @@ export const facetCountsLogic = kea<facetCountsLogicType>([
                         const facets = facetKeys
                             ? values.visibleFacets.filter((f) => facetKeys.includes(f.key))
                             : values.visibleFacets
-                        const result = await mergeFetched(facets)
-                        breakpoint()
-                        return result
+                        return await mergeFetched(facets, breakpoint)
                     },
                     // A single facet's type-ahead search. Separate action so its breakpoint is independent:
                     // typing in one facet's search must not cancel a still-debouncing full reload.
                     loadFacetValuesForKey: async (facetKey: string, breakpoint) => {
                         await breakpoint(300)
                         const facet = FACETS.find((f) => f.key === facetKey)
-                        const result = facet ? await mergeFetched([facet]) : values.facetValues
-                        breakpoint()
-                        return result
+                        if (!facet) {
+                            return values.facetValues
+                        }
+                        return await mergeFetched([facet], breakpoint)
                     },
                 },
             ],
