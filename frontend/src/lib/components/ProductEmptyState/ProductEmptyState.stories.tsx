@@ -2,6 +2,8 @@ import { Meta } from '@storybook/react'
 
 import type { Mocks } from '~/mocks/utils'
 
+import { experimentsEmptyState } from 'products/experiments/frontend/emptyState/experimentsEmptyState'
+import { featureFlagsEmptyState } from 'products/feature_flags/frontend/emptyState/featureFlagsEmptyState'
 import { mcpAnalyticsEmptyState } from 'products/mcp_analytics/frontend/emptyState/mcpAnalyticsEmptyState'
 
 import { ProductEmptyState } from './ProductEmptyState'
@@ -51,4 +53,20 @@ export const MCPAnalyticsWithoutWizard: ProductEmptyStateStory = productEmptySta
     mcpAnalyticsEmptyState,
     'needs-setup',
     { config: { wizard: undefined }, mocks: mcpSignalMocks(false) }
+)
+
+// The detection logics for flags and experiments count entities on mount - answer
+// with an empty list so the story renders the shipped needs-setup surface.
+const emptyEntityList = { count: 0, next: null, previous: null, results: [] }
+
+export const FeatureFlagsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    featureFlagsEmptyState,
+    'needs-setup',
+    { mocks: { get: { '/api/projects/:team_id/feature_flags/': [200, emptyEntityList] } } }
+)
+
+export const ExperimentsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    experimentsEmptyState,
+    'needs-setup',
+    { mocks: { get: { '/api/projects/:team_id/experiments/': [200, emptyEntityList] } } }
 )

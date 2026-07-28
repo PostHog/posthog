@@ -1,0 +1,274 @@
+.FlagPreview {
+    --flag-preview-accent: var(--empty-state-accent, var(--color-primary-500));
+
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+
+    // Hidden flag state. A direct child of .FlagPreview so `:checked ~` reaches both cards.
+    &__checkbox {
+        position: absolute;
+        width: 0;
+        height: 0;
+        pointer-events: none;
+        opacity: 0;
+    }
+
+    &__panel,
+    &__app {
+        overflow: hidden;
+        background: var(--color-bg-surface-primary);
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
+    }
+
+    &__head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 0.75rem;
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__title {
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    &__rows {
+        display: flex;
+        flex-direction: column;
+        padding: 0.25rem 0.5rem;
+    }
+
+    &__row {
+        display: flex;
+        gap: 0.625rem;
+        align-items: center;
+        padding: 0.4375rem 0.5rem;
+        border-radius: var(--radius);
+    }
+
+    &__row--hero {
+        cursor: pointer;
+        user-select: none;
+        transition: background-color 150ms ease;
+    }
+
+    &__row--hero:hover {
+        background: var(--color-bg-fill-highlight-50);
+    }
+
+    &__key {
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+        color: var(--color-text-primary);
+    }
+
+    &__rollout {
+        margin-left: auto;
+        font-family: var(--font-mono);
+        font-size: 0.6875rem;
+        color: var(--color-text-secondary);
+    }
+
+    &__rollout--live {
+        color: var(--flag-preview-accent);
+    }
+
+    // Mini toggle, mimicking the flag list's enabled switch.
+    &__switch {
+        position: relative;
+        flex-shrink: 0;
+        width: 26px;
+        height: 15px;
+        background: var(--color-fill-secondary);
+        border-radius: 999px;
+        transition: background-color 200ms ease;
+
+        &::after {
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 11px;
+            height: 11px;
+            content: '';
+            background: var(--color-bg-surface-primary);
+            border-radius: 50%;
+            box-shadow: 0 1px 2px rgb(0 0 0 / 25%);
+            transition: transform 200ms ease;
+        }
+    }
+
+    &__switch--on {
+        background: var(--flag-preview-accent);
+
+        &::after {
+            transform: translateX(11px);
+        }
+    }
+
+    &__hint {
+        padding: 0 0.75rem 0.625rem;
+        font-size: 0.6875rem;
+        color: var(--color-text-secondary);
+    }
+
+    // Browser chrome for the mini app.
+    &__chrome {
+        display: flex;
+        gap: 0.3125rem;
+        align-items: center;
+        padding: 0.4375rem 0.75rem;
+        background: var(--color-bg-surface-secondary);
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__chrome-dot {
+        width: 7px;
+        height: 7px;
+        background: var(--color-fill-secondary);
+        border-radius: 50%;
+    }
+
+    &__url {
+        margin-left: 0.375rem;
+        font-family: var(--font-mono);
+        font-size: 0.625rem;
+        color: var(--color-text-tertiary);
+    }
+
+    &__screen {
+        display: flex;
+        flex-direction: column;
+        gap: 0.625rem;
+        padding: 0.875rem;
+    }
+
+    &__item {
+        display: flex;
+        gap: 0.625rem;
+        align-items: center;
+    }
+
+    &__item-blob {
+        width: 34px;
+        height: 34px;
+        background: color-mix(in oklab, var(--flag-preview-accent) 18%, var(--color-bg-surface-secondary));
+        border-radius: var(--radius);
+    }
+
+    &__item-copy {
+        display: flex;
+        flex-direction: column;
+    }
+
+    &__item-name {
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    &__item-price {
+        font-size: 0.6875rem;
+        color: var(--color-text-secondary);
+    }
+
+    // The new-experience row the flag releases. Collapsed until the flag is on.
+    &__express {
+        max-height: 0;
+        padding: 0 0.625rem;
+        margin: 0;
+        overflow: hidden;
+        font-size: 0.6875rem;
+        font-weight: 600;
+        color: var(--flag-preview-accent);
+        background: color-mix(in oklab, var(--flag-preview-accent) 10%, transparent);
+        border: 1px solid transparent;
+        border-radius: var(--radius);
+        opacity: 0;
+        transition:
+            max-height 250ms ease,
+            padding 250ms ease,
+            opacity 250ms ease;
+    }
+
+    &__cta {
+        padding: 0.5rem 0.75rem;
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-align: center;
+        background: var(--color-fill-secondary);
+        border-radius: var(--radius);
+        transition:
+            background-color 250ms ease,
+            color 250ms ease;
+    }
+
+    // Flag-state visibility. The "on" variants only render once the checkbox is checked.
+    &__when-on {
+        display: none;
+    }
+}
+
+.FlagPreview__checkbox:checked ~ .FlagPreview__panel .FlagPreview__when-on,
+.FlagPreview__checkbox:checked ~ .FlagPreview__app .FlagPreview__when-on {
+    display: initial;
+}
+
+.FlagPreview__checkbox:checked ~ .FlagPreview__panel .FlagPreview__when-off,
+.FlagPreview__checkbox:checked ~ .FlagPreview__app .FlagPreview__when-off {
+    display: none;
+}
+
+.FlagPreview__checkbox:checked ~ .FlagPreview__panel .FlagPreview__row--hero .FlagPreview__switch {
+    background: var(--flag-preview-accent);
+
+    &::after {
+        transform: translateX(11px);
+    }
+}
+
+.FlagPreview__checkbox:checked ~ .FlagPreview__app .FlagPreview__express {
+    max-height: 3rem;
+    padding: 0.375rem 0.625rem;
+    border-color: color-mix(in oklab, var(--flag-preview-accent) 35%, transparent);
+    opacity: 1;
+}
+
+.FlagPreview__checkbox:checked ~ .FlagPreview__app .FlagPreview__cta {
+    color: var(--color-bg-surface-primary);
+    background: var(--flag-preview-accent);
+}
+
+// The checkbox stays keyboard-focusable while visually hidden, so the row it labels
+// needs a visible focus indicator (WCAG 2.4.7).
+.FlagPreview__checkbox:focus-visible ~ .FlagPreview__panel .FlagPreview__row--hero {
+    outline: 2px solid var(--flag-preview-accent);
+    outline-offset: 1px;
+}
+
+// Nudge attention at the hero switch until it's flipped.
+.FlagPreview:not(.FlagPreview--static)
+    .FlagPreview__checkbox:not(:checked)
+    ~ .FlagPreview__panel
+    .FlagPreview__row--hero
+    .FlagPreview__switch {
+    animation: FlagPreview__nudge 2.4s ease-in-out infinite;
+}
+
+@keyframes FlagPreview__nudge {
+    0%,
+    100% {
+        box-shadow: 0 0 0 0 color-mix(in oklab, var(--flag-preview-accent) 45%, transparent);
+    }
+
+    50% {
+        box-shadow: 0 0 0 4px color-mix(in oklab, var(--flag-preview-accent) 20%, transparent);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .FlagPreview .FlagPreview__switch {
+        animation: none !important;
+    }
+}
