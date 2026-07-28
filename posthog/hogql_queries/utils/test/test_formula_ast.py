@@ -1,6 +1,6 @@
-from parameterized import parameterized
-
 from posthog.test.base import APIBaseTest
+
+from parameterized import parameterized
 
 from posthog.hogql_queries.utils.formula_ast import FormulaAST
 
