@@ -271,7 +271,7 @@ class ExperimentVersionConflict(APIException):
 
     status_code = status.HTTP_409_CONFLICT
     default_code = "conflict"
-    default_detail = "The experiment was changed since you loaded it. Refresh and try again."
+    default_detail = "This experiment changed since you loaded it. Review the latest changes and try again."
 
     def __init__(
         self,
@@ -2939,8 +2939,8 @@ class ExperimentService:
         non_mergeable_payload = sorted(payload_fields - CONCURRENCY_MERGEABLE_FIELDS)
         if non_mergeable_payload:
             raise ExperimentVersionConflict(
-                f"The experiment was changed since you loaded it, and your update touches fields that "
-                f"can't be merged ({', '.join(non_mergeable_payload)}). Refresh and try again.",
+                f"This experiment changed since you loaded it, and your update changes fields that "
+                f"can't be merged ({', '.join(non_mergeable_payload)}). Review the latest changes and try again.",
                 current_version=current_version,
                 conflicting_fields=non_mergeable_payload,
             )
@@ -2965,7 +2965,7 @@ class ExperimentService:
             conflict_uuids.extend(link_conflicts)
         if conflict_uuids:
             raise ExperimentVersionConflict(
-                "A metric on this experiment was changed since you loaded it. Refresh and try again.",
+                "A metric on this experiment changed since you loaded it. Review the latest changes and try again.",
                 current_version=current_version,
                 conflicting_metric_uuids=conflict_uuids,
             )
