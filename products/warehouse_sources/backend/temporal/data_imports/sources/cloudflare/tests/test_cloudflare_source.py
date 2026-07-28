@@ -78,22 +78,30 @@ class TestCloudflareSource:
         assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
 
     @pytest.mark.parametrize(
-        "mock_return, expected_valid, expected_message",
+        "mock_return, expected_valid, expected_substring",
         [
-            (True, True, None),
-            (False, False, "Invalid Cloudflare API token"),
+            ((True, 200), True, None),
+            ((False, 401), False, "Invalid Cloudflare API token"),
+            ((False, 403), False, "Invalid Cloudflare API token"),
+            ((False, None), False, "Couldn't reach Cloudflare"),
+            ((False, 500), False, "Couldn't reach Cloudflare"),
+            ((False, 429), False, "Couldn't reach Cloudflare"),
         ],
     )
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.source.validate_cloudflare_credentials"
     )
-    def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
+    def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_substring):
         mock_validate.return_value = mock_return
 
         is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is expected_valid
-        assert error_message == expected_message
+        if expected_substring is None:
+            assert error_message is None
+        else:
+            assert error_message is not None
+            assert expected_substring in error_message
         mock_validate.assert_called_once_with(self.config.api_token)
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.source.cloudflare_source")

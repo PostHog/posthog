@@ -213,7 +213,7 @@ pub async fn build_components(
     // event individually, so we should instead allow for some small multiple of our max compressed
     // body size to be unpacked. If a single event is still too big, we'll drop it at kafka send time.
     let event_payload_max_bytes = match config.capture_mode {
-        CaptureMode::Events | CaptureMode::Ai => BATCH_BODY_SIZE * 5,
+        CaptureMode::Events | CaptureMode::Ai | CaptureMode::Import => BATCH_BODY_SIZE * 5,
         CaptureMode::Recordings => config.kafka.kafka_producer_message_max_bytes as usize,
     };
 
@@ -302,15 +302,22 @@ pub async fn build_components(
                 .await
                 .expect("failed to start AI secondary Kafka sink"),
         );
-        let routing = if config.ai_sink_mode == AiSinkMode::SecondaryAllowlist {
-            let allowlist = config
-                .ai_secondary_allowlist_tokens
-                .as_deref()
-                .map(parse_token_allowlist)
-                .unwrap_or_default();
-            AiRouting::SecondaryAllowlist(allowlist)
-        } else {
-            AiRouting::Secondary
+        let routing = match config.ai_sink_mode {
+            // build_secondary excludes Primary, so this arm cannot be reached.
+            AiSinkMode::Primary => AiRouting::Primary,
+            AiSinkMode::Secondary => AiRouting::Secondary,
+            AiSinkMode::SecondaryAllowlist => AiRouting::SecondaryAllowlist(
+                config
+                    .ai_secondary_allowlist_tokens
+                    .as_deref()
+                    .map(parse_token_allowlist)
+                    .unwrap_or_default(),
+            ),
+            // The percentage mode exists for the analytics topic routing only;
+            // refuse to start rather than fall through to a full cutover.
+            AiSinkMode::SecondaryPercentage => panic!(
+                "invalid configuration: AI_SINK_MODE=secondary_percentage is not supported; percentage routing exists only for CAPTURE_ANALYTICS_AI_EVENTS_MODE"
+            ),
         };
         info!(mode = ?config.ai_sink_mode, "AI secondary sink enabled");
         Arc::new(SplitKafkaSink::new(primary_sink, secondary, routing))
@@ -386,6 +393,9 @@ pub async fn build_components(
                 .map(parse_token_allowlist)
                 .unwrap_or_default(),
         ),
+        AiSinkMode::SecondaryPercentage => AiRouting::SecondaryPercentage(require_percentage(
+            config.capture_analytics_ai_events_percentage,
+        )),
     };
     assert!(
         config.capture_analytics_ai_events_mode == AiSinkMode::Primary
@@ -539,6 +549,22 @@ fn parse_token_allowlist(csv: &str) -> HashSet<String> {
         .filter(|s| !s.is_empty())
         .map(String::from)
         .collect()
+}
+
+/// Validate the percentage companion of the `secondary_percentage` routing
+/// mode. Unlike the allowlist (where unset defaults to an empty set that
+/// routes nothing), an unset percentage refuses to start: the mode being set
+/// with no percentage is almost certainly a misconfigured rollout, not an
+/// intent to route 0% of teams.
+fn require_percentage(value: Option<u8>) -> u8 {
+    let percentage = value.expect(
+        "invalid configuration: CAPTURE_ANALYTICS_AI_EVENTS_PERCENTAGE must be set when CAPTURE_ANALYTICS_AI_EVENTS_MODE is secondary_percentage"
+    );
+    assert!(
+        percentage <= 100,
+        "invalid configuration: CAPTURE_ANALYTICS_AI_EVENTS_PERCENTAGE must be between 0 and 100 (got {percentage})"
+    );
+    percentage
 }
 
 /// Builds the v1 sink router. The dedicated `$ai_*` topics are

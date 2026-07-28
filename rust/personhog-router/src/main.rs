@@ -199,6 +199,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 RESPONSE_SIZE_BUCKETS,
             )
             .unwrap()
+            // Handoff phase timings are a stall detector: healthy phases
+            // complete in seconds, and the interesting tail is minutes.
+            // Sub-second buckets at the bottom because the source is
+            // millisecond-precise; the top still reaches far past the
+            // handoff deadline so a stall is never collapsed into +Inf.
+            .set_buckets_for_metric(
+                metrics_exporter_prometheus::Matcher::Full(
+                    "personhog_coordination_handoff_phase_reached_ms".into(),
+                ),
+                &[
+                    50.0, 250.0, 1000.0, 2000.0, 5000.0, 10000.0, 30000.0, 60000.0, 120000.0,
+                    300000.0, 600000.0,
+                ],
+            )
+            .unwrap()
+            .set_buckets_for_metric(
+                metrics_exporter_prometheus::Matcher::Full(
+                    "personhog_coordination_handoff_phase_duration_ms".into(),
+                ),
+                &[
+                    50.0, 250.0, 1000.0, 2000.0, 5000.0, 10000.0, 30000.0, 60000.0, 120000.0,
+                    300000.0, 600000.0,
+                ],
+            )
+            .unwrap()
             .install_recorder()
             .expect("Failed to install metrics recorder");
 
@@ -350,6 +375,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     election_retry_interval: config.coordinator_election_retry_interval(),
                     rebalance_debounce_interval: config.coordinator_rebalance_debounce_interval(),
                     reconcile_interval: config.coordinator_reconcile_interval(),
+                    handoff_deadline: config.coordinator_handoff_deadline(),
                 },
                 Arc::new(StickyBalancedStrategy),
                 k8s_awareness,

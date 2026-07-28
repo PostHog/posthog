@@ -169,8 +169,8 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
         # Served from the pre-aggregated log_attributes rollup (sum(attribute_count)) rather than
         # grouping the logs Map column, which reads the whole resource_attributes column and blows
         # past the read cap at scale. The rollup carries severity_text and service_name, so severity
-        # levels, service_name and other resource-attribute filters re-scope the counts; body-search
-        # and log-attribute filters still aren't in the rollup.
+        # levels, service_name and other resource-attribute filters re-scope the counts; body-search,
+        # log-attribute filters and personId scoping still aren't in the rollup.
         date_range = self._attributes_query_date_range
         where_exprs: list[ast.Expr] = []
         if self.query.serviceNames:

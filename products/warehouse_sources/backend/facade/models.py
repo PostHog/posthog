@@ -47,6 +47,8 @@ from products.warehouse_sources.backend.models.table import (
     asave_datawarehousetable,
 )
 from products.warehouse_sources.backend.models.util import (
+    clickhouse_column_to_dwh_column,
+    clickhouse_columns_to_dwh_columns,
     mysql_column_to_dwh_column,
     mysql_columns_to_dwh_columns,
     postgres_column_to_dwh_column,
@@ -79,6 +81,8 @@ __all__ = [
     "get_direct_external_data_source_for_connection",
     "get_latest_run_if_exists",
     "get_or_create_datawarehouse_credential",
+    "clickhouse_column_to_dwh_column",
+    "clickhouse_columns_to_dwh_columns",
     "mysql_column_to_dwh_column",
     "mysql_columns_to_dwh_columns",
     "postgres_column_to_dwh_column",

@@ -830,7 +830,6 @@ describe('Tool Filtering - Feature Flags', () => {
         const flags = getRequiredFeatureFlags()
         expect(flags).toEqual(
             expect.arrayContaining([
-                'agent-platform',
                 'logs-alerting',
                 'logs-patterns-view',
                 'replay-video-based-summarization',
@@ -857,7 +856,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'warehouse-person-properties',
             ])
         )
-        expect(flags).toHaveLength(25)
+        expect(flags).toHaveLength(24)
     })
 
     it('every loops tool is gated on the loops flag', () => {

@@ -258,6 +258,7 @@ export type SettingId =
     | 'web-analytics-pre-aggregated-tables'
     | 'web-revenue-events'
     | 'web-vitals-autocapture'
+    | 'workflows-email-tracking-consent'
     | 'workflows-engagement-events'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
