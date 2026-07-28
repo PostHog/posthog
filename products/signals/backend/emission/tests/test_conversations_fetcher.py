@@ -33,6 +33,16 @@ def _backdate_ticket(ticket, hours=2):
     Ticket.objects.filter(id=ticket.id).update(created_at=timezone.now() - timedelta(hours=hours))
 
 
+def _set_last_message_at(ticket, minutes_ago):
+    Ticket.objects.filter(id=ticket.id).update(last_message_at=timezone.now() - timedelta(minutes=minutes_ago))
+
+
+def _backdate_emission(team, ticket, hours):
+    SignalEmissionRecord.objects.filter(team=team, source_id=str(ticket.id)).update(
+        emitted_at=timezone.now() - timedelta(hours=hours)
+    )
+
+
 def _add_comment(team, ticket, content="Hello", author_type="customer", deleted=False, rich_content=None):
     return Comment.objects.create(
         team=team,
@@ -72,6 +82,36 @@ class TestConversationsTicketFetcherEligibility(BaseTest):
 
         second = conversations_ticket_fetcher(self.team, CONVERSATIONS_TICKETS_CONFIG, {})
         assert second == []
+
+    def test_ticket_still_being_replied_to_is_not_fetched(self):
+        ticket = _make_ticket(self.team)
+        _backdate_ticket(ticket, hours=6)
+        _set_last_message_at(ticket, minutes_ago=5)
+
+        assert conversations_ticket_fetcher(self.team, CONVERSATIONS_TICKETS_CONFIG, {}) == []
+
+    def test_ticket_is_resnapshotted_once_new_messages_land(self):
+        ticket = _make_ticket(self.team)
+        _backdate_ticket(ticket, hours=48)
+        assert len(conversations_ticket_fetcher(self.team, CONVERSATIONS_TICKETS_CONFIG, {})) == 1
+
+        _backdate_emission(self.team, ticket, hours=30)
+        _set_last_message_at(ticket, minutes_ago=90)
+
+        resnapshot = conversations_ticket_fetcher(self.team, CONVERSATIONS_TICKETS_CONFIG, {})
+        assert [t["id"] for t in resnapshot] == [ticket.id]
+        # The re-snapshot must advance the ledger, or the ticket would be fetched on every run.
+        assert conversations_ticket_fetcher(self.team, CONVERSATIONS_TICKETS_CONFIG, {}) == []
+
+    def test_new_messages_within_the_resnapshot_interval_are_not_fetched(self):
+        ticket = _make_ticket(self.team)
+        _backdate_ticket(ticket, hours=48)
+        assert len(conversations_ticket_fetcher(self.team, CONVERSATIONS_TICKETS_CONFIG, {})) == 1
+
+        _backdate_emission(self.team, ticket, hours=2)
+        _set_last_message_at(ticket, minutes_ago=90)
+
+        assert conversations_ticket_fetcher(self.team, CONVERSATIONS_TICKETS_CONFIG, {}) == []
 
 
 @pytest.mark.django_db

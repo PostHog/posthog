@@ -15,8 +15,6 @@ packages:
     - nodejs
     - nodejs/src/scripts
     - products/*
-    - products/agent_platform/services/*
-    - products/agent_platform/packages/*
     - docs/onboarding
     - services/agent-proxy
     - services/oauth-proxy
