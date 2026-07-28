@@ -712,6 +712,18 @@ def _report_event_uuid(*parts: object, charted: bool = False) -> str:
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"signals_scout_report:{key}"))
 
 
+def _customer_properties(properties: dict[str, Any]) -> dict[str, Any]:
+    """The customer-facing copy of a lifecycle event's properties, minus the judge's own words.
+
+    `safety_explanation` is the safety judge describing the threat it detected, so it can quote or
+    paraphrase the very instruction it caught. The internal stream keeps it — that's where suppression is
+    triaged — but the forward is what feeds the team's CDP destinations, and templating that text into a
+    Slack message hands the rejected instruction to whatever reads it next. The suppression itself stays
+    visible (`content_safety_suppressed` on an edit, `outcome`/`status` on an emit); only the prose behind
+    the verdict stops here."""
+    return {key: value for key, value in properties.items() if key != "safety_explanation"}
+
+
 def _forward_report_event_to_team(*, team: Team, forward: _ReportForward) -> None:
     """Mirror a report-channel lifecycle event into the scout's own team project through the sanctioned
     `capture_internal` path, so the team can drive HogQL / alerts / CDP destinations off its reports.
@@ -820,7 +832,7 @@ def _capture_report_emitted(
         event_name=CUSTOMER_REPORT_EMITTED_EVENT,
         distinct_id=f"signals_scout:{run.skill_name}",
         event_uuid=_report_event_uuid("emit", run.id, result.report_id, title),
-        properties=properties,
+        properties=_customer_properties(properties),
     )
 
 
@@ -919,7 +931,7 @@ def _capture_report_edited(
         event_name=CUSTOMER_REPORT_EDITED_EVENT,
         distinct_id=f"signals_scout:{run.skill_name}",
         event_uuid=_report_event_uuid(*parts, charted=bool(charts)),
-        properties=properties,
+        properties=_customer_properties(properties),
     )
 
 
