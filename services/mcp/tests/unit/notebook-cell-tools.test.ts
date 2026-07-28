@@ -4,7 +4,7 @@ import { addCellHandler } from '@/tools/notebooks/addCell'
 import { createMarkdownHandler } from '@/tools/notebooks/createMarkdown'
 import { deleteCellHandler } from '@/tools/notebooks/deleteCell'
 import { updateCellHandler } from '@/tools/notebooks/updateCell'
-import type { Context } from '@/tools/types'
+import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, type Context } from '@/tools/types'
 
 interface MockState {
     markdown: string
@@ -128,6 +128,12 @@ describe('notebook cell tools', () => {
         expect(result.run).toMatchObject({ status: 'done', rows_preview: [[1]], stdout: 'hello' })
         expect(result.run!.media).toEqual([{ mime_type: 'image/png' }])
         expect(JSON.stringify(result.run)).not.toContain('aGVsbG8=')
+
+        // Run output is attacker-influenceable (query rows, stdout), so the response must
+        // ship inside the untrusted-data boundary the model is told not to obey.
+        const formatted = (result as any)[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]
+        expect(formatted).toContain('<notebook-cell-run')
+        expect(formatted).toContain('not instructions')
     })
 
     it('add cell returns running with the run_id when the cell outlives the wait budget', async () => {

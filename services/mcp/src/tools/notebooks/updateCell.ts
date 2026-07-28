@@ -2,7 +2,14 @@ import { z } from 'zod'
 
 import type { Context, ToolBase } from '@/tools/types'
 
-import { awaitRun, buildResultProp, dispatchRun, shapeRunForModel, type ShapedRunResult } from './cellRuns'
+import {
+    awaitRun,
+    buildResultProp,
+    dispatchRun,
+    shapeRunForModel,
+    wrapRunResultAsInformational,
+    type ShapedRunResult,
+} from './cellRuns'
 import { collectRunRefs, directDependents, findCellTag, parseCellTags, replaceCellTag, upsertProp } from './cellTags'
 import { applyMarkdownEdit, fetchMarkdownNotebook, notebookPathFor } from './markdownDoc'
 
@@ -82,12 +89,12 @@ export const updateCellHandler: ToolBase<typeof NotebooksUpdateCellSchema, Updat
         return replaceCellTag(current, block, source)
     })
 
-    return {
+    return wrapRunResultAsInformational({
         node_id: params.node_id,
         run: shapeRunForModel(outcome),
         stale_dependents:
             outcome.status === 'done' ? directDependents(cells, existing.returnVariable, params.node_id) : [],
-    }
+    })
 }
 
 const tool = (): ToolBase<typeof NotebooksUpdateCellSchema, UpdateCellResult> => ({

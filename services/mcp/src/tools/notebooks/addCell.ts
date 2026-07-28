@@ -3,7 +3,14 @@ import { z } from 'zod'
 
 import type { Context, ToolBase } from '@/tools/types'
 
-import { awaitRun, buildResultProp, dispatchRun, shapeRunForModel, type ShapedRunResult } from './cellRuns'
+import {
+    awaitRun,
+    buildResultProp,
+    dispatchRun,
+    shapeRunForModel,
+    wrapRunResultAsInformational,
+    type ShapedRunResult,
+} from './cellRuns'
 import {
     buildCellTag,
     collectRunRefs,
@@ -188,7 +195,7 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
         dataframeName,
         parseCellTags(markdown)
     )
-    return { node_id: nodeId, dataframe_name: dataframeName, run }
+    return wrapRunResultAsInformational({ node_id: nodeId, dataframe_name: dataframeName, run })
 }
 
 const tool = (): ToolBase<typeof NotebooksAddCellSchema, AddCellResult> => ({
