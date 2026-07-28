@@ -129,6 +129,21 @@ describe('validateGroup', () => {
 
         expect(errors.id).toContain(CohortClientErrors.NegationCriteriaMissingOther)
     })
+
+    it('still rejects a negation inside an inner OR group even when the outer operator is AND', () => {
+        // A negation only makes sense intersected with a positive set. An OR group unions the negation
+        // with its own members, so a positive sibling under outer AND must not rescue it.
+        const orGroupWithNegation: CohortCriteriaGroupFilter = {
+            type: FilterLogicalOperator.Or,
+            values: [
+                { type: BehavioralFilterKey.Behavioral, value: BehavioralEventType.PerformEvent, negation: true },
+                { type: BehavioralFilterKey.Behavioral, value: BehavioralEventType.PerformEvent, negation: false },
+            ],
+        }
+        const errors = validateGroup(orGroupWithNegation, FilterLogicalOperator.And, [positiveSiblingGroup])
+
+        expect(errors.id).toContain(CohortClientErrors.NegationCriteriaMissingOther)
+    })
 })
 
 describe('determineFilterType', () => {

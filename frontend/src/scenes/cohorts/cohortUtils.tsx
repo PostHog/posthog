@@ -214,7 +214,9 @@ export function validateGroup(
     // the cohort matches ALL criteria (outer AND) — within any sibling group.
     const boundedWithinGroup = group.type === FilterLogicalOperator.And && negatedCriteria.length < criteria.length
     const boundedBySibling =
-        outerOperator === FilterLogicalOperator.And && siblingGroups.some((sibling) => hasPositiveCriterion(sibling))
+        group.type === FilterLogicalOperator.And &&
+        outerOperator === FilterLogicalOperator.And &&
+        siblingGroups.some((sibling) => hasPositiveCriterion(sibling))
 
     if (negatedCriteria.length > 0 && !boundedWithinGroup && !boundedBySibling) {
         const errorMsg = `${negatedCriteria
