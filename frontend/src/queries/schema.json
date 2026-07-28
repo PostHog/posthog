@@ -45201,7 +45201,7 @@
         },
         "SidebarItemsConfiguration": {
             "additionalProperties": false,
-            "description": "Individual items of the main navigation sidebar. Items inside a hidden section are hidden regardless of their own config. Activity and Settings are deliberately absent: they can't be hidden individually.",
+            "description": "Individual items of the main navigation sidebar. Items inside a hidden section are hidden regardless of their own config. Activity and Settings are deliberately absent: they always stay visible.",
             "properties": {
                 "data": {
                     "$ref": "#/definitions/UIVisibilityConfig",
@@ -45240,7 +45240,7 @@
         },
         "SidebarSectionsConfiguration": {
             "additionalProperties": false,
-            "description": "Collapsible sections of the main navigation sidebar. Hiding a section hides everything inside it.",
+            "description": "Collapsible sections of the main navigation sidebar. Hiding a section hides everything inside it, except always-visible items like Activity.",
             "properties": {
                 "my_tools": {
                     "$ref": "#/definitions/UIVisibilityConfig",
@@ -45248,7 +45248,7 @@
                 },
                 "project": {
                     "$ref": "#/definitions/UIVisibilityConfig",
-                    "description": "The \"Project\" section (Home, Activity, and the Data/Files/Tools/Starred panel triggers)."
+                    "description": "The \"Project\" section (Home and the Data/Files/Tools/Starred panel triggers). Activity stays visible even when this section is hidden."
                 },
                 "recents": {
                     "$ref": "#/definitions/UIVisibilityConfig",

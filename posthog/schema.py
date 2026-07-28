@@ -6439,7 +6439,10 @@ class SidebarSectionsConfiguration(BaseModel):
     )
     project: UIVisibilityConfig | None = Field(
         default=None,
-        description=('The "Project" section (Home, Activity, and the Data/Files/Tools/Starred panel triggers).'),
+        description=(
+            'The "Project" section (Home and the Data/Files/Tools/Starred panel'
+            " triggers). Activity stays visible even when this section is hidden."
+        ),
     )
     recents: UIVisibilityConfig | None = Field(
         default=None,

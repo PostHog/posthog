@@ -31,11 +31,12 @@ export function SidebarItemsSetting(): JSX.Element {
     const renderItemSwitch = (item: SidebarCustomizableItem, sectionHiddenReason?: string | false): JSX.Element => {
         const { key } = item
         if (!key) {
+            // Locked items stay visible even when their section is hidden, so no section reason here.
             return (
                 <LemonSwitch
                     key={item.label}
                     checked={true}
-                    disabledReason={sectionHiddenReason || `${item.label} always stays visible`}
+                    disabledReason={`${item.label} always stays visible`}
                     label={<ItemLabel icon={item.icon} label={item.label} />}
                     bordered
                     fullWidth

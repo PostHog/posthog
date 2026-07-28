@@ -192,6 +192,19 @@ export function NavTabBrowse(): JSX.Element {
         }
     }
 
+    // Rendered inside the Project section, or standalone when that section is hidden:
+    // Activity always stays visible, like Settings in the footer.
+    const activityNavLink = (
+        <NavLink
+            to={urls.activity(ActivityTab.ExploreEvents)}
+            label="Activity"
+            icon={<IconClock />}
+            isCollapsed={isLayoutNavCollapsed}
+            data-attr="nav-item-activity"
+            onClick={() => posthog.capture('nav item clicked', { item: 'activity' })}
+        />
+    )
+
     return (
         <ScrollableShadows
             className="flex-1"
@@ -199,7 +212,7 @@ export function NavTabBrowse(): JSX.Element {
             direction="vertical"
             styledScrollbars
         >
-            {isSidebarSectionShown('project') && (
+            {isSidebarSectionShown('project') ? (
                 <Collapsible
                     open={expandedNavSections.project || isLayoutNavCollapsed ? true : false}
                     onOpenChange={() => {
@@ -243,14 +256,7 @@ export function NavTabBrowse(): JSX.Element {
                             />
                         )}
 
-                        <NavLink
-                            to={urls.activity(ActivityTab.ExploreEvents)}
-                            label="Activity"
-                            icon={<IconClock />}
-                            isCollapsed={isLayoutNavCollapsed}
-                            data-attr="nav-item-activity"
-                            onClick={() => posthog.capture('nav item clicked', { item: 'activity' })}
-                        />
+                        {activityNavLink}
 
                         <div className={cn('flex flex-col gap-px', isLayoutNavCollapsed && 'items-center')}>
                             {panelTriggerItems
@@ -335,6 +341,10 @@ export function NavTabBrowse(): JSX.Element {
                         </div>
                     </Collapsible.Panel>
                 </Collapsible>
+            ) : (
+                <div className={cn('flex flex-col pt-1', isLayoutNavCollapsed && 'items-center')}>
+                    {activityNavLink}
+                </div>
             )}
 
             {!isLayoutNavCollapsed && isSidebarSectionShown('recents') && (
