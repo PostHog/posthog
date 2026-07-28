@@ -11,6 +11,8 @@ class TicketView(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     short_id = models.CharField(max_length=12, blank=True, default=generate_short_id)
     name = models.CharField(max_length=400)
     filters = models.JSONField(default=dict)
+    # Personal views are visible only to their creator; shared views (the default) are visible to the whole team.
+    is_private = models.BooleanField(default=False)
 
     # Not a column — a per-request annotation set by the viewset/serializer.
     is_favorited: bool

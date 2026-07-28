@@ -1,13 +1,23 @@
 import { useActions, useValues } from 'kea'
 import type { ReactNode } from 'react'
 
-import { IconHeart, IconHeartFilled } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonInput, LemonModal, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { IconHeart, IconHeartFilled, IconLock } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonDialog,
+    LemonInput,
+    LemonModal,
+    LemonTable,
+    LemonTableColumns,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { userLogic } from 'scenes/userLogic'
 
 import { type SavedTicketView, type TicketViewFilters, normalizeAssigneeFilter } from '../../types'
 import { AssigneeLabelDisplay, AssigneeResolver } from '../Assignee'
@@ -78,8 +88,8 @@ function FiltersSummary({ filters }: { filters: TicketViewFilters }): JSX.Elemen
 }
 
 function SaveViewModal({ id }: TicketViewsLogicProps): JSX.Element {
-    const { isSaveModalOpen, viewName, currentFilters } = useValues(ticketViewsLogic({ id }))
-    const { closeSaveModal, setViewName, saveView } = useActions(ticketViewsLogic({ id }))
+    const { isSaveModalOpen, viewName, isPrivate, currentFilters, isSavingView } = useValues(ticketViewsLogic({ id }))
+    const { closeSaveModal, setViewName, setIsPrivate, saveView } = useActions(ticketViewsLogic({ id }))
 
     return (
         <LemonModal
@@ -94,6 +104,7 @@ function SaveViewModal({ id }: TicketViewsLogicProps): JSX.Element {
                     <LemonButton
                         type="primary"
                         onClick={saveView}
+                        loading={isSavingView}
                         disabledReason={!viewName.trim() ? 'Enter a name' : undefined}
                     >
                         Save view
@@ -107,9 +118,10 @@ function SaveViewModal({ id }: TicketViewsLogicProps): JSX.Element {
                     value={viewName}
                     onChange={setViewName}
                     autoFocus
-                    onPressEnter={saveView}
+                    onPressEnter={() => !isSavingView && saveView()}
                 />
                 <FiltersSummary filters={currentFilters} />
+                <LemonCheckbox checked={isPrivate} onChange={setIsPrivate} label="Personal view (only visible to me)" />
             </div>
         </LemonModal>
     )
@@ -119,9 +131,17 @@ export function SavedViewsModal({ id }: TicketViewsLogicProps): JSX.Element {
     const { isModalOpen, filteredViews, viewsLoading, currentFilters, favoritingShortIds, searchTerm } = useValues(
         ticketViewsLogic({ id })
     )
-    const { closeModal, openSaveModal, deleteView, loadView, updateView, toggleFavorite, setSearchTerm } = useActions(
-        ticketViewsLogic({ id })
-    )
+    const {
+        closeModal,
+        openSaveModal,
+        deleteView,
+        duplicateView,
+        loadView,
+        updateView,
+        toggleFavorite,
+        setSearchTerm,
+    } = useActions(ticketViewsLogic({ id }))
+    const { user } = useValues(userLogic)
 
     const columns: LemonTableColumns<SavedTicketView> = [
         {
@@ -151,7 +171,16 @@ export function SavedViewsModal({ id }: TicketViewsLogicProps): JSX.Element {
         {
             title: 'Name',
             dataIndex: 'name',
-            render: (_, view) => <span className="font-medium">{view.name}</span>,
+            render: (_, view) => (
+                <span className="font-medium flex items-center gap-1">
+                    {view.is_private && (
+                        <Tooltip title="Personal view (only visible to you)">
+                            <IconLock className="text-secondary" />
+                        </Tooltip>
+                    )}
+                    {view.name}
+                </span>
+            ),
         },
         {
             title: 'Filters',
@@ -230,6 +259,21 @@ export function SavedViewsModal({ id }: TicketViewsLogicProps): JSX.Element {
                                             })
                                         },
                                     },
+                                    {
+                                        label: 'Duplicate',
+                                        onClick: () => duplicateView(view),
+                                    },
+                                    // Only the creator can change visibility: hiding someone else's
+                                    // view would leave it stranded, visible to neither of you
+                                    ...(!!user && view.created_by?.id === user.id
+                                        ? [
+                                              {
+                                                  label: view.is_private ? 'Share with team' : 'Make personal',
+                                                  onClick: () =>
+                                                      updateView(view.short_id, { is_private: !view.is_private }),
+                                              },
+                                          ]
+                                        : []),
                                     {
                                         label: 'Delete',
                                         status: 'danger',

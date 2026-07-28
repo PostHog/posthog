@@ -1062,6 +1062,8 @@ export interface TicketViewApi {
     readonly created_by: UserBasicApi
     /** Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user. */
     is_favorited?: boolean
+    /** When true, this view is personal and visible only to the user who created it. When false (the default), the view is shared with the whole team. */
+    is_private?: boolean
 }
 
 export interface PaginatedTicketViewListApi {
@@ -1089,6 +1091,8 @@ export interface PatchedTicketViewApi {
     readonly created_by?: UserBasicApi
     /** Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user. */
     is_favorited?: boolean
+    /** When true, this view is personal and visible only to the user who created it. When false (the default), the view is shared with the whole team. */
+    is_private?: boolean
 }
 
 export interface ZendeskImportStartApi {

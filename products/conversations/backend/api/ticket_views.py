@@ -1,7 +1,7 @@
 import json
 from typing import TYPE_CHECKING, Any, cast
 
-from django.db.models import Exists, OuterRef
+from django.db.models import Exists, OuterRef, Q
 
 from rest_framework import mixins, serializers, viewsets
 
@@ -28,11 +28,38 @@ class TicketViewSerializer(serializers.ModelSerializer):
         required=False,
         help_text="Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user.",
     )
+    is_private = serializers.BooleanField(
+        required=False,
+        help_text="When true, this view is personal and visible only to the user who created it. When false (the default), the view is shared with the whole team.",
+    )
 
     def validate_filters(self, value: dict) -> dict:
         if len(json.dumps(value)) > MAX_FILTERS_SIZE_BYTES:
             raise serializers.ValidationError("Filters payload is too large.")
         return value
+
+    def validate_is_private(self, value: bool) -> bool:
+        if not self.instance:
+            return value
+        if self.instance.created_by_id is None:
+            # Nobody is left to keep it for, so it reads as shared and can't be claimed as
+            # anyone else's personal view — the queryset would keep showing it to the team.
+            if value:
+                raise serializers.ValidationError("A view whose creator no longer exists cannot be made personal.")
+            return value
+        # Making someone else's view personal would strand it: it stays theirs, so whoever
+        # hid it can no longer see it to undo the change.
+        if value != self.instance.is_private and self.instance.created_by_id != self.context["request"].user.pk:
+            raise serializers.ValidationError("Only the creator of a view can change whether it is personal.")
+        return value
+
+    def to_representation(self, instance: TicketView) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        if instance.created_by_id is None:
+            # Report what the queryset actually enforces, so the team doesn't see a view
+            # badged as personal that everyone can read.
+            data["is_private"] = False
+        return data
 
     class Meta:
         model = TicketView
@@ -44,6 +71,7 @@ class TicketViewSerializer(serializers.ModelSerializer):
             "created_at",
             "created_by",
             "is_favorited",
+            "is_private",
         ]
         read_only_fields = [
             "id",
@@ -71,7 +99,19 @@ class TicketViewSerializer(serializers.ModelSerializer):
 
     def update(self, instance: TicketView, validated_data: dict[str, Any]) -> TicketView:
         is_favorited = validated_data.pop("is_favorited", None)
-        instance = super().update(instance, validated_data)
+        # Anyone but the creator may resend the visibility they were shown as part of a wider
+        # edit, but must never write the column: the value was read before validation, so
+        # persisting it could revert a change the creator made in between. A view with no
+        # creator left is exempt — nobody can privatize it, so there is nothing to revert.
+        if instance.created_by_id is not None and instance.created_by_id != self.context["request"].user.pk:
+            validated_data.pop("is_private", None)
+        # Write only the submitted columns. A plain save() persists every field this request
+        # loaded, so renaming a view would carry a stale is_private back over a change its
+        # creator made in the meantime.
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        if validated_data:
+            instance.save(update_fields=[*validated_data, "updated_at"])
         if is_favorited is not None:
             self._set_favorited(instance, is_favorited)
             instance.is_favorited = is_favorited
@@ -98,6 +138,12 @@ class TicketViewViewSet(
 
     def safely_get_queryset(self, queryset: Any) -> Any:
         queryset = queryset.filter(team_id=self.team_id)
+        # Personal views are visible only to their creator; shared views are visible to the whole team.
+        # Deleting a user nulls created_by, so their personal views fall back to shared rather than
+        # lingering invisible to everyone with no way to clean them up.
+        queryset = queryset.filter(
+            Q(is_private=False) | Q(created_by=cast("User", self.request.user)) | Q(created_by__isnull=True)
+        )
         queryset = queryset.select_related("created_by")
         # Personal favorites float to the top, for the requesting user only.
         favorited_by_user = TicketViewFavorite.objects.filter(
@@ -115,6 +161,7 @@ class TicketViewViewSet(
                 "short_id": instance.short_id,
                 "name": instance.name,
                 "has_filters": bool(instance.filters),
+                "is_private": instance.is_private,
             },
             team=self.team,
             request=self.request,

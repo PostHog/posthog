@@ -3,10 +3,11 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
-from rest_framework.test import APIClient
+from rest_framework.test import APIClient, APIRequestFactory
 
 from posthog.models.team.team import Team
 
+from products.conversations.backend.api.ticket_views import TicketViewSerializer
 from products.conversations.backend.models import TicketView, TicketViewFavorite
 
 
@@ -259,6 +260,136 @@ class TestTicketViewAPI(APIBaseTest):
         results = self.client.get(self.base_url).json()["results"]
         assert [r["name"] for r in results] == ["Older", "Newer"]
         assert results[0]["is_favorited"] is True
+
+    # --- Personal views ---
+
+    @parameterized.expand([("shared_by_default", {}, False), ("explicit_private", {"is_private": True}, True)])
+    def test_create_respects_is_private(self, _label, overrides, expected):
+        data = self._create_via_api(**overrides)
+        assert data["is_private"] is expected
+        assert TicketView.objects.get(pk=data["id"]).is_private is expected
+
+    def test_private_view_visible_only_to_creator(self):
+        private = self._create_via_api(name="My private view", is_private=True)
+        self._create_via_api(name="Team view")
+
+        other_user = self._create_user("other@posthog.com")
+        other_client = APIClient()
+        other_client.force_login(other_user)
+
+        # Creator sees both their private view and the shared one
+        creator_names = {r["name"] for r in self.client.get(self.base_url).json()["results"]}
+        assert creator_names == {"My private view", "Team view"}
+
+        # Another user on the team sees only the shared view, and can't fetch the private one directly
+        other_names = {r["name"] for r in other_client.get(self.base_url).json()["results"]}
+        assert other_names == {"Team view"}
+        assert other_client.get(f"{self.base_url}{private['short_id']}/").status_code == status.HTTP_404_NOT_FOUND
+
+        # Flipping it back to shared makes it visible to everyone
+        self.client.patch(f"{self.base_url}{private['short_id']}/", {"is_private": False}, format="json")
+        assert {r["name"] for r in other_client.get(self.base_url).json()["results"]} == {
+            "My private view",
+            "Team view",
+        }
+
+    def test_personal_view_falls_back_to_shared_once_its_creator_is_gone(self):
+        creator = self._create_user("creator@posthog.com")
+        orphaned = TicketView.objects.create(
+            team=self.team, name="Their personal view", created_by=creator, is_private=True
+        )
+
+        def listed():
+            return {v["short_id"]: v for v in self.client.get(self.base_url).json()["results"]}
+
+        assert orphaned.short_id not in listed()
+
+        creator.delete()
+        orphaned.refresh_from_db()
+        assert orphaned.created_by is None
+
+        # With nobody left to keep it for, the view would otherwise be invisible to the
+        # whole team and impossible to clean up.
+        visible = listed()
+        assert orphaned.short_id in visible
+        # It also reads as shared, so the list can't badge a team-wide view with a lock
+        assert visible[orphaned.short_id]["is_private"] is False
+
+        # ...and nobody can claim it as their own personal view, which could not be honored
+        assert (
+            self.client.patch(f"{self.base_url}{orphaned.short_id}/", {"is_private": True}, format="json").status_code
+            == status.HTTP_400_BAD_REQUEST
+        )
+        assert (
+            self.client.patch(f"{self.base_url}{orphaned.short_id}/", {"is_private": False}, format="json").status_code
+            == status.HTTP_200_OK
+        )
+        orphaned.refresh_from_db()
+        assert orphaned.is_private is False
+
+    @parameterized.expand(
+        [
+            ("visibility_omitted", {"name": "Renamed"}),
+            ("visibility_resent_unchanged", {"name": "Renamed", "is_private": False}),
+        ]
+    )
+    def test_editing_a_view_does_not_revert_a_concurrent_visibility_change(self, label, payload):
+        created = self._create_via_api(name="Shared team view")
+
+        other_user = self._create_user(f"racer-{label}@posthog.com")
+        request = APIRequestFactory().patch("/")
+        request.user = other_user
+
+        # What a teammate's in-flight request already loaded, before the creator acted
+        stale = TicketView.objects.get(pk=created["id"])
+        TicketView.objects.filter(pk=created["id"]).update(is_private=True)
+
+        serializer = TicketViewSerializer(
+            stale, data=payload, partial=True, context={"request": request, "team_id": self.team.pk}
+        )
+        assert serializer.is_valid(), serializer.errors
+        serializer.save()
+
+        refreshed = TicketView.objects.get(pk=created["id"])
+        assert refreshed.name == "Renamed"
+        # The edit must not carry the stale visibility back over the creator's change, whether
+        # the teammate omitted the field or resent the value they were shown.
+        assert refreshed.is_private is True
+
+    def test_only_creator_can_change_visibility(self):
+        created = self._create_via_api(name="Shared team view")
+
+        other_user = self._create_user("other@posthog.com")
+        other_client = APIClient()
+        other_client.force_login(other_user)
+
+        # Hiding someone else's shared view would strand it: it stays theirs, so the
+        # person who hid it can no longer see it to undo the change.
+        response = other_client.patch(f"{self.base_url}{created['short_id']}/", {"is_private": True}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert TicketView.objects.get(pk=created["id"]).is_private is False
+
+        # Non-visibility edits by other team members still work on shared views
+        assert (
+            other_client.patch(f"{self.base_url}{created['short_id']}/", {"name": "Renamed"}, format="json").status_code
+            == status.HTTP_200_OK
+        )
+
+        # Resending the current visibility isn't a change, so a full-object edit still goes through
+        assert (
+            other_client.patch(
+                f"{self.base_url}{created['short_id']}/",
+                {"name": "Renamed again", "is_private": False},
+                format="json",
+            ).status_code
+            == status.HTTP_200_OK
+        )
+
+        # ...and the creator can still change it
+        assert (
+            self.client.patch(f"{self.base_url}{created['short_id']}/", {"is_private": True}, format="json").status_code
+            == status.HTTP_200_OK
+        )
 
     # --- Auth ---
 
