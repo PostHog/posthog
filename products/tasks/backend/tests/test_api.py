@@ -8471,9 +8471,9 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         reset_sandbox_jwt_key_cache()
         rpc_response = {
             "type": "response",
-            "command": "get_state",
+            "command": "future_native_command",
             "success": True,
-            "data": {"isStreaming": False},
+            "data": {"accepted": True},
         }
         self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "id": "native", "result": rpc_response})
         task = self.create_task(runtime=Task.Runtime.PI)
@@ -8484,7 +8484,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
             {
                 "jsonrpc": "2.0",
                 "method": "pi/rpc",
-                "params": {"command": {"id": "native", "type": "get_state"}},
+                "params": {"command": {"id": "native", "type": "future_native_command"}},
                 "id": "native",
             },
             format="json",
@@ -8492,25 +8492,6 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["result"], rpc_response)
-
-    @parameterized.expand([("bash",), ("future_native_command",)])
-    def test_command_rejects_unsafe_or_unknown_pi_rpc(self, command_type):
-        task = self.create_task(runtime=Task.Runtime.PI)
-        run = self._create_run_with_sandbox(task)
-
-        response = self.client.post(
-            self._command_url(task, run),
-            {
-                "jsonrpc": "2.0",
-                "method": "pi/rpc",
-                "params": {"command": {"id": "native", "type": command_type}},
-                "id": "native",
-            },
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["type"], "validation_error")
 
     @parameterized.expand([("queue_get",), ("queue_clear",)])
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)

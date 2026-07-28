@@ -2444,17 +2444,6 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
     # response payload plus envelope must fit in 300 KB. Params are forwarded to the sandbox
     # verbatim and never persisted or captured — they carry data from the user's private systems.
     MAX_MCP_RESPONSE_PARAMS_BYTES = 300_000
-    ALLOWED_PI_RPC_COMMANDS = {
-        "abort",
-        "compact",
-        "get_available_models",
-        "get_available_thinking_levels",
-        "get_commands",
-        "get_session_stats",
-        "get_state",
-        "set_model",
-        "set_thinking_level",
-    }
 
     jsonrpc = serializers.ChoiceField(
         choices=["2.0"],
@@ -2528,8 +2517,6 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
             command_type = command.get("type")
             if not isinstance(command_type, str) or not command_type:
                 raise serializers.ValidationError({"params": "command.type must be a non-empty string"})
-            if command_type not in self.ALLOWED_PI_RPC_COMMANDS:
-                raise serializers.ValidationError({"params": f"Pi RPC command is not allowed: {command_type}"})
             command_id = command.get("id")
             if not isinstance(command_id, str) or not command_id:
                 raise serializers.ValidationError({"params": "command.id must be a non-empty string"})
