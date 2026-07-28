@@ -5,9 +5,11 @@ import { ChartDisplayType } from '~/types'
 import {
     type BillingChartProps,
     type BillingYSeries,
+    MAX_BILLING_SERIES,
     buildBillingSeries,
     canRenderBillingBarChart,
     canRenderBillingComboChart,
+    capBillingSeries,
     formatBillingValue,
 } from './accountBillingChartAdapter'
 
@@ -107,6 +109,18 @@ describe('accountBillingChartAdapter', () => {
             )
             expect(percent.visibility?.total).toBe(false)
             expect(count.visibility?.total).toBeUndefined()
+        })
+    })
+
+    describe('capBillingSeries', () => {
+        it('caps an excessive yAxis so a saved insight cannot force unbounded chart work', () => {
+            const tooMany = Array.from({ length: MAX_BILLING_SERIES + 5 }, (_, i) => ySeries(`s${i}`, [i]))
+            expect(capBillingSeries(tooMany)).toHaveLength(MAX_BILLING_SERIES)
+        })
+
+        it('keeps the input reference when under the cap, so memoized consumers stay stable', () => {
+            const yData = [ySeries('a', [1])]
+            expect(capBillingSeries(yData)).toBe(yData)
         })
     })
 

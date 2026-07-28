@@ -29,7 +29,17 @@ import { ChartDisplayType } from '~/types'
 /** Matches the insight renderer's area fill. */
 const AREA_FILL_OPACITY = 0.5
 
+/** Matches the SQL insight renderer's MAX_SERIES render cap. */
+export const MAX_BILLING_SERIES = 200
+
 export type BillingYSeries = AxisSeries<number | null>
+
+/** Caps the series rendered (chart + legend chips) so a saved insight with an excessive yAxis
+ *  can't build unbounded SVG work. Identity when under the cap, so memoized consumers keep a
+ *  stable reference. */
+export function capBillingSeries(yData: BillingYSeries[]): BillingYSeries[] {
+    return yData.length > MAX_BILLING_SERIES ? yData.slice(0, MAX_BILLING_SERIES) : yData
+}
 
 /**
  * The slice of a saved insight's chart definition the billing tabs render. Series breakdowns are

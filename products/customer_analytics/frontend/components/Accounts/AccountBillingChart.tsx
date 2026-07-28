@@ -32,6 +32,7 @@ import {
     buildBillingSeries,
     canRenderBillingBarChart,
     canRenderBillingComboChart,
+    capBillingSeries,
 } from './accountBillingChartAdapter'
 import { AccountBillingLogicProps, accountBillingLogic } from './accountBillingLogic'
 import { AccountBillingSeriesToggle } from './AccountBillingSeriesToggle'
@@ -217,14 +218,16 @@ export function AccountBillingChart({
     const theme = useChartTheme()
 
     const hiddenKeys = ephemeralHiddenSeriesKeysByShortId[shortId] ?? []
+    // Capped here, once, so renderer dispatch, chart config, and legend chips all see the same series.
+    const cappedYData = useMemo(() => capBillingSeries(yData), [yData])
     const chartProps: BillingChartProps = {
         xData,
-        yData,
+        yData: cappedYData,
         visualizationType: effectiveVisualizationType,
         chartSettings,
         goalLines: chartSettings.goalLines,
     }
-    const chipItems = chipItemsFromChartOwnSeries(yData, effectiveVisualizationType, theme)
+    const chipItems = chipItemsFromChartOwnSeries(cappedYData, effectiveVisualizationType, theme)
 
     let content: JSX.Element | null
     if (responseError) {
