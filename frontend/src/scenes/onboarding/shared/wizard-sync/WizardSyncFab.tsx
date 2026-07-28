@@ -31,7 +31,7 @@ const CORNER = 'fixed bottom-5 right-5 z-[60]'
 // 1Hz clock for the elapsed timer, scoped to a mounted run so nothing ticks when no run is active.
 // `frozen` stops the interval entirely — a finished run shows its fixed duration, so ticking for it
 // would be pure re-render churn.
-function useNow(frozen: boolean = false): number {
+export function useNow(frozen: boolean = false): number {
     const [now, setNow] = useState(() => Date.now())
     useEffect(() => {
         if (frozen) {
@@ -80,7 +80,8 @@ function WizardSyncLauncher({
 }
 
 // The expanded "all the details" dialog: the full pipeline plus the terminal payoff or failure.
-function WizardSyncDialog({
+// Also rendered by the inbox rail's Installation card, which claims the run away from this widget.
+export function WizardSyncDialog({
     progress,
     elapsedSeconds,
     mode,
