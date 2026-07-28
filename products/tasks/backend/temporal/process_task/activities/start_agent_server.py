@@ -334,6 +334,8 @@ def _invoke_start_agent_server(
             provider=ctx.provider,
             model=ctx.model,
             reasoning_effort=ctx.reasoning_effort,
+            context_window=ctx.context_window,
+            fast_mode=ctx.fast_mode,
             initial_permission_mode=ctx.initial_permission_mode,
             mcp_configs=params.mcp_configs or None,
             relayed_mcp_servers=params.relayed_mcp_servers or None,

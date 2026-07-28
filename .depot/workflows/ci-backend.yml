@@ -58,6 +58,10 @@
 # - Test durations restored from Depot Cache (posthog-test-durations- prefix), refreshed by
 #   .depot/workflows/ci-backend-update-test-timing.yml, so shard counts match GitHub Actions.
 #   Committed .test_durations is the fallback.
+# - Sharding-plan pinning: canonical snapshots the durations files as a run-scoped
+#   artifact and every test job applies it, so re-runs shard like attempt 1. The shadow
+#   strips artifact uploads (above), so it keeps floating restores; no depot bump needed
+#   for changes confined to that pinning.
 # - master (push) runs only check-migrations to prime the shared schema cache; the
 #   test matrices are skipped on master (canonical runs them). PRs and dispatches
 #   run the full graph — that is where the apples-to-apples comparison happens

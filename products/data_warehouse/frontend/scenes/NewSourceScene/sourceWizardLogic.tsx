@@ -898,12 +898,14 @@ export interface sourceWizardLogicActions {
             | 'DropboxSign'
             | 'Dub'
             | 'Dubsado'
+            | 'DuckLake'
             | 'Dwolla'
             | 'Dynamics365'
             | 'Dynamics365BusinessCentral'
             | 'DynamoDB'
             | 'Dynatrace'
             | 'E2B'
+            | 'Easybill'
             | 'Easypost'
             | 'Easypromos'
             | 'Ebay'
@@ -1553,6 +1555,7 @@ export interface sourceWizardLogicActions {
             | 'Shortcut'
             | 'Shortio'
             | 'Shutterstock'
+            | 'SideShift'
             | 'SigmaComputing'
             | 'SignNow'
             | 'SigNoz'
@@ -1604,6 +1607,7 @@ export interface sourceWizardLogicActions {
             | 'Square'
             | 'Squarespace'
             | 'StackOverflowForTeams'
+            | 'Starburst'
             | 'Statsig'
             | 'Statuscake'
             | 'Statuspage'
@@ -1747,6 +1751,7 @@ export interface sourceWizardLogicActions {
             | 'WooCommerce'
             | 'Wordpress'
             | 'Workable'
+            | 'Workato'
             | 'Workday'
             | 'Workflowmax'
             | 'Workiz'
@@ -3328,7 +3333,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     source_type: source,
                 })
             } else {
-                lemonToast.error(`Something went wrong.`)
+                lemonToast.error(
+                    `Couldn't finish connecting your source. Please try again, and if it keeps happening contact support.`
+                )
             }
         },
         submitSourceConnectionDetailsSuccess: () => {

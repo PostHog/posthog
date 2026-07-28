@@ -449,6 +449,39 @@ jobs:
                   restore-keys: |
                       posthog-test-durations-
 
+            - name: Restore per-segment test durations from cache
+              # Also restored here so the snapshot below covers the per-segment plan files.
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: |
+                      .test_durations.core
+                      .test_durations.temporal
+                  key: posthog-segment-durations-${{ github.run_id }}
+                  restore-keys: |
+                      posthog-segment-durations-
+
+            - name: Snapshot the sharding plan for this run
+              # The timing caches float to their newest entry, so a re-run can shard
+              # differently from attempt 1 and, under "re-run failed jobs", a failing
+              # test can move to a shard that never re-runs while the gate goes green.
+              # Every test job applies this snapshot instead, so all attempts shard
+              # identically. Best-effort (consumers fall back to the floating caches);
+              # overwrite lets a "re-run all jobs" attempt re-snapshot.
+              continue-on-error: true
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: test-durations-plan
+                  path: |
+                      .test_durations
+                      .test_durations.core
+                      .test_durations.temporal
+                  include-hidden-files: true
+                  overwrite: true
+                  # The per-segment files are cache-only and may legitimately be absent.
+                  if-no-files-found: warn
+                  # GitHub allows re-runs for 30 days.
+                  retention-days: 30
+
             - name: Discover products to test
               id: discover
               env:
@@ -874,6 +907,31 @@ jobs:
                   key: posthog-test-durations-${{ github.run_id }}
                   restore-keys: |
                       posthog-test-durations-
+
+            - name: Download the run's sharding plan snapshot
+              # Same pinning as the Django job; falls back to the floating cache.
+              id: pinned-plan
+              continue-on-error: true
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: test-durations-plan
+                  path: /tmp/test-durations-plan
+
+            - name: Apply the pinned sharding plan
+              if: steps.pinned-plan.outcome == 'success'
+              shell: bash
+              run: |
+                  if [ ! -f /tmp/test-durations-plan/.test_durations ]; then
+                      echo "::warning::Sharding-plan snapshot is incomplete, keeping the floating cache restore"
+                      exit 0
+                  fi
+                  cp /tmp/test-durations-plan/.test_durations .test_durations
+                  echo "Sharding plan pinned to this run's snapshot"
+
+            - name: Warn when a re-run reshards unpinned
+              if: github.run_attempt != '1' && steps.pinned-plan.outcome != 'success'
+              shell: bash
+              run: echo "::warning::Sharding-plan snapshot unavailable, this re-run reshards from the floating timing cache and may not re-execute tests that failed in earlier attempts"
 
             - name: Run product tests
               id: run-product-tests
@@ -2639,6 +2697,37 @@ jobs:
                   key: posthog-segment-durations-${{ github.run_id }}
                   restore-keys: |
                       posthog-segment-durations-
+
+            - name: Download the run's sharding plan snapshot
+              # Pin every attempt to the plan turbo-discover snapshotted (rationale on
+              # that step); a missing snapshot falls back to the floating caches above.
+              id: pinned-plan
+              continue-on-error: true
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: test-durations-plan
+                  path: /tmp/test-durations-plan
+
+            - name: Apply the pinned sharding plan
+              if: steps.pinned-plan.outcome == 'success'
+              shell: bash
+              run: |
+                  if [ ! -f /tmp/test-durations-plan/.test_durations ]; then
+                      echo "::warning::Sharding-plan snapshot is incomplete, keeping the floating cache restores"
+                      exit 0
+                  fi
+                  # rm first so segment files the snapshot lacks don't survive the floating restore
+                  rm -f .test_durations.core .test_durations.temporal
+                  cp /tmp/test-durations-plan/.test_durations .test_durations
+                  for f in .test_durations.core .test_durations.temporal; do
+                      if [ -f "/tmp/test-durations-plan/$f" ]; then cp "/tmp/test-durations-plan/$f" "$f"; fi
+                  done
+                  echo "Sharding plan pinned to this run's snapshot"
+
+            - name: Warn when a re-run reshards unpinned
+              if: github.run_attempt != '1' && steps.pinned-plan.outcome != 'success'
+              shell: bash
+              run: echo "::warning::Sharding-plan snapshot unavailable, this re-run reshards from the floating timing caches and may not re-execute tests that failed in earlier attempts"
 
             - name: Determine if --snapshot-update should be on
               # UPDATE mode: human commits - update snapshots
