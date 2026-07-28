@@ -5,6 +5,7 @@ from django.core.cache import cache
 from django.http import JsonResponse
 from django.test import override_settings
 
+from parameterized import parameterized
 from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
@@ -17,6 +18,7 @@ from ee.api.agentic_provisioning.region_proxy import (
     _should_proxy_token_lookup,
 )
 from ee.api.agentic_provisioning.test.base import ProvisioningTestBase
+from ee.api.agentic_provisioning.throttling import RegionProxyThrottle
 
 factory = APIRequestFactory()
 
@@ -289,6 +291,48 @@ class TestBearerLookupDecoratorCoverage(ProvisioningTestBase):
             token = self._get_bearer_token()
             self._call(method, url, token)
             assert not mock_proxy.called, f"{method} {url} should not proxy for a locally valid bearer token"
+
+
+class TestRegionProxyThrottle(ProvisioningTestBase):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+
+    @parameterized.expand(
+        [
+            (
+                "typed_envelope",
+                "/api/agentic/provisioning/account_requests",
+                {"email": "throttled@example.com", "configuration": {"region": "EU"}},
+                "type",
+            ),
+            # Any resource id works: bearer_lookup proxies before the handler reads it.
+            ("status_envelope", "/api/agentic/provisioning/resources/1", None, "status"),
+        ]
+    )
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    @patch.object(RegionProxyThrottle, "rate", "1/minute")
+    @patch("ee.api.agentic_provisioning.region_proxy._proxy_to_region")
+    def test_forwarding_is_capped_per_ip(self, _name, url, data, envelope_key, mock_proxy):
+        mock_proxy.return_value = JsonResponse({"status": "ok"})
+
+        def call():
+            if data is None:
+                return self._get_with_bearer(url, token="unknown_token_from_the_other_region")
+            return self._post_api(url, data=data)
+
+        assert call().status_code == 200
+        assert mock_proxy.called
+
+        mock_proxy.reset_mock()
+        rejected = call()
+
+        assert not mock_proxy.called, "over-budget requests must not reach the other region"
+        assert rejected.status_code == 429
+        assert rejected["Retry-After"]
+        body = rejected.json()
+        assert body[envelope_key] == "error"
+        assert body["error"]["code"] == "rate_limited"
 
 
 class TestRegionProxyCoverageContract(BaseTest):

@@ -11,8 +11,9 @@ error rendering can never leak out of these endpoints:
   state) and "id" (the partner's resource ID), so errors mirror that.
 - ``oauth``:  RFC 6749 ``{"error", "error_description"}`` — the token endpoint.
 
-(The region proxy's flat ``{"error": {"code", "message"}}`` failure shape is
-built in region_proxy.py, which runs before DRF rendering exists.)
+(The region proxy runs before DRF rendering exists, so it serializes
+``provisioning_error_body`` itself. Its ``proxy_failed`` 502 keeps a flat
+``{"error": {"code", "message"}}`` shape of its own.)
 
 Collapsing them would break partner clients that branch on "status" vs "type".
 Views raise :class:`ProvisioningError`; the base view's ``handle_exception``
@@ -58,7 +59,9 @@ class ProvisioningError(Exception):
         self.retry_after = retry_after
 
 
-def render_provisioning_error(error: ProvisioningError, default_envelope: Envelope) -> Response:
+def provisioning_error_body(error: ProvisioningError, default_envelope: Envelope) -> dict[str, Any]:
+    """The wire body for an error, without a DRF response around it, so the region
+    proxy can render errors before DRF's renderers exist."""
     envelope = error.envelope or default_envelope
     body: dict[str, Any]
     if envelope == "typed":
@@ -79,7 +82,11 @@ def render_provisioning_error(error: ProvisioningError, default_envelope: Envelo
     else:
         body = {"error": error.code, "error_description": error.message}
 
-    response = Response(body, status=error.status)
+    return body
+
+
+def render_provisioning_error(error: ProvisioningError, default_envelope: Envelope) -> Response:
+    response = Response(provisioning_error_body(error, default_envelope), status=error.status)
     if error.retry_after is not None:
         response["Retry-After"] = str(error.retry_after)
     return response

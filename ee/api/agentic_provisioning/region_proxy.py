@@ -12,14 +12,16 @@ whether the request belongs to the other region:
                      resource endpoints).
 
 Forwarding preserves the request path, so both regions must expose the same
-routes (they deploy the same code).
+routes (they deploy the same code). The decision happens before DRF
+authenticates or throttles anything, so the forward carries its own per-IP cap
+(:class:`~ee.api.agentic_provisioning.throttling.RegionProxyThrottle`).
 """
 
 from __future__ import annotations
 
 import json
 import hashlib
-from typing import Any
+from typing import Any, ClassVar
 from urllib.parse import urlparse, urlunparse
 
 from django.conf import settings
@@ -35,6 +37,8 @@ from posthog.utils import get_instance_region
 
 from ee.api.agentic_provisioning.analytics import capture_region_proxy_event
 from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX
+from ee.api.agentic_provisioning.exceptions import Envelope, ProvisioningError, provisioning_error_body
+from ee.api.agentic_provisioning.throttling import RegionProxyThrottle
 
 logger = structlog.get_logger(__name__)
 
@@ -144,6 +148,23 @@ def _proxy_to_region(request: HttpRequest, target_domain: str) -> HttpResponse:
         raise
 
 
+def _error_response(error: ProvisioningError, envelope: Envelope) -> HttpResponse:
+    """Serialize an error without DRF.
+
+    ``dispatch`` runs outside ``APIView``'s exception handling and renderer
+    negotiation, so a raised :class:`ProvisioningError` would surface as a 500
+    and an unrendered DRF ``Response`` would blow up in middleware.
+    """
+    response = HttpResponse(
+        json.dumps(provisioning_error_body(error, envelope), separators=_JSON_SEPARATORS),
+        status=error.status,
+        content_type="application/json",
+    )
+    if error.retry_after is not None:
+        response["Retry-After"] = str(error.retry_after)
+    return response
+
+
 def _should_proxy_body_region(request: HttpRequest, current_region: str) -> bool:
     configuration = _request_payload(request).get("configuration")
     if not isinstance(configuration, dict):
@@ -212,13 +233,19 @@ class RegionProxyMixin:
     """Forward the request to the other region when its resources live there.
 
     Set ``region_proxy_strategy`` on the view. Runs before authentication (a
-    bearer that only exists in the other region must proxy, not 401 locally).
+    bearer that only exists in the other region must proxy, not 401 locally),
+    which also means DRF's own throttles haven't run, hence the per-IP
+    :class:`RegionProxyThrottle` guarding the forward itself.
+
     On proxy failure, ``body_region`` returns a flat ``proxy_failed`` 502 (the
     request can't be served locally at all); the lookup strategies fall through
     to local handling, which produces the appropriate auth error.
     """
 
     region_proxy_strategy: str | None = None
+    # Declared by ProvisioningAPIView; the mixin reads it to render a 429 in the
+    # endpoint's own wire envelope.
+    error_envelope: ClassVar[Envelope]
 
     def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
         strategy = self.region_proxy_strategy
@@ -238,18 +265,35 @@ class RegionProxyMixin:
 
         if _STRATEGY_CHECKS[strategy](request, current):
             target = _other_region_domain(current)
-            logger.info(
-                "provisioning.proxy.routing",
-                strategy=strategy,
-                current_region=current,
-                target_domain=target,
-            )
             proxy_props = {
                 "strategy": strategy,
                 "from_region": current,
                 "to_domain": target,
                 "endpoint": request.path,
             }
+
+            throttle = RegionProxyThrottle()
+            if not throttle.allow_http_request(request):
+                logger.warning("provisioning.proxy.rate_limited", **proxy_props)
+                capture_region_proxy_event("proxy_rate_limited", **proxy_props)
+                wait = throttle.wait()
+                return _error_response(
+                    ProvisioningError(
+                        "rate_limited",
+                        RegionProxyThrottle.error_message,
+                        status=429,
+                        retry_after=max(1, int(wait)) if wait else None,
+                    ),
+                    self.error_envelope,
+                )
+
+            logger.info(
+                "provisioning.proxy.routing",
+                strategy=strategy,
+                current_region=current,
+                target_domain=target,
+            )
+
             try:
                 response = _proxy_to_region(request, target)
                 capture_region_proxy_event("proxied", **proxy_props)
