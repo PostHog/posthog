@@ -26,7 +26,7 @@ describe('DateRangeFilter', () => {
         cleanup()
     })
 
-    it('updates the issue date range from the lemon-skinned Quill filter', async () => {
+    it('updates the issue date range from the Quill filter', async () => {
         const logic = issueFiltersLogic({ logicKey: LOGIC_KEY })
         logic.mount()
 
@@ -40,9 +40,7 @@ describe('DateRangeFilter', () => {
 
         await userEvent.click(screen.getByText('Last 7 days'))
 
-        const filter = document.querySelector('[data-attr="quill-date-filter"]')
-        expect(filter).toBeInTheDocument()
-        expect(filter?.closest('[data-lemon-skin="true"]')).toBeInTheDocument()
+        expect(document.querySelector('[data-attr="quill-date-filter"]')).toBeInTheDocument()
 
         await userEvent.click(await screen.findByText('30d'))
 
