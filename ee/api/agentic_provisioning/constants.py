@@ -55,6 +55,14 @@ GITHUB_GRANT_POLL_RATE_LIMIT_PREFIX = "provisioning_github_grant_poll:"
 GITHUB_GRANT_POLL_RATE_LIMIT_MAX = 120
 GITHUB_GRANT_POLL_RATE_LIMIT_WINDOW_SECONDS = 3600
 
+# Per-IP ceiling on cross-region forwarding. The region proxy decides to forward before
+# DRF authenticates or throttles anything, and each forwarded request occupies a worker
+# until the other region answers, so this is the only limit an unauthenticated caller
+# meets on that path. Two orders of magnitude above the peak per-IP forwarding rate real
+# partner traffic reaches, so it leaves room for bulk provisioning while still bounding
+# how many workers one caller can tie up.
+REGION_PROXY_RATE_LIMIT = "300/minute"
+
 # Matches the state parameter allowed by the auth endpoint's RFC 7636 spec.
 SAFE_STATE_RE = re.compile(r"^[A-Za-z0-9_\-]{1,256}$")
 CODE_CHALLENGE_RE = re.compile(r"[A-Za-z0-9_\-]+")

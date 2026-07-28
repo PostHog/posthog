@@ -13,6 +13,9 @@ Fixed-window cache counters over one set of keys, reachable two ways:
   refresh token, account_requests must validate the body and the partner's
   capability *before* spending quota, and the wizard budget is shared with the
   bundled account_requests wizard block, which runs outside any view dispatch.
+- :class:`RegionProxyThrottle`, checked by the region proxy in ``dispatch``,
+  before DRF has authenticated the caller and before either of the above can
+  run at all.
 
 A caller can burst up to 2x a limit across a window boundary (``limit`` at
 :59:59 plus ``limit`` at :00:00); switch to a sliding window if that matters.
@@ -25,6 +28,7 @@ from typing import ClassVar, cast
 from urllib.parse import urlparse
 
 from django.core.cache import cache
+from django.http import HttpRequest
 
 import structlog
 from rest_framework.request import Request
@@ -33,6 +37,7 @@ from rest_framework.views import APIView
 
 from posthog.api.oauth import cimd
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.rate_limit import IPThrottle
 
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
 from ee.api.agentic_provisioning.constants import (
@@ -46,6 +51,7 @@ from ee.api.agentic_provisioning.constants import (
     PARTNER_RATE_LIMIT_EVENT_NAMES,
     PARTNER_RATE_LIMIT_PREFIX,
     PARTNER_RATE_LIMIT_WINDOW_SECONDS,
+    REGION_PROXY_RATE_LIMIT,
     WIZARD_RUN_USER_RATE_LIMIT_PREFIX,
     WIZARD_RUN_USER_RATE_LIMITS,
 )
@@ -200,6 +206,29 @@ class GrantPollThrottle(BaseThrottle):
 
     def wait(self) -> int:
         return _window_retry_after(GITHUB_GRANT_POLL_RATE_LIMIT_WINDOW_SECONDS)
+
+
+class RegionProxyThrottle(IPThrottle):
+    """Per-IP cap on forwarding a request to the other region.
+
+    The region proxy decides to forward inside ``dispatch``, so DRF hasn't run
+    ``initial()`` yet: no authentication, none of the throttles above. Without this,
+    an unauthenticated caller sending a mismatched region or an unknown token
+    turns each request into an outbound cross-region call that holds a worker
+    until the other region answers.
+    """
+
+    scope = "agentic_provisioning_region_proxy"
+    rate = REGION_PROXY_RATE_LIMIT
+    error_message: ClassVar[str] = "Too many cross-region requests. Try again later."
+
+    def allow_http_request(self, request: HttpRequest) -> bool:
+        """Count a request from the proxy's ``dispatch``, where DRF's ``Request`` doesn't exist yet.
+
+        The key comes from the IP alone, so the plain Django request carries
+        everything this throttle reads, and the view argument goes unused.
+        """
+        return self.allow_request(cast(Request, request), cast(APIView, None))
 
 
 def enforce_wizard_run_user_rate_limit(user_id: int, resource_id: str = "") -> None:
