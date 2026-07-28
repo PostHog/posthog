@@ -82,16 +82,27 @@ describe('microsoft template', () => {
             `"Error from capi.uet.microsoft.com (status 401): {'error': {'code': 'Unauthorized', 'message': 'You are not authorized to access this resource.'}}"`
         )
     })
-    it('skips when microsoftClickId is missing', async () => {
+    it('sends the conversion without a click id when email is present', async () => {
         const response = await tester.invokeMapping(
             'Conversion',
             { tagId: '12345678', apiToken: 'api-token', eventName: 'purchase' },
             createAdDestinationPayload({ person: { properties: { msclkid: null } } })
         )
+        expect(response.error).toBeUndefined()
+        expect(JSON.parse(response.invocation.queueParameters!.body as string).data[0].userData).toEqual({
+            em: '3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3',
+        })
+    })
+    it('skips when no identifier is available', async () => {
+        const response = await tester.invokeMapping(
+            'Conversion',
+            { tagId: '12345678', apiToken: 'api-token', eventName: 'purchase' },
+            createAdDestinationPayload({ person: { properties: { msclkid: null, email: null } } })
+        )
         expect(response.logs.filter((log) => log.level === 'info').map((log) => log.message)).toMatchInlineSnapshot(
             `
             [
-              "Empty \`microsoftClickId\`. Skipping...",
+              "No \`microsoftClickId\`, \`email\` or \`phone\` to identify the user with. Skipping...",
             ]
         `
         )
