@@ -10,15 +10,55 @@ from django.test import SimpleTestCase
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
+from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
 from posthog.hogql.database.models import DatabaseField, StringDatabaseField, UUIDDatabaseField
+from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 
 from posthog.exceptions import ClickHouseAtCapacity
 
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import (
     DataWarehouseTable,
     get_hogql_field_for_column,
     run_chdb_query,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+
+class TestHogQLDefinitionDirectDispatch(BaseTest):
+    @parameterized.expand(
+        [
+            ("synced_clickhouse", ExternalDataSourceType.CLICKHOUSE, "warehouse", HogQLDataWarehouseTable),
+            ("synced_clickhouse_cloud", ExternalDataSourceType.CLICKHOUSECLOUD, "warehouse", HogQLDataWarehouseTable),
+            ("direct_clickhouse", ExternalDataSourceType.CLICKHOUSE, "direct", DirectClickHouseTable),
+        ]
+    )
+    def test_clickhouse_table_class_respects_access_method(
+        self,
+        _name: str,
+        source_type: str,
+        access_method: str,
+        expected_class: type,
+    ) -> None:
+        # A synced ClickHouse source's tables must stay S3-backed: a DirectSQLTable is
+        # excluded from the printer's team_id-guard skip list, so resolving a synced table
+        # as direct makes every ordinary query against it fail.
+        source = ExternalDataSource(
+            team=self.team,
+            source_type=source_type,
+            access_method=access_method,
+            job_inputs={"database": "analytics"},
+        )
+        table = DataWarehouseTable(
+            name="external_events",
+            format="Parquet",
+            team=self.team,
+            url_pattern="s3://bucket/team_1/external_events",
+            external_data_source=source,
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True}},
+        )
+
+        assert type(table.hogql_definition()) is expected_class
 
 
 class TestDataWarehouseTableColumnOrder(BaseTest):

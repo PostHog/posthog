@@ -4,9 +4,10 @@ import json
 import time
 import threading
 import statistics
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING, Optional
 
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import close_old_connections
 from django.utils.dateparse import parse_datetime
 
@@ -65,7 +66,9 @@ WARMING_SHAPES_SELECTED_GAUGE = Gauge(
 WARMING_QUERIES_COUNTER = Counter(
     "posthog_web_analytics_warming_queries_total",
     "Web analytics warming outcomes per query shape",
-    ["outcome"],  # warmed | skipped_fresh | skipped_duplicate | skipped_raw_low_demand | failed | unsupported
+    # warmed | skipped_fresh | skipped_duplicate | skipped_raw_low_demand |
+    # skipped_cold | skipped_already_warmed | failed | unsupported
+    ["outcome"],
 )
 
 logger = structlog.get_logger(__name__)
@@ -587,15 +590,56 @@ def get_warmable_queries_op(context: dagster.OpExecutionContext) -> list[dict]:
 RAW_REPLAY_MIN_QUERY_COUNT = 10
 
 # Worker threads for the warm pass. The pass is IO-bound (cache checks, CH
-# reads/inserts), so a small pool cuts wall time ~8x at the widened selection
-# size; kept well under the OFFLINE per-user query-slot budget so a build wave
-# can't starve other traffic (the same slot pool the inline-build saturation
-# incidents exhausted).
-WARMING_SHAPE_CONCURRENCY = 8
+# reads/inserts), so a pool cuts wall time at the widened selection size. A cold
+# first run is dominated by per-day bucket builds — hundreds of thousands of them
+# — so this is the main throughput lever, but raising it adds load to the offline
+# ClickHouse pool. Overridable via WEB_ANALYTICS_WARMING_SHAPE_CONCURRENCY without
+# a redeploy; the pool is fixed for the life of a pass, so a change applies when
+# the next run starts. This is the fallback when the setting is unset.
+WARMING_SHAPE_CONCURRENCY = 16
+
+# Heartbeat cadence for the warm pass. Cold bucket builds run ~1s each, so a full
+# selection can take hours; without a heartbeat the op is silent start to finish
+# and a long run is indistinguishable from a hung one.
+WARMING_PROGRESS_LOG_INTERVAL_SECONDS = 120
+
+
+def _team_still_exists(team_id: int) -> bool:
+    # Thin DB boundary so tests can pin the answer: pool worker threads hold their
+    # own connections, which can't see a TestCase's uncommitted rows.
+    return Team.objects.filter(pk=team_id).exists()
+
+
+class WarmQueriesConfig(dagster.Config):
+    """Launchpad knobs for targeted warming runs. The hourly schedule passes no
+    config, so it keeps the defaults; a manual launch can scope a run.
+
+    The concurrent-run guard makes launches of this job mutually exclusive with
+    the hourly schedule, so bound a manual backfill with `limit` — an unbounded
+    cold backfill can run for hours and starve the hourly refresh the whole time.
+    """
+
+    # full: warm everything selected (schedule default). refresh: only shapes
+    # already warmed once (cache entry exists) — cheap freshness pass, no cold
+    # builds. backfill: only never-warmed shapes (no cache entry) — coverage
+    # expansion without re-touching the warm set.
+    mode: str = "full"
+    # Restrict to specific teams (empty = all selected teams).
+    team_ids: list[int] = []
+    # Process at most this many shapes, hottest first (0 = no limit).
+    limit: int = 0
 
 
 @dagster.op(retry_policy=cache_warming_retry_policy)
-def warm_queries_op(context: dagster.OpExecutionContext, queries: list[dict]) -> None:
+def warm_queries_op(context: dagster.OpExecutionContext, config: WarmQueriesConfig, queries: list[dict]) -> None:
+    if config.mode not in ("full", "refresh", "backfill"):
+        raise ValueError(f"Unknown warming mode {config.mode!r} (expected full, refresh, or backfill)")
+    if config.team_ids:
+        wanted = set(config.team_ids)
+        queries = [q for q in queries if q["team_id"] in wanted]
+    if config.limit > 0:
+        queries = queries[: config.limit]
+
     team_ids = {q["team_id"] for q in queries}
     teams: dict[int, Team] = {t.pk: t for t in Team.objects.filter(pk__in=team_ids)}
     missing_teams = team_ids - teams.keys()
@@ -657,6 +701,18 @@ def warm_queries_op(context: dagster.OpExecutionContext, queries: list[dict]) ->
                 seen_cache_keys.add((team.pk, cache_key))
 
             entry = QueryCache(team_id=team.pk, cache_key=cache_key).lookup().entry
+
+            # The cache entry doubles as the warm/cold discriminator: a shape
+            # warmed at least once has one (possibly stale); a never-warmed shape
+            # doesn't. refresh keeps the warm set fresh without paying for cold
+            # builds; backfill expands coverage without re-touching the warm set.
+            if config.mode == "refresh" and entry is None:
+                WARMING_QUERIES_COUNTER.labels(outcome="skipped_cold").inc()
+                return "skipped_cold"
+            if config.mode == "backfill" and entry is not None:
+                WARMING_QUERIES_COUNTER.labels(outcome="skipped_already_warmed").inc()
+                return "skipped_already_warmed"
+
             cached_data = entry.as_full_response() if entry else None
 
             if cached_data is not None:
@@ -670,6 +726,18 @@ def warm_queries_op(context: dagster.OpExecutionContext, queries: list[dict]) ->
             WARMING_QUERIES_COUNTER.labels(outcome="warmed").inc()
             return "warmed"
         except Exception as e:
+            # A team deleted after the teams dict was loaded (the 14-day demand
+            # window churns teams out) surfaces as a DoesNotExist from
+            # get_cache_key: it reads a team extension via get-or-create, whose
+            # create hits the team foreign key and leaves the lookup raising the
+            # extension's DoesNotExist. That's not a warming failure — skip it
+            # quietly rather than logging a traceback and firing error tracking
+            # for every churned team. Verified against the DB rather than keyed on
+            # the exception type alone: other models raise DoesNotExist too (a
+            # cohort filter whose cohort was deleted mid-window), and for a live
+            # team those are genuine failures that must still report.
+            if isinstance(e, ObjectDoesNotExist) and not _team_still_exists(team.pk):
+                return "team_missing"
             # Module logger, not context.log: Dagster's log manager isn't
             # guaranteed thread-safe, and workers fail concurrently.
             logger.exception(
@@ -685,26 +753,65 @@ def warm_queries_op(context: dagster.OpExecutionContext, queries: list[dict]) ->
             # a long pass doesn't accumulate stale connections per thread.
             close_old_connections()
 
+    # Clamped: a non-positive value would abort every run at pool construction and
+    # an oversized one can exhaust process threads. The pool is fixed for the life
+    # of the pass, so a settings change applies when the next run starts.
+    concurrency = min(
+        64, max(1, get_instance_setting("WEB_ANALYTICS_WARMING_SHAPE_CONCURRENCY") or WARMING_SHAPE_CONCURRENCY)
+    )
     outcomes: dict[str, int] = {}
-    with ThreadPoolExecutor(max_workers=WARMING_SHAPE_CONCURRENCY) as pool:
-        for outcome in pool.map(_warm_one, queries):
+    total = len(queries)
+    processed = 0
+    started_at = time.monotonic()
+    last_log_at = started_at
+    context.log.info(
+        f"Warming {total} shapes across {len(teams)} teams (mode={config.mode}, concurrency={concurrency})"
+    )
+    with ThreadPoolExecutor(max_workers=concurrency) as pool:
+        # Futures are consumed by completion, not input order: with pool.map one
+        # slow early shape would block this loop — and the heartbeat — while later
+        # workers finish thousands of shapes. Consuming on the op thread also keeps
+        # context.log here safe, unlike the worker-thread logging inside _warm_one.
+        futures = [pool.submit(_warm_one, query_info) for query_info in queries]
+        for future in as_completed(futures):
+            outcome = future.result()
             outcomes[outcome] = outcomes.get(outcome, 0) + 1
+            processed += 1
+            now = time.monotonic()
+            if now - last_log_at >= WARMING_PROGRESS_LOG_INTERVAL_SECONDS:
+                elapsed = now - started_at
+                rate = processed / elapsed
+                eta_min = (total - processed) / rate / 60 if rate > 0 else 0
+                breakdown = ", ".join(f"{k}={v}" for k, v in sorted(outcomes.items()))
+                context.log.info(
+                    f"Warming progress: {processed}/{total} ({100 * processed // total}%) "
+                    f"at {rate:.0f}/s, ETA ~{eta_min:.0f}m — {breakdown}"
+                )
+                last_log_at = now
 
     queries_warmed = outcomes.get("warmed", 0)
     queries_skipped = outcomes.get("skipped_fresh", 0)
     queries_failed = outcomes.get("failed", 0)
     queries_unsupported = outcomes.get("unsupported", 0)
 
+    final_breakdown = ", ".join(f"{k}={v}" for k, v in sorted(outcomes.items()))
     context.log.info(
-        f"Warmed {queries_warmed} queries ({queries_skipped} already fresh, "
-        f"{queries_failed} failed, {queries_unsupported} unsupported kinds)"
+        f"Warmed {queries_warmed} queries in {(time.monotonic() - started_at) / 60:.1f}m "
+        f"(mode={config.mode}: {final_breakdown})"
     )
     context.add_output_metadata(
         {
             "queries_warmed": queries_warmed,
             "queries_skipped": queries_skipped,
+            "queries_skipped_duplicate": outcomes.get("skipped_duplicate", 0),
+            "queries_skipped_raw_low_demand": outcomes.get("skipped_raw_low_demand", 0),
+            "queries_skipped_cold": outcomes.get("skipped_cold", 0),
+            "queries_skipped_already_warmed": outcomes.get("skipped_already_warmed", 0),
+            "teams_missing": outcomes.get("team_missing", 0),
             "queries_failed": queries_failed,
             "queries_unsupported": queries_unsupported,
+            "concurrency": concurrency,
+            "mode": config.mode,
         }
     )
 

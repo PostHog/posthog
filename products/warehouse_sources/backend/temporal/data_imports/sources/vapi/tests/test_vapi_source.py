@@ -5,7 +5,12 @@ from parameterized import parameterized
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vapi import VapiSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.vapi.settings import ENDPOINTS, VAPI_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.vapi.settings import (
+    ENDPOINTS,
+    VAPI_ENDPOINTS,
+    VAPI_VERSION_V1,
+    VAPI_VERSION_V2,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.vapi.source import VapiSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.vapi.vapi import VapiResumeConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -24,6 +29,11 @@ class TestVapiSource:
 
     def test_source_type(self):
         assert self.source.source_type == ExternalDataSourceType.VAPI
+
+    def test_declares_v1_and_v2_with_v2_default(self):
+        # New sources are stamped v2; v1 stays declared so existing pinned rows keep their path.
+        assert self.source.supported_versions == (VAPI_VERSION_V1, VAPI_VERSION_V2)
+        assert self.source.default_version == VAPI_VERSION_V2
 
     def test_get_source_config(self):
         config = self.source.get_source_config
@@ -119,6 +129,7 @@ class TestVapiSource:
     def test_source_for_pipeline_plumbs_arguments(self, mock_vapi_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "calls"
+        inputs.api_version = VAPI_VERSION_V1
         inputs.should_use_incremental_field = True
         inputs.db_incremental_field_last_value = "2026-01-01T00:00:00.000Z"
         inputs.db_incremental_field_earliest_value = "2025-01-01T00:00:00.000Z"
@@ -133,6 +144,24 @@ class TestVapiSource:
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00.000Z"
         assert kwargs["db_incremental_field_earliest_value"] == "2025-01-01T00:00:00.000Z"
+
+    @parameterized.expand(
+        [
+            ("no_pin_defaults_to_v2", None, VAPI_VERSION_V2),
+            ("v1_pin_preserved", VAPI_VERSION_V1, VAPI_VERSION_V1),
+            ("v2_pin_preserved", VAPI_VERSION_V2, VAPI_VERSION_V2),
+        ]
+    )
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.vapi.source.vapi_source")
+    def test_source_for_pipeline_resolves_api_version(self, _name, pin, expected, mock_vapi_source):
+        inputs = mock.MagicMock()
+        inputs.schema_name = "phone_numbers"
+        inputs.api_version = pin
+        inputs.should_use_incremental_field = False
+
+        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+
+        assert mock_vapi_source.call_args.kwargs["api_version"] == expected
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.vapi.source.vapi_source")
     def test_source_for_pipeline_omits_cursors_when_not_incremental(self, mock_vapi_source):
