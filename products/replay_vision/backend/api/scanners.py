@@ -658,9 +658,9 @@ class ObserveResponseSerializer(serializers.Serializer):
     )
 
 
-# One request can start at most this many scans. Bounds the fan-out of a single bulk trigger well
-# under the in-flight caps; the frontend selects from one loaded page, so this is rarely the binding
-# limit — the concurrency headroom usually is.
+# Caps the session_ids one request may carry, bounding the fan-out of a single bulk trigger well
+# under the in-flight caps. Larger cross-page selections are chunked into this size by the caller,
+# so this is rarely the binding limit; the concurrency headroom usually is.
 BULK_OBSERVE_MAX_SESSIONS = 200
 
 

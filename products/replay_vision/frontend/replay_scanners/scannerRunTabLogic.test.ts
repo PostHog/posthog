@@ -107,4 +107,37 @@ describe('scannerRunTabLogic', () => {
         expect(postedBody).toEqual({ session_ids: ['a', 'b', 'c'] })
         expect(logic.values.bulkScanning).toBe(false)
     })
+
+    it('chunks a selection larger than the backend per-request cap into separate requests', async () => {
+        // Regression guard: posting 240 sessions in one request used to trip the backend's 200-item
+        // ListField cap and surface a raw DRF validation error. The selection must be split into
+        // batches of at most 200 so none is rejected wholesale.
+        const postedBatches: string[][] = []
+        useMocks({
+            post: {
+                '/api/projects/:team/vision/scanners/:id/bulk_observe/': async ({ request }: { request: Request }) => {
+                    const body = await request.json()
+                    postedBatches.push(body.session_ids)
+                    return [
+                        202,
+                        {
+                            started: body.session_ids.length,
+                            results: body.session_ids.map((session_id: string) => ({
+                                session_id,
+                                scan_outcome: 'started',
+                            })),
+                        },
+                    ]
+                },
+            },
+        })
+        const sessionIds = Array.from({ length: 240 }, (_, i) => `s-${i}`)
+        await expectLogic(logic, () => logic.actions.startBulkScan(sessionIds)).toFinishAllListeners()
+
+        expect(postedBatches).toHaveLength(2)
+        expect(postedBatches[0]).toHaveLength(200)
+        expect(postedBatches[1]).toHaveLength(40)
+        expect(postedBatches.flat()).toEqual(sessionIds)
+        expect(logic.values.bulkScanning).toBe(false)
+    })
 })

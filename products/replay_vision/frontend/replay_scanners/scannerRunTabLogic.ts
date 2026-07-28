@@ -29,6 +29,10 @@ export interface RowObservation {
 
 export const IN_PROGRESS_STATUSES = new Set<string>(['pending', 'running'])
 
+// Mirrors the backend's BULK_OBSERVE_MAX_SESSIONS cap. Cross-page selections can exceed it, so a
+// larger selection is split into chunks of this size rather than rejected wholesale.
+const BULK_OBSERVE_MAX_SESSIONS = 200
+
 export interface ScannerRunTabLogicProps {
     scannerId: string
 }
@@ -213,17 +217,33 @@ export const scannerRunTabLogic = kea<scannerRunTabLogicType>([
                     return
                 }
                 try {
-                    const response = await visionScannersBulkObserveCreate(String(teamId), props.scannerId, {
-                        session_ids: sessionIds,
-                    })
-                    const results = response.results ?? []
-                    const started = response.started
+                    let started = 0
+                    let limited = 0
+                    let failed = 0
+                    // The backend rejects more than BULK_OBSERVE_MAX_SESSIONS per request, so a larger
+                    // cross-page selection is chunked and the outcomes summed. Once a chunk reports a
+                    // skip, the caps are exhausted and every later chunk would only add more skips, so
+                    // we stop and count the untried sessions as skipped too.
+                    let hitCap = false
+                    for (let i = 0; i < sessionIds.length && !hitCap; i += BULK_OBSERVE_MAX_SESSIONS) {
+                        const batch = sessionIds.slice(i, i + BULK_OBSERVE_MAX_SESSIONS)
+                        const response = await visionScannersBulkObserveCreate(String(teamId), props.scannerId, {
+                            session_ids: batch,
+                        })
+                        const results = response.results ?? []
+                        started += response.started
+                        const batchLimited = results.filter(
+                            (r) => r.scan_outcome === 'skipped_limit' || r.scan_outcome === 'skipped_quota'
+                        ).length
+                        limited += batchLimited
+                        failed += results.filter((r) => r.scan_outcome === 'failed').length
+                        if (batchLimited > 0) {
+                            limited += sessionIds.length - i - batch.length
+                            hitCap = true
+                        }
+                    }
                     // The backend scans what fits and reports the rest — surface the split so the user
                     // knows a partial run happened rather than assuming everything started.
-                    const limited = results.filter(
-                        (r) => r.scan_outcome === 'skipped_limit' || r.scan_outcome === 'skipped_quota'
-                    ).length
-                    const failed = results.filter((r) => r.scan_outcome === 'failed').length
                     const extras = [
                         limited ? `${limited} skipped (limit reached)` : null,
                         failed ? `${failed} failed to start` : null,
