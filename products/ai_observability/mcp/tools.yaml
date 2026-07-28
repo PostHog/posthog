@@ -492,10 +492,12 @@ tools:
         title: Create prompt
         description: >
             Create a new LLM prompt for the current team. Requires a unique name and prompt content (string or JSON
-            object).
+            object). Optionally pass 'config', a JSON object with model parameters or any agent configuration
+            (e.g. model, temperature, tools) — it is versioned with the prompt and returned as-is when fetching it.
         include_params:
             - name
             - prompt
+            - config
             - version_description
     llma-prompt-duplicate:
         operation: llm_prompts_name_duplicate_create
@@ -601,9 +603,13 @@ tools:
             version number as 'base_version'; a stale base_version fails with a 409 conflict. Pass
             'version_description' with a short note on what changed and why — it is shown in the prompt's
             version history.
+            Pass 'config' (a JSON object) to set model parameters or agent configuration on the new version.
+            If 'config' is omitted the current version's config is carried forward; pass null to clear it.
+            A config-only publish (no 'prompt' or 'edits') keeps the prompt content unchanged.
         include_params:
             - prompt
             - edits
+            - config
             - base_version
             - version_description
         param_overrides:

@@ -5416,7 +5416,7 @@
         }
     },
     "llma-prompt-create": {
-        "description": "Create a new LLM prompt for the current team. Requires a unique name and prompt content (string or JSON object).",
+        "description": "Create a new LLM prompt for the current team. Requires a unique name and prompt content (string or JSON object). Optionally pass 'config', a JSON object with model parameters or any agent configuration (e.g. model, temperature, tools) — it is versioned with the prompt and returned as-is when fetching it.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Create prompt",
@@ -5500,7 +5500,7 @@
         }
     },
     "llma-prompt-update": {
-        "description": "Publish a new version of an existing LLM prompt by name. Name is immutable after creation.\nYou can either provide the full prompt content via 'prompt', or use 'edits' for incremental\nfind/replace updates. Each edit must have 'old' (text to find, must match exactly once) and\n'new' (replacement text). Edits are applied sequentially. Only one of 'prompt' or 'edits'\nmay be provided. 'base_version' is required — call llma-prompt-get first and pass its current\nversion number as 'base_version'; a stale base_version fails with a 409 conflict. Pass\n'version_description' with a short note on what changed and why — it is shown in the prompt's\nversion history.",
+        "description": "Publish a new version of an existing LLM prompt by name. Name is immutable after creation.\nYou can either provide the full prompt content via 'prompt', or use 'edits' for incremental\nfind/replace updates. Each edit must have 'old' (text to find, must match exactly once) and\n'new' (replacement text). Edits are applied sequentially. Only one of 'prompt' or 'edits'\nmay be provided. 'base_version' is required — call llma-prompt-get first and pass its current\nversion number as 'base_version'; a stale base_version fails with a 409 conflict. Pass\n'version_description' with a short note on what changed and why — it is shown in the prompt's\nversion history.\nPass 'config' (a JSON object) to set model parameters or agent configuration on the new version.\nIf 'config' is omitted the current version's config is carried forward; pass null to clear it.\nA config-only publish (no 'prompt' or 'edits') keeps the prompt content unchanged.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Update prompt",

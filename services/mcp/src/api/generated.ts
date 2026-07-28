@@ -35578,6 +35578,8 @@ export namespace Schemas {
       name: string;
       /** Prompt payload as JSON or string data. */
       prompt: unknown;
+      /** Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. */
+      config?: unknown;
       readonly version: number;
       /**
          * Optional note describing what changed in this version. Set when the version is published.
@@ -35640,6 +35642,8 @@ export namespace Schemas {
       readonly name: string;
       /** Prompt payload as JSON or string data. */
       readonly prompt: unknown;
+      /** Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. */
+      readonly config: unknown;
       readonly version: number;
       /**
          * Optional note describing what changed in this version. Set when the version is published.
@@ -35669,6 +35673,8 @@ export namespace Schemas {
       name: string;
       /** Full prompt content. Omitted when 'content=preview' or 'content=none'. */
       prompt?: unknown;
+      /** JSON object with model parameters or any agent configuration stored with this version, or null when the version has none. Omitted when 'content=preview' or 'content=none'. */
+      config?: unknown;
       /** First 160 characters of the prompt. Only present when 'content=preview'. */
       prompt_preview?: string;
       /** Flat list of markdown headings parsed from the prompt. Useful as a lightweight table of contents. */
@@ -48526,6 +48532,8 @@ export namespace Schemas {
       prompt?: unknown;
       /** List of find/replace operations to apply to the current prompt version. Each edit's 'old' text must match exactly once. Edits are applied sequentially. Mutually exclusive with prompt. */
       edits?: LLMPromptEditOperation[];
+      /** JSON object with model parameters or any agent configuration to store with this version. If omitted, the current version's config is carried forward; pass null to clear it. Can be combined with either prompt or edits. */
+      config?: unknown;
       /**
          * Latest version you are editing from. Used for optimistic concurrency checks.
          * @minimum 1
