@@ -222,6 +222,69 @@ class TestMarketingCostsPrecompute(ClickhouseTestMixin, BaseTest):
         total_cost = sum(float(r[self._col(result_cols, MarketingSourceAdapter.cost_field)]) for r in result_rows)
         assert total_cost == 150.0, f"expected latest job cost 150 (argMax), got {total_cost} (sum would be 250)"
 
+    @parameterized.expand(
+        [
+            ("prefers_campaign_name", "campaign_name", "Real Campaign"),
+            ("prefers_campaign_id", "campaign_id", "camp_123"),
+        ]
+    )
+    def test_native_read_derives_match_key_live_ignoring_baked_column(self, _name, match_field, expected_key):
+        # The join to conversion goals keys on match_key, which the conversion side derives live from the
+        # team's current campaign_field_preferences every request. If the cost side trusts the match_key a
+        # past job baked in (stale after a preference change), the LEFT JOIN misses and conversions read
+        # zero. The native read must derive match_key from the current preference instead — so a stale
+        # baked value can never leak into the join.
+        baked_but_stale = "STALE_BAKED_KEY"
+        row = (
+            self.team.pk,
+            str(uuid.uuid4()),
+            "google_test",
+            "google",
+            "campaign",
+            baked_but_stale,
+            "camp_123",
+            "Real Campaign",
+            "",
+            "",
+            "",
+            "",
+            date(2023, 1, 15),
+            100.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            datetime(2023, 1, 16, 10, 0),
+            date(2099, 1, 1),
+        )
+        sync_execute(
+            f"INSERT INTO {DISTRIBUTED_MARKETING_COSTS_TABLE()} "
+            "(team_id, job_id, source_id, source_name, grain, match_key, campaign_id, campaign_name, "
+            "ad_group_id, ad_group_name, ad_id, ad_name, cost_date, cost, clicks, impressions, "
+            "reported_conversions, reported_conversion_value, computed_at, expires_at) VALUES",
+            [row],
+        )
+
+        date_range = DateRange(date_from="2023-01-01", date_to="2023-01-31")
+        runner = MarketingAnalyticsTableQueryRunner(
+            query=MarketingAnalyticsTableQuery(dateRange=date_range, limit=100, offset=0, properties=[]),
+            team=self.team,
+        )
+        read = runner._costs_native_read_query(
+            ["google_test"],
+            MarketingAnalyticsDrillDownLevel.CAMPAIGN,
+            QueryDateRange(date_range=date_range, team=self.team, interval=None, now=datetime(2025, 1, 1)),
+            {"google_test": match_field},
+        )
+        result_rows, result_cols = self._execute(read)
+
+        assert len(result_rows) == 1
+        emitted = result_rows[0][self._col(result_cols, MarketingSourceAdapter.match_key_field)]
+        assert emitted == expected_key, (
+            f"match_key should be derived live from the '{match_field}' preference ('{expected_key}'), "
+            f"not the stale baked value '{baked_but_stale}'; got '{emitted}'"
+        )
+
     def test_one_unmaterializable_source_does_not_force_all_to_s3(self):
         # One source materializes, one can't. The result must read the native table for the materialized
         # source and keep only the other on the live S3 union — not fall back to S3 for everything.

@@ -331,8 +331,11 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             )
             return None
 
+        # Per-source current match-field preference, so the native read derives match_key live (like the
+        # S3 path) instead of trusting the value each job baked in — see _costs_native_read_query.
+        source_match_fields = {a.get_source_id(): a._get_campaign_field_preference() for a in mat_adapters}
         cost_sources: list[ast.SelectQuery | ast.SelectSetQuery] = [
-            self._costs_native_read_query(materialized_source_ids, grain, date_range)
+            self._costs_native_read_query(materialized_source_ids, grain, date_range, source_match_fields)
         ]
         # Sources that couldn't materialize stay on the live S3 union so the dashboard stays complete.
         if s3_fallback_adapters:
@@ -355,8 +358,46 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             return cost_sources[0]
         return ast.SelectSetQuery.create_from_queries(cost_sources, set_operator="UNION ALL")
 
+    def _native_match_key_expr(self, source_match_fields: dict[str, str]) -> ast.Expr:
+        """Derive `match_key` at read time from the current per-source `campaign_field_preferences`,
+        reading the stable `campaign_name` / `campaign_id` columns off the view rather than the value the
+        materialization job baked into the `match_key` column.
+
+        The conversion side derives its own match_key live from current config every request. Baking it on
+        the cost side let the two drift whenever a preference changed after a job ran (the baked value stays
+        stale until re-materialization), so the LEFT JOIN silently missed and goal conversions read zero
+        while the campaign leaked into "non-integrated conversions". Deriving it live here keeps both sides
+        on the same input, so they can't drift. Mirrors the live S3-fallback path, which already builds
+        match_key from current preferences via `get_campaign_match_field`.
+        """
+        campaign_name = ast.Field(chain=["campaign_name"])
+        campaign_id = ast.Field(chain=["campaign_id"])
+        distinct_prefs = set(source_match_fields.values())
+        # Common case: every materialized source shares one preference — read a single column.
+        if not source_match_fields or distinct_prefs == {"campaign_name"}:
+            return campaign_name
+        if distinct_prefs == {"campaign_id"}:
+            return campaign_id
+        # Mixed preferences across sources — pick the column per source_id.
+        args: list[ast.Expr] = []
+        for source_id, match_field in source_match_fields.items():
+            args.append(
+                ast.CompareOperation(
+                    left=ast.Field(chain=["source_id"]),
+                    op=ast.CompareOperationOp.Eq,
+                    right=ast.Constant(value=str(source_id)),
+                )
+            )
+            args.append(campaign_id if match_field == "campaign_id" else campaign_name)
+        args.append(campaign_name)  # default, matching _get_campaign_field_preference
+        return ast.Call(name="multiIf", args=args)
+
     def _costs_native_read_query(
-        self, source_ids: list, grain: MarketingAnalyticsDrillDownLevel, date_range: QueryDateRange
+        self,
+        source_ids: list,
+        grain: MarketingAnalyticsDrillDownLevel,
+        date_range: QueryDateRange,
+        source_match_fields: dict[str, str] | None = None,
     ) -> ast.SelectQuery:
         """Read deduplicated cost rows for the given materialized sources + grain, re-aliased to the
         adapter column contract so the campaign_costs CTE GROUP BY works identically to the live union.
@@ -368,14 +409,18 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         so we filter by source (not job_id) and let the view own the dedup — one definition shared with
         every other reader. `cost_date` is bounded to the request window with the same inclusive
         `toDateTime` comparison the live adapters use. team_id scoping is enforced inside the view (its
-        inner raw-table reference carries the mandatory team_id guard), so no explicit filter here."""
+        inner raw-table reference carries the mandatory team_id guard), so no explicit filter here.
+
+        `match_key` is derived live from `source_match_fields` (the current preferences), not read off the
+        baked column, so it can't drift from the read-time-derived conversion side — see
+        `_native_match_key_expr`.
+        """
         adapter = MarketingSourceAdapter
 
         def field(name: str) -> ast.Expr:
             return ast.Field(chain=[name])
 
         dimension_columns: list[tuple[str, str]] = [
-            (adapter.match_key_field, "match_key"),
             (adapter.campaign_name_field, "campaign_name"),
             (adapter.campaign_id_field, "campaign_id"),
             (adapter.source_name_field, "source_name"),
@@ -393,7 +438,10 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                 ]
             )
 
-        select_columns: list[ast.Expr] = [ast.Alias(alias=alias, expr=field(name)) for alias, name in dimension_columns]
+        select_columns: list[ast.Expr] = [
+            ast.Alias(alias=adapter.match_key_field, expr=self._native_match_key_expr(source_match_fields or {})),
+            *(ast.Alias(alias=alias, expr=field(name)) for alias, name in dimension_columns),
+        ]
         # Metrics come pre-deduplicated from the view, so a bare read is correct — the downstream
         # campaign_costs CTE still sums across days per campaign.
         select_columns.extend(
