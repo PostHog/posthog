@@ -114,7 +114,9 @@ export interface metricsLogicActions {
         allMetrics: DataCatalogMetricApi[]
         payload?: any
     }
-    loadSavedInsights: () => any
+    loadSavedInsights: () => {
+        value: true
+    }
     loadSavedInsightsFailure: (
         error: string,
         errorObject?: any
@@ -189,6 +191,7 @@ export const metricsLogic = kea<metricsLogicType>([
         closeNewMetricModal: true,
         setNewMetricForm: (form: Partial<NewMetricForm>) => ({ form }),
         setInsightSearch: (search: string) => ({ search }),
+        loadSavedInsights: true,
         createMetric: true,
         setCreatingMetric: (creating: boolean) => ({ creating }),
         approveMetric: (name: string) => ({ name }),
