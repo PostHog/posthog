@@ -384,11 +384,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Homepage',
         layout: 'app-raw-no-header',
     },
-    [Scene.Quickstart]: {
-        projectBased: true,
-        name: 'Quickstart',
-        layout: 'app-container',
-    },
     [Scene.PropertyDefinitionEdit]: {
         projectBased: true,
         name: 'Data management',
@@ -663,6 +658,9 @@ export const redirects: Record<
     '/annotations/:id': ({ id }) => urls.annotation(id),
     '/batch_exports/:id': ({ id }) => urls.batchExport(id),
     '/batch_exports': urls.destinations(),
+    // The scene lives at /code-review (hyphen); catch the old underscore variant, keeping the
+    // ?review= / ?reviews_scope= deep links that PR status comments bake in
+    '/code_review': (_params, searchParams, hashParams) => combineUrl(urls.codeReview(), searchParams, hashParams).url,
     '/comments': () => urls.comments(),
     '/dashboards': urls.dashboards(),
     '/data-management': urls.eventDefinitions(),
@@ -730,6 +728,8 @@ export const redirects: Record<
     '/pipeline/transformations': urls.transformations(),
     '/pipeline/data-import': urls.sources(),
     '/project/settings': urls.settings('project'),
+    // The quickstart landing page is gone; keep old bookmarks and pinned tabs out of a 404
+    '/quickstart': urls.default(),
     '/recordings/file-playback': () => urls.replayFilePlayback(),
     '/recordings/playlists/:id': ({ id }) => urls.replayPlaylist(id),
     '/recordings/settings': () => urls.replaySettings(),
@@ -853,7 +853,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.variables()]: [Scene.DataManagement, 'variables'],
     [urls.variableEdit(':id')]: [Scene.SqlVariableEdit, 'sqlVariableEdit'],
     [urls.projectHomepage()]: [Scene.ProjectHomepage, 'projectHomepage'],
-    [urls.quickstart()]: [Scene.Quickstart, 'quickstart'],
     [urls.aiHistory()]: [Scene.Max, 'maxHistory'],
     [urls.ai()]: [Scene.Max, 'max'],
     [urls.projectCreateFirst()]: [Scene.ProjectCreateFirst, 'projectCreateFirst'],

@@ -1,3 +1,4 @@
+import re
 import sys
 import uuid
 import fnmatch
@@ -706,6 +707,42 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             self.update_sync_type_config_for_reset_pipeline()
 
 
+# JS `Date.prototype.toString()` output (e.g. "Sun Mar 15 2026 16:59:47 GMT+0000 (Coordinated
+# Universal Time)") appends a human-readable timezone name in parentheses that dateutil can't
+# parse, even though the preceding GMT offset already fully specifies the instant.
+JS_DATE_TOSTRING_TZ_NAME_RE = re.compile(r"\([^()]*\)\s*\Z")
+
+
+def _parse_datetime_string(value: str) -> datetime:
+    try:
+        return parser.parse(value)
+    except parser.ParserError:
+        stripped = JS_DATE_TOSTRING_TZ_NAME_RE.sub("", value)
+        if stripped == value:
+            raise
+        return parser.parse(stripped)
+
+
+def _coerce_incremental_datetime(value: str) -> datetime | int:
+    """Parse a DateTime/Timestamp/Date cursor string, falling back to a raw integer.
+
+    Some drivers surface a numeric cursor as a bare digit string even though the field is
+    typed as a date/time type (e.g. a ClickHouse column Arrow can't emit natively, cast to
+    String, whose current type no longer matches the incremental field's stored type).
+    dateutil's heuristics then misread the digits as a calendar year and overflow past
+    datetime's year-9999 ceiling (`ParserError`), or raise a bare `OverflowError` for longer
+    digit runs. Legitimate compact date strings like "20240115" (YYYYMMDD) parse correctly
+    above and never reach this fallback.
+    """
+    try:
+        return _parse_datetime_string(value)
+    except (parser.ParserError, OverflowError):
+        stripped = value.strip()
+        if stripped.lstrip("-").isdigit():
+            return int(stripped)
+        raise
+
+
 def process_incremental_value(value: Any | None, field_type: IncrementalFieldType | None) -> Any:
     if value is None or value == "None" or field_type is None:
         return None
@@ -726,7 +763,7 @@ def process_incremental_value(value: Any | None, field_type: IncrementalFieldTyp
         if isinstance(value, int | float) and not isinstance(value, bool):
             return value
 
-        return parser.parse(value)
+        return _coerce_incremental_datetime(value)
 
     if field_type == IncrementalFieldType.Date:
         if isinstance(value, datetime):
@@ -738,7 +775,8 @@ def process_incremental_value(value: Any | None, field_type: IncrementalFieldTyp
         if isinstance(value, int | float) and not isinstance(value, bool):
             return value
 
-        return parser.parse(value).date()
+        parsed = _coerce_incremental_datetime(value)
+        return parsed if isinstance(parsed, int) else parsed.date()
 
     if field_type == IncrementalFieldType.ObjectID:
         return str(value)

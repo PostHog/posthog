@@ -25,7 +25,7 @@ from posthog.schema import HogQLQueryModifiers, MaterializationMode
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models import ActivityLog, Comment, Organization, Tag, User
+from posthog.models import ActivityLog, Comment, Organization, Tag, Team, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.persons import create_person
@@ -546,6 +546,40 @@ class TestTicketAPI(APIBaseTest):
         self.assertEqual(results[0]["id"], str(urgent_ticket.id))
         self.assertEqual(results[1]["id"], str(self.ticket.id))
 
+    @parameterized.expand(
+        [
+            ("sla_due_at", ["soon", "later", "null_c", "null_b", "null_a"]),
+            ("-sla_due_at", ["later", "soon", "null_c", "null_b", "null_a"]),
+        ]
+    )
+    def test_order_by_sla_due_at_is_stable_across_pages(self, mock_on_commit, order_by, expected):
+        # Most tickets have no SLA (NULL sla_due_at), so the sort key ties across many rows.
+        # Without a unique tiebreaker the tied rows have no stable order across the separate
+        # LIMIT/OFFSET page queries, so paging duplicates or drops rows and the sort looks lost.
+        # ticket_numbers: null_a=1 (setUp), null_b=2, null_c=3, soon=4, later=5.
+        now = timezone.now()
+        tickets: dict[str, Ticket] = {"null_a": self.ticket}
+        for key in ("null_b", "null_c", "soon", "later"):
+            tickets[key] = Ticket.objects.create_with_number(
+                team=self.team,
+                channel_source=Channel.WIDGET,
+                widget_session_id=key,
+                distinct_id=key,
+                sla_due_at={"soon": now + timedelta(hours=1), "later": now + timedelta(hours=5)}.get(key),
+            )
+
+        seen: list[str] = []
+        for offset in range(0, len(tickets), 2):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/conversations/tickets/?order_by={order_by}&limit=2&offset={offset}"
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            seen.extend(r["id"] for r in response.json()["results"])
+
+        # Real deadlines sort first (ascending/descending), no-SLA tickets last, ties broken by
+        # -ticket_number — a single total order, so the pages concatenate back to exactly it.
+        self.assertEqual(seen, [str(tickets[key].id) for key in expected])
+
     def test_filter_multiple_priorities_excludes_null(self, mock_on_commit):
         """Test that multiple priority filter excludes tickets with NULL priority."""
         self.ticket.priority = Priority.LOW
@@ -664,6 +698,36 @@ class TestTicketAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 0)
+
+    def test_search_excludes_other_team_comments(self, mock_on_commit):
+        # The comment pre-query filters by the request's team; a matching comment in
+        # another team pointing at this ticket's id must not surface the ticket, while
+        # the same content on a same-team ticket must — so a search that filters
+        # everything out (or nothing) can't pass this test.
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        Comment.objects.create(
+            team=other_team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="zebra migration question",
+        )
+        same_team_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="zebra-session",
+            distinct_id="zebra-user",
+        )
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(same_team_ticket.id),
+            content="zebra migration question",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?search=zebra")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], str(same_team_ticket.id))
 
     def test_search_ignores_too_long_query(self, mock_on_commit):
         long_query = "a" * 201

@@ -8,7 +8,7 @@ keeps replays and clock regressions from shadowing a newer record.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Optional
@@ -49,6 +49,7 @@ class FoldStats:
     dropped_wrong_team: int = 0
     dropped_before_since: int = 0
     dropped_malformed: int = 0
+    dropped_after_until: int = 0
     cohorts_seen: set[int] = field(default_factory=set)
     reconcile_markers: dict[tuple[str, int], set[int]] = field(default_factory=dict)
     # Count of accepted marker messages, incl. duplicates — the reconcile_markers set dedups by
@@ -91,6 +92,7 @@ def _record_marker(
     cohort_id: Any,
     last_updated: Optional[datetime],
     since: datetime,
+    until: Optional[datetime],
     stats: FoldStats,
 ) -> None:
     run_id = _parse_marker_run_id(message.get("run_id"))
@@ -109,6 +111,9 @@ def _record_marker(
     if last_updated < since:
         stats.dropped_before_since += 1
         return
+    if until is not None and last_updated > until:
+        stats.dropped_after_until += 1
+        return
     stats.reconcile_markers.setdefault((run_id, cohort_id), set()).add(partition)
     stats.reconcile_markers_recorded += 1
     stats.cohorts_seen.add(cohort_id)
@@ -119,9 +124,14 @@ def fold_membership_changes(
     *,
     team_id: int,
     since: datetime,
+    until: Optional[datetime] = None,
 ) -> tuple[dict[int, dict[str, MembershipRecord]], FoldStats]:
     """Fold messages to {cohort_id: {person_id: final record}}, dropping other teams'
-    messages and anything stamped before `since` (pre-wipe residue)."""
+    messages and anything stamped before `since` (pre-wipe residue).
+
+    `until` bounds the fold to the converged state at an instant: with a pinned comparison clock the
+    fold must not carry decisions the oracle's window cannot see, or every entry made after that
+    instant reads as an unexplained over-count."""
     stats = FoldStats()
     state: dict[int, dict[str, MembershipRecord]] = {}
     for message in messages:
@@ -137,7 +147,7 @@ def fold_membership_changes(
         last_updated = parse_last_updated(message.get("last_updated"))
 
         if message.get("type") == RECONCILE_COMPLETE_TYPE:
-            _record_marker(message, cohort_id, last_updated, since, stats)
+            _record_marker(message, cohort_id, last_updated, since, until, stats)
             continue
 
         person_id = message.get("person_id")
@@ -154,6 +164,9 @@ def fold_membership_changes(
             continue
         if last_updated < since:
             stats.dropped_before_since += 1
+            continue
+        if until is not None and last_updated > until:
+            stats.dropped_after_until += 1
             continue
         # Match the old side's argMax(status, last_updated): timestamp order, not arrival
         # order, so an out-of-order replay cannot shadow a newer record.
@@ -188,12 +201,12 @@ def reconcile_completeness(stats: FoldStats, cohort_id: int) -> tuple[ReconcileR
     return reconcile_completeness_by_cohort(stats).get(cohort_id, ())
 
 
-def members(state: dict[str, MembershipRecord]) -> set[str]:
+def members(state: Mapping[str, MembershipRecord]) -> set[str]:
     """The currently-entered persons of one cohort's folded state."""
     return {person_id for person_id, record in state.items() if record.status == "entered"}
 
 
-def observed(state: dict[str, MembershipRecord]) -> set[str]:
+def observed(state: Mapping[str, MembershipRecord]) -> set[str]:
     """Every person the new pipeline emitted a decision for in this cohort.
 
     Live and seed processing can be flip-only, while reconcile snapshots emit every current
