@@ -4,8 +4,10 @@ import { useEffect, useRef, useState } from 'react'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { elapsedSecondsFrom } from 'lib/utils/datetime'
+import { resolveOnboardingFlowVariant } from 'scenes/onboarding/onboardingVariants'
 import { userLogic } from 'scenes/userLogic'
 
 import { onboardingEventUsageLogic } from '../../onboardingEventUsageLogic'
@@ -357,8 +359,8 @@ function WizardSyncFinishedLocalFab(): JSX.Element | null {
 }
 
 // A live local run: the wizard session stream is the source; elapsed comes from its started_at.
-function WizardSyncLocalFab(): JSX.Element | null {
-    const { installationProgress, latestSession } = useValues(installationProgressLogic({ mode: 'local' }))
+function WizardSyncLocalFab({ workflowId }: { workflowId: string }): JSX.Element | null {
+    const { installationProgress, latestSession } = useValues(installationProgressLogic({ mode: 'local', workflowId }))
     const { dismissedSessionId } = useValues(finishedLocalRunLogic)
     const { dismissLocalRun } = useActions(finishedLocalRunLogic)
     // No session on the stream yet, or the user already dismissed this one — fall back to the
@@ -384,11 +386,13 @@ function WizardSyncLocalFab(): JSX.Element | null {
 // run keeps the handoff on screen without any stream.
 function WizardSyncLocalGate(): JSX.Element | null {
     useMountedLogic(wizardActiveSessionDetectorLogic)
-    const { shouldStream } = useValues(wizardActiveSessionDetectorLogic)
-    if (!shouldStream) {
+    // Stream whichever program the detector found live, so a self-driving run is surfaced by the
+    // same widget rather than being mistaken for an SDK install (or missed entirely).
+    const { shouldStream, activeWorkflowId } = useValues(wizardActiveSessionDetectorLogic)
+    if (!shouldStream || !activeWorkflowId) {
         return <WizardSyncFinishedLocalFab />
     }
-    return <WizardSyncLocalFab />
+    return <WizardSyncLocalFab workflowId={activeWorkflowId} />
 }
 
 /**
@@ -399,8 +403,12 @@ function WizardSyncLocalGate(): JSX.Element | null {
  * one corner widget, never two.
  */
 export function WizardSyncFab(): JSX.Element | null {
-    const syncEnabled = useFeatureFlag('ONBOARDING_WIZARD_SYNC', 'test')
+    const syncFlagEnabled = useFeatureFlag('ONBOARDING_WIZARD_SYNC', 'test')
+    const { featureFlags } = useValues(featureFlagLogic)
     const { activeCloudRun, panelMounted } = useValues(activeCloudRunLogic)
+    // The self-driving onboarding syncs unconditionally, so its users need the detached widget too
+    // once they navigate away from the install step — the sync flag only gates the legacy arm.
+    const syncEnabled = syncFlagEnabled || resolveOnboardingFlowVariant(featureFlags) === 'self-driving'
 
     // An inline install-step progress view is already showing this run, so stay out of its way. The FAB
     // is for after the user moves on from the install step. Both inline views (cloud and local) claim

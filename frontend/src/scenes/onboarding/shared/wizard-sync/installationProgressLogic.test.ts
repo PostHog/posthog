@@ -645,9 +645,10 @@ describe('installationProgressLogic merge', () => {
             )
         })
 
-        // The detector is a singleton gating the app-wide FAB against `posthog-integration`. A
-        // self-driving session reaching it would make the FAB claim an SDK install is running.
-        it('only lets the tracked workflow drive the app-wide session detector', () => {
+        // The FAB streams whatever the detector says is live, so the detector has to carry WHICH
+        // program that is. Recording only "something is running" made the FAB open the SDK-install
+        // stream for a self-driving run and render nothing.
+        it('tells the app-wide session detector which workflow went live', () => {
             // `started_at` too must be recent: the detector's eligibility check caps a session's
             // lifetime at an hour, and the shared fixture's is fixed in the past.
             const live = (sessionId: string): WizardSessionDTOApi =>
@@ -658,10 +659,11 @@ describe('installationProgressLogic merge', () => {
             detector.mount()
             try {
                 runLocalSessionBookkeeping(live('sd'), null, SELF_DRIVING_WORKFLOW_ID, spyActions())
-                expect(detector.values.hasActiveSession).toBe(false)
+                expect(detector.values.activeWorkflowId).toBe(SELF_DRIVING_WORKFLOW_ID)
+                expect(detector.values.hasActiveSession).toBe(true)
 
                 runLocalSessionBookkeeping(live('pi'), null, POSTHOG_INTEGRATION_WORKFLOW_ID, spyActions())
-                expect(detector.values.hasActiveSession).toBe(true)
+                expect(detector.values.activeWorkflowId).toBe(POSTHOG_INTEGRATION_WORKFLOW_ID)
             } finally {
                 detector.unmount()
             }
