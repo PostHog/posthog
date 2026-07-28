@@ -165,21 +165,18 @@ def get_email_team_and_org_context(
     only place they get sanitized, so a hand-set duplicate reintroduces the raw value.
 
     Absent values are omitted so templates render only what's present. Both names go through
-    `sanitize_display_name` so a legacy name that is a URL cannot render as a link target.
-    A rejected team_name is dropped; organization_name falls back to a placeholder instead,
-    because email bodies interpolate it mid-sentence.
+    `sanitize_display_name`, so a legacy name that is a URL degrades to a placeholder rather
+    than rendering as a link target where templates interpolate it mid-sentence.
     """
     if organization is None and team is not None:
         organization = team.organization
     context: dict[str, str] = {}
     if team is not None and team.name:
-        team_name = sanitize_display_name(
+        context["team_name"] = sanitize_display_name(
             team.name,
-            fallback="",
+            fallback="your project",
             context={"helper": "get_email_team_and_org_context", "field": "team_name"},
         )
-        if team_name:
-            context["team_name"] = team_name
     if organization is not None:
         if organization.name:
             context["organization_name"] = sanitize_display_name(

@@ -56,17 +56,18 @@ class TestEmailTeamAndOrgContext(BaseTest):
             "customer_id": "cus_123",
         }
 
-    def test_url_team_name_is_omitted(self):
+    @parameterized.expand(
+        [
+            ("team_name", "your project"),
+            ("organization_name", "your organization"),
+        ]
+    )
+    def test_url_name_falls_back_to_a_placeholder(self, field: str, expected: str):
         self.team.name = "https://acme.example.com"
         self.team.save()
-        assert "team_name" not in get_email_team_and_org_context(team=self.team)
-
-    def test_url_organization_name_falls_back_to_a_placeholder(self):
         self.organization.name = "https://acme.example.com"
         self.organization.save()
-        assert (
-            get_email_team_and_org_context(organization=self.organization)["organization_name"] == "your organization"
-        )
+        assert get_email_team_and_org_context(team=self.team)[field] == expected
 
     def test_blank_values_are_omitted_so_templates_render_only_whats_present(self):
         self.organization.customer_id = None
