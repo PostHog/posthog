@@ -28,6 +28,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
@@ -61,6 +62,11 @@ class Command(BaseCommand):
         parser.add_argument("--skip-flags", action="store_true", help="Skip enabling feature flags.")
 
     def handle(self, *args: Any, **options: Any) -> None:
+        # Local-dev only: this seeder persists the deployment's OBJECT_STORAGE_*
+        # key pair into a tenant-owned warehouse credential, which must never
+        # happen against production object storage.
+        if not settings.DEBUG:
+            raise CommandError("This command is only for local development (requires DEBUG=1)")
         try:
             team = Team.objects.get(pk=options["team_id"])
         except Team.DoesNotExist:
