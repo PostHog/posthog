@@ -16,6 +16,20 @@ import { mcpAnalyticsOnboardingLogic } from '../mcpAnalyticsOnboardingLogic'
 
 export const MCP_ANALYTICS_DOCS_URL = 'https://posthog.com/docs/mcp-analytics'
 
+export interface MCPAnalyticsLiveEventRow {
+    uuid: string
+    event: string
+    receivedAt: string
+}
+
+export function liveEventRows(events: LiveEvent[]): MCPAnalyticsLiveEventRow[] {
+    return events.slice(0, 5).map((event) => ({
+        uuid: event.uuid,
+        event: event.event,
+        receivedAt: dayjs(event.created_at || event.timestamp).format('HH:mm:ss'),
+    }))
+}
+
 export function useMCPAnalyticsWizardCommand(): { command: string; isCloudOrDev: boolean } {
     // Pinning the project keeps this surface and the in-scene empty state (which
     // builds the same command from its `wizard` config) from drifting apart.
@@ -52,6 +66,8 @@ export function MCPListeningIndicator(): JSX.Element {
 }
 
 export function MCPAnalyticsLiveEvents({ events }: { events: LiveEvent[] }): JSX.Element {
+    const rows = liveEventRows(events)
+
     return (
         <LemonCard className="w-full overflow-hidden p-0">
             <div className="border-b px-3 py-2">
@@ -63,24 +79,20 @@ export function MCPAnalyticsLiveEvents({ events }: { events: LiveEvent[] }): JSX
                 showHeader={false}
                 size="small"
                 rowKey="uuid"
-                dataSource={events.slice(0, 5)}
+                dataSource={rows}
                 emptyState="No events received yet. Trigger an event to check your connection."
                 columns={[
                     {
                         key: 'event',
                         title: 'Event',
-                        render: (_, event) => <span className="font-mono text-xs">{event.event}</span>,
+                        render: (_, row) => <span className="font-mono text-xs">{row.event}</span>,
                     },
                     {
-                        key: 'created_at',
+                        key: 'receivedAt',
                         title: 'Received',
                         width: 80,
                         align: 'right',
-                        render: (_, event) => (
-                            <span className="text-xs text-secondary">
-                                {dayjs(event.created_at || event.timestamp).format('HH:mm:ss')}
-                            </span>
-                        ),
+                        render: (_, row) => <span className="text-xs text-secondary">{row.receivedAt}</span>,
                     },
                 ]}
             />
