@@ -428,12 +428,15 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
             elif (
                 sender_authenticated
                 and not ticket.identity_verified
+                and ticket.channel_source == Channel.EMAIL
                 and sender_email.lower() == (ticket.email_from or ticket.distinct_id or "").lower()
             ):
                 # A later authenticated message promotes the thread to verified — but only when the
                 # authenticated sender matches the identity already on the ticket. Otherwise a different
                 # SPF-aligned sender could thread onto a ticket claiming someone else's identity and
                 # falsely mark it verified.
+                # Email-sourced tickets only: a widget ticket's identity is its distinct_id, and
+                # proving control of the address typed into the form says nothing about that.
                 ticket.identity_verified = True
                 ticket.save(update_fields=["identity_verified", "updated_at"])
 

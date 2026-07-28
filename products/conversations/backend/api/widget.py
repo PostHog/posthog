@@ -49,6 +49,7 @@ from products.conversations.backend.cache import (
 )
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import ChannelDetail
+from products.conversations.backend.services.email_delivery import widget_email_delivery_target
 from products.conversations.backend.services.identity import verify_identity_hash
 
 logger = logging.getLogger(__name__)
@@ -230,6 +231,9 @@ class WidgetMessageView(APIView):
                 if conversations_settings.get("widget_enabled")
                 else ChannelDetail.WIDGET_API
             )
+            # Agent replies have no way back to a customer who submitted through the API,
+            # so point the ticket at the team's email channel when they left an address.
+            email_target = widget_email_delivery_target(team, traits)
             ticket = Ticket.objects.create_with_number(
                 team=team,
                 widget_session_id=widget_session_id,
@@ -242,6 +246,8 @@ class WidgetMessageView(APIView):
                 session_id=session_id,
                 session_context=session_context,
                 identity_verified=verified_distinct_id is not None,
+                email_from=email_target[0] if email_target else None,
+                email_config=email_target[1] if email_target else None,
             )
 
             try:

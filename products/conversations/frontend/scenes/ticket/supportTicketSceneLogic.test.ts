@@ -264,6 +264,11 @@ describe('supportTicketSceneLogic replyRecipientDescription', () => {
         ['teams', { channel_source: 'teams' }, 'the linked Microsoft Teams channel'],
         ['github', { channel_source: 'github' }, 'the linked GitHub issue'],
         ['widget', { channel_source: 'widget' }, 'the customer'],
+        [
+            'widget emails the address the customer left',
+            { channel_source: 'widget', email_from: 'customer@example.com' },
+            'customer@example.com',
+        ],
     ])('%s', (_name, overrides, expected) => {
         logic.actions.setTicket({ ...makeTicket(), ...overrides })
         expect(logic.values.replyRecipientDescription).toBe(expected)

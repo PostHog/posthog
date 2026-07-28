@@ -360,6 +360,14 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     </span>
                                 </div>
                             )}
+                            {ticket?.channel_source === 'widget' && ticket?.email_from && (
+                                <div className="flex justify-between items-start gap-2">
+                                    <span className="text-muted-alt shrink-0">Replies go to</span>
+                                    <span className="text-xs truncate text-right" title={ticket.email_from}>
+                                        {ticket.email_from}
+                                    </span>
+                                </div>
+                            )}
                             {ticket?.channel_source === 'github' &&
                                 ticket?.github_repo &&
                                 ticket?.github_issue_number && (

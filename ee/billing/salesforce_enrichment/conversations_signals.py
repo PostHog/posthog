@@ -6,7 +6,22 @@ from itertools import batched
 
 from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
-from django.db.models import Case, Count, DateTimeField, Exists, Max, Min, OuterRef, Q, QuerySet, UUIDField, When
+from django.db.models import (
+    Case,
+    Count,
+    DateTimeField,
+    EmailField,
+    Exists,
+    F,
+    Max,
+    Min,
+    OuterRef,
+    Q,
+    QuerySet,
+    UUIDField,
+    Value,
+    When,
+)
 from django.db.models.functions import Cast, Coalesce
 
 from slack_sdk import WebClient
@@ -143,7 +158,7 @@ def _tickets_with_verified_org() -> QuerySet[Ticket]:
     ).filter(
         Q(user__distinct_id=OuterRef("distinct_id"))
         | Q(user__email__iexact=OuterRef("distinct_id"))
-        | Q(user__email__iexact=OuterRef("email_from"))
+        | Q(user__email__iexact=OuterRef("attested_email"))
     )
     return (
         # organization_id is free text (analytics-derived values are arbitrary), so
@@ -154,7 +169,16 @@ def _tickets_with_verified_org() -> QuerySet[Ticket]:
             organization_uuid=Case(
                 When(organization_id__regex=_UUID_REGEX, then=Cast("organization_id", output_field=UUIDField())),
                 output_field=UUIDField(),
-            )
+            ),
+            # Widget tickets store the address the requester typed into the support form in
+            # email_from so replies can be emailed out. Nothing attests it — their
+            # identity_verified covers the distinct_id the HMAC signed — so it can't stand in
+            # for the provider-supplied addresses the other channels put in that field.
+            attested_email=Case(
+                When(channel_source=Channel.WIDGET, then=Value(None, output_field=EmailField())),
+                default=F("email_from"),
+                output_field=EmailField(),
+            ),
         ).filter(Exists(membership_for_ticket_org), identity_verified=True)
     )
 

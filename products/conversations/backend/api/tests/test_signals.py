@@ -467,6 +467,100 @@ class TestEmailReplySignalGuard(BaseTest):
         assert EmailOutboxMessage.objects.filter(ticket=self.email_ticket).count() == expected_count
 
 
+# A widget ticket has no outbound surface of its own, so agent replies are emailed to the
+# address the customer left when the team runs a verified email channel.
+@patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
+class TestWidgetTicketEmailDelivery(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.team.conversations_settings = {"email_enabled": True}
+        self.team.save()
+        self.config = EmailChannel.objects.create(
+            team=self.team,
+            inbound_token="widget0email1",
+            from_email="support@example.com",
+            from_name="Support",
+            domain="example.com",
+            domain_verified=True,
+            is_default=True,
+        )
+
+    def _make_widget_ticket(self, **overrides) -> Ticket:
+        defaults: dict = {
+            "team": self.team,
+            "widget_session_id": str(uuid.uuid4()),
+            "distinct_id": "user-123",
+            "channel_source": Channel.WIDGET,
+            "channel_detail": "widget_api",
+            "anonymous_traits": {"email": "customer@external.com"},
+        }
+        defaults.update(overrides)
+        return Ticket.objects.create_with_number(**defaults)
+
+    def _reply(self, ticket: Ticket, is_private: bool = False) -> None:
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            content="Here's how to fix it",
+            created_by=self.user,
+            item_context={"author_type": "support", "is_private": is_private},
+        )
+
+    @patch("products.conversations.backend.signals.send_email_reply")
+    def test_reply_queues_email_and_keeps_the_widget_channel(self, _mock_send, _mock_on_commit):
+        ticket = self._make_widget_ticket()
+
+        self._reply(ticket)
+
+        outbox = EmailOutboxMessage.objects.get(ticket=ticket)
+        assert outbox.status == EmailOutboxMessage.Status.PENDING
+        ticket.refresh_from_db()
+        assert ticket.email_from == "customer@external.com"
+        assert ticket.email_config_id == self.config.id
+        # The customer keeps polling the widget for the same ticket, so the origin channel stands.
+        assert ticket.channel_source == Channel.WIDGET
+
+    @parameterized.expand(
+        [
+            ("no_customer_email", {"anonymous_traits": {"name": "Customer"}}, {}, False),
+            ("unusable_customer_email", {"anonymous_traits": {"email": "not-an-address"}}, {}, False),
+            ("email_channel_disabled", {}, {"email_enabled": False}, False),
+            ("private_note", {}, {}, True),
+        ]
+    )
+    def test_reply_is_not_emailed(self, _mock_on_commit, _name, ticket_overrides, settings_overrides, is_private):
+        if settings_overrides:
+            self.team.conversations_settings = {**self.team.conversations_settings, **settings_overrides}
+            self.team.save()
+        ticket = self._make_widget_ticket(**ticket_overrides)
+
+        self._reply(ticket, is_private=is_private)
+
+        assert not EmailOutboxMessage.objects.filter(ticket=ticket).exists()
+
+    def test_reply_is_not_emailed_without_a_verified_channel(self, _mock_on_commit):
+        EmailChannel.objects.filter(team=self.team).update(domain_verified=False)
+        ticket = self._make_widget_ticket()
+
+        self._reply(ticket)
+
+        assert not EmailOutboxMessage.objects.filter(ticket=ticket).exists()
+        ticket.refresh_from_db()
+        assert ticket.email_from is None
+
+    @patch("products.conversations.backend.signals.send_email_reply")
+    def test_reply_to_a_linked_ticket_is_queued_even_once_the_channel_is_gone(self, _mock_send, _mock_on_commit):
+        # The outbox is where undeliverable replies become visible; dropping the row instead
+        # would leave the reply looking sent with no record of why nothing went out.
+        ticket = self._make_widget_ticket(email_from="customer@external.com", email_config=self.config)
+        self.config.delete()
+
+        self._reply(ticket)
+
+        assert EmailOutboxMessage.objects.filter(ticket=ticket).exists()
+
+
 class TestIsOutboundReply:
     @parameterized.expand(
         [

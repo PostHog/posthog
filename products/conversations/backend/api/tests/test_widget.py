@@ -8,7 +8,7 @@ from rest_framework.test import APIClient
 
 from posthog.models.comment import Comment
 
-from products.conversations.backend.models import Ticket
+from products.conversations.backend.models import EmailChannel, Ticket
 from products.conversations.backend.models.constants import ChannelDetail, Status
 from products.conversations.backend.services.identity import compute_identity_hash
 
@@ -94,6 +94,38 @@ class TestWidgetAPI(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         ticket = Ticket.objects.get(id=response.json()["ticket_id"])
         self.assertEqual(ticket.channel_detail, ChannelDetail.WIDGET_API)
+
+    def test_create_ticket_points_at_the_email_channel_when_traits_carry_an_email(self):
+        # Without this the agent UI can't tell whether a reply reaches the customer, and an
+        # API-submitted ticket has no other surface to show it on.
+        self.team.conversations_settings = {**self.team.conversations_settings, "email_enabled": True}
+        self.team.save()
+        config = EmailChannel.objects.create(
+            team=self.team,
+            inbound_token="widget0create1",
+            from_email="support@example.com",
+            from_name="Support",
+            domain="example.com",
+            domain_verified=True,
+            is_default=True,
+        )
+
+        response = self.client.post(
+            "/api/conversations/v1/widget/message",
+            {
+                "message": "Hi",
+                "widget_session_id": self.widget_session_id,
+                "distinct_id": self.distinct_id,
+                "traits": {"email": "customer@external.com"},
+            },
+            format="json",
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ticket = Ticket.objects.get(id=response.json()["ticket_id"])
+        self.assertEqual(ticket.email_from, "customer@external.com")
+        self.assertEqual(ticket.email_config_id, config.id)
 
     def test_create_message_to_existing_ticket(self):
         ticket = Ticket.objects.create_with_number(

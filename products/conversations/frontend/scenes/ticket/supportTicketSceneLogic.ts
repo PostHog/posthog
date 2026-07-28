@@ -589,9 +589,15 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     // attested (e.g. SPF-authenticated email). email_from is attacker-controllable on
                     // unverified tickets, and person.properties.email is customer-controlled analytics
                     // data with no trusted mapping — trusting either would let a spoofed sender pull a
-                    // real customer's ticket history into their own ticket view.
+                    // real customer's ticket history into their own ticket view. Widget tickets are
+                    // excluded even when verified: their HMAC attests the distinct_id, while
+                    // email_from there is just the address typed into the form.
                     const emails = new Set<string>()
-                    if (values.ticket?.identity_verified === true && values.ticket.email_from) {
+                    if (
+                        values.ticket?.channel_source === 'email' &&
+                        values.ticket.identity_verified === true &&
+                        values.ticket.email_from
+                    ) {
                         emails.add(values.ticket.email_from)
                     }
 
@@ -804,6 +810,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                         return 'the linked Microsoft Teams channel'
                     case 'github':
                         return 'the linked GitHub issue'
+                    case 'widget':
+                        // Widget tickets are emailed too when the customer left an address,
+                        // which is the only surface an API-submitted ticket has.
+                        return ticket.email_from || 'the customer'
                     default:
                         return 'the customer'
                 }

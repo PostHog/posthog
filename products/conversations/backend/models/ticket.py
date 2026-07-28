@@ -83,7 +83,9 @@ class Ticket(UUIDTModel):
     github_repo = models.CharField(max_length=256, null=True, blank=True)  # owner/repo
     github_issue_number = models.PositiveIntegerField(null=True, blank=True)
 
-    # Email channel fields (only set for channel_source="email")
+    # Email channel fields. Set for channel_source="email", and for widget tickets that
+    # are delivered over email because the widget has no outbound surface of its own
+    # (email_from is then the address the customer left in anonymous_traits).
     email_config = models.ForeignKey(
         "conversations.EmailChannel",
         null=True,

@@ -501,6 +501,26 @@ class TestConversationsSlackSignalsDatabase(BaseTest):
             == f"https://us.posthog.com/project/{self.team.id}/support/tickets/{ticket.ticket_number}"
         )
 
+    def test_widget_ticket_is_not_verified_by_the_email_the_requester_typed(self):
+        # Widget tickets store the reply address from the support form in email_from, and
+        # identity_verified there only attests the HMAC-signed distinct_id — so that address
+        # must not stand in as proof of org membership the way a provider-supplied one does.
+        Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=f"session-{uuid.uuid4()}",
+            distinct_id=f"stranger-{uuid.uuid4()}",
+            channel_source=Channel.WIDGET,
+            email_from=self.user.email,
+            organization_id=self.org_id,
+            last_message_at=dt.datetime(2026, 6, 30, 10, 0, tzinfo=dt.UTC),
+            identity_verified=True,
+        )
+
+        with self.settings(SITE_URL="https://us.posthog.com"):
+            result = aggregate_conversations_slack_signals_for_orgs([self.org_id], include_slack_user_count=False)
+
+        assert self.org_id not in result
+
     def test_channels_with_same_id_in_different_workspaces_are_not_merged(self):
         self._create_slack_ticket(
             channel_id="C_SHARED",

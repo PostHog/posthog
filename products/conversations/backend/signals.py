@@ -19,6 +19,7 @@ from .cache import invalidate_messages_cache, invalidate_tickets_cache
 from .events import capture_message_received, capture_message_sent, capture_ticket_created
 from .models import EmailOutboxMessage, Ticket
 from .models.constants import Channel
+from .services.email_delivery import link_widget_ticket_to_email
 from .tasks import (
     post_reply_to_github,
     post_reply_to_slack,
@@ -361,7 +362,9 @@ def send_email_reply_on_team_message(sender, instance: Comment, created: bool, *
     Only triggers for:
     - Newly created comments (not edits)
     - Outbound replies (human team or public AI)
-    - Tickets with channel_source="email"
+    - Tickets with channel_source="email", or widget tickets pointed at an email
+      channel (the widget has no outbound surface of its own — see
+      services.email_delivery)
     """
     if instance.scope != "conversations_ticket":
         return
@@ -388,10 +391,16 @@ def send_email_reply_on_team_message(sender, instance: Comment, created: bool, *
     # is down, the row still exists and flush_pending_email_replies will send it.
     ticket = (
         Ticket.objects.select_related("team", "email_config")
-        .filter(id=item_id, team_id=team_id, channel_source=Channel.EMAIL)
+        .filter(id=item_id, team_id=team_id, channel_source__in=(Channel.EMAIL, Channel.WIDGET))
         .first()
     )
     if not ticket:
+        return
+
+    # Widget tickets only get an outbox row once they have somewhere to send: unlike email
+    # tickets, a reply with no recipient isn't a delivery failure worth surfacing — the
+    # embedded widget still shows it.
+    if ticket.channel_source == Channel.WIDGET and not link_widget_ticket_to_email(ticket):
         return
 
     # Deliverability verdicts (team email_enabled, customer address, channel config) are NOT

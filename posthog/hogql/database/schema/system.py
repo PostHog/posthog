@@ -1545,7 +1545,12 @@ support_tickets: PostgresTable = PostgresTable(
             name="email_subject", nullable=True, description="Subject line for email-channel tickets."
         ),
         "email_from": StringDatabaseField(
-            name="email_from", nullable=True, description="Sender address for email-channel tickets."
+            name="email_from",
+            nullable=True,
+            description=(
+                "Customer's email address: the sender on email-channel tickets, and the reply "
+                "recipient on widget tickets that are delivered over email."
+            ),
         ),
         "session_id": StringDatabaseField(
             name="session_id", nullable=True, description="Session recording id associated with the ticket, if any."
