@@ -26,10 +26,6 @@ import { withCurrentScope, withScope } from '../lib/scope'
 import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 import { repoOverviewLogic } from './repoOverviewLogic'
 
-function withSource(url: string, sourceId: string | null): string {
-    return withCurrentScope(url, sourceId)
-}
-
 export function RepoOverviewScene(): JSX.Element {
     const {
         overview,
@@ -107,7 +103,7 @@ export function RepoOverviewScene(): JSX.Element {
                                     Show more
                                 </LemonButton>
                             )}
-                            <Link to={withSource(urls.engineeringAnalyticsPullRequestList(), sourceId)}>
+                            <Link to={withCurrentScope(urls.engineeringAnalyticsPullRequestList(), sourceId)}>
                                 View all →
                             </Link>
                         </div>

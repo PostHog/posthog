@@ -29,8 +29,7 @@ interface RunActivityChartProps {
     title?: string
     /** The runs list was capped server-side, so the chart shows the most recent runs, not the full window. */
     truncated?: boolean
-    /** Singular noun for each plotted point in the header count — 'run' by default, 'commit' on the repo-health
-     *  view where every dot is a whole commit's collapsed workflows. */
+    /** Singular noun for each plotted point in the header count; 'run' by default. */
     noun?: string
     className?: string
 }
