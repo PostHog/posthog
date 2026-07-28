@@ -1,4 +1,5 @@
 import uuid
+import asyncio
 import datetime as dt
 from collections.abc import Callable
 
@@ -33,7 +34,10 @@ from products.batch_exports.backend.tests.temporal.destinations.redshift.utils i
     assert_clickhouse_records_in_redshift,
 )
 from products.batch_exports.backend.tests.temporal.utils.s3 import delete_all_from_s3
-from products.batch_exports.backend.tests.temporal.utils.workflow import mocked_start_batch_export_run
+from products.batch_exports.backend.tests.temporal.utils.workflow import (
+    WORKFLOW_REAL_TIME_LIMIT_SECONDS,
+    mocked_start_batch_export_run,
+)
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -68,13 +72,15 @@ async def _run_workflow(
         ),
     ):
         with override_settings(BATCH_EXPORT_REDSHIFT_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2):
-            await activity_environment.client.execute_workflow(
-                RedshiftBatchExportWorkflow.run,
-                inputs,
-                id=workflow_id,
-                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                retry_policy=RetryPolicy(maximum_attempts=1),
-                execution_timeout=dt.timedelta(seconds=20),
+            await asyncio.wait_for(
+                activity_environment.client.execute_workflow(
+                    RedshiftBatchExportWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                ),
+                timeout=WORKFLOW_REAL_TIME_LIMIT_SECONDS,
             )
 
     runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)

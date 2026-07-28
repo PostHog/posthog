@@ -1,5 +1,5 @@
 import uuid
-import datetime as dt
+import asyncio
 
 import pytest
 
@@ -23,6 +23,7 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import inse
 from products.batch_exports.backend.tests.temporal.destinations.workflows.utils import (
     assert_clickhouse_records_were_handled,
 )
+from products.batch_exports.backend.tests.temporal.utils.workflow import WORKFLOW_REAL_TIME_LIMIT_SECONDS
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -105,13 +106,15 @@ async def test_workflows_export_workflow(
                 workflow_runner=UnsandboxedWorkflowRunner(),
                 build_id="test-workflows-batch-export",
             ):
-                await activity_environment.client.execute_workflow(
-                    WorkflowsBatchExportWorkflow.run,
-                    inputs,
-                    id=workflow_id,
-                    task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                    execution_timeout=dt.timedelta(seconds=20),
+                await asyncio.wait_for(
+                    activity_environment.client.execute_workflow(
+                        WorkflowsBatchExportWorkflow.run,
+                        inputs,
+                        id=workflow_id,
+                        task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+                        retry_policy=RetryPolicy(maximum_attempts=1),
+                    ),
+                    timeout=WORKFLOW_REAL_TIME_LIMIT_SECONDS,
                 )
 
     runs = await afetch_batch_export_runs(batch_export_id=workflows_batch_export.id)

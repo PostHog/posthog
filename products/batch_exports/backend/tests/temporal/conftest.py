@@ -23,6 +23,7 @@ from posthog.models.utils import uuid7
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import configure_logger
+from posthog.temporal.tests.utils import OTHER_TEAM_ID_OFFSET
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
 from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
@@ -419,7 +420,7 @@ async def _insert_person_distinct_ids_for_persons(
         other_team_person_distinct_ids.append(
             generate_test_person_distinct_id2(
                 count=1,
-                team_id=team_id + random.randint(1, 1000),
+                team_id=team_id + OTHER_TEAM_ID_OFFSET,
                 person_id=person_id,
                 distinct_id=distinct_id,
                 timestamp=timestamp,

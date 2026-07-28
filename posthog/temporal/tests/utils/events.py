@@ -12,11 +12,8 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ra
 
 from posthog.models.raw_sessions.sessions_v2 import RAW_SESSION_TABLE_BACKFILL_SELECT_SQL
 from posthog.temporal.common.clickhouse import ClickHouseClient, ClickHouseError
+from posthog.temporal.tests.utils import OTHER_TEAM_ID_OFFSET
 from posthog.temporal.tests.utils.datetimes import date_range
-
-# Far enough above any real test team's sequential pk that synthetic rows can never
-# land on a team a later test asserts counts for.
-OTHER_TEAM_ID_OFFSET = 1_000_000_000
 
 
 @retry(

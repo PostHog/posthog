@@ -7,6 +7,7 @@ import typing
 import datetime as dt
 
 from posthog.temporal.common.clickhouse import ClickHouseClient
+from posthog.temporal.tests.utils import OTHER_TEAM_ID_OFFSET
 from posthog.temporal.tests.utils.datetimes import date_range
 
 from products.batch_exports.backend.tests.temporal.utils.clickhouse import execute_query
@@ -136,7 +137,7 @@ async def generate_test_persons_in_clickhouse(
 
     persons_from_other_team = generate_test_persons(
         count=count_other_team,
-        team_id=team_id + random.randint(1, 1000),
+        team_id=team_id + OTHER_TEAM_ID_OFFSET,
         timestamp_start=start_time,
         timestamp_end=end_time,
         person_id=person_id,
@@ -240,7 +241,7 @@ async def generate_test_person_distinct_id2_in_clickhouse(
 
     person_from_other_team = generate_test_person_distinct_id2(
         count=1,
-        team_id=team_id + random.randint(1, 1000),
+        team_id=team_id + OTHER_TEAM_ID_OFFSET,
         timestamp=timestamp,
         distinct_id=distinct_id,
         person_id=person_id,
