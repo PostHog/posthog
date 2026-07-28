@@ -826,7 +826,7 @@ def deliver_pending_slack_file_artifacts(
 
     if not _living_artifacts_enabled_for_mapping(mapping):
         logger.warning("task_artifact.slack_living_artifacts_disabled", task_run_id=str(run.id))
-        return 0
+        return result
 
     if not _canvas_file_artifacts_enabled(mapping):
         logger.warning("task_artifact.slack_file_delivery_disabled", task_run_id=str(run.id))

@@ -27,7 +27,7 @@ from uuid import UUID, uuid4
 
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db import IntegrityError, close_old_connections, transaction
+from django.db import IntegrityError, transaction
 from django.db.models import CharField, Count, Exists, F, Min, OuterRef, Q, QuerySet, Subquery
 from django.db.models.fields.json import KeyTextTransform
 from django.utils import timezone as django_timezone

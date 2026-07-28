@@ -428,6 +428,10 @@ class TestRelaySlackMessage(TestCase):
         self.assertNotIn("slack_file_id", artifact.versions[0])
         self.assertEqual(artifact.versions[0]["delivery_status"], "delivered")
 
+    @patch(
+        "products.tasks.backend.logic.services.living_artifacts._living_artifacts_enabled_for_mapping",
+        return_value=True,
+    )
     @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
     @patch("products.tasks.backend.logic.services.living_artifacts.requests.post")
     @patch("products.tasks.backend.logic.services.living_artifacts.object_storage.read_bytes")
@@ -444,6 +448,7 @@ class TestRelaySlackMessage(TestCase):
         mock_read_bytes,
         _mock_requests_post,
         _mock_flag,
+        _mock_living_artifacts_flag,
     ):
         artifact, _storage_path = self._create_pending_slack_file_artifact(
             name="Signups by week",
