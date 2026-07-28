@@ -5,7 +5,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { productSetupProbes } from '~/products'
 
-import { eventDefinitionsList } from 'products/event_definitions/frontend/generated/api'
+import * as api from 'products/event_definitions/frontend/generated/api'
 
 import type { FeatureFlagsSet } from '../../logic/featureFlagLogic'
 import { productSetupStatusLogic } from './productSetupStatusLogic'
@@ -76,7 +76,7 @@ export const productSetupPreloadLogic = kea<productSetupPreloadLogicType>([
 
             let existingEventNames: Set<string>
             try {
-                const response = await eventDefinitionsList(String(teamId), {
+                const response = await api.eventDefinitionsList(String(teamId), {
                     names: eventNames,
                     limit: eventNames.length,
                 })
