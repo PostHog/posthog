@@ -185,7 +185,7 @@ export function PullRequestDiffPanel({ report, commit }: { report: SignalReport;
                     />
                     {hasImplementationPr && (
                         <p className="m-0 text-[0.6875rem] text-tertiary">
-                            Click a line number to comment — comments post to the pull request as you.
+                            Click a line number to comment. Comments post to the pull request as you.
                         </p>
                     )}
                 </>
