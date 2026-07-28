@@ -21,7 +21,6 @@ function Stage({ children }: { children: ReactNode }): JSX.Element {
     return <div className="w-[760px]">{children}</div>
 }
 
-// Single line series — request counts over a week.
 export const Requests: Story = {
     render: () => (
         <Stage>
@@ -33,7 +32,6 @@ export const Requests: Story = {
     ),
 }
 
-// Area fill + byte scaling (values land in the MB range).
 export const BytesReadArea: Story = {
     render: () => (
         <Stage>
@@ -48,7 +46,6 @@ export const BytesReadArea: Story = {
     ),
 }
 
-// Multiple endpoints broken down into a stacked legend.
 export const Breakdown: Story = {
     render: () => {
         const byEndpoint: Record<string, number[]> = {

@@ -17,11 +17,15 @@ import {
 import { QueryContext } from '~/queries/types'
 import { IntervalType } from '~/types'
 
+import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
+
 import {
     type EndpointsUsageMetric,
     type TrendsDataPoint,
     transformDataForChart,
 } from './endpointsUsageTrendsTransforms'
+
+const handleChartError = makeChartErrorHandler('endpoints-usage-trends-chart')
 
 let uniqueNode = 0
 export function EndpointsUsageTrendsNode(props: {
@@ -75,7 +79,6 @@ export function EndpointsUsageTrendsChart({
     metric: EndpointsUsageMetric
     interval?: IntervalType
 }): JSX.Element {
-    // CPU time and bytes read render better as filled areas; other metrics stay plain lines.
     const isAreaChart = metric === 'cpu_seconds' || metric === 'bytes_read'
 
     const { labels, series, scale } = useMemo(
@@ -103,7 +106,13 @@ export function EndpointsUsageTrendsChart({
 
     return (
         <div className="border rounded bg-bg-light p-2 h-60 flex flex-col">
-            <TimeSeriesLineChart series={series} labels={labels} theme={theme} config={config} />
+            <TimeSeriesLineChart
+                series={series}
+                labels={labels}
+                theme={theme}
+                config={config}
+                onError={handleChartError}
+            />
         </div>
     )
 }
