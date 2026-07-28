@@ -2015,7 +2015,11 @@ class FeatureFlagSerializer(
 
                 # NOW check for conflicts after all transformations
                 if version != -1 and version != locked_version:
-                    original_flag = request_data.get("original_flag", {})
+                    # Not a serializer field, so the client controls its type; the conflict helpers
+                    # index into it by field name and would raise on a list or string.
+                    original_flag = request_data.get("original_flag")
+                    if not isinstance(original_flag, dict):
+                        original_flag = {}
                     conflicting_changes = self._get_conflicting_changes(
                         locked_instance,
                         validated_data,
