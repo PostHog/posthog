@@ -588,6 +588,12 @@ def register_table(
 ) -> RegisteredTable:
     existing = DataWarehouseTable.objects.filter(team=team, name=table_name, deleted=False).first()
     if existing:
+        existing_source = existing.external_data_source
+        if existing_source is not None and not (existing_source.source_id or "").startswith("marketing-demo"):
+            raise ValueError(
+                f"Table '{table_name}' belongs to a real integration on this team - "
+                "run the demo seeder against a dedicated project instead"
+            )
         existing.deleted = True
         existing.save()
     table, _source, _credential, _df, _cleanup = create_data_warehouse_table_from_csv(

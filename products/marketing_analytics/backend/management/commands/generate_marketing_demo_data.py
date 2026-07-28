@@ -43,9 +43,9 @@ from products.marketing_analytics.backend.demo import (
 from products.marketing_analytics.backend.demo.events import MarketingEventGenerator
 from products.marketing_analytics.backend.demo.world import CAMPAIGNS, FREE_CHANNELS
 from products.warehouse_sources.backend.facade.models import (
-    DataWarehouseCredential,
     DataWarehouseTable,
     ExternalDataSource,
+    get_or_create_datawarehouse_credential,
 )
 
 
@@ -100,8 +100,8 @@ class Command(BaseCommand):
 
             self.stdout.write("Creating warehouse sources and staging Integration health states...")
             sources = health.create_sources(team)
-            credential = DataWarehouseCredential.objects.create(
-                team=team,
+            credential = get_or_create_datawarehouse_credential(
+                team_id=team.pk,
                 access_key=OBJECT_STORAGE_ACCESS_KEY_ID,
                 access_secret=OBJECT_STORAGE_SECRET_ACCESS_KEY,
             )

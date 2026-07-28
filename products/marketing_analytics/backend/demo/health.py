@@ -58,7 +58,10 @@ def create_sources(team: Team) -> dict[str, ExternalDataSource]:
     """Create one ExternalDataSource per staged platform (replacing previous demo runs)."""
     sources: dict[str, ExternalDataSource] = {}
     for platform in PLATFORM_STATES:
-        ExternalDataSource.objects.filter(team=team, source_type=platform, deleted=False).update(deleted=True)
+        # Only retire previous demo fixtures - never a real integration the team may have.
+        ExternalDataSource.objects.filter(
+            team=team, source_type=platform, deleted=False, source_id__startswith="marketing-demo-"
+        ).update(deleted=True)
         sources[platform] = ExternalDataSource.objects.create(
             team=team,
             source_id=f"marketing-demo-{platform.lower()}",
