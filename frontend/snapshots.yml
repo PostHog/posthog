@@ -7711,9 +7711,9 @@ snapshots:
     scenes-other-onboarding-shared-wizard-cloud-run--run-it-yourself--light:
         hash: v1.k794b7964.6929d887dd4bcc9ac0c6fcc32e16d829771b0f97f38af905b7e62752c0b39a97.p5weyrIGjeKhnV6FuarEp-O82xPcQjs8cKYuLGLiEzc
     scenes-other-onboarding-shared-wizard-sync-card--all-states--dark:
-        hash: v1.k794b7964.c2680b2e5066715a5caf292f6c2f62453c11ef9efba55da9447b9c7e045d29b4.OHXSrZvJDQRwp3-m3pMUP78D1ncOUJZniMHLEgebdhI
+        hash: v1.k794b7964.610af7be0cbae0d8376dd7e61322612efdddbcb3d05be1fc6ac207652703b43a.bedJrmXY8fLxRiAI-ETzr2ook0bKDAyyluxsI0fgAPA
     scenes-other-onboarding-shared-wizard-sync-card--all-states--light:
-        hash: v1.k794b7964.ad65b946a5b7047aca4d2dd00a20402b9a39d27af424b9f6a1efe9e765f1ffe9.2iLK2CGn5yzUsqr994YZBAGtzyIw7BfxmA_knJ3NSDM
+        hash: v1.k794b7964.4d66c7e4d4abbf5853fd62ca35c61eab1a81a53074d7353dfeb99475160505f5.Ineb2GA1mTqEg3KwUd_P0Y6hbdM6FKJRxuBzCNfYOFU
     scenes-other-onboarding-shared-wizard-sync-card--cloud-keeping-ci-green--dark:
         hash: v1.k794b7964.fba9c3af456f60a00dec760305609433d1d8ffb609f1573352f71cb29f1fa6b2.2tmy7T0O1t2rw1SYTOXCMCePVPleYZWjuUnc4EU5a7Q
     scenes-other-onboarding-shared-wizard-sync-card--cloud-keeping-ci-green--light:
@@ -7746,6 +7746,10 @@ snapshots:
         hash: v1.k794b7964.c69534afe39d0311b0ed3247beb145b94381706a25f2e6c7b5d3415c87564375.ViSw0_amXLmDYynCEuR_kgnY5Ncm4ULveglgIJoTIaU
     scenes-other-onboarding-shared-wizard-sync-card--playground--light:
         hash: v1.k794b7964.0cfae6b396d23d4bf84998b078b2bc21d231cff6ca91c6ad72287015ffbc3612.G64MtMVMRObRn64tStKU_8edvGJThXVEEXPHQhxtMOY
+    scenes-other-onboarding-shared-wizard-sync-card--stalled--dark:
+        hash: v1.k794b7964.5d437bffa8c9834cf88a783f58dbab3f625c27839ac872f0c2db7fd4b08f4ed8.sOK517AeohAmtL0coLOcSFfAB90HUEtQGr2HwmZLoi8
+    scenes-other-onboarding-shared-wizard-sync-card--stalled--light:
+        hash: v1.k794b7964.b52a107e85cd22687e6bc1dcf23a4067f185915e7aaa4518b39ef1bbfefe87ac.TU0cv3huC_bueumE3zh9JXnBoRGtM6FKvdbtqCcUL4c
     scenes-other-org-member-invites--current-user-is-admin--dark:
         hash: v1.k794b7964.a513d2d2902b9bed180ef998cfa04a5e291f1cc8072d67739072199cf25debec.Ubcb2mL9HqKazuyRseAkOQVNa1J9hrioFTBZpVnE8PE
     scenes-other-org-member-invites--current-user-is-admin--light:
