@@ -976,6 +976,13 @@ export interface TaskActivityPageDTOApi {
     next_before_id?: string | null
 }
 
+export interface TaskActivityMarkReadResponseApi {
+    /** How many feed rows changed from unread to read. */
+    marked_read: number
+    /** The requester's remaining unread total after the update. */
+    unread_count: number
+}
+
 export interface TaskActivityReadMarkerApi {
     /** Task whose displayed activity should be marked read. */
     task_id: string
@@ -992,13 +999,6 @@ export interface TaskActivityMarkReadApi {
      * @maxItems 500
      */
     activities: TaskActivityReadMarkerApi[]
-}
-
-export interface TaskActivityMarkReadResponseApi {
-    /** How many feed rows changed from unread to read. */
-    marked_read: number
-    /** The requester's remaining unread total after the update. */
-    unread_count: number
 }
 
 /**
@@ -3703,6 +3703,10 @@ export type TaskActivityListParams = {
      * @maximum 500
      */
     limit?: number
+    /**
+     * Return only activity the requester has not read.
+     */
+    unread_only?: boolean
 }
 
 export type TaskAutomationsListParams = {

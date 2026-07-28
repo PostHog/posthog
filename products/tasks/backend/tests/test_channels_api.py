@@ -566,6 +566,47 @@ class TaskActivityAPITestCase(ChannelTaskAPITestCase):
         self.assertEqual(len(page["results"]), 1)
         self.assertEqual(page["unread_count"], 3)
 
+    def test_unread_only_excludes_read_activity_before_paginating(self):
+        second = Task.objects.create(
+            team=self.team,
+            created_by=self.author,
+            channel=self.channel,
+            title="Second",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        self._awaiting_input(second)
+        self._awaiting_input()
+        newest = self._row_for(self.author_client, self.task)
+        self._mark_read(
+            self.author_client,
+            [{"task_id": str(self.task.id), "seen_before": newest["activity_at"]}],
+        )
+
+        page = self.author_client.get(self._activity_url(), {"unread_only": "true", "limit": 1}).json()
+
+        self.assertEqual([row["task_id"] for row in page["results"]], [str(second.id)])
+        self.assertEqual(page["unread_count"], 1)
+        self.assertIsNone(page["next_before"])
+
+    def test_mark_all_read_clears_every_visible_unread_activity(self):
+        second = Task.objects.create(
+            team=self.team,
+            created_by=self.author,
+            channel=self.channel,
+            title="Second",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        self._awaiting_input()
+        self._awaiting_input(second)
+
+        response = self.author_client.post(self._activity_url() + "mark_all_read/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json(), {"marked_read": 2, "unread_count": 0})
+        self.assertEqual(self.author_client.get(self._activity_url()).json()["unread_count"], 0)
+
     def test_newest_activity_first_and_limit_applies(self):
         second = Task.objects.create(
             team=self.team,

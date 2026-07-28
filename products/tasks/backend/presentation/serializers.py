@@ -1495,6 +1495,11 @@ class TaskActivityQuerySerializer(serializers.Serializer):
         required=False,
         help_text="Activity ID from the final row of the previous page.",
     )
+    unread_only = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Return only activity the requester has not read.",
+    )
 
     def validate(self, attrs):
         if ("before" in attrs) != ("before_id" in attrs):

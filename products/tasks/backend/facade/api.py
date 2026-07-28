@@ -5319,6 +5319,7 @@ def list_task_activity(
     limit: int = 100,
     before: datetime | None = None,
     before_id: UUID | None = None,
+    unread_only: bool = False,
 ) -> contracts.TaskActivityPageDTO:
     """The requester's feed: one row per task they are involved in, newest activity first.
 
@@ -5328,6 +5329,8 @@ def list_task_activity(
     if user_id is None:
         return contracts.TaskActivityPageDTO(results=[], unread_count=0)
     qs = _task_activity_qs(team_id, user_id)
+    if unread_only:
+        qs = qs.filter(read_at__isnull=True)
     if before is not None and before_id is not None:
         qs = qs.filter(Q(activity_at__lt=before) | Q(activity_at=before, id__lt=before_id))
     rows = list(qs.select_related("task__channel", "message__author").order_by("-activity_at", "-id")[: limit + 1])
@@ -5369,6 +5372,13 @@ def mark_task_activity_read(team_id: int, user_id: int | None, activities: Seque
         .filter(activity_versions)
         .update(read_at=django_timezone.now())
     )
+
+
+def mark_all_task_activity_read(team_id: int, user_id: int | None) -> int:
+    """Mark every unread feed row the requester can still see as read."""
+    if user_id is None:
+        return 0
+    return _task_activity_qs(team_id, user_id).filter(read_at__isnull=True).update(read_at=django_timezone.now())
 
 
 def delete_thread_message(message_id: str | UUID, task_id: str | UUID, team_id: int, user_id: int | None) -> str:

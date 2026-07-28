@@ -660,6 +660,24 @@ export const taskActivityList = async (
     })
 }
 
+export const getTaskActivityMarkAllReadCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/task_activity/mark_all_read/`
+}
+
+/**
+ * Clear every unread feed row the requester can currently see.
+ * @summary Mark all task activity read
+ */
+export const taskActivityMarkAllReadCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<TaskActivityMarkReadResponseApi> => {
+    return apiMutator<TaskActivityMarkReadResponseApi>(getTaskActivityMarkAllReadCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getTaskActivityMarkReadCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/task_activity/mark_read/`
 }

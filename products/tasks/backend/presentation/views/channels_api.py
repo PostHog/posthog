@@ -265,6 +265,7 @@ class TaskActivityViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             limit=request.validated_query_data["limit"],
             before=request.validated_query_data.get("before"),
             before_id=request.validated_query_data.get("before_id"),
+            unread_only=request.validated_query_data["unread_only"],
         )
         return Response(TaskActivityPageSerializer(activity).data)
 
@@ -288,6 +289,24 @@ class TaskActivityViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             (activity["task_id"], activity["seen_before"]) for activity in request.validated_data["activities"]
         ]
         marked_read = tasks_facade.mark_task_activity_read(self.team_id, self._user_id(), activities)
+        return Response(
+            {
+                "marked_read": marked_read,
+                "unread_count": tasks_facade.count_unread_task_activity(self.team_id, self._user_id()),
+            }
+        )
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(response=TaskActivityMarkReadResponseSerializer, description="Remaining unread total"),
+        },
+        summary="Mark all task activity read",
+        description="Clear every unread feed row the requester can currently see.",
+    )
+    @action(detail=False, methods=["post"], url_path="mark_all_read", required_scopes=["task:write"])
+    def mark_all_read(self, request, *args, **kwargs):
+        marked_read = tasks_facade.mark_all_task_activity_read(self.team_id, self._user_id())
         return Response(
             {
                 "marked_read": marked_read,
