@@ -210,7 +210,7 @@ pub struct Config {
     pub seeder_reconcile_max_concurrent_dispatches: usize,
 
     /// The membership-change topic whose high watermarks anchor the marker watcher's start
-    /// positions, captured at dispatch time. PR-C's observer reads markers from the same topic.
+    /// positions, captured at dispatch time. The observer reads markers from the same topic.
     #[envconfig(default = "cohort_membership_changed_shadow")]
     pub cohort_membership_changed_topic: String,
 

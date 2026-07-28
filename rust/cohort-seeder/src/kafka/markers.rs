@@ -87,10 +87,10 @@ impl MarkerWatcher {
         Ok(())
     }
 
-    /// Fetch every watched partition's low watermark, one blocking call each with bounded
-    /// concurrency (as `ingestion-control-plane`'s group-lag scan does). A sequential sweep of all 64
-    /// membership partitions would cost one unresponsive broker `partitions × watermark_timeout`
-    /// before the owed seek resolves — far past the watch task's liveness deadline.
+    /// Fetch every watched partition's low watermark, one blocking call each, bounded-concurrent
+    /// like `ingestion-control-plane`'s group-lag scan. Each call can block for the full watermark
+    /// timeout, and a seek covers all 64 membership partitions, so serializing them against an
+    /// unresponsive broker overruns the watch task's liveness deadline.
     async fn low_watermarks(
         &self,
         start: &WatchPositions,

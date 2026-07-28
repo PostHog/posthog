@@ -30,8 +30,8 @@ pub enum MarkerFold {
     ForeignTeam,
     /// This run, but a cohort it does not track (superseded and excluded by the caller, or garbage).
     UnknownCohort,
-    /// No ledger at all names this run. Decided by the watcher before any ledger sees the marker,
-    /// and the dominant outcome since the watcher tails a topic carrying every run's markers.
+    /// No ledger names this run. Decided by the watcher before any ledger sees the marker, and the
+    /// dominant outcome since the watcher tails a topic carrying every run's markers.
     Unwatched,
 }
 

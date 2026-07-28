@@ -7,13 +7,12 @@
 //!
 //! Dispatch runs in a spawned task, never inline: producing `cohorts × COHORT_PARTITION_COUNT` control
 //! tiles and awaiting their delivery acks can exceed the orchestrator's liveness deadline. An
-//! in-flight set dedupes tasks on this replica; the CAS plus INV-3's ruling-fence semantics (a later
-//! `record` sets the fence, the processor supersedes duplicate tiles) make cross-replica duplicates
-//! safe.
+//! in-flight set dedupes tasks on this replica; the CAS plus the ruling fence (a later `record` sets
+//! the fence, the processor supersedes duplicate tiles) make cross-replica duplicates safe.
 //!
-//! Per-run lag readings are aggregated here, not inside the observation pass: a tick observes many
-//! runs, so a gauge set per run would be last-writer-wins and would never clear once the last laggard
-//! settled. The pass's two broker reads are likewise tick-scoped — see [`TickBrokerSnapshot`].
+//! A tick observes many runs, so the lag gauges are published once here from the worst reading of
+//! the tick: they report fleet-wide and clear themselves once nothing lags. The observation pass's
+//! two broker reads are likewise tick-scoped — see [`TickBrokerSnapshot`].
 
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
@@ -508,10 +507,10 @@ struct ObserveOutcome {
     marker_lag: usize,
 }
 
-/// Memoizes the two broker reads for one tick. Both ask about the cluster, not about a run, so every
-/// run in a tick shares one answer; per-run reads would multiply a slow broker (each call is bounded
-/// only by the offsets timeout) by the reconciling-run count, inside a tick the orchestrator awaits
-/// before reporting liveness. Failures are cached too, for the same reason.
+/// Memoizes the two broker reads for one tick, failures included. Both ask about the cluster, not
+/// about a run, so every run in a tick shares one answer — and the tick runs inside the orchestrator's
+/// liveness budget, where one call per run against a slow broker costs the reconciling-run count
+/// times the offsets timeout.
 struct TickBrokerSnapshot<'a> {
     committed_source: &'a dyn CommittedOffsetSource,
     ends_source: &'a dyn TopicOffsetSource,

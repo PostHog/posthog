@@ -1,12 +1,12 @@
 """Terminalizes behavioral backfill runs the Rust seeder has fully observed.
 
-B5 stamps only ``last_backfill_events_at``; mixed person+behavioral cohorts stay flag-incompatible
-until B7 stamps the person-properties column (intended fail-closed).
+Only ``last_backfill_events_at`` is stamped; mixed person+behavioral cohorts stay flag-incompatible
+until the person-properties column is stamped too (intended fail-closed).
 
 The seeder writes a definitive per-participation outcome (``reconcile_completed_at`` /
 ``superseded_at`` / retryable ``error``) before it sets ``run.reconcile_observed_at`` as its last
-write (INV-1). This finalizer trusts those columns — never Kafka — and CASes the run out of
-``reconciling`` once every participation has a terminal outcome (INV-5).
+write. This finalizer trusts those columns — never Kafka — and CASes the run out of
+``reconciling`` once every participation has a terminal outcome.
 """
 
 from dataclasses import dataclass
@@ -93,7 +93,7 @@ def finalize_backfill_runs() -> FinalizerPass:
     observed = list(
         CohortBackfillRun.objects.unscoped()
         .filter(
-            # B5 stamps only the events column, so never terminalize a person-properties run (B7).
+            # Only the events column is stamped, so never terminalize a person-properties run.
             backfill_kind=CohortBackfillKind.BEHAVIORAL,
             status=CohortBackfillRunStatus.RECONCILING,
             reconcile_observed_at__isnull=False,
@@ -170,7 +170,7 @@ def _finalize_one_run(run_id: UUID, team_id: int, result: FinalizerPass) -> bool
                 participations=len(participations),
             )
         for participation in participations:
-            # INV-2: supersede trumps completion, so check it first.
+            # Supersede trumps completion, so check it first.
             if participation.superseded_at is not None:
                 superseded += 1
                 continue
@@ -191,7 +191,7 @@ def _finalize_one_run(run_id: UUID, team_id: int, result: FinalizerPass) -> bool
                 continue
 
             # No outcome despite reconcile_observed_at being set. An empty error means the seeder
-            # violated INV-1 (observed without an outcome); a non-empty error is a legitimate
+            # observed the run without writing an outcome; a non-empty error is a legitimate
             # retryable shortfall that simply holds until re-dispatch.
             held += 1
             if participation.error == "":

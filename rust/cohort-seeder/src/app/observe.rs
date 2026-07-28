@@ -1,7 +1,7 @@
 //! The driver's observation pass for one reconciling run, plus the app-owned seams the tests fake.
 //!
-//! INV-1 (outcomes before observed) is absolute here: every non-superseded participation gets a
-//! definitive outcome write before `reconcile_observed_at` is stamped, which is this pass's last
+//! Outcomes land before observed: every non-superseded participation gets a definitive outcome
+//! write before `reconcile_observed_at` is stamped, which is this pass's last
 //! write. The marker set is the completion *authority* (bitmaps decide complete vs short); the seed
 //! group's committed offsets are *liveness only* (they gate whether we may even capture the membership
 //! end-watermarks that a negative verdict's settlement proof requires). Hash attribution splits a
@@ -12,9 +12,8 @@
 //! Three seams keep the pass testable without a broker or a database: [`CommittedOffsetSource`] and
 //! [`TopicOffsetSource`] wrap the kafka layer, [`ObservationStore`] wraps the fenced store writes.
 //!
-//! The pass reports lag through [`ObserveStep`] rather than setting gauges itself: several runs are
-//! observed per tick, so the driver aggregates across them and publishes one fleet-wide reading that
-//! also clears when nothing lags.
+//! Lag is reported through [`ObserveStep`]; the driver aggregates it across the tick's runs into
+//! one fleet-wide gauge reading.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -215,7 +214,7 @@ async fn apply_verdict(
 }
 
 /// Split each short cohort into a terminal supersede (hash diverged / cohort deleted / indeterminate)
-/// or a retryable shortfall (hash still matches the pinned one). INV-1 hash attribution.
+/// or a retryable shortfall (hash still matches the pinned one).
 async fn attribute_incomplete(
     store: &dyn ObservationStore,
     target: &ObserveTarget,
@@ -789,7 +788,7 @@ mod tests {
                 StoreCall::Completed(CohortId(11)),
                 StoreCall::Observed,
             ],
-            "outcomes land before observed (INV-1)"
+            "outcomes land before observed"
         );
     }
 
@@ -968,7 +967,7 @@ mod tests {
         assert_eq!(
             calls.last(),
             Some(&StoreCall::Observed),
-            "observed lands last (INV-1)"
+            "observed lands last"
         );
     }
 

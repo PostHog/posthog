@@ -1,5 +1,5 @@
-//! Pure completion-protocol domain: the types the auto-dispatch producer mints and the later
-//! observer (PR-C) consumes. Depends only on `cohort-core` and sibling domain modules — no sqlx, no
+//! Pure completion-protocol domain: the types the auto-dispatch producer mints and the observer
+//! consumes. Depends only on `cohort-core` and sibling domain modules — no sqlx, no
 //! rdkafka. Every illegal state the protocol must never persist (a partial partition set, a
 //! consumed-offset masquerading as a next-to-read offset, an unfenced settlement verdict) is made
 //! unrepresentable here so the store and app layers can trust these values without re-checking them.
@@ -413,7 +413,7 @@ impl<'de> Deserialize<'de> for ObservationEnds {
 }
 
 /// Proof that the watcher has caught up to the captured observation ends. A non-`Clone` zero-sized
-/// token: PR-C's `settle` accepts one by value, so a negative reconcile verdict cannot be reached
+/// token: `MarkerLedger::settle` accepts one by value, so a negative reconcile verdict cannot be reached
 /// without first proving the marker set for this dispatch was fully observed.
 #[derive(Debug)]
 pub struct SettleProof(());
@@ -485,7 +485,7 @@ impl DispatchEpoch {
     }
 }
 
-/// One observed `reconcile_complete` marker, fed to PR-C's ledger fold.
+/// One observed `reconcile_complete` marker, fed to the ledger fold.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ObservedMarker {
     pub team_id: TeamId,
@@ -512,7 +512,8 @@ pub struct DispatchedReconcile {
 /// Why a reconciling run has no usable dispatch record and needs a re-dispatch to self-heal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UndispatchedReason {
-    /// `reconcile_dispatched_at` is NULL: a CAS-then-crash, or a pre-B5 manually-reconciling run.
+    /// `reconcile_dispatched_at` is NULL: a CAS-then-crash, or a run reconciled by hand before the
+    /// dispatch record existed.
     NeverDispatched,
     /// The dispatch stamp is set but `reconcile_hwms` or `marker_watch` is missing.
     MissingRecord,

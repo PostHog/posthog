@@ -671,10 +671,10 @@ async fn marker_observations_or_merge_round_trip_including_bit_63() -> Result<()
     .await
 }
 
-/// Discovery classifies each completion phase, including a pre-B5 reconciling run whose completion
+/// Discovery classifies each completion phase, including a reconciling run whose completion
 /// columns are all NULL.
 #[tokio::test]
-async fn discovery_classifies_each_phase_including_pre_b5_rows() -> Result<()> {
+async fn discovery_classifies_each_phase_including_undispatched_rows() -> Result<()> {
     with_db(|pool| async move {
         let unplanned =
             insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
@@ -690,8 +690,8 @@ async fn discovery_classifies_each_phase_including_pre_b5_rows() -> Result<()> {
             .context("dispatched run should be claimable")?;
         let _ = claim.record(&pool, &full_hwms(), &empty_watch()).await?;
 
-        // Pre-B5: reconciling with every new column NULL.
-        let pre_b5 = insert_run(
+        // A run that predates the completion columns: reconciling with every one of them NULL.
+        let undispatched = insert_run(
             &pool,
             5,
             "team_enablement",
@@ -723,7 +723,7 @@ async fn discovery_classifies_each_phase_including_pre_b5_rows() -> Result<()> {
             Some(CompletionPhase::Reconciling(_))
         ));
         ensure!(
-            phase(pre_b5)
+            phase(undispatched)
                 == Some(CompletionPhase::ReconcilingUndispatched(
                     UndispatchedReason::NeverDispatched
                 ))

@@ -116,9 +116,9 @@ impl MarkerFlush for PgMarkerFlush {
 
 /// One watched run's in-memory fold state. `positions` is this run's fold *coverage*: it starts at
 /// the directive's dispatch-time start (so partitions with no traffic since the dispatch already
-/// read as covered) and max-merges forward as the stream reads. Coverage is per run — a single
-/// global position would let a freshly added run inherit offsets the stream read before that run's
-/// ledger existed, which its settlement proof must never claim.
+/// read as covered) and max-merges forward as the stream reads. Coverage is tracked per run so a
+/// freshly added run cannot claim offsets the stream read before that run's ledger existed — its
+/// settlement proof rests on this.
 struct RunWatch {
     epoch: DispatchEpoch,
     positions: WatchPositions,
@@ -150,7 +150,7 @@ struct WatchState<S, F> {
     messages_since_flush: u64,
     positions_advanced: bool,
     /// A cohort completed since the last flush, which triggers an immediate one. Aggregated on
-    /// ingest, not rescanned in `should_flush` — that runs per record on a high-volume topic.
+    /// ingest because `should_flush` runs per record on a high-volume topic.
     completion_pending: bool,
     /// A seek is owed (a run was added or rebuilt, or the last seek failed transiently) but has not
     /// succeeded yet. Cleared only by a successful seek, so a broker blip is retried on the next
@@ -357,12 +357,10 @@ impl<S: MarkerStream, F: MarkerFlush> WatchState<S, F> {
             }
         }
         self.messages_since_flush = 0;
-        // Held on a failed persist: for a run whose bits are clean but whose coverage moved, this
-        // flag is the only thing `flush_run`'s guard retries on, and an idle topic never sets it
-        // again — the run's positions would never reach the DB and it could never settle.
+        // A failed persist holds both retry flags. For a run whose bits are clean but whose coverage
+        // moved, `positions_advanced` is the only thing `flush_run`'s guard retries on, and an idle
+        // topic never sets it again.
         self.positions_advanced = !all_persisted;
-        // Recomputed, not cleared: a run whose persist failed keeps its bits dirty, so it keeps its
-        // trigger. A stale-true from a rebuilt run costs at most one no-op flush.
         self.completion_pending = self
             .runs
             .values()
