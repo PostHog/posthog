@@ -12,6 +12,7 @@ from posthog.hogql.visitor import clone_expr
 
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import Product
+from posthog.credentials import AWSAccessKeyId, AWSSecretAccessKey
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
@@ -78,8 +79,8 @@ class RecordBatchModel(abc.ABC):
         data_interval_start: dt.datetime | None,
         data_interval_end: dt.datetime,
         s3_folder: str,
-        s3_key: str | None,
-        s3_secret: str | None,
+        s3_key: AWSAccessKeyId | None,
+        s3_secret: AWSSecretAccessKey | None,
         num_partitions: int,
     ) -> tuple[Query, QueryParameters]:
         """Produce a printed query and any necessary ClickHouse query parameters."""
@@ -161,8 +162,8 @@ class SessionsRecordBatchModel(RecordBatchModel):
         data_interval_start: dt.datetime | None,
         data_interval_end: dt.datetime,
         s3_folder: str,
-        s3_key: str | None,
-        s3_secret: str | None,
+        s3_key: AWSAccessKeyId | None,
+        s3_secret: AWSSecretAccessKey | None,
         num_partitions: int,
     ) -> tuple[Query, QueryParameters]:
         """Produce a printed query and any necessary ClickHouse query parameters."""

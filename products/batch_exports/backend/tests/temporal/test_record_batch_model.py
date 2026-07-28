@@ -3,6 +3,7 @@ import pytest
 from posthog.hogql.hogql import ast
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 
+from posthog.credentials import AWSAccessKeyId, AWSSecretAccessKey
 from posthog.sync import database_sync_to_async
 
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
@@ -97,8 +98,8 @@ class TestSessionsRecordBatchModel:
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
             s3_folder="https://test-bucket.s3.amazonaws.com/test-prefix",
-            s3_key="test-key",
-            s3_secret="test-secret",
+            s3_key=AWSAccessKeyId("test-key"),
+            s3_secret=AWSSecretAccessKey("test-secret"),
             num_partitions=5,
         )
 

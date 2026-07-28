@@ -6,7 +6,7 @@ import typing
 import asyncio
 import datetime as dt
 from contextlib import asynccontextmanager, suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from django.conf import settings
 
@@ -18,6 +18,7 @@ from temporalio import activity
 
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import Product
+from posthog.credentials import AWSAccessKeyId, AWSSecretAccessKey, unsafe_cast_aws_credentials
 
 from products.batch_exports.backend.temporal.utils import make_retryable_with_exponential_backoff
 
@@ -103,8 +104,8 @@ def _get_s3_endpoint_url() -> str:
 @dataclass(frozen=True)
 class S3StagingCredentials:
     # Both None when keyless (IAM-role) auth is used.
-    aws_access_key_id: str | None
-    aws_secret_access_key: str | None
+    aws_access_key_id: AWSAccessKeyId | None
+    aws_secret_access_key: AWSSecretAccessKey | None = field(repr=False)
 
 
 def _get_s3_credentials() -> S3StagingCredentials:
@@ -116,10 +117,10 @@ def _get_s3_credentials() -> S3StagingCredentials:
     use_keyless_s3_auth = not _uses_object_storage_endpoint()
     if use_keyless_s3_auth:
         return S3StagingCredentials(aws_access_key_id=None, aws_secret_access_key=None)
-    return S3StagingCredentials(
-        aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+    access_key_id, secret_access_key = unsafe_cast_aws_credentials(
+        settings.OBJECT_STORAGE_ACCESS_KEY_ID, settings.OBJECT_STORAGE_SECRET_ACCESS_KEY
     )
+    return S3StagingCredentials(aws_access_key_id=access_key_id, aws_secret_access_key=secret_access_key)
 
 
 def socket_factory(addr_info):

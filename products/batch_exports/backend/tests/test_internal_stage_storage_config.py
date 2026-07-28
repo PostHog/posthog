@@ -2,6 +2,8 @@ import pytest
 
 from django.test.utils import override_settings
 
+from posthog.credentials import AWSAccessKeyId, AWSSecretAccessKey
+
 from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     S3StagingCredentials,
     _get_s3_credentials,
@@ -51,7 +53,7 @@ def test_internal_stage_uses_object_storage_endpoint_for_self_hosted_local_and_t
             == f"{OBJECT_STORAGE_ENDPOINT}/{OBJECT_STORAGE_BUCKET}/{EXPECTED_STAGE_FOLDER}"
         )
         assert _get_s3_credentials() == S3StagingCredentials(
-            OBJECT_STORAGE_ACCESS_KEY_ID, OBJECT_STORAGE_SECRET_ACCESS_KEY
+            AWSAccessKeyId(OBJECT_STORAGE_ACCESS_KEY_ID), AWSSecretAccessKey(OBJECT_STORAGE_SECRET_ACCESS_KEY)
         )
 
 

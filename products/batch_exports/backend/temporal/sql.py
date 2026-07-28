@@ -4,8 +4,15 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.parser import parse_expr
 
+from posthog.credentials import AWSAccessKeyId, AWSSecretAccessKey
 
-def get_s3_function_call(s3_folder: str, s3_key: str | None, s3_secret: str | None, num_partitions: int) -> str:
+
+def get_s3_function_call(
+    s3_folder: str,
+    s3_key: AWSAccessKeyId | None,
+    s3_secret: AWSSecretAccessKey | None,
+    num_partitions: int,
+) -> str:
     """Generate the s3() function call for ClickHouse INSERT queries.
 
     When using keyless S3 auth (IAM roles), we omit credentials and ClickHouse uses the

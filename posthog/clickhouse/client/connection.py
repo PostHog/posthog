@@ -2,7 +2,7 @@ import os
 import logging
 from collections.abc import Mapping
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from functools import cache
 from typing import TYPE_CHECKING
@@ -110,7 +110,7 @@ def init_clickhouse_users() -> Mapping[ClickHouseUser, tuple[str, str]]:
 @dataclass(frozen=True)
 class ClickHouseCredentials:
     user: str
-    password: str
+    password: str = field(repr=False)
 
 
 def get_clickhouse_creds(user: ClickHouseUser) -> ClickHouseCredentials:

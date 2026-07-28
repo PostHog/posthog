@@ -1,5 +1,5 @@
 import secrets
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 from django.contrib.auth.hashers import check_password, make_password
@@ -90,7 +90,7 @@ class SCIMBearerTokenAuthentication(BaseAuthentication):
 @dataclass(frozen=True)
 class ScimToken:
     # `plain` is shown to the user once. Only `hashed` is persisted.
-    plain: str
+    plain: str = field(repr=False)
     hashed: str
 
 

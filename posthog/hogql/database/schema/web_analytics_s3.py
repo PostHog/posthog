@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from posthog.hogql.database.models import FieldOrTable
 from posthog.hogql.database.s3_table import S3Table
@@ -82,7 +82,7 @@ WEB_BOUNCES_S3_FIELDS: dict[str, FieldOrTable] = {
 class S3WebCredentials:
     # Both None outside DEBUG, where the external web-analytics bucket is read without keys.
     access_key: str | None
-    access_secret: str | None
+    access_secret: str | None = field(repr=False)
 
 
 def _get_s3_credentials() -> S3WebCredentials:
