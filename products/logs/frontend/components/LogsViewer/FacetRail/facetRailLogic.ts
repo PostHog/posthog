@@ -2,6 +2,7 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, redu
 
 import { LogSeverityLevel } from '~/queries/schema/schema-general'
 
+import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
 import type { UniversalFiltersGroup } from '../../../../../../frontend/src/types'
@@ -36,6 +37,13 @@ export interface facetRailLogicActions {
     } // logsViewerFiltersLogic
     setSeverityLevels: (severityLevels: LogSeverityLevel[]) => {
         severityLevels: LogSeverityLevel[]
+    } // logsViewerFiltersLogic
+    setFilters: (
+        filters: Partial<LogsViewerFilters>,
+        pushToHistory?: boolean | undefined
+    ) => {
+        filters: Partial<LogsViewerFilters>
+        pushToHistory: boolean
     } // logsViewerFiltersLogic
     setFacetNameSearch: (search: string) => {
         search: string
@@ -72,7 +80,10 @@ export const facetRailLogic = kea<facetRailLogicType>([
     key((props) => props.id),
 
     connect((props: FacetRailLogicProps) => ({
-        actions: [logsViewerFiltersLogic({ id: props.id }), ['setSeverityLevels', 'setServiceNames', 'setFilterGroup']],
+        actions: [
+            logsViewerFiltersLogic({ id: props.id }),
+            ['setSeverityLevels', 'setServiceNames', 'setFilterGroup', 'setFilters'],
+        ],
     })),
 
     actions({
@@ -121,13 +132,19 @@ export const facetRailLogic = kea<facetRailLogicType>([
                 const included = severityLevels ?? []
                 const excluded = logFilterExclusions(filterGroup, exclusionKey)
                 if (included.includes(value as LogSeverityLevel)) {
-                    actions.setSeverityLevels(included.filter((v) => v !== value))
-                    actions.setFilterGroup(
-                        setLogFilterExclusions(
-                            filterGroup,
-                            exclusionKey,
-                            excluded.includes(value) ? excluded : [...excluded, value]
-                        ),
+                    // included → excluded moves the value across both stores at once (out of the
+                    // dedicated severityLevels field, into an is_not log filter). Write them in a
+                    // single setFilters so the query, URL sync, and filter history all see the
+                    // final state, instead of two setters each firing against a half-applied cycle.
+                    actions.setFilters(
+                        {
+                            severityLevels: included.filter((v) => v !== value),
+                            filterGroup: setLogFilterExclusions(
+                                filterGroup,
+                                exclusionKey,
+                                excluded.includes(value) ? excluded : [...excluded, value]
+                            ),
+                        },
                         false
                     )
                 } else if (excluded.includes(value)) {
