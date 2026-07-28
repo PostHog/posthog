@@ -110,15 +110,24 @@ Avoid large Temporal payloads. Pass alert IDs and references, then load data ins
 
 ## 8. Add the frontend
 
-Use the shared `AlertWizard` when the product creates HogFunction-backed alerts.
+Read [frontend-alerting.md](frontend-alerting.md), then choose the appropriate shared path.
+
+Use `AlertWizard` when the product creates HogFunction-backed alerts from trigger and destination templates.
 
 - Configure a unique `logicKey`.
 - Supply supported sub-template IDs, triggers, and destinations.
 - Add product-specific configuration outside the shared wizard when it is not a reusable HogFunction input.
 - Keep the traditional HogFunction editor as the advanced fallback when the product already supports it.
-- Ensure every network-backed action has loading and double-submit protection.
 
-A product may skip `AlertWizard` if it has no HogFunction destinations.
+Use the shared product alert components in `products/alerts/frontend/components/` when the product owns an alert configuration, evaluation rules, lifecycle state, destinations, and history.
+
+- Compose the form with `AlertEditor`, `AlertEditorFormDetails`, and `AlertEditorSection`.
+- Use the shared definition, schedule, next-evaluation, timezone, and advanced-options components for presentation.
+- Normalize destinations into `AlertNotificationDestinationEditor` view models while keeping supported types, payloads, grouping, and persistence product-owned.
+- Normalize numeric evaluations and current bounds into `AlertEvaluationHistoryChart`; keep the product history table or event timeline beside it.
+- Keep container sizing in the product modal, scene, or embedded section.
+
+A product may use either path or both. Ensure every network-backed action has loading and double-submit protection.
 
 ## 9. Verify the boundaries
 

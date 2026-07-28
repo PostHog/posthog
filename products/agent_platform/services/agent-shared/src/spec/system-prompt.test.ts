@@ -172,6 +172,19 @@ describe('buildSystemPrompt', () => {
         expect(prompt).toMatch(/do NOT paste raw error messages/)
     })
 
+    it('identifies MCPs that opened successfully', async () => {
+        await bundle.write('rev1', 'agent.md', 'x')
+        const spec = AgentSpecSchema.parse({ model: 'test/x' })
+        const prompt = await buildSystemPrompt(makeRev(spec), bundle, {
+            availableMcps: ['posthog'],
+        })
+
+        expect(prompt).toContain('Connected MCP servers')
+        expect(prompt).toContain('- `posthog`')
+        expect(prompt).toMatch(/opened successfully/)
+        expect(prompt).toMatch(/Do not claim.*disconnected/)
+    })
+
     it('renders a dead shared connection under "Disconnected integrations" — admin reconnect, not a retry', async () => {
         await bundle.write('rev1', 'agent.md', 'x')
         const spec = AgentSpecSchema.parse({ model: 'test/x' })

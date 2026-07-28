@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import TravisCISourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.travisci import (
+    TravisCISourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.travis_ci.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
@@ -94,6 +96,7 @@ The token can read every repository its owning user has access to; only those re
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _description(endpoint: str) -> str | None:
             if endpoint in ("builds", "jobs"):
@@ -123,7 +126,11 @@ The token can read every repository its owning user has access to; only those re
         return schemas
 
     def validate_credentials(
-        self, config: TravisCISourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: TravisCISourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # Travis CI tokens carry no scopes, so one /user probe covers every endpoint — a valid
         # token can read everything the owning user can.

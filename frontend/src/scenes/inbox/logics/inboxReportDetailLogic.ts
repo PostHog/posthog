@@ -21,9 +21,17 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
-import { signalsReportsSignalsRetrieve } from 'products/signals/frontend/generated/api'
-import { signalsReportArtefactsDiff } from 'products/signals/frontend/generated/api'
-import type { CommitDiffResponseApi } from 'products/signals/frontend/generated/api.schemas'
+import {
+    signalsReportArtefactsDiff,
+    signalsReportPrChecks,
+    signalsReportPrComments,
+    signalsReportsSignalsRetrieve,
+} from 'products/signals/frontend/generated/api'
+import type {
+    CommitDiffResponseApi,
+    PullRequestCheckApi,
+    PullRequestCommentApi,
+} from 'products/signals/frontend/generated/api.schemas'
 
 import type { SignalNodeApi } from '../../../../../products/signals/frontend/generated/api.schemas'
 import {
@@ -37,6 +45,11 @@ import {
     buildAddReviewerOptions,
     CurrentReviewerUser,
 } from '../components/detail/reviewerDisplay'
+import {
+    captureInboxReportFeedback,
+    captureInboxReportFeedbackNote,
+    InboxReportFeedbackSentiment,
+} from '../inboxAnalytics'
 import {
     EnrichedReviewer,
     SignalReport,
@@ -77,6 +90,10 @@ const ACTIVE_STATUSES: SignalReportStatus[] = [
 
 const REPORT_TASKS_POLL_INTERVAL_MS = 5000
 
+// PR CI checks refresh cadence while the detail is open — a running build's status stays current
+// without hammering GitHub. Mirrors the desktop PR-review view's 15s poll.
+const PR_CHECKS_POLL_INTERVAL_MS = 15000
+
 /** Extract the PR url from a task's latest run output, if present. Mirrors desktop `getTaskPrUrl`. */
 export function getTaskPrUrl(task: Task): string | null {
     const prUrl = task.latest_run?.output?.pr_url
@@ -109,11 +126,22 @@ export interface inboxReportDetailLogicValues {
     diffArtefactId: string | null
     displayReviewers: EnrichedReviewer[] | null
     expandedTaskIds: string[]
+    feedbackNoteDraft: string
+    feedbackNoteOpen: boolean
+    feedbackNoteSent: boolean
+    feedbackSentiment: InboxReportFeedbackSentiment | null
+    hasImplementationPr: boolean
     isReResearch: boolean
     isReportActive: boolean
     isUpdatingReviewers: boolean
     latestCommitArtefact: SignalReportArtefact | null
     optimisticReviewers: EnrichedReviewer[] | null
+    prChecks: readonly PullRequestCheckApi[] | null
+    prChecksError: string | null
+    prChecksLoading: boolean
+    prComments: readonly PullRequestCommentApi[] | null
+    prCommentsError: string | null
+    prCommentsLoading: boolean
     primaryTask: ReportTaskEntry | null
     priorityExplanation: string | null
     report: SignalReport | null
@@ -161,6 +189,36 @@ export interface inboxReportDetailLogicActions {
         payload?: {
             query?: string
         }
+    }
+    loadPrChecks: () => any
+    loadPrChecksFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadPrChecksSuccess: (
+        prChecks: readonly PullRequestCheckApi[] | null,
+        payload?: any
+    ) => {
+        prChecks: readonly PullRequestCheckApi[] | null
+        payload?: any
+    }
+    loadPrComments: () => any
+    loadPrCommentsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadPrCommentsSuccess: (
+        prComments: readonly PullRequestCommentApi[] | null,
+        payload?: any
+    ) => {
+        prComments: readonly PullRequestCommentApi[] | null
+        payload?: any
     }
     loadReportArtefacts: () => any
     loadReportArtefactsFailure: (
@@ -228,8 +286,17 @@ export interface inboxReportDetailLogicActions {
         reportTasks: ReportTaskEntry[]
         payload?: any
     }
+    openFeedbackNote: () => {
+        value: true
+    }
+    rateReport: (sentiment: InboxReportFeedbackSentiment) => {
+        sentiment: InboxReportFeedbackSentiment
+    }
     searchAvailableReviewers: (query: string) => {
         query: string
+    }
+    setFeedbackNoteDraft: (draft: string) => {
+        draft: string
     }
     setOptimisticReviewers: (reviewers: EnrichedReviewer[] | null) => {
         reviewers: EnrichedReviewer[] | null
@@ -240,15 +307,16 @@ export interface inboxReportDetailLogicActions {
     setSelectedTaskId: (taskId: string | null) => {
         taskId: string | null
     }
+    submitFeedbackNote: (note: string) => {
+        note: string
+    }
     toggleExpandedTask: (taskId: string) => {
         taskId: string
     }
     updateReviewers: (
-        artefactId: string,
         content: Record<string, string>[],
         optimistic: EnrichedReviewer[]
     ) => {
-        artefactId: string
         content: Record<string, string>[]
         optimistic: EnrichedReviewer[]
     }
@@ -261,6 +329,7 @@ export interface inboxReportDetailLogicMeta {
         isUpdatingReviewers: (optimisticReviewers: EnrichedReviewer[] | null) => boolean
         reportReviewers: (reportArtefacts: SignalReportArtefact[] | null) => EnrichedReviewer[] | null
         isReportActive: (report: SignalReport | null) => boolean
+        hasImplementationPr: (report: SignalReport | null) => boolean
         latestCommitArtefact: (reportArtefacts: SignalReportArtefact[] | null) => SignalReportArtefact | null
         priorityExplanation: (reportArtefacts: SignalReportArtefact[] | null) => string | null
         actionabilityExplanation: (reportArtefacts: SignalReportArtefact[] | null) => string | null
@@ -303,9 +372,9 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
     actions({
         setReport: (report: SignalReport | null) => ({ report }),
         // Optimistically replace the reviewer list while the PUT is in flight, then reload from the server.
+        // Addressed by report (not artefact) so a report with no reviewers yet can still be assigned one.
         // Mirrors desktop `useUpdateSuggestedReviewers` optimistic behavior.
-        updateReviewers: (artefactId: string, content: Record<string, string>[], optimistic: EnrichedReviewer[]) => ({
-            artefactId,
+        updateReviewers: (content: Record<string, string>[], optimistic: EnrichedReviewer[]) => ({
             content,
             optimistic,
         }),
@@ -316,6 +385,13 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         setSelectedTaskId: (taskId: string | null) => ({ taskId }),
         // Inline-expand a linked task's run log within the report detail's Runs section.
         toggleExpandedTask: (taskId: string) => ({ taskId }),
+        // Thumbs feedback at the end of the report body. Analytics-only – nothing about the report changes.
+        rateReport: (sentiment: InboxReportFeedbackSentiment) => ({ sentiment }),
+        // Optional note, offered only after a rating is in. The rating is never held up waiting for it.
+        openFeedbackNote: true,
+        setFeedbackNoteDraft: (draft: string) => ({ draft }),
+        // The note rides on the payload: the reducers below clear the draft, and listeners run after them.
+        submitFeedbackNote: (note: string) => ({ note }),
     }),
 
     loaders(({ props, values }) => ({
@@ -424,6 +500,36 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 },
             },
         ],
+        // CI checks on the report's implementation PR. Only fetched when the report has one; polled
+        // every 15s while the detail is mounted (see the `setReport` listener) so a running build's
+        // status stays current, mirroring the desktop PR-review view.
+        prChecks: [
+            null as readonly PullRequestCheckApi[] | null,
+            {
+                loadPrChecks: async () => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return null
+                    }
+                    const response = await signalsReportPrChecks(String(teamId), props.reportId)
+                    return response.checks
+                },
+            },
+        ],
+        // Conversation + review comments on the report's implementation PR, merged chronologically.
+        prComments: [
+            null as readonly PullRequestCommentApi[] | null,
+            {
+                loadPrComments: async () => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return null
+                    }
+                    const response = await signalsReportPrComments(String(teamId), props.reportId)
+                    return response.comments
+                },
+            },
+        ],
     })),
 
     reducers({
@@ -461,6 +567,39 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 setReport: () => [],
             },
         ],
+        // The thumbs rating this reader gave the open report, so the row can read the choice back.
+        // The logic is keyed by report id, so each report keeps its own rating for as long as it's open.
+        feedbackSentiment: [
+            null as InboxReportFeedbackSentiment | null,
+            {
+                rateReport: (_, { sentiment }) => sentiment,
+            },
+        ],
+        // Whether the optional note field is showing. Switching the rating closes an unsent note so
+        // the draft can't end up attached to a sentiment the reader has since changed their mind about.
+        feedbackNoteOpen: [
+            false,
+            {
+                openFeedbackNote: () => true,
+                rateReport: () => false,
+                submitFeedbackNote: () => false,
+            },
+        ],
+        feedbackNoteDraft: [
+            '',
+            {
+                setFeedbackNoteDraft: (_, { draft }) => draft,
+                rateReport: () => '',
+                submitFeedbackNote: () => '',
+            },
+        ],
+        feedbackNoteSent: [
+            false,
+            {
+                submitFeedbackNote: () => true,
+                rateReport: () => false,
+            },
+        ],
         // Human-readable diff-load failure (kea-loaders only exposes a boolean loading flag). A failed
         // compare usually means the branch was merged, deleted, or force-rewritten away.
         reportDiffError: [
@@ -478,6 +617,24 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             null as string | null,
             {
                 loadReportDiff: (_, { artefactId }) => artefactId,
+            },
+        ],
+        // Human-readable PR checks/comments load failures (kea-loaders only exposes a boolean flag).
+        // A failure usually means the branch/PR was deleted or the GitHub integration lost access.
+        prChecksError: [
+            null as string | null,
+            {
+                loadPrChecks: () => null,
+                loadPrChecksSuccess: () => null,
+                loadPrChecksFailure: () => "Couldn't load the PR checks from GitHub.",
+            },
+        ],
+        prCommentsError: [
+            null as string | null,
+            {
+                loadPrComments: () => null,
+                loadPrCommentsSuccess: () => null,
+                loadPrCommentsFailure: () => "Couldn't load the PR comments from GitHub.",
             },
         ],
     }),
@@ -505,6 +662,11 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         isReportActive: [
             (s) => [s.report],
             (report: SignalReport | null): boolean => (report ? ACTIVE_STATUSES.includes(report.status) : false),
+        ],
+        // Whether the report has a shipped implementation PR — gates the PR checks/comments fetch + poll.
+        hasImplementationPr: [
+            (s) => [s.report],
+            (report: SignalReport | null): boolean => !!report?.implementation_pr_url,
         ],
         // The most recent `commit` artefact — its branch is treated as the report's branch to diff
         // against the repository default branch. A report's code work may span several pushes; the
@@ -629,6 +791,25 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
     }),
 
     listeners(({ actions, values, cache, props }) => ({
+        rateReport: ({ sentiment }) => {
+            if (!values.report) {
+                return
+            }
+            captureInboxReportFeedback({ report: values.report, sentiment, surface: 'detail_footer' })
+        },
+        // Fires on its own event so the rating stays exactly one `Inbox report feedback` per click.
+        submitFeedbackNote: ({ note }) => {
+            const trimmed = note.trim()
+            if (!values.report || !values.feedbackSentiment || !trimmed) {
+                return
+            }
+            captureInboxReportFeedbackNote({
+                report: values.report,
+                sentiment: values.feedbackSentiment,
+                note: trimmed,
+                surface: 'detail_footer',
+            })
+        },
         searchAvailableReviewers: async ({ query }, breakpoint) => {
             await breakpoint(300)
             actions.loadAvailableReviewers({ query: query.trim() || undefined })
@@ -636,9 +817,9 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         // Persist a reviewer add/remove. The optimistic list is already in place (set by the action's
         // reducer); on success reload the artefact so we converge on the server's enriched data, and on
         // failure clear the optimistic override so the UI snaps back. Mirrors desktop `useUpdateSuggestedReviewers`.
-        updateReviewers: async ({ artefactId, content }) => {
+        updateReviewers: async ({ content }) => {
             try {
-                await api.signalReports.updateArtefact(props.reportId, artefactId, content)
+                await api.signalReports.setReviewers(props.reportId, content)
                 await actions.loadReportArtefacts()
             } catch (error: any) {
                 lemonToast.error(error?.detail || error?.message || 'Failed to update reviewers')
@@ -671,6 +852,17 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             } else {
                 cache.disposables.dispose('reportTasksPoll')
             }
+            // Load the PR checks/comments once the report has a shipped PR. The recurring checks poll
+            // is registered once in `afterMount` (not here) so it isn't torn down and restarted every
+            // time the shell hands us a fresh `report` prop — which would starve the 15s cadence.
+            if (values.hasImplementationPr) {
+                if (values.prChecks === null && !values.prChecksLoading) {
+                    actions.loadPrChecks()
+                }
+                if (values.prComments === null && !values.prCommentsLoading) {
+                    actions.loadPrComments()
+                }
+            }
         },
     })),
 
@@ -681,12 +873,24 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         }
     }),
 
-    afterMount(({ actions, props }) => {
+    afterMount(({ actions, props, values, cache }) => {
         // `loadReportTasks` is cascaded from `loadReportArtefactsSuccess`, so it isn't called here.
         actions.loadReportArtefacts()
         actions.loadReportSignals()
         actions.loadAvailableReviewers()
         // Seed the report from props so polling is gated on its status from the first tick.
         actions.setReport(props.report ?? null)
+        // Register the PR-checks poll once for the lifetime of the mount — the tick re-checks whether
+        // the report has a PR, so it stays correct as the report prop churns without the interval ever
+        // being torn down and restarted (which would keep resetting the 15s cadence). Auto-disposed on
+        // unmount / hidden tab.
+        cache.disposables.add(() => {
+            const interval = setInterval(() => {
+                if (values.hasImplementationPr) {
+                    actions.loadPrChecks()
+                }
+            }, PR_CHECKS_POLL_INTERVAL_MS)
+            return () => clearInterval(interval)
+        }, 'prChecksPoll')
     }),
 ])

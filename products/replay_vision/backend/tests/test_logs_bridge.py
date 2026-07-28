@@ -1,62 +1,72 @@
-import logging
+import io
 
 from unittest import mock
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
-from opentelemetry.sdk._logs import LoggerProvider
-from opentelemetry.sdk._logs.export import InMemoryLogExporter, SimpleLogRecordProcessor
-from opentelemetry.sdk.resources import Resource
+import structlog
+from opentelemetry.proto.collector.logs.v1.logs_service_pb2 import ExportLogsServiceRequest
 
-from posthog.otel_logs import OtelLogHandler, reset_otel_logs_for_tests
+from posthog import otel_logs
+from posthog.otel_logs import reset_otel_logs_for_tests
+from posthog.temporal.common.logger import configure_logger
 
-from products.replay_vision.backend.temporal import logs as bridge
+from products.replay_vision.backend.temporal.logs import (
+    VISION_LOG_ATTRIBUTE_ALLOWLIST,
+    VISION_LOGS_LOGGER_PREFIX,
+    VISION_LOGS_SERVICE_NAME,
+    build_vision_log_mirror,
+)
 
 
-class TestVisionLogBridge(SimpleTestCase):
+class TestVisionLogMirror(SimpleTestCase):
     def setUp(self) -> None:
-        self.logger = logging.getLogger(bridge._TEMPORAL_LOGGER_NAME)
-        self._orig_handlers = list(self.logger.handlers)
-        self._orig_installed = bridge._installed
-        self._orig_level = self.logger.level
+        reset_otel_logs_for_tests()
+        self._structlog_config = structlog.get_config()
         self.addCleanup(self._restore)
-        # Clean slate: the package __init__ already installed the bridge at import time.
-        self.logger.handlers = [handler for handler in self.logger.handlers if not isinstance(handler, OtelLogHandler)]
-        bridge._installed = False
 
     def _restore(self) -> None:
-        self.logger.handlers = self._orig_handlers
-        self.logger.setLevel(self._orig_level)
-        bridge._installed = self._orig_installed
-
-    def test_install_is_idempotent_and_attaches_one_handler(self) -> None:
-        # Double-install would ship every record twice. A wrong service name would land the logs where
-        # the Logs read filter (service.name = replay-vision) can't find them.
-        bridge.install_vision_log_bridge()
-        bridge.install_vision_log_bridge()
-        handlers = [handler for handler in self.logger.handlers if isinstance(handler, OtelLogHandler)]
-        assert len(handlers) == 1
-        assert handlers[0]._service_name == bridge.VISION_LOGS_SERVICE_NAME
-        # Fail-closed allowlist must be wired so payload-derived fields never reach the shared project.
-        assert handlers[0]._attribute_allowlist == bridge.VISION_LOG_ATTRIBUTE_ALLOWLIST
-        assert "response_preview" not in bridge.VISION_LOG_ATTRIBUTE_ALLOWLIST
-
-    def test_pipeline_logs_reach_the_logs_product_under_the_service_name(self) -> None:
-        # The load-bearing claim of the bridge: a record from any logger under the pipeline namespace
-        # propagates to the handler and ships under service.name = replay-vision, with no call-site
-        # change. A wrong namespace string would silently ship nothing.
-        exporter = InMemoryLogExporter()
-        provider = LoggerProvider(resource=Resource.create({"service.name": bridge.VISION_LOGS_SERVICE_NAME}))
-        provider.add_log_record_processor(SimpleLogRecordProcessor(exporter))
         reset_otel_logs_for_tests()
-        self.addCleanup(reset_otel_logs_for_tests)
-        self.logger.setLevel(logging.INFO)
+        # configure_logger calls structlog.reset_defaults(), so restore the process-wide config.
+        structlog.configure(**self._structlog_config)
 
-        with mock.patch("posthog.otel_logs._build_provider", return_value=provider):
-            bridge.install_vision_log_bridge()
-            child = logging.getLogger(f"{bridge._TEMPORAL_LOGGER_NAME}.activities.call_scanner_provider")
-            child.info("scanner_call_failed")
+    @override_settings(
+        OTLP_LOGS_INGEST_ENDPOINT="http://capture-logs.posthog.svc.cluster.local:4318/i/v1/logs",
+        OTLP_LOGS_INGEST_TOKEN="phc_x",
+        TEMPORAL_LOG_LEVEL="DEBUG",
+    )
+    def test_pipeline_logs_serialize_and_export_through_the_real_worker_chain(self) -> None:
+        # Real configure_logger chain + real OTLPLogExporter (only the network session mocked), so it
+        # catches an unwired mirror and a record that fails to serialize (in-memory exporters don't).
+        mock_session = mock.MagicMock()
+        mock_session.post.return_value = mock.MagicMock(status_code=200)
 
-        records = [item.log_record for item in exporter.get_finished_logs()]
-        assert any(record.body == "scanner_call_failed" for record in records)
-        assert all(record.resource.attributes["service.name"] == bridge.VISION_LOGS_SERVICE_NAME for record in records)
+        with mock.patch("posthog.security.outbound_proxy.internal_requests_session", return_value=mock_session):
+            configure_logger(
+                otel_log_mirror=build_vision_log_mirror(), cache_logger_on_first_use=False, file=io.StringIO()
+            )
+            logger = structlog.get_logger(f"{VISION_LOGS_LOGGER_PREFIX}.activities.call_scanner_provider")
+            logger.info("scanner_call_failed", observation_id="obs_1", response_preview="customer session text")
+            provider = otel_logs._ensure_provider(VISION_LOGS_SERVICE_NAME)
+            assert provider is not None
+            provider.force_flush(5000)
+
+        assert mock_session.post.called, "real OTLP exporter never POSTed (serialization or transport failed)"
+        data = mock_session.post.call_args.kwargs.get("data") or mock_session.post.call_args.args[0]
+        request = ExportLogsServiceRequest.FromString(data)
+
+        records = [record for rl in request.resource_logs for sl in rl.scope_logs for record in sl.log_records]
+        matched = [record for record in records if record.body.string_value == "scanner_call_failed"]
+        assert len(matched) == 1
+        record = matched[0]
+        service_name = next(
+            kv.value.string_value for kv in request.resource_logs[0].resource.attributes if kv.key == "service.name"
+        )
+        attributes = {kv.key: kv.value.string_value for kv in record.attributes}
+        assert service_name == VISION_LOGS_SERVICE_NAME
+        assert attributes["observation_id"] == "obs_1"
+        assert "response_preview" not in attributes
+
+    def test_allowlist_excludes_payload_derived_fields(self) -> None:
+        assert "response_preview" not in VISION_LOG_ATTRIBUTE_ALLOWLIST
+        assert "observation_id" in VISION_LOG_ATTRIBUTE_ALLOWLIST

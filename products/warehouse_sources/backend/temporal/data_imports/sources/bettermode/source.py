@@ -31,7 +31,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BettermodeSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bettermode import (
+    BettermodeSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -131,6 +133,7 @@ If your community is hosted in the EU (eu-central-1), select the EU region so re
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _description(endpoint: str) -> str | None:
             if endpoint == "replies":
@@ -158,7 +161,11 @@ If your community is hosted in the EU (eu-central-1), select the EU region so re
         return schemas
 
     def validate_credentials(
-        self, config: BettermodeSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: BettermodeSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         is_valid, error = validate_bettermode_credentials(
             config.region, config.client_id, config.client_secret, config.network_id

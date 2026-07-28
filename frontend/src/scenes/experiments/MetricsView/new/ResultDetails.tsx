@@ -12,6 +12,10 @@ import { FunnelChart } from 'scenes/experiments/charts/funnel/FunnelChart'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { VariantTag } from 'scenes/experiments/ExperimentView/VariantTag'
 import { applySessionLinkability, getViewRecordingFilters } from 'scenes/experiments/utils'
+import {
+    EXPOSURE_UNLINKABLE_REASON,
+    viewRecordingsLinkabilityLogic,
+} from 'scenes/experiments/viewRecordingsLinkabilityLogic'
 
 import {
     CachedNewExperimentQueryResponse,
@@ -41,7 +45,6 @@ import {
     isBayesianResult,
     isFrequentistResult,
 } from '../shared/utils'
-import { viewRecordingsLinkabilityLogic } from './viewRecordingsLinkabilityLogic'
 
 /**
  * Convert new experiment results directly to DataDrivenFunnel format
@@ -295,7 +298,7 @@ export function ResultDetails({
                         disabled={safeFilters.length === 0}
                         disabledReason={
                             exposureUnlinkable
-                                ? "This experiment's exposure event is captured server-side without a session ID, so recordings can't be matched."
+                                ? EXPOSURE_UNLINKABLE_REASON
                                 : filters.length === 0
                                   ? 'Unable to identify recordings for this metric'
                                   : undefined

@@ -20,7 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ZepSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zep import ZepSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.zep.settings import ENDPOINTS, ZEP_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.zep.zep import (
     ZepResumeConfig,
@@ -92,6 +92,7 @@ You can create an API key in the [Zep dashboard](https://app.getzep.com/) under 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Zep exposes no server-side timestamp filter (no created_since / updated_since), so every
         # endpoint is full-refresh only. See settings.py / the source docs for the rationale.
@@ -112,7 +113,7 @@ You can create an API key in the [Zep dashboard](https://app.getzep.com/) under 
         return schemas
 
     def validate_credentials(
-        self, config: ZepSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: ZepSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         if validate_zep_credentials(config.api_key):
             return True, None

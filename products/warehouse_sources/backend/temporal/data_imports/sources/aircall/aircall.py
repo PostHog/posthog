@@ -1,13 +1,10 @@
-import base64
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import urlencode
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Request, Response
+from requests.auth import HTTPBasicAuth
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.aircall.settings import (
@@ -15,33 +12,22 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aircall.se
     AircallEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 
 AIRCALL_BASE_URL = "https://api.aircall.io/v1"
 # Aircall caps list pages at 50 items.
 PAGE_SIZE = 50
-REQUEST_TIMEOUT_SECONDS = 60
-MAX_RETRIES = 5
-
-
-class AircallRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
 class AircallResumeConfig:
     next_url: str
-
-
-def _basic_auth_token(api_id: str, api_token: str) -> str:
-    return base64.b64encode(f"{api_id}:{api_token}".encode("ascii")).decode("ascii")
-
-
-def _get_headers(api_id: str, api_token: str) -> dict[str, str]:
-    return {
-        "Authorization": f"Basic {_basic_auth_token(api_id, api_token)}",
-        "Accept": "application/json",
-    }
 
 
 def _to_epoch(value: Any) -> Optional[int]:
@@ -87,110 +73,110 @@ def _build_params(config: AircallEndpointConfig, from_value: Optional[int]) -> d
     return params
 
 
-def validate_credentials(api_id: str, api_token: str) -> bool:
-    """Confirm the API key pair is valid. /v1/ping is a cheap authenticated probe."""
-    try:
-        response = make_tracked_session().get(
-            f"{AIRCALL_BASE_URL}/ping",
-            headers=_get_headers(api_id, api_token),
-            timeout=10,
-        )
-        return response.status_code == 200
-    except Exception:
-        return False
+class AircallPaginator(BasePaginator):
+    """Follows Aircall's `meta.next_page_link` chain, re-anchoring around the 10k cap.
 
+    When a page chain ends on a capped endpoint (calls/contacts), the paginator re-anchors
+    the `from` query param to the latest value of the cursor field seen so far and starts a
+    fresh chain, to fetch records beyond Aircall's hard 10k-record-per-query cap. The
+    strict-advance guard prevents an infinite loop when many records share the boundary
+    timestamp.
+    """
 
-def get_rows(
-    api_id: str,
-    api_token: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[AircallResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-    incremental_field: str | None = None,
-) -> Iterator[list[dict[str, Any]]]:
-    config = AIRCALL_ENDPOINTS[endpoint]
-    headers = _get_headers(api_id, api_token)
+    def __init__(
+        self,
+        config: AircallEndpointConfig,
+        cursor_field: Optional[str],
+        from_value: Optional[int],
+    ) -> None:
+        super().__init__()
+        self._config = config
+        self._cursor_field = cursor_field
+        self._from_value = from_value
+        # Latest value of the cursor field seen across the whole run.
+        self._max_cursor: Optional[int] = None
+        self._next_url: Optional[str] = None
 
-    cursor_field = incremental_field or config.reanchor_field
-    from_value = _to_epoch(db_incremental_field_last_value) if should_use_incremental_field else None
+    def init_request(self, request: Request) -> None:
+        # Apply a seeded resume URL to the first request so a resumed run starts at the
+        # saved next-page link rather than the base path.
+        if self._next_url is not None:
+            request.url = self._next_url
+            request.params = {}
 
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume_config is not None:
-        url: str = resume_config.next_url
-        logger.debug(f"Aircall: resuming from URL: {url}")
-    else:
-        url = _build_url(config.path, _build_params(config, from_value))
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        items = data or []
+        if self._cursor_field is not None and items:
+            page_max = max(
+                (
+                    cursor
+                    for cursor in (_to_epoch(item.get(self._cursor_field)) for item in items)
+                    if cursor is not None
+                ),
+                default=None,
+            )
+            if page_max is not None and (self._max_cursor is None or page_max > self._max_cursor):
+                self._max_cursor = page_max
 
-    @retry(
-        retry=retry_if_exception_type((AircallRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(MAX_RETRIES),
-        wait=wait_exponential_jitter(initial=1, max=60),
-        reraise=True,
-    )
-    def fetch_page(page_url: str) -> dict[str, Any]:
-        response = make_tracked_session().get(page_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
-
-        # Aircall rate-limits at 120 req/min; 429s carry a reset header but exponential
-        # backoff is sufficient here.
-        if response.status_code == 429 or response.status_code >= 500:
-            raise AircallRetryableError(f"Aircall API error (retryable): status={response.status_code}, url={page_url}")
-
-        if not response.ok:
-            logger.error(f"Aircall API error: status={response.status_code}, body={response.text}, url={page_url}")
-            response.raise_for_status()
-
-        return response.json()
-
-    # Latest value of the re-anchor field seen across the whole run. Used to step `from`
-    # past Aircall's hard 10k-record-per-query cap on calls/contacts once a page chain ends.
-    max_cursor: Optional[int] = None
-
-    while True:
-        data = fetch_page(url)
-        items = data.get(config.data_key, []) or []
-
-        if items:
-            yield items
-
-            if cursor_field is not None:
-                page_max = max(
-                    (cursor for cursor in (_to_epoch(item.get(cursor_field)) for item in items) if cursor is not None),
-                    default=None,
-                )
-                if page_max is not None and (max_cursor is None or page_max > max_cursor):
-                    max_cursor = page_max
-
-        next_url = (data.get("meta") or {}).get("next_page_link")
+        try:
+            body = response.json()
+        except Exception:
+            body = None
+        next_url = ((body or {}).get("meta") or {}).get("next_page_link") if isinstance(body, dict) else None
 
         if next_url:
-            resumable_source_manager.save_state(AircallResumeConfig(next_url=next_url))
-            url = next_url
-            continue
+            self._next_url = next_url
+            self._has_next_page = True
+            return
 
         # Page chain ended. For capped endpoints, re-anchor on the latest cursor value to
-        # fetch records beyond the 10k window. The strict-advance guard prevents an infinite
-        # loop when many records share the boundary timestamp.
+        # fetch records beyond the 10k window.
         if (
-            config.reanchor_field is not None
-            and max_cursor is not None
-            and (from_value is None or max_cursor > from_value)
+            self._config.reanchor_field is not None
+            and self._max_cursor is not None
+            and (self._from_value is None or self._max_cursor > self._from_value)
         ):
-            from_value = max_cursor
-            url = _build_url(config.path, _build_params(config, from_value))
-            resumable_source_manager.save_state(AircallResumeConfig(next_url=url))
-            logger.debug(f"Aircall: re-anchoring {endpoint} from={from_value} to page around the 10k cap")
-            continue
+            self._from_value = self._max_cursor
+            self._next_url = _build_url(self._config.path, _build_params(self._config, self._from_value))
+            self._has_next_page = True
+            return
 
-        break
+        self._has_next_page = False
+
+    def update_request(self, request: Request) -> None:
+        if self._next_url is not None:
+            request.url = self._next_url
+            # The next-page URL is self-contained — it already carries every query param
+            # needed. Drop the original params so they aren't re-appended each page.
+            request.params = {}
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        return {"next_url": self._next_url} if self._has_next_page and self._next_url is not None else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        next_url = state.get("next_url")
+        if next_url is not None:
+            self._next_url = next_url
+            self._has_next_page = True
+
+
+def validate_credentials(api_id: str, api_token: str) -> bool:
+    """Confirm the API key pair is valid. /v1/ping is a cheap authenticated probe."""
+    ok, _status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_token,)),
+        f"{AIRCALL_BASE_URL}/ping",
+        headers={"Accept": "application/json"},
+        auth=HTTPBasicAuth(api_id, api_token),
+    )
+    return ok
 
 
 def aircall_source(
     api_id: str,
     api_token: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[AircallResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
@@ -198,18 +184,55 @@ def aircall_source(
 ) -> SourceResponse:
     config = AIRCALL_ENDPOINTS[endpoint]
 
+    cursor_field = incremental_field or config.reanchor_field
+    from_value = _to_epoch(db_incremental_field_last_value) if should_use_incremental_field else None
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": AIRCALL_BASE_URL,
+            "headers": {"Accept": "application/json"},
+            # Basic auth via the framework so the token is redacted from logs.
+            "auth": {"type": "http_basic", "username": api_id, "password": api_token},
+            "paginator": AircallPaginator(config, cursor_field, from_value),
+        },
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    # A missing data key is tolerated (treated as an empty page), matching
+                    # Aircall's occasional key-less bodies — so no data_selector_required.
+                    "data_selector": config.data_key,
+                    "params": _build_params(config, from_value),
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = {"next_url": resume.next_url}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only while a next page (or re-anchored window) remains; save AFTER a page is
+        # yielded so a crash re-yields the last page (merge dedupes) rather than skipping it.
+        if state and state.get("next_url"):
+            resumable_source_manager.save_state(AircallResumeConfig(next_url=str(state["next_url"])))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value if should_use_incremental_field else None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_id=api_id,
-            api_token=api_token,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-            incremental_field=incremental_field,
-        ),
+        items=lambda: resource,
         primary_keys=[config.primary_key],
         sort_mode="asc",
         partition_count=1,

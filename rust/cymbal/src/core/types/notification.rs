@@ -3,7 +3,7 @@
 //! them.
 
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use uuid::Uuid;
 
 use crate::types::ProcessedExceptionProperties;
@@ -30,7 +30,7 @@ pub enum NotificationValidationError {
 /// internally-tagged JSON (`{"type": "issue_created", ...}`) so new variants can
 /// be added without breaking existing consumers — an unknown `type` simply fails
 /// to deserialize and is skipped as a poison pill.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum IngestionNotification {
     /// A new issue was created during ingestion.
@@ -39,6 +39,74 @@ pub enum IngestionNotification {
     IssueReopened(IssueReopened),
     /// An issue crossed the spike threshold during ingestion.
     IssueSpiking(IssueSpiking),
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "type")]
+enum IngestionNotificationWire {
+    #[serde(rename = "issue_created")]
+    Created(IssueCreated),
+    #[serde(rename = "issue_reopened")]
+    Reopened(IssueReopened),
+    #[serde(rename = "issue_spiking")]
+    Spiking(IssueSpiking),
+}
+
+impl<'de> Deserialize<'de> for IngestionNotification {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = IngestionNotificationWire::deserialize(deserializer)?;
+        let mut notification = match wire {
+            IngestionNotificationWire::Created(value) => Self::IssueCreated(value),
+            IngestionNotificationWire::Reopened(value) => Self::IssueReopened(value),
+            IngestionNotificationWire::Spiking(value) => Self::IssueSpiking(value),
+        };
+
+        if notification.notification_id().is_nil() {
+            let fallback_key = match &notification {
+                Self::IssueCreated(value) => format!(
+                    "issue_created:{}:{}:{}",
+                    value.meta.team_id, value.issue.issue_id, value.event_uuid
+                ),
+                Self::IssueReopened(value) => {
+                    let event_reference = if value.event_uuid.is_nil() {
+                        value.event_timestamp.clone()
+                    } else {
+                        value.event_uuid.to_string()
+                    };
+                    format!(
+                        "issue_reopened:{}:{}:{}",
+                        value.meta.team_id, value.issue.issue_id, event_reference
+                    )
+                }
+                Self::IssueSpiking(value) if value.event_uuid.is_nil() => format!(
+                    "issue_spiking:{}:{}:{}:{}",
+                    value.meta.team_id,
+                    value.issue.issue_id,
+                    value.computed_baseline.to_bits(),
+                    value.current_bucket_value.to_bits()
+                ),
+                Self::IssueSpiking(value) => format!(
+                    "issue_spiking:{}:{}:{}:{}:{}",
+                    value.meta.team_id,
+                    value.issue.issue_id,
+                    value.event_uuid,
+                    value.computed_baseline.to_bits(),
+                    value.current_bucket_value.to_bits()
+                ),
+            };
+            let notification_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, fallback_key.as_bytes());
+            match &mut notification {
+                Self::IssueCreated(value) => value.meta.notification_id = notification_id,
+                Self::IssueReopened(value) => value.meta.notification_id = notification_id,
+                Self::IssueSpiking(value) => value.meta.notification_id = notification_id,
+            }
+        }
+
+        Ok(notification)
+    }
 }
 
 impl IngestionNotification {
@@ -110,7 +178,9 @@ impl IngestionNotification {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NotificationMeta {
     /// Stable id for retryable side effects produced from this notification.
-    #[serde(default = "Uuid::now_v7")]
+    /// Missing IDs on notifications produced before this field was introduced are
+    /// deterministically derived by [`IngestionNotification::deserialize`].
+    #[serde(default)]
     pub notification_id: Uuid,
     pub team_id: i32,
 }
@@ -150,6 +220,8 @@ pub struct IssueReopened {
     pub meta: NotificationMeta,
     #[serde(flatten)]
     pub issue: IssueNotificationContext,
+    #[serde(default)]
+    pub event_uuid: Uuid,
     pub event_timestamp: String,
     pub assignee: Option<String>,
 }
@@ -161,8 +233,14 @@ pub struct IssueSpiking {
     pub meta: NotificationMeta,
     #[serde(flatten)]
     pub issue: IssueNotificationContext,
+    #[serde(default)]
+    pub event_uuid: Uuid,
+    #[serde(default)]
+    pub event_timestamp: String,
     pub computed_baseline: f64,
     pub current_bucket_value: f64,
+    #[serde(default)]
+    pub assignee: Option<String>,
 }
 
 /// Issue state captured when the ingestion transition happened.
@@ -180,9 +258,10 @@ mod tests {
 
     #[test]
     fn issue_created_round_trips_with_type_tag() {
+        let notification_id = Uuid::now_v7();
         let notification = IngestionNotification::IssueCreated(IssueCreated {
             meta: NotificationMeta {
-                notification_id: Uuid::nil(),
+                notification_id,
                 team_id: 42,
             },
             issue: IssueNotificationContext {
@@ -224,6 +303,18 @@ mod tests {
         let decoded: IngestionNotification = serde_json::from_value(json.clone()).unwrap();
         assert_eq!(serde_json::to_value(&decoded).unwrap(), json);
 
+        let mut missing_notification_id = json.clone();
+        missing_notification_id
+            .as_object_mut()
+            .unwrap()
+            .remove("notification_id");
+        let first: IngestionNotification =
+            serde_json::from_value(missing_notification_id.clone()).unwrap();
+        let second: IngestionNotification =
+            serde_json::from_value(missing_notification_id).unwrap();
+        assert!(!first.notification_id().is_nil());
+        assert_eq!(first.notification_id(), second.notification_id());
+
         let mut issue_mismatch = json.clone();
         issue_mismatch["issue_id"] = serde_json::json!(Uuid::now_v7());
         let decoded: IngestionNotification = serde_json::from_value(issue_mismatch).unwrap();
@@ -239,5 +330,59 @@ mod tests {
             decoded.validate(),
             Err(NotificationValidationError::FingerprintMismatch { .. })
         ));
+    }
+
+    #[test]
+    fn legacy_issue_spiking_notification_keeps_its_original_fallback_id() {
+        let issue_id = Uuid::now_v7();
+        let notification = IngestionNotification::IssueSpiking(IssueSpiking {
+            meta: NotificationMeta {
+                notification_id: Uuid::now_v7(),
+                team_id: 42,
+            },
+            issue: IssueNotificationContext {
+                issue_id,
+                issue: IssueSnapshot {
+                    name: Some("Example".to_string()),
+                    description: Some("Example issue".to_string()),
+                    status: "active".to_string(),
+                    created_at: DateTime::from_timestamp(0, 0).unwrap(),
+                },
+                event_properties: serde_json::from_value(serde_json::json!({
+                    "$exception_list": [{"type": "Error", "value": "boom"}],
+                    "$exception_fingerprint": "abc",
+                    "$exception_fingerprint_record": [{"type": "manual"}],
+                    "$exception_issue_id": issue_id,
+                    "$exception_handled": false,
+                    "$exception_types": ["Error"],
+                    "$exception_values": ["boom"],
+                    "$exception_sources": [],
+                    "$exception_functions": [],
+                }))
+                .unwrap(),
+            },
+            event_uuid: Uuid::now_v7(),
+            event_timestamp: "1970-01-01T00:00:00Z".to_string(),
+            computed_baseline: 2.5,
+            current_bucket_value: 20.0,
+            assignee: None,
+        });
+        let mut legacy_json = serde_json::to_value(notification).unwrap();
+        let object = legacy_json.as_object_mut().unwrap();
+        object.remove("notification_id");
+        object.remove("event_uuid");
+        object.remove("event_timestamp");
+
+        let decoded: IngestionNotification = serde_json::from_value(legacy_json).unwrap();
+        let fallback_key = format!(
+            "issue_spiking:42:{issue_id}:{}:{}",
+            2.5_f64.to_bits(),
+            20.0_f64.to_bits()
+        );
+
+        assert_eq!(
+            decoded.notification_id(),
+            Uuid::new_v5(&Uuid::NAMESPACE_OID, fallback_key.as_bytes())
+        );
     }
 }

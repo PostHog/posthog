@@ -6,7 +6,9 @@ import structlog
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PackagistSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.packagist import (
+    PackagistSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.packagist.packagist import PackagistResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.packagist.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.packagist.source import PackagistSource

@@ -21,6 +21,8 @@ interface OperationHistogramProps {
     onClear: () => void
     /** Clearing the selection refetches samples — disable the button while that's in flight. */
     samplesLoading?: boolean
+    /** Extra header content, right-aligned (e.g. the histogram/heatmap chart toggle). */
+    actions?: React.ReactNode
 }
 
 export function OperationHistogram({
@@ -30,6 +32,7 @@ export function OperationHistogram({
     onSelect,
     onClear,
     samplesLoading = false,
+    actions,
 }: OperationHistogramProps): JSX.Element {
     const onSelectionChange = useCallback(
         ({ startIndex, endIndex }: { startIndex: number; endIndex: number }): void => {
@@ -84,6 +87,7 @@ export function OperationHistogram({
                 ) : (
                     <span className="text-xs text-muted italic">Drag to select a duration range</span>
                 )}
+                {actions && <div className="ml-auto">{actions}</div>}
             </div>
             <div className="relative h-32">
                 {data.data.length > 0 ? (

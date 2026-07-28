@@ -100,7 +100,7 @@ capabilities:
 
     ai_capture:
         description: 'AI event capture service'
-        requires: [event_ingestion, llm_gateway]
+        requires: [event_ingestion, llm_gateway, personhog]
         docker_profiles: []
 
     embedding_service:

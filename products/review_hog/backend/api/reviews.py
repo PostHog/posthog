@@ -4,7 +4,7 @@ from datetime import timedelta
 from typing import Any, cast, get_args
 
 from django.conf import settings
-from django.db.models import Max, QuerySet
+from django.db.models import Max, Q, QuerySet
 from django.utils import timezone
 
 from drf_spectacular.openapi import AutoSchema
@@ -70,8 +70,9 @@ class ReviewsListParamsSerializer(serializers.Serializer):
     scope = serializers.ChoiceField(
         choices=[SCOPE_MINE, SCOPE_EVERYONE],
         default=SCOPE_MINE,
-        help_text="Whose reviews to list: `mine` for reviews of the requesting user's pull requests "
-        "(the default), `everyone` for every review on this project.",
+        help_text="Whose reviews to list: `mine` (the default) for reviews the requesting user ran "
+        "plus reviews of pull requests they authored (matched via their linked GitHub login), "
+        "`everyone` for every review on this project.",
     )
     limit = serializers.IntegerField(
         default=DEFAULT_REVIEWS_LIMIT,
@@ -79,6 +80,16 @@ class ReviewsListParamsSerializer(serializers.Serializer):
         max_value=MAX_REVIEWS_LIMIT,
         help_text="Maximum rows to return. The list grows this instead of paging by offset — "
         "in-progress rows reorder the list between refreshes, so offset pages would shift under the reader.",
+    )
+
+
+class PerspectiveStatsParamsSerializer(serializers.Serializer):
+    scope = serializers.ChoiceField(
+        choices=[SCOPE_MINE, SCOPE_EVERYONE],
+        default=SCOPE_MINE,
+        help_text="Whose reviews to aggregate: `mine` (the default) for reviews the requesting user ran "
+        "plus reviews of pull requests they authored (matched via their linked GitHub login), "
+        "`everyone` for every review on this project.",
     )
 
 
@@ -267,6 +278,13 @@ class ReviewDetailSerializer(ReviewRecentReviewSerializer):
     report_markdown = serializers.CharField(
         allow_blank=True, help_text="The rendered review body published to GitHub, as markdown."
     )
+    run_urgency_threshold = serializers.ChoiceField(
+        choices=_PRIORITY_CHOICES,
+        allow_null=True,
+        help_text="The urgency threshold the completed turn's publishing gated on (stamped at finalize "
+        "from the run's own resolve snapshot); null for turns that predate its recording — readers "
+        "fall back to the viewer's current setting as an approximation.",
+    )
     findings = ReviewFindingSerializer(many=True, help_text="The latest turn's validated findings, most urgent first.")
     dismissed_findings = ReviewFindingSerializer(
         many=True, help_text="The latest turn's findings the validator dismissed, with its reasoning."
@@ -441,10 +459,13 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
 
     Read-only meta for the Code review tab's "recent reviews" block: what was reviewed, how many
     valid findings at each effective priority, the reviewed PR's facts, and the pipeline shape of
-    the latest turn. `list` covers the requesting user's reviews (reports where they are the acting
-    user) by default, or the whole project's via `scope=everyone` — mirroring the inbox's
-    "For you / Entire project" switch. `retrieve` adds the findings themselves (valid + dismissed)
-    and the published review body; it is project-wide so any listed review can be opened.
+    the latest turn. `list` covers the requesting user's reviews by default — reports where they are
+    the acting user OR the PR's author (`author_login` matched case-insensitively against their
+    linked GitHub login) — or the whole project's via `scope=everyone`, mirroring the inbox's
+    "For you / Entire project" switch; `perspective_stats` honors the same `scope` so the
+    effectiveness cards can follow the page-level switch. `retrieve` adds the findings themselves
+    (valid + dismissed) and the published review body; it is project-wide so any listed review can
+    be opened.
     """
 
     scope_object = "INTERNAL"
@@ -458,7 +479,16 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         team_id = resolve_effective_team_id(self.team_id)
         queryset = ReviewReport.objects.for_team(team_id, canonical=True)
         if scope == SCOPE_MINE:
-            queryset = queryset.filter(acting_user_id=request.user.id)
+            # "For you" is the union of reviews the user ran (acting user) and reviews of PRs they
+            # authored — a teammate-triggered review of your PR lands under THEIR acting_user, so
+            # without the author match the findings would never reach you. The author match rides
+            # the viewer's linked GitHub login (the reverse of the author→user mapping the reviewer
+            # runs under), case-insensitively; no linked login keeps the acting-user-only behavior.
+            mine = Q(acting_user_id=request.user.id)
+            github_login = cast(User, request.user).get_github_login()
+            if github_login:
+                mine |= Q(author_login__iexact=github_login)
+            queryset = queryset.filter(mine)
         return team_id, queryset
 
     @extend_schema(
@@ -545,19 +575,23 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         return Response(ReviewRecentReviewsPageSerializer({"results": items, "has_more": has_more}).data)
 
     @extend_schema(
+        parameters=[PerspectiveStatsParamsSerializer],
         responses={
             200: OpenApiResponse(
                 response=ReviewPerspectiveStatsSerializer,
-                description="Per-skill effectiveness across the user's recent completed reviews.",
+                description="Per-skill effectiveness across the recent completed reviews in scope.",
             ),
         },
         summary="Perspective effectiveness stats",
         description="How many findings each review skill (perspective or blind-spot sweep) raised across the "
-        "requesting user's recent completed reviews, and how many of those the validator kept vs dismissed.",
+        "recent completed reviews in scope — the requesting user's by default, every review on this project "
+        "with `scope=everyone` — and how many of those the validator kept vs dismissed.",
     )
     @action(methods=["GET"], detail=False)
     def perspective_stats(self, request: Request, **kwargs) -> Response:
-        team_id, queryset = self._reports(request)
+        params = PerspectiveStatsParamsSerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+        team_id, queryset = self._reports(request, scope=params.validated_data["scope"])
         reports = list(
             queryset.filter(last_run_at__isnull=False).order_by("-last_run_at")[:PERSPECTIVE_STATS_REPORT_LIMIT]
         )
@@ -743,6 +777,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             ),
             "head_sha": completed_head,
             "report_markdown": report.report_markdown,
+            "run_urgency_threshold": report.run_urgency_threshold or None,
             "findings": sorted(valid, key=sort_key),
             "dismissed_findings": sorted(dismissed, key=sort_key),
             "perspective_selection": _selection_payload(turns.get(report_id, TurnStats()), chunk_set),

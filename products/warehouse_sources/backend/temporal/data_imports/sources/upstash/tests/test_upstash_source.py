@@ -8,7 +8,9 @@ from parameterized import parameterized
 from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import UpstashSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.upstash import (
+    UpstashSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.upstash import source as upstash_source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.upstash.source import UpstashSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
