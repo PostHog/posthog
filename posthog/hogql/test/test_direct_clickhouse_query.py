@@ -4,12 +4,14 @@ from posthog.test.base import APIBaseTest
 
 from posthog.hogql.query import HogQLQueryExecutor
 
-from products.data_warehouse.backend.direct_clickhouse import (
-    DIRECT_CLICKHOUSE_DATABASE_OPTION,
-    DIRECT_CLICKHOUSE_TABLE_OPTION,
-    DIRECT_CLICKHOUSE_URL_PATTERN,
-)
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
+
+# Storage keys / URL pattern for direct-ClickHouse tables, duplicated as literals to respect the
+# products.data_warehouse module boundary (the canonical constants live in
+# products/data_warehouse/backend/direct_clickhouse.py).
+DIRECT_CLICKHOUSE_URL_PATTERN = "direct://clickhouse"
+DIRECT_CLICKHOUSE_DATABASE_OPTION = "direct_clickhouse_database"
+DIRECT_CLICKHOUSE_TABLE_OPTION = "direct_clickhouse_table"
 
 
 class TestDirectClickHouseQuery(APIBaseTest):
