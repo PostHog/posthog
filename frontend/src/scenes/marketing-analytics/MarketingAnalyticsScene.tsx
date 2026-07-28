@@ -227,7 +227,7 @@ const MarketingAnalyticsContent = (): JSX.Element => {
             ? [
                   {
                       key: MarketingAnalyticsTab.ATTRIBUTION,
-                      label: 'Attribution',
+                      label: 'Attribution explorer',
                       content: <AttributionTab />,
                   },
               ]

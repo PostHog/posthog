@@ -17,12 +17,11 @@ Consequence worth knowing: the Last touch column will not equal the Dashboard's 
 same goal and window, because the Dashboard only ever sees UTM-tagged pageviews.
 """
 
-from typing import cast
-
-import structlog
+from typing import Any, cast
 
 from posthog.schema import (
     AttributionMode,
+    BaseMathType,
     CachedMarketingAnalyticsAttributionQueryResponse,
     ConversionGoalFilter1,
     ConversionGoalFilter2,
@@ -54,8 +53,6 @@ from .attribution_weights import (
 )
 from .constants import DEFAULT_LIMIT, PAGINATION_EXTRA, UNKNOWN_CHANNEL
 from .marketing_analytics_base_query_runner import MarketingAnalyticsBaseQueryRunner
-
-logger = structlog.get_logger(__name__)
 
 ConversionGoal = ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3
 
@@ -99,9 +96,9 @@ _PER_TOUCHPOINT_CTE = "per_touchpoint"
 _PER_CONVERSION_DIM_CTE = "per_conversion_dim"
 _TOTALS_CTE = "attribution_totals"
 
-# A single person with pathological session counts (crawlers, shared devices) would otherwise build an
-# unbounded touchpoint array and dominate the query's memory. Truncating costs that person's tail
-# touchpoints, which is preferable to failing the whole query.
+# Ceiling on how many sessions of one person can earn credit. Bots and shared devices would otherwise
+# fan out touchpoints x conversions in (D) and (E) far enough to dominate the query. Touchpoints are
+# sorted before truncating, so this keeps a person's earliest sessions and drops their most recent.
 MAX_TOUCHPOINTS_PER_PERSON = 500
 
 _BREAKDOWN_VALUE = "breakdown_value"
@@ -110,12 +107,15 @@ _INFLUENCED_CONVERSIONS = "influenced_conversions"
 _INFLUENCED_VALUE = "influenced_value"
 _TOTAL_CONVERSIONS = "total_conversions"
 _ATTRIBUTED_CONVERSIONS = "attributed_conversions"
+# ARRAY JOIN index identifying a conversion within its person.
+_CONVERSION_INDEX = "i"
 
-# Result tuple layout: breakdown value, visitors, influenced conversions, influenced value, then a
-# (conversions, value) pair per model, then the two reconciliation counts.
-_FIXED_COLUMNS = 4
-_TOTAL_CONVERSIONS_INDEX = _FIXED_COLUMNS + len(MODEL_ORDER) * 2
-_ATTRIBUTED_CONVERSIONS_INDEX = _TOTAL_CONVERSIONS_INDEX + 1
+
+def _ordered_weight_aliases() -> list[str]:
+    """Weight aliases in MODEL_ORDER. Every producer and consumer of the per-model columns iterates
+    this rather than `_WEIGHT_ALIASES.values()`, so reordering that dict literal — which looks harmless
+    on a keyed dict — can't silently pair one model's numbers with another's column."""
+    return [_WEIGHT_ALIASES[model] for model in MODEL_ORDER]
 
 
 class MarketingAnalyticsAttributionQueryRunner(
@@ -130,8 +130,12 @@ class MarketingAnalyticsAttributionQueryRunner(
         return self.query.breakdownBy or MarketingAnalyticsAttributionBreakdown.CHANNEL
 
     @property
+    def lookback_window_days(self) -> int:
+        return self.query.lookbackWindowDays or self.config.attribution_window_days
+
+    @property
     def attribution_window_seconds(self) -> int:
-        return self.config.attribution_window_days * DAY_IN_SECONDS
+        return self.lookback_window_days * DAY_IN_SECONDS
 
     def _resolve_goal(self) -> ConversionGoal:
         """Find the requested goal among the team's configured goals.
@@ -167,6 +171,19 @@ class MarketingAnalyticsAttributionQueryRunner(
         # the rest of PostHog.
         action = Action.objects.get(pk=int(cast(str, goal.id)), team__project_id=self.team.project_id)
         return action_to_expr(action)
+
+    def allows_multiple_conversions_per_visitor(self, goal: ConversionGoal) -> bool:
+        """Whether a repeat converter contributes every conversion, or just one.
+
+        Unset follows the goal's own math: unique-users math already means one conversion per person
+        (mirroring `ConversionGoalProcessor`'s DAU branch, which counts persons rather than events), so
+        counting every event here would contradict the number the Dashboard reports for the same goal.
+        Count-based goals credit every conversion, which is why their rate columns can exceed 100% — a
+        person can convert more often than they visited.
+        """
+        if self.query.allowMultipleConversionsPerVisitor is not None:
+            return self.query.allowMultipleConversionsPerVisitor
+        return goal.math not in [BaseMathType.DAU, "dau"]
 
     def _conversion_value_expr(self, goal: ConversionGoal) -> ast.Expr:
         """Value of one conversion: the goal's math property under SUM math, otherwise 1.
@@ -232,12 +249,15 @@ class MarketingAnalyticsAttributionQueryRunner(
     # ------------------------------------------------------------------ CTEs
 
     def _build_reach_select(self, date_range: QueryDateRange) -> ast.SelectQuery:
-        """(A) Unique visitors per dimension over the display window — everyone, converters or not.
+        """(A) Unique visitors per dimension — everyone, converters or not.
 
-        Uses the same touchpoint definition as the credit side, so "visitors" means exactly the people
-        who arrived via a touchpoint that could earn credit. That keeps conversions/visitors an honest
-        rate, and means excluding direct removes its row entirely instead of leaving one showing traffic
-        with zero credit, which would read as "direct influenced nothing".
+        Uses the same touchpoint definition AND the same lookback-extended window as the credit side, so
+        "visitors" means exactly the people who arrived via a touchpoint that could earn credit. Bounding
+        visitors to the display window instead would let a conversion be credited to a touch from before
+        the range while its person is missing from the denominator, which reported conversion rates above
+        100%. Sharing the touchpoint definition also means excluding direct removes its row entirely
+        instead of leaving one showing traffic with zero credit, which would read as "direct influenced
+        nothing".
         """
         breakdown = self._breakdown_expr()
         return ast.SelectQuery(
@@ -252,7 +272,7 @@ class MarketingAnalyticsAttributionQueryRunner(
             where=ast.And(
                 exprs=[
                     self._touchpoint_condition(),
-                    *self._get_where_conditions(date_range, date_field="events.timestamp"),
+                    *self._lookback_date_conditions(date_range),
                 ]
             ),
             group_by=[ast.Field(chain=[_BREAKDOWN_VALUE])],
@@ -281,91 +301,70 @@ class MarketingAnalyticsAttributionQueryRunner(
     def _build_person_arrays_select(self, date_range: QueryDateRange, goal: ConversionGoal) -> ast.SelectQuery:
         """(C) One row per converting person: its conversions, plus a deduped touchpoint set.
 
-        Conversions are collected as (timestamp, value) tuples in one array rather than two parallel
-        arrays indexed together — `groupArray` gives no ordering guarantee, so two separate arrays could
-        in principle pair a conversion's timestamp with another's value.
+        Both arrays hold (timestamp, payload) tuples rather than parallel arrays indexed together, since
+        `groupArray` gives no ordering guarantee and separate arrays could pair one conversion's timestamp
+        with another's value.
 
-        `groupUniqArray` over (session start, dimension) collapses every pageview in a session to a
-        single touchpoint during aggregation, so there is never a large intermediate array to hold.
+        The `-If` combinators only append when the row qualifies, so neither array grows with the
+        person's unrelated events. `groupUniqArray` additionally collapses every pageview in a session to
+        one touchpoint during aggregation.
         """
-        is_conversion = self._conversion_condition(goal)
-        breakdown = self._breakdown_expr()
-
-        conversions = ast.Call(
-            name="arrayFilter",
+        conversions: ast.Expr = ast.Call(
+            name="groupArrayIf",
             args=[
-                ast.Lambda(
-                    args=["c"],
-                    expr=ast.CompareOperation(
-                        left=ast.TupleAccess(tuple=ast.Field(chain=["c"]), index=1),
-                        op=ast.CompareOperationOp.Gt,
-                        right=ast.Constant(value=0),
-                    ),
+                ast.Tuple(
+                    exprs=[
+                        ast.Call(name="toUnixTimestamp", args=[ast.Field(chain=["events", "timestamp"])]),
+                        self._conversion_value_expr(goal),
+                    ]
                 ),
-                ast.Call(
-                    name="groupArray",
-                    args=[
-                        ast.Call(
-                            name="if",
-                            args=[
-                                is_conversion,
-                                ast.Tuple(
-                                    exprs=[
-                                        ast.Call(
-                                            name="toUnixTimestamp", args=[ast.Field(chain=["events", "timestamp"])]
-                                        ),
-                                        self._conversion_value_expr(goal),
-                                    ]
-                                ),
-                                ast.Tuple(exprs=[ast.Constant(value=0), ast.Constant(value=0.0)]),
-                            ],
-                        )
-                    ],
-                ),
+                self._conversion_condition(goal),
             ],
         )
 
+        # Sorted before truncating: `groupUniqArray` is hash-backed, so its order is unrelated to time.
+        # Slicing it raw would keep an arbitrary subset, and first/last touch would then pick the extremes
+        # of that subset rather than the person's real first and last sessions. The cap bounds the
+        # touchpoints x conversions fan-out in (D) and (E), which is where a heavy person gets expensive.
         touchpoints = ast.Call(
             name="arraySlice",
             args=[
                 ast.Call(
-                    name="arrayFilter",
+                    name="arraySort",
                     args=[
-                        ast.Lambda(
-                            args=["t"],
-                            expr=ast.CompareOperation(
-                                left=ast.TupleAccess(tuple=ast.Field(chain=["t"]), index=1),
-                                op=ast.CompareOperationOp.Gt,
-                                right=ast.Constant(value=0),
-                            ),
-                        ),
                         ast.Call(
-                            name="groupUniqArray",
+                            name="groupUniqArrayIf",
                             args=[
-                                ast.Call(
-                                    name="if",
-                                    args=[
-                                        self._touchpoint_condition(),
-                                        ast.Tuple(
-                                            exprs=[
-                                                ast.Call(
-                                                    name="toUnixTimestamp",
-                                                    args=[ast.Field(chain=["events", "session", "$start_timestamp"])],
-                                                ),
-                                                breakdown,
-                                            ]
+                                ast.Tuple(
+                                    exprs=[
+                                        ast.Call(
+                                            name="toUnixTimestamp",
+                                            args=[ast.Field(chain=["events", "session", "$start_timestamp"])],
                                         ),
-                                        ast.Tuple(exprs=[ast.Constant(value=0), ast.Constant(value="")]),
-                                    ],
-                                )
+                                        self._breakdown_expr(),
+                                    ]
+                                ),
+                                self._touchpoint_condition(),
                             ],
-                        ),
+                        )
                     ],
                 ),
                 ast.Constant(value=1),
                 ast.Constant(value=MAX_TOUCHPOINTS_PER_PERSON),
             ],
         )
+
+        if not self.allows_multiple_conversions_per_visitor(goal):
+            # One conversion per person: keep the earliest in the window, so the models attribute the
+            # journey that led to them first converting rather than an arbitrary later repeat.
+            conversions = ast.Call(
+                name="arraySlice",
+                args=[
+                    ast.Call(name="arraySort", args=[conversions]),
+                    ast.Constant(value=1),
+                    ast.Constant(value=1),
+                ],
+            )
 
         return ast.SelectQuery(
             select=[
@@ -423,6 +422,10 @@ class MarketingAnalyticsAttributionQueryRunner(
         conditions: list[ast.Expr] = [
             self._pageview_condition(),
             ast.Call(name="notEmpty", args=[ast.Field(chain=["events", "$session_id"])]),
+            # A session id that resolves to no session row (aged out of the sessions table) has a null
+            # start, which can't be compared against the window and so could never earn credit. Rejected
+            # here rather than downstream so it doesn't sort to the front and consume truncation slots.
+            ast.Call(name="isNotNull", args=[ast.Field(chain=["events", "session", "$start_timestamp"])]),
         ]
         if self.query.excludeDirectTraffic:
             conditions.append(
@@ -491,22 +494,18 @@ class MarketingAnalyticsAttributionQueryRunner(
             ],
         )
 
+        conversion = ast.ArrayAccess(
+            array=ast.Field(chain=["conversions"]), property=ast.Field(chain=[_CONVERSION_INDEX])
+        )
+
         select: list[ast.Expr] = [
             ast.Field(chain=["person_id"]),
-            ast.Alias(
-                alias="conversion_time",
-                expr=ast.TupleAccess(
-                    tuple=ast.ArrayAccess(array=ast.Field(chain=["conversions"]), property=ast.Field(chain=["i"])),
-                    index=1,
-                ),
-            ),
-            ast.Alias(
-                alias="conversion_value",
-                expr=ast.TupleAccess(
-                    tuple=ast.ArrayAccess(array=ast.Field(chain=["conversions"]), property=ast.Field(chain=["i"])),
-                    index=2,
-                ),
-            ),
+            # The ARRAY JOIN index identifies this conversion within the person. Carried downstream
+            # because timestamps don't: they're truncated to whole seconds, so two conversions in the
+            # same second would otherwise group together as one.
+            ast.Field(chain=[_CONVERSION_INDEX]),
+            ast.Alias(alias="conversion_time", expr=ast.TupleAccess(tuple=conversion, index=1)),
+            ast.Alias(alias="conversion_value", expr=ast.TupleAccess(tuple=conversion, index=2)),
             ast.Alias(alias="tps", expr=in_window),
             ast.Alias(
                 # Deliberately not named `ts`: attribution_weights substitutes this reference inside
@@ -547,7 +546,7 @@ class MarketingAnalyticsAttributionQueryRunner(
             array_join_op="ARRAY JOIN",
             array_join_list=[
                 ast.Alias(
-                    alias="i",
+                    alias=_CONVERSION_INDEX,
                     expr=ast.Call(name="arrayEnumerate", args=[ast.Field(chain=["conversions"])]),
                 )
             ],
@@ -558,14 +557,14 @@ class MarketingAnalyticsAttributionQueryRunner(
         k = ast.Field(chain=["k"])
         select: list[ast.Expr] = [
             ast.Field(chain=["person_id"]),
-            ast.Field(chain=["conversion_time"]),
+            ast.Field(chain=[_CONVERSION_INDEX]),
             ast.Field(chain=["conversion_value"]),
             ast.Alias(
                 alias=_BREAKDOWN_VALUE,
                 expr=ast.ArrayAccess(array=ast.Field(chain=["dims"]), property=k),
             ),
         ]
-        for alias in _WEIGHT_ALIASES.values():
+        for alias in _ordered_weight_aliases():
             select.append(ast.Alias(alias=alias, expr=ast.ArrayAccess(array=ast.Field(chain=[alias]), property=k)))
 
         return ast.SelectQuery(
@@ -583,14 +582,18 @@ class MarketingAnalyticsAttributionQueryRunner(
         Does double duty. It gives "influenced" its once-per-conversion semantics, and it rolls the
         weights up correctly: a channel touched on 3 of 5 sessions earns 0.6 of the linear credit as one
         row, not three rows of 0.2.
+
+        Keyed on the conversion's index within its person, not its timestamp: timestamps are truncated to
+        whole seconds, so two conversions a fraction of a second apart would merge into one, under-counting
+        influenced conversions and dropping one of their values.
         """
         select: list[ast.Expr] = [
             ast.Field(chain=[_BREAKDOWN_VALUE]),
             ast.Field(chain=["person_id"]),
-            ast.Field(chain=["conversion_time"]),
+            ast.Field(chain=[_CONVERSION_INDEX]),
             ast.Alias(alias="conv_value", expr=ast.Call(name="any", args=[ast.Field(chain=["conversion_value"])])),
         ]
-        for alias in _WEIGHT_ALIASES.values():
+        for alias in _ordered_weight_aliases():
             select.append(ast.Alias(alias=alias, expr=ast.Call(name="sum", args=[ast.Field(chain=[alias])])))
 
         return ast.SelectQuery(
@@ -599,7 +602,7 @@ class MarketingAnalyticsAttributionQueryRunner(
             group_by=[
                 ast.Field(chain=[_BREAKDOWN_VALUE]),
                 ast.Field(chain=["person_id"]),
-                ast.Field(chain=["conversion_time"]),
+                ast.Field(chain=[_CONVERSION_INDEX]),
             ],
         )
 
@@ -610,7 +613,7 @@ class MarketingAnalyticsAttributionQueryRunner(
             ast.Alias(alias=_INFLUENCED_CONVERSIONS, expr=ast.Call(name="count", args=[])),
             ast.Alias(alias=_INFLUENCED_VALUE, expr=ast.Call(name="sum", args=[ast.Field(chain=["conv_value"])])),
         ]
-        for alias in _WEIGHT_ALIASES.values():
+        for alias in _ordered_weight_aliases():
             select.append(
                 ast.Alias(alias=f"{alias}_conversions", expr=ast.Call(name="sum", args=[ast.Field(chain=[alias])]))
             )
@@ -677,8 +680,10 @@ class MarketingAnalyticsAttributionQueryRunner(
         """(H) Join credit onto reach.
 
         FULL OUTER so a dimension keeps its row whether or not it has both sides: traffic that never
-        converted still shows visitors, and a touchpoint older than the display window still shows the
-        credit it earned even though nobody "arrived" via it in range.
+        converted still shows visitors, and a credited dimension keeps its row even if the reach side
+        unexpectedly drops it. Reach scans the same touchpoints over the same window as credit, so the
+        second case shouldn't occur, but a credited row silently vanishing would be the worst failure
+        mode of this join.
         """
         totals = ast.Field(chain=[_TOTALS_CTE, _BREAKDOWN_VALUE])
         reach = ast.Field(chain=[_REACH_CTE, _BREAKDOWN_VALUE])
@@ -713,7 +718,7 @@ class MarketingAnalyticsAttributionQueryRunner(
                 ),
             ),
         ]
-        for alias in _WEIGHT_ALIASES.values():
+        for alias in _ordered_weight_aliases():
             for suffix in ("conversions", "value"):
                 col = f"{alias}_{suffix}"
                 select.append(
@@ -799,18 +804,25 @@ class MarketingAnalyticsAttributionQueryRunner(
             raw_results = raw_results[:requested_limit]
 
         has_value = bool(goal.counts_as_revenue)
-        rows = [self._build_row(row, has_value=has_value) for row in raw_results]
+        # Mapped by column name rather than tuple position: every column in the outer select is an
+        # ast.Alias, so execute_hogql_query fills response.columns with exactly these names. Sibling
+        # runners do the same, and it keeps adding a column from silently shifting every later one.
+        columns = response.columns or []
+        named_results = [dict(zip(columns, row)) for row in raw_results]
+        rows = [self._build_row(row, has_value=has_value) for row in named_results]
 
         # Every row carries the same reconciliation totals, so read them off the first one. With no rows
         # there is nothing to reconcile against either.
-        total_conversions = int(raw_results[0][_TOTAL_CONVERSIONS_INDEX] or 0) if raw_results else 0
-        attributed_conversions = int(raw_results[0][_ATTRIBUTED_CONVERSIONS_INDEX] or 0) if raw_results else 0
+        first = named_results[0] if named_results else {}
+        total_conversions = int(first.get(_TOTAL_CONVERSIONS) or 0)
+        attributed_conversions = int(first.get(_ATTRIBUTED_CONVERSIONS) or 0)
 
         return MarketingAnalyticsAttributionQueryResponse(
             results=rows,
             models=MODEL_ORDER,
             hasValue=has_value,
-            attributionWindowDays=self.config.attribution_window_days,
+            attributionWindowDays=self.lookback_window_days,
+            allowsMultipleConversionsPerVisitor=self.allows_multiple_conversions_per_visitor(goal),
             unattributedConversions=max(total_conversions - attributed_conversions, 0),
             totalConversions=total_conversions,
             hogql=response.hogql,
@@ -822,18 +834,19 @@ class MarketingAnalyticsAttributionQueryRunner(
             error="; ".join(self._conversion_goal_warnings) if self._conversion_goal_warnings else None,
         )
 
-    def _build_row(self, row: tuple, *, has_value: bool) -> MarketingAnalyticsAttributionRow:
-        """Map one result tuple onto the typed row, deriving conversion rate in Python.
+    def _build_row(self, row: dict[str, Any], *, has_value: bool) -> MarketingAnalyticsAttributionRow:
+        """Map one named result row onto the typed row, deriving conversion rate in Python.
 
         The rate is computed here rather than in SQL so the divide-by-zero case stays readable and the
         frontend keeps the raw numerator and denominator for its tooltips.
         """
-        breakdown_value, visitors, influenced_conversions, influenced_value = row[0], row[1], row[2], row[3]
+        visitors = int(row.get(_VISITORS) or 0)
 
         models: list[MarketingAnalyticsAttributionModelCell] = []
-        for index, model in enumerate(MODEL_ORDER):
-            conversions = float(row[4 + index * 2] or 0.0)
-            value = float(row[5 + index * 2] or 0.0)
+        for model in MODEL_ORDER:
+            alias = _WEIGHT_ALIASES[model]
+            conversions = float(row.get(f"{alias}_conversions") or 0.0)
+            value = float(row.get(f"{alias}_value") or 0.0)
             models.append(
                 MarketingAnalyticsAttributionModelCell(
                     model=model,
@@ -844,10 +857,10 @@ class MarketingAnalyticsAttributionQueryRunner(
             )
 
         return MarketingAnalyticsAttributionRow(
-            breakdownValue=str(breakdown_value or ""),
-            visitors=int(visitors or 0),
-            influencedConversions=int(influenced_conversions or 0),
-            influencedValue=float(influenced_value or 0.0) if has_value else None,
+            breakdownValue=str(row.get(_BREAKDOWN_VALUE) or ""),
+            visitors=visitors,
+            influencedConversions=int(row.get(_INFLUENCED_CONVERSIONS) or 0),
+            influencedValue=float(row.get(_INFLUENCED_VALUE) or 0.0) if has_value else None,
             models=models,
         )
 

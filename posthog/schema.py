@@ -11599,6 +11599,15 @@ class CachedMarketingAnalyticsAttributionQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    allowsMultipleConversionsPerVisitor: bool = Field(
+        ...,
+        description=(
+            "Whether this result counted a repeat converter's every conversion, after"
+            " resolving the query's null against the goal's math. The rate columns are"
+            " a true share only when this is false, so the table reads it to label"
+            " them."
+        ),
+    )
     attributionWindowDays: int = Field(..., description="The team's configured attribution window, for the tooltips.")
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -17085,6 +17094,15 @@ class MarketingAnalyticsAttributionQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    allowsMultipleConversionsPerVisitor: bool = Field(
+        ...,
+        description=(
+            "Whether this result counted a repeat converter's every conversion, after"
+            " resolving the query's null against the goal's math. The rate columns are"
+            " a true share only when this is false, so the table reads it to label"
+            " them."
+        ),
+    )
     attributionWindowDays: int = Field(..., description="The team's configured attribution window, for the tooltips.")
     error: str | None = Field(
         default=None,
@@ -18618,6 +18636,15 @@ class QueryResponseAlternative30(BaseModel):
 class QueryResponseAlternative31(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    allowsMultipleConversionsPerVisitor: bool = Field(
+        ...,
+        description=(
+            "Whether this result counted a repeat converter's every conversion, after"
+            " resolving the query's null against the goal's math. The rate columns are"
+            " a true share only when this is false, so the table reads it to label"
+            " them."
+        ),
     )
     attributionWindowDays: int = Field(..., description="The team's configured attribution window, for the tooltips.")
     error: str | None = Field(
@@ -23935,6 +23962,16 @@ class MarketingAnalyticsAttributionQuery(BaseModel):
         default=None,
         description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
     )
+    allowMultipleConversionsPerVisitor: bool | None = Field(
+        default=None,
+        description=(
+            "Whether one person converting repeatedly counts once or every time. Null"
+            " follows the goal's own math: unique-users goals count each person once,"
+            " count-based goals count every conversion. Set explicitly to override."
+            " Counting every conversion makes the rate columns exceed 100%, since a"
+            " person can convert more times than they visited."
+        ),
+    )
     breakdownBy: MarketingAnalyticsAttributionBreakdown | None = Field(
         default=None, description="Row dimension. Defaults to channel."
     )
@@ -23967,6 +24004,13 @@ class MarketingAnalyticsAttributionQuery(BaseModel):
     )
     kind: Literal["MarketingAnalyticsAttributionQuery"] = "MarketingAnalyticsAttributionQuery"
     limit: int | None = Field(default=None, description="Number of rows to return")
+    lookbackWindowDays: int | None = Field(
+        default=None,
+        description=(
+            "How many days before each conversion a touchpoint can earn credit,"
+            " overriding the team's configured attribution window for this query only."
+        ),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = Field(default=None, description="Number of rows to skip before returning rows")
     properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]

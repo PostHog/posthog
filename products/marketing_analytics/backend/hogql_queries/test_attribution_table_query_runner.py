@@ -4,6 +4,7 @@ from parameterized import parameterized
 
 from posthog.schema import (
     AttributionMode,
+    BaseMathType,
     ConversionGoalFilter1,
     DateRange,
     MarketingAnalyticsAttributionBreakdown,
@@ -42,7 +43,13 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         super().setUp()
         self._configure_goal()
 
-    def _configure_goal(self, *, counts_as_revenue: bool = True) -> None:
+    def _configure_goal(
+        self,
+        *,
+        counts_as_revenue: bool = True,
+        math: PropertyMathType | BaseMathType = PropertyMathType.SUM,
+        math_property: str | None = "revenue",
+    ) -> None:
         config = self.team.marketing_analytics_config
         config.attribution_window_days = WINDOW_DAYS
         config.conversion_goals = [
@@ -53,8 +60,8 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
                 conversion_goal_id=GOAL_ID,
                 conversion_goal_name="Purchases",
                 schema_map={},
-                math=PropertyMathType.SUM,
-                math_property="revenue",
+                math=math,
+                math_property=math_property,
                 counts_as_revenue=counts_as_revenue,
             ).model_dump()
         ]
@@ -109,6 +116,8 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         exclude_direct: bool = False,
         date_from: str = "2023-01-01",
         date_to: str = "2023-01-31",
+        lookback_days: int | None = None,
+        allow_multiple_conversions: bool | None = None,
     ):
         flush_persons_and_events()
         query = MarketingAnalyticsAttributionQuery(
@@ -116,6 +125,8 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
             breakdownBy=breakdown,
             conversionGoalId=GOAL_ID,
             excludeDirectTraffic=exclude_direct,
+            lookbackWindowDays=lookback_days,
+            allowMultipleConversionsPerVisitor=allow_multiple_conversions,
             properties=[],
         )
         return MarketingAnalyticsAttributionQueryRunner(query=query, team=self.team).calculate()
@@ -124,6 +135,88 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
     def _by_breakdown(response) -> dict[str, dict[AttributionMode, float]]:
         """{breakdown value: {model: conversions}} — the shape every weight assertion needs."""
         return {row.breakdownValue: {cell.model: cell.conversions for cell in row.models} for row in response.results}
+
+    def test_visitors_include_lookback_arrivals_that_can_earn_credit(self):
+        # Credit looks back attribution_window_days before the date range, so reach must too: a visitor
+        # whose only touch predates the range used to be missing from the denominator, which reported
+        # conversion rates above 100%.
+        create_person(team=self.team, distinct_ids=["p1"])
+        self._session("p1", "2022-12-30T12:00:00Z", utm_campaign="holiday")
+        self._conversion("p1", "2023-01-02T12:00:00Z")
+
+        response = self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN)
+
+        row = next(r for r in response.results if r.breakdownValue == "holiday")
+        self.assertEqual(row.visitors, 1)
+        self.assertEqual(row.influencedConversions, 1)
+        self.assertEqual(row.models[0].conversionRate, 1.0)
+
+    def test_unique_users_math_counts_each_person_once(self):
+        # A dau goal on a frequent event ($pageview being the common case) must not count every matching
+        # event as its own conversion: that reported more conversions than visitors. The person's three
+        # conversion events collapse to their first, so each model splits exactly 1 conversion.
+        self._configure_goal(counts_as_revenue=False, math=BaseMathType.DAU, math_property=None)
+        create_person(team=self.team, distinct_ids=["p1"])
+        self._session("p1", THREE_DAYS_BEFORE, utm_campaign="early")
+        self._session("p1", ONE_DAY_BEFORE, utm_campaign="late")
+        self._conversion("p1", CONVERSION_AT)
+        self._conversion("p1", "2023-01-10T13:00:00Z")
+        self._conversion("p1", "2023-01-11T12:00:00Z")
+
+        response = self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN)
+
+        self.assertEqual(response.totalConversions, 1)
+        for row in response.results:
+            self.assertEqual(row.influencedConversions, 1)
+        by_campaign = self._by_breakdown(response)
+        self.assertAlmostEqual(by_campaign["early"][AttributionMode.FIRST_TOUCH], 1.0, places=4)
+        self.assertAlmostEqual(by_campaign["late"][AttributionMode.LAST_TOUCH], 1.0, places=4)
+
+    @parameterized.expand(
+        [
+            # (goal math, toggle, expected conversions credited)
+            ("count_default_counts_every_conversion", PropertyMathType.SUM, None, 3.0),
+            ("count_toggled_off_counts_one", PropertyMathType.SUM, False, 1.0),
+            ("unique_users_default_counts_one", BaseMathType.DAU, None, 1.0),
+            ("unique_users_toggled_on_counts_every_conversion", BaseMathType.DAU, True, 3.0),
+        ]
+    )
+    def test_multiple_conversions_toggle_overrides_goal_math(
+        self, _name: str, math: PropertyMathType | BaseMathType, allow_multiple: bool | None, expected: float
+    ):
+        # Unset must follow the goal's math, and an explicit value must win over it in both directions.
+        # Getting this backwards is invisible on a count goal (which already counts everything) and would
+        # only show up on unique-users goals, where it would contradict the number the Dashboard reports.
+        is_revenue = math == PropertyMathType.SUM
+        self._configure_goal(counts_as_revenue=is_revenue, math=math, math_property="revenue" if is_revenue else None)
+        create_person(team=self.team, distinct_ids=["p1"])
+        self._session("p1", ONE_DAY_BEFORE, utm_campaign="c")
+        for at in (CONVERSION_AT, "2023-01-10T13:00:00Z", "2023-01-10T14:00:00Z"):
+            self._conversion("p1", at)
+
+        response = self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN, allow_multiple_conversions=allow_multiple)
+
+        self.assertEqual(response.allowsMultipleConversionsPerVisitor, expected > 1.0)
+        self.assertAlmostEqual(self._by_breakdown(response)["c"][AttributionMode.LAST_TOUCH], expected, places=4)
+        self.assertEqual(response.results[0].influencedConversions, int(expected))
+
+    def test_conversions_in_the_same_second_stay_separate(self):
+        # Conversions were keyed by (dimension, person, timestamp) with the timestamp truncated to whole
+        # seconds, so a retry or a batched server-side send merged two conversions into one: the influenced
+        # count under-reported and one conversion's revenue silently vanished, while the model columns
+        # still counted both. The row contradicted itself.
+        create_person(team=self.team, distinct_ids=["p1"])
+        self._session("p1", ONE_DAY_BEFORE, utm_campaign="c")
+        self._conversion("p1", CONVERSION_AT, revenue=100.0)
+        self._conversion("p1", CONVERSION_AT, revenue=100.0)
+
+        row = self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN).results[0]
+
+        self.assertEqual(row.influencedConversions, 2)
+        self.assertAlmostEqual(row.influencedValue or 0.0, 200.0, places=2)
+        last_touch = next(c for c in row.models if c.model == AttributionMode.LAST_TOUCH)
+        self.assertAlmostEqual(last_touch.conversions, 2.0, places=4)
+        self.assertAlmostEqual(last_touch.conversionValue or 0.0, 200.0, places=2)
 
     def test_every_model_splits_one_conversion_its_own_way(self):
         # The one test that catches this design's central risk: five weight arrays are built per
@@ -273,6 +366,22 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
 
         self.assertAlmostEqual(by_campaign["recent"][AttributionMode.LINEAR], 1.0, places=4)
         self.assertNotIn("ancient", by_campaign)
+
+    def test_lookback_override_shrinks_the_window(self):
+        # The query-level override must actually reach the window math; a dropped wire silently falls
+        # back to the team's configured window and the UI control does nothing.
+        create_person(team=self.team, distinct_ids=["p1"])
+        self._session("p1", THREE_DAYS_BEFORE, utm_campaign="early")
+        self._session("p1", ONE_DAY_BEFORE, utm_campaign="late")
+        self._conversion("p1", CONVERSION_AT)
+
+        response = self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN, lookback_days=2)
+
+        self.assertEqual(response.attributionWindowDays, 2)
+        by_campaign = self._by_breakdown(response)
+        self.assertAlmostEqual(by_campaign["late"][AttributionMode.LINEAR], 1.0, places=4)
+        # The early touch stays visible as reach, but a 2-day window must not credit a 3-day-old touch.
+        self.assertAlmostEqual(by_campaign["early"][AttributionMode.LINEAR], 0.0, places=4)
 
     def test_conversions_with_no_touchpoints_are_reported_not_dropped(self):
         # An ARRAY JOIN over an empty touchpoint array yields no rows, so these conversions leave the

@@ -6316,6 +6316,18 @@ export interface MarketingAnalyticsAttributionQuery extends Omit<
      * touchpoints renormalize to full credit rather than losing direct's share.
      */
     excludeDirectTraffic?: boolean
+    /**
+     * How many days before each conversion a touchpoint can earn credit, overriding the team's
+     * configured attribution window for this query only.
+     */
+    lookbackWindowDays?: integer
+    /**
+     * Whether one person converting repeatedly counts once or every time. Null follows the goal's own
+     * math: unique-users goals count each person once, count-based goals count every conversion. Set
+     * explicitly to override. Counting every conversion makes the rate columns exceed 100%, since a
+     * person can convert more times than they visited.
+     */
+    allowMultipleConversionsPerVisitor?: boolean
     /** Number of rows to return */
     limit?: integer
     /** Number of rows to skip before returning rows */
@@ -6358,6 +6370,12 @@ export interface MarketingAnalyticsAttributionQueryResponse extends AnalyticsQue
     hasValue: boolean
     /** The team's configured attribution window, for the tooltips. */
     attributionWindowDays: integer
+    /**
+     * Whether this result counted a repeat converter's every conversion, after resolving the query's
+     * null against the goal's math. The rate columns are a true share only when this is false, so the
+     * table reads it to label them.
+     */
+    allowsMultipleConversionsPerVisitor: boolean
     /** Conversions with no touchpoint in the window. Reported in the footer, not in any row. */
     unattributedConversions: integer
     /** Total conversions in range, so the footer can say "N of M". */

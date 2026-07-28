@@ -1,28 +1,22 @@
-// Magnitude bar behind the breakdown label, the same affordance DataTable gives web analytics tables.
-// DataTable's version uses `z-index: -1`, which it has to disable for pinned columns because a sticky
-// cell forms its own stacking context and the bar disappears behind the cell background. This table
-// always pins its first column, so it isolates the cell and layers the bar above the background instead.
+// Magnitude bars behind every conversions column, the same affordance DataTable gives web analytics
+// tables. Painted as the cell's own background rather than an absolutely positioned overlay: the table
+// collapses borders, so an overlay wide enough to reach the cell edge paints over the column-group
+// separator line, while a background clipped to the padding box can never touch a border.
 .AttributionTable {
-    td:first-child {
-        position: relative;
-        isolation: isolate;
+    td.AttributionTable__magnitude-cell {
+        background-image: linear-gradient(
+            to right,
+            color-mix(in sRGB, var(--color-bg-fill-info-secondary) 50%, transparent) var(--attribution-fill, 0%),
+            transparent var(--attribution-fill, 0%)
+        );
+        background-clip: padding-box;
+    }
 
-        &::after {
-            position: absolute;
-            top: 0;
-            left: 0;
-            z-index: 0;
-            width: var(--attribution-fill, 0%);
-            height: 100%;
-            pointer-events: none;
-            content: '';
-            background-color: var(--color-bg-fill-info-secondary);
-            opacity: 0.5;
-        }
-
-        > * {
-            position: relative;
-            z-index: 1;
-        }
+    // Column-group separators, drawn on the first cell of each group. LemonTable draws these with a
+    // collapsed border-left, but collapsed borders paint unreliably in the body once the table scrolls
+    // horizontally past a sticky column. An inset shadow moves with the cell and paints above its
+    // background, so it stays visible over the magnitude fill too.
+    td.AttributionTable__group-boundary {
+        box-shadow: inset 1px 0 0 var(--color-border-primary);
     }
 }

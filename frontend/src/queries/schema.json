@@ -9822,6 +9822,10 @@
         "CachedMarketingAnalyticsAttributionQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "allowsMultipleConversionsPerVisitor": {
+                    "description": "Whether this result counted a repeat converter's every conversion, after resolving the query's null against the goal's math. The rate columns are a true share only when this is false, so the table reads it to label them.",
+                    "type": "boolean"
+                },
                 "attributionWindowDays": {
                     "$ref": "#/definitions/integer",
                     "description": "The team's configured attribution window, for the tooltips."
@@ -9942,6 +9946,7 @@
                 }
             },
             "required": [
+                "allowsMultipleConversionsPerVisitor",
                 "attributionWindowDays",
                 "cache_key",
                 "hasValue",
@@ -30891,6 +30896,10 @@
                     ],
                     "description": "Groups aggregation - not used in Web Analytics but required for type compatibility"
                 },
+                "allowMultipleConversionsPerVisitor": {
+                    "description": "Whether one person converting repeatedly counts once or every time. Null follows the goal's own math: unique-users goals count each person once, count-based goals count every conversion. Set explicitly to override. Counting every conversion makes the rate columns exceed 100%, since a person can convert more times than they visited.",
+                    "type": "boolean"
+                },
                 "breakdownBy": {
                     "$ref": "#/definitions/MarketingAnalyticsAttributionBreakdown",
                     "description": "Row dimension. Defaults to channel."
@@ -30943,6 +30952,10 @@
                     "$ref": "#/definitions/integer",
                     "description": "Number of rows to return"
                 },
+                "lookbackWindowDays": {
+                    "$ref": "#/definitions/integer",
+                    "description": "How many days before each conversion a touchpoint can earn credit, overriding the team's configured attribution window for this query only."
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
@@ -30983,6 +30996,10 @@
         "MarketingAnalyticsAttributionQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "allowsMultipleConversionsPerVisitor": {
+                    "description": "Whether this result counted a repeat converter's every conversion, after resolving the query's null against the goal's math. The rate columns are a true share only when this is false, so the table reads it to label them.",
+                    "type": "boolean"
+                },
                 "attributionWindowDays": {
                     "$ref": "#/definitions/integer",
                     "description": "The team's configured attribution window, for the tooltips."
@@ -31075,6 +31092,7 @@
                 }
             },
             "required": [
+                "allowsMultipleConversionsPerVisitor",
                 "attributionWindowDays",
                 "hasValue",
                 "models",
@@ -38008,6 +38026,10 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "allowsMultipleConversionsPerVisitor": {
+                            "description": "Whether this result counted a repeat converter's every conversion, after resolving the query's null against the goal's math. The rate columns are a true share only when this is false, so the table reads it to label them.",
+                            "type": "boolean"
+                        },
                         "attributionWindowDays": {
                             "$ref": "#/definitions/integer",
                             "description": "The team's configured attribution window, for the tooltips."
@@ -38100,6 +38122,7 @@
                         }
                     },
                     "required": [
+                        "allowsMultipleConversionsPerVisitor",
                         "attributionWindowDays",
                         "hasValue",
                         "models",
