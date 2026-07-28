@@ -1385,6 +1385,12 @@ class CDCExtractActivity:
     def _handle_failure(self, exc: Exception) -> CDCErrorInfo:
         """Classify the failure, store the friendly message on the jobs/schemas, return the info."""
         self.log.exception("cdc_extract_failed")
+        # `exc` itself may be a dropped/killed DB connection (e.g. the source read or a write
+        # earlier in this run hit "server closed the connection unexpectedly"). Django leaves that
+        # connection in the pool until the next query touches it, so without this the job/schema
+        # writes below immediately re-fail with "the connection is closed", masking the real error
+        # and leaving jobs stuck RUNNING instead of recording the friendly failure message.
+        close_old_connections()
         info = classify_cdc_error(exc, self.adapter)
         friendly = info.friendly_message[:MAX_FRIENDLY_MESSAGE_LENGTH]
         self._fail_created_jobs(friendly)
