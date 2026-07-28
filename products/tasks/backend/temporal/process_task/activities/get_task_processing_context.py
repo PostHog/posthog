@@ -139,6 +139,12 @@ class TaskProcessingContext:
         return value if isinstance(value, str) else None
 
     @property
+    def loop_trigger_id(self) -> str | None:
+        """Set alongside loop_id when a loop trigger fired this run."""
+        value = (self.state or {}).get("loop_trigger_id")
+        return value if isinstance(value, str) else None
+
+    @property
     def runtime_adapter(self) -> str | None:
         value = (self.state or {}).get("runtime_adapter")
         return value if isinstance(value, str) else None
