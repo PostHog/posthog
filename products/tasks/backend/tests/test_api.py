@@ -4542,7 +4542,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(run.status, TaskRun.Status.COMPLETED)
         self.assertIsNotNone(run.completed_at)
 
-    @patch("products.tasks.backend.facade.api.pi_cloud_runtime_enabled", return_value=True)
+    @patch("products.tasks.backend.presentation.views.api.tasks_facade.pi_cloud_runtime_enabled", return_value=True)
     @patch("products.tasks.backend.temporal.client.resume_task_in_cloud_workflow")
     def test_resume_in_cloud_starts_pi_task(self, mock_resume, _mock_pi_enabled):
         task = self.create_task(runtime=Task.Runtime.PI)

@@ -3389,23 +3389,28 @@ def _trigger_task_processing_workflow(
     posthog_mcp_scopes: Literal["read_only", "full"] = "full" if run_source in full_mcp_run_sources else "read_only"
     try:
         logger.info("Attempting to trigger task processing workflow for task %s, run %s", task.id, run.id)
-        execute_task_processing_workflow(
-            task_id=str(task.id),
-            run_id=str(run.id),
-            team_id=task.team.id,
-            user_id=user_id,
-            posthog_mcp_scopes=posthog_mcp_scopes,
-            initial_message=(
-                PendingFollowup(
+        if initial_message or initial_artifact_ids:
+            execute_task_processing_workflow(
+                task_id=str(task.id),
+                run_id=str(run.id),
+                team_id=task.team.id,
+                user_id=user_id,
+                posthog_mcp_scopes=posthog_mcp_scopes,
+                initial_message=PendingFollowup(
                     message=initial_message,
                     artifact_ids=initial_artifact_ids or [],
                     actor_user_id=user_id,
                     message_id=str(uuid4()),
-                )
-                if initial_message or initial_artifact_ids
-                else None
-            ),
-        )
+                ),
+            )
+        else:
+            execute_task_processing_workflow(
+                task_id=str(task.id),
+                run_id=str(run.id),
+                team_id=task.team.id,
+                user_id=user_id,
+                posthog_mcp_scopes=posthog_mcp_scopes,
+            )
         logger.info("Workflow trigger completed for task %s, run %s", task.id, run.id)
     except Exception as e:
         logger.exception("Failed to trigger task processing workflow for task %s, run %s: %s", task.id, run.id, e)
