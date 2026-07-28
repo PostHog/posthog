@@ -2105,9 +2105,7 @@ class TestDesktopFileSystemSurface(APIBaseTest):
         self.assertEqual(item["created_by"]["uuid"], str(self.user.uuid))
 
     def test_desktop_list_returns_null_for_deleted_creator(self):
-        FileSystem.objects.create(
-            team=self.team, path="Orphaned item", type="doc", surface="desktop", created_by=None
-        )
+        FileSystem.objects.create(team=self.team, path="Orphaned item", type="doc", surface="desktop", created_by=None)
 
         [item] = self.client.get(self.desktop_url).json()["results"]
 
