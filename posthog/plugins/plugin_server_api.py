@@ -111,6 +111,26 @@ def create_hog_flow_scheduled_invocation(
     )
 
 
+def _mint_manual_invocation_jwt(team_id: int, hog_flow_id: str) -> str:
+    """Short-lived scoped JWT for one manual_invocations call — a leaked token can only run this one
+    team + workflow. Signed with the dedicated key (never INTERNAL_API_SECRET / SECRET_KEY /
+    JWT_SIGNING_KEY, per .agents/security.md); raises when unprovisioned so the run fails closed.
+    Verified in the plugin server's CdpApi.postHogFlowManualInvocation."""
+    secrets = settings.WORKFLOWS_MANUAL_INVOCATION_JWT_SECRETS
+    if not secrets:
+        raise RuntimeError("WORKFLOWS_MANUAL_INVOCATION_JWT_SECRET is not configured — cannot call manual_invocations")
+    return jwt.encode(
+        {
+            "team_id": team_id,
+            "hog_flow_id": hog_flow_id,
+            "aud": "posthog:workflows:manual_invocation",
+            "exp": datetime.now(tz=UTC) + timedelta(minutes=2),
+        },
+        secrets[0],
+        algorithm="HS256",
+    )
+
+
 def create_hog_flow_manual_invocation(team_id: int, hog_flow_id: str, payload: dict) -> requests.Response:
     """Run a full HogFlow graph on demand against a caller-synthesized event (any active workflow,
     regardless of trigger type). `payload` is {globals: {event, person?, groups?}, variables?}."""
@@ -118,7 +138,10 @@ def create_hog_flow_manual_invocation(team_id: int, hog_flow_id: str, payload: d
     return internal_requests.post(
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/manual_invocations",
         json=payload,
-        headers=get_internal_api_headers(),
+        # Scoped per-(team, workflow) JWT rather than the fleet-wide INTERNAL_API_SECRET: this route
+        # runs an arbitrary active workflow with its stored secrets, so a leaked token must be
+        # confined to a single workflow. Verified by the plugin server's manual_invocations route.
+        headers={"Authorization": f"Bearer {_mint_manual_invocation_jwt(team_id, hog_flow_id)}"},
         # This runs on a synchronous, user-facing request path (a support agent clicking a quick
         # action), so bound the wait rather than hang the request if the CDP service is slow.
         timeout=5,

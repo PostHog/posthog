@@ -547,6 +547,17 @@ WORKFLOWS_RESCHEDULE_JWT_SECRETS = get_list(
     get_from_env("WORKFLOWS_RESCHEDULE_JWT_SECRET", "local-dev-workflows-reschedule-jwt" if DEBUG or TEST else "")
 )
 
+# Scoped JWT keys for running a workflow on demand (Django mints, the plugin server's
+# manual_invocations route verifies) — a per-purpose secret so this caller never touches
+# INTERNAL_API_SECRET. Comma-separated, newest first: the first key signs, the plugin server
+# verifies against all. Empty outside dev/test, so the run fails closed until provisioned.
+# The dev/test value must match the plugin server's default (nodejs/src/cdp/config.ts).
+WORKFLOWS_MANUAL_INVOCATION_JWT_SECRETS = get_list(
+    get_from_env(
+        "WORKFLOWS_MANUAL_INVOCATION_JWT_SECRET", "local-dev-workflows-manual-invocation-jwt" if DEBUG or TEST else ""
+    )
+)
+
 EMBEDDING_API_URL = get_from_env("EMBEDDING_API_URL", "")
 
 # Used to generate embeddings on the fly, for use with the document embeddings table
