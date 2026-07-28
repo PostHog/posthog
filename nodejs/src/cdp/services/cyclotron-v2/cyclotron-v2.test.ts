@@ -1366,6 +1366,7 @@ describe('Cyclotron V2', () => {
 
     describe('Email fair dequeue', () => {
         const EMAIL_QUEUE = 'email'
+        const TRANSACTIONAL_QUEUE = 'emailtransactional'
 
         const readDequeueSeq = async (id: string): Promise<bigint | null> => {
             const res = await assertPool.query<{ dequeue_seq: string | null }>(
@@ -1384,9 +1385,18 @@ describe('Cyclotron V2', () => {
             return res.rows.length === 0 ? null : BigInt(res.rows[0].counter)
         }
 
+        const readTransactionalTeamCounter = async (teamId: number): Promise<bigint | null> => {
+            const res = await assertPool.query<{ counter: string }>(
+                'SELECT counter FROM cyclotron_emailtransactional_team_seq WHERE team_id = $1',
+                [teamId]
+            )
+            return res.rows.length === 0 ? null : BigInt(res.rows[0].counter)
+        }
+
         beforeEach(async () => {
-            // Wipe the per-team counter table between tests so each starts cold.
+            // Wipe the per-team counter tables between tests so each starts cold.
             await assertPool.query('DELETE FROM cyclotron_email_team_seq')
+            await assertPool.query('DELETE FROM cyclotron_emailtransactional_team_seq')
         })
 
         describe('Manager: dequeue_seq assignment', () => {
@@ -1516,6 +1526,44 @@ describe('Cyclotron V2', () => {
                 expect(seqs[2]).not.toBeNull() // email
                 // Only the email jobs bumped the team counter.
                 expect(await readTeamCounter(1)).toBe(2n)
+            })
+
+            it('assigns emailtransactional seqs from their own counter table in a mixed batch', async () => {
+                // One hogflow worker batch can route marketing and transactional
+                // emails at once, so a single bulkCreateJobs call carries both
+                // queues. Each queue must draw from its own counter table —
+                // filtering by the wrong queue name would either double-bump a
+                // counter or leave one queue's rows NULL.
+                const teamId = 7
+                const BLOCK = BigInt(16_777_216)
+                const ids = await manager.bulkCreateJobs([
+                    { teamId, queueName: EMAIL_QUEUE },
+                    { teamId, queueName: TRANSACTIONAL_QUEUE },
+                    { teamId, queueName: 'hog' },
+                ])
+
+                const seqs = await Promise.all(ids.map(readDequeueSeq))
+                expect(seqs[0]).toBe(BLOCK + BigInt(teamId)) // email: counter 1 in its table
+                expect(seqs[1]).toBe(BLOCK + BigInt(teamId)) // transactional: counter 1 in ITS table
+                expect(seqs[2]).toBeNull() // hog: no fair dequeue
+                expect(await readTeamCounter(teamId)).toBe(1n)
+                expect(await readTransactionalTeamCounter(teamId)).toBe(1n)
+            })
+
+            it("keeps a team's transactional counter independent of its email counter", async () => {
+                // The counter encodes a team's lifetime send position, so sharing
+                // the email table would make a heavy marketing sender permanently
+                // sort behind every other tenant in the transactional queue —
+                // exactly the teams the dedicated queue is meant to protect.
+                const teamId = 42
+                const BLOCK = BigInt(16_777_216)
+                await manager.bulkCreateJobs(Array.from({ length: 5 }, () => ({ teamId, queueName: EMAIL_QUEUE })))
+
+                const [transactionalId] = await manager.bulkCreateJobs([{ teamId, queueName: TRANSACTIONAL_QUEUE }])
+
+                // Fresh counter=1 in the transactional table, not 6 continued
+                // from the email history.
+                expect(await readDequeueSeq(transactionalId)).toBe(BLOCK + BigInt(teamId))
             })
         })
 
@@ -1758,6 +1806,44 @@ describe('Cyclotron V2', () => {
                 expect(await readDequeueSeq(id)).toBe(seqBefore)
                 // Counter stays at 1 — no new claim happened.
                 expect(await readTeamCounter(teamId)).toBe(1n)
+            })
+
+            it('assigns a transactional-table seq when a hogflow job is rescheduled into the emailtransactional queue', async () => {
+                // Same NULLS FIRST hazard as the hog → email case above, but for
+                // the transactional queue: if the reschedule path only handled
+                // queueName='email', re-routed transactional rows would land
+                // with NULL dequeue_seq and bypass the per-team interleave.
+                const teamId = 42
+                const jobId = await manager.createJob({ teamId, queueName: 'hog' })
+
+                const hogWorker = createWorker('hog')
+                const [job] = await dequeueOneBatch(hogWorker)
+                expect(job.id).toBe(jobId)
+                await job.reschedule({ queueName: TRANSACTIONAL_QUEUE })
+
+                expect(await readDequeueSeq(jobId)).toBe(BigInt(16_777_216) + BigInt(teamId))
+                expect(await readTransactionalTeamCounter(teamId)).toBe(1n)
+                // The email counter table is untouched by transactional routing.
+                expect(await readTeamCounter(teamId)).toBeNull()
+            })
+
+            it('fair-dequeues the emailtransactional queue by team', async () => {
+                // The worker derives fair dequeue from its queue name; if the
+                // transactional queue fell back to plain FIFO, one team's
+                // burst of "transactional" sends would starve other tenants —
+                // the cross-tenant failure mode this queue exists to prevent.
+                const teamA = 100
+                const teamB = 200
+                await manager.bulkCreateJobs([
+                    ...Array.from({ length: 5 }, () => ({ teamId: teamA, queueName: TRANSACTIONAL_QUEUE })),
+                    { teamId: teamB, queueName: TRANSACTIONAL_QUEUE },
+                ])
+
+                const worker = createWorker(TRANSACTIONAL_QUEUE, { batchMaxSize: 2 })
+                const jobs = await dequeueOneBatch(worker)
+
+                expect(jobs).toHaveLength(2)
+                expect(new Set(jobs.map((j) => j.teamId))).toEqual(new Set([teamA, teamB]))
             })
         })
     })

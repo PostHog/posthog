@@ -16,7 +16,9 @@ import { UUIDT } from '~/common/utils/utils'
 import { PluginsServerConfig } from '../../types'
 import { getAsyncFunctionHandler, getRegisteredAsyncFunctionNames } from '../async-function-registry'
 import '../async-functions'
+import { isEmailQueueKind } from '../types'
 import type {
+    CyclotronEmailJobQueueKind,
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     HogFunctionFilterGlobals,
@@ -58,6 +60,7 @@ export interface HogExecutorConfig {
     fetchRetries: number
     fetchBackoffBaseMs: number
     fetchBackoffMaxMs: number
+    emailTransactionalQueueEnabled: boolean
 }
 
 export interface HogExecutorAsyncContext {
@@ -67,7 +70,8 @@ export interface HogExecutorAsyncContext {
 
 const cdpEmailQueuedTotal = new Counter({
     name: 'cdp_email_queued_total',
-    help: 'Total emails routed to the dedicated email queue',
+    help: 'Total emails routed to a dedicated email queue',
+    labelNames: ['queue'],
 })
 
 const cdpHttpRequests = new Counter({
@@ -479,7 +483,7 @@ export class HogExecutorService {
                 // back to hogflow will be when overall execution time exceeds the
                 // budget, to avoid blocking the queue.
                 if (queueParamsType === 'fetch') {
-                    if (invocation.queue === 'email') {
+                    if (isEmailQueueKind(invocation.queue)) {
                         result = this.routeToQueue(
                             nextInvocation,
                             nextInvocation.queueMetadata?.originQueue ?? 'hogflow'
@@ -490,9 +494,9 @@ export class HogExecutorService {
                 } else if (queueParamsType === 'sendPushNotification') {
                     result = await this.pushNotificationService.executeSendPushNotification(nextInvocation)
                 } else if (queueParamsType === 'email') {
-                    // Route to the email queue only if we're not already there and the
+                    // Route to an email queue only if we're not already on one and the
                     // caller hasn't asked for inline-only execution (e.g. the test panel).
-                    const routeToEmailQueue = invocation.queue !== 'email' && !options?.sendEmailsInline
+                    const routeToEmailQueue = !isEmailQueueKind(invocation.queue) && !options?.sendEmailsInline
                     if (routeToEmailQueue) {
                         result = this.routeEmailToQueue(nextInvocation)
                     } else {
@@ -537,17 +541,24 @@ export class HogExecutorService {
     }
 
     /**
-     * Routes an email send to the dedicated email queue instead of sending inline.
-     * The email worker will pick this up, send via SES, and return the job to the
-     * original queue so the workflow can continue.
+     * Routes an email send to a dedicated email queue instead of sending inline.
+     * Transactional-category emails get their own queue (behind a rollout flag)
+     * so a bulk campaign backlog can't delay them; everything else stays on
+     * 'email'. The email worker will pick this up, send via SES, and return the
+     * job to the original queue so the workflow can continue.
      */
     private routeEmailToQueue(
         invocation: CyclotronJobInvocationHogFunction
     ): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> {
+        const targetQueue: CyclotronEmailJobQueueKind =
+            this.config.emailTransactionalQueueEnabled &&
+            invocation.hogFunction.metadata?.message_category_type === 'transactional'
+                ? 'emailtransactional'
+                : 'email'
         const result = createInvocationResult<CyclotronJobInvocationHogFunction>(
             invocation,
             {
-                queue: 'email',
+                queue: targetQueue,
                 queueParameters: invocation.queueParameters,
                 queueMetadata: {
                     ...invocation.queueMetadata,
@@ -566,7 +577,7 @@ export class HogExecutorService {
             count: 1,
         })
 
-        cdpEmailQueuedTotal.inc()
+        cdpEmailQueuedTotal.inc({ queue: targetQueue })
 
         return result
     }

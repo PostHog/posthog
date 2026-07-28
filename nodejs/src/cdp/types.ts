@@ -266,8 +266,21 @@ export interface HogFunctionTiming {
 }
 
 // IMPORTANT: All queue names should be lowercase and only [A-Z0-9] characters are allowed.
-export const CYCLOTRON_INVOCATION_JOB_QUEUES = ['hog', 'hogoverflow', 'hogflow', 'email'] as const
+export const CYCLOTRON_INVOCATION_JOB_QUEUES = ['hog', 'hogoverflow', 'hogflow', 'email', 'emailtransactional'] as const
 export type CyclotronJobQueueKind = (typeof CYCLOTRON_INVOCATION_JOB_QUEUES)[number]
+
+// Queues whose worker sends emails inline. 'email' carries marketing (and
+// uncategorized) sends; 'emailtransactional' isolates transactional sends so a
+// bulk campaign backlog can't delay them.
+export const CYCLOTRON_EMAIL_JOB_QUEUES = [
+    'email',
+    'emailtransactional',
+] as const satisfies readonly CyclotronJobQueueKind[]
+export type CyclotronEmailJobQueueKind = (typeof CYCLOTRON_EMAIL_JOB_QUEUES)[number]
+
+export function isEmailQueueKind(queue: CyclotronJobQueueKind): queue is CyclotronEmailJobQueueKind {
+    return (CYCLOTRON_EMAIL_JOB_QUEUES as readonly CyclotronJobQueueKind[]).includes(queue)
+}
 
 export const CYCLOTRON_JOB_QUEUE_SOURCES = ['postgres', 'postgres-v2', 'kafka'] as const
 export type CyclotronJobQueueSource = (typeof CYCLOTRON_JOB_QUEUE_SOURCES)[number]

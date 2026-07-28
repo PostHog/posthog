@@ -88,6 +88,7 @@ describe('Hog Executor', () => {
                 fetchRetries: hub.CDP_FETCH_RETRIES,
                 fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
+                emailTransactionalQueueEnabled: hub.CDP_EMAIL_TRANSACTIONAL_QUEUE_ENABLED,
             },
             { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
             hogInputsService,
@@ -2305,11 +2306,48 @@ describe('Hog Executor', () => {
 
             expect(result.invocation.id).toBe(invocation.id)
         })
+
+        it.each([
+            [true, 'transactional', 'emailtransactional'],
+            [true, 'marketing', 'email'],
+            [true, undefined, 'email'],
+            [false, 'transactional', 'email'],
+        ] as const)(
+            'with transactional queue enabled=%s and category=%s routes to the %s queue',
+            (flagEnabled, category, expectedQueue) => {
+                // Transactional sends get their own queue only when both the
+                // rollout flag and the category say so — anything else must stay
+                // on 'email', where a worker is guaranteed to be consuming.
+                ;(executor as any).config.emailTransactionalQueueEnabled = flagEnabled
+                const hogFunction = createHogFunction({
+                    name: 'Email function',
+                    metadata: category ? { message_category_type: category } : {},
+                })
+                const invocation: CyclotronJobInvocationHogFunction = {
+                    ...createExampleInvocation(hogFunction),
+                    queue: 'hogflow',
+                    queueParameters: {
+                        type: 'email',
+                        to: { email: 'user@example.com' },
+                        from: { integrationId: 1 },
+                        subject: 'Test',
+                        text: 'Hello',
+                        html: '<p>Hello</p>',
+                    },
+                }
+                invocation.state.vmState = { stack: [] } as any
+
+                const result = (executor as any).routeEmailToQueue(invocation)
+
+                expect(result.invocation.queue).toBe(expectedQueue)
+                expect(result.invocation.queueMetadata?.originQueue).toBe('hogflow')
+            }
+        )
     })
 
     describe('email queue routing', () => {
-        const createEmailInvocation = (): CyclotronJobInvocationHogFunction => {
-            const hogFunction = createHogFunction({ name: 'Email function', team_id: 123 })
+        const createEmailInvocation = (metadata?: Record<string, any>): CyclotronJobInvocationHogFunction => {
+            const hogFunction = createHogFunction({ name: 'Email function', team_id: 123, metadata })
             const invocation: CyclotronJobInvocationHogFunction = {
                 ...createExampleInvocation(hogFunction),
                 teamId: 123,
@@ -2343,6 +2381,47 @@ describe('Hog Executor', () => {
 
             expect(result.invocation.queue).not.toBe('email')
             expect(result.finished).toBe(true)
+        })
+
+        it('should send inline when already on the transactional email queue instead of re-routing', async () => {
+            // A job dequeued from 'emailtransactional' must be recognized as
+            // "already on an email queue". If the check only knew about
+            // 'email', the job would be re-routed on every dequeue and bounce
+            // between queues forever without ever sending.
+            ;(executor as any).config.emailTransactionalQueueEnabled = true
+            const invocation = createEmailInvocation({ message_category_type: 'transactional' })
+            invocation.queue = 'emailtransactional'
+
+            const result = await executor.executeWithAsyncFunctions(invocation)
+
+            expect(result.invocation.queue).toBe('emailtransactional')
+            expect(result.finished).toBe(true)
+            expect(result.metrics).not.toContainEqual(expect.objectContaining({ metric_name: 'email_queued' }))
+        })
+
+        it('should route fetches on the transactional email queue back to the origin queue', async () => {
+            // The email workers keep their lane email-only: a fetch step that
+            // resumes there is handed back to the queue it came from instead
+            // of running inline and adding arbitrary latency to email sends.
+            const hogFunction = createHogFunction({ name: 'Email function', team_id: 123 })
+            const invocation: CyclotronJobInvocationHogFunction = {
+                ...createExampleInvocation(hogFunction),
+                teamId: 123,
+                queue: 'emailtransactional',
+                queueMetadata: { originQueue: 'hogflow' },
+                queueParameters: {
+                    type: 'fetch',
+                    url: 'https://example.com/webhook',
+                    method: 'POST',
+                },
+            }
+            invocation.state.vmState = { stack: [] } as any
+
+            const result = await executor.executeWithAsyncFunctions(invocation)
+
+            expect(result.invocation.queue).toBe('hogflow')
+            expect(result.finished).toBe(false)
+            expect(jest.mocked(fetch)).not.toHaveBeenCalled()
         })
     })
 })

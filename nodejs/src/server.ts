@@ -26,6 +26,7 @@ import { CdpApi } from './cdp/cdp-api'
 import { CdpConsumerBaseDeps } from './cdp/consumers/cdp-base.consumer'
 import { CdpCohortMembershipConsumer } from './cdp/consumers/cdp-cohort-membership.consumer'
 import { CdpCyclotronWorkerBatchResolve } from './cdp/consumers/cdp-cyclotron-worker-batch-resolve.consumer'
+import { CdpCyclotronWorkerEmailTransactional } from './cdp/consumers/cdp-cyclotron-worker-email-transactional.consumer'
 import { CdpCyclotronWorkerEmail } from './cdp/consumers/cdp-cyclotron-worker-email.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
@@ -338,13 +339,34 @@ export class PluginServer implements NodeServer {
 
         // Boot-time guard: an email-sending deployment must carry a signing key, otherwise every send
         // would either mint an unsigned tracking link or (now that generate() fails closed) fail. Refuse
-        // to start instead of degrading silently. Both email workers below sign tracking codes.
-        const isEmailWorker = capabilities.cdpCyclotronWorkerEmail || capabilities.cdpCyclotronWorkerEmailLegacyPg
+        // to start instead of degrading silently. All email workers below sign tracking codes.
+        const isEmailWorker =
+            capabilities.cdpCyclotronWorkerEmail ||
+            capabilities.cdpCyclotronWorkerEmailLegacyPg ||
+            capabilities.cdpCyclotronWorkerEmailTransactional
         if (isEmailWorker && !hasEmailSigningKey(this.config.ENCRYPTION_SALT_KEYS)) {
             throw new Error(
                 'Email worker requires ENCRYPTION_SALT_KEYS to sign tracking codes — refusing to start. ' +
                     'Configure ENCRYPTION_SALT_KEYS so outbound emails never mint unsigned tracking links.'
             )
+        }
+
+        // Shared by the V2 email workers below: when the SES rate-limiter Valkey is
+        // configured, gate dequeue behind a Valkey-backed token bucket. Without the
+        // env var (typical for local dev outside k8s) fall back to the plain queue
+        // and dequeue is unthrottled. Both email queues draw from the same global
+        // bucket, so combined send throughput stays within the SES account limit.
+        const createSesGatedJobQueue = () => {
+            const sesValkey = createSesRateLimiterValkeyPool(this.config)
+            return sesValkey
+                ? new CyclotronJobQueueRateLimitedPostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config, {
+                      limiter: new RateLimiterService(sesValkey, { name: 'ses' }),
+                      key: '@posthog/ses/global',
+                      capacity: this.config.CDP_SES_RATE_LIMIT_CAPACITY,
+                      refillPerSecond: this.config.CDP_SES_RATE_LIMIT_REFILL_PER_SECOND,
+                      throttledPollDelayMs: this.config.CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS,
+                  })
+                : new CyclotronJobQueuePostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config)
         }
 
         // Transitional drain for email jobs stranded on the legacy V1 queue — the email worker
@@ -365,25 +387,30 @@ export class PluginServer implements NodeServer {
         if (capabilities.cdpCyclotronWorkerEmail) {
             serviceLoaders.push(async () => {
                 // Dedicated queue instance — see note on cdpCyclotronWorkerHogFlow above.
-                // When the SES rate-limiter Valkey is configured, use the rate-limited
-                // variant so dequeue is gated by a Valkey-backed token bucket. Without
-                // the env var (typical for local dev outside k8s) we fall back to the
-                // plain queue and dequeue is unthrottled.
                 //
-                // Fair dequeue (per-team round-robin) is intrinsic to the email queue —
+                // Fair dequeue (per-team round-robin) is intrinsic to the email queues —
                 // the worker derives it from its queue name — and applies regardless of
                 // whether rate limiting is on.
-                const sesValkey = createSesRateLimiterValkeyPool(this.config)
-                const queue = sesValkey
-                    ? new CyclotronJobQueueRateLimitedPostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config, {
-                          limiter: new RateLimiterService(sesValkey, { name: 'ses' }),
-                          key: '@posthog/ses/global',
-                          capacity: this.config.CDP_SES_RATE_LIMIT_CAPACITY,
-                          refillPerSecond: this.config.CDP_SES_RATE_LIMIT_REFILL_PER_SECOND,
-                          throttledPollDelayMs: this.config.CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS,
-                      })
-                    : new CyclotronJobQueuePostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config)
-                const worker = new CdpCyclotronWorkerEmail(this.config, this.withEmailValidationValkey(cdpDeps!), queue)
+                const worker = new CdpCyclotronWorkerEmail(
+                    this.config,
+                    this.withEmailValidationValkey(cdpDeps!),
+                    createSesGatedJobQueue()
+                )
+                await worker.start()
+                return worker.service
+            })
+        }
+
+        // Consumes the 'emailtransactional' queue: transactional-category sends are
+        // isolated from bulk campaign backlogs so they keep their own latency SLA.
+        // Producers only route here when CDP_EMAIL_TRANSACTIONAL_QUEUE_ENABLED is set.
+        if (capabilities.cdpCyclotronWorkerEmailTransactional) {
+            serviceLoaders.push(async () => {
+                const worker = new CdpCyclotronWorkerEmailTransactional(
+                    this.config,
+                    this.withEmailValidationValkey(cdpDeps!),
+                    createSesGatedJobQueue()
+                )
                 await worker.start()
                 return worker.service
             })

@@ -29,6 +29,19 @@ Each dequeued job exposes an ack interface:
 - `cancel()` — mark canceled
 - `heartbeat()` — extend the lock to prevent the janitor from reclaiming the job
 
+### Fair dequeue (email queues)
+
+Queues listed in `FAIR_DEQUEUE_COUNTER_TABLES` in `manager.ts` (`email`, `emailtransactional`)
+dequeue by a precomputed `dequeue_seq` sort key instead of FIFO,
+interleaving jobs across teams so one tenant's bulk send can't starve another tenant's single email.
+Each queue has its own per-team counter table
+(`cyclotron_email_team_seq`, `cyclotron_emailtransactional_team_seq`):
+the counter encodes a team's lifetime position within that queue,
+so sharing one table would let a team's marketing volume demote its transactional sends.
+The seq is assigned on insert (`bulkCreateJobs`)
+and when a job is rescheduled into an email queue from another queue;
+retries within the same queue keep their seq and place in line.
+
 ### Janitor (standalone service)
 
 Runs on a timer interval as its own service (`PLUGIN_SERVER_MODE=cdp-cyclotron-v2-janitor`).

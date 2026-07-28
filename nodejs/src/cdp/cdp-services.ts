@@ -153,6 +153,7 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_FETCH_RETRIES'
         | 'CDP_FETCH_BACKOFF_BASE_MS'
         | 'CDP_FETCH_BACKOFF_MAX_MS'
+        | 'CDP_EMAIL_TRANSACTIONAL_QUEUE_ENABLED'
         | 'CDP_EMAIL_TRACKING_URL'
         | 'HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC'
         | 'HOG_FUNCTION_MONITORING_APP_METRICS_PRODUCER'
@@ -444,6 +445,7 @@ export function createCdpCoreServices(
             fetchRetries: config.CDP_FETCH_RETRIES,
             fetchBackoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
             fetchBackoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
+            emailTransactionalQueueEnabled: config.CDP_EMAIL_TRANSACTIONAL_QUEUE_ENABLED,
         },
         { teamManager: deps.teamManager, siteUrl: config.SITE_URL },
         hogInputsService,

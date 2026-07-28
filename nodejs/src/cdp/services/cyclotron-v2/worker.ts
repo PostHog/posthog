@@ -4,7 +4,7 @@ import { v7 as uuidv7 } from 'uuid'
 
 import { logger } from '~/common/utils/logger'
 
-import { assignEmailDequeueSeq } from './manager'
+import { assignEmailDequeueSeq, isFairDequeueQueue } from './manager'
 import {
     CyclotronV2BulkCreateAndCheckInInput,
     CyclotronV2DequeuedJob,
@@ -221,11 +221,12 @@ export class CyclotronV2Worker {
         this.pollDelayMs = config.pollDelayMs ?? 50
         this.heartbeatTimeoutMs = config.heartbeatTimeoutMs ?? 30000
         this.includeEmptyBatches = config.includeEmptyBatches ?? false
-        // Fair (per-team round-robin) dequeue is the email queue's ordering.
-        // `dequeue_seq` is only ever assigned for email jobs (see
-        // CyclotronV2Manager), so deriving this from the queue name keeps the
-        // worker's ORDER BY in lockstep with where the sort key actually exists.
-        this.fairDequeue = config.queueName === 'email'
+        // Fair (per-team round-robin) dequeue is the email queues' ordering.
+        // `dequeue_seq` is only ever assigned for jobs on those queues (see
+        // FAIR_DEQUEUE_COUNTER_TABLES in manager.ts), so deriving this from
+        // the queue name keeps the worker's ORDER BY in lockstep with where
+        // the sort key actually exists.
+        this.fairDequeue = isFairDequeueQueue(config.queueName)
     }
 
     async connect(processBatch: (jobs: CyclotronV2DequeuedJob[]) => Promise<void>): Promise<void> {
@@ -341,14 +342,16 @@ export class CyclotronV2Worker {
      * insert time (see `CyclotronV2Manager.bulkCreateJobs` and the helper
      * `cyclotron_email_team_seq`); this method just reads them back in order.
      *
-     * Hits the partial index `idx_cyclotron_jobs_email_fair_dequeue` (only
-     * indexes email-queue rows with status='available'). NULLS FIRST drains
-     * any pre-migration legacy rows ahead of new fair-ordered ones.
+     * Hits the queue's partial fair-dequeue index — each queue in
+     * FAIR_DEQUEUE_COUNTER_TABLES has one (e.g.
+     * `idx_cyclotron_jobs_email_fair_dequeue_v2`), filtered on its queue_name
+     * and status='available'. NULLS FIRST drains any pre-migration legacy
+     * rows ahead of new fair-ordered ones.
      *
-     * Email-specific by intent — but mechanically just "ORDER BY a different
-     * column", so the SQL shape mirrors `dequeueJobs` exactly. Kept as a
-     * separate method so non-fair callers can read `dequeueJobs` end-to-end
-     * without following a conditional or an indirection.
+     * Email-queue-specific by intent — but mechanically just "ORDER BY a
+     * different column", so the SQL shape mirrors `dequeueJobs` exactly. Kept
+     * as a separate method so non-fair callers can read `dequeueJobs`
+     * end-to-end without following a conditional or an indirection.
      */
     protected async fairDequeueJobs(limit: number = this.batchMaxSize): Promise<RawJobRow[]> {
         const lockId = uuidv7()
@@ -487,17 +490,22 @@ export class CyclotronV2Worker {
                     setClauses.push(`queue_name = $${params.length}`)
                 }
 
-                // Cross-queue routing into the email queue: assign a fresh
-                // dequeue_seq so the row participates in fair ordering. Without
-                // this, hogflow → email re-routing (via job.reschedule({
-                // queueName: 'email' })) lands the row with NULL dequeue_seq,
-                // which `NULLS FIRST` drains ahead of every fair-ordered row —
-                // defeating the per-team interleave for the most common email
-                // path. Skipped when the row was already on the email queue,
-                // so existing fair-ordered rows keep their place after retry/
-                // reschedule without bumping the counter.
-                if (options?.queueName === 'email' && row.queue_name !== 'email') {
-                    const dequeueSeq = await assignEmailDequeueSeq(pool, row.team_id)
+                // Cross-queue routing into an email queue: assign a fresh
+                // dequeue_seq from the target queue's counter table so the row
+                // participates in fair ordering. Without this, hogflow → email
+                // re-routing (via job.reschedule({ queueName: 'email' })) lands
+                // the row with NULL dequeue_seq, which `NULLS FIRST` drains
+                // ahead of every fair-ordered row — defeating the per-team
+                // interleave for the most common email path. Skipped when the
+                // row was already on the target queue, so existing fair-ordered
+                // rows keep their place after retry/reschedule without bumping
+                // the counter.
+                if (
+                    options?.queueName !== undefined &&
+                    options.queueName !== row.queue_name &&
+                    isFairDequeueQueue(options.queueName)
+                ) {
+                    const dequeueSeq = await assignEmailDequeueSeq(pool, row.team_id, options.queueName)
                     params.push(dequeueSeq)
                     setClauses.push(`dequeue_seq = $${params.length}`)
                 }

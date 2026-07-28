@@ -220,6 +220,7 @@ export class TemplateTester {
                 fetchRetries: config.CDP_FETCH_RETRIES,
                 fetchBackoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
+                emailTransactionalQueueEnabled: config.CDP_EMAIL_TRANSACTIONAL_QUEUE_ENABLED,
             },
             { teamManager: this.mockTeamManager as any, siteUrl: config.SITE_URL },
             hogInputsService,

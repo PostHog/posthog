@@ -21,7 +21,7 @@ import { register } from 'prom-client'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
-import { HogFlow } from '~/cdp/schema/hogflow'
+import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
 import { setupExpressApp } from '~/common/api/router'
 import {
     KAFKA_APP_METRICS_2,
@@ -50,6 +50,7 @@ import { createHogExecutionGlobals, insertHogFunctionTemplate, insertIntegration
 import { insertHogFlow } from './_tests/fixtures-hogflows'
 import { CdpApi } from './cdp-api'
 import { CdpCyclotronWorkerBatchResolve } from './consumers/cdp-cyclotron-worker-batch-resolve.consumer'
+import { CdpCyclotronWorkerEmailTransactional } from './consumers/cdp-cyclotron-worker-email-transactional.consumer'
 import { CdpCyclotronWorkerEmail } from './consumers/cdp-cyclotron-worker-email.consumer'
 import { CdpCyclotronWorkerHogFlow } from './consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpDatawarehouseEventsConsumer } from './consumers/cdp-data-warehouse-events.consumer'
@@ -2208,6 +2209,7 @@ describe('Workflows E2E (email queue)', () => {
     let eventsConsumer: CdpEventsConsumer
     let hogflowWorker: CdpCyclotronWorkerHogFlow
     let emailWorker: CdpCyclotronWorkerEmail
+    let emailTransactionalWorker: CdpCyclotronWorkerEmailTransactional
     let matcher: CdpHogflowSubscriptionMatcherConsumer | undefined
 
     let hub: Hub
@@ -2236,6 +2238,10 @@ describe('Workflows E2E (email queue)', () => {
 
         hub = await createHub()
         hub.CDP_CYCLOTRON_BATCH_DELAY_MS = 50
+        // The whole block runs with the transactional queue enabled — the
+        // deployment end-state. Existing tests use uncategorized emails, so
+        // they double as proof those still route to 'email' under the flag.
+        hub.CDP_EMAIL_TRANSACTIONAL_QUEUE_ENABLED = true
 
         // `.invalid` domains are NXDOMAIN, everything else resolves as deliverable.
         const nxdomain = () => Promise.reject(Object.assign(new Error('queryMx ENOTFOUND'), { code: 'ENOTFOUND' }))
@@ -2301,6 +2307,7 @@ describe('Workflows E2E (email queue)', () => {
         const eventsProducerQueue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
         const hogflowConsumerQueue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
         const emailConsumerQueue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
+        const emailTransactionalConsumerQueue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
 
         eventsConsumer = new CdpEventsConsumer(hub, deps, {
             hogQueue: kafkaQueue,
@@ -2309,7 +2316,8 @@ describe('Workflows E2E (email queue)', () => {
         await Promise.all([kafkaQueue.startAsProducer(), eventsProducerQueue.startAsProducer()])
 
         // Hogflow worker polls jobs with queue_name='hogflow' and re-stamps email
-        // jobs to queue_name='email' so the email worker picks them up
+        // jobs to queue_name='email' (or 'emailtransactional' for
+        // transactional-category sends) so the email workers pick them up
         hogflowWorker = new CdpCyclotronWorkerHogFlow(hub, deps, hogflowConsumerQueue)
         await hogflowWorker.start()
 
@@ -2317,6 +2325,11 @@ describe('Workflows E2E (email queue)', () => {
         // and continues the workflow inline (until it hits a fetch or terminates)
         emailWorker = new CdpCyclotronWorkerEmail(hub, deps, emailConsumerQueue)
         await emailWorker.start()
+
+        // Same worker family for queue_name='emailtransactional' — the dedicated
+        // lane that keeps transactional sends behind their own backlog
+        emailTransactionalWorker = new CdpCyclotronWorkerEmailTransactional(hub, deps, emailTransactionalConsumerQueue)
+        await emailTransactionalWorker.start()
     })
 
     afterEach(async () => {
@@ -2324,6 +2337,7 @@ describe('Workflows E2E (email queue)', () => {
             eventsConsumer?.stop() ?? Promise.resolve(),
             hogflowWorker?.stop() ?? Promise.resolve(),
             emailWorker?.stop() ?? Promise.resolve(),
+            emailTransactionalWorker?.stop() ?? Promise.resolve(),
             matcher?.stop().catch(() => {}) ?? Promise.resolve(),
         ])
         await kafkaProducer.disconnect()
@@ -2430,6 +2444,80 @@ describe('Workflows E2E (email queue)', () => {
                 (j: any) => j.status === 'completed' || j.status === 'failed' || j.status === 'canceled'
             )
             expect(terminal.length).toBeGreaterThanOrEqual(1)
+        }, 10000)
+    })
+
+    it('routes a transactional-category email through the emailtransactional queue and completes', async () => {
+        // The full transactional lane: the hogflow worker re-stamps the job to
+        // 'emailtransactional' (not 'email'), the dedicated worker sends it and
+        // runs the flow to exit. If routing, the queue kind, or the worker
+        // wiring regressed, the job would either complete on 'email' (lane not
+        // isolated) or never complete (queue without a consumer).
+        const hogFlow = new FixtureHogFlowBuilder()
+            .withTeamId(team.id)
+            .withStatus('active')
+            .withExitCondition('exit_only_at_end')
+            .withWorkflow({
+                actions: {
+                    trigger: {
+                        type: 'trigger',
+                        config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                    },
+                    email_1: {
+                        type: 'function_email',
+                        // Cast: the schema pins function_email's template_id to the literal
+                        // 'template-email', but this harness (like the rest of the file) uses
+                        // its own inserted template id, which resolves fine at runtime.
+                        config: {
+                            template_id: 'template-workflows-e2e-email',
+                            message_category_type: 'transactional',
+                            inputs: {
+                                email: {
+                                    value: {
+                                        to: { email: 'recipient@example.com', name: 'Recipient' },
+                                        from: { integrationId: 1, email: 'sender@posthog.com' },
+                                        subject: 'Transactional email',
+                                        text: 'Test text',
+                                        html: '<p>Test html</p>',
+                                    },
+                                },
+                            },
+                        } as HogFlowAction['config'],
+                    },
+                    exit: { type: 'exit', config: {} },
+                },
+                edges: [
+                    { from: 'trigger', to: 'email_1', type: 'continue' },
+                    { from: 'email_1', to: 'exit', type: 'continue' },
+                ],
+            })
+            .build()
+        await insertHogFlow(hub.postgres, hogFlow)
+
+        const { backgroundTask } = await eventsConsumer.processBatch([createGlobals()])
+        await backgroundTask
+
+        await waitForExpect(() => {
+            const sumCounts = (filter: (m: any) => boolean) =>
+                mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter(filter)
+                    .reduce((sum: number, m: any) => sum + m.value.count, 0)
+
+            expect(sumCounts((m) => m.value.metric_name === 'email_queued')).toBe(1)
+            expect(sumCounts((m) => m.value.metric_name === 'email_sent')).toBe(1)
+            expect(sumCounts((m) => m.value.metric_name === 'succeeded' && m.value.instance_id === 'exit')).toBe(1)
+        }, 15000)
+
+        // The flow finishes on the transactional worker, so the completed job
+        // row still carries the queue it was consumed from.
+        await waitForExpect(async () => {
+            const jobs = await queryCyclotronJobs()
+            const completed = jobs.filter((j: any) => j.status === 'completed')
+            expect(completed.length).toBeGreaterThanOrEqual(1)
+            expect(completed[0].queue_name).toBe('emailtransactional')
+            // Fair dequeue applies on the transactional lane from day one.
+            expect(completed[0].dequeue_seq).not.toBeNull()
         }, 10000)
     })
 

@@ -148,6 +148,7 @@ export interface PluginServerCapabilities {
     cdpCyclotronWorkerHogFlowLegacyPg?: boolean
     cdpCyclotronWorkerEmail?: boolean
     cdpCyclotronWorkerEmailLegacyPg?: boolean
+    cdpCyclotronWorkerEmailTransactional?: boolean
     cdpPrecalculatedFilters?: boolean
     cdpCohortMembership?: boolean
     cdpApi?: boolean

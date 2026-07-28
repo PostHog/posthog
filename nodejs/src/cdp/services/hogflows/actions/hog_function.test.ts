@@ -76,6 +76,7 @@ describe('HogFunctionHandler', () => {
                 fetchRetries: hub.CDP_FETCH_RETRIES,
                 fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
+                emailTransactionalQueueEnabled: hub.CDP_EMAIL_TRANSACTIONAL_QUEUE_ENABLED,
             },
             { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
             hogInputsService,

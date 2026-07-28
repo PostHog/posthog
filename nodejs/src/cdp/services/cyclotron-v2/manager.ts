@@ -16,7 +16,7 @@ import {
 } from './types'
 
 /**
- * Block size used to compute the fair-dequeue sort key for email queue jobs:
+ * Block size used to compute the fair-dequeue sort key for email-queue jobs:
  *
  *     dequeue_seq = counter * EMAIL_DEQUEUE_BLOCK_SIZE + team_id
  *
@@ -24,19 +24,43 @@ import {
  * that). Keeps headroom for ~5 × 10^11 jobs per team before the BIGINT
  * sort key overflows, which is centuries at any realistic email volume.
  *
- * Only used for queue_name='email'. Other queues leave dequeue_seq NULL.
+ * Only used for the queues in FAIR_DEQUEUE_COUNTER_TABLES. Other queues leave
+ * dequeue_seq NULL.
  */
 export const EMAIL_DEQUEUE_BLOCK_SIZE = BigInt(16_777_216)
 
 /**
- * Atomically bump the per-team email counter and return the formatted
- * `dequeue_seq` string for one new email job. Exported because the worker's
- * `reschedule()` path also needs to assign `dequeue_seq` when a hog/hogflow
- * job is re-routed into the email queue — without this, those rows land with
- * `NULL dequeue_seq` and bypass the per-team interleave (`NULLS FIRST` would
- * drain them ahead of any fair-ordered rows).
+ * Per-team counter table for each fair-dequeue queue. Each queue gets its own
+ * table because the counter encodes a team's lifetime send position within
+ * that queue: sharing one table would let a team's marketing volume push its
+ * transactional jobs permanently behind every other tenant's — exactly the
+ * teams the dedicated transactional queue is meant to protect.
  *
- * A team's *first ever* email starts at `MAX(counter) + 1` across the table
+ * Table names are interpolated into SQL as identifiers, so only add entries
+ * whose tables exist in rust/cyclotron-node-migrations.
+ *
+ * cyclotron-v2 is standalone (queue names are plain strings here), so this
+ * deliberately mirrors CYCLOTRON_EMAIL_JOB_QUEUES in cdp/types.ts rather than
+ * importing it — keep the two in sync.
+ */
+export const FAIR_DEQUEUE_COUNTER_TABLES: Record<string, string> = {
+    email: 'cyclotron_email_team_seq',
+    emailtransactional: 'cyclotron_emailtransactional_team_seq',
+}
+
+export function isFairDequeueQueue(queueName: string): boolean {
+    return queueName in FAIR_DEQUEUE_COUNTER_TABLES
+}
+
+/**
+ * Atomically bump the per-team counter for a fair-dequeue queue and return
+ * the formatted `dequeue_seq` string for one new job on it. Exported because
+ * the worker's `reschedule()` path also needs to assign `dequeue_seq` when a
+ * hog/hogflow job is re-routed into an email queue — without this, those rows
+ * land with `NULL dequeue_seq` and bypass the per-team interleave
+ * (`NULLS FIRST` would drain them ahead of any fair-ordered rows).
+ *
+ * A team's *first ever* job starts at `MAX(counter) + 1` across the table
  * (Hatchet's `p_max_assigned` pattern), so a brand-new tenant can't enqueue a
  * burst that gets free priority over established tenants' in-flight emails.
  * Continuing tenants just increment their own counter as before. `COALESCE`
@@ -45,12 +69,16 @@ export const EMAIL_DEQUEUE_BLOCK_SIZE = BigInt(16_777_216)
  * For bulk inserts of multiple email jobs at once, `bulkCreateJobs` uses its
  * own batched UPSERT for efficiency rather than calling this in a loop.
  */
-export async function assignEmailDequeueSeq(pool: Pool, teamId: number): Promise<string> {
+export async function assignEmailDequeueSeq(pool: Pool, teamId: number, queueName: string): Promise<string> {
+    const table = FAIR_DEQUEUE_COUNTER_TABLES[queueName]
+    if (!table) {
+        throw new Error(`No fair-dequeue counter table for queue '${queueName}'`)
+    }
     const result = await pool.query<{ counter: string }>(
-        `INSERT INTO cyclotron_email_team_seq (team_id, counter)
-         VALUES ($1, COALESCE((SELECT MAX(counter) FROM cyclotron_email_team_seq), 0) + 1)
+        `INSERT INTO ${table} (team_id, counter)
+         VALUES ($1, COALESCE((SELECT MAX(counter) FROM ${table}), 0) + 1)
          ON CONFLICT (team_id) DO UPDATE
-            SET counter = cyclotron_email_team_seq.counter + 1
+            SET counter = ${table}.counter + 1
          RETURNING counter`,
         [teamId]
     )
@@ -350,28 +378,47 @@ export class CyclotronV2Manager {
     /**
      * Compute the per-job `dequeue_seq` array for a batch of jobs.
      *
-     * Email-queue jobs get `counter * BLOCK_SIZE + team_id` where `counter`
-     * is the team's monotonic per-team sequence number. Sorting ascending by
-     * dequeue_seq interleaves teams: each team's first job sorts together,
-     * then each team's second job, etc.
+     * Jobs on a fair-dequeue queue get `counter * BLOCK_SIZE + team_id` where
+     * `counter` is the team's monotonic sequence number in that queue's
+     * counter table. Sorting ascending by dequeue_seq interleaves teams: each
+     * team's first job sorts together, then each team's second job, etc.
      *
-     * Non-email jobs get NULL (leaves the existing FIFO ordering untouched).
+     * Jobs on other queues get NULL (leaves the existing FIFO ordering
+     * untouched). Queues with no jobs in the batch issue no queries, so an
+     * email-only batch behaves exactly as before the transactional queue
+     * existed.
+     */
+    private async computeEmailDequeueSeqs(jobs: CyclotronV2JobInit[]): Promise<(string | null)[]> {
+        const dequeueSeqs: (string | null)[] = new Array(jobs.length).fill(null)
+        for (const [queueName, table] of Object.entries(FAIR_DEQUEUE_COUNTER_TABLES)) {
+            await this.computeSeqsForQueue(jobs, queueName, table, dequeueSeqs)
+        }
+        return dequeueSeqs
+    }
+
+    /**
+     * Fill `dequeueSeqs` for this batch's jobs on one fair-dequeue queue.
      *
      * One UPSERT for the whole batch regardless of job count — per-team
-     * counters bump by the count of email jobs from that team in this batch,
-     * and we derive each job's individual counter value in memory.
+     * counters bump by the count of this queue's jobs from that team in this
+     * batch, and we derive each job's individual counter value in memory.
      *
-     * A team's first-ever email starts at `MAX(counter) + 1` across the table
+     * A team's first-ever job starts at `MAX(counter) + 1` across the table
      * (Hatchet's `p_max_assigned` pattern), so a new tenant joining the
      * system can't enqueue a burst that gets free priority over established
      * tenants — established tenants are already at `MAX`, so a new tenant's
      * batch slots in at the same level and the round-robin interleaves them
      * by team_id from there. Continuing teams just keep incrementing.
      */
-    private async computeEmailDequeueSeqs(jobs: CyclotronV2JobInit[]): Promise<(string | null)[]> {
+    private async computeSeqsForQueue(
+        jobs: CyclotronV2JobInit[],
+        queueName: string,
+        table: string,
+        dequeueSeqs: (string | null)[]
+    ): Promise<void> {
         const indicesByTeam = new Map<number, number[]>()
         for (let i = 0; i < jobs.length; i++) {
-            if (jobs[i].queueName !== 'email') {
+            if (jobs[i].queueName !== queueName) {
                 continue
             }
             const indices = indicesByTeam.get(jobs[i].teamId)
@@ -382,9 +429,8 @@ export class CyclotronV2Manager {
             }
         }
 
-        const dequeueSeqs: (string | null)[] = new Array(jobs.length).fill(null)
         if (indicesByTeam.size === 0) {
-            return dequeueSeqs
+            return
         }
 
         const teamIds = [...indicesByTeam.keys()]
@@ -401,13 +447,13 @@ export class CyclotronV2Manager {
         // CONFLICT branch). MAX is computed once per batch via the CTE.
         const upsertResult = await this.pool.query<{ team_id: number; counter: string }>(
             `WITH max_counter AS (
-                 SELECT COALESCE(MAX(counter), 0) AS m FROM cyclotron_email_team_seq
+                 SELECT COALESCE(MAX(counter), 0) AS m FROM ${table}
              )
-             INSERT INTO cyclotron_email_team_seq (team_id, counter)
+             INSERT INTO ${table} (team_id, counter)
              SELECT team_id, increment + (SELECT m FROM max_counter)
              FROM unnest($1::int[], $2::bigint[]) AS t(team_id, increment)
              ON CONFLICT (team_id) DO UPDATE
-                SET counter = cyclotron_email_team_seq.counter
+                SET counter = ${table}.counter
                             + (EXCLUDED.counter - (SELECT m FROM max_counter))
              RETURNING team_id, counter`,
             [teamIds, increments]
@@ -419,7 +465,7 @@ export class CyclotronV2Manager {
             const newCounter = newCounters.get(teamId)
             if (newCounter === undefined) {
                 // Should never happen — every team in indicesByTeam was UPSERTed.
-                logger.error('Missing counter after UPSERT in computeEmailDequeueSeqs', { teamId })
+                logger.error('Missing counter after UPSERT in computeSeqsForQueue', { teamId, queueName })
                 continue
             }
             const startCounter = newCounter - BigInt(indices.length) + 1n
@@ -430,8 +476,6 @@ export class CyclotronV2Manager {
                 dequeueSeqs[indices[k]] = (counterForThisJob * EMAIL_DEQUEUE_BLOCK_SIZE + teamIdBigInt).toString()
             }
         }
-
-        return dequeueSeqs
     }
 
     // "In flight" = jobs still owned by the queue: parked waits/delays ('available' with a future
