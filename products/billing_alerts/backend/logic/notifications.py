@@ -77,10 +77,10 @@ def _properties(event: BillingAlertEvent, now: datetime, *, consecutive_failures
     }
 
 
-def _destination_ids(event: BillingAlertEvent) -> list[str]:
+def _destination_ids(event: BillingAlertEvent) -> tuple[list[str], bool]:
     kind = _kind_for_event(event)
     if kind is None:
-        return []
+        return [], False
     event_id = EVENT_KIND_CONFIG[kind].event_id
     rows = HogFunction.objects.filter(
         team_id=event.alert.execution_team_id,
@@ -108,8 +108,11 @@ def _destination_ids(event: BillingAlertEvent) -> list[str]:
             ids_by_template_and_event.setdefault(template_id, {})[configured_event_id] = str(destination_id)
 
     required_events = set(BILLING_ALERT_EVENT_IDS)
-    return sorted(
-        event_ids[event_id] for event_ids in ids_by_template_and_event.values() if set(event_ids) == required_events
+    return (
+        sorted(
+            event_ids[event_id] for event_ids in ids_by_template_and_event.values() if set(event_ids) == required_events
+        ),
+        bool(ids_by_template_and_event),
     )
 
 
@@ -125,9 +128,9 @@ def _enqueue(check: BillingAlertCheck) -> PendingBillingAlertDispatch:
         )
 
     event_name = EVENT_KIND_CONFIG[kind].event_id
-    destination_ids = _destination_ids(event)
+    destination_ids, has_configured_destinations = _destination_ids(event)
     produce_result = None
-    if destination_ids:
+    if destination_ids or not has_configured_destinations:
         produce_result = produce_alert_internal_event(
             team_id=event.alert.execution_team_id,
             event_name=event_name,

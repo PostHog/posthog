@@ -374,7 +374,7 @@ class TestBillingAlertAPI(APIBaseTest):
             alert=alert,
             claim=claim,
             organization_id=alert.organization_id,
-            team_id=alert.team_id,
+            team_id=alert.execution_team_id,
             kind=BillingAlertEvent.Kind.CHECK,
             source=BillingAlertEvent.Source.MANUAL,
             attempt_number=1,

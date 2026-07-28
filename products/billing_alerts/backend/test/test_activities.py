@@ -5,7 +5,11 @@ from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from products.billing_alerts.backend.models import BillingAlertConfiguration, BillingAlertEvent
+from products.billing_alerts.backend.models import (
+    BillingAlertConfiguration,
+    BillingAlertEvaluationClaim,
+    BillingAlertEvent,
+)
 from products.billing_alerts.backend.temporal.activities import _evaluate_billing_alerts, due_billing_alerts_q
 from products.billing_alerts.backend.temporal.types import EvaluateBillingAlertBatchActivityInputs
 
@@ -67,7 +71,7 @@ class TestBillingAlertActivities(BaseTest):
                 return_value=True,
             ) as alert_internal_event_delivered,
         ):
-            result = _evaluate_billing_alerts(
+            _evaluate_billing_alerts(
                 EvaluateBillingAlertBatchActivityInputs(alert_ids=[str(failed_alert.id), str(successful_alert.id)])
             )
 
@@ -77,7 +81,6 @@ class TestBillingAlertActivities(BaseTest):
         successful_event = BillingAlertEvent.objects.get(alert=successful_alert)
 
         assert mock_fetch_billing_data.call_count == 2
-        assert result is None
         assert failed_event.kind == BillingAlertEvent.Kind.ERRORED
         assert failed_event.is_transient_error is True
         assert "billing unavailable" in (failed_event.error_message or "")
@@ -105,10 +108,30 @@ class TestBillingAlertActivities(BaseTest):
     def test_retry_skips_alert_already_rescheduled_by_prior_attempt(self, mock_fetch_billing_data) -> None:
         alert = self._alert(next_check_at=datetime(2026, 6, 24, 12, tzinfo=UTC))
 
-        result = _evaluate_billing_alerts(EvaluateBillingAlertBatchActivityInputs(alert_ids=[str(alert.id)]))
+        _evaluate_billing_alerts(EvaluateBillingAlertBatchActivityInputs(alert_ids=[str(alert.id)]))
 
-        assert result is None
         mock_fetch_billing_data.assert_not_called()
+
+    @freeze_time("2026-06-23T12:00:00Z")
+    @patch("products.billing_alerts.backend.temporal.activities.fetch_billing_data")
+    def test_completed_claim_advances_a_still_due_alert(self, mock_fetch_billing_data) -> None:
+        now = datetime(2026, 6, 23, 12, tzinfo=UTC)
+        alert = self._alert(next_check_at=now)
+        BillingAlertEvaluationClaim.objects.create(
+            alert=alert,
+            organization_id=alert.organization_id,
+            evaluation_date=datetime(2026, 6, 22, tzinfo=UTC).date(),
+            configuration_revision=alert.configuration_revision,
+            status=BillingAlertEvaluationClaim.Status.COMPLETED,
+        )
+
+        _evaluate_billing_alerts(EvaluateBillingAlertBatchActivityInputs(alert_ids=[str(alert.id)]))
+
+        alert.refresh_from_db()
+        assert alert.next_check_at is not None
+        assert alert.next_check_at > now
+        assert alert.pending_evaluation_date is None
+        mock_fetch_billing_data.assert_called_once()
 
     @freeze_time("2026-06-23T12:00:00Z")
     @patch("products.billing_alerts.backend.temporal.activities.fetch_billing_data")

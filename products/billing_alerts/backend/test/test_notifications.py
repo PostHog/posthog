@@ -115,6 +115,40 @@ class TestBillingAlertNotifications(BaseTest):
             event_name=EVENT_KIND_CONFIG["firing"].event_id,
         )
 
+    def test_no_destination_still_commits_the_shared_event(self) -> None:
+        alert = self._alert()
+        produce_result = MagicMock()
+
+        with (
+            patch(
+                "products.billing_alerts.backend.logic.notifications.produce_alert_internal_event",
+                return_value=produce_result,
+            ) as produce,
+            patch("products.billing_alerts.backend.logic.notifications.flush_alert_internal_events"),
+            patch(
+                "products.billing_alerts.backend.logic.notifications.alert_internal_event_delivered",
+                return_value=True,
+            ) as delivered,
+        ):
+            event, dispatched = evaluate_and_dispatch_billing_alert(
+                alert,
+                now=NOW,
+                billing_response=_billing_response([60, 60, 100]),
+            )
+
+        alert.refresh_from_db()
+        assert dispatched == 0
+        assert alert.state == BillingAlertConfiguration.State.FIRING
+        assert event.notification_sent_at == NOW
+        assert event.targets_notified == {"hog_functions": []}
+        produce.assert_called_once()
+        delivered.assert_called_once_with(
+            produce_result,
+            team_id=alert.execution_team_id,
+            alert_id=str(alert.id),
+            event_name=EVENT_KIND_CONFIG["firing"].event_id,
+        )
+
     def test_failed_error_delivery_preserves_last_successful_firing_state(self) -> None:
         alert = self._alert(state=BillingAlertConfiguration.State.FIRING, consecutive_failures=2)
         self._destination(alert, "errored")
