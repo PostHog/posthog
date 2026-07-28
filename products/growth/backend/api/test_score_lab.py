@@ -5,9 +5,12 @@ import asyncio
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.contrib.admin.sites import AdminSite
+
 from parameterized import parameterized
 from rest_framework import status
 
+from products.growth.backend.admin import EnrichmentLabelResultAdmin
 from products.growth.backend.enrichment import lab as lab_module
 from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, OrganizationEnrichmentFetch
 
@@ -57,12 +60,13 @@ class TestScoreLabAPI(APIBaseTest):
         version: str = "test-v1",
         is_active: bool = True,
         created_by=None,
+        output_fields: list[dict[str, str]] | None = None,
     ) -> EnrichmentPromptConfig:
         return EnrichmentPromptConfig.objects.create(
             name=label,
             version=version,
             prompt_text="judge it. Email: {email}",
-            output_fields=_OUTPUT_FIELDS,
+            output_fields=_OUTPUT_FIELDS if output_fields is None else output_fields,
             model="gpt-5-mini",
             input_fields=["name"],
             is_active=is_active,
@@ -78,6 +82,7 @@ class TestScoreLabAPI(APIBaseTest):
             ("run", "post", "/api/growth_score_lab/run/"),
             ("save", "post", "/api/growth_score_lab/save/"),
             ("activate", "post", "/api/growth_score_lab/activate/"),
+            ("rename", "post", "/api/growth_score_lab/rename/"),
         ]
     )
     def test_non_staff_user_gets_403(self, _name, method, url):
@@ -304,6 +309,104 @@ class TestScoreLabAPI(APIBaseTest):
     def test_activate_unknown_config_returns_404(self):
         response = self.client.post("/api/growth_score_lab/activate/", {"config_id": str(uuid.uuid4())}, format="json")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_rename_propagates_to_every_sibling_version_and_every_stamped_result(self):
+        # A label is shared by all of its versions and the batch runner looks work up by label
+        # name, so a rename that moves one row but not its siblings/results silently splits the
+        # label in two and orphans every historical verdict from its config.
+        old_v1 = self._config(label="old_label", version="v1", is_active=False)
+        old_v2 = self._config(label="old_label", version="v2", is_active=True)
+        fetch = OrganizationEnrichmentFetch.objects.create(
+            organization=self.organization, provider="harmonic", payload={"name": "Acme"}
+        )
+        result = EnrichmentLabelResult.objects.create(
+            organization=self.organization,
+            fetch=fetch,
+            label_name="old_label",
+            prompt_version=old_v2.version,
+            prompt_hash=old_v2.content_hash,
+            model=old_v2.model,
+            output={"is_ai": True, "confidence": 0.9, "reasoning": "x"},
+        )
+
+        response = self.client.post(
+            "/api/growth_score_lab/rename/",
+            {"config_id": str(old_v1.id), "label": "new_label"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        old_v1.refresh_from_db()
+        old_v2.refresh_from_db()
+        result.refresh_from_db()
+        self.assertEqual(old_v1.name, "new_label")
+        self.assertEqual(old_v2.name, "new_label")
+        self.assertEqual(result.label_name, "new_label")
+
+    def test_rename_into_an_existing_label_name_returns_400(self):
+        # Allowing this would silently merge two distinct labels' version histories.
+        self._config(label="label_a", version="v1")
+        target = self._config(label="label_b", version="v1")
+
+        response = self.client.post(
+            "/api/growth_score_lab/rename/",
+            {"config_id": str(target.id), "label": "label_a"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "label")
+        target.refresh_from_db()
+        self.assertEqual(target.name, "label_b")
+
+    def test_rename_unknown_config_id_returns_404(self):
+        response = self.client.post(
+            "/api/growth_score_lab/rename/",
+            {"config_id": str(uuid.uuid4()), "label": "whatever"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_rename_leaves_the_admin_verdict_column_resolvable_when_label_differs_from_output_key(self):
+        # Regression for a bug family where display code read a stored verdict by label_name
+        # instead of by output_fields' boolean key - it survived a declared-complete fix because
+        # the affected code had no tests. Label and output key are deliberately different so a
+        # rename that updates label_name but leaves `output` untouched can't hide behind them
+        # coincidentally matching.
+        # Not "ai_pilled": a real classifier of that name ships via a seed data migration, which
+        # would collide with the one-active-per-label constraint below.
+        config = self._config(
+            label="test_ai_pilled",
+            version="v1",
+            output_fields=[
+                {"key": "is_ai_native", "type": "boolean", "description": ""},
+                {"key": "confidence", "type": "number", "description": ""},
+            ],
+        )
+        fetch = OrganizationEnrichmentFetch.objects.create(
+            organization=self.organization, provider="harmonic", payload={"name": "Acme"}
+        )
+        result = EnrichmentLabelResult.objects.create(
+            organization=self.organization,
+            fetch=fetch,
+            label_name="test_ai_pilled",
+            prompt_version=config.version,
+            prompt_hash=config.content_hash,
+            model=config.model,
+            output={"is_ai_native": True, "confidence": 0.9},
+        )
+
+        response = self.client.post(
+            "/api/growth_score_lab/rename/",
+            {"config_id": str(config.id), "label": "ai_native_org"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        result.refresh_from_db()
+        self.assertEqual(result.label_name, "ai_native_org")
+        admin_verdict = EnrichmentLabelResultAdmin(EnrichmentLabelResult, AdminSite()).verdict(result)
+        self.assertEqual(admin_verdict, "is_ai_native=true")
 
     def test_models_returns_gateway_list_when_client_works(self):
         fake_client = MagicMock()
