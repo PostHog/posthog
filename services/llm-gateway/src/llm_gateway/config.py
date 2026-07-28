@@ -30,6 +30,7 @@ DEFAULT_PRODUCT_COST_LIMITS: dict[str, "ProductCostLimit"] = {
     "wizard": ProductCostLimit(limit_usd=10000.0, window_seconds=86400),
     "posthog_code": ProductCostLimit(limit_usd=5000.0, window_seconds=3600),
     "background_agents": ProductCostLimit(limit_usd=1000.0, window_seconds=3600),
+    "onboarding": ProductCostLimit(limit_usd=1000.0, window_seconds=3600),
     "django": ProductCostLimit(limit_usd=5000.0, window_seconds=86400),
     "custom_image_scans": ProductCostLimit(limit_usd=1000.0, window_seconds=86400),
     "signals": ProductCostLimit(limit_usd=25000.0, window_seconds=86400),
@@ -60,6 +61,19 @@ DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
         burst_limit_usd=2500.0,
         burst_window_seconds=604800,
         sustained_limit_usd=10000.0,
+        sustained_window_seconds=2592000,
+    ),
+    # Nobody is billed for onboarding (credit_bucket=None), so this bounds blast radius rather than
+    # spend: the route's server-credential marker proves a token was minted server-side, not that it
+    # belongs to a wizard run, and INTERNAL_SCOPES in posthog/temporal/oauth.py grants that marker to
+    # every task run. Sized to stay clear of real onboarding rather than to be tight, since cutting a
+    # user off mid-setup is worse than the unbilled spend: half of DEFAULT_USER_COST_LIMIT, and well
+    # under the comparable agentic product (background_agents, $500/week burst). Staff bypass this
+    # entirely via is_usage_unlimited, so internal runs are never capped by it.
+    "onboarding": UserCostLimit(
+        burst_limit_usd=50.0,
+        burst_window_seconds=86400,
+        sustained_limit_usd=500.0,
         sustained_window_seconds=2592000,
     ),
 }
