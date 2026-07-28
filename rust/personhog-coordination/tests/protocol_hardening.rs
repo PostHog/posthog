@@ -49,6 +49,8 @@ async fn put_handoff(
         started_at: 0,
         handoff_id: format!("test-handoff-{partition}"),
         freeze_quorum: None,
+        created_at_ms: 0,
+        phase_entered_at_ms: 0,
         new_owner_address: None,
     };
     // Raw put on purpose: fixtures force arbitrary handoff states,
