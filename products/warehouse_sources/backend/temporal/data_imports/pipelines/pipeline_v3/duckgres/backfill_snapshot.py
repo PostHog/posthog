@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any
 from urllib.parse import unquote
 
@@ -94,9 +95,32 @@ def resolve_snapshot_chunks(schema: ExternalDataSchema, version: int | None = No
 
 
 def resolve_snapshot_plan(schema: ExternalDataSchema, version: int | None = None) -> BackfillSnapshotPlan:
+    uri = delta_table_uri(schema)
+    if version is None:
+        # No pinned version to cache against — this is the initial plan, reading
+        # whatever HEAD currently is, which is not a stable cache key.
+        return _resolve_snapshot_plan(uri, version)
+    return _resolve_pinned_snapshot_plan(uri, version)
+
+
+@lru_cache(maxsize=64)
+def _resolve_pinned_snapshot_plan(uri: str, version: int) -> BackfillSnapshotPlan:
+    """Cached for already-committed (pinned) versions only.
+
+    A commit at or before an already-resolved version never changes, but
+    deltalake's history() has no checkpoint shortcut — it walks the
+    _delta_log from genesis one commit at a time. The reconciler calls
+    resolve_snapshot_plan with the same pinned version on every ~30s tick
+    until a backfill finishes draining its queue, so without this cache a
+    large table (tens of thousands of commits) gets its entire commit log
+    re-read from S3 on every pass, which can trip S3 rate limiting.
+    """
+    return _resolve_snapshot_plan(uri, version)
+
+
+def _resolve_snapshot_plan(uri: str, version: int | None) -> BackfillSnapshotPlan:
     from deltalake import DeltaTable
 
-    uri = delta_table_uri(schema)
     dt = DeltaTable(uri, version=version, storage_options=_delta_storage_options())
     resolved_version = dt.version()
 
