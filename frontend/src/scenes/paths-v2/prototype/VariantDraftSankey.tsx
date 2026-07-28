@@ -185,11 +185,11 @@ export function VariantDraftSankey({ model, nodeColor }: { model: RowColumnModel
                                 width: NODE_W,
                                 height: rect.height,
                                 backgroundColor: rect.isDropoff
-                                    ? 'var(--text-secondary)'
+                                    ? '#6b7280'
                                     : rect.node?.isOther
-                                      ? 'var(--text-secondary)'
+                                      ? '#9ca3af'
                                       : nodeColor,
-                                opacity: rect.isDropoff ? 0.4 : rect.node?.isOther ? 0.6 : 1,
+                                opacity: rect.isDropoff ? 0.5 : rect.node?.isOther ? 0.7 : 1,
                             }}
                         />
                     </div>

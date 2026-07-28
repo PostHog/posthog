@@ -9,8 +9,6 @@ import { useMemo, useState } from 'react'
 
 import { Tooltip } from '@posthog/lemon-ui'
 
-import { getSeriesColor } from 'lib/colors'
-
 import { RowColumnModel, RowNode, formatPercentage, middleEllipsis, shortPathName } from './rowColumnModel'
 
 const BAR_H = 420
@@ -19,15 +17,32 @@ const LABEL_W = 168
 const PITCH = BAR_W + LABEL_W + 48
 const TOP_PAD = 40
 
+// concrete hexes: CSS vars don't reliably resolve as inline SVG/background colors here
+const PALETTE = [
+    '#1d4aff',
+    '#621da6',
+    '#42827e',
+    '#ce0e74',
+    '#f14f58',
+    '#7c440e',
+    '#529a1a',
+    '#0476fb',
+    '#fe729d',
+    '#35416b',
+    '#41cbc4',
+    '#b64b02',
+]
+const OTHER_COLOR = '#9ca3af'
+
 function colorForName(name: string, isOther: boolean): string {
     if (isOther) {
-        return 'var(--text-secondary)'
+        return OTHER_COLOR
     }
     let hash = 5381
     for (let i = 0; i < name.length; i++) {
         hash = (hash * 33) ^ name.charCodeAt(i)
     }
-    return getSeriesColor(Math.abs(hash) % 15)
+    return PALETTE[Math.abs(hash) % PALETTE.length]
 }
 
 interface SegmentGeometry {
@@ -35,6 +50,7 @@ interface SegmentGeometry {
     x: number
     y: number
     height: number
+    labelY: number
 }
 
 export function VariantStepBars({
@@ -52,9 +68,13 @@ export function VariantStepBars({
             const stepTotal = Math.max(model.stepTotals[columnIndex], 1)
             const barHeight = (model.stepTotals[columnIndex] / Math.max(model.maxStepTotal, 1)) * BAR_H
             let y = TOP_PAD
+            let labelBottom = TOP_PAD - 34
             for (const node of column) {
                 const height = Math.max(3, (node.count / stepTotal) * barHeight)
-                segments.set(node.key, { node, x: columnIndex * PITCH, y, height })
+                // stack labels with a minimum pitch so thin segments don't collide
+                const labelY = Math.max(y + height / 2 - 15, labelBottom + 2)
+                labelBottom = labelY + 30
+                segments.set(node.key, { node, x: columnIndex * PITCH, y, height, labelY })
                 y += height + 2
             }
         })
@@ -140,7 +160,7 @@ export function VariantStepBars({
                                 key={`${edge.from}→${edge.to}`}
                                 d={`M ${x0},${y0} C ${xm},${y0} ${xm},${y1} ${x1},${y1}`}
                                 fill="none"
-                                stroke="var(--text-primary)"
+                                stroke="#374151"
                                 strokeWidth={Math.max(1.5, (edge.value / Math.max(model.maxEdgeValue, 1)) * 8)}
                                 opacity={0.6}
                             />
@@ -149,7 +169,7 @@ export function VariantStepBars({
                 </svg>
 
                 {/* bars */}
-                {Array.from(segments.values()).map(({ node, x, y, height }) => {
+                {Array.from(segments.values()).map(({ node, x, y, height, labelY }) => {
                     const displayName = node.isOther
                         ? `${node.name} (${node.members.length})`
                         : shortPathName(node.name)
@@ -200,13 +220,13 @@ export function VariantStepBars({
                                     onMouseLeave={() => setHoveredKey(null)}
                                 />
                             </Tooltip>
-                            {height >= 14 && (
+                            {height >= 6 && (
                                 <div
                                     className={`absolute text-xs leading-tight transition-opacity ${
                                         dimmed ? 'opacity-25' : ''
                                     }`}
                                     // eslint-disable-next-line react/forbid-dom-props
-                                    style={{ left: x + BAR_W + 8, top: y + height / 2 - 8, width: LABEL_W }}
+                                    style={{ left: x + BAR_W + 8, top: labelY, width: LABEL_W }}
                                 >
                                     <div className="truncate font-medium">{middleEllipsis(displayName, 24)}</div>
                                     <div className="text-secondary">

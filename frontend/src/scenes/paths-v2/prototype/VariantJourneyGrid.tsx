@@ -119,8 +119,8 @@ export function VariantJourneyGrid({
                 <svg width={chartWidth} height={chartHeight} className="absolute inset-0 pointer-events-none">
                     <defs>
                         <linearGradient id="proto-dropoff-fade" x1="0" y1="0" x2="1" y2="0">
-                            <stop offset="0%" stopColor="var(--text-secondary)" stopOpacity="0.35" />
-                            <stop offset="100%" stopColor="var(--text-secondary)" stopOpacity="0" />
+                            <stop offset="0%" stopColor="#6b7280" stopOpacity="0.4" />
+                            <stop offset="100%" stopColor="#6b7280" stopOpacity="0" />
                         </linearGradient>
                     </defs>
                     {ports.map(({ edge, thickness, fromX, fromY, toX, toY }) => {
@@ -188,10 +188,18 @@ export function VariantJourneyGrid({
                                     : undefined
                             }
                         >
-                            <Tooltip title={node.isOther ? `${node.members.length} more path items` : node.name}>
+                            <Tooltip
+                                title={
+                                    node.isOther
+                                        ? `${node.members.length} more path item${node.members.length === 1 ? '' : 's'}`
+                                        : node.name
+                                }
+                            >
                                 <div className="text-xs font-semibold truncate">
                                     {node.isOther
-                                        ? `${displayName} (${node.members.length} path items)${expanded ? '' : ' ▸'}`
+                                        ? `${displayName} (${node.members.length} path item${
+                                              node.members.length === 1 ? '' : 's'
+                                          })${expanded ? '' : ' ▸'}`
                                         : middleEllipsis(displayName, 32)}
                                 </div>
                             </Tooltip>
@@ -212,7 +220,7 @@ export function VariantJourneyGrid({
                                             3,
                                             (node.count / Math.max(model.stepTotals[node.step], 1)) * 100
                                         )}%`,
-                                        backgroundColor: node.isOther ? 'var(--text-secondary)' : nodeColor,
+                                        backgroundColor: node.isOther ? '#9ca3af' : nodeColor,
                                     }}
                                 />
                             </div>
