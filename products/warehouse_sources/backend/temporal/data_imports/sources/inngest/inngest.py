@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.inngest.settings import (
+    INNGEST_DEFAULT_VERSION,
     INNGEST_ENDPOINTS,
     InngestEndpointConfig,
 )
@@ -312,6 +313,7 @@ def _get_v2_list_rows(
     headers: dict[str, str],
     logger: FilteringBoundLogger,
     config: InngestEndpointConfig,
+    path: str,
 ) -> Iterator[list[dict[str, Any]]]:
     """Page a v2 list endpoint via its `page.cursor` / `page.hasMore` envelope.
 
@@ -321,7 +323,7 @@ def _get_v2_list_rows(
     cursor: str | None = None
     while True:
         params = {"cursor": cursor} if cursor else None
-        payload = _fetch(session, f"{INNGEST_API_BASE_URL}{config.path}", headers, logger, params=params)
+        payload = _fetch(session, f"{INNGEST_API_BASE_URL}{path}", headers, logger, params=params)
         items = payload.get("data") or []
         rows = [_drop_redacted_fields(item, config.redacted_fields) for item in items if isinstance(item, dict)]
         if rows:
@@ -339,8 +341,9 @@ def _get_v1_list_rows(
     headers: dict[str, str],
     logger: FilteringBoundLogger,
     config: InngestEndpointConfig,
+    path: str,
 ) -> Iterator[list[dict[str, Any]]]:
-    payload = _fetch(session, f"{INNGEST_API_BASE_URL}{config.path}", headers, logger)
+    payload = _fetch(session, f"{INNGEST_API_BASE_URL}{path}", headers, logger)
     data = payload.get("data") if isinstance(payload, dict) else payload
     # The v1 spec is ambiguous about whether these small lists come back as an array or a single
     # object; handle both.
@@ -359,8 +362,14 @@ def get_rows(
     resumable_source_manager: ResumableSourceManager[InngestResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
+    api_version: str = INNGEST_DEFAULT_VERSION,
 ) -> Iterator[list[dict[str, Any]]]:
     config = INNGEST_ENDPOINTS[endpoint]
+    # Version-mobile resources (webhooks) select their path + pagination from the source's pin;
+    # version-locked ones fall through to the single `path`/`pagination` on the config.
+    variant = config.version_paths.get(api_version)
+    path = variant.path if variant else config.path
+    pagination = variant.pagination if variant else config.pagination
     headers = _get_headers(signing_key, environment)
     # One session reused across every page (and every per-event runs request) so urllib3 keeps the
     # connection alive. Register the signing key for value-based redaction and disable sample
@@ -377,7 +386,7 @@ def get_rows(
             should_use_incremental_field,
             db_incremental_field_last_value,
         )
-    elif config.pagination == "events_cursor":
+    elif pagination == "events_cursor":
         yield from _get_event_rows(
             session,
             headers,
@@ -386,10 +395,10 @@ def get_rows(
             should_use_incremental_field,
             db_incremental_field_last_value,
         )
-    elif config.pagination == "v2_cursor":
-        yield from _get_v2_list_rows(session, headers, logger, config)
+    elif pagination == "v2_cursor":
+        yield from _get_v2_list_rows(session, headers, logger, config, path)
     else:
-        yield from _get_v1_list_rows(session, headers, logger, config)
+        yield from _get_v1_list_rows(session, headers, logger, config, path)
 
 
 def inngest_source(
@@ -400,6 +409,7 @@ def inngest_source(
     resumable_source_manager: ResumableSourceManager[InngestResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
+    api_version: str = INNGEST_DEFAULT_VERSION,
 ) -> SourceResponse:
     config = INNGEST_ENDPOINTS[endpoint]
 
@@ -413,6 +423,7 @@ def inngest_source(
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
+            api_version=api_version,
         ),
         primary_keys=config.primary_keys,
         # The events walk's ordering within the window is undocumented (and could not be
