@@ -2,7 +2,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.foundry.backend.presentation.serializers import CreateBetEventSerializer
+from products.foundry.backend.presentation.serializers import CreateBetEventSerializer, RunConfigSerializer
 
 
 class TestNodePayloadValidation(SimpleTestCase):
@@ -40,3 +40,56 @@ class TestNodePayloadValidation(SimpleTestCase):
         """gate.result predates the new per-kind validation and stays a free-form payload."""
         serializer = CreateBetEventSerializer(data={"kind": "gate.result", "payload": {"anything": "goes"}})
         assert serializer.is_valid(), serializer.errors
+
+
+class TestRunConfigBuildLoopValidation(SimpleTestCase):
+    """A plain managed bet's run_config (no build_loop) must keep validating exactly as
+    before ADR-5 — the acceptance criterion that build_loop is fully optional."""
+
+    @parameterized.expand(
+        [
+            ({},),
+            ({"command": "echo hello"},),
+            ({"command": "echo hello", "env": {"FOO": "bar"}, "caps": {"max_depth": 2}},),
+        ]
+    )
+    def test_plain_run_config_without_build_loop_still_validates(self, run_config):
+        serializer = RunConfigSerializer(data=run_config)
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data.get("build_loop") is None
+
+    @parameterized.expand(
+        [
+            ({"builder": {"command": "run-builder"}}, "target_repo"),
+            ({"target_repo": {"base_ref": "main"}, "builder": {"command": "run-builder"}}, "target_repo"),
+            ({"target_repo": {"url": "https://x/y.git", "base_ref": "main"}}, "builder"),
+        ]
+    )
+    def test_build_loop_missing_required_field_rejected(self, build_loop, missing_field):
+        serializer = RunConfigSerializer(data={"build_loop": build_loop})
+        assert not serializer.is_valid()
+        assert missing_field in serializer.errors["build_loop"]
+
+    def test_well_formed_build_loop_round_trips(self):
+        build_loop = {
+            "target_repo": {"url": "https://x:tok@gitea/o/r.git", "base_ref": "main"},
+            "test_writer": {"command": "claude -p test-writer-prompt --dangerously-skip-permissions"},
+            "builder": {"command": "claude -p builder-prompt --dangerously-skip-permissions", "env": {"FOO": "bar"}},
+            "max_gate_iterations": 5,
+        }
+        serializer = RunConfigSerializer(data={"build_loop": build_loop})
+        assert serializer.is_valid(), serializer.errors
+        validated = serializer.validated_data["build_loop"]
+        assert validated["max_gate_iterations"] == 5
+        assert validated["builder"]["env"] == {"FOO": "bar"}
+        assert validated["target_repo"]["base_ref"] == "main"
+
+    def test_build_loop_without_test_writer_is_valid(self):
+        """test_writer is optional — skipping it must not be rejected (criterion 2)."""
+        build_loop = {
+            "target_repo": {"url": "https://x/y.git", "base_ref": "main"},
+            "builder": {"command": "run-builder"},
+        }
+        serializer = RunConfigSerializer(data={"build_loop": build_loop})
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["build_loop"]["test_writer"] is None

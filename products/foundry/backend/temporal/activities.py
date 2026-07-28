@@ -19,13 +19,21 @@ from temporalio import activity
 
 from posthog.temporal.common.utils import asyncify
 
-from products.tasks.backend.facade.sandbox import SandboxConfig, SandboxTemplate, get_sandbox_class_for_backend
+from products.tasks.backend.facade.sandbox import (
+    ExecutionResult,
+    SandboxConfig,
+    SandboxTemplate,
+    get_sandbox_class_for_backend,
+)
 
+from ..logic.redaction import redact_secret_values, secret_values_from_env
 from .constants import (
+    FOUNDRY_CLAUDE_CLI_PACKAGE,
     FOUNDRY_EVENT_HELPER_PATH,
     FOUNDRY_EVENT_HELPER_SCRIPT,
     FOUNDRY_EVENT_PREFIX,
     FOUNDRY_MEMORY_MOUNT_PATH,
+    FOUNDRY_TARGET_REPO_PATH,
 )
 
 
@@ -43,6 +51,28 @@ class RunNodeInput:
     command: str
     env: dict[str, str] = field(default_factory=dict)
     memory_repo_url: str | None = None
+    # Build-loop nodes only (see build_workflow.py): a target_repo to check out before
+    # `command` runs. Unlike memory_repo_url this is fatal on failure — it's the artifact
+    # source, not a nice-to-have.
+    target_repo_url: str | None = None
+    target_repo_ref: str | None = None
+    # Installs the Claude Code CLI at sandbox-startup time rather than baking a dedicated
+    # image layer — see build_workflow.py's module docstring for the tradeoff.
+    install_claude_cli: bool = False
+    # A real coding-agent run takes much longer than a scripted demo command; build-loop
+    # callers raise this well past the 600s default (and must raise their activity's own
+    # start_to_close_timeout to match — this is just the sandbox-level exec timeout).
+    command_timeout_seconds: int = 600
+
+
+@dataclass
+class _SyntheticExecResult:
+    """Stands in for a real ``ExecutionResult`` when a pre-command setup step (target repo
+    checkout, claude CLI install) fails and ``input.command`` never runs at all."""
+
+    exit_code: int
+    stdout: str = ""
+    stderr: str = ""
 
 
 @dataclass
@@ -101,6 +131,7 @@ def run_node_activity(input: RunNodeInput) -> RunNodeOutput:
     )
     sandbox = sandbox_class.create(config)
     notes: list[str] = []
+    result: ExecutionResult | _SyntheticExecResult | None = None
     try:
         sandbox.write_file(FOUNDRY_EVENT_HELPER_PATH, FOUNDRY_EVENT_HELPER_SCRIPT.encode())
         sandbox.execute(f"chmod +x {shlex.quote(FOUNDRY_EVENT_HELPER_PATH)}")
@@ -113,18 +144,51 @@ def run_node_activity(input: RunNodeInput) -> RunNodeOutput:
             if clone.exit_code != 0:
                 notes.append(f"memory repo unreachable, continuing without it: {clone.stderr[:300]}")
 
-        result = sandbox.execute(input.command, timeout_seconds=600)
+        # Unlike the memory repo above, a build-loop node's target_repo IS the artifact
+        # source — a failure here is fatal to the node, not a degrade-and-continue case.
+        if input.target_repo_url:
+            clone = sandbox.execute(
+                f"git clone {shlex.quote(input.target_repo_url)} {shlex.quote(FOUNDRY_TARGET_REPO_PATH)}",
+                timeout_seconds=120,
+            )
+            if clone.exit_code != 0:
+                notes.append(f"target repo clone failed: {clone.stderr[:300]}")
+                result = _SyntheticExecResult(exit_code=clone.exit_code)
+            elif input.target_repo_ref:
+                checkout = sandbox.execute(
+                    f"cd {shlex.quote(FOUNDRY_TARGET_REPO_PATH)} && git checkout {shlex.quote(input.target_repo_ref)}",
+                    timeout_seconds=60,
+                )
+                if checkout.exit_code != 0:
+                    notes.append(f"target repo checkout of '{input.target_repo_ref}' failed: {checkout.stderr[:300]}")
+                    result = _SyntheticExecResult(exit_code=checkout.exit_code)
+
+        if result is None and input.install_claude_cli:
+            install = sandbox.execute(f"npm install -g {shlex.quote(FOUNDRY_CLAUDE_CLI_PACKAGE)}", timeout_seconds=180)
+            if install.exit_code != 0:
+                notes.append(f"claude CLI install failed: {install.stderr[:300]}")
+                result = _SyntheticExecResult(exit_code=install.exit_code)
+
+        if result is None:
+            command = input.command
+            if input.target_repo_url:
+                command = f"cd {shlex.quote(FOUNDRY_TARGET_REPO_PATH)} && {command}"
+            result = sandbox.execute(command, timeout_seconds=input.command_timeout_seconds)
     finally:
         try:
             sandbox.destroy()
         except Exception:
             activity.logger.exception(f"Failed to destroy sandbox for node {input.node_id}")
 
-    events = _parse_foundry_events(result.stdout)
+    assert result is not None  # the final unconditional branch above always assigns it
+
+    secrets = secret_values_from_env(input.env)
+    events = [redact_secret_values(e, secrets) for e in _parse_foundry_events(result.stdout)]
     spawn_requests = [e for e in events if e.get("type") == "spawn_child"]
     knowledge_events = [e for e in events if e.get("type") == "knowledge_published"]
     artifact_ready_events = [e for e in events if e.get("type") == "artifact_ready"]
     notes.extend(str(e.get("message", "")) for e in events if e.get("type") == "note")
+    notes = [redact_secret_values(n, secrets) for n in notes]
 
     return RunNodeOutput(
         exit_code=result.exit_code,

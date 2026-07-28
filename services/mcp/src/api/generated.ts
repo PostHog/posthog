@@ -12582,11 +12582,6 @@ export namespace Schemas {
      */
     export type BetDTOExposurePlan = { [key: string]: unknown };
 
-    /**
-     * Managed-mode execution config: {image/template, command, env allowlist, caps}.
-     */
-    export type BetDTORunConfig = { [key: string]: unknown };
-
     export interface SuccessMetric {
       /** Human-readable name of the metric the bet is judged on. */
       name: string;
@@ -12630,6 +12625,61 @@ export namespace Schemas {
       External: 'external',
       Managed: 'managed',
     } as const;
+
+    export interface BuildLoopTargetRepo {
+      /** Git URL of the repo the build loop checks out, commits to, and pushes — the tokened https form (credentials embedded, like memory_repo_url) when the repo requires auth to clone or push. */
+      url: string;
+      /** Ref the test-writer (or the builder, when there's no test-writer) starts from. */
+      base_ref: string;
+    }
+
+    /**
+     * Extra env vars for this node (e.g. an agent API key), merged under Foundry's own FOUNDRY_* protocol vars.
+     */
+    export type BuildLoopNodeConfigEnv = { [key: string]: unknown };
+
+    export interface BuildLoopNodeConfig {
+      /** Shell command that runs the coding agent for this role (e.g. 'claude -p "$(cat prompt.md)" --dangerously-skip-permissions'). Bet-specific details (hypothesis, success metric, protected paths, branch names, prior gate violations) arrive via FOUNDRY_* env vars, not text substitution — see references/build-loop.md. */
+      command: string;
+      /** Extra env vars for this node (e.g. an agent API key), merged under Foundry's own FOUNDRY_* protocol vars. */
+      env?: BuildLoopNodeConfigEnv;
+    }
+
+    export interface BuildLoopConfig {
+      /** The repo the test-writer/builder check out, commit to, and push. */
+      target_repo: BuildLoopTargetRepo;
+      /** Optional pre-build node that writes acceptance tests under gate_config.protected_paths and pushes them to an immutable 'bet/<slug>-tests' baseline before the builder runs. Omit to skip test-writer separation (the builder then starts straight from target_repo.base_ref). */
+      test_writer?: BuildLoopNodeConfig | null;
+      /** The node that implements the change behind the bet's flag and reports artifact.ready. */
+      builder: BuildLoopNodeConfig;
+      /**
+         * Caps builder retries on gate failure. Defaults to budget.iterations, or 3 if that's unset too.
+         * @minimum 1
+         * @nullable
+         */
+      max_gate_iterations?: number | null;
+    }
+
+    /**
+     * Env vars for the root managed node (e.g. an agent API key).
+     */
+    export type RunConfigEnv = { [key: string]: unknown };
+
+    /**
+     * Recursive-spawn caps for the root managed node: {max_depth, max_children, max_cost}. Ignored when build_loop is set.
+     */
+    export type RunConfigCaps = { [key: string]: unknown };
+
+    export interface RunConfig {
+      /** Shell command the root managed node runs. Ignored when build_loop is set. */
+      command?: string;
+      /** Env vars for the root managed node (e.g. an agent API key). */
+      env?: RunConfigEnv;
+      /** Recursive-spawn caps for the root managed node: {max_depth, max_children, max_cost}. Ignored when build_loop is set. */
+      caps?: RunConfigCaps;
+      /** Runs a real coding agent (test-writer, then a bounded builder-retry loop against the gauntlet) instead of the plain scripted root node. See references/build-loop.md. */
+      build_loop?: BuildLoopConfig | null;
+    }
 
     /**
      * * `command` - command
@@ -12762,8 +12812,8 @@ export namespace Schemas {
        * * `external` - external
        * * `managed` - managed */
       execution_mode: ExecutionModeEnum;
-      /** Managed-mode execution config: {image/template, command, env allowlist, caps}. */
-      run_config: BetDTORunConfig;
+      /** Managed-mode execution config: {command, env, caps} for a plain root node, or {build_loop} for a real-agent build loop. */
+      run_config: RunConfig;
       /**
          * Git-backed memory repo cloned into managed nodes' sandboxes at a conventional path.
          * @nullable
@@ -15935,11 +15985,6 @@ export namespace Schemas {
      */
     export type CreateBetExposurePlan = { [key: string]: unknown };
 
-    /**
-     * Managed-mode execution config: {image/template, command, env allowlist, caps}.
-     */
-    export type CreateBetRunConfig = { [key: string]: unknown };
-
     export interface CreateBet {
       /**
          * Unique-per-project identifier; also seeds the feature flag key ('bet-<slug>').
@@ -15969,8 +16014,8 @@ export namespace Schemas {
        * * `external` - external
        * * `managed` - managed */
       execution_mode?: ExecutionModeEnum;
-      /** Managed-mode execution config: {image/template, command, env allowlist, caps}. */
-      run_config?: CreateBetRunConfig;
+      /** Managed-mode execution config: {command, env, caps} for a plain root node, or {build_loop} for a real-agent build loop. */
+      run_config?: RunConfig;
       /**
          * Git-backed memory repo cloned into managed nodes' sandboxes at a conventional path.
          * @nullable

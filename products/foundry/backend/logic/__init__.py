@@ -129,11 +129,18 @@ def fund_bet(bet: Bet, user: User | None, serializer_context: dict | None = None
 
 
 def _start_managed_run(bet: Bet) -> None:
-    """Kick off the root node of a managed bet's foundry-run-bet workflow tree.
+    """Kick off a managed bet's Temporal run: the real-coding-agent build loop (ADR 5) when
+    ``run_config.build_loop`` is set, otherwise the plain scripted root node
+    ``foundry-run-bet`` unchanged from iteration 2.
 
-    Deferred import: the workflow module (and the temporalio workflow sandbox it drags in)
-    stays off this module's import path until a managed bet is actually funded.
+    Deferred imports: the workflow modules (and the temporalio workflow sandbox they drag
+    in) stay off this module's import path until a managed bet is actually funded.
     """
+    build_loop = (bet.run_config or {}).get("build_loop")
+    if build_loop:
+        _start_build_loop_run(bet, build_loop)
+        return
+
     from ..temporal.client import execute_foundry_run_bet_workflow  # noqa: PLC0415
 
     caps = (bet.run_config or {}).get("caps") or {}
@@ -146,6 +153,30 @@ def _start_managed_run(bet: Bet) -> None:
         max_depth=caps.get("max_depth"),
         max_children=caps.get("max_children"),
         max_cost=caps.get("max_cost"),
+    )
+
+
+def _start_build_loop_run(bet: Bet, build_loop: dict[str, Any]) -> None:
+    """Kick off ``foundry-build-bet``: a test-writer (optional) followed by a bounded
+    builder-retry loop against the gauntlet, instead of the plain scripted root node.
+    """
+    from ..temporal.build_client import execute_foundry_build_bet_workflow  # noqa: PLC0415
+
+    target_repo = build_loop.get("target_repo") or {}
+    max_gate_iterations = build_loop.get("max_gate_iterations") or (bet.budget or {}).get("iterations") or 3
+    execute_foundry_build_bet_workflow(
+        bet_id=str(bet.id),
+        team_id=bet.team_id,
+        bet_slug=bet.slug,
+        hypothesis=bet.hypothesis,
+        success_metric=bet.success_metric,
+        protected_paths=list((bet.gate_config or {}).get("protected_paths") or []),
+        target_repo_url=target_repo.get("url", ""),
+        target_repo_base_ref=target_repo.get("base_ref", ""),
+        builder=build_loop.get("builder") or {},
+        max_gate_iterations=int(max_gate_iterations),
+        memory_repo_url=bet.memory_repo_url,
+        test_writer=build_loop.get("test_writer"),
     )
 
 

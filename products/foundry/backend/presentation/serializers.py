@@ -170,6 +170,88 @@ class GateArtifactConfigSerializer(serializers.Serializer):
     )
 
 
+class BuildLoopTargetRepoSerializer(serializers.Serializer):
+    url = serializers.CharField(
+        help_text=(
+            "Git URL of the repo the build loop checks out, commits to, and pushes — the "
+            "tokened https form (credentials embedded, like memory_repo_url) when the repo "
+            "requires auth to clone or push."
+        )
+    )
+    base_ref = serializers.CharField(
+        help_text="Ref the test-writer (or the builder, when there's no test-writer) starts from."
+    )
+
+
+class BuildLoopNodeConfigSerializer(serializers.Serializer):
+    command = serializers.CharField(
+        help_text=(
+            "Shell command that runs the coding agent for this role (e.g. "
+            "'claude -p \"$(cat prompt.md)\" --dangerously-skip-permissions'). Bet-specific "
+            "details (hypothesis, success metric, protected paths, branch names, prior gate "
+            "violations) arrive via FOUNDRY_* env vars, not text substitution — see "
+            "references/build-loop.md."
+        )
+    )
+    env = JSONObjectField(
+        required=False,
+        default=dict,
+        help_text="Extra env vars for this node (e.g. an agent API key), merged under Foundry's own FOUNDRY_* protocol vars.",
+    )
+
+
+class BuildLoopConfigSerializer(serializers.Serializer):
+    target_repo = BuildLoopTargetRepoSerializer(
+        help_text="The repo the test-writer/builder check out, commit to, and push."
+    )
+    test_writer = BuildLoopNodeConfigSerializer(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "Optional pre-build node that writes acceptance tests under gate_config.protected_paths "
+            "and pushes them to an immutable 'bet/<slug>-tests' baseline before the builder runs. "
+            "Omit to skip test-writer separation (the builder then starts straight from target_repo.base_ref)."
+        ),
+    )
+    builder = BuildLoopNodeConfigSerializer(
+        help_text="The node that implements the change behind the bet's flag and reports artifact.ready."
+    )
+    max_gate_iterations = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        default=None,
+        min_value=1,
+        help_text="Caps builder retries on gate failure. Defaults to budget.iterations, or 3 if that's unset too.",
+    )
+
+
+class RunConfigSerializer(serializers.Serializer):
+    command = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Shell command the root managed node runs. Ignored when build_loop is set.",
+    )
+    env = JSONObjectField(
+        required=False, default=dict, help_text="Env vars for the root managed node (e.g. an agent API key)."
+    )
+    caps = JSONObjectField(
+        required=False,
+        default=dict,
+        help_text="Recursive-spawn caps for the root managed node: {max_depth, max_children, max_cost}. Ignored when build_loop is set.",
+    )
+    build_loop = BuildLoopConfigSerializer(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "Runs a real coding agent (test-writer, then a bounded builder-retry loop against "
+            "the gauntlet) instead of the plain scripted root node. See references/build-loop.md."
+        ),
+    )
+
+
 class GateConfigSerializer(serializers.Serializer):
     checks = serializers.ListField(
         child=GateCheckSerializer(),
@@ -210,8 +292,8 @@ class BetSerializer(DataclassSerializer):
         choices=[(m.value, m.value) for m in ExecutionMode],
         help_text="'external': any orchestrator POSTs events. 'managed': Foundry drives the run via Temporal.",
     )
-    run_config = JSONObjectField(
-        help_text="Managed-mode execution config: {image/template, command, env allowlist, caps}."
+    run_config = RunConfigSerializer(
+        help_text="Managed-mode execution config: {command, env, caps} for a plain root node, or {build_loop} for a real-agent build loop."
     )
     memory_repo_url = serializers.CharField(
         required=False,
@@ -275,10 +357,10 @@ class CreateBetSerializer(serializers.Serializer):
         default=ExecutionMode.EXTERNAL,
         help_text="'external': any orchestrator POSTs events. 'managed': Foundry drives the run via Temporal.",
     )
-    run_config = JSONObjectField(
+    run_config = RunConfigSerializer(
         required=False,
         default=dict,
-        help_text="Managed-mode execution config: {image/template, command, env allowlist, caps}.",
+        help_text="Managed-mode execution config: {command, env, caps} for a plain root node, or {build_loop} for a real-agent build loop.",
     )
     memory_repo_url = serializers.CharField(
         required=False,

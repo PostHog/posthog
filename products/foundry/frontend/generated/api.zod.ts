@@ -16,6 +16,7 @@ export const betsCreateBodySlugMax = 200
 
 export const betsCreateBodySlugRegExp = new RegExp('^[-a-zA-Z0-9_]+$')
 export const betsCreateBodyExecutionModeDefault = `external`
+export const betsCreateBodyRunConfigOneCommandDefault = ``
 export const betsCreateBodyGateConfigOneChecksItemRequiredDefault = true
 export const betsCreateBodyGateConfigOneArtifactOneTemplateDefault = `slim_base`
 
@@ -82,9 +83,95 @@ export const BetsCreateBody = /* @__PURE__ */ zod.object({
             "'external': any orchestrator POSTs events. 'managed': Foundry drives the run via Temporal.\n\n\* `external` - external\n\* `managed` - managed"
         ),
     run_config: zod
-        .record(zod.string(), zod.unknown())
+        .object({
+            command: zod
+                .string()
+                .default(betsCreateBodyRunConfigOneCommandDefault)
+                .describe('Shell command the root managed node runs. Ignored when build_loop is set.'),
+            env: zod
+                .record(zod.string(), zod.unknown())
+                .optional()
+                .describe('Env vars for the root managed node (e.g. an agent API key).'),
+            caps: zod
+                .record(zod.string(), zod.unknown())
+                .optional()
+                .describe(
+                    'Recursive-spawn caps for the root managed node: {max_depth, max_children, max_cost}. Ignored when build_loop is set.'
+                ),
+            build_loop: zod
+                .union([
+                    zod.object({
+                        target_repo: zod
+                            .object({
+                                url: zod
+                                    .string()
+                                    .describe(
+                                        'Git URL of the repo the build loop checks out, commits to, and pushes — the tokened https form (credentials embedded, like memory_repo_url) when the repo requires auth to clone or push.'
+                                    ),
+                                base_ref: zod
+                                    .string()
+                                    .describe(
+                                        "Ref the test-writer (or the builder, when there's no test-writer) starts from."
+                                    ),
+                            })
+                            .describe('The repo the test-writer\/builder check out, commit to, and push.'),
+                        test_writer: zod
+                            .union([
+                                zod.object({
+                                    command: zod
+                                        .string()
+                                        .describe(
+                                            'Shell command that runs the coding agent for this role (e.g. \'claude -p \"$(cat prompt.md)\" --dangerously-skip-permissions\'). Bet-specific details (hypothesis, success metric, protected paths, branch names, prior gate violations) arrive via FOUNDRY_\* env vars, not text substitution — see references\/build-loop.md.'
+                                        ),
+                                    env: zod
+                                        .record(zod.string(), zod.unknown())
+                                        .optional()
+                                        .describe(
+                                            "Extra env vars for this node (e.g. an agent API key), merged under Foundry's own FOUNDRY_\* protocol vars."
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe(
+                                "Optional pre-build node that writes acceptance tests under gate_config.protected_paths and pushes them to an immutable 'bet\/<slug>-tests' baseline before the builder runs. Omit to skip test-writer separation (the builder then starts straight from target_repo.base_ref)."
+                            ),
+                        builder: zod
+                            .object({
+                                command: zod
+                                    .string()
+                                    .describe(
+                                        'Shell command that runs the coding agent for this role (e.g. \'claude -p \"$(cat prompt.md)\" --dangerously-skip-permissions\'). Bet-specific details (hypothesis, success metric, protected paths, branch names, prior gate violations) arrive via FOUNDRY_\* env vars, not text substitution — see references\/build-loop.md.'
+                                    ),
+                                env: zod
+                                    .record(zod.string(), zod.unknown())
+                                    .optional()
+                                    .describe(
+                                        "Extra env vars for this node (e.g. an agent API key), merged under Foundry's own FOUNDRY_\* protocol vars."
+                                    ),
+                            })
+                            .describe(
+                                "The node that implements the change behind the bet's flag and reports artifact.ready."
+                            ),
+                        max_gate_iterations: zod
+                            .number()
+                            .min(1)
+                            .nullish()
+                            .describe(
+                                "Caps builder retries on gate failure. Defaults to budget.iterations, or 3 if that's unset too."
+                            ),
+                    }),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    'Runs a real coding agent (test-writer, then a bounded builder-retry loop against the gauntlet) instead of the plain scripted root node. See references\/build-loop.md.'
+                ),
+        })
         .optional()
-        .describe('Managed-mode execution config: {image\/template, command, env allowlist, caps}.'),
+        .describe(
+            'Managed-mode execution config: {command, env, caps} for a plain root node, or {build_loop} for a real-agent build loop.'
+        ),
     memory_repo_url: zod
         .string()
         .nullish()

@@ -46,3 +46,12 @@ FOUNDRY_EVENT_HELPER_SCRIPT = "#!/bin/sh\nprintf '%s%s\\n' '" + FOUNDRY_EVENT_PR
 
 # Where a bet's memory_repo_url (if set) is cloned into a managed node's sandbox.
 FOUNDRY_MEMORY_MOUNT_PATH = "/memory"
+
+# Where a build-loop node's target_repo (see build_workflow.py) is cloned in its sandbox.
+FOUNDRY_TARGET_REPO_PATH = "/repo"
+
+# `npm install -g` is run once per build-loop node before its command, rather than baking
+# a dedicated sandbox image layer — SLIM_BASE already ships git+node+uv (its own Dockerfile
+# comment anticipates "node (Claude Code CLI runtime)"); see build_workflow.py's module
+# docstring for the full tradeoff.
+FOUNDRY_CLAUDE_CLI_PACKAGE = "@anthropic-ai/claude-code"
