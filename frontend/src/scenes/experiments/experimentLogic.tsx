@@ -335,7 +335,7 @@ const loadMetrics = async ({
     onSetErrors,
 }: MetricLoadingConfig): Promise<MetricLoadingSummary> => {
     const results: CachedNewExperimentQueryResponse[] = []
-    const currentErrors = Array.from({ length: metrics.length }).fill(null)
+    const currentErrors = new Array(metrics.length).fill(null)
 
     let successfulCount = 0
     let erroredCount = 0
