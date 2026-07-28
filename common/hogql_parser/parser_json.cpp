@@ -45,9 +45,13 @@ static constexpr size_t MAX_PARSER_DEPTH = 1000;
 // `SyntaxError` catch around the parse call.
 class RecursionDepthGuard : public antlr4::tree::ParseTreeListener {
  public:
-  void enterEveryRule(antlr4::ParserRuleContext* /* ctx */) override {
+  void enterEveryRule(antlr4::ParserRuleContext* ctx) override {
     if (++depth_ > MAX_PARSER_DEPTH) {
-      throw SyntaxError("input too deeply nested", 0, 0);
+      // Point at the rule's start token so downstream tooling highlights where nesting ran away,
+      // matching the real-position errors the Rust guard reports (rather than an empty 0..0 range).
+      antlr4::Token* start_token = ctx ? ctx->getStart() : nullptr;
+      size_t start = start_token ? start_token->getStartIndex() : 0;
+      throw SyntaxError("input too deeply nested", start, start);
     }
   }
   void exitEveryRule(antlr4::ParserRuleContext* /* ctx */) override {
