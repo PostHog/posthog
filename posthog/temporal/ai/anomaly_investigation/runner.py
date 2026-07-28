@@ -186,10 +186,10 @@ async def run_investigation(
     ]
 
     tool_calls_used = 0
-    # The most recent submit_investigation_report args, valid or not. When every parse
-    # path fails, salvage_report recovers verdict + summary from these instead of
-    # collapsing the run to the generic inconclusive fallback.
-    last_report_args: dict[str, Any] | None = None
+    # Every set of submit_investigation_report args seen, valid or not, oldest first.
+    # When every parse path fails, salvage tries these newest-to-oldest so a corrective
+    # retry that came back worse cannot clobber an earlier salvageable attempt.
+    report_args_history: list[dict[str, Any]] = []
 
     for _ in range(MAX_TOOL_CALLS + 1):
         if heartbeat is not None:
@@ -222,7 +222,9 @@ async def run_investigation(
                     # than bouncing off Temporal retries — MaxChatAnthropic already exhausted
                     # its built-in retry budget, so another activity attempt is unlikely to help.
                     logger.warning("anomaly_investigation.llm_finalize_error", extra={"error": str(err)})
-                    salvaged = salvage_report(last_report_args) or _fallback_report(f"LLM finalize call failed: {err}")
+                    salvaged = _salvage_from_history(report_args_history) or _fallback_report(
+                        f"LLM finalize call failed: {err}"
+                    )
                     salvaged.tool_calls_used = tool_calls_used
                     return InvestigationRunResult(report=salvaged, tool_calls_used=tool_calls_used, model=AGENT_MODEL)
                 messages.append(final)
@@ -231,7 +233,7 @@ async def run_investigation(
                 if report_args is None:
                     # Plain-text final answer; the text-JSON fallback below handles it.
                     break
-                last_report_args = report_args
+                report_args_history.append(report_args)
                 try:
                     forced_report = InvestigationReport.model_validate(report_args)
                 except ValidationError as err:
@@ -277,7 +279,7 @@ async def run_investigation(
         report_error: str | None = None
         report_args = _final_report_args(tool_calls)
         if report_args is not None:
-            last_report_args = report_args
+            report_args_history.append(report_args)
             try:
                 structured_report = InvestigationReport.model_validate(report_args)
                 structured_report.tool_calls_used = tool_calls_used
@@ -325,8 +327,8 @@ async def run_investigation(
     final_message = messages[-1]
     content = getattr(final_message, "content", "")
     report: InvestigationReport | None = _parse_report_text(content)
-    if report is None and last_report_args is not None:
-        report = salvage_report(last_report_args)
+    if report is None:
+        report = _salvage_from_history(report_args_history)
         if report is not None:
             logger.warning(
                 "anomaly_investigation.report_salvaged",
@@ -373,6 +375,14 @@ def _final_report_args(tool_calls: list[dict[str, Any]]) -> dict[str, Any] | Non
     for call in tool_calls:
         if call.get("name") == FINAL_REPORT_TOOL_NAME:
             return call.get("args") or {}
+    return None
+
+
+def _salvage_from_history(report_args_history: list[dict[str, Any]]) -> InvestigationReport | None:
+    for args in reversed(report_args_history):
+        report = salvage_report(args)
+        if report is not None:
+            return report
     return None
 
 

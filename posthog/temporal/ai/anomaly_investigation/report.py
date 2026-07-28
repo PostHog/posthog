@@ -186,6 +186,10 @@ def salvage_report(args: Any) -> InvestigationReport | None:
         report = InvestigationReport.model_validate({"verdict": data.get("verdict"), "summary": data.get("summary")})
     except ValidationError:
         return None
+    if not report.summary.strip():
+        # A verdict with no explanation must not gate notification dispatch; the
+        # inconclusive fallback is safer than an unexplained suppression.
+        return None
     hypotheses = data.get("hypotheses")
     if isinstance(hypotheses, list):
         for item in hypotheses:

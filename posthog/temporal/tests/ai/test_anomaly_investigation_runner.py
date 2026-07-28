@@ -218,8 +218,16 @@ def test_salvage_report_keeps_verdict_and_summary_when_hypotheses_unrecoverable(
     assert report.recommendations == ["Check the tenant."]
 
 
-def test_salvage_report_rejects_invalid_verdict() -> None:
-    assert salvage_report({"verdict": "maybe", "summary": "x"}) is None
+@parameterized.expand(
+    [
+        ("invalid_verdict", {"verdict": "maybe", "summary": "x"}),
+        # A blank summary must not gate notifications: a salvaged false_positive with no
+        # explanation would silently suppress the alert.
+        ("blank_summary", {"verdict": "false_positive", "summary": "   ", "hypotheses": "prose"}),
+    ]
+)
+def test_salvage_report_rejects_untrustworthy_args(_name: str, args: dict) -> None:
+    assert salvage_report(args) is None
 
 
 def test_report_from_tool_calls_ignores_invalid_structured_final_report() -> None:
@@ -339,6 +347,11 @@ _VALID_REPORT_ARGS = {
             [_report_turn(_UNRECOVERABLE_REPORT_ARGS), _report_turn(_UNRECOVERABLE_REPORT_ARGS)],
             0,
             id="salvage_after_failed_retry",
+        ),
+        pytest.param(
+            [_report_turn(_UNRECOVERABLE_REPORT_ARGS), _report_turn({"verdict": "maybe", "summary": "x"})],
+            0,
+            id="salvage_first_attempt_when_retry_comes_back_worse",
         ),
     ],
 )
