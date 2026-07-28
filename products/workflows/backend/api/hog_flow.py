@@ -10,7 +10,7 @@ from typing import Any, Optional, cast
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 from django.http import Http404, HttpResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -19,7 +19,7 @@ import structlog
 from django_filters import BaseInFilter, CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import LimitOffsetPagination
@@ -1900,13 +1900,13 @@ class CommaSeparatedListFilter(BaseInFilter, CharFilter):
 class HogFlowFilterSet(FilterSet):
     class Meta:
         model = HogFlow
-        fields = ["id", "created_by", "created_at", "updated_at", "status"]
+        # `created_by` is filtered by uuid in safely_get_queryset (the list UI's member picker keys on
+        # uuid, not pk), so it's deliberately not an exact-match field here.
+        fields = ["id", "created_at", "updated_at", "status"]
 
 
 class HogFlowPagination(LimitOffsetPagination):
-    # Bumped from the global default of 100 so the workflows list page loads all flows in one
-    # request — the frontend list/search runs client-side over a single page (no pagination UI yet).
-    default_limit = 200
+    default_limit = 100
     max_limit = 500
 
 
@@ -1979,6 +1979,22 @@ def mint_audience_confirm_token(
 
 
 @extend_schema(extensions={"x-product": "workflows"})
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "search",
+                OpenApiTypes.STR,
+                description="Case-insensitive search across workflow name and description.",
+            ),
+            OpenApiParameter(
+                "created_by",
+                OpenApiTypes.UUID,
+                description="Filter to workflows created by the user with this uuid.",
+            ),
+        ]
+    )
+)
 class HogFlowViewSet(
     TeamAndOrgViewSetMixin, AccessControlViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet
 ):
@@ -2085,7 +2101,28 @@ class HogFlowViewSet(
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         if self.action == "list":
-            queryset = queryset.order_by("-updated_at")
+            # `id` breaks ties so LIMIT/OFFSET paging stays stable: rows sharing an updated_at can
+            # otherwise repeat on one page and never appear on another.
+            queryset = queryset.order_by("-updated_at", "-id")
+
+            search = self.request.GET.get("search")
+            if search is not None:
+                search = search.strip()
+                if search:
+                    if len(search) > 200:
+                        raise exceptions.ValidationError({"search": "Search term cannot exceed 200 characters"})
+                    # Escape regex metacharacters, then let spaces match any run of space/dash/underscore
+                    # so "welcome email" also matches "welcome-email" — same approach as feature flag search.
+                    regex_pattern = re.escape(search).replace(r"\ ", r"[\s\-_]*")
+                    queryset = queryset.filter(Q(name__iregex=regex_pattern) | Q(description__iregex=regex_pattern))
+
+            created_by = self.request.GET.get("created_by")
+            if created_by:
+                try:
+                    uuid_mod.UUID(created_by)
+                except ValueError:
+                    raise exceptions.ValidationError({"created_by": "Must be a valid user uuid"})
+                queryset = queryset.filter(created_by__uuid=created_by)
 
         if self.request.GET.get("trigger"):
             try:
