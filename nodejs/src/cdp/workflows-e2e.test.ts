@@ -781,6 +781,88 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
         })
     })
 
+    // Pre-existing gap, reproduced here so it isn't mistaken for fallout from removing the poll:
+    // a batch/manual invocation carries a person_id but no distinct_id, and a merge deletes the
+    // losing person row. person-based waits on such a run can never advance again — polling does not
+    // rescue them, because every re-check resolves no person at all.
+    describe('wait_until_condition: batch run whose person is merged away', () => {
+        const personUuid = 'aaaaaaaa-0000-4000-8000-000000000001'
+
+        const personWithUuid = (uuid: string, properties: Record<string, string>): any => ({
+            id: '1',
+            uuid,
+            team_id: team.id,
+            properties,
+            properties_last_updated_at: {},
+            properties_last_operation: null,
+            created_at: DateTime.utc(),
+            version: 1,
+            is_identified: true,
+            is_user_id: null,
+            last_seen_at: null,
+        })
+
+        // Matches only if the person resolves and carries plan=enterprise. The survivor would.
+        const planCondition = {
+            bytecode: ['_H', 1, 32, 'enterprise', 32, 'plan', 32, 'properties', 32, 'person', 1, 3, 11],
+            properties: [{ key: 'plan', value: 'enterprise', type: 'person', operator: 'exact' }],
+        }
+
+        it('never advances once the person row is gone, poll or no poll', async () => {
+            const flow = await createWorkflowFlow({
+                actions: {
+                    trigger: trigger(),
+                    wait_condition: {
+                        type: 'wait_until_condition',
+                        config: { condition: { filters: planCondition }, max_wait_duration: '20d' },
+                    },
+                    function_1: fetchAction('https://example.com/plan-matched'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'wait_condition', type: 'continue' },
+                    { from: 'wait_condition', to: 'function_1', type: 'branch', index: 0 },
+                    { from: 'wait_condition', to: 'exit', type: 'continue' },
+                    { from: 'function_1', to: 'exit', type: 'continue' },
+                ],
+            })
+
+            // Pre-merge: the person exists but doesn't match yet, so the run parks.
+            mockPersonRepo.fetchPersonsByPersonIds.mockResolvedValue([
+                { ...personWithUuid(personUuid, { plan: 'free' }) },
+            ])
+            await triggerBatchWorkflow(flow, personUuid)
+            await waitForExpect(async () => {
+                const jobs = await queryCyclotronJobs()
+                expect(jobs.some((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
+            }, 5000)
+
+            // The merge lands: distinct_ids move to the survivor and this person row is deleted. The
+            // parked run still references the dead id, and fetchPersonsByPersonIds has no override
+            // join, so it resolves nothing. The survivor is on enterprise — the condition *should*
+            // match — but the run can't see them.
+            mockPersonRepo.fetchPersonsByPersonIds.mockResolvedValue([])
+            mockPersonRepo.fetchPersonsByDistinctIds.mockResolvedValue([])
+            ;(hogflowWorker as any).personsManager.clear()
+
+            // Simulate every poll re-check the backstop would ever perform.
+            for (let i = 0; i < 3; i++) {
+                await cyclotronPool.query(
+                    `UPDATE cyclotron_jobs SET scheduled = NOW() WHERE ${statusColumn} = 'available' AND scheduled > NOW()`
+                )
+                await waitForExpect(async () => {
+                    const jobs = await queryCyclotronJobs()
+                    expect(jobs.some((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(
+                        true
+                    )
+                }, 5000)
+            }
+
+            // Re-parked every time, never advanced. Polling is not what was keeping this alive.
+            expect(mockFetch).not.toHaveBeenCalled()
+        })
+    })
+
     describe('wait_until_condition: wake plan parks to the computed instant', () => {
         // Verbatim output of the save-time analyzer for team 84676's live condition
         // (`now() >= trial_expiration_at - coalesce(trial_reminder_days, 1) days`) — the flow that
