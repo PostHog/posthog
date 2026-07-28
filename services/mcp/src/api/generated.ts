@@ -28373,6 +28373,11 @@ export namespace Schemas {
       readonly access_method: AccessMethodEnum;
       /** Whether HogQL queries compile for this connection. When false, only raw SQL (sendRawQuery) works. */
       readonly supports_hogql: boolean;
+      /**
+         * User-set description of the source, shown as its display name in the connection picker when set.
+         * @nullable
+         */
+      readonly description: string | null;
     }
 
     /**
@@ -76605,6 +76610,28 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Field to sort the prompt list by. Prefix with '-' for descending order.
+     *
+     * * `name` - name
+     * * `-name` - -name
+     * * `created_at` - created_at
+     * * `-created_at` - -created_at
+     * * `updated_at` - updated_at
+     * * `-updated_at` - -updated_at
+     * * `version` - version
+     * * `-version` - -version
+     * * `latest_version` - latest_version
+     * * `-latest_version` - -latest_version
+     * * `version_count` - version_count
+     * * `-version_count` - -version_count
+     * * `first_version_created_at` - first_version_created_at
+     * * `-first_version_created_at` - -first_version_created_at
+     * * `prompt_size_bytes` - prompt_size_bytes
+     * * `-prompt_size_bytes` - -prompt_size_bytes
+     * @minLength 1
+     */
+    order_by?: string;
     /**
      * Optional substring filter applied to prompt names and prompt content.
      */
