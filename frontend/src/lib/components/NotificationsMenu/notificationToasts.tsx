@@ -1,6 +1,7 @@
 import { ComponentType } from 'react'
 
 import {
+    IconBell,
     IconBug,
     IconCheckCircle,
     IconClock,
@@ -33,6 +34,7 @@ const NOTIFICATION_TYPE_ICONS: Record<string, { Icon: ComponentType<{ className?
     reminder: { Icon: IconClock, color: 'text-primary' },
     web_analytics_digest: { Icon: IconPieChart, color: 'text-primary' },
     achievement_unlocked: { Icon: IconStar, color: 'text-warning' },
+    subscription_nudge: { Icon: IconBell, color: 'text-primary' },
 }
 
 export function getNotificationIcon(notificationType: string, className: string = 'size-5'): JSX.Element {

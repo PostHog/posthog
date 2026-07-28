@@ -4,7 +4,7 @@ import uuid
 import random
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from unittest.mock import AsyncMock, Mock
@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, Mock
 from django.conf import settings
 
 from asgiref.sync import sync_to_async
+from parameterized import parameterized
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError, ApplicationError, RetryState
 from temporalio.testing import WorkflowEnvironment
@@ -22,7 +23,9 @@ from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.temporal.constants import INACTIVITY_TIMEOUT_USER_SECONDS, WARM_IDLE_TIMEOUT
 from products.tasks.backend.temporal.process_task import workflow as process_task_workflow_module
 from products.tasks.backend.temporal.process_task.activities import (
+    STEER_DECLINED_OUTCOME,
     CleanupSandboxInput,
+    CompleteRunStreamInput,
     CreateSandboxForRepositoryInput,
     CreateSandboxForRepositoryOutput,
     GetSandboxForRepositoryOutput,
@@ -35,6 +38,7 @@ from products.tasks.backend.temporal.process_task.activities import (
     checkout_branch_in_sandbox,
     cleanup_sandbox,
     clone_repository_in_sandbox,
+    complete_run_stream,
     create_sandbox_for_repository,
     emit_progress_activity,
     forward_pending_user_message,
@@ -71,6 +75,8 @@ def _build_context(
     use_modal_resume_snapshots: bool = True,
     sandbox_event_ingest_enabled: bool = False,
     environment: str | None = None,
+    use_modal_vm_sandbox: bool = False,
+    custom_image_name: str | None = None,
 ) -> TaskProcessingContext:
     return TaskProcessingContext(
         task_id="task-id",
@@ -87,6 +93,8 @@ def _build_context(
         _branch="feature-branch",
         use_modal_resume_snapshots=use_modal_resume_snapshots,
         sandbox_event_ingest_enabled=sandbox_event_ingest_enabled,
+        use_modal_vm_sandbox=use_modal_vm_sandbox,
+        custom_image_name=custom_image_name,
     )
 
 
@@ -156,6 +164,7 @@ class TestProcessTaskWorkflow:
                     start_agent_server,
                     read_sandbox_logs,
                     cleanup_sandbox,
+                    complete_run_stream,
                     track_workflow_event,
                     update_task_run_status,
                 ],
@@ -274,6 +283,7 @@ class TestProcessTaskWorkflow:
                     start_agent_server,
                     read_sandbox_logs,
                     cleanup_sandbox,
+                    complete_run_stream,
                     track_workflow_event,
                     update_task_run_status,
                 ],
@@ -294,8 +304,275 @@ class TestProcessTaskWorkflow:
         assert result.error is not None
 
 
+class TestProcessTaskFollowupDispatch:
+    async def test_declined_steers_requeue_in_arrival_order(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+        release_initial = asyncio.Event()
+        deliveries: list[tuple[str | None, bool]] = []
+
+        async def fake_send_followup(
+            *, message, artifact_ids, actor_user_id=None, message_id=None, context=None, steer=False
+        ):
+            deliveries.append((message, steer))
+            if message == "keep working":
+                await release_initial.wait()
+            elif steer:
+                return STEER_DECLINED_OUTCOME
+            return None
+
+        monkeypatch.setattr(workflow, "_send_followup_to_sandbox", fake_send_followup)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=Mock()))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "deprecate_patch", Mock())
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+
+        await workflow.send_followup_message("keep working")
+        assert await workflow._dispatch_next_followup() is True
+        await asyncio.sleep(0)
+
+        await workflow.send_steer_message("use green instead")
+        assert await workflow._dispatch_next_followup() is True
+        await workflow.send_steer_message("use blue instead")
+        assert await workflow._dispatch_next_followup() is True
+
+        assert deliveries == [
+            ("keep working", False),
+            ("use green instead", True),
+            ("use blue instead", True),
+        ]
+        assert [(followup.message, followup.steer) for followup in workflow._pending_followups] == [
+            ("use green instead", False),
+            ("use blue instead", False),
+        ]
+        release_initial.set()
+        await workflow._finish_active_followup()
+        assert deliveries == [
+            ("keep working", False),
+            ("use green instead", True),
+            ("use blue instead", True),
+            ("use green instead", False),
+            ("use blue instead", False),
+        ]
+
+    async def test_sender_message_id_survives_concurrent_dispatch(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+        deliveries: list[tuple[str | None, str | None, bool]] = []
+
+        async def fake_send_followup(
+            *, message, artifact_ids, actor_user_id=None, message_id=None, context=None, steer=False
+        ):
+            deliveries.append((message, message_id, steer))
+            return None
+
+        monkeypatch.setattr(workflow, "_send_followup_to_sandbox", fake_send_followup)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=Mock()))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "deprecate_patch", Mock())
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+
+        await workflow.send_followup_message("from Slack", [], "message-123")
+        assert await workflow._dispatch_next_followup() is True
+        await workflow._finish_active_followup()
+
+        assert deliveries == [("from Slack", "message-123", False)]
+
+    async def test_native_steer_preserves_sender_identity(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+        deliveries: list[tuple[int | None, str | None, dict[str, object] | None, bool]] = []
+
+        async def fake_send_followup(
+            *, message, artifact_ids, actor_user_id=None, message_id=None, context=None, steer=False
+        ):
+            deliveries.append((actor_user_id, message_id, context, steer))
+            return None
+
+        monkeypatch.setattr(workflow, "_send_followup_to_sandbox", fake_send_followup)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=Mock()))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "deprecate_patch", Mock())
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+
+        await workflow.send_steer_message(
+            "from Slack",
+            [],
+            "message-123",
+            42,
+            {"actor_slack_user_id": "U1"},
+        )
+        assert await workflow._dispatch_next_followup() is True
+        await workflow._finish_active_followup()
+
+        assert deliveries == [(42, "message-123", {"actor_slack_user_id": "U1"}, True)]
+
+    async def test_terminal_drain_closes_followup_admission(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+
+        await workflow._finish_active_followup()
+        await workflow.send_steer_message("too late")
+
+        assert workflow._pending_followup is None
+        assert workflow._pending_followups == []
+
+    async def test_final_drain_rejects_followup_while_active_dispatch_finishes(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+        release_initial = asyncio.Event()
+        deliveries: list[str | None] = []
+
+        async def fake_send_followup(
+            *, message, artifact_ids, actor_user_id=None, message_id=None, context=None, steer=False
+        ):
+            deliveries.append(message)
+            if message == "keep working":
+                await release_initial.wait()
+            return None
+
+        monkeypatch.setattr(workflow, "_send_followup_to_sandbox", fake_send_followup)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=Mock()))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "deprecate_patch", Mock())
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+
+        await workflow.send_followup_message("keep working")
+        assert await workflow._dispatch_next_followup() is True
+        await asyncio.sleep(0)
+
+        finish_task = asyncio.create_task(workflow._finish_active_followup())
+        await asyncio.sleep(0)
+        assert workflow._shutting_down is True
+
+        await workflow.send_followup_message("arrived during drain")
+        release_initial.set()
+        await finish_task
+
+        assert deliveries == ["keep working"]
+        assert workflow._pending_followups == []
+
+    async def test_cancellation_stops_active_followup_and_discards_queue(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+        followup_cancelled = asyncio.Event()
+
+        async def fake_send_followup(
+            *, message, artifact_ids, actor_user_id=None, message_id=None, context=None, steer=False
+        ):
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                followup_cancelled.set()
+                raise
+
+        monkeypatch.setattr(workflow, "_send_followup_to_sandbox", fake_send_followup)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=Mock()))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "deprecate_patch", Mock())
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+
+        await workflow.send_followup_message("keep working")
+        assert await workflow._dispatch_next_followup() is True
+        await asyncio.sleep(0)
+        await workflow.send_followup_message("queued work")
+
+        await workflow.complete_task("cancelled", "Stopped by user")
+        await workflow._finish_active_followup()
+
+        assert followup_cancelled.is_set()
+        assert workflow._active_followup_task is None
+        assert workflow._pending_followup is None
+        assert workflow._pending_followups == []
+
+    async def test_completion_waits_for_declined_steer_fallback(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+        release_steer = asyncio.Event()
+        deliveries: list[tuple[str | None, bool]] = []
+
+        async def fake_send_followup(
+            *, message, artifact_ids, actor_user_id=None, message_id=None, context=None, steer=False
+        ):
+            deliveries.append((message, steer))
+            if steer:
+                await release_steer.wait()
+                return STEER_DECLINED_OUTCOME
+            return None
+
+        monkeypatch.setattr(workflow, "_send_followup_to_sandbox", fake_send_followup)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=Mock()))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "deprecate_patch", Mock())
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+
+        await workflow.send_steer_message("finish in green")
+        assert await workflow._dispatch_next_followup() is True
+        await asyncio.sleep(0)
+
+        await workflow.complete_task()
+        release_steer.set()
+        await workflow._finish_active_followup()
+
+        assert deliveries == [("finish in green", True), ("finish in green", False)]
+        assert workflow._pending_followup is None
+        assert workflow._pending_followups == []
+
+
 @pytest.mark.django_db
 class TestProcessTaskWorkflowUnit:
+    async def test_final_sandbox_cleanup_completes_the_run_stream(self, monkeypatch):
+        cleanup_inputs: list[CleanupSandboxInput] = []
+
+        async def fake_execute_activity(activity_fn, activity_input, **kwargs):
+            assert activity_fn is cleanup_sandbox
+            cleanup_inputs.append(activity_input)
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+
+        await workflow._cleanup_sandbox("sandbox-123", complete_stream=True)
+
+        assert cleanup_inputs == [
+            CleanupSandboxInput(
+                sandbox_id="sandbox-123",
+                run_id="run-id",
+                complete_stream_on_cleanup=True,
+            )
+        ]
+
+    async def test_final_sandbox_cleanup_completes_stream_after_cleanup_retries_fail(self, monkeypatch):
+        activity_calls: list[object] = []
+
+        async def fake_execute_activity(activity_fn, activity_input, **kwargs):
+            activity_calls.append(activity_fn)
+            if activity_fn is cleanup_sandbox:
+                raise RuntimeError("destroy failed")
+            assert activity_fn is complete_run_stream
+            assert activity_input == CompleteRunStreamInput(run_id="run-id")
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+
+        with pytest.raises(RuntimeError, match="destroy failed"):
+            await workflow._cleanup_sandbox("sandbox-123", complete_stream=True)
+
+        assert activity_calls == [cleanup_sandbox, complete_run_stream]
+
+    async def test_finalizes_run_stream_without_a_sandbox(self, monkeypatch):
+        stream_inputs: list[CompleteRunStreamInput] = []
+
+        async def fake_execute_activity(activity_fn, activity_input, **kwargs):
+            assert activity_fn is complete_run_stream
+            stream_inputs.append(activity_input)
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+        workflow = ProcessTaskWorkflow()
+
+        await workflow._complete_run_stream("run-id")
+
+        assert stream_inputs == [CompleteRunStreamInput(run_id="run-id")]
+
     async def test_send_followup_message_can_arrive_before_context_is_loaded(self, monkeypatch):
         logger = Mock()
         deprecate_patch = Mock()
@@ -304,11 +581,13 @@ class TestProcessTaskWorkflowUnit:
         workflow = ProcessTaskWorkflow()
 
         await workflow.send_followup_message("first", ["artifact-1"])
-        await workflow.send_followup_message("second", ["artifact-2"])
+        await workflow.send_steer_message("second", ["artifact-2"])
+        await workflow.send_followup_message("legacy-steer", ["artifact-3"], True)
 
         assert workflow._pending_followups == [
             PendingFollowup(message="first", artifact_ids=["artifact-1"]),
-            PendingFollowup(message="second", artifact_ids=["artifact-2"]),
+            PendingFollowup(message="second", artifact_ids=["artifact-2"], steer=True, sequence=1),
+            PendingFollowup(message="legacy-steer", artifact_ids=["artifact-3"], steer=True, sequence=2),
         ]
         assert workflow._pending_followup is None
         deprecate_patch.assert_called_with(process_task_workflow_module._PATCH_ID_FOLLOWUP_QUEUE)
@@ -328,7 +607,7 @@ class TestProcessTaskWorkflowUnit:
                 "artifact_count": 1,
             },
         )
-        assert logger.info.call_count == 2
+        assert logger.info.call_count == 3
 
     async def test_send_permission_response_can_arrive_before_context_is_loaded(self, monkeypatch):
         logger = Mock()
@@ -612,7 +891,7 @@ class TestProcessTaskWorkflowUnit:
         assert result.error == "clone failed"
         assert result.sandbox_id == "sandbox-123"
         read_sandbox_logs_mock.assert_awaited_once_with("sandbox-123")
-        cleanup_sandbox_mock.assert_awaited_once_with("sandbox-123")
+        cleanup_sandbox_mock.assert_awaited_once_with("sandbox-123", complete_stream=True)
 
     async def test_run_refuses_local_environment_run_without_touching_it(self, monkeypatch):
         # If a local (desktop-driven) run is ever cloud-dispatched again (e.g. the reconciler's
@@ -648,11 +927,13 @@ class TestProcessTaskWorkflowUnit:
         update_task_run_status_mock = AsyncMock()
         track_workflow_event_mock = AsyncMock()
         post_slack_update_mock = AsyncMock()
+        complete_run_stream_mock = AsyncMock()
 
         monkeypatch.setattr(workflow, "_get_task_processing_context", get_task_processing_context_mock)
         monkeypatch.setattr(workflow, "_update_task_run_status", update_task_run_status_mock)
         monkeypatch.setattr(workflow, "_track_workflow_event", track_workflow_event_mock)
         monkeypatch.setattr(workflow, "_post_slack_update", post_slack_update_mock)
+        monkeypatch.setattr(workflow, "_complete_run_stream", complete_run_stream_mock)
 
         result = await workflow.run(ProcessTaskInput(run_id="run-id"))
 
@@ -667,6 +948,7 @@ class TestProcessTaskWorkflowUnit:
         )
         track_workflow_event_mock.assert_not_awaited()
         post_slack_update_mock.assert_not_awaited()
+        complete_run_stream_mock.assert_awaited_once_with("run-id")
 
     async def test_run_persists_activity_failure_cause_not_the_wrapper(self, monkeypatch):
         workflow = ProcessTaskWorkflow()
@@ -871,7 +1153,7 @@ class TestProcessTaskWorkflowUnit:
             error_message=SANDBOX_GONE_ERROR_MESSAGE,
             error_type=None,
         )
-        cleanup_sandbox_mock.assert_awaited_once_with("sandbox-123")
+        cleanup_sandbox_mock.assert_awaited_once_with("sandbox-123", complete_stream=True)
 
     @pytest.mark.parametrize(
         "patched, expected_post_slack_calls",
@@ -1073,13 +1355,22 @@ class TestProcessTaskWorkflowUnit:
 
         assert inject_fresh_tokens_on_resume not in activity_calls
 
+    @pytest.mark.parametrize(
+        "custom_image_name, expected_image_source, expected_image_source_label",
+        [
+            (None, "base_image", "published sandbox base image"),
+            ("sandbox-custom-abc", "custom_image", "custom base image sandbox-custom-abc"),
+        ],
+    )
     async def test_get_sandbox_for_repository_falls_back_to_fresh_sandbox_when_resume_injection_fails(
-        self, monkeypatch
+        self, monkeypatch, custom_image_name, expected_image_source, expected_image_source_label
     ):
         workflow = ProcessTaskWorkflow()
         workflow._context = _build_context(
             github_integration_id=123,
             state={"snapshot_external_id": "im-abc123", "resume_from_run_id": "previous-run-id"},
+            use_modal_vm_sandbox=custom_image_name is not None,
+            custom_image_name=custom_image_name,
         )
 
         prepared = PrepareSandboxForRepositoryOutput(
@@ -1144,6 +1435,8 @@ class TestProcessTaskWorkflowUnit:
         assert fresh_prepared.snapshot_external_id is None
         assert fresh_prepared.used_snapshot is False
         assert fresh_prepared.should_create_snapshot is True
+        assert fresh_prepared.image_source == expected_image_source
+        assert fresh_prepared.image_source_label == expected_image_source_label
         assert clone_repository_in_sandbox in activity_calls
 
     async def test_get_sandbox_for_repository_propagates_non_dead_sandbox_failures(self, monkeypatch):
@@ -1238,7 +1531,7 @@ class TestProcessTaskWorkflowUnit:
 
         await workflow.run(ProcessTaskInput(run_id="run-id"))
 
-        cleanup_sandbox_mock.assert_awaited_once_with("sandbox-123")
+        cleanup_sandbox_mock.assert_awaited_once_with("sandbox-123", complete_stream=True)
         if expect_resume_snapshot_call:
             create_resume_snapshot_mock.assert_awaited_once_with("sandbox-123")
         else:
@@ -1310,3 +1603,101 @@ class TestProcessTaskWorkflowUnit:
         await workflow._get_sandbox_for_repository()
 
         assert inject_fresh_tokens_on_resume in activity_calls
+
+
+class TestContinueAsNew:
+    """continue_as_new must only fire from a clean idle point and only when enabled, and the
+    loop state it carries must survive the hand-off."""
+
+    def _idle_enabled_workflow(self, *, threshold: int = 0) -> ProcessTaskWorkflow:
+        wf = ProcessTaskWorkflow()
+        ctx = _build_context(github_integration_id=123)
+        ctx.continue_as_new_enabled = True
+        ctx.continue_as_new_history_threshold = threshold
+        wf._context = ctx
+        return wf
+
+    def test_build_and_restore_round_trips_loop_state(self) -> None:
+        wf = self._idle_enabled_workflow()
+        wf._sandbox_url = "https://sandbox.example"
+        wf._sandbox_connect_token = "tok"
+        wf._ci_repetitions = 2
+        wf._pr_fingerprint = "fp-1"
+        wf._pr_progress_emitted = True
+        wf._first_user_message_received = True
+        wf._is_agent_design_enabled = True
+        wf._last_active_time = datetime(2026, 7, 16, 10, 30, tzinfo=UTC)
+        wf._slack_thread_context = {"channel": "C1"}
+        wf._posthog_mcp_scopes = "full"
+
+        resumed_input = wf._build_resumed_input(ProcessTaskInput(run_id="run-id", create_pr=False), sandbox_id="sb-1")
+
+        assert resumed_input.prewarmed is False
+        assert resumed_input.slack_thread_context == {"channel": "C1"}
+        assert resumed_input.posthog_mcp_scopes == "full"
+        rs = resumed_input.resumed_sandbox
+        assert rs is not None
+        assert (rs.sandbox_id, rs.sandbox_url, rs.connect_token) == ("sb-1", "https://sandbox.example", "tok")
+
+        restored = ProcessTaskWorkflow()
+        restored._restore_resumed_state(rs)
+
+        assert restored._ci_repetitions == 2
+        assert restored._pr_fingerprint == "fp-1"
+        assert restored._pr_progress_emitted is True
+        assert restored._first_user_message_received is True
+        assert restored._is_agent_design_enabled is True
+        # The datetime survives the ISO round-trip.
+        assert restored._last_active_time == datetime(2026, 7, 16, 10, 30, tzinfo=UTC)
+
+    @parameterized.expand(
+        [
+            ("task_completed", lambda wf: setattr(wf, "_task_completed", True)),
+            ("sandbox_gone", lambda wf: setattr(wf, "_sandbox_gone", True)),
+            (
+                "pending_followup",
+                lambda wf: setattr(wf, "_pending_followup", PendingFollowup(message="m", artifact_ids=[])),
+            ),
+            (
+                "pending_followups",
+                lambda wf: wf._pending_followups.append(PendingFollowup(message="m", artifact_ids=[])),
+            ),
+            (
+                "pending_permission",
+                lambda wf: wf._pending_permission_responses.append(
+                    PendingPermissionResponse(request_id="r", option_id="o", actor_user_id=1)
+                ),
+            ),
+            ("heartbeat_pending", lambda wf: setattr(wf, "_heartbeat_received", True)),
+            ("slack_relay_active", lambda wf: setattr(wf, "_current_slack_relay_workflow_id", "relay-1")),
+        ]
+    )
+    def test_does_not_continue_when_not_idle(self, _name: str, mutate) -> None:
+        wf = self._idle_enabled_workflow(threshold=1)
+        mutate(wf)
+        # Each of these short-circuits before workflow.info(), so no workflow env is needed.
+        assert wf._should_continue_as_new("sb-1") is False
+
+    def test_does_not_continue_when_disabled(self) -> None:
+        wf = self._idle_enabled_workflow(threshold=1)
+        wf.context.continue_as_new_enabled = False
+        assert wf._should_continue_as_new("sb-1") is False
+
+    def test_does_not_continue_without_sandbox(self) -> None:
+        wf = self._idle_enabled_workflow(threshold=1)
+        assert wf._should_continue_as_new(None) is False
+
+    def test_continues_when_history_over_threshold(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        wf = self._idle_enabled_workflow(threshold=100)
+        fake_info = Mock()
+        fake_info.get_current_history_length.return_value = 100
+        fake_info.is_continue_as_new_suggested.return_value = False
+        monkeypatch.setattr(process_task_workflow_module.workflow, "info", lambda: fake_info)
+        assert wf._should_continue_as_new("sb-1") is True
+
+    def test_continues_when_temporal_suggests(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        wf = self._idle_enabled_workflow(threshold=0)  # threshold off — fall back to the SDK signal
+        fake_info = Mock()
+        fake_info.is_continue_as_new_suggested.return_value = True
+        monkeypatch.setattr(process_task_workflow_module.workflow, "info", lambda: fake_info)
+        assert wf._should_continue_as_new("sb-1") is True

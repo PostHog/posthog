@@ -117,10 +117,26 @@ function PayloadKeyValueList({ payload }: { payload: Record<string, unknown> }):
     )
 }
 
-/** `sdk_outdated`: render the version upgrade as a single `current → latest` line. */
+/** `sdk_outdated`: render a migration or version upgrade as a single transition line. */
 function SdkOutdatedPayload({ payload }: { payload: Record<string, unknown> }): JSX.Element | null {
-    const current = payload.current_version
     const latest = payload.latest_version
+    const migrationTarget = payload.migration_target
+
+    if (typeof migrationTarget === 'string') {
+        const migrationSource = payload.migration_source
+        if (typeof migrationSource !== 'string') {
+            return <PayloadKeyValueList payload={payload} />
+        }
+        return (
+            <div className="text-xs text-secondary">
+                <span className="font-mono">{formatPrimitive(migrationSource)}</span>
+                <span className="text-tertiary"> → </span>
+                <span className="font-mono">{formatPrimitive(migrationTarget)}</span>
+            </div>
+        )
+    }
+
+    const current = payload.current_version
     if (!isPrimitive(current) || !isPrimitive(latest)) {
         return <PayloadKeyValueList payload={payload} />
     }

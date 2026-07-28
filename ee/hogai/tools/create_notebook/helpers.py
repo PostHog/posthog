@@ -4,7 +4,6 @@ from typing import Any
 
 from posthog.models import Team, User
 from posthog.rbac.user_access_control import UserAccessControl
-from posthog.sync import database_sync_to_async
 
 from products.notebooks.backend.facade import (
     api as notebooks,
@@ -22,7 +21,6 @@ from ee.hogai.artifacts.manager import ArtifactManager
 from ee.hogai.artifacts.types import StoredBlock, StoredNotebookArtifactContent, VisualizationRefBlock
 from ee.hogai.tools.create_notebook.parsing import parse_notebook_content_for_storage
 from ee.hogai.tools.create_notebook.tiptap import blocks_to_tiptap_doc
-from ee.hogai.utils.feature_flags import has_markdown_notebooks_feature_flag
 from ee.hogai.utils.types.base import AssistantMessageUnion
 
 
@@ -184,11 +182,11 @@ async def save_notebook_to_db(
 
     tiptap_doc = blocks_to_tiptap_doc(blocks, title=title, resolve_visualization=resolve_visualization)
 
-    # New notebooks follow the markdown notebooks rollout. Existing TipTap notebooks keep
-    # their stored format so open editors don't flip formats mid-session.
+    # New notebooks are always markdown. Existing TipTap notebooks keep their stored
+    # format so open editors don't flip formats mid-session.
     content: dict[str, Any] = tiptap_doc
     text_content: str | None = None
-    if existing_notebook is None and await database_sync_to_async(has_markdown_notebooks_feature_flag)(team, user):
+    if existing_notebook is None:
         markdown = convert_notebook_content_to_markdown(tiptap_doc)
         content = build_markdown_notebook_content(markdown)
         text_content = markdown

@@ -1,6 +1,6 @@
 use crate::frames::Frame;
 use crate::tokenizer::CL100K_BPE;
-use crate::types::OutputErrProps;
+use crate::types::ProcessedExceptionProperties;
 
 /// Render exception types, messages, and stack frames as a human-readable string.
 ///
@@ -10,7 +10,7 @@ use crate::types::OutputErrProps;
 /// are kept with a `...` marker between them. If the truncated output is
 /// still over the limit, the string is hard-truncated to exactly `limit`
 /// tokens.
-pub fn print_stacktrace(props: &OutputErrProps, max_tokens: Option<usize>) -> String {
+pub fn print_stacktrace(props: &ProcessedExceptionProperties, max_tokens: Option<usize>) -> String {
     let full = render_stacktrace(props, false);
 
     let Some(limit) = max_tokens else {
@@ -42,10 +42,10 @@ pub fn print_stacktrace(props: &OutputErrProps, max_tokens: Option<usize>) -> St
     }
 }
 
-fn render_stacktrace(props: &OutputErrProps, truncate: bool) -> String {
+fn render_stacktrace(props: &ProcessedExceptionProperties, truncate: bool) -> String {
     let mut content = String::with_capacity(2048);
 
-    for exception in &props.exception_list.0 {
+    for exception in &props.exception_list().0 {
         let type_and_value = format!(
             "{}: {}\n",
             exception.exception_type,

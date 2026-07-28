@@ -5,6 +5,7 @@ else (PR metadata, reviews, comments, check runs) from the GitHub API.
 Also handles team membership checks for the ownership gate.
 """
 
+import re
 import json
 import subprocess
 from collections.abc import Callable
@@ -474,6 +475,85 @@ def ensure_commits(pr_number: int, head_sha: str, repo_root: Path) -> None:
         capture_output=True,
         timeout=30,
     )
+
+
+@dataclass(frozen=True)
+class CommitProvenance:
+    """Agent-authorship evidence parsed from the PR's commit-message trailers."""
+
+    commit_count: int
+    agent_commit_count: int
+    generated_by: tuple[str, ...]
+    task_ids: tuple[str, ...]
+
+    @property
+    def agent_authored(self) -> bool:
+        return self.agent_commit_count > 0
+
+
+# Record separator keeps multi-paragraph commit messages intact when splitting
+# `git log --format=%B%x1e` output back into one message per commit.
+_COMMIT_RECORD_SEPARATOR = "\x1e"
+
+_GENERATED_BY_RE = re.compile(r"^generated-by:[ \t]*(.+?)[ \t]*$", re.IGNORECASE | re.MULTILINE)
+_TASK_ID_RE = re.compile(r"^task-id:[ \t]*(.+?)[ \t]*$", re.IGNORECASE | re.MULTILINE)
+
+
+def parse_provenance_trailers(log_output: str) -> CommitProvenance:
+    """Parse `Generated-By:` / `Task-Id:` trailers out of `git log --format=%B%x1e` output.
+
+    Agent tooling stamps these trailers on every commit it authors, so any
+    commit carrying one marks the PR as agent-authored. Values are collected
+    de-duplicated in first-seen order.
+    """
+    messages = [m for m in (raw.strip() for raw in log_output.split(_COMMIT_RECORD_SEPARATOR)) if m]
+    agent_commits = 0
+    generated_by: list[str] = []
+    task_ids: list[str] = []
+    for message in messages:
+        generators = _GENERATED_BY_RE.findall(message)
+        ids = _TASK_ID_RE.findall(message)
+        if generators or ids:
+            agent_commits += 1
+        generated_by.extend(g for g in generators if g not in generated_by)
+        task_ids.extend(t for t in ids if t not in task_ids)
+    return CommitProvenance(
+        commit_count=len(messages),
+        agent_commit_count=agent_commits,
+        generated_by=tuple(generated_by),
+        task_ids=tuple(task_ids),
+    )
+
+
+def pr_provenance(base_sha: str, head_sha: str, repo_root: Path) -> CommitProvenance | None:
+    """Provenance trailers of the PR's own commits, or None when git fails.
+
+    Reads the head commits (base..head) from the local checkout — never the
+    squash-merge commit, which can drop or rewrite trailers depending on repo
+    settings. `ensure_commits` has already fetched the head objects by the
+    time this runs.
+    """
+    cmd = ["git", "log", f"{base_sha}..{head_sha}", f"--format=%B{_COMMIT_RECORD_SEPARATOR}"]
+    try:
+        result = subprocess.run(cmd, cwd=repo_root, capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    return parse_provenance_trailers(result.stdout)
+
+
+def provenance_evidence(prov: CommitProvenance | None) -> dict | None:
+    """Serialize a CommitProvenance for the output JSON (or null)."""
+    if prov is None:
+        return None
+    return {
+        "agent_authored": prov.agent_authored,
+        "commit_count": prov.commit_count,
+        "agent_commit_count": prov.agent_commit_count,
+        "generated_by": list(prov.generated_by),
+        "task_ids": list(prov.task_ids),
+    }
 
 
 def fetch_pr(pr_number: int, repo: str, repo_root: Path | None = None) -> PRData:

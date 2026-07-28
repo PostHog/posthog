@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 
 import { IconGear } from '@posthog/icons'
 
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonSelect, LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
@@ -10,6 +11,7 @@ import { urls } from 'scenes/urls'
 import {
     ADD_MYSQL_DIRECT_CONNECTION,
     ADD_POSTGRES_DIRECT_CONNECTION,
+    ADD_REDSHIFT_DIRECT_CONNECTION,
     ADD_SNOWFLAKE_DIRECT_CONNECTION,
     CONFIGURE_SOURCES,
     type ConnectionSelectOption,
@@ -32,7 +34,12 @@ export function ConnectionSelector({ tabId }: ConnectionSelectorProps): JSX.Elem
     const { sourceQuery, selectedConnectionId } = useValues(logic)
     const { connectionOptions, connectionOptionsLoading, connectionSelectOptions } =
         useValues(connectionSelectorLogic())
+    const { maybeLoadConnectionOptions } = useActions(connectionSelectorLogic())
     const { setSourceQuery, syncUrlWithQuery } = useActions(logic)
+
+    useOnMountEffect(() => {
+        maybeLoadConnectionOptions()
+    })
     const connectionSelectorValue = getConnectionSelectorValue(
         connectionOptions,
         connectionOptionsLoading,
@@ -79,11 +86,18 @@ export function ConnectionSelector({ tabId }: ConnectionSelectorProps): JSX.Elem
                     return
                 }
 
+                if (nextValue === ADD_REDSHIFT_DIRECT_CONNECTION) {
+                    router.actions.push(urls.dataWarehouseSourceNew('Redshift', undefined, undefined, 'direct'))
+                    return
+                }
+
                 if (nextValue === CONFIGURE_SOURCES) {
                     router.actions.push(urls.sources())
                     return
                 }
 
+                // sqlEditorLogic's selectedConnectionId subscription re-enables raw SQL mode
+                // for raw-only (supports_hogql=false) connections.
                 setSourceQuery({
                     ...sourceQueryWithoutLegacyConnectionId,
                     source: {

@@ -62,8 +62,12 @@ test.describe('Retention', () => {
 
         await test.step('change period from Day to Week', async () => {
             await insight.retention.selectPeriod('weeks')
-            const headerTexts = await insight.retention.getColumnHeaderTexts()
-            expect(headerTexts.filter(isWeekHeader).length).toBe(8)
+            // The period change refetches the query; poll until the weekly headers render
+            // instead of reading the (possibly still daily/loading) table immediately.
+            await expect(async () => {
+                const headerTexts = await insight.retention.getColumnHeaderTexts()
+                expect(headerTexts.filter(isWeekHeader).length).toBe(8)
+            }).toPass({ timeout: 15000 })
         })
 
         await test.step('toggle to cumulative retention', async () => {

@@ -6,10 +6,10 @@ This reference is the contract for that channel: the tools, their fields, when t
 The channel is granted via the skill's frontmatter `allowed_tools` — **every scout should list `emit_report` / `edit_report` there**; see [Granting the tools](#granting-the-tools).
 
 > **Tool names vs. opt-in strings.** The callable MCP tools are
-> **`signals-scout-emit-report`** and **`signals-scout-edit-report`** — those are the names you
+> **`scout-emit-report`** and **`scout-edit-report`** — those are the names you
 > invoke. The bare `emit_report` / `edit_report` (underscored) used throughout this doc and below
 > are the **opt-in strings** you list under `allowed_tools`; they are not callable tool names. And
-> like every `signals-scout-*` tool, **both report tools require the current `run_id`** (the run
+> like every `scout-*` tool, **both report tools require the current `run_id`** (the run
 > you're executing in) on every call — omitting it fails validation.
 
 ## Author vs. edit
@@ -29,7 +29,7 @@ Judges the report for safety, then persists it at the judged status.
 
 | Field                       | Type                    | Notes                                                                                                                                                                                                                                                                                                              |
 | --------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `run_id`                    | string, required        | The current run's id — the run you're executing in, same as every `signals-scout-*` tool.                                                                                                                                                                                                                          |
+| `run_id`                    | string, required        | The current run's id — the run you're executing in, same as every `scout-*` tool.                                                                                                                                                                                                                                  |
 | `title`                     | string, ≤300, non-empty | The inbox headline. One specific, quantified line.                                                                                                                                                                                                                                                                 |
 | `summary`                   | string                  | The report body prose — one tight passage a busy human can act on: a **quantified hook** (what's happening, with numbers), the **pattern** that makes it signal rather than noise, the suspected-cause **hypothesis**, and the **recommendation**. Cite entity ids inline so the reader pivots straight to source. |
 | `evidence`                  | list, 1–50              | Each `{description, source_id}`. Becomes a bound signal row backing the report. `source_id` is the citable entity id. Hard cap of **50** — summarize/trim before calling; a longer list fails validation before the report is judged or persisted.                                                                 |
@@ -91,7 +91,7 @@ Otherwise resolve a `github_login`, cheapest source first:
 3. **CODEOWNERS / git** (only if the scout has a repo checkout).
    `.github/CODEOWNERS` for the owning path, or the last `git log` author for the file.
    Neither usually hands you a usable login directly: CODEOWNERS entries are often **team** slugs (`@your-org/team-name`) and `git log` gives a name + email — both must be resolved to an **individual** GitHub login before you write the reviewer (a team slug or an email won't match any user).
-4. **`signals-scout-members-list`** — the in-run roster lookup, for the cold-start case where the cheaper paths above don't resolve an owner.
+4. **`scout-members-list`** — the in-run roster lookup, for the cold-start case where the cheaper paths above don't resolve an owner.
    It returns this project's members, each with `user_uuid`, `email`, name, and a resolved `github_login` (pass `search=` to narrow); match the owner and route to their `github_login`, or hand the `user_uuid` straight through and let the server resolve it.
    The org-scoped `org-members-list` / `org-member-get-github-login` tools are **not available in a scout run** — a scoped-team token can't reach the org-nested endpoint, so don't build a scout's reviewer recipe around them.
 
@@ -166,5 +166,5 @@ Add a short body section telling the scout what's report-shaped for its surface.
 Keep it lean — the field-level detail lives here (and in the harness prompt), not in the body.
 
 **Rollout posture:** for a chatty or high-stakes new scout, start in **dry-run** (`emit=false` on its `SignalScoutConfig`) so it runs and logs what it _would_ author without writing to the inbox.
-Inspect via `signals-scout-runs-retrieve`, calibrate, then flip `emit=true`.
+Inspect via `scout-runs-retrieve`, calibrate, then flip `emit=true`.
 The channel files a full inbox item on the first hit, so the cautious loop is worth it when in doubt.

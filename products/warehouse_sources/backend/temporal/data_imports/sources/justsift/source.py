@@ -19,8 +19,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import JustSiftSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.justsift import (
+    JustSiftSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.justsift.justsift import (
     JustSiftResumeConfig,
     check_access,
@@ -28,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.justsift.j
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.justsift.settings import (
     ENDPOINTS,
+    INCREMENTAL_FIELDS,
     JUSTSIFT_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -35,6 +41,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class JustSiftSource(ResumableSource[JustSiftSourceConfig, JustSiftResumeConfig]):
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://developers.justsift.com"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -78,10 +88,10 @@ Create a token in the [Sift admin dashboard](https://admin.justsift.com) under *
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            # An invalid, revoked, or scope-limited token surfaces as a requests HTTPError when
-            # `_fetch_page` calls `raise_for_status()`. Retrying can never satisfy a credential
-            # problem, so stop the sync. Match the stable status text and base host, not the
-            # per-request path/query.
+            # An invalid, revoked, or scope-limited token surfaces as a requests HTTPError when the
+            # client calls `raise_for_status()`. Retrying can never satisfy a credential problem, so
+            # stop the sync. Match the stable status text and base host, not the per-request
+            # path/query.
             "401 Client Error: Unauthorized for url: https://api.justsift.com": "Your Sift API token is invalid or has been revoked. Create a new token under API Access → New Application in the Sift admin dashboard, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.justsift.com": "Your Sift API token does not have access to this data. Ensure the application is granted full people data access (not photos-only), then reconnect.",
         }
@@ -93,25 +103,18 @@ Create a token in the [Sift admin dashboard](https://admin.justsift.com) under *
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — Sift's list endpoints expose no server-side
         # timestamp filter, so there is no incremental cursor to advance.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: JustSiftSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: JustSiftSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The token is org-wide, so a single probe validates access to every schema; there is no
         # per-endpoint scope to check.
@@ -137,6 +140,7 @@ Create a token in the [Sift admin dashboard](https://admin.justsift.com) under *
         return justsift_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )

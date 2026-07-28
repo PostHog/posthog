@@ -18,6 +18,9 @@ export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }):
         <>
             <StepSchemaErrors />
             <HogFlowFunctionConfiguration
+                // Remount per node: the input renderer snapshots its values on mount, so switching to
+                // another step of the same template must remount to show the newly selected node's inputs.
+                key={node.id}
                 templateId={templateId}
                 inputs={inputs}
                 setInputs={(inputs) => partialSetWorkflowActionConfig(node.id, { inputs })}

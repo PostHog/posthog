@@ -21,7 +21,7 @@ import { ScoutRunHistorySection } from './ScoutRunHistorySection'
  * rollup line. The Signals section (emission cards) and per-scout run history land next (W2/W3).
  */
 export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Element {
-    const { scoutConfigs, rollups, runsWindowComplete } = useValues(scoutFleetLogic)
+    const { scoutConfigs, rollups, runsWindowComplete, updatingScoutIds } = useValues(scoutFleetLogic)
     const { updateScoutConfig, startRunsPolling, stopRunsPolling } = useActions(scoutFleetLogic)
     const { setSelectedScoutSkillName } = useActions(inboxSceneLogic)
 
@@ -57,7 +57,13 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
                 <div className="flex flex-1 items-center justify-center text-sm text-tertiary">Scout not found.</div>
             ) : (
                 <>
-                    <ScoutRowCard config={config} rollup={rollup} onUpdate={updateScoutConfig} asHeader />
+                    <ScoutRowCard
+                        config={config}
+                        rollup={rollup}
+                        onUpdate={updateScoutConfig}
+                        updating={updatingScoutIds.includes(config.id)}
+                        asHeader
+                    />
 
                     {config.description ? (
                         <p className="text-sm text-secondary leading-snug mb-0">{config.description}</p>
@@ -139,13 +145,27 @@ function ScoutReportsSection({ skillName }: { skillName: string }): JSX.Element 
 /**
  * The Signals section: every finding this scout emitted in the recent window, newest first.
  * Emissions are fetched per emitted run by `scoutDetailLogic` (keyed by skill) off the fleet's
- * already-polled runs window. Most runs are quiet, so an empty list is the healthy default.
+ * already-polled runs window. Most runs are quiet — and scouts are moving to the report channel —
+ * so the section is hidden entirely when nothing emitted, rather than showing an empty box.
  */
-function ScoutSignalsSection({ skillName }: { skillName: string }): JSX.Element {
-    const { emissionRows, emissionsLoading, emissionsLoadFailed, runsWindowLoadedOnce, runsWindowComplete } = useValues(
-        scoutDetailLogic({ skillName })
-    )
+function ScoutSignalsSection({ skillName }: { skillName: string }): JSX.Element | null {
+    const {
+        emissionRows,
+        emissionsLoading,
+        emissionsLoadFailed,
+        emittedRuns,
+        runsWindowLoadedOnce,
+        runsWindowComplete,
+    } = useValues(scoutDetailLogic({ skillName }))
     const { selectedScoutFindingId } = useValues(inboxSceneLogic)
+
+    // No run in the window emitted anything — keep the section out entirely rather than show an
+    // empty box (mirrors the Reports section above). Only once the runs window has settled, though:
+    // before that, `emittedRuns` is empty by default and hiding would skip the loading skeleton
+    // for scouts that do have signals.
+    if (runsWindowLoadedOnce && emittedRuns.length === 0) {
+        return null
+    }
 
     // "Loading" until the fleet's runs window has settled once AND this scout's emissions have
     // resolved — otherwise a fresh deep-link would flash the empty state before we know the

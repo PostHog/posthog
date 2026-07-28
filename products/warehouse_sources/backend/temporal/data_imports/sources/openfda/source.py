@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import OpenFDASourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openfda import (
+    OpenFDASourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.openfda.openfda import (
     OpenFDAResumeConfig,
     openfda_source,
@@ -37,6 +39,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class OpenFDASource(ResumableSource[OpenFDASourceConfig, OpenFDAResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://open.fda.gov/apis/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -68,7 +71,6 @@ An API key is optional but recommended. Without one, openFDA limits you to 1,000
                 ],
             ),
             keywords=["fda", "openfda", "drug", "device", "food"],
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -93,6 +95,7 @@ An API key is optional but recommended. Without one, openFDA limits you to 1,000
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = OPENFDA_ENDPOINTS[endpoint]
@@ -113,7 +116,11 @@ An API key is optional but recommended. Without one, openFDA limits you to 1,000
         return schemas
 
     def validate_credentials(
-        self, config: OpenFDASourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: OpenFDASourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_openfda_credentials(config.api_key):
             return True, None
@@ -132,7 +139,8 @@ An API key is optional but recommended. Without one, openFDA limits you to 1,000
         return openfda_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

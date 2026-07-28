@@ -33,7 +33,7 @@
  * handling needs access to the original message for DLQ entries.
  *
  * ```typescript
- * newBatchPipelineBuilder<T, { message: Message }>()
+ * newChunkPipelineBuilder<T, { message: Message }>()
  *   .messageAware((builder) =>
  *     builder
  *       .concurrently(...)
@@ -56,8 +56,8 @@
  * `build()` method is not available until `handleSideEffects()` is called.
  *
  * ```typescript
- * newBatchPipelineBuilder<T, { message: Message }>()
- *   .pipeBatch(processStep())
+ * newChunkPipelineBuilder<T, { message: Message }>()
+ *   .pipeChunk(processStep())
  *   .messageAware((builder) => builder)
  *   .handleResults(config)
  *   .handleSideEffects(promiseScheduler, { await: true })  // Required!
@@ -68,7 +68,7 @@ import { Message } from 'node-rdkafka'
 
 import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, OVERFLOW_OUTPUT } from '~/common/outputs'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
-import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
+import { newChunkPipelineBuilder } from '~/ingestion/framework/builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import {
     PipelineResult,
@@ -83,7 +83,7 @@ import {
 import { createTestMessage } from '~/tests/helpers/kafka-message'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 
-type BatchProcessingStep<T, U, R extends string = never> = (values: T[]) => Promise<PipelineResult<U, R>[]>
+type ChunkProcessingStep<T, U, R extends string = never> = (values: T[]) => Promise<PipelineResult<U, R>[]>
 
 describe('Result Handling', () => {
     /**
@@ -110,7 +110,7 @@ describe('Result Handling', () => {
             data: string
         }
 
-        function createValidationStep(): BatchProcessingStep<Event, Event> {
+        function createValidationStep(): ChunkProcessingStep<Event, Event> {
             return function validationStep(items) {
                 return Promise.resolve(
                     items.map((item) =>
@@ -120,8 +120,8 @@ describe('Result Handling', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<Event, { message: Message }>()
-            .pipeBatch(createValidationStep())
+        const pipeline = newChunkPipelineBuilder<Event, { message: Message }>()
+            .pipeChunk(createValidationStep())
             .messageAware((builder) => builder)
             .handleResults(pipelineConfig)
             .handleSideEffects(promiseScheduler, { await: true })
@@ -175,7 +175,7 @@ describe('Result Handling', () => {
             eventType: string
         }
 
-        function createFilterStep(): BatchProcessingStep<Event, Event> {
+        function createFilterStep(): ChunkProcessingStep<Event, Event> {
             return function filterStep(items) {
                 return Promise.resolve(
                     items.map((item) =>
@@ -185,8 +185,8 @@ describe('Result Handling', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<Event, { message: Message }>()
-            .pipeBatch(createFilterStep())
+        const pipeline = newChunkPipelineBuilder<Event, { message: Message }>()
+            .pipeChunk(createFilterStep())
             .messageAware((builder) => builder)
             .handleResults(pipelineConfig)
             .handleSideEffects(promiseScheduler, { await: true })
@@ -232,7 +232,7 @@ describe('Result Handling', () => {
             priority: string
         }
 
-        function createRoutingStep(): BatchProcessingStep<Event, Event, 'high_priority' | 'broadcast'> {
+        function createRoutingStep(): ChunkProcessingStep<Event, Event, 'high_priority' | 'broadcast'> {
             return function routingStep(items) {
                 return Promise.resolve(
                     items.map((item) => {
@@ -247,8 +247,8 @@ describe('Result Handling', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<Event, { message: Message }>()
-            .pipeBatch(createRoutingStep())
+        const pipeline = newChunkPipelineBuilder<Event, { message: Message }>()
+            .pipeChunk(createRoutingStep())
             .messageAware((builder) => builder)
             .handleResults(pipelineConfig)
             .handleSideEffects(promiseScheduler, { await: true })
@@ -326,7 +326,7 @@ describe('Result Handling', () => {
         })
         mockOutputs.produce.mockReturnValue(ack)
 
-        function createRoutingStep(): BatchProcessingStep<{ v: string }, { v: string }, 'overflow'> {
+        function createRoutingStep(): ChunkProcessingStep<{ v: string }, { v: string }, 'overflow'> {
             return function routingStep(items) {
                 // awaitAck defaults to true (fourth arg omitted)
                 return Promise.resolve(items.map(() => redirect('Overflow', OVERFLOW, true)))
@@ -334,8 +334,8 @@ describe('Result Handling', () => {
         }
 
         // await: true so the redirect side effect (the produce) is awaited before next() resolves
-        const pipeline = newBatchPipelineBuilder<{ v: string }, { message: Message }>()
-            .pipeBatch(createRoutingStep())
+        const pipeline = newChunkPipelineBuilder<{ v: string }, { message: Message }>()
+            .pipeChunk(createRoutingStep())
             .messageAware((builder) => builder)
             .handleResults({ outputs: mockOutputs, promiseScheduler })
             .handleSideEffects(promiseScheduler, { await: true })
@@ -376,7 +376,7 @@ describe('Result Handling', () => {
         // Produce that never acknowledges within the test
         mockOutputs.produce.mockReturnValue(new Promise<void>(() => {}))
 
-        function createRoutingStep(): BatchProcessingStep<{ v: string }, { v: string }, 'overflow'> {
+        function createRoutingStep(): ChunkProcessingStep<{ v: string }, { v: string }, 'overflow'> {
             return function routingStep(items) {
                 // preserveKey = true, awaitAck = false
                 return Promise.resolve(items.map(() => redirect('Overflow', OVERFLOW, true, false)))
@@ -385,8 +385,8 @@ describe('Result Handling', () => {
 
         // Even with await: true, the redirect side effect resolves immediately because
         // awaitAck=false means it never waits on the produce ack.
-        const pipeline = newBatchPipelineBuilder<{ v: string }, { message: Message }>()
-            .pipeBatch(createRoutingStep())
+        const pipeline = newChunkPipelineBuilder<{ v: string }, { message: Message }>()
+            .pipeChunk(createRoutingStep())
             .messageAware((builder) => builder)
             .handleResults({ outputs: mockOutputs, promiseScheduler })
             .handleSideEffects(promiseScheduler, { await: true })

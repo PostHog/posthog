@@ -9,6 +9,8 @@ import { Scene } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 
 import { AskMaxCard } from './cards/AskMaxCard'
+import { FlagshipProductsCard } from './cards/FlagshipProductsCard'
+import { InstallProgressCard } from './cards/InstallProgressCard'
 import { PopularDashboardsCard } from './cards/PopularDashboardsCard'
 import { ProductsInUseCard } from './cards/ProductsInUseCard'
 import { RecentActivityCard } from './cards/RecentActivityCard'
@@ -28,9 +30,11 @@ const WELCOME_DIALOG_ALLOWED_SCENES = new Set<Scene>([Scene.ProjectHomepage, Sce
  * signup (project home, primary dashboard, etc.). Scene gating ensures the dialog only auto-opens
  * on the home / primary-dashboard scenes, not over deep-linked settings/billing/replay pages. */
 export function MaybeWelcomeDialog(): JSX.Element | null {
-    const { user } = useValues(userLogic)
+    const { user, isProvisionedUser } = useValues(userLogic)
     const { sceneId } = useValues(sceneLogic)
-    if (!user || user.is_organization_first_user !== false || wasWelcomeDismissed(user.uuid, user.organization?.id)) {
+    // Invitees see it as before; partner-provisioned accounts (no inviter) get it too.
+    const eligible = !!user && (user.is_organization_first_user === false || isProvisionedUser)
+    if (!eligible || !user || wasWelcomeDismissed(user.uuid, user.organization?.id)) {
         return null
     }
     if (!sceneId || !WELCOME_DIALOG_ALLOWED_SCENES.has(sceneId as Scene)) {
@@ -51,6 +55,7 @@ export function WelcomeDialog(): JSX.Element | null {
         recentActivity,
         popularDashboards,
         productsInUse,
+        isProvisionedUser,
     } = useValues(welcomeDialogLogic)
     const { dismissWelcome, closeDialog, loadWelcomeData } = useActions(welcomeDialogLogic)
     const { user } = useValues(userLogic)
@@ -115,14 +120,33 @@ export function WelcomeDialog(): JSX.Element | null {
                     ) : (
                         <p className="text-muted text-sm m-0">{introCopy}</p>
                     )}
-                    {/* Quick orientation first: products in use, AI helper, suggested next steps. */}
-                    <ProductsInUseCard />
-                    <AskMaxCard />
-                    <SuggestedNextStepsCard />
-                    {/* Then deeper context about what's been happening. */}
-                    <RecentActivityCard />
-                    <PopularDashboardsCard />
-                    <TeamMembersCard />
+                    {/* Provisioned/new accounts lead with the background install + a tour of what PostHog
+                        offers; invited users get their team's context first and the product tour lower down. */}
+                    {isProvisionedUser ? (
+                        <>
+                            <InstallProgressCard />
+                            <FlagshipProductsCard />
+                            <AskMaxCard />
+                            <SuggestedNextStepsCard />
+                            <ProductsInUseCard />
+                            <RecentActivityCard />
+                            <PopularDashboardsCard />
+                            <TeamMembersCard />
+                        </>
+                    ) : (
+                        <>
+                            {/* Quick orientation first: products in use, AI helper, suggested next steps. */}
+                            <ProductsInUseCard />
+                            <AskMaxCard />
+                            <SuggestedNextStepsCard />
+                            {/* Then deeper context about what's been happening. */}
+                            <RecentActivityCard />
+                            <PopularDashboardsCard />
+                            <TeamMembersCard />
+                            {/* Flagship product tour sits lower for invited users. */}
+                            <FlagshipProductsCard />
+                        </>
+                    )}
                 </div>
             )}
         </LemonModal>
