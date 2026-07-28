@@ -41,6 +41,15 @@ def retention_fixed_interval_base_query_use_dwh_variant(team: "Team") -> bool:
     )
 
 
+# Patch target for forcing the variant on/off. Defined here rather than in test helpers so the
+# compare_retention_* management commands stay importable in production images, which don't
+# install test-only dependencies.
+RETENTION_BASE_QUERY_VARIANT_PATCH_PATH = (
+    "posthog.hogql_queries.insights.retention.retention_base_query_fixed."
+    "retention_fixed_interval_base_query_use_dwh_variant"
+)
+
+
 class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
     def build_base_query(
         self,

@@ -60,12 +60,10 @@ import posthog.clickhouse.client.execute as ch_execute
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql_queries.insights.retention.retention_base_query_fixed import (
+    RETENTION_BASE_QUERY_VARIANT_PATCH_PATH,
     RETENTION_FIXED_INTERVAL_BASE_QUERY_DWH_VARIANT_FLAG,
 )
 from posthog.hogql_queries.insights.retention.retention_query_runner import RetentionQueryRunner
-from posthog.hogql_queries.insights.retention.test.retention_base_query_variant import (
-    RETENTION_BASE_QUERY_VARIANT_PATCH_PATH,
-)
 from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
 from posthog.hogql_queries.query_runner import get_query_runner
 
