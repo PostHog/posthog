@@ -694,6 +694,11 @@ class TestScoutReportAPI(APIBaseTest):
         title_carries_it = ReportChartInput(chart_id="signups-drop", title="Signups: daily", caption="EU", query=node)
         caption_carries_it = ReportChartInput(chart_id="signups-drop", title="Signups", caption="daily: EU", query=node)
         assert forward([title_carries_it]) != forward([caption_carries_it])
+        # Charts render in the order they were sent, so an edit that only reorders them changes what a
+        # reader sees. Sorting the keys hashes that edit the same as the one before it and ingestion
+        # drops it — unlike reviewers, where order carries nothing and sorting is what makes a retry key.
+        signups_chart, churn_chart = chart("signups-drop"), chart("churn-spike")
+        assert forward([signups_chart, churn_chart]) != forward([churn_chart, signups_chart])
 
     def test_chart_counts_ride_the_lifecycle_events(self) -> None:
         # `charts_set` / `chart_count` are what a dashboard or CDP destination reads to tell a

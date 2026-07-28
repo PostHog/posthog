@@ -246,7 +246,15 @@ class ReportChart(BaseModel):
             raise ValueError(f"query.kind must be one of {allowed} (got {kind!r})")
         if _nests_too_deeply(v):
             raise ValueError(f"query must not nest deeper than {_MAX_CHART_QUERY_DEPTH} levels")
-        if len(json.dumps(v)) > _MAX_CHART_QUERY_CHARS:
+        try:
+            serialized = json.dumps(v, allow_nan=False)
+        except ValueError:
+            # `NaN` and `Infinity` are not JSON, but the project parses requests with DRF's
+            # STRICT_JSON off, so a caller can put one in a query and `json.dumps` will happily
+            # write it back out. Postgres `jsonb` then refuses the INSERT, past every handler that
+            # turns bad input into a 400.
+            raise ValueError("query must not contain a non-finite number") from None
+        if len(serialized) > _MAX_CHART_QUERY_CHARS:
             raise ValueError(f"query must not exceed {_MAX_CHART_QUERY_CHARS} characters when serialized")
         # Postgres `jsonb` cannot store a null character, so one anywhere in the query fails at the
         # INSERT rather than here — past every handler that turns bad input into a 400.

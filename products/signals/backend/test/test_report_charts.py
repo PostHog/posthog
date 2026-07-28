@@ -115,6 +115,28 @@ class TestReportCharts(SimpleTestCase):
                     "query": {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "note": "a\u0000b"}},
                 },
             ),
+            # `NaN` is not JSON, but requests are parsed with STRICT_JSON off and `json.dumps` writes
+            # it back out, so nothing before the `jsonb` INSERT turns it away — the same 500 the null
+            # character used to cause.
+            (
+                "a_non_finite_number_anywhere_in_the_query",
+                {
+                    "chart_id": "ok",
+                    "title": "t",
+                    "query": {
+                        "kind": "InsightVizNode",
+                        "source": {"kind": "TrendsQuery", "threshold": float("nan")},
+                    },
+                },
+            ),
+            (
+                "an_infinity_anywhere_in_the_query",
+                {
+                    "chart_id": "ok",
+                    "title": "t",
+                    "query": {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "cap": float("inf")}},
+                },
+            ),
             # `SuggestedQuestionsQueryRunner` calls `hit_openai`, so a chart carrying one buys an LLM
             # completion every time a reader opens the report, up to the chart cap.
             (

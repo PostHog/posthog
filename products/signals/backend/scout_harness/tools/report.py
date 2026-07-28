@@ -833,8 +833,13 @@ def _capture_report_edited(
     # The key is the charts' *content*, not just their ids: re-sending an id under a newer window is how a
     # scout refreshes a chart, so keying on ids alone would collapse exactly the refresh the team wants to
     # hear about. A genuinely identical re-send still hashes the same and stays one event.
+    #
+    # Kept in the scout's order, unlike the reviewer key above. Reviewers are a set — the order they
+    # arrive in says nothing, so sorting is what makes a retry hash the same. Charts render in the
+    # order they were sent, so a reorder is a real change to what the report shows, and sorting them
+    # here would hash it identically to the edit before it and let ingestion drop it.
     if charts:
-        parts.append(",".join(sorted(_chart_event_key(c) for c in charts)))
+        parts.append(json.dumps([_chart_event_key(c) for c in charts], separators=(",", ":")))
     return _ReportForward(
         event_name=CUSTOMER_REPORT_EDITED_EVENT,
         distinct_id=f"signals_scout:{run.skill_name}",

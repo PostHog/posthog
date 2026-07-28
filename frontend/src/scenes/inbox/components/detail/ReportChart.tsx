@@ -101,7 +101,12 @@ export function inferChartSize(query: Node): SizeEnumApi {
  * scout's title and caption, which a reader has no way to tell is not the scout's evidence.
  */
 function ChartLoadError(): JSX.Element {
-    return <p className="m-auto text-xs text-tertiary">Can't load the insight behind this chart.</p>
+    return (
+        <p className="m-auto text-xs text-tertiary text-center">
+            Can't load the insight behind this chart. Refresh the page. If it still doesn't load, the insight may have
+            been deleted.
+        </p>
+    )
 }
 
 /**
