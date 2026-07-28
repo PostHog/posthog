@@ -107,8 +107,10 @@ Four rules for the gate body:
    If a job's failure would only cascade into a downstream job being _skipped_, the gate reads that as a pass and you get a green check with zero tests run.
    Name the upstream job explicitly.
 3. **Legitimate skips must still pass.** A frontend-only PR skips backend jobs by design.
-4. **Keep the tests inline**, one `if` per dependency.
-   Routing results through a shell function or an `env:` block hides them from `WF007`'s per-dependency pass, which then falls back to only checking that an allowlist appears somewhere in the step — so a denylisted dependency alongside an allowlisted one goes unnoticed.
+4. **Every dependency's result must reach an allowlist test.**
+   One inline `if` per dependency is the clearest form, but a shared shell helper or an `env:` block is equally fine: `WF007` traces each result through assignments, `${!var}` indirection, and helper argument positions to the comparison it actually reaches.
+   What does not count is the allowlist words appearing without asserting anything, such as in a comment or an `echo`.
+   A result whose test `WF007` cannot follow is reported rather than assumed safe, so an unusual routing may need the tests moved inline.
 
 `WF007` enforces 1, 4, and the `always()` condition.
 Rule 2 is not mechanically checkable, because "reporting job" and "coverage job" look identical to a linter. It is on you and the reviewer.

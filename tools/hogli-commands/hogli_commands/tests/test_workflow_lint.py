@@ -948,6 +948,42 @@ UNSAFE_HELPER_BODY = HELPER_BODY.replace(
     """if [[ "$2" == "failure" ]]; then""",
 )
 
+# The positional is bound to a local before being tested, so the trace has to
+# follow the assignment as well as the call site to reach the comparison.
+LOCAL_ALIAS_HELPER_BODY = """
+    check() {
+      local result="$2"
+      if [[ "$result" == "success" || "$result" == "skipped" ]]; then
+        return
+      fi
+      exit 1
+    }
+    check "Changes" "${{ needs.changes.result }}"
+    check "Build" "${{ needs.build.result }}"
+"""
+
+# Quoted allowlist words that assert nothing. Scanning the step for the words
+# alone reads either one as proof the dependencies are gated, while the only
+# actual test still clears everything but `failure`.
+DECOY_COMMENT_BODY = UNSAFE_HELPER_BODY.replace(
+    """    check() {""",
+    """    # cancelled counts as bad; only 'success' and 'skipped' may pass
+    check() {""",
+)
+
+DECOY_ECHO_BODY = UNSAFE_HELPER_BODY.replace(
+    """        exit 1""",
+    """        echo "expected 'success' or 'skipped'"
+        exit 1""",
+)
+
+# Results that are only ever logged reach no comparison at all, which has to fail
+# closed: the absence of a test is not evidence of a safe one.
+LOGGED_ONLY_BODY = """
+    echo "changes: ${{ needs.changes.result }}"
+    echo "build: ${{ needs.build.result }}"
+"""
+
 # ci-agents.yml maps results into env and loops over the variable names.
 ENV_LOOP_GATE = """
     name: ci-thing
@@ -987,8 +1023,8 @@ def _off_convention_gate(marker: str = "") -> str:
 class TestRequiredGateCheck:
     @pytest.mark.parametrize(
         "content",
-        [_gate(SAFE_BODY), _gate(HELPER_BODY), ENV_LOOP_GATE],
-        ids=["inline-allowlist", "shared-helper", "env-block-loop"],
+        [_gate(SAFE_BODY), _gate(HELPER_BODY), _gate(LOCAL_ALIAS_HELPER_BODY), ENV_LOOP_GATE],
+        ids=["inline-allowlist", "shared-helper", "helper-via-local", "env-block-loop"],
     )
     def test_passes_when_every_dependency_is_allowlisted(self, tmp_path: Path, content: str) -> None:
         _write(tmp_path, "ci-thing.yml", content)
@@ -1006,19 +1042,30 @@ class TestRequiredGateCheck:
         issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
         assert sorted(i.message.split("'")[1] for i in issues) == expected_deps
 
-    @pytest.mark.parametrize(
-        "content,expected",
-        [
-            (_gate(SAFE_BODY, condition="${{ !cancelled() }}"), "always()"),
-            (_gate(UNSAFE_HELPER_BODY), "never tests a result"),
-        ],
-        ids=["gate-must-always-run", "indirect-gate-without-allowlist"],
-    )
-    def test_flags_unsafe_gate(self, tmp_path: Path, content: str, expected: str) -> None:
-        _write(tmp_path, "ci-thing.yml", content)
+    def test_flags_gate_that_can_skip_itself(self, tmp_path: Path) -> None:
+        _write(tmp_path, "ci-thing.yml", _gate(SAFE_BODY, condition="${{ !cancelled() }}"))
         issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
         assert len(issues) == 1
-        assert expected in issues[0].message
+        assert "always()" in issues[0].message
+
+    # A helper testing only `== "failure"` gates nothing, so every dependency it
+    # handles is reported. The decoys spell the allowlist out in a comment and in a
+    # log line, neither of which may stand in for asserting it.
+    @pytest.mark.parametrize(
+        "body,expected",
+        [
+            (UNSAFE_HELPER_BODY, "only compared against failure"),
+            (DECOY_COMMENT_BODY, "only compared against failure"),
+            (DECOY_ECHO_BODY, "only compared against failure"),
+            (LOGGED_ONLY_BODY, "never reaches"),
+        ],
+        ids=["failure-only-helper", "allowlist-words-in-comment", "allowlist-words-in-echo", "results-only-logged"],
+    )
+    def test_flags_gate_whose_results_reach_no_allowlist(self, tmp_path: Path, body: str, expected: str) -> None:
+        _write(tmp_path, "ci-thing.yml", _gate(body))
+        issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
+        assert sorted(i.message.split("'")[1] for i in issues) == ["build", "changes"]
+        assert all(expected in i.message for i in issues)
 
     def test_ignores_non_gate_jobs(self, tmp_path: Path) -> None:
         # Worker jobs *should* use !cancelled() so they stop when superseded;
