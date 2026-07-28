@@ -142,6 +142,32 @@ class ChangeRequestSerializer(serializers.ModelSerializer):
         return None
 
 
+class ChangeRequestApproveSerializer(serializers.Serializer):
+    reason = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Optional note recorded with the approval vote explaining the decision.",
+    )
+
+
+class ChangeRequestRejectSerializer(serializers.Serializer):
+    reason = serializers.CharField(
+        help_text="Reason for rejecting the change request. Required — recorded with the rejection vote and shown to the requester.",
+    )
+
+
+class ChangeRequestDecisionResponseSerializer(serializers.Serializer):
+    status = serializers.CharField(
+        help_text="The change request's resulting state after the vote (e.g. 'pending', 'approved', 'applied', 'rejected')."
+    )
+    message = serializers.CharField(help_text="Human-readable summary of what happened.")
+    change_request = ChangeRequestSerializer(help_text="The change request after the vote was recorded.")
+    result = serializers.JSONField(
+        required=False,
+        help_text="Present only when the vote reached quorum and the change was applied immediately: details of the affected resource (e.g. resource_id, resource_version).",
+    )
+
+
 class ApprovalSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
 

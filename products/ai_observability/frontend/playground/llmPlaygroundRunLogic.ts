@@ -1,11 +1,14 @@
-import { MakeLogicType, actions, connect, kea, listeners, path, props, reducers } from 'kea'
+import { MakeLogicType, actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiError, RateLimitError } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { uuid } from 'lib/utils/dom'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { ModelOption } from '../modelPickerLogic'
 import { llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
@@ -161,6 +164,7 @@ export interface llmPlaygroundRunLogicValues {
     providerKeys: LLMProviderKey[] // llmProviderKeysLogic
     comparisonItems: ComparisonItem[]
     rateLimitedUntil: number | null
+    runAccessDeniedReason: string | null
     submitting: boolean
     subscriptionRequired: boolean
 }
@@ -264,6 +268,16 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
         ],
     }),
 
+    selectors({
+        // Resource-level only, so this comes from the server-rendered app context rather than the API.
+        // A selector keeps it readable from the scene and overridable in tests.
+        runAccessDeniedReason: [
+            () => [],
+            (): string | null =>
+                getAccessControlDisabledReason(AccessControlResourceType.LlmPlayground, AccessControlLevel.Editor),
+        ],
+    }),
+
     listeners(({ actions, values }) => ({
         abortRun: () => {
             posthog.capture('llma playground prompt aborted')
@@ -279,6 +293,14 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
         },
 
         submitPrompt: async (_: unknown, breakpoint: () => void) => {
+            // Guarding here rather than only on the Run button, because both message textareas
+            // submit on Cmd+Enter and bypass the button entirely.
+            if (values.runAccessDeniedReason) {
+                lemonToast.error(values.runAccessDeniedReason)
+                actions.finishSubmitPrompt()
+                return
+            }
+
             const runnablePrompts = values.promptConfigs
                 .map((prompt: PromptConfig, index: number) => ({
                     prompt,

@@ -292,19 +292,19 @@ This shares the same activities as reingestion; the only difference is that it s
 Polling coordinator for the headless **Signals agent**. Driven by a Temporal Schedule
 defined in `backend/temporal/agentic/schedule.py` with `every=COORDINATOR_INTERVAL_MINUTES`
 (30min) and `ScheduleOverlapPolicy.SKIP` to drop ticks rather than queue them. The tick
-is just polling granularity — each scout's own `run_interval_minutes` schedule decides
-when it actually runs.
+is just polling granularity. Each scout's own `run_interval_minutes` schedule decides
+when it actually runs, unless an optional project-local cron `run_cron_schedule` overrides it.
 
 Defined in `backend/temporal/agentic/scout_coordinator.py`.
 
 **Flow:**
 
-1. Activity `fetch_enabled_signals_scout_runs_activity` bounds candidates to the teams enrolled via the `signals-scout` feature flag's JSON payload allowlist — `guaranteed_team_ids` minus `skip_team_ids`, with a hardcoded fail-safe default (`_participating_teams` → `_enrolled_team_ids`, modeled on `posthog/temporal/ai_observability/team_discovery.py`). Enrollment is flag-driven: editing the payload in the flag UI enrolls or drains a team next tick with no manual seed. For each enrolled team it calls `sync_canonical_skills(team, prune=True)` to mirror the on-disk `signals-scout-*` skills onto the team's `LLMSkill` rows, then auto-registers a `SignalScoutConfig` for any scout skill missing one (`scout_harness/config_registry.register_missing_configs`; the `scout-config-create` endpoint is the explicit upsert counterpart, so a freshly authored scout is configurable without waiting for a tick). Failures here are logged and the tick continues — a stale skill is preferable to a dead tick.
-2. For each enabled config, the coordinator computes how overdue the scout is: due when `last_run_at is None`, or `now - last_run_at >= run_interval_minutes`. There is no sampling — every due scout is planned.
+1. Activity `fetch_enabled_signals_scout_runs_activity` bounds candidates to the teams enrolled via the `signals-scout` feature flag's JSON payload allowlist — `guaranteed_team_ids` minus `skip_team_ids`, with a hardcoded fail-safe default (`_participating_teams` → `_enrolled_team_ids`, modeled on `posthog/temporal/ai_observability/team_discovery.py`). Enrollment is flag-driven: editing the payload in the flag UI enrolls or drains a team next tick with no manual seed. For each enrolled team it calls `sync_canonical_skills(team, prune=True)` to mirror the on-disk `signals-scout-*` skills onto the team's `LLMSkill` rows, then auto-registers a `SignalScoutConfig` for any scout skill missing one (`scout_harness/config_registry.register_missing_configs`). The `scout-create` endpoint atomically creates a custom skill and config; `scout-config-create` is the lower-level explicit upsert for an existing skill. Failures here are logged and the tick continues — a stale skill is preferable to a dead tick.
+2. For each enabled config, the coordinator computes how overdue the scout is. Rolling schedules are due when `last_run_at is None`, or `now - last_run_at >= run_interval_minutes`. A config with a `run_cron_schedule` is due at the earliest unfulfilled cron slot, evaluated as wall-clock time in the project's timezone (so slots follow daylight-saving changes). It runs on the first coordinator tick at or after that slot. Saving the config after a slot has passed waits for the next slot. There is no sampling — every due scout is planned.
 3. Due runs are sorted most-overdue-first and truncated at `MAX_RUNS_PER_TICK` (50 per tick; the cost bound — overflow catches up next tick). `last_run_at` is advanced via `.update()` for everything dispatched (bypasses `save()`, so the per-tick write never hits the activity log). Planned runs are re-sorted by `(team_id, skill_name)` for stable child IDs.
 4. Each `PlannedRun` becomes a child `RunSignalsScoutWorkflow` started with `ParentClosePolicy.ABANDON` and a deterministic workflow ID per `(team_id, skill_name, tick_id)` so retried coordinators can't double-launch within a tick.
 
-The coordinator's lifetime is seconds regardless of fan-out width; throttling happens at the Temporal task queue + worker concurrency layer. Pausing a scout is `enabled=False` on its config; slowing it is a larger `run_interval_minutes` — both tunable via the `scout-config-update` MCP tool.
+The coordinator's lifetime is seconds regardless of fan-out width; throttling happens at the Temporal task queue + worker concurrency layer. Pausing a scout is `enabled=False` on its config; slowing it is a larger `run_interval_minutes`. A cron `run_cron_schedule` (e.g. `30 9 * * *`, `0 9 * * 1-5`) anchors runs to wall-clock slots instead; null preserves the rolling interval behavior. All are tunable via the `scout-config-update` MCP tool.
 
 **Per-scout holdback (`withheld_skills`).** The same flag payload carries a hard denylist for keeping an unreleased scout off the fleet while dogfooding it on a single project. A `withheld_skills` list (a `default_team_config` fleet-wide default, overridable per team via `team_configs[<id>].withheld_skills` with replace-not-merge semantics — set `[]` to release the full fleet to one team) names scouts that, for a held-back team, are never seeded into its `LLMSkill` rows (`sync_canonical_skills` skips them), never get a `SignalScoutConfig` (`register_missing_configs` drops them from its return), and are never dispatched. Resolved by `_resolve_withheld_skills`, most-specific-layer-first like the run caps. Unlike the soft `enabled_skills` seed allowlist (a default a user can still toggle on), this is a hard gate at the seed + dispatch layer — e.g. `default_team_config.withheld_skills = ["signals-scout-error-tracking"]` with `team_configs["2"].withheld_skills = []` dogfoods error tracking on project 2 only.
 
@@ -528,16 +528,18 @@ Per-team configuration for which signal sources are enabled.
 
 Per-scout binding for the headless **Signals agent**: one row per `(team, skill_name)`. The coordinator auto-creates a row when it discovers a `signals-scout-*` skill on a participating team. Changes are activity-logged (they drive spend); team-level participation is gated by the `signals-scout` flag at the coordinator, not here. See `backend/scout_harness/AGENTS.md` for the harness internals.
 
-| Field                  | Type                 | Description                                                                                                                                                                                                                                     |
-| ---------------------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `team`                 | FK → Team            | Owning team (`related_name="signal_scout_configs"`). `unique_together(team, skill_name)`.                                                                                                                                                       |
-| `skill_name`           | CharField            | The `signals-scout-*` skill this row controls. Auto-registered by the coordinator when it finds the skill on a participating team.                                                                                                              |
-| `enabled`              | Boolean              | Per-scout switch; defaults `True`. `False` pauses just this scout.                                                                                                                                                                              |
-| `emit`                 | Boolean              | Dry-run vs emit. Defaults `True`: a freshly authored scout is live from its first tick. Flip to `False` for dry-run — the scout runs and logs but `emit_finding` writes nothing — to validate it on a team before its findings reach the inbox. |
-| `run_interval_minutes` | PositiveSmallInt     | Minutes between runs. The coordinator dispatches when `last_run_at is None or now - last_run_at >= run_interval_minutes`. Default `1440` (daily). Validated `30 <= N <= 43200`.                                                                 |
-| `last_run_at`          | DateTime (nullable)  | Stamped after each dispatch; drives the due-check. Excluded from activity logging (written every run).                                                                                                                                          |
-| `created_by`           | FK → User (nullable) | Audit pointer                                                                                                                                                                                                                                   |
-| `enabled_by`           | FK → User (nullable) | Who last flipped `enabled` — tracked because enablement drives spend.                                                                                                                                                                           |
+| Field                  | Type                 | Description                                                                                                                                                                                                                                                                                                  |
+| ---------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `team`                 | FK → Team            | Owning team (`related_name="signal_scout_configs"`). `unique_together(team, skill_name)`.                                                                                                                                                                                                                    |
+| `skill_name`           | CharField            | The `signals-scout-*` skill this row controls. Auto-registered by the coordinator when it finds the skill on a participating team.                                                                                                                                                                           |
+| `enabled`              | Boolean              | Per-scout switch; defaults `True`. `False` pauses just this scout.                                                                                                                                                                                                                                           |
+| `emit`                 | Boolean              | Dry-run vs emit. Defaults `True`: a freshly authored scout is live from its first tick. Flip to `False` for dry-run — the scout runs and logs but `emit_finding` writes nothing — to validate it on a team before its findings reach the inbox.                                                              |
+| `run_interval_minutes` | PositiveInteger      | Minutes between runs. The coordinator dispatches rolling schedules when `last_run_at is None or now - last_run_at >= run_interval_minutes`. Default `1440` (daily). Validated `30 <= N <= 43200`.                                                                                                            |
+| `run_cron_schedule`    | Char (nullable)      | Optional five-field cron expression anchoring runs to wall-clock slots; takes precedence over `run_interval_minutes` when set. Interpreted in the project's timezone so daylight-saving changes are applied automatically. Occurrences must be ≥ 30 minutes apart. Null keeps the rolling interval behavior. |
+| `schedule_changed_at`  | DateTime (nullable)  | Stamped by the config serializers only when a schedule field actually changes. Anchors the cron due-check (with `last_run_at` / `created_at`) instead of `updated_at`, so an unrelated emit/enabled save can never defer an overdue scheduled run.                                                           |
+| `last_run_at`          | DateTime (nullable)  | Stamped after each dispatch; drives the due-check. Excluded from activity logging (written every run).                                                                                                                                                                                                       |
+| `created_by`           | FK → User (nullable) | Audit pointer                                                                                                                                                                                                                                                                                                |
+| `enabled_by`           | FK → User (nullable) | Who last flipped `enabled` — tracked because enablement drives spend.                                                                                                                                                                                                                                        |
 
 ### `SignalScoutRun`
 
@@ -621,9 +623,9 @@ Defined in `products/error_tracking/backend/embedding.py`:
 | --------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | `team_id`       | Int64                  | Team identifier                                                                                                                  |
 | `product`       | LowCardinality(String) | Product bucket — signals uses `'signals'`                                                                                        |
-| `document_type` | LowCardinality(String) | Document type — signals uses `'signal'`                                                                                          |
+| `document_type` | LowCardinality(String) | Document type — `'signal'` for signals, `'report'` for report documents (see below)                                              |
 | `model_name`    | LowCardinality(String) | Embedding model name (e.g., `text-embedding-3-small-1536`)                                                                       |
-| `rendering`     | LowCardinality(String) | How content was rendered — signals uses `'plain'`                                                                                |
+| `rendering`     | LowCardinality(String) | How content was rendered — signals use `'plain'`, report documents use `'title_summary_v1'`                                      |
 | `document_id`   | String                 | Unique signal ID (UUID)                                                                                                          |
 | `timestamp`     | DateTime64(3, 'UTC')   | Document creation time                                                                                                           |
 | `inserted_at`   | DateTime64(3, 'UTC')   | When the embedding was inserted (used for dedup)                                                                                 |
@@ -641,6 +643,54 @@ Defined in `products/error_tracking/backend/embedding.py`:
 emit_embedding_request() → Kafka (document_embeddings_input topic)
     → Kafka table → Materialized View → Writable Distributed table → Sharded ReplacingMergeTree
 ```
+
+### Report Documents
+
+Alongside the per-signal rows, each `SignalReport` gets one embedding of its own: `document_type = 'report'`, `document_id` = the report UUID, content rendered from the report's `title` and `summary`.
+This gives a report a single vector instead of only the cloud of constituent-signal vectors,
+and is the feature-side building block for the inbox ranking model,
+whose label stream is the `signal_report_status_changed` event emitted by `backend/receivers.py`.
+
+Emission lives in `backend/report_embeddings.py`,
+driven by a `post_save` receiver that fires whenever a report's `title` or `summary` actually changes.
+That covers the matcher writing text at creation, the summary workflow on `IN_PROGRESS -> READY`, re-research runs, and the scout channel's `update_authored_content`.
+Two properties are load-bearing:
+
+- The row's `timestamp` is pinned to the report's `created_at`, never the emission time.
+  The table partitions by `toMonday(timestamp)` and orders by `toDate(timestamp)`,
+  so a re-emission stamped "now" would land in a different partition and sit alongside the earlier row rather than superseding it.
+  The trade-off is that the 3-month TTL runs from report creation, so a report open longer than that loses its vector while still live.
+- `rendering` is versioned (`title_summary_v1`) rather than `'plain'`, because a report document is a composition of fields we expect to extend.
+  Bumping to a v2 lets both compositions coexist and be compared instead of silently replacing each other.
+
+Metadata is deliberately limited to `report_id` plus the `deleted` tombstone flag.
+It only refreshes when the report's text changes or the report is deleted, so mutable state (status, priority, `signal_count`) would go stale there.
+Join that from Postgres or the status-change event stream instead.
+
+#### Safety gating and retraction
+
+A report's title and summary are derived from its signals, so they inherit the same prompt-injection exposure.
+Emission is therefore gated on the durable `safety_judgment` artefact: when the latest verdict is `choice: false`, no vector is written.
+That read is pinned to the writer (`using("default")`), because it runs immediately after the transaction that wrote the verdict and `ReplicaRouter` documents replication lag on exactly that pattern.
+
+Withholding new emissions is not sufficient on its own, because a report can be embedded while safe and only later be judged unsafe.
+Three paths therefore **retract** an existing vector by re-emitting the row with `metadata.deleted = true`, preserving `created_at` so it replaces the live row in the same partition:
+
+- **Deletion**: the report-level counterpart to `soft_delete_report_signals`. Both the soft path, where `delete_report_activity` flips status to `DELETED`, and a hard `delete()` of the row, which is what `delete_team_reports_activity` and the `cleanup_signals` command issue. The hard path matters most: once the row is gone, no later write can retract the vector.
+- **A later unsafe verdict**: the summary workflow re-judges safety on every run, and a READY report re-researches whenever new signals join it.
+- **An unreviewed edit**: the `PATCH` endpoint and the scout `edit_report` channel supply text the judge has never seen, so the report is retracted and left unindexed until the pipeline writes judged text again.
+
+Tombstones carry fixed placeholder content (`TOMBSTONE_CONTENT`) rather than the report's own text.
+Content is not part of the `ReplacingMergeTree` key, so a placeholder supersedes a live row just as well, and it means a tombstone can be emitted without first knowing whether a live row exists, which is the question none of these paths can answer cheaply.
+It also guarantees a retraction can never introduce the very text the safety judge withheld.
+This is a deliberate divergence from `soft_delete_report_signals`, which re-emits signal text verbatim and so makes rows filterable rather than erased.
+
+Readers must filter with `NOT JSONExtractBool(metadata, 'deleted')`, as every existing signals query already does.
+
+A caller removing reports in bulk should delete the reports and let their artefacts cascade, rather than deleting artefacts first.
+Django reports the cascade as the artefact's deletion `origin`, which is what lets the verdict receiver skip reconciliation it does not need:
+the report is going away in the same operation and retracts its own embedding.
+Deleting artefacts directly costs two extra queries each, which `delete_team_reports_activity` cannot afford inside its five minute budget.
 
 ### Soft Deletion
 
@@ -793,6 +843,21 @@ The `status` clause sorts by annotated `pipeline_status_rank` (not lexicographic
 So with `ordering=status`, **`failed` sorts after actionable `ready`**. With `ordering=-status`, **`failed` sorts before actionable `ready`**.
 
 Default ordering is **`-is_suggested_reviewer,status,-updated_at,id`**.
+
+**Dismissal feedback.** `dismissal_reason` / `dismissal_note` on the state and bulk-state bodies persist as a stacking `dismissal` artefact on the report, which stays the record of truth.
+When the caller typed a note, that feedback is _also_ forwarded to a `SignalScoutNote` (`dismissal_notes.forward_dismissal_note`).
+The artefact alone only reaches a scout if some later run happens to search the inbox and land on that report; notes are read by name at the start of every run, which is where a "this was noise, and here is why" verdict belongs.
+"Forward" rather than "promote" because promotion in this product means the pipeline moving a report up the status ladder to `candidate` (`promoted_at`, `signals_at_run`, re-promotion), and nothing here changes a report's standing.
+Forwarding targets the scout that authored the report (resolved in Postgres from `SignalScoutRun.emitted_report_ids`, then `edited_report_ids`) and addresses the whole fleet when no run claims it, and it writes one note per targeted scout per request, so a bulk dismissal of 40 reports under one note does not write 40 notes.
+Each note describes the status the report actually landed in, not the requested target, so a restore out of the archive is never reported to a scout as a snooze.
+A report that ends up `resolved` is never forwarded: resolving says the report did its job, so the note on it records how the work landed rather than whether filing it was worth it, and this channel is for the latter.
+Derived notes carry `origin=report_dismissal` and a 30-day TTL so they cannot permanently crowd out deliberate human steering, and a failure to write one never fails the transition the caller asked for.
+Because the notes table is otherwise gated to skill-authoring authorization (scouts read note content verbatim while holding privileged sandbox tools), forwarding re-checks that the dismisser could have left the note by hand: canonical-project access, a token whose `scoped_teams` cover that project, and the `llm_skill` editor level, mirroring `SignalScoutNoteViewSet` (`dismissal_notes._may_steer_scouts`).
+In practice the `llm_skill` leg only bites in orgs with the access-control entitlement where an admin has explicitly restricted skill editing, since `default_access_level` grants `editor` otherwise; the token `scoped_teams` and child-environment legs are what constrain the common case.
+A dismisser who can't clear that bar still gets their feedback recorded on the report; it just doesn't enter the steering channel.
+Two audience rules follow from a note living on the canonical project while the report it quotes may not.
+Reports on a child environment are never forwarded, since the note would be readable by people with no access to that environment.
+And on the read side, `scout-notes-list` withholds `report_dismissal` notes from callers who can't read reports (`task` scope plus `task` RBAC), so the notes surface can't be used to read report ids, titles, and dismissal text around the reports API (`scout_harness/views._may_read_reports`).
 
 #### `SignalReportArtefactViewSet`
 
@@ -1122,7 +1187,8 @@ Signal {index}:
 | S3 prefix                                | `signals/signal_batches/`     | Object storage path for signal batch files (cleaned up by S3 lifecycle policies)                                             |
 | `COORDINATOR_INTERVAL_MINUTES`           | `30`                          | Signals agent coordinator poll cadence (Temporal schedule, `SKIP` overlap policy)                                            |
 | `MAX_RUNS_PER_TICK`                      | `50`                          | Hard cap on planned runs per coordinator tick (most-overdue-first, truncated after sort)                                     |
-| `SignalScoutConfig.run_interval_minutes` | `1440`                        | Per-scout default schedule in minutes (daily); due-check, no sampling (`10`–`43200`)                                         |
+| `SignalScoutConfig.run_interval_minutes` | `1440`                        | Per-scout default schedule in minutes (daily); due-check, no sampling (`30`–`43200`)                                         |
+| `SignalScoutConfig.run_cron_schedule`    | `None`                        | Optional project-local cron schedule (overrides the interval); null keeps the rolling interval                               |
 | `SignalScoutConfig.emit`                 | `True`                        | Per-scout emit gate — defaults emit-on; flip to `False` for dry-run (scout runs and logs, but `emit_finding` writes nothing) |
 
 ---

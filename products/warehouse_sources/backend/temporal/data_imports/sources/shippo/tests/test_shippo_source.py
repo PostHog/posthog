@@ -6,7 +6,7 @@ from parameterized import parameterized
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ShippoSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shippo import ShippoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.shippo.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )

@@ -54,10 +54,11 @@ function canCreateImplementationPr(report: SignalReport): boolean {
 }
 
 /**
- * Detail-pane actions as data: Archive/Restore and Create PR. Discuss is rendered separately as a
- * standalone dropdown button (`DiscussReportButton`) since it opens a question popover rather than
- * firing on click. Task creation is owned by `inboxTaskKickoffLogic`; archiving reuses the shared
- * `useReportArchive` dialog flow. Callers render these inline or inside a menu.
+ * Detail-pane actions as data: Archive/Restore, Refund, and Create PR. Discuss is rendered
+ * separately as a standalone dropdown button (`DiscussReportButton`) since it opens a question
+ * popover rather than firing on click; rating a report lives at the end of the body
+ * (`ReportFeedbackFooter`). Task creation is owned by `inboxTaskKickoffLogic`; archiving reuses the
+ * shared `useReportArchive` dialog flow. Callers render these inline or inside a menu.
  */
 export function useReportDetailActions(report: SignalReport): ReportDetailAction[] {
     const { isCreatingPr } = useValues(inboxTaskKickoffLogic)
@@ -144,8 +145,8 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
     }
 
     // A resolved report is terminal – its PR already merged, so only Discuss (rendered separately)
-    // and Refund apply. The PR can still be refunded (auto-approved by design; the weekly review
-    // watches refunded-then-merged).
+    // applies. The PR can still be refunded (auto-approved by design; the weekly review watches
+    // refunded-then-merged).
     if (isResolved) {
         return canRefund ? [refund] : []
     }

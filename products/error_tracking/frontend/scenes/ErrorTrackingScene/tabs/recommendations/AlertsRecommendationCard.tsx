@@ -117,6 +117,7 @@ function AlertsRecommendationWizardModal({
         destinations: ERROR_TRACKING_DESTINATIONS,
         disableUrlSync: true,
         presetTriggerKey: triggerKey,
+        contextId: 'error-tracking',
         onAlertCreated: onClose,
     }
 

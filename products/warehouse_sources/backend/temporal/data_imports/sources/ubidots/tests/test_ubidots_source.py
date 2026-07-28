@@ -6,7 +6,9 @@ from parameterized import parameterized
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import UbidotsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ubidots import (
+    UbidotsSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.settings import ENDPOINTS, VALUES_ENDPOINT
 from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.source import UbidotsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.ubidots import UbidotsResumeConfig

@@ -15,7 +15,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     SourceInputs,
     SourceResponse,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FieldType,
+    ResumableSource,
+    VersionDeprecation,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
@@ -28,18 +32,28 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.da
     validate_credentials as validate_datadog_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.settings import (
+    DATADOG_API_VERSION_V1,
+    DATADOG_DEFAULT_VERSION,
     DATADOG_ENDPOINTS,
+    DATADOG_SUPPORTED_VERSIONS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     LIMITED_RETENTION_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DatadogSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.datadog import (
+    DatadogSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class DatadogSource(ResumableSource[DatadogSourceConfig, DatadogResumeConfig]):
     api_docs_url = "https://docs.datadoghq.com/api/latest/"
+
+    supported_versions = DATADOG_SUPPORTED_VERSIONS
+    default_version = DATADOG_DEFAULT_VERSION
+    # Datadog deprecates its v1 API per-endpoint with no wholesale sunset date, so no date is set.
+    deprecated_versions = (VersionDeprecation(version=DATADOG_API_VERSION_V1),)
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
@@ -130,6 +144,7 @@ Logs, audit logs, and events read access is governed by your Datadog account's d
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -151,7 +166,11 @@ Logs, audit logs, and events read access is governed by your Datadog account's d
         return schemas
 
     def validate_credentials(
-        self, config: DatadogSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: DatadogSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_datadog_credentials(config.site, config.api_key, config.application_key)
 

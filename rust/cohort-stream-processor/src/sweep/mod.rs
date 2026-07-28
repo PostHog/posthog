@@ -11,8 +11,10 @@
 
 pub mod dispatch;
 pub mod eviction_queue;
+pub mod reconcile;
 pub mod scheduler;
 
 pub use dispatch::DispatchSweeper;
 pub use eviction_queue::EvictionQueue;
+pub use reconcile::ReconcileDrainSweeper;
 pub use scheduler::{due_before_ms, run_sweep_loop, run_sweep_loop_delayed, Sweeper};

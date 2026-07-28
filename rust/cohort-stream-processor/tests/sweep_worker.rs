@@ -27,7 +27,7 @@ use cohort_stream_processor::partitions::{
     MeteredReceiver, OffsetTracker, PartitionRouter, ShuffleMessage,
 };
 use cohort_stream_processor::producer::{
-    CaptureSink, CohortMembershipChange, MembershipSink, MembershipStatus,
+    CaptureSink, CohortMembershipChange, MembershipSink, MembershipStatus, ReconcileCompleteMarker,
 };
 use cohort_stream_processor::stage1::bucket_tz::{day_idx_in_tz, start_of_day_ms_in_tz};
 use cohort_stream_processor::stage1::{
@@ -375,6 +375,11 @@ async fn sweep_evicts_a_single_leaf_member_emits_left_and_deletes() {
     assert!(
         state_at(&store, lsk, alice).is_none(),
         "a fully-expired single is deleted",
+    );
+    assert_eq!(
+        stage2_bit(&store, 1, alice),
+        Some(false),
+        "the sweep commit retains an explicit false membership register after deleting leaf state",
     );
 }
 
@@ -1234,6 +1239,16 @@ impl MembershipSink for FailNthSink {
         let acks = changes.iter().map(|_| Ok(())).collect();
         self.changes.lock().unwrap().extend(changes);
         acks
+    }
+
+    async fn produce_markers(
+        &self,
+        markers: Vec<ReconcileCompleteMarker>,
+    ) -> Vec<Result<(), KafkaProduceError>> {
+        markers
+            .into_iter()
+            .map(|_| Err(KafkaProduceError::KafkaProduceCanceled))
+            .collect()
     }
 }
 

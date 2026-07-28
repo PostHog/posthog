@@ -48,10 +48,18 @@ import { createStripPersonUpdatePropertiesStep } from '~/ingestion/common/steps/
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
 import { AI_EVENT_TYPES } from '~/ingestion/common/subpipelines/ai-event-types'
 import { IngestionOverflowMode } from '~/ingestion/config'
-import { TopHogWrapper, sum, sumOk, sumResult } from '~/ingestion/framework/extensions/tophog'
+import { TopHogRegistry, sum, sumOk, sumResult } from '~/ingestion/framework/extensions/tophog'
 import { isDropResult } from '~/ingestion/framework/results'
 
+import { BlobStore } from './blob-offload/blob-store'
 import { AiEventOutput, EVENTS_OUTPUT, EventOutput } from './outputs'
+import {
+    OffloadAiBlobsConfig,
+    createExtractAiBlobsStep,
+    createUploadAiBlobStep,
+    extractAiBlobsFanOut,
+    mergeAiBlobPointersFanIn,
+} from './pipelines/steps/offload-ai-blobs-step'
 import { createProcessAiEventStep } from './pipelines/steps/process-ai-event-step'
 
 export interface AiIngestionPipelineConfig {
@@ -75,7 +83,9 @@ export interface AiIngestionPipelineConfig {
     cdpHogWatcherSampleRate: number
     eventSchemaEnforcementEnabled: boolean
     eventSchemaEnforcementManager: EventSchemaEnforcementManager
-    topHog: TopHogWrapper
+    topHog: TopHogRegistry
+    aiBlobStore: BlobStore | null
+    aiBlobOffloadConfig: OffloadAiBlobsConfig
 }
 
 interface AiIngestionPipelineInput {
@@ -123,6 +133,8 @@ export function createAiIngestionPipeline<
         eventSchemaEnforcementEnabled,
         eventSchemaEnforcementManager,
         topHog,
+        aiBlobStore,
+        aiBlobOffloadConfig,
     } = config
 
     return (
@@ -131,6 +143,7 @@ export function createAiIngestionPipeline<
             outputs,
             promiseScheduler,
             concurrentBatches,
+            topHog,
         })
             .beforeBatch((b) => b.pipe(createEventFiltersBatchAppMetricsBeforeBatchStep(outputs)))
             // Header-only steps: allow only AI events, apply token restrictions.
@@ -172,8 +185,9 @@ export function createAiIngestionPipeline<
             // that do transient-failure-prone I/O (hog transform, group-type
             // fetch, emit) retry, matching the analytics per-distinct-id path.
             .pipe(createNormalizeProcessPersonFlagStep())
-            .pipe(
-                topHog(createHogTransformEventStep(hogTransformer), [
+            .pipe(createHogTransformEventStep(hogTransformer), {
+                retry: { tries: 5, sleepMs: 100, name: 'hog_transform_event' },
+                topHog: [
                     sumOk(
                         'transformations_run',
                         (output) => ({ team_id: String(output.team.id) }),
@@ -202,11 +216,26 @@ export function createAiIngestionPipeline<
                         }),
                         (result) => (isDropResult(result) ? 1 : 0)
                     ),
-                ]),
-                { retry: { tries: 5, sleepMs: 100, name: 'hog_transform_event' } }
-            )
+                ],
+            })
             .pipe(createNormalizeEventStep())
             .pipe(createProcessAiEventStep())
+            // Blob offload: extract blobs sequentially (cheap, no I/O), then
+            // upload them through a fan-out/fan-in stage so per-blob uploads
+            // share one concurrency cap across the whole chunk and reuse the
+            // pipeline's retry machinery instead of hand-rolled concurrency.
+            .pipe(createExtractAiBlobsStep(aiBlobStore, aiBlobOffloadConfig))
+            .fanOut(extractAiBlobsFanOut)
+            .via((sub) =>
+                sub.concurrently(
+                    (blob) =>
+                        blob.pipe(createUploadAiBlobStep(aiBlobStore), {
+                            retry: { tries: 5, sleepMs: 100, name: 'offload_ai_blobs' },
+                        }),
+                    { maxConcurrency: aiBlobOffloadConfig.uploadMaxConcurrency }
+                )
+            )
+            .fanIn(mergeAiBlobPointersFanIn)
             // Read-only: drop person-update props so they don't
             // leak into person_properties (person is never written).
             .pipe(createStripPersonUpdatePropertiesStep())
@@ -218,8 +247,9 @@ export function createAiIngestionPipeline<
             .pipe(createCreateEventStep(EVENTS_OUTPUT))
             // Double-write to events + ai_events outputs.
             .pipe(createSplitAiEventsStep())
-            .pipe(
-                topHog(createEmitEventStep({ outputs }), [
+            .pipe(createEmitEventStep({ outputs }), {
+                retry: { tries: 5, sleepMs: 100, name: 'emit_event' },
+                topHog: [
                     sum(
                         'emitted_events',
                         (input) => ({ team_id: String(input.teamId) }),
@@ -233,9 +263,8 @@ export function createAiIngestionPipeline<
                         }),
                         (input) => input.eventsToEmit.length
                     ),
-                ]),
-                { retry: { tries: 5, sleepMs: 100, name: 'emit_event' } }
-            )
+                ],
+            })
             .pipe(createRecordIngestionLagStep())
             .afterBatch((b) =>
                 b

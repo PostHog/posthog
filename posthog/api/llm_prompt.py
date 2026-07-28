@@ -15,6 +15,7 @@ from rest_framework.serializers import BaseSerializer
 
 from posthog.api.capture import capture_internal
 from posthog.api.llm_prompt_serializers import (
+    ALLOWED_LIST_ORDERINGS,
     LLMPromptDuplicateSerializer,
     LLMPromptFetchQuerySerializer,
     LLMPromptGetByNameQuerySerializer,
@@ -46,6 +47,7 @@ from posthog.api.services.llm_prompt import (
     get_active_prompt_queryset,
     get_latest_prompts_queryset,
     get_prompt_by_name_from_db,
+    get_prompt_labels,
     publish_prompt_version,
     remove_prompt_label,
     resolve_versions_page,
@@ -65,29 +67,12 @@ from posthog.rate_limit import BurstRateThrottle, LLMPromptPublishBurstRateThrot
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
+from products.ai_observability.backend.activity_logging import log_llm_prompt_activity
 from products.ai_observability.backend.api.metrics import llma_track_latency
-from products.ai_observability.backend.models.llm_prompt import LLMPrompt, get_prompt_outline
+from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptLabel, get_prompt_outline
 
 PROMPT_FETCHED_EVENT = "$llm_prompt_fetched"
 PROMPT_FETCHED_EVENT_SOURCE = "llm_prompt_management"
-ALLOWED_LIST_ORDERINGS = {
-    "name": "name",
-    "-name": "-name",
-    "created_at": "created_at",
-    "-created_at": "-created_at",
-    "updated_at": "updated_at",
-    "-updated_at": "-updated_at",
-    "version": "version",
-    "-version": "-version",
-    "latest_version": "latest_version",
-    "-latest_version": "-latest_version",
-    "version_count": "version_count",
-    "-version_count": "-version_count",
-    "first_version_created_at": "first_version_created_at",
-    "-first_version_created_at": "-first_version_created_at",
-    "prompt_size_bytes": "prompt_size_bytes",
-    "-prompt_size_bytes": "-prompt_size_bytes",
-}
 
 
 @extend_schema(extensions={"x-product": "llm_analytics"})
@@ -224,7 +209,7 @@ class LLMPromptViewSet(
         if created_by_id:
             queryset = queryset.filter(created_by_id=created_by_id)
 
-        order_by = request.query_params.get("order_by", "-created_at")
+        order_by = params.get("order_by", "-created_at")
         queryset = queryset.order_by(ALLOWED_LIST_ORDERINGS.get(order_by, "-created_at"), "-id")
         return queryset
 
@@ -242,6 +227,12 @@ class LLMPromptViewSet(
     def perform_create(self, serializer: BaseSerializer[Any]) -> None:
         instance = cast(LLMPrompt, serializer.save())
 
+        log_llm_prompt_activity(
+            team=self.team,
+            user=cast(User, self.request.user),
+            prompt_name=instance.name,
+            activity="created",
+        )
         report_user_action(
             cast(User, self.request.user),
             "llma prompt created",
@@ -384,9 +375,11 @@ class LLMPromptViewSet(
                 "prompt": self._serialize_prompt(prompt),
                 "versions": self._serialize_version_summaries(versions),
                 "has_more": has_more,
+                "labels": LLMPromptLabelSerializer(get_prompt_labels(self.team, prompt_name), many=True).data,
             }
         )
 
+    @extend_schema(request=None, responses={204: None})
     @action(
         methods=["POST"],
         detail=False,
@@ -401,7 +394,7 @@ class LLMPromptViewSet(
             return auth_error
 
         try:
-            prompt_versions = archive_prompt(self.team, prompt_name)
+            prompt_versions = archive_prompt(self.team, prompt_name, user=cast(User, request.user))
         except LLMPromptNotFoundError:
             return self._prompt_not_found_response(prompt_name)
 
@@ -555,19 +548,32 @@ class LLMPromptViewSet(
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    def _get_prompt_labels_map(self, prompt_names: list[str]) -> dict[str, list[dict[str, Any]]]:
+        labels_map: dict[str, list[dict[str, Any]]] = {}
+        labels = (
+            LLMPromptLabel.objects.filter(team=self.team, prompt_name__in=prompt_names)
+            .select_related("prompt")
+            .order_by("prompt_name", "name")
+        )
+        for label in labels:
+            labels_map.setdefault(label.prompt_name, []).append({"name": label.name, "version": label.prompt.version})
+        return labels_map
+
     @extend_schema(parameters=[LLMPromptListQuerySerializer])
     @llma_track_latency("llma_prompts_list")
     @monitor(feature=None, endpoint="llma_prompts_list", method="GET")
     def list(self, request: Request, *args, **kwargs) -> Response:
         queryset = self.filter_queryset(self._get_list_queryset(request))
         page = self.paginate_queryset(queryset)
-        if page is not None:
-            serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
+        prompts = page if page is not None else list(queryset)
 
-        serializer = self.get_serializer(queryset, many=True)
-        data = serializer.data
-        return Response({"count": len(data), "results": data})
+        context = self.get_serializer_context()
+        context["prompt_labels_by_name"] = self._get_prompt_labels_map([prompt.name for prompt in prompts])
+        serializer = LLMPromptListSerializer(prompts, many=True, context=context)
+
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response({"count": len(serializer.data), "results": serializer.data})
 
     @llma_track_latency("llma_prompts_create")
     @monitor(feature=None, endpoint="llma_prompts_create", method="POST")
