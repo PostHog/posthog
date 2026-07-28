@@ -38,6 +38,10 @@ spec:
                 runAsNonRoot: true
                 seccompProfile:
                     type: RuntimeDefault
+                {{- if .Values.persistence.enabled }}
+                # The agent runs as uid 10001; the queue volume must be writable.
+                fsGroup: 10001
+                {{- end }}
             containers:
                 - name: agent
                   image: '{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}'
@@ -59,11 +63,19 @@ spec:
                       - name: SHARD_COUNT
                         value: {{ int .Values.shards | quote }}
                       {{- end }}
+                      {{- if .Values.persistence.enabled }}
+                      - name: PERSIST_QUEUE
+                        value: '1'
+                      {{- end }}
                   volumeMounts:
                       - name: config
                         mountPath: /etc/posthog/config.yaml
                         subPath: config.yaml
                         readOnly: true
+                      {{- if .Values.persistence.enabled }}
+                      - name: queue
+                        mountPath: /var/lib/posthog-agent
+                      {{- end }}
                   ports:
                       - name: health
                         containerPort: 13133
@@ -81,6 +93,11 @@ spec:
                 - name: config
                   configMap:
                       name: {{ include "posthog-metrics-agent.fullname" . }}
+                {{- if and .Values.persistence.enabled (not $sharded) }}
+                - name: queue
+                  persistentVolumeClaim:
+                      claimName: {{ include "posthog-metrics-agent.fullname" . }}-queue
+                {{- end }}
             {{- with .Values.nodeSelector }}
             nodeSelector:
                 {{- toYaml . | nindent 16 }}
@@ -93,3 +110,16 @@ spec:
             affinity:
                 {{- toYaml . | nindent 16 }}
             {{- end }}
+    {{- if and .Values.persistence.enabled $sharded }}
+    volumeClaimTemplates:
+        - metadata:
+              name: queue
+          spec:
+              accessModes: [ReadWriteOnce]
+              resources:
+                  requests:
+                      storage: {{ .Values.persistence.size }}
+              {{- with .Values.persistence.storageClass }}
+              storageClassName: {{ . }}
+              {{- end }}
+    {{- end }}

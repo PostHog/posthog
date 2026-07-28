@@ -126,6 +126,23 @@ assert_contains sharded-count-env 'name: SHARD_COUNT' "$out"
 static=$(render --set posthog.apiKey=phc_test --set shards=3 -f values/static-targets.yaml)
 assert_contains sharded-static-job-hashmod 'action: hashmod' "$static"
 
+# --- persistence: disk-backed delivery queue ---
+out=$(render --set posthog.apiKey=phc_test)
+assert_not_contains default-no-persist-env 'PERSIST_QUEUE' "$out"
+assert_not_contains default-no-pvc 'kind: PersistentVolumeClaim' "$out"
+
+out=$(render --set posthog.apiKey=phc_test --set persistence.enabled=true)
+assert_contains persist-env 'name: PERSIST_QUEUE' "$out"
+assert_contains persist-pvc 'kind: PersistentVolumeClaim' "$out"
+assert_contains persist-mount 'mountPath: /var/lib/posthog-agent' "$out"
+assert_contains persist-fsgroup 'fsGroup: 10001' "$out"
+assert_contains persist-size 'storage: 10Gi' "$out"
+
+# Sharded + persistent: each pod gets its own queue via claim templates.
+out=$(render --set posthog.apiKey=phc_test --set persistence.enabled=true --set shards=3)
+assert_contains persist-sharded-claim-template 'volumeClaimTemplates:' "$out"
+assert_not_contains persist-sharded-no-standalone-pvc 'kind: PersistentVolumeClaim' "$out"
+
 # --- golden drift guard for the fully default render ---
 # Blank lines are stripped before comparing: helm 3 and 4 disagree on
 # blank-line placement between documents, and that isn't drift we care about.

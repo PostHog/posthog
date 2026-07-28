@@ -72,6 +72,11 @@ run_render debug POSTHOG_API_KEY=phc_test SCRAPE_TARGETS=app:9090 POSTHOG_DEBUG=
 new_case_dir
 run_render quoted-target POSTHOG_API_KEY=phc_test "SCRAPE_TARGETS=app's-host:9090"
 
+# PERSIST_QUEUE backs the export queue with disk so a restart during a
+# PostHog outage loses nothing.
+new_case_dir
+run_render persist-queue POSTHOG_API_KEY=phc_test SCRAPE_TARGETS=app:9090 PERSIST_QUEUE=1
+
 # Sharding: SHARD_COUNT/SHARD_INDEX partition targets via hashmod so N agents
 # split the target set with no coordination, no duplicates, and no gaps.
 new_case_dir

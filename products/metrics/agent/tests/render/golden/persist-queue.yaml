@@ -2,7 +2,13 @@ receivers:
     prometheus:
         config:
             scrape_configs:
-#__SCRAPE_CONFIGS__
+                - job_name: '${env:SCRAPE_JOB_NAME:-posthog-metrics-agent}'
+                  scrape_interval: '${env:SCRAPE_INTERVAL:-15s}'
+                  metrics_path: '${env:SCRAPE_METRICS_PATH:-/metrics}'
+                  # OpenMetrics first so exemplars (trace links) survive the scrape.
+                  scrape_protocols: [OpenMetricsText1.0.0, OpenMetricsText0.0.1, PrometheusText0.0.4]
+                  static_configs:
+                      - targets: ['app:9090']
 
 processors:
     # Shed load instead of buffering unbounded memory when PostHog is unreachable.
@@ -13,7 +19,6 @@ processors:
     batch:
 
 exporters:
-#__DEBUG_EXPORTER__
     otlphttp:
         # The otlphttp exporter appends /v1/metrics to `endpoint`, but PostHog's
         # public ingest route is /i/v1/metrics, so pin the per-signal path.
@@ -21,19 +26,24 @@ exporters:
         compression: gzip
         headers:
             authorization: 'Bearer ${env:POSTHOG_API_KEY}'
-#__SENDING_QUEUE__
+        sending_queue:
+            enabled: true
+            # Survives restarts: batches persist to disk until delivered.
+            storage: file_storage
         retry_on_failure:
             enabled: true
 
 extensions:
-#__FILE_STORAGE__
+    file_storage:
+        directory: '${env:QUEUE_DIR:-/var/lib/posthog-agent}'
+        create_directory: true
     health_check:
         endpoint: 0.0.0.0:13133
 
 service:
-    extensions: [__SERVICE_EXTENSIONS__]
+    extensions: [health_check, file_storage]
     pipelines:
         metrics:
             receivers: [prometheus]
             processors: [memory_limiter, batch]
-            exporters: [__PIPELINE_EXPORTERS__]
+            exporters: [otlphttp]

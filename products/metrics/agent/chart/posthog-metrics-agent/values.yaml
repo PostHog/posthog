@@ -31,6 +31,14 @@ scrape:
     # (see templates/_helpers.tpl) or every shard will scrape it.
     extraScrapeConfigs: ''
 
+# Disk-backed delivery queue: samples scraped while PostHog is unreachable
+# survive pod restarts and deliver on recovery. Without it the queue is
+# in-memory and a restart during an outage drops whatever was buffered.
+persistence:
+    enabled: false
+    size: 10Gi
+    storageClass: ''
+
 resources:
     requests:
         cpu: 100m
