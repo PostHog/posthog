@@ -13,18 +13,6 @@ import structlog
 from posthog.exceptions_capture import capture_exception
 
 from products.alerts.backend.scheduling import compute_shard_offset_seconds
-from products.billing_alerts.backend.logic.evaluator import (
-    BillingAlertEvaluation,
-    evaluate_billing_alert,
-    expected_evaluation_date,
-)
-from products.billing_alerts.backend.models import (
-    DAILY_CHECK_INTERVAL_HOURS,
-    BillingAlertConfiguration,
-    BillingAlertEvaluationClaim,
-    BillingAlertEvent,
-)
-
 from products.alerts.backend.state_machine import (
     BILLING_ALERT_POLICY,
     MAX_CONSECUTIVE_FAILURES,
@@ -41,6 +29,17 @@ from products.alerts.backend.state_machine import (
     apply_unsnooze,
     evaluate_alert_check as shared_evaluate_alert_check,
     evaluate_alert_failure as shared_evaluate_alert_failure,
+)
+from products.billing_alerts.backend.logic.evaluator import (
+    BillingAlertEvaluation,
+    evaluate_billing_alert,
+    expected_evaluation_date,
+)
+from products.billing_alerts.backend.models import (
+    DAILY_CHECK_INTERVAL_HOURS,
+    BillingAlertConfiguration,
+    BillingAlertEvaluationClaim,
+    BillingAlertEvent,
 )
 
 BILLING_ALERT_SCHEDULE_INTERVAL_SECONDS = 60 * 60

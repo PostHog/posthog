@@ -2,6 +2,7 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
 
+from products.alerts.backend.state_machine import AlertSnapshot, AlertState, NotificationAction
 from products.billing_alerts.backend.logic.evaluator import BillingAlertEvaluation
 from products.billing_alerts.backend.logic.state_machine import (
     apply_outcome,
@@ -10,8 +11,6 @@ from products.billing_alerts.backend.logic.state_machine import (
     next_billing_alert_check_at,
 )
 from products.billing_alerts.backend.models import BillingAlertConfiguration
-
-from products.alerts.backend.state_machine import AlertSnapshot, AlertState, NotificationAction
 
 NOW = datetime(2026, 6, 23, 12, 30, tzinfo=UTC)
 
