@@ -217,6 +217,41 @@ test('a product file that is neither backend nor frontend claims both domains', 
     assert.equal(targets.includes('fe:product:beta'), true)
 })
 
+// tools/ is not one bucket. phrocs is Go with its own CI and nothing imports
+// it, while hogli-commands is loaded by posthog/conftest.py on every pytest
+// run, so lumping them together either serializes phrocs needlessly or hands
+// hogli a lane it must not have.
+test('independently testable tools get their own lane', () => {
+    assert.deepEqual(computeTargets(['tools/phrocs/internal/tui/app.go'], CONTEXT), ['tools:phrocs'])
+    assert.deepEqual(computeTargets(['tools/traffic-sim/main.go'], CONTEXT), ['tools:traffic-sim'])
+})
+
+test('backend-coupled and unrecognized tools stay in the backend lanes', () => {
+    for (const file of [
+        'tools/hogli/cli.py',
+        'tools/hogli-commands/hogli_commands/quarantine/core.py',
+        // A tool nobody has classified yet must over-report rather than be
+        // handed a lane it has not earned.
+        'tools/some-new-tool/main.py',
+    ]) {
+        const targets = computeTargets([file], CONTEXT)
+        assert.equal(targets.includes('py:core'), true, `${file} should widen to the backend lanes`)
+    }
+})
+
+// These steer what every suite runs, so they cannot sit in one domain's lane.
+test('CI-steering scripts directly under tools/ force ALL', () => {
+    assert.equal(computeTargets(['tools/playwright_spec_selection.py'], CONTEXT), ALL)
+    assert.equal(computeTargets(['tools/snob_backend_test_selection_shadow.py'], CONTEXT), ALL)
+})
+
+// Both sit on the fe/py boundary: openapi-codegen generates the frontend types
+// from backend serializers, and owners is read by both suites.
+test('cross-domain tools are tripwires rather than backend-only', () => {
+    assert.equal(computeTargets(['tools/openapi-codegen/config.ts'], CONTEXT), ALL)
+    assert.equal(computeTargets(['tools/owners/owners/__init__.py'], CONTEXT), ALL)
+})
+
 test('markdown is classified as docs regardless of which tree it sits in', () => {
     assert.deepEqual(computeTargets(['posthog/README.md', 'docs/guide.mdx'], CONTEXT), ['docs'])
 })

@@ -73,6 +73,11 @@ const TRIPWIRES = [
     // from every product's manifest.
     'frontend/src/products.json',
     'products/*/manifest.tsx',
+    // Generates the frontend API types from the backend serializers, so a
+    // change lands on both sides of the fe/py split at once.
+    'tools/openapi-codegen/**',
+    // Ownership data read by the backend, frontend, and script suites alike.
+    'tools/owners/**',
     'conftest.py',
     'pytest.ini',
     'mypy.ini',
@@ -94,6 +99,24 @@ const TRIPWIRES = [
 // being guessed at.
 const COMMON_PYTHON = ['hogql_parser', 'hogvm', 'ingestion', 'migration_utils', 'plugin_transpiler', 'alerting']
 const COMMON_FRONTEND = ['esbuilder', 'storybook', 'tailwind', 'replay-shared', 'replay-headless']
+
+// Tools that own their whole test story and that no suite imports, so they can
+// hold a lane of their own. Everything else under tools/ falls through to the
+// backend lanes, which keeps a newly added tool over-reporting until someone
+// establishes it belongs here.
+//
+// hogli and hogli-commands are deliberately absent: ci-backend.yml drives the
+// suite through hogli, and posthog/conftest.py imports
+// hogli_commands.quarantine.pytest_support on every pytest run.
+const TOOLS_INDEPENDENT = [
+    'phrocs',
+    'hogbox-preview',
+    'traffic-sim',
+    'hedgebox-dummy',
+    'pr-approval-agent',
+    'query-performance-ai',
+    'infra-scripts',
+]
 
 // Supports the three forms used in TRIPWIRES: `**` spanning directories, `*`
 // within a single path segment, and literal names. The two star forms are
@@ -389,9 +412,18 @@ function computeTargets(changedFiles, context) {
             targets.add('agents')
             continue
         }
-        // hogli and the product tooling under tools/ are imported by the backend
-        // suite, so they share the backend lanes.
         if (top === 'tools') {
+            // A file sitting directly under tools/ rather than inside a tool's
+            // own directory is one of the CI-steering scripts (backend test
+            // selection, playwright spec selection, the selection verdict).
+            // Those decide what runs across every suite, so they widen fully.
+            if (segments.length < 3) {
+                return ALL
+            }
+            if (TOOLS_INDEPENDENT.includes(segments[1])) {
+                targets.add(`tools:${segments[1]}`)
+                continue
+            }
             allPyProducts()
             continue
         }
