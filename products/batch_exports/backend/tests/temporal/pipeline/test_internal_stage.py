@@ -12,7 +12,6 @@ from django.conf import settings
 from django.test.utils import override_settings
 
 import pyarrow as pa
-import pytest_asyncio
 from structlog.testing import capture_logs
 from temporalio.testing import ActivityEnvironment
 
@@ -41,11 +40,7 @@ from products.batch_exports.backend.tests.temporal.utils.persons import (
     generate_test_person_distinct_id2_in_clickhouse,
     generate_test_persons_in_clickhouse,
 )
-from products.batch_exports.backend.tests.temporal.utils.s3 import (
-    assert_files_in_s3,
-    create_test_client,
-    delete_all_from_s3,
-)
+from products.batch_exports.backend.tests.temporal.utils.s3 import assert_files_in_s3
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -212,19 +207,6 @@ async def test_write_batch_export_record_batches_to_internal_stage_rejects_futur
 
     mock_wait.assert_not_called()
     mock_get_client.assert_not_called()
-
-
-@pytest_asyncio.fixture
-async def minio_client():
-    """Manage an S3 client to interact with a MinIO bucket."""
-    async with create_test_client(
-        "s3",
-        aws_access_key_id="object_storage_root_user",
-        aws_secret_access_key="object_storage_root_password",
-    ) as minio_client:
-        yield minio_client
-
-        await delete_all_from_s3(minio_client, settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET, key_prefix="")
 
 
 async def _generate_record_batches_from_internal_stage(

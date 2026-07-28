@@ -85,7 +85,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         dashboardStreaming,
         effectiveEditBarFilters,
         effectiveDashboardVariableOverrides,
-        temporaryBreakdownColors,
+        effectiveBreakdownColors,
         dataColorThemeId,
         canEditDashboard,
         dashboardWidgetsEnabled,
@@ -245,7 +245,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                 ? getAddTileMenuItems({
                       dashboardId: dashboard.id,
                       dashboardWidgetsEnabled,
-                      showAddInsightToDashboardModal,
+                      onAddInsight: showAddInsightToDashboardModal,
                       push,
                       setAddWidgetModalOpen,
                       onBeforeSelect: () => setPendingInsertion({ x: targetX, y: targetY, w: targetW ?? null }),
@@ -580,7 +580,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         filtersOverride={effectiveEditBarFilters}
                                         variablesOverride={effectiveDashboardVariableOverrides}
                                         // :HACKY: The two props below aren't actually used in the component, but are needed to trigger a re-render
-                                        breakdownColorOverride={temporaryBreakdownColors}
+                                        breakdownColorOverride={effectiveBreakdownColors}
                                         dataColorThemeId={dataColorThemeId}
                                         surveyOpportunity={tile.id === bestSurveyOpportunityFunnel?.id}
                                         showCreateAnomalyAlertButton={showCreateAnomalyAlertButton}

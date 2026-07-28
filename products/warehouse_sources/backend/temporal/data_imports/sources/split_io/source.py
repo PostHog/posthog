@@ -24,9 +24,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     SplitIoSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.split_io.settings import (
+    DEFAULT_VERSION,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     SPLIT_IO_ENDPOINTS,
+    SUPPORTED_VERSIONS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.split_io.split_io import (
     SplitIoResumeConfig,
@@ -40,6 +42,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class SplitIoSource(ResumableSource[SplitIoSourceConfig, SplitIoResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.split.io/reference/introduction"
+
+    supported_versions = SUPPORTED_VERSIONS
+    default_version = DEFAULT_VERSION
 
     @property
     def source_type(self) -> ExternalDataSourceType:

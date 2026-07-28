@@ -6,4 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class EtsySourceConfig(config.Config):
-    pass
+    api_key: str
+    refresh_token: str
+    shop_id: str | None = None

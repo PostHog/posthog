@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.models.table import (
 # rather than the contract-returning facade/api.py.
 from products.warehouse_sources.backend.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
+    LEGACY_CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
     clean_type,
     get_view_or_table_by_name,
@@ -38,6 +39,7 @@ from products.warehouse_sources.backend.models.util import (
 
 __all__ = [
     "CLICKHOUSE_HOGQL_MAPPING",
+    "LEGACY_CLICKHOUSE_HOGQL_MAPPING",
     "SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING",
     "STR_TO_HOGQL_MAPPING",
     "DataWarehouseCredential",

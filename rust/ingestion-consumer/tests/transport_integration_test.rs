@@ -479,7 +479,7 @@ async fn dispatcher_and_transport_end_to_end() {
                 .send_batch(&worker, "batch-e2e", sub_batch.messages, false)
                 .await
                 .unwrap();
-            d.on_sub_batch_resolved(&worker, message_count, &routing_keys, false);
+            d.on_sub_batch_resolved(&worker, message_count, &routing_keys, false, false);
             result
         }));
     }

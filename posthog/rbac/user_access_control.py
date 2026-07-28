@@ -69,9 +69,12 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "external_data_source",
     "warehouse_objects",
     "feature_flag",
+    "heatmap",
     "hog_flow",
     "insight",
     "llm_analytics",
+    "tagger",
+    "llm_skill",
     "ai_observability_clusters",
     "notebook",
     "revenue_analytics",
@@ -82,10 +85,12 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "activity_log",
     "error_tracking",
     "logs",
+    "mcp_analytics",
     "metrics",
     "tracing",
     "replay_scanner",
     "toolbar",
+    "llm_playground",
 )
 
 # Resource inheritance mapping - child resources inherit access from parent resources
@@ -95,11 +100,9 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "warehouse_table": "warehouse_objects",
     "warehouse_view": "warehouse_objects",
     "evaluation": "llm_analytics",
-    "tagger": "llm_analytics",
     "dataset": "llm_analytics",
     "llm_provider_key": "llm_analytics",
     "llm_prompt": "llm_analytics",
-    "llm_skill": "llm_analytics",
     "account": "customer_analytics",
     "customer_journey": "customer_analytics",
     "experiment_saved_metric": "experiment",
@@ -170,6 +173,9 @@ def resource_to_display_name(resource: APIScopeObject) -> str:
     if resource == "warehouse_objects":
         # Umbrella label for both warehouse tables and views (both children inherit from this)
         return "data warehouse tables & views"
+    if resource == "llm_playground":
+        # The playground is a single page, not a collection of objects
+        return "LLM playground"
 
     # Default: replace underscores and add 's' for plural
     return f"{resource.replace('_', ' ')}s"
@@ -419,6 +425,8 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "export"
     if name == "sessionrecordingplaylist":
         return "session_recording_playlist"
+    if name == "savedheatmap":
+        return "heatmap"
     if name == "experimentsavedmetric":
         return "experiment_saved_metric"
     if name == "experimentholdout":

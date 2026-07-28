@@ -58,6 +58,7 @@ import type {
     QueryTabStateListParams,
     ResetPasswordResponseApi,
     SavedQueryColumnAnnotationsListParams,
+    SavedQueryResumeApi,
     TableApi,
     ViewLinkApi,
     ViewLinkValidationApi,
@@ -1593,6 +1594,27 @@ export const warehouseSavedQueriesMaterializeCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(dataWarehouseSavedQueryApi),
+    })
+}
+
+export const getWarehouseSavedQueriesResumeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_saved_queries/${id}/resume/`
+}
+
+/**
+ * Resume materialization suspended after repeated failures.
+ *
+ * Scheduled runs skip a suspended model and everything downstream of it, so it cannot succeed
+ * its way back on its own.
+ */
+export const warehouseSavedQueriesResumeCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SavedQueryResumeApi> => {
+    return apiMutator<SavedQueryResumeApi>(getWarehouseSavedQueriesResumeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 

@@ -111,6 +111,13 @@ impl PersonhogStore {
         Ok(self.inner.list(&key).await?)
     }
 
+    /// List pods along with the etcd revision of the snapshot, so a watch
+    /// can be anchored strictly after it.
+    pub async fn list_pods_with_revision(&self) -> Result<(Vec<RegisteredPod>, i64)> {
+        let key = self.key(StoreKey::PodsPrefix);
+        Ok(self.inner.list_with_revision(&key).await?)
+    }
+
     pub async fn update_pod_status(
         &self,
         pod_name: &str,
@@ -262,6 +269,9 @@ impl PersonhogStore {
             return Ok(false);
         }
         handoff.phase = new_phase;
+        // The phase clock restarts with the phase: duration metrics and
+        // the per-phase age gauge read this stamp.
+        handoff.phase_entered_at_ms = assignment_coordination::util::now_millis();
         let txn = Txn::new()
             .when(vec![Compare::mod_revision(
                 handoff_key.clone(),
@@ -522,10 +532,12 @@ impl PersonhogStore {
             .ok_or_else(|| Error::NotFound(format!("handoff for partition {partition}")))?;
 
         handoff.phase = crate::types::HandoffPhase::Complete;
+        handoff.phase_entered_at_ms = assignment_coordination::util::now_millis();
 
         let assignment = PartitionAssignment {
             partition,
             owner: handoff.new_owner.clone(),
+            advertise_address: handoff.new_owner_address.clone(),
             status: AssignmentStatus::Active,
         };
 

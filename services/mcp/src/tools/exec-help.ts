@@ -1,3 +1,8 @@
+// Syntax line for the `learn` verb, appended to the command reference on hosts
+// that receive the help catalog. Shared with scripts/generate-exec-docs.ts so the
+// published docs can't drift from the runtime declaration.
+export const LEARN_COMMAND_LINE = 'learn <topic...> - load one or more learning topics\n'
+
 export type ExecHelpEntryKind = 'guide' | 'skill'
 
 export interface ExecHelpEntry {

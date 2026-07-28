@@ -132,6 +132,11 @@ export type CdpConfig = ClickhouseConfig & {
     SES_ACCESS_KEY_ID: string
     SES_SECRET_ACCESS_KEY: string
     SES_REGION: string
+    // Configuration set with ESP-level open/click tracking enabled, used for sends with engagement tracking on.
+    SES_TRACKED_CONFIGURATION_SET: string
+    // Configuration set without open/click tracking (same delivery/bounce/complaint event destination).
+    // Empty means not provisioned: tracking-off sends fall back to the tracked set with a warning.
+    SES_UNTRACKED_CONFIGURATION_SET: string
     // Comma-separated allowlist of SNS Topic ARNs the SES webhook accepts events from. Empty string
     // means no restriction (dev/test); production should set this to the workflow SES topic ARN(s).
     SES_ALLOWED_SNS_TOPIC_ARNS: string
@@ -186,6 +191,7 @@ export type CdpConfig = ClickhouseConfig & {
     // Email reputation evaluator (daily Temporal-scheduled bounce/complaint snapshots for workflows email)
     EMAIL_REPUTATION_EVALUATION_HOUR_UTC: number
     EMAIL_REPUTATION_TARGET_VOLUME: number
+    EMAIL_REPUTATION_VOLUME_MULTIPLIER: number
     EMAIL_REPUTATION_MIN_WINDOW_HOURS: number
     EMAIL_REPUTATION_LOOKBACK_DAYS: number
     EMAIL_REPUTATION_MIN_SENDS: number
@@ -314,6 +320,8 @@ export function getDefaultCdpConfig(): CdpConfig {
         SES_ACCESS_KEY_ID: isTestEnv() || isDevEnv() ? 'test' : '',
         SES_SECRET_ACCESS_KEY: isTestEnv() || isDevEnv() ? 'test' : '',
         SES_REGION: isTestEnv() || isDevEnv() ? 'us-east-1' : '',
+        SES_TRACKED_CONFIGURATION_SET: 'posthog-messaging',
+        SES_UNTRACKED_CONFIGURATION_SET: '',
         SES_ALLOWED_SNS_TOPIC_ARNS: '',
         EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: 5,
 
@@ -356,10 +364,13 @@ export function getDefaultCdpConfig(): CdpConfig {
 
         // Thresholds sit ahead of AWS SES's review lines (5% bounce / 0.1% complaint at ~0.5%
         // escalation). Rates are computed SES-style over a window spanning at least
-        // MIN_WINDOW_HOURS and at least TARGET_VOLUME sends — whichever reaches further back
-        // (capped at LOOKBACK_DAYS). Calculation only for now — enforcement ships separately.
+        // MIN_WINDOW_HOURS and at least the target's representative volume of sends —
+        // max(TARGET_VOLUME, VOLUME_MULTIPLIER × its biggest sending day) — whichever reaches
+        // further back (capped at LOOKBACK_DAYS). Calculation only for now — enforcement
+        // ships separately.
         EMAIL_REPUTATION_EVALUATION_HOUR_UTC: 6,
         EMAIL_REPUTATION_TARGET_VOLUME: 1000,
+        EMAIL_REPUTATION_VOLUME_MULTIPLIER: 3,
         EMAIL_REPUTATION_MIN_WINDOW_HOURS: 24,
         EMAIL_REPUTATION_LOOKBACK_DAYS: 30,
         EMAIL_REPUTATION_MIN_SENDS: DEFAULT_THRESHOLDS.minSends,

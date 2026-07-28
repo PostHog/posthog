@@ -540,6 +540,80 @@ class TestEnrichCdcRows:
 
             assert result.column("big").to_pylist() == ["current-toast"]
 
+    def test_composite_pk_delete_enrichment_with_no_matching_existing_row(self):
+        # Existing row shares the first PK component ("id") with the incoming DELETE
+        # but not the full composite key, so `match_indices` narrows to empty. This
+        # used to crash with ArrowNotImplementedError: `Table.take([])` infers a
+        # null-typed indices array, and pyarrow has no take kernel for (string, null).
+        with tempfile.TemporaryDirectory() as path:
+            write_deltalake(
+                path,
+                pa.table(
+                    {
+                        "id": pa.array([1], pa.int64()),
+                        "tenant": pa.array(["a"], pa.string()),
+                        "name": pa.array(["existing"], pa.string()),
+                    }
+                ),
+                mode="overwrite",
+            )
+
+            batch = pa.table(
+                {
+                    "id": pa.array([1], pa.int64()),
+                    "tenant": pa.array(["z"], pa.string()),
+                    "name": pa.array([None], pa.string()),
+                    CDC_OP_COLUMN: pa.array(["D"], pa.string()),
+                    TOAST_OMITTED_COLUMN: pa.array([None], pa.list_(pa.string())),
+                }
+            )
+            result = _enrich_cdc_rows(
+                batch,
+                primary_keys=["id", "tenant"],
+                cdc_write_mode="incremental_merge",
+                existing_delta_table=DeltaTable(path),
+                batch_index=0,
+            )
+
+            assert TOAST_OMITTED_COLUMN not in result.column_names
+            assert result.column("name").to_pylist() == [None]
+
+    def test_composite_pk_delete_enrichment_when_existing_table_lacks_a_pk_column(self):
+        # The existing Delta table predates a composite key gaining a second PK
+        # column ("tenant"), so it can't be exactly matched. Same bug as above but
+        # via the `else` branch, which also called `.take([])` unconditionally.
+        with tempfile.TemporaryDirectory() as path:
+            write_deltalake(
+                path,
+                pa.table(
+                    {
+                        "id": pa.array([1], pa.int64()),
+                        "name": pa.array(["existing"], pa.string()),
+                    }
+                ),
+                mode="overwrite",
+            )
+
+            batch = pa.table(
+                {
+                    "id": pa.array([1], pa.int64()),
+                    "tenant": pa.array(["z"], pa.string()),
+                    "name": pa.array([None], pa.string()),
+                    CDC_OP_COLUMN: pa.array(["D"], pa.string()),
+                    TOAST_OMITTED_COLUMN: pa.array([None], pa.list_(pa.string())),
+                }
+            )
+            result = _enrich_cdc_rows(
+                batch,
+                primary_keys=["id", "tenant"],
+                cdc_write_mode="incremental_merge",
+                existing_delta_table=DeltaTable(path),
+                batch_index=0,
+            )
+
+            assert TOAST_OMITTED_COLUMN not in result.column_names
+            assert result.column("name").to_pylist() == [None]
+
     def test_marker_dropped_when_enrichment_cannot_run(self):
         # First-ever CDC batch: no existing Delta table to fill from. The value is
         # unknowable (stays null) but the transport marker must never reach the write.

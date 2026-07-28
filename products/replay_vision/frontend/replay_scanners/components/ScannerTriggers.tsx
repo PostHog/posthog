@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonCard, LemonInput, LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCard, LemonInput, LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
 
 import { resolveCategoryDropdownVariant, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
@@ -25,7 +25,7 @@ import { defaultRecordingDurationFilter } from 'scenes/session-recordings/playli
 import { groupsModel } from '~/models/groupsModel'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { RecordingsQuery } from '~/queries/schema/schema-general'
-import { RecordingUniversalFilters, UniversalFiltersGroup } from '~/types'
+import { PropertyFilterType, RecordingUniversalFilters, UniversalFiltersGroup } from '~/types'
 
 import { clampDurationFilter, durationFilterError, MAX_ACTIVE_LABEL } from '../durationBounds'
 import { replayScannerLogic } from '../replayScannerLogic'
@@ -45,6 +45,17 @@ const SCANNER_BASE_FILTER_TYPES: TaxonomicFilterGroupType[] = [
     TaxonomicFilterGroupType.PersonProperties,
     TaxonomicFilterGroupType.SessionProperties,
 ]
+
+// True when any leaf in the group is an event *property* filter (type 'event'), not an event entity or person property.
+// Used to surface a hint, since a key present on both the event and the person (e.g. a plan tier) matches nothing as an
+// event property when it's only ever set on the person.
+function groupHasEventProperty(group: UniversalFiltersGroup): boolean {
+    return group.values.some((value) =>
+        isUniversalGroupFilterLike(value)
+            ? groupHasEventProperty(value)
+            : 'type' in value && value.type === PropertyFilterType.Event
+    )
+}
 
 // Renders the bound universal-filter group's values; adding is handled by the search bar above, not an inline button.
 function ScannerFilterGroup(): JSX.Element {
@@ -87,67 +98,6 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
 
     return (
         <div className="space-y-6">
-            <LemonField
-                name="sampling_mode"
-                label="Session coverage"
-                info="How many of your matching sessions this scanner watches. Every recording gets a score for how much is happening in it (activity, errors, navigation). Focused and Balanced skip the quiet ones, so your observation budget goes to sessions worth watching."
-            >
-                {({ value, onChange }) => {
-                    const mode = (value ?? 'comprehensive') as SamplingMode
-                    const option = SAMPLING_MODE_OPTIONS.find((o) => o.value === mode)
-                    return (
-                        <div className="space-y-1">
-                            <LemonSegmentedButton
-                                value={mode}
-                                onChange={onChange}
-                                options={SAMPLING_MODE_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
-                            />
-                            <div className="text-xs text-muted">{option?.description}</div>
-                        </div>
-                    )
-                }}
-            </LemonField>
-
-            <LemonField name="sampling_rate">
-                {({ value, onChange }) => {
-                    const ratio = typeof value === 'number' ? value : 0
-                    const samplingPercent = Math.round(ratio * 1000) / 10
-                    return (
-                        <LemonCard hoverEffect={false} className="p-3 space-y-3">
-                            <div className="space-y-1">
-                                <LemonLabel>Sampling</LemonLabel>
-                                <div className="text-xs text-muted">
-                                    Each observation counts against your monthly Vision quota.
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-4">
-                                <div className="flex-1">
-                                    <LemonSlider
-                                        value={samplingPercent}
-                                        onChange={(v) => onChange(v / 100)}
-                                        min={0.1}
-                                        max={100}
-                                        step={0.1}
-                                    />
-                                </div>
-                                <div className="w-24">
-                                    <LemonInput
-                                        type="number"
-                                        value={samplingPercent}
-                                        onChange={(v) => onChange(Math.min(100, Number(v) || 0) / 100)}
-                                        min={0.1}
-                                        max={100}
-                                        step={0.1}
-                                        suffix={<span>%</span>}
-                                        status={samplingPercent < 0.1 ? 'danger' : undefined}
-                                    />
-                                </div>
-                            </div>
-                        </LemonCard>
-                    )
-                }}
-            </LemonField>
-
             <LemonField name="query">
                 {({ value, onChange }) => {
                     const query = value as RecordingsQuery | null
@@ -209,6 +159,14 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                                     size="small"
                                 />
                             </div>
+                            {groupHasEventProperty(universal.filter_group) && (
+                                <LemonBanner type="info" dismissKey="replay-vision-event-vs-person-property-hint">
+                                    <span className="text-xs">
+                                        Some attributes are stored on the person, not the event. If an event property
+                                        filter returns no recordings, try the same attribute under Person properties.
+                                    </span>
+                                </LemonBanner>
+                            )}
                             <UniversalFilters
                                 rootKey={`replay-scanner-${scanner.id}`}
                                 group={universal.filter_group}
@@ -277,6 +235,70 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                                     )}
                                 </div>
                             </UniversalFilters>
+                        </LemonCard>
+                    )
+                }}
+            </LemonField>
+
+            <LemonField name="sampling_rate">
+                {({ value, onChange }) => {
+                    const ratio = typeof value === 'number' ? value : 0
+                    const samplingPercent = Math.round(ratio * 1000) / 10
+                    return (
+                        <LemonCard hoverEffect={false} className="p-3 space-y-3">
+                            <div className="space-y-1">
+                                <LemonLabel>Sampling</LemonLabel>
+                                <div className="text-xs text-muted">
+                                    Each observation counts against your monthly Vision quota.
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-4">
+                                <div className="flex-1">
+                                    <LemonSlider
+                                        value={samplingPercent}
+                                        onChange={(v) => onChange(v / 100)}
+                                        min={0.1}
+                                        max={100}
+                                        step={0.1}
+                                    />
+                                </div>
+                                <div className="w-24">
+                                    <LemonInput
+                                        type="number"
+                                        value={samplingPercent}
+                                        onChange={(v) => onChange(Math.min(100, Number(v) || 0) / 100)}
+                                        min={0.1}
+                                        max={100}
+                                        step={0.1}
+                                        suffix={<span>%</span>}
+                                        status={samplingPercent < 0.1 ? 'danger' : undefined}
+                                    />
+                                </div>
+                            </div>
+                        </LemonCard>
+                    )
+                }}
+            </LemonField>
+
+            <LemonField name="sampling_mode">
+                {({ value, onChange }) => {
+                    const mode = (value ?? 'comprehensive') as SamplingMode
+                    const option = SAMPLING_MODE_OPTIONS.find((o) => o.value === mode)
+                    return (
+                        <LemonCard hoverEffect={false} className="p-3 space-y-3">
+                            <div className="space-y-1">
+                                <LemonLabel info="Filters which matching recordings this scanner watches, based on how much activity a recording has (interactions, errors, navigation). Narrower options skip low-activity recordings so your budget goes to recordings worth watching.">
+                                    Session coverage
+                                </LemonLabel>
+                            </div>
+                            <div className="space-y-1">
+                                <LemonSegmentedButton
+                                    value={mode}
+                                    onChange={onChange}
+                                    options={SAMPLING_MODE_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+                                />
+                                <div className="text-xs text-muted">{option?.description}</div>
+                            </div>
                         </LemonCard>
                     )
                 }}

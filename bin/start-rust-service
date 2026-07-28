@@ -189,20 +189,17 @@ case "$RS_SVC" in
     ;;
 
   cymbal-notifications)
-    # The cymbal binary in notifications mode consumes the notifications topic
-    # produced by processing mode and runs issue side effects.
+    # The notifications mode starts Temporal lifecycle workflows for notifications from processing mode.
     export CYMBAL_MODE=notifications
     export DEV_RUST_SVC_OVERRIDE=cymbal
     export RUST_LOG=debug,rdkafka=warn
     export RUST_BACKTRACE=1
     export KAFKA_HOSTS="$DEFAULT_KAFKA"
-    export DATABASE_URL="${DATABASE_URL:-$DEFAULT_PG}"
     export KAFKA_CONSUMER_OFFSET_RESET="${KAFKA_CONSUMER_OFFSET_RESET:-earliest}"
     export METRICS_PORT="${METRICS_PORT:-9107}"
     export POSTHOG_API_KEY="${CYMBAL_NOTIFICATIONS_POSTHOG_API_KEY:-phc_localposthogprojecttoken}"
     export POSTHOG_ENDPOINT="${CYMBAL_NOTIFICATIONS_POSTHOG_ENDPOINT:-http://localhost:3307}"
-    export SIGNALS_API_BASE_URL="${SIGNALS_API_BASE_URL:-http://localhost:8000}"
-    export INTERNAL_API_SECRET="${INTERNAL_API_SECRET:-posthog123}"
+    export TEMPORAL_HOST="${TEMPORAL_HOST:-temporal}"
     ;;
 
   embedding-worker)
@@ -283,6 +280,16 @@ case "$RS_SVC" in
     export REPLICA_URL=http://127.0.0.1:50051
     export BACKEND_TIMEOUT_MS=5000
     export METRICS_PORT=9101
+    ;;
+
+  personhog-identity)
+    SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-trace}
+    export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL
+    export RUST_BACKTRACE=1
+    export GRPC_ADDRESS=127.0.0.1:50055
+    export PRIMARY_DATABASE_URL="${PRIMARY_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/posthog_persons}"
+    export ROUTER_URL=http://127.0.0.1:50054
+    export METRICS_PORT=9108
     ;;
 
   flags-consumer)
