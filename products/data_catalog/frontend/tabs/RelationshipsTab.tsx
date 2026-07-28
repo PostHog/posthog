@@ -9,6 +9,7 @@ import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { RelationshipRow, RelationshipStatusFilter, relationshipsLogic } from '../relationshipsLogic'
 
@@ -67,7 +68,11 @@ export function RelationshipsTab(): JSX.Element {
             ),
         },
         {
-            title: 'Field',
+            title: (
+                <Tooltip title="The field added to the source table to reach the joined rows, for example events.person">
+                    <span>Accessor</span>
+                </Tooltip>
+            ),
             key: 'field',
             render: (_, row) => row.fieldName,
         },
