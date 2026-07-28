@@ -26,13 +26,31 @@ export const GrowthScoreLabActivateCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * One JSON object per line: a verdict row as each LLM call completes, then a final {summary: {classified, unknown, errors}} line. A legacy config (no output_fields) emits {company, domain, verdict, confidence, reasoning} rows; a configurable output schema (output_fields set) emits {company, domain, outputs: {<key>: value, ...}} rows instead. When input_query is set, rows are built from that HogQL query (capped at `sample`) instead of recently archived orgs. Persists nothing - spends real LLM money, so sample is capped at 100.
+ * Rename a label. Purely cosmetic: the classifier's output contract is output_fields,
+ * so no stored verdict changes meaning and no config's content_hash moves.
+ */
+export const growthScoreLabRenameCreateBodyLabelMax = 128
+
+export const GrowthScoreLabRenameCreateBody = /* @__PURE__ */ zod.object({
+    config_id: zod.uuid().describe('Any config of the label to rename.'),
+    label: zod
+        .string()
+        .max(growthScoreLabRenameCreateBodyLabelMax)
+        .describe(
+            'New label name. A label is shared by every version of it, so this renames them all. It changes nothing about what the classifier does: the output contract is output_fields.'
+        ),
+})
+
+/**
+ * One JSON object per line: a {company, domain, outputs: {<key>: value, ...}} row as each LLM call completes, keyed by the submitted output_fields, then a final {summary: {classified, unknown, errors}} line. A run that fails partway ends with {error, aborted: true} instead of a summary. When input_query is set, rows are built from that HogQL query (capped at `sample`) instead of recently archived orgs. Persists nothing - spends real LLM money, so sample is capped at 100 and the endpoint is rate limited.
  * @summary Stream classifier verdicts for an unsaved draft config against recent archived orgs or a HogQL input query.
  */
 export const growthScoreLabRunCreateBodyLabelMax = 128
 
 export const growthScoreLabRunCreateBodyModelMax = 128
 
+export const growthScoreLabRunCreateBodyOutputFieldsItemKeyRegExp = new RegExp('^[a-z][a-z0-9_]\*$')
+export const growthScoreLabRunCreateBodyOutputFieldsItemDescriptionDefault = ``
 export const growthScoreLabRunCreateBodySampleDefault = 10
 export const growthScoreLabRunCreateBodySampleMax = 100
 
@@ -50,13 +68,32 @@ export const GrowthScoreLabRunCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(growthScoreLabRunCreateBodyModelMax)
         .describe(
-            'Gateway model to classify with, routed through the LLM gateway. Must be a curated model (see GET \/models\/), a model the gateway currently lists, or one already persisted on this label.'
+            'Gateway model to classify with, routed through the LLM gateway. See GET \/models\/ for what it serves.'
         ),
     input_fields: zod
-        .array(zod.string())
+        .array(
+            zod
+                .enum([
+                    'name',
+                    'description',
+                    'website.url',
+                    'companyType',
+                    'headcount',
+                    'tagsV2',
+                    'funding.fundingStage',
+                    'funding.fundingTotal',
+                    'funding.lastFundingAt',
+                    'funding.investors',
+                    'location.country',
+                    'foundingDate.date',
+                ])
+                .describe(
+                    '\* `name` - name\n\* `description` - description\n\* `website.url` - website.url\n\* `companyType` - companyType\n\* `headcount` - headcount\n\* `tagsV2` - tagsV2\n\* `funding.fundingStage` - funding.fundingStage\n\* `funding.fundingTotal` - funding.fundingTotal\n\* `funding.lastFundingAt` - funding.lastFundingAt\n\* `funding.investors` - funding.investors\n\* `location.country` - location.country\n\* `foundingDate.date` - foundingDate.date'
+                )
+        )
         .optional()
         .describe(
-            'Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Ignored when input_query is set.'
+            'Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Restricted to the allow-list served by GET \/input_fields\/, because every selected value reaches the LLM and is then stored on the result indefinitely. Ignored when input_query is set.'
         ),
     input_query: zod
         .string()
@@ -69,21 +106,24 @@ export const GrowthScoreLabRunCreateBody = /* @__PURE__ */ zod.object({
             zod.object({
                 key: zod
                     .string()
+                    .regex(growthScoreLabRunCreateBodyOutputFieldsItemKeyRegExp)
                     .describe(
-                        "Output key, e.g. ai_pilled. Must match ^[a-z][a-z0-9_]\*$, be unique, and not be 'meta' or 'inputs' (reserved for provenance)."
+                        'Output key, e.g. ai_pilled. Lowercase, starts with a letter, letters\/digits\/underscore only.'
                     ),
                 type: zod
                     .enum(['boolean', 'number', 'string'])
-                    .describe('Value type the LLM must return for this key.'),
+                    .describe('\* `boolean` - boolean\n\* `number` - number\n\* `string` - string')
+                    .describe(
+                        'Value type the LLM must return for this key.\n\n\* `boolean` - boolean\n\* `number` - number\n\* `string` - string'
+                    ),
                 description: zod
                     .string()
-                    .optional()
-                    .describe('Shown to the LLM to describe what this key means. Optional.'),
+                    .default(growthScoreLabRunCreateBodyOutputFieldsItemDescriptionDefault)
+                    .describe('Shown to the LLM to describe what this key means.'),
             })
         )
-        .optional()
         .describe(
-            "Configurable output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. Empty (the default) means the legacy output shape ({<label>: boolean, confidence: number 0-1, reasoning: string}). Keys must match ^[a-z][a-z0-9_]\*$, be unique, and not be 'meta' or 'inputs'."
+            "Output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. This is the classifier's entire output contract - the label is a human name and is never an output key, so renaming a label changes nothing about what a version computes. Keys must match ^[a-z][a-z0-9_]\*$, be unique, and not be 'meta' or 'inputs'."
         ),
     sample: zod
         .number()
@@ -115,31 +155,47 @@ export const GrowthScoreLabRunCreateBody = /* @__PURE__ */ zod.object({
  */
 export const growthScoreLabSaveCreateBodyLabelMax = 128
 
-export const growthScoreLabSaveCreateBodyVersionMax = 128
-
 export const growthScoreLabSaveCreateBodyModelMax = 128
+
+export const growthScoreLabSaveCreateBodyOutputFieldsItemKeyRegExp = new RegExp('^[a-z][a-z0-9_]\*$')
+export const growthScoreLabSaveCreateBodyOutputFieldsItemDescriptionDefault = ``
 
 export const GrowthScoreLabSaveCreateBody = /* @__PURE__ */ zod.object({
     label: zod
         .string()
         .max(growthScoreLabSaveCreateBodyLabelMax)
         .describe('Label this config computes, e.g. ai_pilled.'),
-    version: zod
-        .string()
-        .max(growthScoreLabSaveCreateBodyVersionMax)
-        .describe('Human-readable classifier version, e.g. ai-pilled-clay-v2. Must be unique per label.'),
     prompt_text: zod.string().describe('System prompt; {email} is replaced with the signup email domain at runtime.'),
     model: zod
         .string()
         .max(growthScoreLabSaveCreateBodyModelMax)
         .describe(
-            'Gateway model to classify with, routed through the LLM gateway. Must be a curated model (see GET \/models\/), a model the gateway currently lists, or one already persisted on this label.'
+            'Gateway model to classify with, routed through the LLM gateway. See GET \/models\/ for what it serves.'
         ),
     input_fields: zod
-        .array(zod.string())
+        .array(
+            zod
+                .enum([
+                    'name',
+                    'description',
+                    'website.url',
+                    'companyType',
+                    'headcount',
+                    'tagsV2',
+                    'funding.fundingStage',
+                    'funding.fundingTotal',
+                    'funding.lastFundingAt',
+                    'funding.investors',
+                    'location.country',
+                    'foundingDate.date',
+                ])
+                .describe(
+                    '\* `name` - name\n\* `description` - description\n\* `website.url` - website.url\n\* `companyType` - companyType\n\* `headcount` - headcount\n\* `tagsV2` - tagsV2\n\* `funding.fundingStage` - funding.fundingStage\n\* `funding.fundingTotal` - funding.fundingTotal\n\* `funding.lastFundingAt` - funding.lastFundingAt\n\* `funding.investors` - funding.investors\n\* `location.country` - location.country\n\* `foundingDate.date` - foundingDate.date'
+                )
+        )
         .optional()
         .describe(
-            'Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Ignored when input_query is set.'
+            'Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Restricted to the allow-list served by GET \/input_fields\/, because every selected value reaches the LLM and is then stored on the result indefinitely. Ignored when input_query is set.'
         ),
     input_query: zod
         .string()
@@ -152,20 +208,23 @@ export const GrowthScoreLabSaveCreateBody = /* @__PURE__ */ zod.object({
             zod.object({
                 key: zod
                     .string()
+                    .regex(growthScoreLabSaveCreateBodyOutputFieldsItemKeyRegExp)
                     .describe(
-                        "Output key, e.g. ai_pilled. Must match ^[a-z][a-z0-9_]\*$, be unique, and not be 'meta' or 'inputs' (reserved for provenance)."
+                        'Output key, e.g. ai_pilled. Lowercase, starts with a letter, letters\/digits\/underscore only.'
                     ),
                 type: zod
                     .enum(['boolean', 'number', 'string'])
-                    .describe('Value type the LLM must return for this key.'),
+                    .describe('\* `boolean` - boolean\n\* `number` - number\n\* `string` - string')
+                    .describe(
+                        'Value type the LLM must return for this key.\n\n\* `boolean` - boolean\n\* `number` - number\n\* `string` - string'
+                    ),
                 description: zod
                     .string()
-                    .optional()
-                    .describe('Shown to the LLM to describe what this key means. Optional.'),
+                    .default(growthScoreLabSaveCreateBodyOutputFieldsItemDescriptionDefault)
+                    .describe('Shown to the LLM to describe what this key means.'),
             })
         )
-        .optional()
         .describe(
-            "Configurable output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. Empty (the default) means the legacy output shape ({<label>: boolean, confidence: number 0-1, reasoning: string}). Keys must match ^[a-z][a-z0-9_]\*$, be unique, and not be 'meta' or 'inputs'."
+            "Output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. This is the classifier's entire output contract - the label is a human name and is never an output key, so renaming a label changes nothing about what a version computes. Keys must match ^[a-z][a-z0-9_]\*$, be unique, and not be 'meta' or 'inputs'."
         ),
 })

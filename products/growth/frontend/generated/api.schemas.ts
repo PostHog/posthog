@@ -13,23 +13,31 @@ export interface ActivateRequestApi {
 }
 
 /**
- * Value type the LLM must return for this key.
+ * * `boolean` - boolean
+ * * `number` - number
+ * * `string` - string
  */
-export type ConfigVersionApiOutputFieldsItemType =
-    (typeof ConfigVersionApiOutputFieldsItemType)[keyof typeof ConfigVersionApiOutputFieldsItemType]
+export type OutputFieldTypeEnumApi = (typeof OutputFieldTypeEnumApi)[keyof typeof OutputFieldTypeEnumApi]
 
-export const ConfigVersionApiOutputFieldsItemType = {
+export const OutputFieldTypeEnumApi = {
     Boolean: 'boolean',
     Number: 'number',
     String: 'string',
 } as const
 
-export type ConfigVersionApiOutputFieldsItem = {
-    /** Output key, e.g. ai_pilled. Must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs' (reserved for provenance). */
+export interface OutputFieldApi {
+    /**
+     * Output key, e.g. ai_pilled. Lowercase, starts with a letter, letters/digits/underscore only.
+     * @pattern ^[a-z][a-z0-9_]*$
+     */
     key: string
-    /** Value type the LLM must return for this key. */
-    type: ConfigVersionApiOutputFieldsItemType
-    /** Shown to the LLM to describe what this key means. Optional. */
+    /** Value type the LLM must return for this key.
+     *
+     * * `boolean` - boolean
+     * * `number` - number
+     * * `string` - string */
+    type: OutputFieldTypeEnumApi
+    /** Shown to the LLM to describe what this key means. */
     description?: string
 }
 
@@ -38,21 +46,21 @@ export interface ConfigVersionApi {
     id: string
     /** Label this config computes, e.g. ai_pilled. */
     name: string
-    /** Human-readable classifier version, e.g. ai-pilled-clay-v1. */
+    /** Server-assigned version identity, e.g. v3. */
     version: string
     /** System prompt; {email} is replaced with the signup email domain at runtime. */
     prompt_text: string
     /** Gateway model id this version was authored against. */
     model: string
-    /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Ignored when input_query is set. */
+    /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Restricted to the allow-list served by GET /input_fields/, because every selected value reaches the LLM and is then stored on the result indefinitely. Ignored when input_query is set. */
     input_fields: string[]
     /**
      * HogQL SELECT defining classifier input rows, an alternative to input_fields. Null when input_fields is used instead. Each result row becomes one classification input; a 'company' or 'domain' column (if present) is used for display, and every column is passed to the prompt as the Company data JSON keyed by column name.
      * @nullable
      */
     input_query: string | null
-    /** Configurable output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. Empty (the default) means the legacy output shape ({<name>: boolean, confidence: number 0-1, reasoning: string}). */
-    output_fields: ConfigVersionApiOutputFieldsItem[]
+    /** Output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. This is the classifier's entire output contract - the label is a human name and is never an output key, so renaming a label changes nothing about what a version computes. Keys must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs'. */
+    output_fields: OutputFieldApi[]
     /** Whether the batch runner currently computes this version. */
     is_active: boolean
     /**
@@ -62,7 +70,7 @@ export interface ConfigVersionApi {
     readonly created_by_email: string | null
     /** When this version was created. */
     created_at: string
-    /** Whether any EnrichmentLabelResult rows reference this version. Once true the version is frozen - prompt_text, model, input_fields, input_query, and output_fields can never change (FROZEN_FIELDS immutability). */
+    /** Whether any EnrichmentLabelResult rows reference this version. Once true the version is frozen - prompt_text, model, input_fields, input_query, and output_fields can never change (FROZEN_FIELDS immutability). The label name is not frozen and can always be renamed. */
     readonly has_results: boolean
 }
 
@@ -74,6 +82,20 @@ export interface ErrorResponseApi {
 export interface ConfigListResponseApi {
     /** Versions for the requested label, newest first. */
     results: ConfigVersionApi[]
+}
+
+export interface InputFieldApi {
+    /** Dotted path into the archived Harmonic payload, e.g. website.url. */
+    value: string
+    /** Human-readable name for the path. */
+    label: string
+    /** Shape of the value at this path, e.g. Text, Number, Date, List. */
+    type: string
+}
+
+export interface InputFieldListResponseApi {
+    /** Every payload path a config may select, in display order. Anything outside this list is rejected on run and save. */
+    results: InputFieldApi[]
 }
 
 export interface LabelSummaryApi {
@@ -99,30 +121,50 @@ export interface GatewayModelApi {
 }
 
 export interface GatewayModelListResponseApi {
-    /** Models the gateway currently lists (cached for 5 minutes), or the curated fallback list if the gateway is unreachable. */
+    /** Models the gateway currently lists (cached for 5 minutes), or empty if it is unreachable - there is no curated mirror, since one goes stale silently. */
     results: GatewayModelApi[]
 }
 
-/**
- * Value type the LLM must return for this key.
- */
-export type RunRequestApiOutputFieldsItemType =
-    (typeof RunRequestApiOutputFieldsItemType)[keyof typeof RunRequestApiOutputFieldsItemType]
-
-export const RunRequestApiOutputFieldsItemType = {
-    Boolean: 'boolean',
-    Number: 'number',
-    String: 'string',
-} as const
-
-export type RunRequestApiOutputFieldsItem = {
-    /** Output key, e.g. ai_pilled. Must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs' (reserved for provenance). */
-    key: string
-    /** Value type the LLM must return for this key. */
-    type: RunRequestApiOutputFieldsItemType
-    /** Shown to the LLM to describe what this key means. Optional. */
-    description?: string
+export interface RenameRequestApi {
+    /** Any config of the label to rename. */
+    config_id: string
+    /**
+     * New label name. A label is shared by every version of it, so this renames them all. It changes nothing about what the classifier does: the output contract is output_fields.
+     * @maxLength 128
+     */
+    label: string
 }
+
+/**
+ * * `name` - name
+ * * `description` - description
+ * * `website.url` - website.url
+ * * `companyType` - companyType
+ * * `headcount` - headcount
+ * * `tagsV2` - tagsV2
+ * * `funding.fundingStage` - funding.fundingStage
+ * * `funding.fundingTotal` - funding.fundingTotal
+ * * `funding.lastFundingAt` - funding.lastFundingAt
+ * * `funding.investors` - funding.investors
+ * * `location.country` - location.country
+ * * `foundingDate.date` - foundingDate.date
+ */
+export type InputFieldsEnumApi = (typeof InputFieldsEnumApi)[keyof typeof InputFieldsEnumApi]
+
+export const InputFieldsEnumApi = {
+    Name: 'name',
+    Description: 'description',
+    Websiteurl: 'website.url',
+    CompanyType: 'companyType',
+    Headcount: 'headcount',
+    TagsV2: 'tagsV2',
+    FundingfundingStage: 'funding.fundingStage',
+    FundingfundingTotal: 'funding.fundingTotal',
+    FundinglastFundingAt: 'funding.lastFundingAt',
+    Fundinginvestors: 'funding.investors',
+    Locationcountry: 'location.country',
+    FoundingDatedate: 'foundingDate.date',
+} as const
 
 export interface RunRequestApi {
     /**
@@ -133,19 +175,19 @@ export interface RunRequestApi {
     /** System prompt; {email} is replaced with the signup email domain at runtime. */
     prompt_text: string
     /**
-     * Gateway model to classify with, routed through the LLM gateway. Must be a curated model (see GET /models/), a model the gateway currently lists, or one already persisted on this label.
+     * Gateway model to classify with, routed through the LLM gateway. See GET /models/ for what it serves.
      * @maxLength 128
      */
     model: string
-    /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Ignored when input_query is set. */
-    input_fields?: string[]
+    /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Restricted to the allow-list served by GET /input_fields/, because every selected value reaches the LLM and is then stored on the result indefinitely. Ignored when input_query is set. */
+    input_fields?: InputFieldsEnumApi[]
     /**
      * HogQL SELECT defining classifier input rows, an alternative to input_fields. When set, rows are built from this query (capped at `sample` rows) instead of recently archived orgs; 'contains' is ignored. Parsed and validated on submit but never executed until /run/ actually runs.
      * @nullable
      */
     input_query?: string | null
-    /** Configurable output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. Empty (the default) means the legacy output shape ({<label>: boolean, confidence: number 0-1, reasoning: string}). Keys must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs'. */
-    output_fields?: RunRequestApiOutputFieldsItem[]
+    /** Output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. This is the classifier's entire output contract - the label is a human name and is never an output key, so renaming a label changes nothing about what a version computes. Keys must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs'. */
+    output_fields: OutputFieldApi[]
     /**
      * Number of rows to classify (1-100): recent archived orgs, or HogQL query rows when input_query is set. Each sampled row costs one LLM call, so keep this bounded during iteration.
      * @minimum 1
@@ -156,54 +198,28 @@ export interface RunRequestApi {
     contains?: string
 }
 
-/**
- * Value type the LLM must return for this key.
- */
-export type SaveRequestApiOutputFieldsItemType =
-    (typeof SaveRequestApiOutputFieldsItemType)[keyof typeof SaveRequestApiOutputFieldsItemType]
-
-export const SaveRequestApiOutputFieldsItemType = {
-    Boolean: 'boolean',
-    Number: 'number',
-    String: 'string',
-} as const
-
-export type SaveRequestApiOutputFieldsItem = {
-    /** Output key, e.g. ai_pilled. Must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs' (reserved for provenance). */
-    key: string
-    /** Value type the LLM must return for this key. */
-    type: SaveRequestApiOutputFieldsItemType
-    /** Shown to the LLM to describe what this key means. Optional. */
-    description?: string
-}
-
 export interface SaveRequestApi {
     /**
      * Label this config computes, e.g. ai_pilled.
      * @maxLength 128
      */
     label: string
-    /**
-     * Human-readable classifier version, e.g. ai-pilled-clay-v2. Must be unique per label.
-     * @maxLength 128
-     */
-    version: string
     /** System prompt; {email} is replaced with the signup email domain at runtime. */
     prompt_text: string
     /**
-     * Gateway model to classify with, routed through the LLM gateway. Must be a curated model (see GET /models/), a model the gateway currently lists, or one already persisted on this label.
+     * Gateway model to classify with, routed through the LLM gateway. See GET /models/ for what it serves.
      * @maxLength 128
      */
     model: string
-    /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Ignored when input_query is set. */
-    input_fields?: string[]
+    /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Restricted to the allow-list served by GET /input_fields/, because every selected value reaches the LLM and is then stored on the result indefinitely. Ignored when input_query is set. */
+    input_fields?: InputFieldsEnumApi[]
     /**
      * HogQL SELECT defining classifier input rows, an alternative to input_fields. Parsed and validated on save but never executed - execution only happens on /run/.
      * @nullable
      */
     input_query?: string | null
-    /** Configurable output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. Empty (the default) means the legacy output shape ({<label>: boolean, confidence: number 0-1, reasoning: string}). Keys must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs'. */
-    output_fields?: SaveRequestApiOutputFieldsItem[]
+    /** Output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. This is the classifier's entire output contract - the label is a human name and is never an output key, so renaming a label changes nothing about what a version computes. Keys must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs'. */
+    output_fields: OutputFieldApi[]
 }
 
 export interface ProductPushCampaignApi {

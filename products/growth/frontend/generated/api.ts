@@ -18,9 +18,11 @@ import type {
     IdentityMatchingLinksListParams,
     IdentityMatchingLinksResponseApi,
     IdentityMatchingRunsResponseApi,
+    InputFieldListResponseApi,
     LabelListResponseApi,
     ProductPushCampaignActiveRetrieveParams,
     ProductPushCampaignApi,
+    RenameRequestApi,
     RunRequestApi,
     SaveRequestApi,
     SdkHealthReportApi,
@@ -93,6 +95,29 @@ export const growthScoreLabConfigsRetrieve = async (
     })
 }
 
+export const getGrowthScoreLabInputFieldsRetrieveUrl = () => {
+    return `/api/growth_score_lab/input_fields/`
+}
+
+/**
+ * Staff-only, unscoped API for the enrichment score lab: browse labels and their prompt
+ * config versions, dry-run a draft config against recently archived orgs, save a new
+ * immutable version, and flip which version is active.
+ *
+ * Backs the in-product score lab scene; run/save/activate share the classifier machinery
+ * in products.growth.backend.enrichment.lab with the batch runner, so a dry run and a
+ * shadow run compute identical verdicts.
+ *
+ * Registered on the root router so it is not team-nested - prompt configs are instance-global,
+ * not scoped to any team or org.
+ */
+export const growthScoreLabInputFieldsRetrieve = async (options?: RequestInit): Promise<InputFieldListResponseApi> => {
+    return apiMutator<InputFieldListResponseApi>(getGrowthScoreLabInputFieldsRetrieveUrl(), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getGrowthScoreLabLabelsRetrieveUrl = () => {
     return `/api/growth_score_lab/labels/`
 }
@@ -139,6 +164,26 @@ export const growthScoreLabModelsRetrieve = async (options?: RequestInit): Promi
     })
 }
 
+export const getGrowthScoreLabRenameCreateUrl = () => {
+    return `/api/growth_score_lab/rename/`
+}
+
+/**
+ * Rename a label. Purely cosmetic: the classifier's output contract is output_fields,
+ * so no stored verdict changes meaning and no config's content_hash moves.
+ */
+export const growthScoreLabRenameCreate = async (
+    renameRequestApi: RenameRequestApi,
+    options?: RequestInit
+): Promise<ConfigVersionApi> => {
+    return apiMutator<ConfigVersionApi>(getGrowthScoreLabRenameCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(renameRequestApi),
+    })
+}
+
 export const getGrowthScoreLabRunCreateUrl = (params?: GrowthScoreLabRunCreateParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -156,7 +201,7 @@ export const getGrowthScoreLabRunCreateUrl = (params?: GrowthScoreLabRunCreatePa
 }
 
 /**
- * One JSON object per line: a verdict row as each LLM call completes, then a final {summary: {classified, unknown, errors}} line. A legacy config (no output_fields) emits {company, domain, verdict, confidence, reasoning} rows; a configurable output schema (output_fields set) emits {company, domain, outputs: {<key>: value, ...}} rows instead. When input_query is set, rows are built from that HogQL query (capped at `sample`) instead of recently archived orgs. Persists nothing - spends real LLM money, so sample is capped at 100.
+ * One JSON object per line: a {company, domain, outputs: {<key>: value, ...}} row as each LLM call completes, keyed by the submitted output_fields, then a final {summary: {classified, unknown, errors}} line. A run that fails partway ends with {error, aborted: true} instead of a summary. When input_query is set, rows are built from that HogQL query (capped at `sample`) instead of recently archived orgs. Persists nothing - spends real LLM money, so sample is capped at 100 and the endpoint is rate limited.
  * @summary Stream classifier verdicts for an unsaved draft config against recent archived orgs or a HogQL input query.
  */
 export const growthScoreLabRunCreate = async (
