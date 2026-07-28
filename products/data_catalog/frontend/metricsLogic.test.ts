@@ -115,6 +115,22 @@ describe('metricsLogic', () => {
         expect(logic.values.allMetrics.map((metric) => metric.name)).toContain('monthly_active_users')
     })
 
+    it('does not create a SQL metric from the modal', async () => {
+        logic.actions.openNewMetricModal()
+        logic.actions.setNewMetricForm({
+            name: 'sql_metric',
+            description: 'Defined in the SQL editor',
+            definitionType: 'sql',
+        })
+
+        logic.actions.createMetric()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(dataCatalogMetricsCreate).not.toHaveBeenCalled()
+        expect(lemonToast.error).toHaveBeenCalledWith('Create SQL metrics from the SQL editor.')
+        expect(logic.values.newMetricModalOpen).toEqual(true)
+    })
+
     it('removes the row when delete succeeds', async () => {
         ;(dataCatalogMetricsDestroy as jest.Mock).mockResolvedValue(undefined)
 
