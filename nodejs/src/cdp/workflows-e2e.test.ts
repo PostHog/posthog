@@ -866,6 +866,17 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
                 ],
             })
 
+        /** Persist an edited graph and bust the worker's config cache, as Django's save + pub/sub would */
+        const applyLiveEditFlow = async (flow: HogFlow): Promise<void> => {
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_hogflow SET actions = $2, edges = $3, updated_at = NOW() WHERE id = $1`,
+                [flow.id, JSON.stringify(flow.actions), JSON.stringify(flow.edges)],
+                'liveEditHogFlow'
+            )
+            ;(hogflowWorker as any).hogFlowManager.lazyLoader.markForRefresh(flow.id)
+        }
+
         // Seconds from now until the single parked job's scheduled time.
         const parkedInSeconds = async (): Promise<number> => {
             let seconds = 0
@@ -964,6 +975,87 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
                 const seconds = await parkedInSeconds()
                 expect(seconds).toBeGreaterThan(5.9 * 86400)
                 expect(seconds).toBeLessThan(6.1 * 86400)
+            }, 10000)
+            expect(mockFetch).not.toHaveBeenCalled()
+        })
+
+        it('follows a live edit that moves its wake earlier (timing-reschedule sweep)', async () => {
+            // Composes with the follow-live timing sweep: editing a wait's condition can move its
+            // wake EARLIER, which a long park would otherwise sleep straight through. The sweep
+            // (get_timing_reschedule_action_ids, which fires on any condition edit) pulls parked runs
+            // forward; this proves the run then re-parks off the NEW plan rather than the stale one.
+            // Without that the poll used to paper over it by re-checking every 10 minutes.
+            const flow = await createWorkflowFlow({
+                actions: {
+                    trigger: trigger(),
+                    wait_condition: {
+                        type: 'wait_until_condition',
+                        config: {
+                            condition: { filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters },
+                            max_wait_duration: '20d',
+                            wake_plan: { streams: ['person'], timers: [trialTimer] },
+                        },
+                    },
+                    function_1: fetchAction('https://example.com/after-wait'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'wait_condition', type: 'continue' },
+                    { from: 'wait_condition', to: 'exit', type: 'branch', index: 0 },
+                    { from: 'wait_condition', to: 'function_1', type: 'continue' },
+                    { from: 'function_1', to: 'exit', type: 'continue' },
+                ],
+            })
+            mockPersonRepo.fetchPersonsByDistinctIds.mockResolvedValue([
+                personWith({ trial_expiration_at: DateTime.utc().plus({ days: 7 }).toISO()! }),
+            ])
+
+            await triggerWorkflow(createGlobals())
+            const before = await parkedInSeconds()
+            expect(before).toBeGreaterThan(5.9 * 86400)
+
+            // The customer widens the notice period from 1 day to 5. Django recompiles the condition,
+            // re-derives the plan, and the sweep marks this action for rescheduling.
+            const wait = flow.actions.find((a) => a.id === 'wait_condition')!
+            ;(wait.config as any).wake_plan = {
+                streams: ['person'],
+                timers: [
+                    [
+                        '_H',
+                        1,
+                        33,
+                        5 * 86400,
+                        32,
+                        'trial_expiration_at',
+                        32,
+                        'properties',
+                        32,
+                        'person',
+                        1,
+                        3,
+                        2,
+                        'toDateTime',
+                        1,
+                        2,
+                        'toUnixTimestamp',
+                        1,
+                        7,
+                        2,
+                        'fromUnixTimestamp',
+                        1,
+                    ],
+                ],
+            }
+            await applyLiveEditFlow(flow)
+            await cyclotronPool.query(
+                `UPDATE cyclotron_jobs SET scheduled = NOW() WHERE ${statusColumn} = 'available' AND scheduled > NOW()`
+            )
+
+            // Re-parked off the edited plan: 7 days out minus 5 days of notice, so ~2 days.
+            await waitForExpect(async () => {
+                const after = await parkedInSeconds()
+                expect(after).toBeGreaterThan(1.9 * 86400)
+                expect(after).toBeLessThan(2.1 * 86400)
             }, 10000)
             expect(mockFetch).not.toHaveBeenCalled()
         })
