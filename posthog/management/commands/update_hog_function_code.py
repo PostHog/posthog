@@ -45,7 +45,6 @@ HUBSPOT_EVENT_BOUNDED_PROPERTY_LOOP = """    // Hubspot registers one property p
     let propertiesToRegister := length(missingProperties)
     if (propertiesToRegister > 3) {
         propertiesToRegister := 3
-        print(f'Hubspot accepts one new event property per request, so {propertiesToRegister} of the {length(missingProperties)} new properties on {eventName} were registered. The rest will be registered as more events come in.')
     }
 
     for (let i := 1; i <= propertiesToRegister; i := i + 1) {
@@ -62,6 +61,10 @@ HUBSPOT_EVENT_BOUNDED_PROPERTY_LOOP = """    // Hubspot registers one property p
         if (res.status >= 400) {
             throw Error(f'Error from api.hubapi.com api: {res.status}: {res.body}');
         }
+    }
+
+    if (propertiesToRegister < length(missingProperties)) {
+        print(f'Hubspot accepts one new event property per request, so {propertiesToRegister} of the {length(missingProperties)} new properties on {eventName} were registered. The rest will be registered as more events come in.')
     }"""
 
 
