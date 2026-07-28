@@ -345,6 +345,9 @@ tools:
             Delete a data warehouse source and all its table schemas, synced tables, and sync schedules. This is a soft
             delete. Any running syncs are cancelled first. This cannot be undone — the source must be recreated to
             resume syncing.
+    external-data-sources-direct-connection-options-list:
+        operation: external_data_sources_direct_connection_options_list
+        enabled: false
     external-data-sources-disable-cdc-create:
         operation: external_data_sources_disable_cdc_create
         enabled: false
