@@ -234,6 +234,7 @@ OAuth access is permitted only for products with an explicit `allowed_applicatio
 | `ci`                 | API key only    | All                        | CI / e2e test runs              |
 | `posthog_code`       | OAuth only      | Restricted set             | Desktop coding agent            |
 | `background_agents`  | OAuth only      | Restricted set             | Cloud background agents         |
+| `onboarding`         | OAuth only      | claude-sonnet-5            | Unbilled setup wizard cloud run |
 | `wizard`             | API key + OAuth | All                        | Max AI assistant                |
 | `django`             | API key only    | All                        | Server-side Django calls        |
 | `growth`             | API key only    | All                        | Growth team                     |
@@ -334,5 +335,6 @@ response = client.chat.completions.create(
 ```
 
 `ai_product` and `$ai_billable` are derived from the product config (`products/config.py`):
-the route sets `ai_product` from the `product` arg, and `$ai_billable` from that product's
-`billable` flag. Set `billable=True` on the product config to bill its generations.
+the route sets `ai_product` from the `product` arg, and `$ai_billable` from whether that
+product has a `credit_bucket`. Set `credit_bucket` on the product config to bill its
+generations into that bucket; leave it `None` to keep them unbilled.

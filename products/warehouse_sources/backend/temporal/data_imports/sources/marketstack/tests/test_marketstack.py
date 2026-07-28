@@ -12,10 +12,12 @@ from requests import Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.marketstack import marketstack
 from products.warehouse_sources.backend.temporal.data_imports.sources.marketstack.marketstack import (
+    MARKETSTACK_API_VERSION_V1,
+    MARKETSTACK_API_VERSION_V2,
     MarketstackResumeConfig,
     _format_date,
+    marketstack_base_url,
     marketstack_source,
     validate_credentials,
 )
@@ -86,6 +88,7 @@ def _source(
     *,
     symbols: str | None = "AAPL",
     db_incremental_field_last_value: Any = None,
+    api_version: str = MARKETSTACK_API_VERSION_V2,
 ) -> Any:
     return marketstack_source(
         "supersecret",
@@ -93,6 +96,7 @@ def _source(
         team_id=1,
         job_id="j",
         resumable_source_manager=manager or _make_manager(),
+        api_version=api_version,
         symbols=symbols,
         db_incremental_field_last_value=db_incremental_field_last_value,
     )
@@ -360,14 +364,60 @@ class TestValidateCredentials:
         session = mock.MagicMock()
         session.get.return_value = response
         with mock.patch(MARKETSTACK_SESSION_PATCH, return_value=session):
-            assert validate_credentials("k") is expected
+            assert validate_credentials("k", MARKETSTACK_API_VERSION_V2) is expected
 
     def test_handles_network_error(self) -> None:
         session = mock.MagicMock()
         session.get.side_effect = requests.ConnectionError("boom")
         with mock.patch(MARKETSTACK_SESSION_PATCH, return_value=session):
-            assert validate_credentials("k") is False
+            assert validate_credentials("k", MARKETSTACK_API_VERSION_V2) is False
+
+    @parameterized.expand(
+        [
+            (MARKETSTACK_API_VERSION_V1, "https://api.marketstack.com/v1/exchanges"),
+            (MARKETSTACK_API_VERSION_V2, "https://api.marketstack.com/v2/exchanges"),
+        ]
+    )
+    def test_probe_url_matches_pinned_version(self, version: str, expected_url: str) -> None:
+        response = mock.MagicMock()
+        response.status_code = 200
+        response.json.return_value = {"data": []}
+        session = mock.MagicMock()
+        session.get.return_value = response
+        with mock.patch(MARKETSTACK_SESSION_PATCH, return_value=session):
+            validate_credentials("k", version)
+        assert session.get.call_args.args[0] == expected_url
 
 
-def test_module_exposes_base_url() -> None:
-    assert marketstack.MARKETSTACK_BASE_URL == "https://api.marketstack.com/v1"
+class TestBaseUrl:
+    @parameterized.expand(
+        [
+            (MARKETSTACK_API_VERSION_V1, "https://api.marketstack.com/v1"),
+            (MARKETSTACK_API_VERSION_V2, "https://api.marketstack.com/v2"),
+        ]
+    )
+    def test_base_url_per_supported_version(self, version: str, expected: str) -> None:
+        assert marketstack_base_url(version) == expected
+
+    def test_unknown_version_raises(self) -> None:
+        # A pin with no mapped base URL must fail loud rather than silently drop the version segment.
+        with pytest.raises(ValueError, match="Unsupported Marketstack API version"):
+            marketstack_base_url("v3")
+
+    @parameterized.expand([(MARKETSTACK_API_VERSION_V1,), (MARKETSTACK_API_VERSION_V2,)])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_request_hits_pinned_version_host(self, version: str, MockSession) -> None:
+        session = MockSession.return_value
+        session.headers = {}
+        sent_urls: list[str] = []
+
+        def _prepare(request: Any) -> mock.MagicMock:
+            sent_urls.append(request.url)
+            return mock.MagicMock()
+
+        session.prepare_request.side_effect = _prepare
+        session.send.side_effect = [_page([{"code": "USD"}], total=None)]
+
+        _rows(_source("currencies", symbols=None, api_version=version))
+
+        assert sent_urls[0].startswith(f"https://api.marketstack.com/{version}/")
