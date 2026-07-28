@@ -172,7 +172,7 @@ import { PersonalGitHubIntegrations, PersonalSlackIntegrations } from './user/Pe
 import { RealtimeNotificationPreferences } from './user/RealtimeNotificationPreferences'
 import { Reminders } from './user/Reminders'
 import { SidebarAutoSuggestSetting } from './user/SidebarProductSettings'
-import { SidebarItemsSetting, SidebarMyToolsSetting } from './user/SidebarSettings'
+import { HomepageSetting, SidebarItemsSetting, SidebarMyToolsSetting } from './user/SidebarSettings'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
@@ -2024,9 +2024,17 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'user',
-        id: 'user-sidebar',
-        title: 'Sidebar',
+        id: 'user-navigation',
+        title: 'Navigation',
         settings: [
+            {
+                id: 'homepage',
+                title: 'Homepage',
+                description:
+                    'The page that opens when you open PostHog or select Home in the sidebar. This applies to the current project.',
+                component: <HomepageSetting />,
+                keywords: ['homepage', 'home', 'default page', 'landing page', 'launchpad', 'start'],
+            },
             {
                 id: 'sidebar-items',
                 title: 'Navigation items',

@@ -39,7 +39,8 @@ function getHomepageMode(
     return null
 }
 
-export function ConfigureHomeModal({ isOpen, onClose }: ConfigureHomeModalProps): JSX.Element {
+/** The homepage picker itself, shared between the Configure home modal and the Navigation settings page. */
+export function HomepageConfiguration(): JSX.Element {
     const { homepage } = useValues(sceneLogic)
     const { currentTeam } = useValues(teamLogic)
     const { nameSortedDashboards, dashboardsLoading } = useValues(dashboardsModel)
@@ -95,6 +96,127 @@ export function ConfigureHomeModal({ isOpen, onClose }: ConfigureHomeModalProps)
     }
 
     return (
+        <section className="flex flex-col gap-3">
+            <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 bg-surface-primary">
+                    <div className="flex min-w-0 items-center gap-2">
+                        <span className="shrink-0 text-lg text-muted-alt">{homepageIconElement}</span>
+                        <div className="min-w-0">
+                            <div className="truncate font-medium text-primary">{homepageDisplayTitle}</div>
+                            {homepageSubtitle && <div className="truncate text-xs text-muted">{homepageSubtitle}</div>}
+                        </div>
+                    </div>
+                    <LemonSegmentedButton
+                        size="small"
+                        value={activeMode ?? undefined}
+                        onChange={(newValue) => {
+                            posthog.capture('homepage configure set homepage', {
+                                'homepage choice': newValue,
+                            })
+                            if (newValue === 'launchpad') {
+                                setPendingMode(null)
+                                setHomepage(null)
+                            } else if (newValue === 'search') {
+                                setPendingMode(null)
+                                setHomepage(newTabHomepage)
+                            } else if (newValue === 'default_dashboard') {
+                                const dashboardId = currentTeam?.primary_dashboard
+                                if (dashboardId) {
+                                    setPendingMode(null)
+                                    setHomepage({
+                                        id: `homepage-dashboard-${dashboardId}`,
+                                        pathname: urls.dashboard(dashboardId),
+                                        search: '',
+                                        hash: '',
+                                        title: 'Default dashboard',
+                                        iconType: 'dashboard',
+                                        sceneId: Scene.Dashboard,
+                                        sceneKey: `dashboard-${dashboardId}`,
+                                        sceneParams: emptySceneParams,
+                                    })
+                                } else {
+                                    // No primary dashboard yet — keep selection local so the picker
+                                    // appears; setHomepage fires once a dashboard is chosen below.
+                                    setPendingMode('default_dashboard')
+                                }
+                            }
+                        }}
+                        options={[
+                            {
+                                value: 'launchpad' as const,
+                                label: (
+                                    <>
+                                        Launchpad{' '}
+                                        <LemonTag size="small" type="highlight" className="ml-1">
+                                            New
+                                        </LemonTag>
+                                    </>
+                                ),
+                                'data-attr': 'configure-home-modal-set-launchpad',
+                                tooltip: 'An AI-powered home with quick actions and recent items',
+                            },
+                            {
+                                value: 'search' as const,
+                                label: 'Search',
+                                'data-attr': 'configure-home-modal-set-search',
+                                tooltip: 'A search page to quickly find anything in your project',
+                            },
+                            {
+                                value: 'default_dashboard' as const,
+                                label: 'Default dashboard',
+                                'data-attr': 'configure-home-modal-set-default-dashboard',
+                                tooltip: "Open your project's default dashboard when you go home",
+                            },
+                        ]}
+                    />
+                </div>
+                {showDashboardPicker && (
+                    <section className="space-y-3 bg-surface-secondary rounded-lg p-3 border">
+                        <div className="flex flex-col">
+                            <h4 className="text-base font-semibold text-primary m-0">
+                                Set default dashboard (project based)
+                            </h4>
+                            <p className="text-sm text-tertiary m-0">
+                                This dashboard opens by default for everyone who has not set a custom homepage.
+                            </p>
+                        </div>
+                        <LemonSearchableSelect<number | null>
+                            className="w-full"
+                            fullWidth
+                            options={projectDefaultDashboardOptions}
+                            value={projectDefaultDashboardId}
+                            searchPlaceholder="Search dashboards…"
+                            searchInputDataAttr="configure-home-modal-default-dashboard-search"
+                            data-attr="configure-home-modal-set-default-dashboard-select"
+                            onChange={(dashboardId) => {
+                                posthog.capture('homepage configure default dashboard changed')
+                                updateCurrentTeam({ primary_dashboard: dashboardId ?? null })
+                                if (dashboardId) {
+                                    setPendingMode(null)
+                                    setHomepage({
+                                        id: `homepage-dashboard-${dashboardId}`,
+                                        pathname: urls.dashboard(dashboardId),
+                                        search: '',
+                                        hash: '',
+                                        title: 'Default dashboard',
+                                        iconType: 'dashboard',
+                                        sceneId: Scene.Dashboard,
+                                        sceneKey: `dashboard-${dashboardId}`,
+                                        sceneParams: emptySceneParams,
+                                    })
+                                }
+                            }}
+                            disabledReason={dashboardsLoading ? 'Loading dashboards…' : undefined}
+                        />
+                    </section>
+                )}
+            </div>
+        </section>
+    )
+}
+
+export function ConfigureHomeModal({ isOpen, onClose }: ConfigureHomeModalProps): JSX.Element {
+    return (
         <LemonModal
             isOpen={isOpen}
             onClose={onClose}
@@ -102,124 +224,7 @@ export function ConfigureHomeModal({ isOpen, onClose }: ConfigureHomeModalProps)
             description="Choose your personal homepage for this project."
             width="48rem"
         >
-            <section className="flex flex-col gap-3">
-                <div className="flex flex-col gap-2">
-                    <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 bg-surface-primary">
-                        <div className="flex min-w-0 items-center gap-2">
-                            <span className="shrink-0 text-lg text-muted-alt">{homepageIconElement}</span>
-                            <div className="min-w-0">
-                                <div className="truncate font-medium text-primary">{homepageDisplayTitle}</div>
-                                {homepageSubtitle && (
-                                    <div className="truncate text-xs text-muted">{homepageSubtitle}</div>
-                                )}
-                            </div>
-                        </div>
-                        <LemonSegmentedButton
-                            size="small"
-                            value={activeMode ?? undefined}
-                            onChange={(newValue) => {
-                                posthog.capture('homepage configure set homepage', {
-                                    'homepage choice': newValue,
-                                })
-                                if (newValue === 'launchpad') {
-                                    setPendingMode(null)
-                                    setHomepage(null)
-                                } else if (newValue === 'search') {
-                                    setPendingMode(null)
-                                    setHomepage(newTabHomepage)
-                                } else if (newValue === 'default_dashboard') {
-                                    const dashboardId = currentTeam?.primary_dashboard
-                                    if (dashboardId) {
-                                        setPendingMode(null)
-                                        setHomepage({
-                                            id: `homepage-dashboard-${dashboardId}`,
-                                            pathname: urls.dashboard(dashboardId),
-                                            search: '',
-                                            hash: '',
-                                            title: 'Default dashboard',
-                                            iconType: 'dashboard',
-                                            sceneId: Scene.Dashboard,
-                                            sceneKey: `dashboard-${dashboardId}`,
-                                            sceneParams: emptySceneParams,
-                                        })
-                                    } else {
-                                        // No primary dashboard yet — keep selection local so the picker
-                                        // appears; setHomepage fires once a dashboard is chosen below.
-                                        setPendingMode('default_dashboard')
-                                    }
-                                }
-                            }}
-                            options={[
-                                {
-                                    value: 'launchpad' as const,
-                                    label: (
-                                        <>
-                                            Launchpad{' '}
-                                            <LemonTag size="small" type="highlight" className="ml-1">
-                                                New
-                                            </LemonTag>
-                                        </>
-                                    ),
-                                    'data-attr': 'configure-home-modal-set-launchpad',
-                                    tooltip: 'An AI-powered home with quick actions and recent items',
-                                },
-                                {
-                                    value: 'search' as const,
-                                    label: 'Search',
-                                    'data-attr': 'configure-home-modal-set-search',
-                                    tooltip: 'A search page to quickly find anything in your project',
-                                },
-                                {
-                                    value: 'default_dashboard' as const,
-                                    label: 'Default dashboard',
-                                    'data-attr': 'configure-home-modal-set-default-dashboard',
-                                    tooltip: "Open your project's default dashboard when you go home",
-                                },
-                            ]}
-                        />
-                    </div>
-                    {showDashboardPicker && (
-                        <section className="space-y-3 bg-surface-secondary rounded-lg p-3 border">
-                            <div className="flex flex-col">
-                                <h4 className="text-base font-semibold text-primary m-0">
-                                    Set default dashboard (project based)
-                                </h4>
-                                <p className="text-sm text-tertiary m-0">
-                                    This dashboard opens by default for everyone who has not set a custom homepage.
-                                </p>
-                            </div>
-                            <LemonSearchableSelect<number | null>
-                                className="w-full"
-                                fullWidth
-                                options={projectDefaultDashboardOptions}
-                                value={projectDefaultDashboardId}
-                                searchPlaceholder="Search dashboards…"
-                                searchInputDataAttr="configure-home-modal-default-dashboard-search"
-                                data-attr="configure-home-modal-set-default-dashboard-select"
-                                onChange={(dashboardId) => {
-                                    posthog.capture('homepage configure default dashboard changed')
-                                    updateCurrentTeam({ primary_dashboard: dashboardId ?? null })
-                                    if (dashboardId) {
-                                        setPendingMode(null)
-                                        setHomepage({
-                                            id: `homepage-dashboard-${dashboardId}`,
-                                            pathname: urls.dashboard(dashboardId),
-                                            search: '',
-                                            hash: '',
-                                            title: 'Default dashboard',
-                                            iconType: 'dashboard',
-                                            sceneId: Scene.Dashboard,
-                                            sceneKey: `dashboard-${dashboardId}`,
-                                            sceneParams: emptySceneParams,
-                                        })
-                                    }
-                                }}
-                                disabledReason={dashboardsLoading ? 'Loading dashboards…' : undefined}
-                            />
-                        </section>
-                    )}
-                </div>
-            </section>
+            <HomepageConfiguration />
         </LemonModal>
     )
 }

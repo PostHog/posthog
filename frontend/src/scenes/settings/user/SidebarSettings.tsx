@@ -11,8 +11,17 @@ import {
     SIDEBAR_CUSTOMIZABLE_SECTIONS,
     SidebarCustomizableItem,
 } from '~/layout/panel-layout/sidebarCustomization'
+import { HomepageConfiguration } from '~/layout/scenes/ConfigureHomeModal'
 import { uiCustomizationLogic } from '~/layout/uiCustomizationLogic'
 import { FileSystemImport } from '~/queries/schema/schema-general'
+
+export function HomepageSetting(): JSX.Element {
+    return (
+        <div className="max-w-160">
+            <HomepageConfiguration />
+        </div>
+    )
+}
 
 function ItemLabel({ icon, label }: { icon: JSX.Element; label: string }): JSX.Element {
     return (

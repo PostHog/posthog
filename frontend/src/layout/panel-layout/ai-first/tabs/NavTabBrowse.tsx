@@ -428,7 +428,7 @@ export function NavTabBrowse(): JSX.Element {
                         <SectionTrigger icon={<IconApps />} label="My Tools" isCollapsed={isLayoutNavCollapsed} />
                         {expandedNavSections.tools && (
                             <Link
-                                to={urls.settings('user-sidebar')}
+                                to={urls.settings('user-navigation')}
                                 tooltip="Choose which tools to show in the sidebar"
                                 tooltipPlacement="top"
                                 onClick={() => posthog.capture('nav tools customize clicked')}
