@@ -91,7 +91,14 @@ class Migration(migrations.Migration):
                         max_length=20,
                     ),
                 ),
-                ("check_interval_hours", models.PositiveSmallIntegerField(default=24)),
+                (
+                    "check_interval_hours",
+                    models.PositiveSmallIntegerField(
+                        choices=[(24, "Daily (UTC)")],
+                        default=24,
+                        help_text="Billing alerts evaluate one UTC billing date per day.",
+                    ),
+                ),
                 ("cooldown_hours", models.PositiveSmallIntegerField(default=24)),
                 ("snooze_until", models.DateTimeField(blank=True, null=True)),
                 ("next_check_at", models.DateTimeField(blank=True, null=True)),
@@ -107,7 +114,11 @@ class Migration(migrations.Migration):
                 "db_table": "billing_alerts_configuration",
                 "indexes": [
                     models.Index(fields=["organization", "-created_at"], name="billing_alert_org_created_idx"),
-                    models.Index(fields=["enabled", "next_check_at"], name="billing_alert_scheduler_idx"),
+                    models.Index(
+                        models.F("enabled"),
+                        models.OrderBy(models.F("next_check_at"), nulls_first=True),
+                        name="billing_alert_scheduler_idx",
+                    ),
                     models.Index(fields=["organization", "enabled", "state"], name="billing_alert_org_state_idx"),
                 ],
                 "constraints": [
@@ -116,7 +127,7 @@ class Migration(migrations.Migration):
                         name="billing_alert_baseline_window_positive",
                     ),
                     models.CheckConstraint(
-                        condition=models.Q(("check_interval_hours__in", (1, 2, 3, 4, 6, 8, 12, 24))),
+                        condition=models.Q(("check_interval_hours", 24)),
                         name="billing_alert_supported_interval",
                     ),
                     models.CheckConstraint(
@@ -151,7 +162,6 @@ class Migration(migrations.Migration):
                         serialize=False,
                     ),
                 ),
-                ("organization_id", models.UUIDField(db_index=True)),
                 ("evaluation_date", models.DateField()),
                 ("configuration_revision", models.PositiveIntegerField()),
                 ("delivery_uuid", models.UUIDField(default=posthog.models.utils.uuid7, editable=False, unique=True)),
@@ -186,7 +196,6 @@ class Migration(migrations.Migration):
             options={
                 "db_table": "billing_alerts_evaluation_claim",
                 "indexes": [
-                    models.Index(fields=["organization_id", "-created_at"], name="billing_claim_org_created_idx"),
                     models.Index(fields=["status", "next_retry_at"], name="billing_claim_retry_idx"),
                 ],
                 "constraints": [
@@ -226,8 +235,6 @@ class Migration(migrations.Migration):
                 ("source", models.CharField(choices=[("scheduled", "Scheduled"), ("manual", "Manual")], max_length=16)),
                 ("attempt_number", models.PositiveIntegerField()),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
-                ("organization_id", models.UUIDField(db_index=True)),
-                ("evaluation_date", models.DateField(blank=True, null=True)),
                 ("period_start", models.DateTimeField(blank=True, null=True)),
                 ("period_end", models.DateTimeField(blank=True, null=True)),
                 (
@@ -265,14 +272,6 @@ class Migration(migrations.Migration):
                 ("reason", models.TextField(blank=True)),
                 ("payload", models.JSONField(default=dict)),
                 (
-                    "alert",
-                    models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE,
-                        related_name="events",
-                        to="billing_alerts.billingalertconfiguration",
-                    ),
-                ),
-                (
                     "claim",
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.CASCADE,
@@ -294,8 +293,6 @@ class Migration(migrations.Migration):
                 "db_table": "billing_alerts_event",
                 "indexes": [
                     models.Index(fields=["team", "-created_at"], name="billing_event_team_ts_idx"),
-                    models.Index(fields=["alert", "-created_at"], name="billing_event_alert_ts_idx"),
-                    models.Index(fields=["alert", "evaluation_date"], name="billing_event_alert_date_idx"),
                     models.Index(fields=["kind", "-created_at"], name="billing_event_kind_ts_idx"),
                 ],
             },
