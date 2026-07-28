@@ -1419,6 +1419,14 @@ mod test {
 
         // Crash leaf: 0x43d8 is inside inlined_leaf as inlined into
         // engine::process_frame; the -1 adjustment lands on 0x43d7.
+        //
+        // The -1 call-site adjustment applies to every frame, including the
+        // crash site, where the address is the faulting instruction rather
+        // than a return address. When the crash pc starts a line-table row —
+        // as here, where 0x43d8 is line 12 and 0x43d7 line 11 — the reported
+        // crash line shifts one row up. This is a known cross-SDK contract
+        // limitation (no frame field marks the leaf yet), pinned by the line
+        // assertions below.
         let frame = RawFrame::Native(native_frame_at(base + 0x43d8, base));
         let frames = frame.resolve(1, &catalog, &debug_images, 15).await.unwrap();
 
@@ -1438,6 +1446,8 @@ mod test {
         );
         assert_eq!(frames[1].source.as_deref(), Some("test_android.cpp"));
         assert_eq!(frames[1].lang, "cpp");
+        // Line 11, not 12: the leaf-frame adjustment described above.
+        assert_eq!(frames[1].line, Some(11));
 
         // Caller: a return address inside the JNI entry point (extern "C",
         // so the name survives undecorated).
