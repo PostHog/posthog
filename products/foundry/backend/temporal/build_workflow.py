@@ -257,11 +257,14 @@ class FoundryBuildBetWorkflow(PostHogWorkflow):
                 await _record(input.bet_id, input.team_id, "run.finished", {"outcome": "test_writer_failed"})
                 return {"outcome": "test_writer_failed"}
             tests_ref = _tests_branch(input.bet_slug)
+            # Branch name only, never the repo URL: target_repo_url is typically tokened
+            # (the same convention as memory_repo_url), and unlike that field this note is
+            # gratuitous — it doesn't need the credential to serve its purpose.
             await _record(
                 input.bet_id,
                 input.team_id,
                 "note",
-                {"message": f"test-writer pushed acceptance tests to {input.target_repo_url}@{tests_ref}"},
+                {"message": f"test-writer pushed acceptance tests to {tests_ref}"},
             )
 
         violations: list[dict[str, Any]] = []
