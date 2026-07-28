@@ -28,6 +28,7 @@ from products.tasks.backend.facade.sandbox import (
 
 from ..logic.redaction import redact_secret_values, secret_values_from_env
 from .constants import (
+    FOUNDRY_AGENT_USER,
     FOUNDRY_CLAUDE_CLI_PACKAGE,
     FOUNDRY_EVENT_HELPER_PATH,
     FOUNDRY_EVENT_HELPER_SCRIPT,
@@ -92,6 +93,28 @@ def _resolve_sandbox_backend() -> str:
     """Map the shared ``SANDBOX_PROVIDER`` setting onto a get_sandbox_class_for_backend key."""
     provider = getattr(settings, "SANDBOX_PROVIDER", None)
     return provider if provider else "modal"
+
+
+def _run_as_agent_user(sandbox: Any, command: str, env: dict[str, str]) -> str:
+    """Wrap ``command`` to run as the unprivileged ``FOUNDRY_AGENT_USER`` instead of the
+    sandbox's default root — required for ``claude --dangerously-skip-permissions``, which
+    refuses to run as root regardless of sandboxing (see constants.py). ``su`` drops the
+    calling environment, so every env var is re-exported explicitly inside the switched-user
+    shell rather than relied upon to survive the switch.
+    """
+    sandbox.execute(
+        f"id -u {shlex.quote(FOUNDRY_AGENT_USER)} >/dev/null 2>&1 || useradd -m -s /bin/sh {shlex.quote(FOUNDRY_AGENT_USER)}"
+    )
+    sandbox.execute(
+        f"chown -R {shlex.quote(FOUNDRY_AGENT_USER)}:{shlex.quote(FOUNDRY_AGENT_USER)} {shlex.quote(FOUNDRY_TARGET_REPO_PATH)}"
+    )
+    env_prefix = "".join(f"export {name}={shlex.quote(value)}; " for name, value in env.items())
+    # A fresh user has no git identity; every build-loop node commits, so configure one
+    # rather than making every reference prompt tell the agent to do it itself.
+    git_identity = (
+        "git config --global user.email foundry-agent@posthog.com; git config --global user.name 'Foundry builder'; "
+    )
+    return f"su {shlex.quote(FOUNDRY_AGENT_USER)} -s /bin/sh -c {shlex.quote(env_prefix + git_identity + command)}"
 
 
 def _parse_foundry_events(stdout: str) -> list[dict[str, Any]]:
@@ -173,6 +196,8 @@ def run_node_activity(input: RunNodeInput) -> RunNodeOutput:
             command = input.command
             if input.target_repo_url:
                 command = f"cd {shlex.quote(FOUNDRY_TARGET_REPO_PATH)} && {command}"
+            if input.install_claude_cli:
+                command = _run_as_agent_user(sandbox, command, input.env)
             result = sandbox.execute(command, timeout_seconds=input.command_timeout_seconds)
     finally:
         try:

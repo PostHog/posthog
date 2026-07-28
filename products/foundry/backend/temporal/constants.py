@@ -55,3 +55,9 @@ FOUNDRY_TARGET_REPO_PATH = "/repo"
 # comment anticipates "node (Claude Code CLI runtime)"); see build_workflow.py's module
 # docstring for the full tradeoff.
 FOUNDRY_CLAUDE_CLI_PACKAGE = "@anthropic-ai/claude-code"
+
+# Claude Code's --dangerously-skip-permissions refuses to run as root/sudo (a real check
+# discovered by dry-running the real sandbox image before trusting it in a full bet run —
+# see build_workflow.py's module docstring). Sandboxes provision as root, so a build-loop
+# node's command runs as this unprivileged user instead, created fresh in every sandbox.
+FOUNDRY_AGENT_USER = "foundry-agent"

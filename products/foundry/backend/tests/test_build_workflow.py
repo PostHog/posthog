@@ -77,14 +77,20 @@ def make_fake_build_sandbox_class(
                 return _FakeExecResult(
                     exit_code=0 if target_clone_ok else 1, stderr="" if target_clone_ok else "clone failed"
                 )
-            if "npm install -g" in command:
+            # npm install / user setup (id -u ... || useradd, chown) / git checkout: no
+            # scripted output needed, just succeed — the node's own command (matched by
+            # substring below, since it ends up wrapped in `su ... -c '...cd /repo && X'`
+            # once install_claude_cli triggers the non-root re-exec) is what matters.
+            if (
+                "npm install -g" in command
+                or "useradd" in command
+                or command.startswith("chown")
+                or "git checkout" in command
+            ):
                 return _FakeExecResult()
-            prefix = "cd /repo && "
-            if command.startswith(prefix):
-                node_command = command[len(prefix) :]
-                if node_command.startswith("git checkout"):
-                    return _FakeExecResult()
-                return _FakeExecResult(stdout=stdout_by_node_command.get(node_command, ""))
+            for node_command, stdout in stdout_by_node_command.items():
+                if node_command in command:
+                    return _FakeExecResult(stdout=stdout)
             return _FakeExecResult()
 
         def write_file(self, path: str, payload: bytes) -> _FakeExecResult:
