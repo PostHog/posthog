@@ -3,9 +3,10 @@ from unittest.mock import patch
 
 from rest_framework import status
 
-from posthog.models import User
+from posthog.models import Team, User
 
 from products.conversations.backend.models import QuickAction, Ticket
+from products.workflows.backend.facade.api import HogFlowNotRunnableError, HogFlowServiceError
 
 
 class TestQuickActionAPI(APIBaseTest):
@@ -172,6 +173,7 @@ class TestQuickActionAPI(APIBaseTest):
 
         with (
             patch("products.conversations.backend.api.quick_actions.invoke_hog_flow_now") as invoke,
+            patch("products.conversations.backend.api.quick_actions.workflow_is_runnable", return_value=True),
             patch("products.conversations.backend.api.quick_actions.user_can_run_workflow", return_value=True),
         ):
             ran = self.client.post(
@@ -201,6 +203,7 @@ class TestQuickActionAPI(APIBaseTest):
         self.client.force_login(self.other_user)
         with (
             patch("products.conversations.backend.api.quick_actions.invoke_hog_flow_now") as invoke,
+            patch("products.conversations.backend.api.quick_actions.workflow_is_runnable", return_value=True),
             patch("products.conversations.backend.api.quick_actions.user_can_run_workflow", return_value=False),
         ):
             denied = self.client.post(
@@ -208,3 +211,80 @@ class TestQuickActionAPI(APIBaseTest):
             )
         self.assertEqual(denied.status_code, status.HTTP_403_FORBIDDEN, denied.content)
         invoke.assert_not_called()
+
+    def test_run_maps_service_failure_to_502_but_invalid_workflow_to_400(self) -> None:
+        # Regression guard: a workflow-service HTTP failure (e.g. the manual-invocation route not
+        # deployed yet, a 404 requests won't raise on) must surface as a 502, while a genuinely
+        # non-runnable workflow stays a 400. The two must not be conflated.
+        workflow_qa = self._create_workflow_quick_action("01890000-0000-0000-0000-000000000005")
+        ticket = Ticket.objects.create_with_number(team=self.team, widget_session_id="s3", distinct_id="d3")
+
+        for error, expected_status in [
+            (HogFlowServiceError("Workflow run was rejected (404)."), status.HTTP_502_BAD_GATEWAY),
+            (HogFlowNotRunnableError("That workflow does not exist or is not active."), status.HTTP_400_BAD_REQUEST),
+        ]:
+            with (
+                patch("products.conversations.backend.api.quick_actions.workflow_is_runnable", return_value=True),
+                patch("products.conversations.backend.api.quick_actions.user_can_run_workflow", return_value=True),
+                patch("products.conversations.backend.api.quick_actions.invoke_hog_flow_now", side_effect=error),
+            ):
+                response = self.client.post(
+                    f"{self.base_url}{workflow_qa['short_id']}/run/", {"ticket_id": str(ticket.id)}, format="json"
+                )
+            self.assertEqual(response.status_code, expected_status, response.content)
+
+    def test_run_rejects_workflow_not_runnable_in_current_environment(self) -> None:
+        # Regression guard: a shared quick action whose workflow isn't active in this environment must
+        # fail with a clear message before the RBAC check, not the misleading "no access" error.
+        workflow_qa = self._create_workflow_quick_action("01890000-0000-0000-0000-000000000006")
+        ticket = Ticket.objects.create_with_number(team=self.team, widget_session_id="s4", distinct_id="d4")
+
+        with (
+            patch("products.conversations.backend.api.quick_actions.workflow_is_runnable", return_value=False),
+            patch("products.conversations.backend.api.quick_actions.invoke_hog_flow_now") as invoke,
+        ):
+            response = self.client.post(
+                f"{self.base_url}{workflow_qa['short_id']}/run/", {"ticket_id": str(ticket.id)}, format="json"
+            )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        invoke.assert_not_called()
+
+    def test_unrelated_edit_not_blocked_when_workflow_became_inactive(self) -> None:
+        # Regression guard: once a workflow is attached, an unrelated edit (rename) must not be
+        # rejected just because the workflow was archived afterward — the active-workflow check
+        # applies only when the workflow reference itself is being set or changed.
+        created = self._create_workflow_quick_action("01890000-0000-0000-0000-000000000007")
+        runnable, can_run = self._allow_workflow(runnable=False)
+        with runnable, can_run:
+            renamed = self.client.patch(f"{self.base_url}{created['short_id']}/", {"name": "Renamed"}, format="json")
+        self.assertEqual(renamed.status_code, status.HTTP_200_OK, renamed.content)
+
+    def test_quick_actions_visible_from_child_environment(self) -> None:
+        # Regression guard: quick actions are stored under the canonical parent team, so a child
+        # environment must still list them. If the parent-lookup filter re-ANDs the raw child team
+        # id, list/retrieve return nothing and the feature is dead for multi-environment projects.
+        child_team = Team.objects.create(
+            organization=self.organization, project=self.project, parent_team=self.team, name="Child environment"
+        )
+        child_url = f"/api/projects/{child_team.id}/conversations/quick_actions/"
+        created = self.client.post(child_url, {"name": "From child", "content": "Hi"}, format="json").json()
+
+        listed = {q["short_id"] for q in self.client.get(child_url).json()["results"]}
+        self.assertIn(created["short_id"], listed)
+        self.assertEqual(self.client.get(f"{child_url}{created['short_id']}/").status_code, status.HTTP_200_OK)
+
+    def test_assignee_only_action_can_be_resaved_after_clearing_reply(self) -> None:
+        # Regression guard: an assignee-only quick action (assignee is API-only) still counts as
+        # doing something. Clearing the reply and submitting empty actions from the UI must not be
+        # rejected as empty — validate() has to see the assignee that update() merges back.
+        created = self.client.post(
+            self.base_url,
+            {"name": "Route to on-call", "actions": {"assignee": {"type": "user", "id": "42"}}},
+            format="json",
+        ).json()
+        response = self.client.patch(
+            f"{self.base_url}{created['short_id']}/", {"content": "", "actions": {}}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        quick_action = QuickAction.objects.unscoped().get(short_id=created["short_id"])
+        self.assertEqual(quick_action.actions, {"assignee": {"type": "user", "id": "42"}})

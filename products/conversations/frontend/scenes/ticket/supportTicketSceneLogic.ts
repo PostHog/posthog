@@ -148,6 +148,10 @@ function createExceptionsQuery(sessionId?: string, ticketCreatedAt?: string): Da
 /** Why a customer-facing email reply on this ticket can never be delivered. */
 export type EmailReplyBlockedReason = 'email_disabled' | 'no_recipient' | 'no_channel'
 
+// The ticket fields updateTicket can PATCH. Passing a subset restricts the save to just those,
+// so applying a quick action doesn't sweep up unrelated unsaved edits.
+export type TicketWriteField = 'status' | 'priority' | 'assignee' | 'tags' | 'snoozed_until'
+
 /**
  * Mirrors the backend gates in send_email_reply_on_team_message / _process_outbox_row:
  * a reply that fails any of these is saved as a comment but never delivered.
@@ -383,8 +387,8 @@ export interface supportTicketSceneLogicActions {
         messageId: string
         rating: AiReplyFeedbackRating
     }
-    updateTicket: () => {
-        value: true
+    updateTicket: (restrictToFields?: TicketWriteField[]) => {
+        restrictToFields: TicketWriteField[] | undefined
     }
 }
 
@@ -458,7 +462,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         setTicket: (ticket: Ticket | null) => ({ ticket }),
         setTicketLoading: (loading: boolean) => ({ loading }),
         incrementUnreadCustomerCount: true,
-        updateTicket: true,
+        updateTicket: (restrictToFields?: TicketWriteField[]) => ({ restrictToFields }),
         setTicketUpdating: (updating: boolean) => ({ updating }),
 
         loadMessages: true,
@@ -957,18 +961,18 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
     }),
     listeners(({ actions, values, props, cache }) => ({
         applyTicketActions: ({ ticketActions }) => {
-            let changed = false
+            const fields: TicketWriteField[] = []
             if (ticketActions.status) {
                 actions.setStatus(ticketActions.status as TicketStatus)
-                changed = true
+                fields.push('status')
             }
             if (ticketActions.priority) {
                 actions.setPriority(ticketActions.priority as TicketPriority)
-                changed = true
+                fields.push('priority')
             }
             if (ticketActions.tags) {
                 actions.setTags(ticketActions.tags)
-                changed = true
+                fields.push('tags')
             }
             if (ticketActions.assignee !== undefined) {
                 const assignee = ticketActions.assignee
@@ -978,16 +982,17 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 } else {
                     actions.setAssignee(null)
                 }
-                changed = true
+                fields.push('assignee')
             }
-            // Persist the field changes; text insertion into the composer is handled separately.
+            // Persist only the fields this quick action set, so any unrelated unsaved ticket edits
+            // aren't saved as a side effect. Text insertion into the composer is handled separately.
             // Publish a settle promise so a workflow run from the same quick action waits for the
             // PATCH to commit before the backend reads the ticket (otherwise it sees stale fields).
-            if (changed) {
+            if (fields.length > 0) {
                 cache.ticketUpdateSettled = new Promise<void>((resolve) => {
                     cache.resolveTicketUpdate = resolve
                 })
-                actions.updateTicket()
+                actions.updateTicket(fields)
             }
         },
         runWorkflowQuickAction: async ({ quickAction }) => {
@@ -1069,9 +1074,15 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             // Load previous tickets after person is loaded
             actions.loadPreviousTickets()
         },
-        updateTicket: async (_, breakpoint) => {
+        updateTicket: async ({ restrictToFields }, breakpoint) => {
+            // Take ownership of the settle-promise resolver published for THIS update (if any) before
+            // any await, so an earlier update finishing later can't release a different quick action's
+            // workflow run. Mirrors the ticketUpdateRequest identity guard below.
+            const resolveThisUpdate = cache.resolveTicketUpdate
+            cache.resolveTicketUpdate = undefined
             if (props.id === 'new') {
                 actions.setTicketUpdating(false)
+                resolveThisUpdate?.()
                 return
             }
             // Serialize overlapping saves: wait out any in-flight PATCH so requests can't land out of
@@ -1089,15 +1100,26 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 snoozed_until: string | null
             }> = {}
 
-            if (values.status && values.status !== values.ticket?.status) {
+            // With no restriction, save every locally-edited field (the "Save changes" flow). When a
+            // quick action passes its own field list, save only those so unrelated edits stay pending.
+            const includeField = (field: TicketWriteField): boolean =>
+                !restrictToFields || restrictToFields.includes(field)
+
+            if (includeField('status') && values.status && values.status !== values.ticket?.status) {
                 data.status = values.status
             }
-            if (values.priority && values.priority !== values.ticket?.priority) {
+            if (includeField('priority') && values.priority && values.priority !== values.ticket?.priority) {
                 data.priority = values.priority
             }
-            data.assignee = values.assignee
-            data.tags = values.tags
-            data.snoozed_until = values.snoozedUntil
+            if (includeField('assignee')) {
+                data.assignee = values.assignee
+            }
+            if (includeField('tags')) {
+                data.tags = values.tags
+            }
+            if (includeField('snoozed_until')) {
+                data.snoozed_until = values.snoozedUntil
+            }
 
             const request = api.conversationsTickets.update(props.id.toString(), data)
             cache.ticketUpdateRequest = request
@@ -1117,10 +1139,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 if (cache.ticketUpdateRequest === request) {
                     cache.ticketUpdateRequest = null
                 }
-                // Release any quick-action workflow run waiting on this PATCH to settle.
-                cache.resolveTicketUpdate?.()
-                cache.resolveTicketUpdate = undefined
-                cache.ticketUpdateSettled = undefined
+                // Release only the workflow run waiting on THIS update's settle promise.
+                resolveThisUpdate?.()
             }
         },
         loadMessages: async () => {

@@ -754,6 +754,11 @@ export interface QuickActionRunRequestApi {
     ticket_id: string
 }
 
+export interface QuickActionRunErrorApi {
+    /** Human-readable explanation of why the run failed. */
+    detail: string
+}
+
 /**
  * * `widget` - Widget
  * * `email` - Email

@@ -126,7 +126,7 @@ export function QuickActionsSection(): JSX.Element {
             <p>
                 Save things you do often, then trigger them in a conversation by typing <code>/</code> in the message
                 box or using the quick action button. A quick action can insert a saved reply, set the ticket's status,
-                priority, or tags, and run one of your workflows — any combination.
+                priority, or tags, and run one of your workflows, in any combination.
             </p>
             <div>
                 <LemonButton type="primary" icon={<IconPlus />} onClick={openCreateModal}>
@@ -234,7 +234,7 @@ export function QuickActionsSection(): JSX.Element {
                             <LemonInput
                                 value={description}
                                 onChange={setDescription}
-                                placeholder="Optional — when to use this"
+                                placeholder="Optional: when to use this"
                             />
                         </LemonField.Pure>
                         <LemonField.Pure label="Visibility">
@@ -242,10 +242,10 @@ export function QuickActionsSection(): JSX.Element {
                                 value={visibility}
                                 onChange={setVisibility}
                                 options={[
-                                    { value: QuickActionVisibilityEnumApi.Team, label: 'Team — shared with everyone' },
+                                    { value: QuickActionVisibilityEnumApi.Team, label: 'Team, shared with everyone' },
                                     {
                                         value: QuickActionVisibilityEnumApi.Personal,
-                                        label: 'Personal — only you',
+                                        label: 'Personal, only you',
                                         disabledReason: canMakePersonal
                                             ? undefined
                                             : 'Only the creator can make a shared quick action personal',
@@ -270,7 +270,7 @@ export function QuickActionsSection(): JSX.Element {
                         />
                     </LemonField.Pure>
                     <div className="grid grid-cols-2 gap-3">
-                        <LemonField.Pure label="Set status" info="Optional — applied when the quick action is used.">
+                        <LemonField.Pure label="Set status" info="Optional: applied when the quick action is used.">
                             <LemonSelect
                                 value={statusAction}
                                 onChange={setStatusAction}
@@ -279,7 +279,7 @@ export function QuickActionsSection(): JSX.Element {
                                 options={statusOptionsWithoutAll.map((o) => ({ value: o.value, label: o.label }))}
                             />
                         </LemonField.Pure>
-                        <LemonField.Pure label="Set priority" info="Optional — applied when the quick action is used.">
+                        <LemonField.Pure label="Set priority" info="Optional: applied when the quick action is used.">
                             <LemonSelect
                                 value={priorityAction}
                                 onChange={setPriorityAction}
@@ -291,13 +291,13 @@ export function QuickActionsSection(): JSX.Element {
                     </div>
                     <LemonField.Pure
                         label="Set tags"
-                        info="Optional — replaces the ticket's tags when the quick action is used."
+                        info="Optional: replaces the ticket's tags when the quick action is used."
                     >
                         <TicketTags tags={tagsAction} onChange={setTagsAction} className="p-0" />
                     </LemonField.Pure>
                     <LemonField.Pure
                         label="Run a workflow"
-                        info="Optional — runs an active workflow against the ticket when the quick action is used. Create and activate workflows in the workflow builder."
+                        info="Optional: runs an active workflow against the ticket when the quick action is used. Create and activate workflows in the workflow builder."
                     >
                         <LemonSelect
                             value={workflowId}

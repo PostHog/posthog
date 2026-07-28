@@ -20,7 +20,19 @@ if TYPE_CHECKING:
 
 
 class HogFlowNotRunnableError(Exception):
-    """Raised when a workflow can't be run on demand (missing, wrong team, or not active)."""
+    """Raised when a workflow can't be run on demand because it's missing, wrong team, or not active.
+
+    This is a caller error (bad `workflow_id`), so callers should surface it as a 4xx.
+    """
+
+
+class HogFlowServiceError(Exception):
+    """Raised when the workflow service (CDP) fails or rejects the run at the HTTP layer.
+
+    Distinct from HogFlowNotRunnableError: the workflow itself is valid, but the downstream call
+    failed — e.g. the manual-invocation route isn't deployed yet (a 404 `requests` doesn't raise on)
+    or a transient 5xx. Callers should surface it as a 502, not a 400 workflow_id error.
+    """
 
 
 def workflow_is_runnable(team_id: int, workflow_id: str | UUID) -> bool:
@@ -45,11 +57,14 @@ def invoke_hog_flow_now(team_id: int, workflow_id: str | UUID, globals: dict[str
     """Run an active workflow's full graph against a caller-synthesized event context.
 
     `globals` is `{event: {...}, person?: {...}, groups?: {...}}`. Raises HogFlowNotRunnableError
-    if the workflow isn't an active flow for the team, or if the plugin-server rejects the run.
+    if the workflow isn't an active flow for the team, or HogFlowServiceError if the plugin-server
+    rejects the run or is unreachable at the HTTP layer.
     """
     if not workflow_is_runnable(team_id, workflow_id):
         raise HogFlowNotRunnableError("That workflow does not exist or is not active.")
 
     response = create_hog_flow_manual_invocation(team_id, str(workflow_id), {"globals": globals})
     if not response.ok:
-        raise HogFlowNotRunnableError(f"Workflow run was rejected ({response.status_code}).")
+        # A completed non-2xx round-trip (404/5xx) doesn't raise from `requests`, but it's still a
+        # service-layer failure, not the workflow being invalid — keep the two distinct for callers.
+        raise HogFlowServiceError(f"Workflow run was rejected ({response.status_code}).")

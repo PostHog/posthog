@@ -31,6 +31,7 @@ from products.conversations.backend.models import QuickAction, QuickActionVisibi
 from products.conversations.backend.models.constants import Priority, Status
 from products.workflows.backend.facade.api import (
     HogFlowNotRunnableError,
+    HogFlowServiceError,
     invoke_hog_flow_now,
     user_can_run_workflow,
     workflow_is_runnable,
@@ -156,8 +157,25 @@ class QuickActionSerializer(serializers.ModelSerializer):
             return attrs[field]
         return getattr(self.instance, field, None)
 
+    def _merged_actions(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # `actions` is a single JSON column DRF replaces wholesale, and the Settings UI has no
+        # assignee control, so when a write omits `assignee` we carry the instance's existing one
+        # forward rather than silently dropping one set via the API. Status/priority/tags stay
+        # full-replace so clearing them in the UI sticks.
+        new_actions = attrs["actions"] or {}
+        existing = getattr(self.instance, "actions", None) or {}
+        if "assignee" not in new_actions and existing.get("assignee"):
+            new_actions = {**new_actions, "assignee": existing["assignee"]}
+        return new_actions
+
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         instance = self.instance
+
+        # Resolve the actions this write persists up front so the "must do something" check below
+        # and the stored value can't disagree (a merged-back assignee makes an otherwise-empty
+        # payload a non-empty action set).
+        if "actions" in attrs:
+            attrs["actions"] = self._merged_actions(attrs)
 
         # A quick action must do something: insert a reply, apply ticket actions, or run a workflow.
         has_reply = bool(self._effective(attrs, "content") or self._effective(attrs, "rich_content"))
@@ -166,8 +184,11 @@ class QuickActionSerializer(serializers.ModelSerializer):
         if not (has_reply or has_actions or workflow_id):
             raise serializers.ValidationError("A quick action needs a reply, a ticket action, or a workflow to run.")
 
-        # If it runs a workflow, that workflow must be active for the team.
-        if workflow_id and not workflow_is_runnable(self.context["team_id"], workflow_id):
+        # Require the workflow to be active only when it's actually being set/changed (mirroring the
+        # RBAC check below). Re-checking the effective value would block unrelated edits — rename,
+        # visibility — if a previously-attached workflow was archived after it was linked.
+        new_workflow_id = attrs.get("workflow_id")
+        if new_workflow_id and not workflow_is_runnable(self.context["team_id"], new_workflow_id):
             raise serializers.ValidationError({"workflow_id": "That workflow does not exist or is not active."})
 
         # RBAC: attaching a workflow requires access to that workflow — otherwise a ticket-scoped
@@ -192,17 +213,6 @@ class QuickActionSerializer(serializers.ModelSerializer):
             )
         return attrs
 
-    def update(self, instance: QuickAction, validated_data: dict[str, Any]) -> QuickAction:
-        # `actions` is a single JSON column, so DRF replaces it wholesale. The Settings UI has no
-        # assignee control, so merge the existing assignee back in to avoid silently dropping one
-        # set via the API. Status/priority/tags stay full-replace so clearing them in the UI sticks.
-        if "actions" in validated_data:
-            new_actions = validated_data["actions"] or {}
-            if "assignee" not in new_actions and instance.actions.get("assignee"):
-                new_actions = {**new_actions, "assignee": instance.actions["assignee"]}
-            validated_data["actions"] = new_actions
-        return super().update(instance, validated_data)
-
     def create(self, validated_data: dict[str, Any]) -> QuickAction:
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
@@ -211,6 +221,10 @@ class QuickActionSerializer(serializers.ModelSerializer):
 
 class QuickActionRunRequestSerializer(serializers.Serializer):
     ticket_id = serializers.UUIDField(help_text="Ticket to run the workflow against.")
+
+
+class QuickActionRunErrorSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="Human-readable explanation of why the run failed.")
 
 
 def _build_ticket_event_globals(ticket: Ticket) -> dict:
@@ -263,6 +277,12 @@ class QuickActionViewSet(
     serializer_class = QuickActionSerializer
     lookup_field = "short_id"
 
+    def _should_skip_parents_filter(self) -> bool:
+        # `safely_get_queryset` already scopes by the canonical team via `for_team`. The default
+        # parent-lookup filter would AND the raw URL team id back on top, which for a child
+        # environment can never match a quick action stored under the parent team.
+        return True
+
     def safely_get_queryset(self, queryset: QuerySet[QuickAction]) -> QuerySet[QuickAction]:
         # `for_team` resolves child environments to the canonical (parent) team id, matching the
         # rewrite `RootTeamMixin.save()` performs on write. Filtering by the raw `self.team_id`
@@ -272,7 +292,7 @@ class QuickActionViewSet(
         return queryset.filter(
             Q(visibility=QuickActionVisibility.TEAM)
             | Q(visibility=QuickActionVisibility.PERSONAL, created_by=self.request.user)
-        )
+        ).order_by("-created_at")
 
     def _track(self, event: str, instance: QuickAction) -> None:
         report_user_action(
@@ -302,7 +322,12 @@ class QuickActionViewSet(
 
     @extend_schema(
         request=QuickActionRunRequestSerializer,
-        responses={202: OpenApiResponse(description="Workflow run enqueued.")},
+        responses={
+            202: OpenApiResponse(description="Workflow run enqueued."),
+            502: OpenApiResponse(
+                response=QuickActionRunErrorSerializer, description="The workflow service was unreachable."
+            ),
+        },
     )
     @action(detail=True, methods=["post"])
     def run(self, request: Request, **kwargs: Any) -> Response:
@@ -310,6 +335,14 @@ class QuickActionViewSet(
         quick_action = self.get_object()
         if not quick_action.workflow_id:
             raise serializers.ValidationError({"workflow_id": "This quick action does not run a workflow."})
+
+        # The quick action is shared across the project, but workflows are environment-scoped, so the
+        # referenced workflow may not exist (or be active) in the environment this run comes from. Say
+        # so plainly rather than falling through to the misleading "no access" error below.
+        if not workflow_is_runnable(self.team_id, quick_action.workflow_id):
+            raise serializers.ValidationError(
+                {"workflow_id": "This quick action's workflow isn't active in the current environment."}
+            )
 
         # RBAC: the runner (not the quick action's creator) must have access to the workflow —
         # a shared quick action must not let a ticket-scoped user execute a workflow they can't
@@ -329,9 +362,11 @@ class QuickActionViewSet(
             invoke_hog_flow_now(self.team_id, quick_action.workflow_id, globals_payload)
         except HogFlowNotRunnableError as e:
             raise serializers.ValidationError({"workflow_id": str(e)})
-        except RequestException:
-            # The workflow service (CDP) was unreachable — a transient upstream failure, not a bad
-            # request. Surface a clean 502 rather than an unhandled 500.
+        except (RequestException, HogFlowServiceError):
+            # The workflow service (CDP) was unreachable or rejected the call at the HTTP layer — for
+            # example the manual-invocation route isn't deployed yet, returning a 404 that `requests`
+            # doesn't raise on. That's an upstream failure, not a bad request, so surface a clean 502
+            # rather than a misleading workflow_id validation error.
             logger.exception("quick_action_run_workflow_service_unreachable", workflow_id=str(quick_action.workflow_id))
             return Response(
                 {"detail": "Couldn't reach the workflow service. Try again shortly."},

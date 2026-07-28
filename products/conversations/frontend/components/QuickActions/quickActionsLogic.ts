@@ -1,5 +1,6 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -348,7 +349,14 @@ export const quickActionsLogic = kea<quickActionsLogicType>([
         },
     })),
 
-    afterMount(({ actions }) => {
-        actions.loadQuickActions()
-    }),
+    subscriptions(({ actions }) => ({
+        // Fires on mount with the initial value, then on every change. Guarding on non-null avoids
+        // a load against `/api/projects/null/...` when the composer mounts before the team resolves,
+        // and re-fires the load once it does (and on project switches).
+        currentTeamId: (currentTeamId: number | null) => {
+            if (currentTeamId !== null) {
+                actions.loadQuickActions()
+            }
+        },
+    })),
 ])

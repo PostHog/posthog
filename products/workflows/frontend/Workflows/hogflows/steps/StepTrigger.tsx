@@ -228,7 +228,7 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
             },
             {
                 label: 'Manual',
-                description: 'Run only when triggered by hand — from the button here or a support quick action',
+                description: 'Run only when triggered by hand, from the button here or a support quick action',
                 value: 'manual',
                 icon: <IconButton />,
             },
@@ -489,7 +489,7 @@ function StepTriggerConfigurationManual(): JSX.Element {
         <>
             <div className="flex flex-col gap-1">
                 <p className="mb-0">
-                    This workflow only runs when triggered by hand — it won't fire on its own. Trigger it from{' '}
+                    This workflow only runs when triggered by hand. It won't fire on its own. Trigger it from{' '}
                     <Tooltip title="It's up there on the top right ⤴︎">
                         <span className="font-bold cursor-pointer">the trigger button</span>
                     </Tooltip>
