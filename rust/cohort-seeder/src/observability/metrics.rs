@@ -41,6 +41,23 @@ pub const RECONCILE_CAS_LOST: &str = "seeder_reconcile_cas_lost_total";
 pub const RECONCILE_RECORD_INVALID: &str = "seeder_reconcile_record_invalid_total";
 pub const RECONCILE_DISPATCHES_IN_FLIGHT: &str = "seeder_reconcile_dispatches_in_flight";
 pub const RUNS_RECONCILING: &str = "seeder_runs_reconciling";
+// Liveness, marker watcher, and observation.
+pub const RECONCILE_MARKERS_OBSERVED: &str = "seeder_reconcile_markers_observed_total";
+pub const RECONCILE_MARKER_PARSE_FAILURES: &str = "seeder_reconcile_marker_parse_failures_total";
+pub const RECONCILE_MARKER_WATCH_LAG: &str = "seeder_reconcile_marker_watch_lag";
+pub const RECONCILE_LIVENESS_LAGGING_PARTITIONS: &str =
+    "seeder_reconcile_liveness_lagging_partitions";
+pub const RECONCILE_COHORTS_COMPLETED: &str = "seeder_reconcile_cohorts_completed_total";
+pub const RECONCILE_COHORTS_PARTIAL: &str = "seeder_reconcile_cohorts_partial_total";
+pub const RECONCILE_COHORTS_SHORTFALL: &str = "seeder_reconcile_cohorts_shortfall_total";
+pub const RECONCILE_ZERO_MARKER_RUNS: &str = "seeder_reconcile_zero_marker_runs_total";
+pub const RUNS_OBSERVED: &str = "seeder_runs_observed_total";
+pub const RECONCILE_WATCH_TRUNCATED: &str = "seeder_reconcile_watch_truncated_total";
+pub const RECONCILE_OBSERVATION_STALLED_AGE_SECONDS: &str =
+    "seeder_reconcile_observation_stalled_age_seconds";
+pub const RECONCILE_OBSERVATION_PASS_SECONDS: &str = "seeder_reconcile_observation_pass_seconds";
+pub const RECONCILE_OBSERVE_ERRORS: &str = "seeder_reconcile_observe_errors_total";
+pub const RECONCILE_RUNS_UNDISPATCHED: &str = "seeder_reconcile_runs_undispatched";
 
 pub fn install_recorder() -> Result<PrometheusHandle, BuildError> {
     PrometheusBuilder::new().install_recorder()

@@ -105,10 +105,16 @@ To sync resources owned by a team, also enter the team's ID (found under **Team 
         }
 
     def get_retryable_errors(self) -> set[str]:
-        # A 429 or 5xx is retried internally by `_fetch_page`/`_open_billing_stream`; if those
-        # retries still exhaust, the failure is transient and self-recovering, so let Temporal
-        # retry the activity without surfacing it as tracked exception noise.
-        return {"Vercel API error (retryable)"}
+        # `_fetch_page`/`_open_billing_stream` already retry these in-process (a 429/5xx surfaces as
+        # the "Vercel API error (retryable)" sentinel; connection failures and read timeouts surface
+        # as the urllib3 pool error). Once those retries exhaust, Temporal retries the whole activity
+        # and the failure is transient and self-recovering, so don't surface it as tracked exception
+        # noise. The host is a constant, not user input, so matching on it doesn't risk swallowing an
+        # unrelated failure.
+        return {
+            "Vercel API error (retryable)",
+            "HTTPSConnectionPool(host='api.vercel.com', port=443)",
+        }
 
     def get_schemas(
         self,

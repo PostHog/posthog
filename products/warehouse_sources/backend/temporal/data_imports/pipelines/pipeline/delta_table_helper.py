@@ -51,15 +51,19 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 DEFAULT_COMPACT_FILES_PER_PARTITION_THRESHOLD = 200
 DEFAULT_COMPACT_TOTAL_FILES_THRESHOLD = 5000
 
-# Substrings of the `OSError`s delta-rs's Rust `object_store` crate raises from
-# `DeltaTable.is_deltatable()` when it can't reach or authenticate against our own S3-backed
-# data-warehouse bucket (IMDS/STS blips, dispatch timeouts) — not a customer credential problem.
-# Transient and self-recovering: the next maintenance pass re-lists from scratch, so these
-# shouldn't be treated the same as a bug in our maintenance logic.
+# Substrings of the `OSError`s raised talking to our own S3-backed data-warehouse bucket that are
+# transient and self-recovering, not a bug in our code or a customer credential problem:
+# - the first three come from delta-rs's Rust `object_store` crate inside `DeltaTable.is_deltatable()`
+#   (IMDS/STS blips, dispatch timeouts)
+# - "Please reduce your request rate" is S3's SlowDown throttling response, surfaced by s3fs/aiobotocore
+#   when a bulk delete (e.g. `_purge_s3_prefix`) outruns the bucket's request-rate limit
+# A retry (next maintenance pass, or next sync attempt) redoes the same idempotent operation from
+# scratch, so these shouldn't be treated the same as a bug in our logic.
 TRANSIENT_OBJECT_STORE_ERRORS = (
     "an error occurred while loading credentials",
     "the credential provider was not enabled",
     "Generic S3 error",
+    "Please reduce your request rate",
 )
 
 

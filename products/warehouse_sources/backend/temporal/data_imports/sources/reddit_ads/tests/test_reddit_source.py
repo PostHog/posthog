@@ -17,7 +17,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.redditads import (
     RedditAdsSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.reddit_ads import RedditAdsResumeConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.reddit_ads import (
+    RedditAdsApiError,
+    RedditAdsResumeConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.source import RedditAdsSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -183,6 +186,48 @@ class TestRedditAdsSource:
             self.source.get_oauth_accounts(self.config.reddit_integration_id, self.team_id)
 
         assert "try again" in str(excinfo.value).lower()
+
+    @pytest.mark.parametrize(
+        "status_code,expected_fragment",
+        [
+            (401, "reconnect"),
+            (403, "reconnect"),
+            # /me/businesses and /businesses/{id}/ad_accounts are static, real paths, so a 404 there
+            # means no accessible business/ad account for these credentials, not a bad request.
+            (404, "couldn't find any businesses or ad accounts"),
+            (429, "try again"),
+            (500, "try again"),
+        ],
+    )
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.source.OauthIntegration")
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.source.RedditAdsSource.get_oauth_integration"
+    )
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.source.list_businesses")
+    def test_get_oauth_accounts_maps_reddit_api_errors_to_actionable_messages(
+        self,
+        mock_list_businesses,
+        mock_get_oauth_integration,
+        mock_oauth_integration_cls,
+        status_code,
+        expected_fragment,
+    ):
+        """Every status Reddit can return from listing businesses/ad accounts must surface a clean,
+        actionable message instead of an unhandled 500 — regression for the 404 that escaped raw."""
+        integration = mock.MagicMock()
+        integration.errors = ""
+        integration.access_token = "valid_token"
+        mock_get_oauth_integration.return_value = integration
+
+        oauth = mock_oauth_integration_cls.return_value
+        oauth.access_token_expired.return_value = False
+
+        mock_list_businesses.side_effect = RedditAdsApiError("boom", status_code)
+
+        with pytest.raises(IntegrationAccountListingError) as excinfo:
+            self.source.get_oauth_accounts(self.config.reddit_integration_id, self.team_id)
+
+        assert expected_fragment in str(excinfo.value).lower()
 
     def test_get_schemas(self):
         """Test get_schemas returns all endpoint schemas."""

@@ -104,6 +104,11 @@ impl SeederOrchestrator {
                     self.reap_poisoned_chunks(&eligible_runs).await;
                     self.fill_claim_slots(&eligible_runs, &mut tasks, &shutdown).await;
                     if let Some(driver) = &self.completion_driver {
+                        // Dispatch work is spawned off this tick, but observation runs inline: a few
+                        // DB reads per reconciling run, plus at most one OffsetFetch and one
+                        // watermark sweep for the whole tick (the driver memoizes both). If the
+                        // per-run cost ever stops being negligible, observation must be spawned like
+                        // dispatch to stay inside the liveness deadline.
                         driver.tick().await;
                     }
                     self.handle.report_healthy();

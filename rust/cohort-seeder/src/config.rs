@@ -210,9 +210,34 @@ pub struct Config {
     pub seeder_reconcile_max_concurrent_dispatches: usize,
 
     /// The membership-change topic whose high watermarks anchor the marker watcher's start
-    /// positions, captured at dispatch time. PR-C's observer reads markers from the same topic.
+    /// positions, captured at dispatch time. The observer reads markers from the same topic.
     #[envconfig(default = "cohort_membership_changed_shadow")]
     pub cohort_membership_changed_topic: String,
+
+    /// Enable the dark-by-default reconcile observer: the marker-watch task and the driver's
+    /// observation pass. A separate gate from auto-dispatch — observation can run against
+    /// CLI-dispatched runs without auto-dispatch, and vice versa.
+    #[envconfig(default = "false")]
+    pub seeder_reconcile_observer_enabled: bool,
+
+    /// The seed processor's consumer group id. The observer queries this group's committed offsets on
+    /// the seed topic as the reconcile-liveness signal; it never commits to it.
+    #[envconfig(default = "cohort-stream-seeds")]
+    pub kafka_seed_consumer_group: String,
+
+    /// Timeout for the seed-group OffsetFetch and membership-topic watermark metadata calls the
+    /// observer makes.
+    #[envconfig(default = "10000")]
+    pub seeder_reconcile_offsets_timeout_ms: u64,
+
+    /// Flush the marker watcher's accumulated bits and positions at least this often.
+    #[envconfig(default = "5000")]
+    pub seeder_reconcile_persist_interval_ms: u64,
+
+    /// Flush the marker watcher after this many consumed messages even if the interval has not
+    /// elapsed, bounding how many observations a crash can lose.
+    #[envconfig(default = "5000")]
+    pub seeder_reconcile_persist_max_batch: u64,
 }
 
 impl Config {

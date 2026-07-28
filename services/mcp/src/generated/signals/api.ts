@@ -50,6 +50,12 @@ export const SignalsReportsListQueryParams = /* @__PURE__ */ zod.object({
             'Comma-separated list of scout skill_name slugs (e.g. signals-scout-error-tracking). Reports are kept if at least one of their contributing signals was authored by one of these scouts. Combines with source_product as an AND.'
         ),
     search: zod.string().optional().describe('Case-insensitive substring match against report title and summary.'),
+    source_id: zod
+        .string()
+        .optional()
+        .describe(
+            "Comma-separated list of source record ids. Reports are kept if at least one of their contributing signals came from one of these records — e.g. pass a support ticket's UUID to see what the inbox already found for that ticket. Requires exactly one source_product, since a source id is only unique within its product."
+        ),
     source_product: zod
         .string()
         .optional()

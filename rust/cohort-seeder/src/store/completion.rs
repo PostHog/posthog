@@ -1,6 +1,6 @@
 //! The backfill-completion protocol's PostgreSQL access: the planning-proof stamp, the
 //! `seeding → reconciling` CAS, the atomic dispatch record, and the epoch-fenced observation writes
-//! the later observer (PR-C) will drive. `sqlx` stays confined here; everything above receives typed
+//! the observer drives. `sqlx` stays confined here; everything above receives typed
 //! rows, typed capabilities, and typed errors. Depends on `domain` and the sibling store helpers.
 //!
 //! Every observation write carries the dispatch fence `AND reconcile_dispatched_at = $epoch AND
@@ -19,8 +19,8 @@ use std::fmt;
 
 use crate::domain::{
     BehavioralShapeHash, BehavioralShapeHashError, CompletionParts, CompletionPhase,
-    CompletionStatus, DispatchEpoch, MarkerWatch, PartitionBitmap, PartitionBitmapError,
-    ReconcileHwms, RunId, WatchPositions, MARKER_WATCH_SCHEMA,
+    CompletionStatus, DispatchEpoch, MarkerWatch, ObservationEnds, PartitionBitmap,
+    PartitionBitmapError, ReconcileHwms, RunId, WatchPositions, MARKER_WATCH_SCHEMA,
 };
 
 use super::{RenderedError, PERSISTED_ERROR_LIMIT};
@@ -29,8 +29,8 @@ use super::{RenderedError, PERSISTED_ERROR_LIMIT};
 /// byte-identical and the composed SQL is a compile-time constant (mirrors `runs::run_columns!`).
 macro_rules! completion_columns {
     () => {
-        "id, team_id, status, chunks_planned_at, reconcile_dispatched_at, reconcile_observed_at, \
-         reconcile_hwms, marker_watch"
+        "id, team_id, status, chunks_planned_at, reconcile_dispatched_at, \
+         reconcile_observed_at, reconcile_hwms, marker_watch"
     };
 }
 
@@ -111,7 +111,7 @@ const RUNS_WITH_ALL_CHUNKS_CONFIRMED: &str = concat!(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompletionOperation {
     RecordDispatch,
-    PersistWatch,
+    PersistEnds,
     PersistObservations,
     MarkCompleted,
     RecordPartial,
@@ -124,7 +124,7 @@ impl fmt::Display for CompletionOperation {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
             Self::RecordDispatch => "record-dispatch",
-            Self::PersistWatch => "persist-watch",
+            Self::PersistEnds => "persist-ends",
             Self::PersistObservations => "persist-observations",
             Self::MarkCompleted => "mark-completed",
             Self::RecordPartial => "record-partial",
@@ -211,7 +211,7 @@ impl ReconcilingClaim {
         Ok(())
     }
 
-    /// Atomically write the dispatch record per INV-3: set `reconcile_hwms`, `marker_watch`, a fresh
+    /// Atomically write the whole dispatch record: set `reconcile_hwms`, `marker_watch`, a fresh
     /// `reconcile_dispatched_at` fence, null `reconcile_observed_at`, and reset every non-superseded
     /// participation's bits/completion/error. Returns the fence epoch minted from the RETURNING
     /// timestamp.
@@ -325,7 +325,7 @@ pub async fn cas_run_reconciling(
 
 /// Mint a claim for an already-`reconciling` run so a re-dispatch (self-healing an undispatched or
 /// stale record) can rewrite its dispatch state. `None` means the run is no longer `reconciling`.
-/// Non-exclusive by design — concurrent claimants are reconciled by INV-3's ruling fence.
+/// Non-exclusive by design — whichever claimant records last sets the ruling fence.
 pub async fn confirm_reconciling(
     pool: &PgPool,
     run_id: RunId,
@@ -344,27 +344,36 @@ pub async fn confirm_reconciling(
     Ok(claimed.map(ClaimRow::into_claim))
 }
 
-/// Persist the watcher's resume state (`marker_watch`) under the dispatch fence.
-pub async fn persist_marker_watch(
+/// Record the captured observation ends under the dispatch fence — the once-per-dispatch write that
+/// arms the settlement proof. It patches only the `ends` key: the observer holds discovery-time
+/// positions, so writing the whole document would race the watch task's position flush and regress
+/// the watcher's coverage (safe in direction, but on an idle topic nothing would ever repair it and
+/// the run could never mint a proof).
+pub async fn persist_observation_ends(
     pool: &PgPool,
     run_id: RunId,
     epoch: DispatchEpoch,
-    watch: &MarkerWatch,
+    ends: &ObservationEnds,
 ) -> Result<(), CompletionStoreError> {
     let updated = sqlx::query_scalar::<_, RunId>(
         r#"
         UPDATE cohort_backfill_runs
-        SET marker_watch = $3, updated_at = now()
+        SET marker_watch = jsonb_set(
+                coalesce(marker_watch, jsonb_build_object('schema', $4::bigint, 'positions', '{}'::jsonb)),
+                '{ends}', $3::jsonb, true
+            ),
+            updated_at = now()
         WHERE id = $1 AND reconcile_dispatched_at = $2 AND status = 'reconciling'
         RETURNING id
         "#,
     )
     .bind(run_id)
     .bind(epoch.as_datetime())
-    .bind(Json(watch))
+    .bind(Json(ends))
+    .bind(i64::from(MARKER_WATCH_SCHEMA))
     .fetch_optional(pool)
     .await?;
-    fence(updated, run_id, CompletionOperation::PersistWatch)
+    fence(updated, run_id, CompletionOperation::PersistEnds)
 }
 
 /// OR-merge observed marker bits into every named cohort and advance the watcher positions, in one
@@ -438,7 +447,7 @@ pub async fn persist_marker_observations(
 }
 
 /// Mark one cohort's reconcile complete (64/64 markers). Idempotent via the `IS NULL` guard, and
-/// skipped for superseded participations — supersession (INV-2) trumps completion.
+/// skipped for superseded participations — supersession trumps completion.
 pub async fn mark_participation_completed(
     pool: &PgPool,
     run_id: RunId,
@@ -543,7 +552,7 @@ pub async fn record_participation_shortfall(
     resolve_fence(probe, run_id, CompletionOperation::RecordShortfall)
 }
 
-/// Stamp `reconcile_observed_at` — the seeder's last write per dispatch cycle (INV-1). Every
+/// Stamp `reconcile_observed_at` — the seeder's last write per dispatch cycle. Every
 /// participation outcome is written before this, so Django never sees an observed run with an
 /// undecided participation.
 pub async fn mark_run_observed(
@@ -567,11 +576,11 @@ pub async fn mark_run_observed(
 }
 
 /// Stamp `reconcile_observed_at` for a reconciling run that has nothing left to reconcile: every
-/// participation was superseded while it was seeding, so INV-1's "outcomes before observed" holds
+/// participation was superseded while it was seeding, so "outcomes before observed" holds
 /// vacuously and there is no dispatch to fence against. Without this the run would classify as
 /// `ReconcilingUndispatched` on every tick forever — Django's finalizer only discovers runs that
-/// carry `reconcile_observed_at`, and it terminalizes an all-superseded run as `superseded` (INV-5
-/// keeps that transition Django's). The `NOT EXISTS` guard is the fence: a run with an active
+/// carry `reconcile_observed_at`, and terminalizing an all-superseded run as `superseded` is
+/// Django's transition to make. The `NOT EXISTS` guard is the fence: a run with an active
 /// participation is never shortcut this way.
 pub async fn mark_run_observed_unreconcilable(
     pool: &PgPool,
@@ -599,7 +608,7 @@ pub async fn mark_run_observed_unreconcilable(
     )
 }
 
-/// One participation's observation state, seeding PR-C's per-run ledger and outcome fold.
+/// One participation's observation state, seeding the per-run ledger and outcome fold.
 #[derive(Debug, Clone)]
 pub struct ObservationParticipation {
     pub cohort_id: CohortId,
@@ -610,8 +619,8 @@ pub struct ObservationParticipation {
     pub stamped_at: Option<DateTime<Utc>>,
 }
 
-/// Load every participation's observation state for a run (superseded rows included, so the caller
-/// can honor INV-2).
+/// Load every participation's observation state for a run. Superseded rows are included so the
+/// caller can let supersession trump completion.
 pub async fn load_observation_participations(
     pool: &PgPool,
     run_id: RunId,
@@ -659,7 +668,7 @@ pub async fn load_observation_participations(
     Ok(participations)
 }
 
-/// The cohort's current behavioral shape, read from `posthog_cohort` for INV-1 hash attribution. An
+/// The cohort's current behavioral shape, read from `posthog_cohort` to attribute a shortfall. An
 /// absent row is treated as `Deleted`; a NULL or unparseable hash is `Indeterminate` (the caller
 /// treats it as diverged).
 #[derive(Debug, Clone, PartialEq, Eq)]
