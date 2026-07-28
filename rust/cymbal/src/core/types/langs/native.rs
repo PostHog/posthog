@@ -1103,8 +1103,9 @@ mod test {
     //                       core::hint::black_box inlined into charge
     //   libtest_android.so: debug_id c393685c-6edc-d276-cbd6-37e4c8b4e2aa,
     //                       preferred base 0, JNI entry at 0x4448,
-    //                       lookup(0x43d7) -> engine::inlined_leaf inlined
-    //                       into engine::process_frame (entry 0x43cc)
+    //                       lookup(0x43d8) -> engine::inlined_leaf (line 12)
+    //                       inlined into engine::process_frame (entry 0x43cc),
+    //                       lookup(0x4454) -> the JNI entry's call site (line 27)
 
     /// Non-PIE ELF: the binary links at a fixed base (0x1000000) and loads
     /// there unchanged, so image_addr equals the link-time base.
@@ -1417,17 +1418,16 @@ mod test {
         let base = 0x7a12_3450_0000u64;
         let debug_images = vec![debug_image_at(&chunk_id, base)];
 
-        // Crash leaf: 0x43d8 is inside inlined_leaf as inlined into
-        // engine::process_frame; the -1 adjustment lands on 0x43d7.
+        // Tombstone pcs are already the right lookup address — the leaf is
+        // the faulting instruction and libunwindstack rewinds caller pcs to
+        // the call instruction — so the SDK biases instruction_addr by +1 to
+        // cancel the uniform -1 return-address adjustment applied here. The
+        // addresses below model that wire value.
         //
-        // The -1 call-site adjustment applies to every frame, including the
-        // crash site, where the address is the faulting instruction rather
-        // than a return address. When the crash pc starts a line-table row —
-        // as here, where 0x43d8 is line 12 and 0x43d7 line 11 — the reported
-        // crash line shifts one row up. This is a known cross-SDK contract
-        // limitation (no frame field marks the leaf yet), pinned by the line
-        // assertions below.
-        let frame = RawFrame::Native(native_frame_at(base + 0x43d8, base));
+        // Crash leaf: faulting instruction 0x43d8, inside inlined_leaf as
+        // inlined into engine::process_frame; sent as 0x43d9, resolved at
+        // 0x43d8.
+        let frame = RawFrame::Native(native_frame_at(base + 0x43d9, base));
         let frames = frame.resolve(1, &catalog, &debug_images, 15).await.unwrap();
 
         assert_eq!(
@@ -1446,12 +1446,16 @@ mod test {
         );
         assert_eq!(frames[1].source.as_deref(), Some("test_android.cpp"));
         assert_eq!(frames[1].lang, "cpp");
-        // Line 11, not 12: the leaf-frame adjustment described above.
-        assert_eq!(frames[1].line, Some(11));
+        // The exact crash line — the +1 bias keeps the lookup on the
+        // faulting instruction instead of shifting one line-table row up.
+        assert_eq!(frames[1].line, Some(12));
 
-        // Caller: a return address inside the JNI entry point (extern "C",
-        // so the name survives undecorated).
-        let frame = RawFrame::Native(native_frame_at(base + 0x4458, base));
+        // Caller: the JNI entry point (extern "C", so the name survives
+        // undecorated). The unwinder already rewound the arm64 return
+        // address 0x4458 to the call instruction 0x4454; sent as 0x4455,
+        // resolved at 0x4454 — without the bias the -1 here would adjust it
+        // a second time, off the call's source line.
+        let frame = RawFrame::Native(native_frame_at(base + 0x4455, base));
         let resolved = frame
             .resolve(1, &catalog, &debug_images, 15)
             .await
@@ -1465,6 +1469,8 @@ mod test {
             Some("Java_com_example_app_MainActivity_nativeRender")
         );
         assert_eq!(resolved.lang, "cpp");
+        // The call's own line, not the row before it.
+        assert_eq!(resolved.line, Some(27));
     }
 
     /// Missing symbol set: the frame falls back to client-side enrichment and
