@@ -713,7 +713,7 @@ class TestDirectionGate:
 
     @parameterized.expand([("up", False), ("down", True), ("both", True)])
     def test_direction_reads_the_raw_value_not_the_differenced_one(self, direction: str, expected: bool) -> None:
-        # Still far below its baseline, but recovering — so the first-order diff the detector
+        # Still far below its baseline, but recovering, so the first-order diff the detector
         # scores is a large *positive* delta.
         recovering = np.array([100, 100, 100, 100, 100, 100, 100, 100, 20, 20, 60])
         config = {"type": "zscore", "threshold": 0.5, "window": 10, "preprocessing": {"diffs_n": 1}}

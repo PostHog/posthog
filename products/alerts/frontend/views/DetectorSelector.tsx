@@ -217,7 +217,7 @@ function getDirection(config: DetectorConfig | null): AnomalyDirection {
     return config.direction ?? AnomalyDirection.BOTH
 }
 
-/** Keep the chosen direction when swapping detector types — it's a separate decision from the algorithm. */
+/** Keep the chosen direction when swapping detector types, since it's a separate decision from the algorithm. */
 function withCarriedDirection(config: DetectorConfig, direction: AnomalyDirection): DetectorConfig {
     if (direction === AnomalyDirection.BOTH || !supportsDirection(config.type)) {
         return config
@@ -450,7 +450,7 @@ function SingleDetectorConfigSection({
     config: SingleDetectorConfig
     onChange: (config: SingleDetectorConfig) => void
     calculationInterval?: AlertCalculationInterval
-    /** Off for ensemble sub-detectors — the ensemble gates the combined result instead. */
+    /** Off for ensemble sub-detectors, because the ensemble gates the combined result instead. */
     showDirection?: boolean
 }): JSX.Element {
     return (
