@@ -2,6 +2,7 @@ import { urls } from 'scenes/urls'
 
 import { Node, SavedInsightNode } from '~/queries/schema/schema-general'
 import { isDataVisualizationNode, isHogQLQuery, isSavedInsightNode } from '~/queries/utils'
+import { InsightShortId } from '~/types'
 
 export interface ChartOpenTarget {
     url: string
@@ -55,7 +56,14 @@ export function chartOpenTarget(query: Node): ChartOpenTarget | null {
         // or a coerced `/insights/123` on the one chart whose body is already telling the reader the
         // insight can't be loaded. Same bar the renderer mounts on, so the two agree.
         const { shortId } = query as SavedInsightNode
-        return typeof shortId === 'string' && shortId ? { url: urls.insightView(shortId), label: 'Open insight' } : null
+        if (typeof shortId !== 'string' || !shortId) {
+            return null
+        }
+        // Encoded as a path segment: `urls.insightView` interpolates straight into `/insights/${id}`,
+        // and every other caller hands it a short id the API produced. This one is caller-authored, so
+        // a value like `../../settings` would resolve to an unrelated scene — a link the reader has no
+        // reason to distrust, on a chart whose body already says the insight is missing.
+        return { url: urls.insightView(encodeURIComponent(shortId) as InsightShortId), label: 'Open insight' }
     }
     // Both forms carry the whole node in the query string, and the control opens a new tab, so the
     // URL goes out as a real request line. A chart near the 20,000-character query bound encodes to

@@ -99,8 +99,10 @@ export function resolveChartPlacements(
 
     const isChartRef = (node: any): boolean =>
         (node?.type === 'link' || node?.type === 'linkReference') && CHART_REF_TARGET.test(destinationOf(node))
+    // `break` is a CommonMark hard break, which the renderer draws as a `<br>` and counts as blank
+    // for the same rule. Two references separated by one are still a chart-only paragraph.
     const isBlank = (node: any): boolean =>
-        node?.type === 'text' && typeof node.value === 'string' && node.value.trim() === ''
+        node?.type === 'break' || (node?.type === 'text' && typeof node.value === 'string' && node.value.trim() === '')
 
     // A reference also has to be all its paragraph holds. `LemonMarkdown` gives up the `<p>`
     // for those and nothing else, because a paragraph that also carries prose still needs it: the

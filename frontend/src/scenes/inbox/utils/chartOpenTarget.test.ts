@@ -34,6 +34,14 @@ describe('chartOpenTarget', () => {
         expect(chartOpenTarget(query as Node)).toBeNull()
     })
 
+    it('keeps a caller-authored short id inside its path segment', () => {
+        // Stored unparsed, so the short id is whatever was written. Interpolated raw, this one walks
+        // out of `/insights/` and offers the reader a trustworthy-looking link to an unrelated scene.
+        const traversing = { kind: NodeKind.SavedInsightNode, shortId: '../../settings' } as unknown as Node
+
+        expect(chartOpenTarget(traversing)?.url).toBe('/insights/..%2F..%2Fsettings')
+    })
+
     it.each([
         ['a trends chart', trendsChart, 'Open as new insight'],
         ['a SQL chart', sqlChart, 'Open in SQL editor'],

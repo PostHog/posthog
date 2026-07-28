@@ -67,6 +67,13 @@ describe('resolveChartPlacements', () => {
         expect(placedIn(summary)).toEqual(['signups-drop'])
     })
 
+    it('places two references a hard break separates', () => {
+        // A hard break renders as `<br>`, which `LemonMarkdown` counts as blank when it decides a
+        // paragraph holds nothing but references. Miss it here and the two disagree: the renderer
+        // would give up the `<p>` for a row while this sends both charts to the end of the report.
+        expect(placedIn('[Daily signups](chart:signups-drop)  \n[Retention](chart:ret_7d)')).toEqual(CHARTS)
+    })
+
     it('places only the first reference to an id', () => {
         // Every extra copy re-runs the chart's query, and pointing back at a chart is what a repeated
         // reference reads as — not a request for a second one.
