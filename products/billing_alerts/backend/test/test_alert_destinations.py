@@ -30,6 +30,16 @@ class TestBillingAlertDestinations(APIBaseTest):
             threshold_percentage=Decimal("50"),
         )
 
+    def _alert_payload(self, **overrides) -> dict:
+        payload = {
+            "name": "Daily spend spike",
+            "threshold_type": "relative_increase",
+            "threshold_percentage": "50",
+            "check_interval_hours": 24,
+        }
+        payload.update(overrides)
+        return payload
+
     def _destination(self, alert: BillingAlertConfiguration, event_id: str) -> HogFunction:
         return HogFunction.objects.create(
             team_id=alert.execution_team_id,
@@ -101,6 +111,67 @@ class TestBillingAlertDestinations(APIBaseTest):
         assert alert_response.json()["destinations"] == [
             {"type": "webhook", "hog_function_ids": sorted(hog_function_ids)}
         ]
+
+    def test_configuration_and_destination_changes_commit_atomically(self) -> None:
+        self._sync_webhook_template()
+
+        response = self.client.post(
+            self.url,
+            self._alert_payload(
+                destination_changes={
+                    "create": [{"type": "webhook", "webhook_url": "https://example.com/billing-alert"}]
+                }
+            ),
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        alert = BillingAlertConfiguration.objects.get(id=response.json()["id"])
+        assert HogFunction.objects.filter(
+            team_id=alert.execution_team_id,
+            deleted=False,
+            filters__properties__contains=[{"key": "alert_id", "value": str(alert.id)}],
+        ).count() == len(BILLING_ALERT_EVENT_IDS)
+
+    def test_destination_only_change_does_not_bump_configuration_revision(self) -> None:
+        self._sync_webhook_template()
+        alert = self._alert()
+
+        response = self.client.patch(
+            f"{self.url}{alert.id}/",
+            {
+                "name": alert.name,
+                "destination_changes": {
+                    "create": [{"type": "webhook", "webhook_url": "https://example.com/billing-alert"}]
+                },
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        alert.refresh_from_db()
+        assert alert.configuration_revision == 1
+
+    def test_destination_failure_rolls_back_configuration_write(self) -> None:
+        self._sync_webhook_template()
+
+        response = self.client.post(
+            self.url,
+            self._alert_payload(
+                name="Atomic rollback",
+                destination_changes={
+                    "create": [
+                        {"type": "webhook", "webhook_url": "https://example.com/first"},
+                        {"type": "webhook", "webhook_url": "https://example.com/second"},
+                    ]
+                },
+            ),
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert BillingAlertConfiguration.objects.filter(name="Atomic rollback").exists() is False
+        assert HogFunction.objects.filter(name__contains="Atomic rollback").exists() is False
 
     def test_create_destination_rejects_duplicate_type(self) -> None:
         self._sync_webhook_template()

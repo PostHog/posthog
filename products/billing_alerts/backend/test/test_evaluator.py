@@ -26,7 +26,7 @@ def evaluate_and_record_billing_alert(*args, **kwargs) -> BillingAlertEvent:
         ),
         patch(
             "products.billing_alerts.backend.logic.notifications._destination_ids",
-            return_value=["00000000-0000-0000-0000-000000000001"],
+            return_value=(["00000000-0000-0000-0000-000000000001"], True),
         ),
     ):
         event, _ = evaluate_and_dispatch_billing_alert(*args, **kwargs)
@@ -142,7 +142,7 @@ class TestBillingAlertEvaluator(BaseTest):
 
         assert event.kind == BillingAlertEvent.Kind.ERRORED
         assert event.error_code == "BillingAlertEvaluationError"
-        assert "Invalid billing value" in (event.error_message or "")
+        assert event.error_message == "Billing alert evaluation failed."
         assert alert.state == BillingAlertConfiguration.State.NOT_FIRING
         assert alert.consecutive_failures == 1
 
@@ -162,7 +162,7 @@ class TestBillingAlertEvaluator(BaseTest):
 
         assert event.kind == BillingAlertEvent.Kind.ERRORED
         assert event.error_code == "BillingAlertEvaluationError"
-        assert "authentication_failed" in (event.error_message or "")
+        assert event.error_message == "Billing alert evaluation failed."
         assert event.notification_sent_at == NOW
         assert alert.state == BillingAlertConfiguration.State.NOT_FIRING
 
@@ -237,8 +237,8 @@ class TestBillingAlertEvaluator(BaseTest):
         assert repeated.id == firing.id
         assert (
             BillingAlertEvent.objects.filter(
-                alert=alert,
-                evaluation_date=firing.evaluation_date,
+                claim__alert=alert,
+                claim__evaluation_date=firing.evaluation_date,
             ).count()
             == 1
         )
@@ -262,9 +262,9 @@ class TestBillingAlertEvaluator(BaseTest):
         assert second_check.id == first_check.id
         assert (
             BillingAlertEvent.objects.filter(
-                alert=alert,
+                claim__alert=alert,
                 kind=BillingAlertEvent.Kind.CHECK,
-                evaluation_date=first_check.evaluation_date,
+                claim__evaluation_date=first_check.evaluation_date,
             ).count()
             == 1
         )
@@ -323,7 +323,9 @@ class TestBillingAlertEvaluator(BaseTest):
         assert repeated.state_after == BillingAlertConfiguration.State.FIRING
         assert (
             BillingAlertEvent.objects.filter(
-                alert_id=alert.pk, kind=BillingAlertEvent.Kind.FIRING, evaluation_date=firing.evaluation_date
+                claim__alert_id=alert.pk,
+                kind=BillingAlertEvent.Kind.FIRING,
+                claim__evaluation_date=firing.evaluation_date,
             ).count()
             == 1
         )

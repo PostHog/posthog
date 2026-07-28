@@ -121,13 +121,19 @@ def test_clear_check_resolves_and_ends_snooze() -> None:
     assert alert.snooze_until is None
 
 
-def test_next_check_uses_hourly_shard_and_canonical_grid() -> None:
+def test_next_daily_check_waits_for_the_data_delay_boundary() -> None:
     alert = BillingAlertConfiguration(
         id=UUID(int=3),
         check_interval_hours=24,
-        next_check_at=datetime(2026, 6, 22, 4, 17, tzinfo=UTC),
+        evaluation_delay_hours=6,
     )
 
     next_check_at = next_billing_alert_check_at(alert, NOW)
 
-    assert next_check_at == datetime(2026, 6, 24, 3, 0, tzinfo=UTC)
+    assert next_check_at == datetime(2026, 6, 24, 9, 0, tzinfo=UTC)
+
+
+def test_next_daily_check_uses_today_after_the_data_delay_boundary_when_due() -> None:
+    alert = BillingAlertConfiguration(id=UUID(int=3), check_interval_hours=24, evaluation_delay_hours=18)
+
+    assert next_billing_alert_check_at(alert, NOW) == datetime(2026, 6, 23, 21, 0, tzinfo=UTC)

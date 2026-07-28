@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from django.db import transaction
 from django.utils import timezone
@@ -12,13 +14,14 @@ import structlog
 
 from posthog.exceptions_capture import capture_exception
 
-from products.alerts.backend.scheduling import advance_next_check_at, compute_shard_offset_seconds
+from products.alerts.backend.scheduling import compute_shard_offset_seconds
 from products.billing_alerts.backend.logic.evaluator import (
     BillingAlertEvaluation,
     evaluate_billing_alert,
     expected_evaluation_date,
 )
 from products.billing_alerts.backend.models import (
+    DAILY_CHECK_INTERVAL_HOURS,
     BillingAlertConfiguration,
     BillingAlertEvaluationClaim,
     BillingAlertEvent,
@@ -66,6 +69,7 @@ __all__ = [
     "BillingAlertAlreadyEvaluated",
     "BillingAlertCheck",
     "BillingAlertEvaluationInProgress",
+    "BillingAlertConfigurationChanged",
     "MAX_CONSECUTIVE_FAILURES",
     "AlertCheckOutcome",
     "AlertState",
@@ -78,6 +82,7 @@ __all__ = [
     "apply_threshold_change",
     "apply_unsnooze",
     "billing_alert_snapshot",
+    "billing_alert_dispatch_guard",
     "claim_billing_alert_evaluation",
     "commit_billing_alert_check",
     "evaluate_alert_check",
@@ -89,6 +94,10 @@ __all__ = [
 
 
 class BillingAlertEvaluationInProgress(Exception):
+    pass
+
+
+class BillingAlertConfigurationChanged(Exception):
     pass
 
 
@@ -168,18 +177,19 @@ def apply_outcome(alert: BillingAlertConfiguration, outcome: Outcome) -> list[st
 
 
 def next_billing_alert_check_at(alert: BillingAlertConfiguration, now: datetime) -> datetime:
-    check_interval_minutes = alert.check_interval_hours * 60
+    if alert.check_interval_hours != DAILY_CHECK_INTERVAL_HOURS:
+        raise ValueError("Billing alerts support daily checks only.")
+    utc_now = now.astimezone(UTC)
+    boundary_hour = alert.evaluation_delay_hours % 24
     shard_offset_seconds = compute_shard_offset_seconds(
         alert.id,
-        check_interval_minutes,
+        DAILY_CHECK_INTERVAL_HOURS * 60,
         schedule_interval_seconds=BILLING_ALERT_SCHEDULE_INTERVAL_SECONDS,
     )
-    return advance_next_check_at(
-        None,
-        check_interval_minutes,
-        now,
-        shard_offset_seconds=shard_offset_seconds,
+    next_at = utc_now.replace(hour=boundary_hour, minute=0, second=0, microsecond=0) + timedelta(
+        seconds=shard_offset_seconds
     )
+    return next_at + timedelta(days=1) if next_at <= utc_now else next_at
 
 
 def _event_kind(outcome: AlertCheckOutcome) -> str:
@@ -193,6 +203,8 @@ def _event_kind(outcome: AlertCheckOutcome) -> str:
 
 
 def _sync_alert(target: BillingAlertConfiguration, source: BillingAlertConfiguration) -> None:
+    target.name = source.name
+    target.description = source.description
     target.team_id = source.team_id
     target.enabled = source.enabled
     target.state = source.state
@@ -204,6 +216,16 @@ def _sync_alert(target: BillingAlertConfiguration, source: BillingAlertConfigura
     target.last_notified_at = source.last_notified_at
     target.consecutive_failures = source.consecutive_failures
     target.configuration_revision = source.configuration_revision
+    target.metric = source.metric
+    target.currency = source.currency
+    target.threshold_type = source.threshold_type
+    target.threshold_percentage = source.threshold_percentage
+    target.threshold_value = source.threshold_value
+    target.minimum_value = source.minimum_value
+    target.baseline_window_days = source.baseline_window_days
+    target.evaluation_delay_hours = source.evaluation_delay_hours
+    target.check_interval_hours = source.check_interval_hours
+    target.cooldown_hours = source.cooldown_hours
     target.updated_at = source.updated_at
 
 
@@ -220,19 +242,20 @@ def claim_billing_alert_evaluation(
         )
         if locked_alert.team_id is None:
             raise ValueError("Billing alert does not have an execution team.")
+        if locked_alert.configuration_revision != alert.configuration_revision:
+            _sync_alert(alert, locked_alert)
+            raise BillingAlertConfigurationChanged("Billing alert configuration changed before evaluation began.")
 
         evaluation_date = locked_alert.pending_evaluation_date or expected_evaluation_date(locked_alert, now)
         try:
             claim = BillingAlertEvaluationClaim.objects.select_for_update().get(
                 alert=locked_alert,
-                organization_id=locked_alert.organization_id,
                 evaluation_date=evaluation_date,
                 configuration_revision=locked_alert.configuration_revision,
             )
         except BillingAlertEvaluationClaim.DoesNotExist:
             claim = BillingAlertEvaluationClaim.objects.create(
                 alert=locked_alert,
-                organization_id=locked_alert.organization_id,
                 evaluation_date=evaluation_date,
                 configuration_revision=locked_alert.configuration_revision,
             )
@@ -280,14 +303,11 @@ def _new_event(
     if alert.team_id is None:
         raise ValueError("Billing alert does not have an execution team.")
     return BillingAlertEvent(
-        alert=alert,
         claim=claim,
-        organization_id=alert.organization_id,
         team_id=alert.team_id,
         kind=kind,
         source=source,
         attempt_number=claim.attempt_count,
-        evaluation_date=claim.evaluation_date,
         metric=alert.metric,
         state_before=alert.state,
         state_after=state_after,
@@ -308,7 +328,7 @@ def _prepare_billing_alert_failure(
     snapshot = billing_alert_snapshot(alert)
     outcome = evaluate_alert_failure(
         snapshot,
-        error_message=str(error),
+        error_message=reason,
         is_transient_error=is_transient_error,
     )
     event = _new_event(
@@ -321,7 +341,7 @@ def _prepare_billing_alert_failure(
     event.threshold_breached = False
     event.query_duration_ms = query_duration_ms
     event.error_code = error.__class__.__name__
-    event.error_message = str(error)
+    event.error_message = reason
     event.is_transient_error = is_transient_error
     event.reason = reason
     event.payload = {}
@@ -448,6 +468,34 @@ def _persist_event(event: BillingAlertEvent) -> BillingAlertEvent:
     return event
 
 
+def _validate_claim(
+    check: BillingAlertCheck, alert: BillingAlertConfiguration, claim: BillingAlertEvaluationClaim
+) -> None:
+    if alert.configuration_revision != claim.configuration_revision:
+        raise BillingAlertConfigurationChanged("Billing alert configuration changed during evaluation.")
+    if (
+        claim.status != BillingAlertEvaluationClaim.Status.EVALUATING
+        or claim.attempt_count != check.event.attempt_number
+    ):
+        raise BillingAlertEvaluationInProgress("A newer billing alert evaluation owns this claim.")
+
+
+@contextmanager
+def billing_alert_dispatch_guard(check: BillingAlertCheck) -> Iterator[None]:
+    """Fence notification delivery with the same locks used by configuration and claim updates."""
+    with transaction.atomic():
+        locked_alert = BillingAlertConfiguration.objects.select_for_update().get(
+            pk=check.alert.pk,
+            organization_id=check.alert.organization_id,
+        )
+        claim = BillingAlertEvaluationClaim.objects.select_for_update().get(
+            pk=check.claim.pk,
+            alert_id=check.alert.pk,
+        )
+        _validate_claim(check, locked_alert, claim)
+        yield
+
+
 def commit_billing_alert_check(
     check: BillingAlertCheck,
     *,
@@ -478,25 +526,12 @@ def commit_billing_alert_check(
         )
         claim = BillingAlertEvaluationClaim.objects.select_for_update().get(
             pk=check.claim.pk,
-            organization_id=check.alert.organization_id,
+            alert_id=check.alert.pk,
         )
+        _validate_claim(check, locked_alert, claim)
         event = check.event
-        event.alert = locked_alert
         event.claim = claim
         event.team_id = locked_alert.team_id or event.team_id
-
-        if locked_alert.configuration_revision != claim.configuration_revision:
-            event.state_after = locked_alert.state
-            if notification_requested and notification_delivered:
-                event.notification_sent_at = check.now
-                event.targets_notified = {"hog_functions": destination_ids or []}
-            persisted_event = _persist_event(event)
-            claim.status = BillingAlertEvaluationClaim.Status.SUPERSEDED
-            claim.lease_expires_at = None
-            claim.next_retry_at = None
-            claim.save(update_fields=["status", "lease_expires_at", "next_retry_at", "updated_at"])
-            _sync_alert(check.alert, locked_alert)
-            return persisted_event
 
         event.state_after = committed_outcome.new_state.value
         if notification_requested and notification_delivered:

@@ -194,6 +194,21 @@ class TestBillingAlertAPI(APIBaseTest):
         assert alert.threshold_percentage == Decimal("75.00")
         assert alert.state == BillingAlertConfiguration.State.NOT_FIRING
         assert alert.consecutive_failures == 0
+        assert alert.configuration_revision == 2
+        assert response.json()["configuration_revision"] == 2
+
+    def test_copy_only_edit_does_not_bump_configuration_revision(self) -> None:
+        alert = self._alert()
+
+        response = self.client.patch(
+            f"{self.url}{alert.id}/",
+            {"name": "Renamed alert", "description": "Updated copy"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        alert.refresh_from_db()
+        assert alert.configuration_revision == 1
 
     def test_evaluation_rule_edits_reset_firing_state_and_failures(self) -> None:
         updates = [
@@ -350,9 +365,9 @@ class TestBillingAlertAPI(APIBaseTest):
         unsupported_interval = self.client.post(self.url, self._payload(check_interval_hours=5), format="json")
 
         assert negative_minimum.status_code == status.HTTP_400_BAD_REQUEST
-        assert "minimum_value" in negative_minimum.json()
+        assert negative_minimum.json()["attr"] == "minimum_value"
         assert unsupported_interval.status_code == status.HTTP_400_BAD_REQUEST
-        assert "check_interval_hours" in unsupported_interval.json()
+        assert unsupported_interval.json()["attr"] == "check_interval_hours"
 
     def test_check_now_uses_shared_organization_object_permissions(self) -> None:
         alert = BillingAlertConfiguration.objects.create(
@@ -365,15 +380,12 @@ class TestBillingAlertAPI(APIBaseTest):
         )
         claim = BillingAlertEvaluationClaim.objects.create(
             alert=alert,
-            organization_id=alert.organization_id,
             evaluation_date=timezone.now().date(),
             configuration_revision=alert.configuration_revision,
             attempt_count=1,
         )
         event = BillingAlertEvent.objects.create(
-            alert=alert,
             claim=claim,
-            organization_id=alert.organization_id,
             team_id=alert.execution_team_id,
             kind=BillingAlertEvent.Kind.CHECK,
             source=BillingAlertEvent.Source.MANUAL,

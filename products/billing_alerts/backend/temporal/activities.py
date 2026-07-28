@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from django.db.models import F, Q, QuerySet
@@ -14,11 +14,10 @@ from posthog.models import Organization
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 
-from products.billing_alerts.backend.logic.evaluator import fetch_billing_data
+from products.billing_alerts.backend.logic.evaluator import expected_evaluation_date, fetch_billing_data
 from products.billing_alerts.backend.logic.notifications import (
     PendingBillingAlertDispatch,
-    commit_pending_billing_alert_dispatch,
-    flush_pending_billing_alert_dispatches,
+    commit_pending_billing_alert_dispatches,
     prepare_billing_alert_dispatch,
 )
 from products.billing_alerts.backend.logic.state_machine import (
@@ -44,11 +43,12 @@ def due_billing_alerts_q(now: datetime) -> QuerySet[BillingAlertConfiguration]:
     )
 
 
-def _group_key(alert: BillingAlertConfiguration) -> tuple[Any, ...]:
+def _group_key(alert: BillingAlertConfiguration, now: datetime) -> tuple[Any, ...]:
     return (
         str(alert.organization_id),
         alert.baseline_window_days,
         alert.evaluation_delay_hours,
+        expected_evaluation_date(alert, now),
     )
 
 
@@ -120,7 +120,7 @@ def _evaluate_billing_alerts(
     alerts = list(due_billing_alerts_q(now).filter(id__in=inputs.alert_ids).order_by("organization_id", "metric", "id"))
     grouped: dict[tuple[Any, ...], list[BillingAlertConfiguration]] = defaultdict(list)
     for alert in alerts:
-        grouped[_group_key(alert)].append(alert)
+        grouped[_group_key(alert, now)].append(alert)
 
     pending_dispatches: list[PendingBillingAlertDispatch] = []
     for alert_group in grouped.values():
@@ -175,9 +175,7 @@ def _evaluate_billing_alerts(
                 logger.exception("Billing alert evaluation preparation failed", alert_id=str(alert.id))
                 raise
 
-    flush_pending_billing_alert_dispatches(pending_dispatches)
-    for dispatch in pending_dispatches:
-        commit_pending_billing_alert_dispatch(dispatch)
+    commit_pending_billing_alert_dispatches(pending_dispatches)
 
 
 @temporalio.activity.defn
@@ -188,16 +186,19 @@ async def discover_due_billing_alerts_activity() -> list[BillingAlertInfo]:
         alerts = (
             due_billing_alerts_q(now)
             .order_by(F("next_check_at").asc(nulls_first=True))
-            .values_list("id", "organization_id", "baseline_window_days", "evaluation_delay_hours")[
-                :MAX_DUE_BILLING_ALERTS_PER_TICK
-            ]
+            .values_list(
+                "id", "organization_id", "baseline_window_days", "evaluation_delay_hours", "pending_evaluation_date"
+            )[:MAX_DUE_BILLING_ALERTS_PER_TICK]
         )
         return [
             BillingAlertInfo(
                 alert_id=str(alert_id),
-                query_key=f"{organization_id}:{baseline_window_days}:{evaluation_delay_hours}",
+                query_key=(
+                    f"{organization_id}:{baseline_window_days}:{evaluation_delay_hours}:"
+                    f"{pending_evaluation_date or (now - timedelta(hours=evaluation_delay_hours)).date() - timedelta(days=1)}"
+                ),
             )
-            for alert_id, organization_id, baseline_window_days, evaluation_delay_hours in alerts
+            for alert_id, organization_id, baseline_window_days, evaluation_delay_hours, pending_evaluation_date in alerts
         ]
 
     async with Heartbeater():

@@ -37,6 +37,11 @@ class BillingAlertEvaluationError(Exception):
     pass
 
 
+def _validate_supported_metric(alert: BillingAlertConfiguration) -> None:
+    if alert.metric != BillingAlertConfiguration.Metric.SPEND or alert.currency != "USD":
+        raise BillingAlertEvaluationError("Billing alerts currently support USD spend only.")
+
+
 def _decimal(value: Any, *, date_value: Any, series_id: Any) -> Decimal:
     try:
         parsed = Decimal(str(value))
@@ -94,6 +99,7 @@ def billing_params(
     organization: Organization,
     now: datetime | None = None,
 ) -> dict[str, Any]:
+    _validate_supported_metric(alert)
     evaluation_date = expected_evaluation_date(alert, now)
     evaluation_start = evaluation_date - timedelta(days=alert.baseline_window_days)
     params: dict[str, Any] = {
@@ -131,6 +137,7 @@ def evaluate_billing_alert(
     billing_response: dict[str, Any] | None = None,
     query_duration_ms: int | None = None,
 ) -> BillingAlertEvaluation:
+    _validate_supported_metric(alert)
     now = now or timezone.now()
     expected_date = expected_evaluation_date(alert, now)
     period_start = datetime.combine(expected_date, datetime.min.time(), tzinfo=UTC)

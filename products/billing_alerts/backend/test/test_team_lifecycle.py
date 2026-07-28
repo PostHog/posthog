@@ -5,7 +5,9 @@ from unittest.mock import patch
 
 from posthog.models.team.team import Team
 
-from products.alerts.backend.destinations import soft_delete_all_alert_destinations as shared_soft_delete_destinations
+from products.alerts.backend.destinations import (
+    soft_delete_alert_destinations_for_alerts as shared_soft_delete_destinations,
+)
 from products.billing_alerts.backend.alert_destinations import BILLING_ALERT_EVENT_IDS, EVENT_KIND_CONFIG
 from products.billing_alerts.backend.models import (
     BillingAlertConfiguration,
@@ -31,15 +33,12 @@ class TestBillingAlertTeamLifecycle(BaseTest):
         )
         claim = BillingAlertEvaluationClaim.objects.create(
             alert=alert,
-            organization_id=alert.organization_id,
             evaluation_date=alert.created_at.date(),
             configuration_revision=alert.configuration_revision,
             attempt_count=1,
         )
         event = BillingAlertEvent.objects.create(
-            alert=alert,
             claim=claim,
-            organization_id=alert.organization_id,
             team_id=self.team.id,
             kind=BillingAlertEvent.Kind.FIRING,
             source=BillingAlertEvent.Source.SCHEDULED,
@@ -70,7 +69,7 @@ class TestBillingAlertTeamLifecycle(BaseTest):
         )
 
         with patch(
-            "products.billing_alerts.backend.team_lifecycle.soft_delete_all_alert_destinations",
+            "products.billing_alerts.backend.team_lifecycle.soft_delete_alert_destinations_for_alerts",
             wraps=shared_soft_delete_destinations,
         ) as soft_delete_destinations:
             self.team.delete()
@@ -83,7 +82,7 @@ class TestBillingAlertTeamLifecycle(BaseTest):
         assert event.alert_id == alert.id
         soft_delete_destinations.assert_called_once_with(
             team_id=original_team_id,
-            alert_id=str(alert.id),
+            alert_ids=[str(alert.id)],
             allowed_event_ids=BILLING_ALERT_EVENT_IDS,
         )
         assert HogFunction.objects.filter(id=destination.id).exists() is False
