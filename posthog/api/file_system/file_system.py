@@ -98,6 +98,13 @@ def validate_file_system_path(path: Any) -> str:
     return path
 
 
+def meta_dict(row: Any) -> dict[str, Any]:
+    """Read a row's `meta` as a dict. Rows written before `meta` was validated can hold any JSON
+    value, and one of those must not take down a request that only wants a key out of it."""
+    meta = getattr(row, "meta", None)
+    return meta if isinstance(meta, dict) else {}
+
+
 class FileSystemSerializer(FileSystemAccessLevelSerializerMixin, serializers.ModelSerializer):
     last_viewed_at = serializers.DateTimeField(read_only=True, allow_null=True)
 
@@ -133,8 +140,8 @@ class FileSystemSerializer(FileSystemAccessLevelSerializerMixin, serializers.Mod
         # includes the row, not just the writer's own request.
         if not isinstance(meta, dict):
             raise serializers.ValidationError("Meta must be an object.")
-        if len(json.dumps(meta, default=str)) > MAX_META_BYTES:
-            raise serializers.ValidationError(f"Meta must be smaller than {MAX_META_BYTES // 1_000_000} MB.")
+        if len(json.dumps(meta, default=str).encode()) > MAX_META_BYTES:
+            raise serializers.ValidationError(f"Meta must be smaller than {MAX_META_BYTES / 1_000_000:g} MB.")
         return meta
 
     def update(self, instance: FileSystem, validated_data: dict[str, Any]) -> FileSystem:
@@ -202,6 +209,10 @@ class UndoDeleteItemSerializer(serializers.Serializer):
     type = serializers.CharField()
     ref = serializers.CharField()
     path = serializers.CharField(required=False, allow_blank=True)
+
+    def validate_path(self, value: str) -> str:
+        # Restoring re-creates parent folders through the same per-segment loop as create/move/link.
+        return validate_file_system_path(value)
 
 
 class UndoDeleteRequestSerializer(serializers.Serializer):
@@ -1219,7 +1230,7 @@ class DesktopFileSystemViewSet(FileSystemViewSet):
         # same stale snapshot and the second write would drop the first).
         with transaction.atomic():
             dashboard = FileSystem.objects.select_for_update().get(pk=dashboard.pk)
-            meta = dict(dashboard.meta or {})
+            meta = dict(meta_dict(dashboard))
             current_version_id = meta.get("currentVersionId")
 
             if has_expected_version and current_version_id != expected_version_id:
@@ -1326,7 +1337,7 @@ class DesktopFileSystemViewSet(FileSystemViewSet):
         the row's meta by the desktop app at create time; fall back to the parent folder
         row for rows that predate the stamp.
         """
-        channel_id = (dashboard.meta or {}).get("channelId")
+        channel_id = meta_dict(dashboard).get("channelId")
         if not channel_id:
             parent_path = join_path(split_path(dashboard.path)[:-1])
             folder = (

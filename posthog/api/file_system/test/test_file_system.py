@@ -22,6 +22,7 @@ from posthog.api.file_system.file_system import (
     MAX_PATH_LENGTH,
     MAX_PATH_SEGMENTS,
     FileSystemSerializer,
+    UndoDeleteItemSerializer,
 )
 from posthog.models import OrganizationMembership, Project, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -2171,6 +2172,16 @@ class TestFileSystemInputValidationAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
         self.assertEqual(FileSystem.objects.filter(team=self.team).count(), 1)
+
+    @parameterized.expand([("too_many_segments", "s/" * (MAX_PATH_SEGMENTS + 1)), ("too_long", "x" * 4001)])
+    def test_undo_delete_rejects_an_unbounded_restore_path(self, _name: str, path: str):
+        # undo_delete re-creates parent folders through the same per-segment loop as create/move,
+        # so its restore path needs the same bound. Asserted on the serializer rather than the
+        # endpoint because an unresolvable ref would 400 on its own and mask the bound.
+        serializer = UndoDeleteItemSerializer(data={"type": "doc", "ref": "1", "path": path})
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("path", serializer.errors)
 
     @parameterized.expand([("null", None), ("list", ["poison"]), ("string", "poison")])
     def test_list_survives_a_row_with_non_object_meta(self, _name: str, meta: Any):
