@@ -65,7 +65,8 @@ for xml_file in sorted(tmpdir.rglob('junit.xml')):
         name = suite.get('name', '')
         time_s = float(suite.get('time', 0))
 
-        # Paths are relative from common/storybook/, e.g. ../../frontend/src/...
+        # CI normalizes these to repo-relative; strip any residual ../ so older artifacts
+        # and local runs (relative from common/storybook/) still parse.
         filepath = re.sub(r'^(\.\./)+', '', name)
         if not filepath.endswith('.stories.tsx'):
             continue

@@ -375,7 +375,13 @@ jobs:
         env:
             NODE_OPTIONS: --max-old-space-size=16384
             OPT_OUT_CAPTURE: 1
+            # Trunk attributes flakes by test file; jest-junit's default suite name is the
+            # top-level describe (the story's title), which collides across files. Anchor
+            # identity to the file, and add the file attribute Trunk reads to build the
+            # nodeid — without it every storybook case is fileless and a flaky story can
+            # only be reported as "a shard failed".
             JEST_JUNIT_SUITE_NAME: '{filepath}'
+            JEST_JUNIT_ADD_FILE_ATTRIBUTE: 'true'
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -527,14 +533,33 @@ jobs:
                     --baseline frontend/snapshots.yml \
                     --token "$VR_TOKEN"
 
+            # jest-junit builds paths relative to the working directory, which pnpm --filter sets
+            # to common/storybook, so every story arrives as ../../frontend/src/... Strip the
+            # prefix: Trunk keys a test on its file, and the frontend jest suite reports the same
+            # files repo-relative from the workspace root.
+            - name: Normalize JUnit story paths
+              if: always()
+              shell: bash
+              run: |
+                  if [ -f common/storybook/junit.xml ]; then
+                      sed -i -E 's/ (name|file)="(\.\.\/)+/ \1="/g' common/storybook/junit.xml
+                  fi
+
             - name: Upload test results
               if: always()
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
-                  name: junit-results-storybook-${{ matrix.browser }}-${{ matrix.shard }}
+                  # Re-run attempts suffix the name: a same-name upload supersedes attempt 1's
+                  # artifact, and pairing a re-run recovery (attempt-N pass) with the attempt-1
+                  # failure it proves flaky needs both. Shard failures here are story execution
+                  # errors that already lost three in-process retries, so the attempt-1 XML is
+                  # the only record naming which story broke.
+                  name: junit-results-storybook-${{ matrix.browser }}-${{ matrix.shard }}${{ github.run_attempt != '1' && format('-attempt{0}', github.run_attempt) || '' }}
                   path: common/storybook/junit.xml
                   if-no-files-found: ignore
-                  retention-days: 1
+                  # A week outlives the rerun-and-shrug cycle, so an investigation started days
+                  # after the fact can still read which story failed.
+                  retention-days: 7
 
     # Verify changed story files are stable by re-running them multiple times.
     # Catches flaky snapshots before they land on master.
@@ -997,21 +1022,28 @@ jobs:
     trunk-upload:
         name: Upload test results to Trunk
         # visual-regression shards already emit and upload junit-results-storybook-* artifacts;
-        # this feeds them to Trunk (flaky-test detection) once. Trusted non-pull_request events
-        # only (master push), so the secret token never runs in a PR-controlled context; the
-        # uploader is a pinned external action, not a local one.
+        # this feeds them to Trunk (flaky-test detection) once. Internal PRs and master push:
+        # fork PRs have no secret, and almost every shard flake shows up on a PR, so gating this
+        # to master push alone left Trunk with no storybook history to attribute them to. The job
+        # runs no repository code — download-artifact plus a pinned external uploader — so the
+        # token is never exposed to PR-authored story code the way an in-shard upload would be.
         needs: [visual-regression]
         runs-on: ubuntu-latest
         continue-on-error: true
         timeout-minutes: 10
-        # Avoid spinning a runner when visual-regression was skipped, while still
-        # uploading failed-test results (the flake signal Trunk needs) on master push.
+        # Avoid spinning a runner when visual-regression was skipped, while still uploading
+        # failed-test results (the flake signal Trunk needs). Re-running failed shards re-runs
+        # this job too, and the attempt-suffixed artifacts mean the recovery uploads alongside
+        # the failure rather than replacing it.
         # The TRUNK_UPLOAD_ENABLED repo variable is the kill-switch: when it is not 'true'
         # this job skips, so no results upload.
-        if: always() && github.repository == 'PostHog/posthog' && github.event_name != 'pull_request' && needs.visual-regression.result != 'skipped' && vars.TRUNK_UPLOAD_ENABLED == 'true'
+        if: always() && github.repository == 'PostHog/posthog' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && github.actor != 'dependabot[bot]' && needs.visual-regression.result != 'skipped' && vars.TRUNK_UPLOAD_ENABLED == 'true'
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
+                  # The head SHA, not the default merge ref, so Trunk attributes results to the
+                  # same commit the shards tested — that pairing is what makes a flake visible.
+                  ref: ${{ github.event.pull_request.head.sha || github.sha }}
                   fetch-depth: 1
                   persist-credentials: false
             - name: Download JUnit artifacts
@@ -1020,10 +1052,24 @@ jobs:
               with:
                   path: ./junit-artifacts
                   pattern: junit-results-storybook-*
+            # webkit only runs on master push, so on a PR its glob matches nothing and the
+            # uploader would error out. Check per browser instead of hardcoding the matrix.
+            - name: Detect available results
+              id: detect
+              shell: bash
+              run: |
+                  for browser in chromium webkit; do
+                      if compgen -G "junit-artifacts/junit-results-storybook-$browser-*/*.xml" > /dev/null; then
+                          echo "has_$browser=true" >> "$GITHUB_OUTPUT"
+                      else
+                          echo "has_$browser=false" >> "$GITHUB_OUTPUT"
+                      fi
+                  done
             # chromium and webkit run the same stories, so a single upload would give one test id
             # both browsers' outcomes and a browser-specific failure would look like a flake.
             # Upload each browser under its own Trunk variant to keep their histories distinct.
             - name: Upload chromium results to Trunk
+              if: steps.detect.outputs.has_chromium == 'true'
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
               with:
                   junit-paths: junit-artifacts/junit-results-storybook-chromium-*/*.xml
@@ -1031,6 +1077,7 @@ jobs:
                   variant: chromium
                   token: ${{ secrets.TRUNK_API_TOKEN }}
             - name: Upload webkit results to Trunk
+              if: steps.detect.outputs.has_webkit == 'true'
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
               with:
                   junit-paths: junit-artifacts/junit-results-storybook-webkit-*/*.xml

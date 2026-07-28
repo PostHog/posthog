@@ -278,7 +278,7 @@ export default {
         const effectiveViewport = viewportWidths?.length
             ? VIEWPORT_WIDTHS[viewportWidths[0]]
             : viewport || DEFAULT_VIEWPORT
-        await resizeViewportAndWait(page, effectiveViewport)
+        await resizeViewportAndWait(page, effectiveViewport, context.id)
     },
 
     async postVisit(page, context) {
@@ -305,8 +305,8 @@ export default {
         if (ATTEMPT_COUNT_PER_ID[context.id] > 1) {
             // When retrying, resize the viewport and then resize again to default,
             // just in case the retry is due to a useResizeObserver fail
-            await resizeViewportAndWait(page, { width: 1920, height: 1080 })
-            await resizeViewportAndWait(page, effectiveViewport)
+            await resizeViewportAndWait(page, { width: 1920, height: 1080 }, context.id)
+            await resizeViewportAndWait(page, effectiveViewport, context.id)
         }
 
         const browserContext = page.context()
@@ -318,7 +318,7 @@ export default {
         if (snapshotBrowsers.includes(currentBrowser)) {
             if (viewportWidths?.length) {
                 for (const widthName of viewportWidths) {
-                    await resizeViewportAndWait(page, VIEWPORT_WIDTHS[widthName])
+                    await resizeViewportAndWait(page, VIEWPORT_WIDTHS[widthName], `${context.id}--${widthName}`)
 
                     const contextForWidth = { ...context, id: `${context.id}--${widthName}` }
                     await expectStoryToMatchSnapshot(page, contextForWidth, storyContext, currentBrowser)
@@ -465,7 +465,18 @@ async function expectStoryToMatchSnapshot(
         // Timeout is 5000ms by default, but increased to 10000ms for stories with async data loading (Dashboards, Max)
         // to account for slower CI environments while still catching stuck elements
         const timeout = context.id.includes('dashboards') || context.id.includes('max') ? 10000 : 5000
-        await page.waitForSelector(LOADER_SELECTORS.join(','), { state: 'hidden', timeout })
+        try {
+            await page.waitForSelector(LOADER_SELECTORS.join(','), { state: 'hidden', timeout })
+        } catch (error) {
+            // Playwright reports the whole joined selector, so the message says a loader is stuck
+            // without saying which. Name the offenders — this is the single most common way a
+            // capture-only shard goes red, and the story alone isn't enough to act on.
+            throw new Error(
+                `[${context.id}] loaders still visible after ${timeout}ms: ${(
+                    await stillVisibleSelectors(page, LOADER_SELECTORS)
+                ).join(', ')}\n\n${(error as Error).message}`
+            )
+        }
     }
 
     if (typeof waitForSelector === 'string') {
@@ -533,9 +544,10 @@ async function takeSnapshotWithTheme(
                     },
                     { timeout: 8000 }
                 )
-                .catch(() => {
+                .catch(() =>
                     // if timeout, that's okay - some iframes might not fire load events
-                })
+                    warnStoryDidNotSettle(context.id, `${iframeCount} iframe(s) never reported a load event`)
+                )
             // give iframe content a moment to render after load event
             await page.waitForTimeout(1000)
         }
@@ -592,9 +604,10 @@ async function takeSnapshotWithTheme(
             },
             { timeout: 3000 }
         )
-        .catch(() => {
+        .catch(() =>
             // if content keeps changing, that's okay - we'll proceed anyway
-        })
+            warnStoryDidNotSettle(context.id, `body dimensions kept changing for 3000ms (${theme} theme)`)
+        )
 
     // final wait for any remaining renders
     await page.waitForTimeout(1000)
@@ -762,6 +775,29 @@ function applyStoryTimeouts(page: Page, viewportWidths?: ViewportWidthName[], je
     page.context().setDefaultTimeout(PLAYWRIGHT_TIMEOUT_MS * timeoutMultiplier)
 }
 
+async function stillVisibleSelectors(page: Page, selectors: string[]): Promise<string[]> {
+    const visible: string[] = []
+    for (const selector of selectors) {
+        const count = await page
+            .locator(selector)
+            .filter({ visible: true })
+            .count()
+            .catch(() => 0)
+        if (count > 0) {
+            visible.push(`${selector} (${count} visible)`)
+        }
+    }
+    return visible.length ? visible : ['none still visible — the loader cleared as the wait expired']
+}
+
+// Each "keep going anyway" path hides a story that never reached a stable frame, which is the shape
+// of most red visual-regression shards. Name the story so the shard log points at it instead of
+// leaving a rerun as the only next step.
+function warnStoryDidNotSettle(storyId: string, detail: string): void {
+    // eslint-disable-next-line no-console
+    console.warn(`[test-runner] [${storyId}] did not settle before snapshot: ${detail}`)
+}
+
 async function waitForInnerViewport(
     page: Page,
     viewport: { width: number; height: number },
@@ -776,7 +812,11 @@ async function waitForInnerViewport(
     )
 }
 
-async function resizeViewportAndWait(page: Page, viewport: { width: number; height: number }): Promise<void> {
+async function resizeViewportAndWait(
+    page: Page,
+    viewport: { width: number; height: number },
+    storyId: string
+): Promise<void> {
     const currentViewport = page.viewportSize()
     if (currentViewport?.width === viewport.width && currentViewport.height === viewport.height) {
         // Force an actual geometry change so ResizeObserver subscribers always re-run.
@@ -790,7 +830,9 @@ async function resizeViewportAndWait(page: Page, viewport: { width: number; heig
         const nudgedWidth = viewport.width > 320 ? viewport.width - 1 : viewport.width + 1
         await page.setViewportSize({ width: nudgedWidth, height: viewport.height })
         await page.setViewportSize(viewport)
-        await waitForInnerViewport(page, viewport, VIEWPORT_SETTLE_TIMEOUT_MS * 2).catch(() => undefined)
+        await waitForInnerViewport(page, viewport, VIEWPORT_SETTLE_TIMEOUT_MS * 2).catch(() =>
+            warnStoryDidNotSettle(storyId, `inner viewport never reached ${viewport.width}x${viewport.height}`)
+        )
     })
 
     await page.evaluate(async () => {
@@ -832,7 +874,9 @@ async function resizeViewportAndWait(page: Page, viewport: { width: number; heig
             },
             { timeout: VIEWPORT_SETTLE_TIMEOUT_MS }
         )
-        .catch(() => {
-            // Some stories keep changing dimensions forever (charts/animations). Keep going.
-        })
+        .catch(() =>
+            // Some stories keep changing dimensions forever (charts/animations). Keep going, but
+            // say which one — a story snapshotted mid-animation is the lead when a shard goes red.
+            warnStoryDidNotSettle(storyId, `document dimensions kept changing for ${VIEWPORT_SETTLE_TIMEOUT_MS}ms`)
+        )
 }

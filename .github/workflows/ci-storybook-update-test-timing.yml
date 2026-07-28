@@ -96,7 +96,7 @@ jobs:
                   fi
 
                   # Find a recent successful ci-storybook.yml master run whose JUnit artifacts are
-                  # still live. Storybook JUnit artifacts have 1-day retention, so the newest run is
+                  # still live. Storybook JUnit artifacts expire, so the newest run is
                   # not always usable — scan newest-first and pick the first with unexpired
                   # junit-results-storybook-* artifacts. The repo is busy enough that master runs can
                   # fall outside a plain `gh run list -L 20` window, so query the workflow's runs
@@ -112,7 +112,7 @@ jobs:
                       done)
 
                   if [ -z "$run_id" ]; then
-                      echo "::error::No successful master Storybook run found with live JUnit artifacts (1-day retention)"
+                      echo "::error::No successful master Storybook run found with live JUnit artifacts"
                       exit 1
                   fi
                   echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
