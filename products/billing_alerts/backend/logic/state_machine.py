@@ -17,10 +17,10 @@ import structlog
 
 from posthog.exceptions_capture import capture_exception
 
+from products.alerts.backend.scheduling import advance_next_check_at, compute_shard_offset_seconds
 from products.billing_alerts.backend.logic.evaluator import BillingAlertEvaluation, evaluate_billing_alert
 from products.billing_alerts.backend.models import BillingAlertConfiguration, BillingAlertEvent
 
-from common.alerting.scheduling import advance_next_check_at, compute_shard_offset_seconds
 from common.alerting.state_machine import (
     MAX_CONSECUTIVE_FAILURES,
     AlertCheckOutcome,

@@ -6,7 +6,7 @@
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
 category: Billing alerts
 feature: billing_alerts
-url_prefix: /organization/billing/alerts
+url_prefix: /organization/billing
 ui_apps: {}
 tools:
     billing-alerts-check-now-create:
