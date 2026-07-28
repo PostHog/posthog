@@ -313,6 +313,12 @@ class TestPromptBuilder(BaseTest):
         # its own code path, so assert it on both to catch a drop from either list.
         assert "Working alongside the rest of the fleet" in prompt
         assert "scout_fleet" in prompt
+        # The self-validation follow-up discipline is shared too: every scout keeps a
+        # skill-namespaced `followup:` queue (a domain-only key would collide across scouts),
+        # and the decision to spend a run validating it belongs to the scout, not the harness.
+        assert "Follow up on your own past work" in prompt
+        assert "followup:<your-skill-name>:<entity>" in prompt
+        assert "You decide when a run becomes a validation run" in prompt
         # Recency lens references the started_at anchor.
         assert "Recency lens" in prompt
         assert "2026-05-01T12:34:56+00:00" in prompt
@@ -405,6 +411,9 @@ class TestPromptBuilder(BaseTest):
         # Fleet seams too — the report tail is built by `_report_tail_sections`, a separate list
         # from the signal tail, so it can lose the shared section independently.
         assert "Working alongside the rest of the fleet" in prompt
+        # Same for the shared self-validation follow-up discipline.
+        assert "Follow up on your own past work" in prompt
+        assert "followup:<your-skill-name>:<entity>" in prompt
         # The two highest-leverage nudges the report channel adds: search the inbox
         # and edit before authoring a duplicate, and set suggested reviewers (what
         # actually routes a report).
@@ -656,6 +665,41 @@ class TestPromptBuilder(BaseTest):
         assert "include_all_statuses=true" in prompt
         assert "dismissal_note" in prompt
         assert "record the rationale in your own words" in prompt
+
+    @parameterized.expand(
+        [
+            # (label, allowed_tools, resurface_tool). The section's re-surface clause must follow
+            # the same fail-closed rule as the channel sections — steering a scout at a tool it
+            # never opted into routes the failed-validation re-surface into a PermissionDenied.
+            # The wrong-tool half of that rule is already policed by the channel tests above
+            # (they assert the unheld tool appears nowhere in the whole prompt); these rows pin
+            # that the clause names a re-surface path the scout actually holds, on every variant.
+            ("signal_channel", [], "scout-emit-signal"),
+            ("report_both", ["emit_report", "edit_report"], "scout-emit-report"),
+            ("report_emit_only", ["emit_report"], "scout-emit-report"),
+            ("report_edit_only", ["edit_report"], "scout-edit-report"),
+        ]
+    )
+    def test_followup_section_resurface_clause_channel_matched(
+        self, _name: str, allowed_tools: list[str], resurface_tool: str
+    ) -> None:
+        name = "signals-scout-fu-" + (_name.replace("_", "-"))
+        LLMSkill.objects.create(team=self.team, name=name, description="d", body="b", allowed_tools=allowed_tools)
+        prompt = build_run_prompt(
+            load_skill_for_run(self.team, name),
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=self.team.id,
+            started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+        )
+        assert "Follow up on your own past work" in prompt
+        # The validation cadence is the scout's own judgment — the section must say so rather
+        # than reference a harness trigger that no longer exists.
+        assert "You decide when a run becomes a validation run" in prompt
+        # A validation pass must defer resolved-report re-measurement to the canonical
+        # inbox-validation scout when it runs — otherwise it duplicates that scout's whole surface.
+        assert "signals-scout-inbox-validation" in prompt
+        section = prompt[prompt.index("Follow up on your own past work") :]
+        assert resurface_tool in section.split("# ")[0]
 
 
 # Orchestration tests run as plain pytest functions because the async runner uses
