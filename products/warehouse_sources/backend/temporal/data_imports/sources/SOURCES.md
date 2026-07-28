@@ -203,6 +203,7 @@ the row lists both.
 | dixa                             | HTTP                        | requests                                                        | ✅                          |
 | dockerhub                        | HTTP                        | requests                                                        | ✅                          |
 | docuseal                         | HTTP                        | requests                                                        | ✅                          |
+| docusign                         | HTTP                        | requests                                                        | ✅                          |
 | doit                             | HTTP                        | requests                                                        | ✅                          |
 | doppler                          | HTTP                        | requests                                                        | ✅                          |
 | dovetail                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -877,7 +878,6 @@ doesn't conflict with concurrent PRs.
 - dialpad
 - discord
 - display_video_360
-- docusign
 - dodopayments
 - dolibarr
 - donorbox
