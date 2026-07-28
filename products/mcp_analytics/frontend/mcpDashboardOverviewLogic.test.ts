@@ -326,7 +326,7 @@ describe('mcpDashboardOverviewLogic', () => {
             expect(pickNotableSessions([])).toEqual([])
         })
 
-        it('picks one session per rule and skips a busiest session that is no outlier', () => {
+        it('picks one session per rule', () => {
             const rows: SessionRow[] = [
                 session({
                     session_id: 'A',
@@ -369,8 +369,7 @@ describe('mcpDashboardOverviewLogic', () => {
                     distinct_tools: 2,
                 }),
             ]
-            // A is the busiest at 20 calls, but the median is 12, so the outlier bar is 24 and no
-            // high_activity row is produced.
+            // A is the busiest, but it is already listed under worst_error_rate, so no high_activity row.
             expect(pickNotableSessions(rows).map((p) => ({ id: p.session.session_id, rule: p.rule }))).toEqual([
                 { id: 'A', rule: 'worst_error_rate' },
                 { id: 'B', rule: 'all_fail' },

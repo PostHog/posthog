@@ -216,9 +216,9 @@ export interface SessionRow {
 
 export type NotableRule = 'worst_error_rate' | 'all_fail' | 'most_exploratory' | 'exemplar' | 'high_activity'
 
-// High activity is measured against the account's own median, with a floor so that a median of one or
-// two calls cannot make a barely-larger session look like an outlier.
-const OUTLIER_MULTIPLE = 2
+// Calls the busiest session needs before it is worth flagging. Absolute rather than relative to the
+// median, because the query returns the 500 busiest sessions, so the median of what we get is not the
+// account's median.
 const MIN_OUTLIER_CALLS = 5
 
 // Below this, a session is an ordinary task rather than an exploration.
@@ -1059,11 +1059,10 @@ export function pickNotableSessions(rows: SessionRow[]): NotableSession[] {
     )
     take('exemplar', 'Concise success', [...exemplars].sort((a, b) => b.tool_calls - a.tool_calls)[0])
 
-    // 5. High activity — the busiest session, but only when it is an outlier. Being merely the
+    // 5. High activity — the busiest session, once it is busy enough to be worth reading. Being the
     // largest of a small set is not notable: on a quiet account that can be a single tool call.
-    const outlierThreshold = Math.max(medianCalls * OUTLIER_MULTIPLE, MIN_OUTLIER_CALLS)
     const busiest = [...rows].sort((a, b) => b.tool_calls - a.tool_calls)[0]
-    if (busiest && busiest.tool_calls >= outlierThreshold) {
+    if (busiest && busiest.tool_calls >= MIN_OUTLIER_CALLS) {
         take('high_activity', 'High activity', busiest)
     }
 
