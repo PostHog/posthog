@@ -10,7 +10,7 @@ from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.oauth import OAuthApplication
 from posthog.models.user import User
 
-from ee.api.agentic_provisioning import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
+from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
 from ee.api.agentic_provisioning.test.base import TEST_PARTNER_SCOPES, ProvisioningTestBase
 
 PARTNER_CALLBACK = "https://partner.example.com/callback"
@@ -96,6 +96,19 @@ class TestAgenticAuthorize(AuthorizeTestBase):
         assert code_data["scopes"] == ["query:read", "project:read"]
         assert code_data["partner_id"] == str(partner.id)
         assert cache.get(f"{PENDING_AUTH_CACHE_PREFIX}state_ok") is None
+
+    def test_trusted_partner_auto_redirect_skips_restricted_team(self):
+        partner = self._make_skip_consent_partner()
+        self._restrict_team_access(self.team)
+        self._set_pending_auth("state_restricted", self.user.email, partner=partner, consent_required=False)
+
+        res = self.client.get("/api/agentic/authorize?state=state_restricted")
+
+        assert res.status_code == 302
+        assert res["Location"].startswith(PARTNER_CALLBACK)
+        code = res["Location"].split("code=")[1].split("&")[0]
+        code_data = cache.get(f"{AUTH_CODE_CACHE_PREFIX}{code}")
+        assert code_data["team_id"] != self.team.id
 
     @parameterized.expand(
         [
@@ -206,7 +219,7 @@ class TestAgenticAuthorizeConfirm(AgenticAuthorizeMultiOrgBase):
         self._confirm("state_consume", self.team.id)
         assert cache.get(f"{PENDING_AUTH_CACHE_PREFIX}state_consume") is None
 
-    @patch("ee.api.agentic_provisioning.views._capture_provisioning_event")
+    @patch("ee.api.agentic_provisioning.views.authorize.capture_provisioning_event")
     def test_confirm_success_attributes_partner(self, mock_capture_event):
         partner = OAuthApplication.objects.create(
             client_id="confirm-attribution-partner",
@@ -247,12 +260,19 @@ class TestAgenticAuthorizeConfirm(AgenticAuthorizeMultiOrgBase):
         assert res.status_code == 403
         assert res.json()["error"] == "email_mismatch"
 
-    def test_confirm_rejects_inaccessible_team(self):
+    @parameterized.expand(["other_org", "restricted_in_own_org"])
+    def test_confirm_rejects_inaccessible_team(self, case):
         self._set_pending_auth("state_no_access", self.user.email)
-        other_org = Organization.objects.create(name="Other Org")
-        other_team = Team.objects.create(organization=other_org, name="Other Project", api_token="token_other")
+        if case == "other_org":
+            other_org = Organization.objects.create(name="Other Org")
+            target = Team.objects.create(organization=other_org, name="Other Project", api_token="token_other")
+        else:
+            target = Team.objects.create_with_data(
+                initiating_user=self.user, organization=self.organization, name="Restricted project"
+            )
+            self._restrict_team_access(target)
 
-        res = self._confirm("state_no_access", other_team.id)
+        res = self._confirm("state_no_access", target.id)
         assert res.status_code == 403
         assert res.json()["error"] == "team_not_accessible"
 

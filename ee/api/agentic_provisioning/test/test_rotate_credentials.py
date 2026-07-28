@@ -141,7 +141,7 @@ class TestProvisioningRotateCredentials(ProvisioningTestBase):
             ("non_string", 123),
         ]
     )
-    @patch("ee.api.agentic_provisioning.views._capture_provisioning_event")
+    @patch("ee.api.agentic_provisioning.serializers.capture_provisioning_event")
     def test_rotate_invalid_label_prefix_returns_400_and_captures_event(self, _name, label_prefix, mock_capture_event):
         token = self._get_bearer_token()
         res = self._post_with_bearer(
