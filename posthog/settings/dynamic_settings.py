@@ -323,8 +323,8 @@ CONSTANCE_CONFIG = {
         get_from_env("WEB_ANALYTICS_WARMING_SHAPE_CONCURRENCY", default=16, type_cast=int),
         "Worker threads for the web analytics warm pass. Cold bucket builds dominate a first run "
         "(each shape builds one bucket per day of its range), so a higher value drains the selection "
-        "faster but adds load to the offline ClickHouse pool. Tunable live to speed up or throttle a "
-        "long-running warm without a redeploy.",
+        "faster but adds load to the offline ClickHouse pool. Clamped to 1-64; the pool is fixed per "
+        "pass, so a change applies when the next warming run starts — no redeploy needed.",
         int,
     ),
 }

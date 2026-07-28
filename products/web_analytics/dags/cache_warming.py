@@ -4,7 +4,7 @@ import json
 import time
 import threading
 import statistics
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING, Optional
 
 from django.core.exceptions import ObjectDoesNotExist
@@ -519,14 +519,21 @@ RAW_REPLAY_MIN_QUERY_COUNT = 10
 # reads/inserts), so a pool cuts wall time at the widened selection size. A cold
 # first run is dominated by per-day bucket builds — hundreds of thousands of them
 # — so this is the main throughput lever, but raising it adds load to the offline
-# ClickHouse pool. Read live from WEB_ANALYTICS_WARMING_SHAPE_CONCURRENCY so a
-# slow run can be sped up (or throttled) without a redeploy; this is the fallback.
+# ClickHouse pool. Overridable via WEB_ANALYTICS_WARMING_SHAPE_CONCURRENCY without
+# a redeploy; the pool is fixed for the life of a pass, so a change applies when
+# the next run starts. This is the fallback when the setting is unset.
 WARMING_SHAPE_CONCURRENCY = 16
 
 # Heartbeat cadence for the warm pass. Cold bucket builds run ~1s each, so a full
 # selection can take hours; without a heartbeat the op is silent start to finish
 # and a long run is indistinguishable from a hung one.
 WARMING_PROGRESS_LOG_INTERVAL_SECONDS = 120
+
+
+def _team_still_exists(team_id: int) -> bool:
+    # Thin DB boundary so tests can pin the answer: pool worker threads hold their
+    # own connections, which can't see a TestCase's uncommitted rows.
+    return Team.objects.filter(pk=team_id).exists()
 
 
 @dagster.op(retry_policy=cache_warming_retry_policy)
@@ -602,15 +609,19 @@ def warm_queries_op(context: dagster.OpExecutionContext, queries: list[dict]) ->
             runner.run(analytics_props={"source": EventSource.CACHE_WARMING})
             WARMING_QUERIES_COUNTER.labels(outcome="warmed").inc()
             return "warmed"
-        except ObjectDoesNotExist:
-            # A team deleted after the teams dict was loaded (the 14-day demand
-            # window churns teams out) surfaces here from get_cache_key: it reads a
-            # team extension via get-or-create, whose create hits the team foreign
-            # key and leaves the lookup raising the extension's DoesNotExist. That's
-            # not a warming failure — skip it quietly rather than logging a
-            # traceback and firing error tracking for every churned team.
-            return "team_missing"
         except Exception as e:
+            # A team deleted after the teams dict was loaded (the 14-day demand
+            # window churns teams out) surfaces as a DoesNotExist from
+            # get_cache_key: it reads a team extension via get-or-create, whose
+            # create hits the team foreign key and leaves the lookup raising the
+            # extension's DoesNotExist. That's not a warming failure — skip it
+            # quietly rather than logging a traceback and firing error tracking
+            # for every churned team. Verified against the DB rather than keyed on
+            # the exception type alone: other models raise DoesNotExist too (a
+            # cohort filter whose cohort was deleted mid-window), and for a live
+            # team those are genuine failures that must still report.
+            if isinstance(e, ObjectDoesNotExist) and not _team_still_exists(team.pk):
+                return "team_missing"
             # Module logger, not context.log: Dagster's log manager isn't
             # guaranteed thread-safe, and workers fail concurrently.
             logger.exception(
@@ -626,7 +637,12 @@ def warm_queries_op(context: dagster.OpExecutionContext, queries: list[dict]) ->
             # a long pass doesn't accumulate stale connections per thread.
             close_old_connections()
 
-    concurrency = get_instance_setting("WEB_ANALYTICS_WARMING_SHAPE_CONCURRENCY") or WARMING_SHAPE_CONCURRENCY
+    # Clamped: a non-positive value would abort every run at pool construction and
+    # an oversized one can exhaust process threads. The pool is fixed for the life
+    # of the pass, so a settings change applies when the next run starts.
+    concurrency = min(
+        64, max(1, get_instance_setting("WEB_ANALYTICS_WARMING_SHAPE_CONCURRENCY") or WARMING_SHAPE_CONCURRENCY)
+    )
     outcomes: dict[str, int] = {}
     total = len(queries)
     processed = 0
@@ -634,9 +650,13 @@ def warm_queries_op(context: dagster.OpExecutionContext, queries: list[dict]) ->
     last_log_at = started_at
     context.log.info(f"Warming {total} shapes across {len(teams)} teams (concurrency={concurrency})")
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
-        # pool.map yields on this (op) thread, so context.log here is safe — unlike
-        # the worker-thread logging inside _warm_one.
-        for outcome in pool.map(_warm_one, queries):
+        # Futures are consumed by completion, not input order: with pool.map one
+        # slow early shape would block this loop — and the heartbeat — while later
+        # workers finish thousands of shapes. Consuming on the op thread also keeps
+        # context.log here safe, unlike the worker-thread logging inside _warm_one.
+        futures = [pool.submit(_warm_one, query_info) for query_info in queries]
+        for future in as_completed(futures):
+            outcome = future.result()
             outcomes[outcome] = outcomes.get(outcome, 0) + 1
             processed += 1
             now = time.monotonic()

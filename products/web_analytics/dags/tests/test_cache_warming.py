@@ -334,14 +334,17 @@ class TestWarmQueriesOp(BaseTest):
             # A churned team surfaces as a DoesNotExist from get_cache_key (the
             # team-extension FK). That must be a quiet skip, not a logged failure
             # plus an error-tracking event per churned team — which spammed
-            # tracebacks in prod. Any other error is a genuine failure and must
-            # still be reported, so the guard can't swallow real bugs.
-            ("churned_team_does_not_exist", Team.DoesNotExist, 0),
-            ("genuine_failure", RuntimeError, 1),
+            # tracebacks in prod. But DoesNotExist alone isn't proof the team is
+            # gone — other models raise it too (a cohort filter whose cohort was
+            # deleted) — so for a live team it must still report, as must any
+            # other error.
+            ("churned_team_does_not_exist", Team.DoesNotExist, False, 0),
+            ("live_team_other_model_does_not_exist", Team.DoesNotExist, True, 1),
+            ("genuine_failure", RuntimeError, True, 1),
         ]
     )
     def test_churned_team_skipped_but_real_failure_reported(
-        self, _name: str, raised: type[Exception], expected_capture_calls: int
+        self, _name: str, raised: type[Exception], team_exists: bool, expected_capture_calls: int
     ) -> None:
         runner = MagicMock()
         runner.get_cache_key.side_effect = raised("boom")
@@ -351,6 +354,9 @@ class TestWarmQueriesOp(BaseTest):
                 return_value=(runner, {}, True),
             ),
             patch("products.web_analytics.dags.cache_warming.capture_exception") as mock_capture,
+            # Pinned because pool worker threads hold their own DB connections and
+            # can't see this TestCase's uncommitted team row.
+            patch("products.web_analytics.dags.cache_warming._team_still_exists", return_value=team_exists),
         ):
             warm_queries_op(
                 dagster.build_op_context(),
