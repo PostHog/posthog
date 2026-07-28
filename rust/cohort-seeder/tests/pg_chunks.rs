@@ -377,6 +377,22 @@ async fn reconcile_run_load_is_fail_closed_and_behavioral_hash_scoped() -> Resul
             .execute(&pool)
             .await?;
         ensure!(load_reconcile_run(&pool, run_id).await?.status() == RunStatus::Reconciling);
+        // Reaching `reconciling` is not itself a planning proof — only the stamp is.
+        ensure!(matches!(
+            prepare_reconcile_dispatch(
+                &pool,
+                run_id,
+                CompletionRequirement::Complete,
+                register_backfill,
+            )
+            .await,
+            Err(PrepareReconcileDispatchError::PlanningUnproven(id)) if id == run_id
+        ));
+
+        sqlx::query("UPDATE cohort_backfill_runs SET chunks_planned_at = now() WHERE id = $1")
+            .bind(run_id)
+            .execute(&pool)
+            .await?;
         ensure!(prepare_reconcile_dispatch(
             &pool,
             run_id,
