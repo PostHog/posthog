@@ -2480,7 +2480,15 @@ def finalize_task_run_artifact_uploads(
     for storage_path in new_storage_paths:
         _tag_artifact_object(run, storage_path)
 
-    return finalized_entries, None
+    # Mint a fresh presigned download URL per response entry so the caller (e.g. the
+    # upload_artifact tool) can surface a link to the file. Presigned URLs expire, so
+    # they are attached to the response only and never written back to the manifest.
+    response_entries: list[dict] = []
+    for entry in finalized_entries:
+        presigned_url = object_storage.get_presigned_url(entry["storage_path"])
+        response_entries.append({**entry, "url": presigned_url} if presigned_url else dict(entry))
+
+    return response_entries, None
 
 
 def list_task_run_living_artifacts(run_id: str | UUID, task_id: str | UUID, team_id: int) -> list[dict] | None:
