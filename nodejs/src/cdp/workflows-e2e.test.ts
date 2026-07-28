@@ -928,6 +928,46 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             expect(seconds).toBeLessThan(6 * 60)
         })
 
+        it('re-parks to the real instant once the awaited data lands', async () => {
+            // The transition every production run of this flow depends on. The step before the wait
+            // writes trial_expiration_at through async capture, so the first park happens with the
+            // timer unresolvable and the property only shows up a beat later. This walks a single run
+            // across that boundary: short retry first, then a one-shot park to the true instant.
+            //
+            // Rather than idle for the real retry interval, the job's schedule is pulled forward to
+            // simulate it elapsing — the worker then dequeues it exactly as it would in production.
+            await createTrialWorkflow({ streams: ['person'], timers: [trialTimer] })
+            mockPersonRepo.fetchPersonsByDistinctIds.mockResolvedValue([personWith({})])
+
+            await triggerWorkflow(createGlobals())
+
+            expect(await parkedInSeconds()).toBeLessThan(6 * 60)
+
+            // Ingestion catches up: the person now carries the date the wait is keyed on.
+            mockPersonRepo.fetchPersonsByDistinctIds.mockResolvedValue([
+                personWith({ trial_expiration_at: DateTime.utc().plus({ days: 7 }).toISO()! }),
+            ])
+            // The worker caches persons for a minute, so a real retry only sees the new property
+            // because it lands well after that window. Expire the cache to stand in for that gap —
+            // without this the retry re-reads the stale person and the timer stays unresolvable.
+            ;(hogflowWorker as any).personsManager.clear()
+            const parked = (await queryCyclotronJobs()).find(
+                (j: any) => j.status === 'available' && new Date(j.scheduled) > new Date()
+            )
+            const pulled = await cyclotronPool.query('UPDATE cyclotron_jobs SET scheduled = now() WHERE id = $1', [
+                parked!.id,
+            ])
+            expect(pulled.rowCount).toBe(1)
+
+            // Same run, same job — now parked once, to the instant the condition actually flips.
+            await waitForExpect(async () => {
+                const seconds = await parkedInSeconds()
+                expect(seconds).toBeGreaterThan(5.9 * 86400)
+                expect(seconds).toBeLessThan(6.1 * 86400)
+            }, 10000)
+            expect(mockFetch).not.toHaveBeenCalled()
+        })
+
         it('keeps the 10-minute cap for a wait with no derivable plan', async () => {
             // Fail-closed path: flows saved before wake plans existed must behave exactly as today.
             await createTrialWorkflow({ streams: [], timers: [], unsupported_reason: 'not invertible' })

@@ -153,6 +153,10 @@ export async function checkConditions(
 // earlier step lands via ingestion, not synchronously) re-checks on this instead of sleeping to the
 // deadline. Short because it only has to outlast ingestion lag, and it stops as soon as a timer
 // resolves.
+//
+// Must stay comfortably above PersonsManagerService's 1-minute person cache: a retry that lands
+// inside the cache window re-reads the same stale person, so the timer would never resolve and the
+// wait would retry until its deadline. Don't lower this below a minute.
 const UNRESOLVED_TIMER_RETRY_SECONDS = 5 * 60
 
 /**
