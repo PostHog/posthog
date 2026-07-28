@@ -120,6 +120,24 @@ describe('settingsSceneLogic', () => {
         expect(router.values.hashParams).toHaveProperty('internal-user-filtering')
     })
 
+    it('redirects the removed toolbar section to web analytics', async () => {
+        router.actions.push('/settings/project-toolbar', {}, { 'authorized-urls': null })
+
+        await expectLogic(logic).toMatchValues({
+            selectedLevel: 'project',
+            selectedSectionId: 'project-web-analytics',
+        })
+        expect(router.values.location.pathname).toContain('/settings/project-web-analytics')
+
+        router.actions.push('/settings/environment-toolbar')
+
+        await expectLogic(logic).toMatchValues({
+            selectedLevel: 'project',
+            selectedSectionId: 'project-web-analytics',
+        })
+        expect(router.values.location.pathname).toContain('/settings/project-web-analytics')
+    })
+
     it('redirects level-only URLs to first section', async () => {
         // Each push switches to a different level, so no section at the target level is
         // selected yet and the redirect to the first section runs.
