@@ -11376,6 +11376,22 @@ export namespace Schemas {
       readonly import_config: unknown;
     }
 
+    /**
+     * Values a customer needs to configure cross-account IAM role access for S3 imports.
+     */
+    export interface BatchImportAWSIAMSetup {
+      /** Whether IAM role authentication is available on this PostHog deployment. */
+      available: boolean;
+      /** External ID to pin in the role trust policy's sts:ExternalId condition. Stable per project. */
+      external_id: string;
+      /** ARN of PostHog's import role -- the principal your role must trust. */
+      posthog_role_arn: string;
+      /** Ready-to-paste IAM trust policy JSON for the role in your AWS account. */
+      trust_policy: string;
+      /** IAM permission policy JSON template; replace YOUR_BUCKET and YOUR_PREFIX with your values. */
+      permission_policy_template: string;
+    }
+
     export interface BatchImportPartsProgress {
       /** Number of finished parts (a part is done when its committed byte offset has reached its known total size). */
       done: number;
@@ -15066,6 +15082,14 @@ export namespace Schemas {
          * @nullable
          */
       color?: string | null;
+    }
+
+    export interface CreateVersionFromSourceInput {
+      /**
+         * Full Python source for the Streamlit app's root app.py file, as free text (max 1 MB). Becomes a new version and is set as the active version.
+         * @maxLength 1048576
+         */
+      source: string;
     }
 
     /**
@@ -76593,6 +76617,28 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Field to sort the prompt list by. Prefix with '-' for descending order.
+     *
+     * * `name` - name
+     * * `-name` - -name
+     * * `created_at` - created_at
+     * * `-created_at` - -created_at
+     * * `updated_at` - updated_at
+     * * `-updated_at` - -updated_at
+     * * `version` - version
+     * * `-version` - -version
+     * * `latest_version` - latest_version
+     * * `-latest_version` - -latest_version
+     * * `version_count` - version_count
+     * * `-version_count` - -version_count
+     * * `first_version_created_at` - first_version_created_at
+     * * `-first_version_created_at` - -first_version_created_at
+     * * `prompt_size_bytes` - prompt_size_bytes
+     * * `-prompt_size_bytes` - -prompt_size_bytes
+     * @minLength 1
+     */
+    order_by?: string;
     /**
      * Optional substring filter applied to prompt names and prompt content.
      */
