@@ -78,6 +78,36 @@ class TestWakePlan(SimpleTestCase):
         )
         assert result.result["dt"] == datetime(2026, 7, 31, 12, 0, tzinfo=UTC).timestamp()
 
+    @parameterized.expand(
+        [
+            ("one_day_notice", "1", datetime(2026, 7, 31, 12, 0)),
+            ("three_day_notice", "3", datetime(2026, 7, 29, 12, 0)),
+        ]
+    )
+    def test_offset_read_from_a_second_person_property(self, _name: str, notice: str, expected: datetime):
+        # The live production condition takes its offset from a *second* person property rather than
+        # a literal, so the timer reads two. The threshold side is opaque to the analyzer, so this
+        # works for free - but a regression that dropped the offset term would still emit a
+        # plausible timer, just firing on the wrong day, which only a value assertion catches.
+        #
+        # The unset-property path (coalesce falling back to 1) is deliberately not asserted here:
+        # toInt(null) returns null in the TypeScript VM that runs this in production but raises in
+        # the Python VM used by this test, so asserting it would test the wrong runtime.
+        plan = self._plan(
+            "toUnixTimestamp(now()) >= toUnixTimestamp(toDateTime(person.properties.trial_expiration_at)) "
+            "- coalesce(toInt(person.properties.trial_reminder_days), 1) * 86400"
+        )
+
+        assert plan.unsupported_reason is None
+        assert len(plan.timers) == 1
+        result = execute_bytecode(
+            plan.timers[0],
+            globals={
+                "person": {"properties": {"trial_expiration_at": "2026-08-01T12:00:00Z", "trial_reminder_days": notice}}
+            },
+        )
+        assert result.result["dt"] == expected.replace(tzinfo=UTC).timestamp()
+
     def test_days_since_condition_executes_to_the_offset_instant(self):
         # Production shape from another flow: "14 days since last seen". dateDiff grows with the
         # clock, so it flips at last_seen_at + 14 days.
