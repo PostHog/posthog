@@ -290,13 +290,22 @@ export async function transformDecodedLogRecordsInPlace(
     return pii
 }
 
+/** Applied to decoded records after the built-in transforms; mutates the array in place
+ * (dropped records are removed). Used to run hog log transformations last. */
+export type LogRecordsTransform = (records: LogRecord[]) => Promise<unknown>
+
 /**
  * Processes an AVRO-encoded log message buffer containing multiple records.
- * Passthrough (no decode) when both json_parse_logs and pii_scrub_logs are off.
- * Otherwise: decode → optional PII scrub on `body` → optional parse bodies → optional JSON enrich → encode.
+ * Passthrough (no decode) when json_parse_logs and pii_scrub_logs are off and no
+ * `recordsTransform` is given.
+ * Otherwise: decode → optional PII scrub on `body` → optional parse bodies → optional JSON enrich
+ * → optional `recordsTransform` (hog log transformations, always last) → encode.
  *
  * When both `json_parse_logs` and `pii_scrub_logs` are on, scrub runs **before** parse/enrich so flattened JSON
  * attributes are derived from the redacted body string. `parseLogBodiesForIngestion` runs only when JSON parse is on.
+ *
+ * `value` is null when `recordsTransform` dropped every record — the caller must not
+ * produce the message downstream.
  */
 export const processLogMessageBuffer = instrumented({
     key: SPAN_LOGS_PROCESS_BUFFER,
@@ -304,12 +313,13 @@ export const processLogMessageBuffer = instrumented({
 })(async function processLogMessageBufferImpl(
     buffer: Buffer,
     settings: LogsSettings,
-    onRecordsDecoded?: (records: LogRecord[]) => void
-): Promise<{ value: Buffer; pii: PiiScrubStats }> {
+    onRecordsDecoded?: (records: LogRecord[]) => void,
+    recordsTransform?: LogRecordsTransform
+): Promise<{ value: Buffer | null; pii: PiiScrubStats }> {
     const jsonParse = settings.json_parse_logs ?? false
     const piiScrub = settings.pii_scrub_logs ?? false
 
-    if (!jsonParse && !piiScrub) {
+    if (!jsonParse && !piiScrub && !recordsTransform) {
         // Passthrough: the buffer is forwarded untouched. Decode only when a visitor
         // (metric-rule extraction) needs the records — skipping the re-encode either way.
         if (onRecordsDecoded) {
@@ -333,6 +343,13 @@ export const processLogMessageBuffer = instrumented({
         const pii = await transformDecodedLogRecordsInPlace(records, settings)
         onRecordsDecoded?.(records)
 
+        if (recordsTransform) {
+            await recordsTransform(records)
+            if (records.length === 0) {
+                return { value: null, pii }
+            }
+        }
+
         const value = await encodeLogRecordsInstrumented(logRecordType, codec, records)
         return { value, pii }
     } finally {
@@ -348,5 +365,6 @@ export const processLogMessageBuffer = instrumented({
 }) as (
     buffer: Buffer,
     settings: LogsSettings,
-    onRecordsDecoded?: (records: LogRecord[]) => void
-) => Promise<{ value: Buffer; pii: PiiScrubStats }>
+    onRecordsDecoded?: (records: LogRecord[]) => void,
+    recordsTransform?: LogRecordsTransform
+) => Promise<{ value: Buffer | null; pii: PiiScrubStats }>

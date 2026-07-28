@@ -8,6 +8,7 @@ import { logger } from '~/common/utils/logger'
 import { type PiiScrubStats } from '~/logs/log-pii-scrub'
 import {
     type LogRecord,
+    type LogRecordsTransform,
     decodeLogRecords,
     encodeLogRecords,
     transformDecodedLogRecordsInPlace,
@@ -72,8 +73,10 @@ export type ProcessBufferWithSamplingResult = {
     contentBytesDropped: number
     /** Sum of customer-content bytes across ALL decoded rows (kept + dropped). Billing pro-rate denominator. */
     contentBytesTotal: number
-    /** When true, the caller must not produce this message to downstream Kafka (all lines sampled out). */
+    /** When true, the caller must not produce this message to downstream Kafka (all lines removed). */
     allDropped: boolean
+    /** What removed the final surviving lines when `allDropped` is true. */
+    allDroppedBy?: 'sampling' | 'transformations'
 }
 
 const recordBytes = (r: LogRecord): number => r.bytes_uncompressed ?? 0
@@ -115,7 +118,8 @@ export class LogsSamplingService {
         ruleSet: CompiledRuleSet,
         teamId?: number,
         headerBytesUncompressed: number = 0,
-        onRecordsDecoded?: (records: LogRecord[]) => void
+        onRecordsDecoded?: (records: LogRecord[]) => void,
+        recordsTransform?: LogRecordsTransform
     ): Promise<ProcessBufferWithSamplingResult> {
         const [logRecordType, compressionCodec, records] = await decodeLogRecords(buffer)
         if (!logRecordType) {
@@ -202,6 +206,13 @@ export class LogsSamplingService {
             }
         }
 
+        // Hog log transformations run last, on the records that survived the drop rules
+        let keptBeforeTransform = 0
+        if (recordsTransform && kept.length > 0) {
+            keptBeforeTransform = kept.length
+            await recordsTransform(kept)
+        }
+
         trace.getActiveSpan()?.setAttributes({
             'logs.sampling.input_record_count': records.length,
             'logs.sampling.kept_record_count': kept.length,
@@ -222,6 +233,9 @@ export class LogsSamplingService {
                 contentBytesDropped,
                 contentBytesTotal,
                 allDropped: true,
+                // Sampling left survivors and the transform removed the rest — attribute
+                // the full-message drop to transformations, not the drop rules.
+                allDroppedBy: keptBeforeTransform > 0 ? 'transformations' : 'sampling',
             }
         }
         const value = await encodeLogRecords(logRecordType, compressionCodec, kept)
