@@ -152,25 +152,11 @@ class TestWorkbookBudgets(SimpleTestCase):
         assert "too large once decompressed" in str(ctx.exception)
 
     def test_rejects_an_archive_with_too_many_members(self) -> None:
-        # A workbook can hide hundreds of thousands of tiny ZIP members under the 50MB cap, each
-        # costing a ZipInfo object built just to open the archive. The central directory is walked
-        # (bounded) so the cap fires before that per-member table is materialized — and before openpyxl.
+        # A workbook can hide hundreds of thousands of tiny ZIP members under the 50MB cap; the cap
+        # on parsed entries keeps such an archive away from openpyxl and every later per-member step.
         data = _workbook_bytes({"S1": [["a"], [1]]})
         with patch(f"{MODULE}.MAX_ZIP_MEMBERS", 1):
             with patch(f"{MODULE}.get_s3_client", return_value=_FakeS3(data)):
-                with self.assertRaises(ExcelReadError) as ctx:
-                    list_sheets(team_id=1, upload_id="u1", filename="book.xlsx")
-        assert "too many internal parts" in str(ctx.exception)
-
-    def test_member_cap_counts_real_entries_not_the_declared_total(self) -> None:
-        # The EOCD's declared entry count is forgeable: zipfile walks the actual central directory, so
-        # trusting that field would let a patched-low count slip a member bomb past the cap. Forge the
-        # count to 1 and confirm the real entries (well above the patched cap) are still what's counted.
-        data = bytearray(_workbook_bytes({"S1": [["a"], [1]]}))
-        eocd = data.rfind(b"PK\x05\x06")
-        data[eocd + 10 : eocd + 12] = (1).to_bytes(2, "little")
-        with patch(f"{MODULE}.MAX_ZIP_MEMBERS", 3):
-            with patch(f"{MODULE}.get_s3_client", return_value=_FakeS3(bytes(data))):
                 with self.assertRaises(ExcelReadError) as ctx:
                     list_sheets(team_id=1, upload_id="u1", filename="book.xlsx")
         assert "too many internal parts" in str(ctx.exception)

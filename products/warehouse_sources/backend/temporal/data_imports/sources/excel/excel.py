@@ -33,12 +33,11 @@ ROW_CHUNK = 1000
 # deliberately NOT capped — full imports stream in bounded chunks on workers, which exist for that work.
 MAX_DECLARED_UNCOMPRESSED_BYTES = 512 * 1024 * 1024
 
-# A second bomb shape hides inside the 50 MB cap: hundreds of thousands of tiny members. Each one costs
-# a ZipInfo object that zipfile (and openpyxl) build in memory just to open the archive — before any
-# size check on the summed payload can run. A real workbook has a handful of parts per sheet plus the
-# shared-string/style/relationship files, so it stays in the low thousands even with many sheets. The
-# member count comes from a bounded walk of the central directory (see _central_directory_entry_count)
-# that stops at the cap, so the explosion is gated before the ZipInfo table is ever materialized.
+# A second bomb shape hides inside the 50 MB cap: hundreds of thousands of tiny members, making every
+# later per-member step pay for them. A real workbook has a handful of parts per sheet plus the
+# shared-string/style/relationship files, so it stays in the low thousands even with many sheets.
+# Counting the parsed entries (never the forgeable EOCD total) is enough: the one-time stdlib parse is
+# linear in the 50 MB upload, and the cap keeps the bomb away from openpyxl and everything after it.
 MAX_ZIP_MEMBERS = 10_000
 
 # One warehouse table per sheet: thousands of columns break the schema UI and ClickHouse long before
@@ -64,73 +63,20 @@ def _uploaded_workbook_bytes(team_id: int, upload_id: str, filename: str) -> byt
         ) from error
 
 
-def _central_directory_entry_count(data: bytes) -> int | None:
-    """Count the archive's real central-directory records with a bounded walk that stops once the cap
-    is exceeded. The EOCD's declared total is *not* trusted: an attacker can patch it below the cap
-    while the archive still holds far more entries, and ``zipfile`` walks the actual central-directory
-    bytes (not that field) when it builds a ZipInfo per member. Walking the records ourselves — but no
-    more than ``MAX_ZIP_MEMBERS`` + 1 of them — bounds the work regardless of what the header claims,
-    and does it before ``ZipFile`` is ever constructed. Returns ``None`` when the structure can't be
-    parsed, leaving the malformed-archive path to report it.
-    """
-    n = len(data)
-    # The EOCD is 22 bytes plus an optional comment of up to 65,535 bytes, so it lives in the final
-    # ~64 KiB. Take the last occurrence, matching how zipfile locates it.
-    eocd = data.rfind(b"PK\x05\x06", max(0, n - (22 + 65535)))
-    if eocd == -1 or eocd + 22 > n:
-        return None
-    cd_size = int.from_bytes(data[eocd + 12 : eocd + 16], "little")
-    cd_offset = int.from_bytes(data[eocd + 16 : eocd + 20], "little")
-    total = int.from_bytes(data[eocd + 10 : eocd + 12], "little")
-    # The central directory ends immediately before its trailer; deriving its start as (trailer - size)
-    # rather than trusting the offset field absorbs any prepended bytes, matching zipfile.
-    cd_trailer = eocd
-
-    if cd_size == 0xFFFFFFFF or cd_offset == 0xFFFFFFFF or total == 0xFFFF:
-        # ZIP64: the real sizes live in the ZIP64 EOCD record, found via its locator just before the
-        # EOCD. A workbook under the 50 MB cap only reaches ZIP64 by having far more than the cap's
-        # worth of entries, but parse it rather than assume so the count stays honest.
-        locator = data.rfind(b"PK\x06\x07", 0, eocd)
-        if locator == -1 or locator + 20 > n:
-            return None
-        z64 = int.from_bytes(data[locator + 8 : locator + 16], "little")
-        if z64 < 0 or z64 + 56 > n or data[z64 : z64 + 4] != b"PK\x06\x06":
-            return None
-        cd_size = int.from_bytes(data[z64 + 40 : z64 + 48], "little")
-        cd_trailer = z64
-
-    cd_start = cd_trailer - cd_size
-    if cd_start < 0 or cd_start >= n:
-        return None
-
-    signature = b"PK\x01\x02"
-    position = cd_start
-    count = 0
-    while position + 46 <= n and data[position : position + 4] == signature:
-        count += 1
-        if count > MAX_ZIP_MEMBERS:
-            return count
-        name_length = int.from_bytes(data[position + 28 : position + 30], "little")
-        extra_length = int.from_bytes(data[position + 30 : position + 32], "little")
-        comment_length = int.from_bytes(data[position + 32 : position + 34], "little")
-        position += 46 + name_length + extra_length + comment_length
-    return count
-
-
 def _open_workbook(data: bytes):
-    member_count = _central_directory_entry_count(data)
-    if member_count is not None and member_count > MAX_ZIP_MEMBERS:
-        raise ExcelReadError(
-            "The workbook has too many internal parts to be a normal spreadsheet. Export the data to "
-            "CSV or Parquet and connect it as a self-managed source instead."
-        )
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as archive:
-            declared_bytes = sum(info.file_size for info in archive.infolist())
+            members = archive.infolist()
+            declared_bytes = sum(info.file_size for info in members)
     except zipfile.BadZipFile as error:
         raise ExcelReadError(
             "Could not read the Excel file. Make sure it's a valid .xlsx or .xlsm workbook."
         ) from error
+    if len(members) > MAX_ZIP_MEMBERS:
+        raise ExcelReadError(
+            "The workbook has too many internal parts to be a normal spreadsheet. Export the data to "
+            "CSV or Parquet and connect it as a self-managed source instead."
+        )
     if declared_bytes > MAX_DECLARED_UNCOMPRESSED_BYTES:
         raise ExcelReadError(
             "The workbook is too large once decompressed. Export the data to CSV or Parquet and "
