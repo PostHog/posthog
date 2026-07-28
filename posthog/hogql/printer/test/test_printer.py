@@ -7200,8 +7200,17 @@ class TestPostgresPrinter(BaseTest):
 
         self.assertIn('AS "select"', printed)
 
-    def test_long_generated_identifier_is_truncated_for_postgres(self):
-        long_alias = "posthog_user__posthog_organizationmemberships__organization___id"
+    @parameterized.expand(
+        [
+            # Double-underscore joins-flattening alias — the original case the heuristic handled.
+            ("double_underscore", "posthog_user__posthog_organizationmemberships__organization___id"),
+            # Single-underscore warehouse column (e.g. a flattened Google Ads field) over 63 chars.
+            # Postgres used to skip truncation here and hard-error; it must now truncate too.
+            ("single_underscore", "ad_group_ad_ad_legacy_responsive_display_ad_allow_flexible_color"),
+        ]
+    )
+    def test_long_generated_identifier_is_truncated_for_postgres(self, _name: str, long_alias: str):
+        self.assertGreater(len(long_alias), 63)
         printed = self._select(f"SELECT event AS {long_alias} FROM events")
 
         self.assertIn("AS ", printed)
@@ -7890,9 +7899,8 @@ class TestDuckDBPrinter(BaseTest):
         )
 
     def test_identifier_no_truncation(self):
-        # PG would truncate a >63-char generated alias containing double underscores into a SHA-suffixed
-        # name via ``_print_identifier``'s truncation heuristic. The separate ``escape_postgres_identifier``
-        # length error applies to overlong identifiers that don't hit that heuristic. DuckDB leaves it intact.
+        # PG truncates any >63-char identifier into a SHA-suffixed name via ``_print_identifier``.
+        # DuckDB has no length limit, so it leaves the identifier intact.
         long_name = "a_really_long_table_name_that_would_force_pg_to_truncate__here"
         long_name += "_even_further_past_63_chars"
         self.assertGreater(len(long_name), 63)

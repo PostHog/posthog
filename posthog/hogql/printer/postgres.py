@@ -438,7 +438,7 @@ class PostgresPrinter(BasePrinter):
         return None
 
     def _print_identifier(self, name: str) -> str:
-        if len(name) > 63 and "__" in name:
+        if len(name) > 63:
             name = self._truncate_identifier(name)
         return escape_postgres_identifier(name)
 
