@@ -411,11 +411,28 @@ jobs:
             - name: Install cargo-binstall
               uses: cargo-bins/cargo-binstall@5cbf019d8cb9b9d5b086218c41458ea35d817691 # main
 
+            - name: Restore cargo-nextest cache
+              uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+              id: cache-nextest
+              with:
+                  path: ~/.cargo/bin/cargo-nextest
+                  key: cargo-nextest-${{ runner.os }}-${{ runner.arch }}-0.9.140
+
             - name: Install cargo-nextest
+              if: steps.cache-nextest.outputs.cache-hit != 'true'
               # --force: Swatinem/rust-cache restores ~/.cargo/.crates2.json but not the
               # binary itself, so without --force binstall can short-circuit ("already
               # installed") and leave no `cargo nextest` binary.
-              run: cargo binstall --no-confirm --force cargo-nextest@0.9.140
+              # --disable-strategies compile: fail fast on GitHub API errors instead of
+              # attempting a doomed source build (nextest rejects install without --locked).
+              run: cargo binstall --no-confirm --force --disable-strategies compile cargo-nextest@0.9.140
+
+            - name: Save cargo-nextest cache
+              if: steps.cache-nextest.outputs.cache-hit != 'true' && github.ref == 'refs/heads/master'
+              uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+              with:
+                  path: ~/.cargo/bin/cargo-nextest
+                  key: cargo-nextest-${{ runner.os }}-${{ runner.arch }}-0.9.140
 
             - name: Run cargo test
               env:
