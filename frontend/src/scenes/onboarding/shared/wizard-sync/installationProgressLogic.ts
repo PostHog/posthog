@@ -682,10 +682,13 @@ export const installationProgressLogic = kea<installationProgressLogicType>([
             // The detector's REST poll is only useful to the local instance (it gates the FAB's
             // local stream and receives markActive sync) — mounting it from cloud instances would
             // run a background poll for the whole run for nothing (INC-886 family).
-            // It is a singleton polling `posthog-integration`, so only that workflow's instance may
-            // drive it; a self-driving instance mounting it would poll for a run it isn't watching.
-            if (resolveWorkflowId(props) === POSTHOG_INTEGRATION_WORKFLOW_ID) {
-                cache.detectorUnmount = wizardActiveSessionDetectorLogic.mount()
+            // The detector is a singleton that always watches `posthog-integration`; register this
+            // instance's program so its runs are detected too, and drop the registration on unmount.
+            cache.detectorUnmount = wizardActiveSessionDetectorLogic.mount()
+            const watched = resolveWorkflowId(props)
+            if (watched !== POSTHOG_INTEGRATION_WORKFLOW_ID) {
+                wizardActiveSessionDetectorLogic.actions.watchWorkflow(watched)
+                cache.unwatchWorkflow = () => wizardActiveSessionDetectorLogic.actions.unwatchWorkflow(watched)
             }
             // Seed from a session already on the shared stream: the listener only sees NEW
             // deliveries, so a remount would otherwise wait for the next tick (long in polling
@@ -699,6 +702,12 @@ export const installationProgressLogic = kea<installationProgressLogicType>([
     beforeUnmount(({ actions, props, cache }) => {
         actions.disconnectTaskRun()
         releaseSessionShare(sessionStreamKey(props), instanceKey(props), actions.disconnectSession)
+        // Drop the workflow registration before unmounting the detector, so the refcount is settled
+        // whether or not this was the last instance holding it open.
+        if (cache.unwatchWorkflow) {
+            cache.unwatchWorkflow()
+            cache.unwatchWorkflow = undefined
+        }
         if (cache.detectorUnmount) {
             cache.detectorUnmount()
             cache.detectorUnmount = undefined
@@ -772,16 +781,12 @@ export function runLocalSessionBookkeeping(
     // teardown actually run. Only schedule teardown on the eligible → ineligible *transition* so
     // repeated re-polls don't reset the clock. The detector is mounted by the local instance's
     // afterMount, which always precedes this bookkeeping.
-    // The detector is a singleton scoped to `posthog-integration` (it gates the app-wide FAB), so
-    // only that workflow's sessions may move it. Letting a self-driving session call markActive
-    // would make the FAB claim an SDK install is live.
-    const detector =
-        workflowId === POSTHOG_INTEGRATION_WORKFLOW_ID ? wizardActiveSessionDetectorLogic.findMounted() : null
+    const detector = wizardActiveSessionDetectorLogic.findMounted()
     if (detector) {
         const eligible = isSessionActive(session)
         const wasEligible = isSessionActive(prev)
         if (eligible) {
-            detector.actions.markActive()
+            detector.actions.markActive(workflowId)
         } else if (wasEligible) {
             detector.actions.scheduleMarkInactive()
         }

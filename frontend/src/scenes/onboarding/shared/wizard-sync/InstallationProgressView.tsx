@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
+import { type ReactNode, useEffect, useRef } from 'react'
 
 import * as wizardPng from '@posthog/brand/hoggies/png/wizard-1'
 import {
@@ -64,6 +64,10 @@ const UPCOMING_STEPS: Record<InstallationMode, string[]> = {
     local: ['Detecting your framework', 'Installing the PostHog SDK', 'Wiring up event capture'],
 }
 
+// The self-driving program does different work, so previewing the SDK-install steps would promise
+// the wrong thing while we wait for the run to report in.
+const SELF_DRIVING_UPCOMING_STEPS = ['Connecting GitHub', 'Choosing signal sources', 'Tailoring your scouts']
+
 const CONNECTING_SUBTITLE: Record<InstallationMode, string> = {
     cloud: 'Firing up a sandbox for your repo. The wizard takes it from there.',
     local: 'Waiting for the wizard in your terminal to check in.',
@@ -77,6 +81,7 @@ const CONNECTING_SUBTITLE: Record<InstallationMode, string> = {
  */
 export function InstallationProgressContent({
     workflowId,
+    continueHint,
     progress,
     mode,
     dashboard,
@@ -89,6 +94,8 @@ export function InstallationProgressContent({
     mode?: InstallationMode
     /** Wizard program being watched — picks the copy, since the programs do different work. */
     workflowId?: string
+    /** Shown while the run is in flight, to say it keeps going if the user navigates away. */
+    continueHint?: ReactNode
     /** Dashboard the wizard built, when detected — surfaced as the completed state's payoff. */
     dashboard?: DetectedDashboard | null
     /** Telemetry hook for the dashboard CTA — navigation itself rides the button's `to`. */
@@ -171,7 +178,10 @@ export function InstallationProgressContent({
     // Before the stream delivers steps there is nothing moving on screen — carry the "alive" signal in
     // the header, and preview the pipeline so the wait reads as "about to do X", not a mystery.
     const waitingForSteps = steps.length === 0 && (phase === 'connecting' || phase === 'running') && !prReady
-    const upcomingSteps = phase === 'connecting' && steps.length === 0 && mode ? UPCOMING_STEPS[mode] : null
+    // Preview the plan for the whole gap before the first real step arrives, not just while
+    // connecting: a run that has started but not yet reported leaves the card otherwise empty.
+    const upcomingSteps =
+        waitingForSteps && mode ? (selfDriving ? SELF_DRIVING_UPCOMING_STEPS : UPCOMING_STEPS[mode]) : null
 
     return (
         <div
@@ -258,6 +268,10 @@ export function InstallationProgressContent({
                         ))}
                     </ol>
                 )
+            )}
+
+            {continueHint && phase !== 'completed' && phase !== 'error' && (
+                <p className="text-xs text-muted m-0 border-t border-border pt-3">{continueHint}</p>
             )}
 
             {phase === 'completed' &&
@@ -386,6 +400,7 @@ export function InstallationProgressView({
     runId,
     taskId,
     workflowId,
+    continueHint,
     floating = false,
     onDismiss,
     onRetryLocally,
@@ -396,6 +411,8 @@ export function InstallationProgressView({
     taskId?: string
     /** Wizard program to track. Defaults to the SDK install. */
     workflowId?: string
+    /** Shown while the run is in flight, to say it keeps going if the user navigates away. */
+    continueHint?: ReactNode
     /** Rendered in the floating FAB rather than inline on the install step. */
     floating?: boolean
     onDismiss?: () => void
@@ -448,6 +465,7 @@ export function InstallationProgressView({
     return (
         <InstallationProgressContent
             workflowId={workflowId}
+            continueHint={continueHint}
             progress={installationProgress}
             mode={mode}
             dashboard={dashboard}

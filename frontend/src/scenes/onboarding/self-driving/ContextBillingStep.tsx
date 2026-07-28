@@ -25,9 +25,11 @@ import { type BillingProductV2Type } from '~/types'
  * layout/GlobalModals) over the card and returns to the same URL.
  */
 
-function priceLabel(usd: number | null): string {
+/** Null when billing didn't give us a price, so the card can leave the slot empty rather than
+ * showing a unit with no number. */
+function priceLabel(usd: number | null): string | null {
     if (usd === null) {
-        return 'per shipped PR'
+        return null
     }
     const formatted = Number.isInteger(usd) ? `$${usd}` : `$${usd.toFixed(2)}`
     return `${formatted} per shipped PR`
@@ -138,7 +140,7 @@ function PlanChoice({
                         <p className="m-0 text-base font-semibold">Pay-as-you-go</p>
                         <p className="m-0 text-xs text-muted">Free allowance included</p>
                     </div>
-                    <p className="m-0 text-sm text-muted">{perPr}</p>
+                    {perPr && <p className="m-0 text-sm text-muted">{perPr}</p>}
                 </div>
                 <ul className="flex flex-col gap-1.5 m-0 p-0 list-none">
                     <li className="flex items-center gap-2">
@@ -180,12 +182,15 @@ export function ContextBillingStep({ onContinue }: { onContinue: () => void }): 
         )
     }
 
-    // No billing at all (e.g. self-hosted without a license), so nothing to subscribe to here.
+    // Either billing isn't set up on this instance (self-hosted without a license, or local dev) or
+    // the request failed. We can't tell them apart from here, and neither is worth blocking setup
+    // over, so say what we know and keep the flow moving.
     if (!billing) {
         return (
             <div className="flex flex-col gap-3">
                 <p className="text-sm text-muted m-0">
-                    Billing isn't configured on this instance, so there's nothing to pick here.
+                    We couldn't load billing just now. Nothing is blocked – your agents are set up, and you can pick a
+                    plan later from billing settings.
                 </p>
                 <div className="flex items-center justify-between gap-2">
                     <LemonButton type="secondary" to="https://posthog.com/pricing" targetBlank>

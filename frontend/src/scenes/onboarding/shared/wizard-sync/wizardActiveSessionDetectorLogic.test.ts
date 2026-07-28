@@ -131,7 +131,7 @@ describe('wizardActiveSessionDetectorLogic', () => {
     })
 
     it('defers teardown (scheduleMarkInactive) when an active session goes terminal', async () => {
-        logic.actions.markActive()
+        logic.actions.markActive('posthog-integration')
         await expectLogic(logic).toMatchValues({ hasActiveSession: true })
 
         mockLatestRetrieve.mockResolvedValue(makeSession({ run_phase: 'completed' }))
@@ -159,7 +159,7 @@ describe('wizardActiveSessionDetectorLogic', () => {
         })
 
         it('fires markInactive once the 30s grace window elapses', async () => {
-            logic.actions.markActive()
+            logic.actions.markActive('posthog-integration')
             logic.actions.scheduleMarkInactive()
 
             // Just before the deadline: the stream is still up.
@@ -176,12 +176,12 @@ describe('wizardActiveSessionDetectorLogic', () => {
         })
 
         it('cancels the pending teardown when markActive fires inside the window', async () => {
-            logic.actions.markActive()
+            logic.actions.markActive('posthog-integration')
             logic.actions.scheduleMarkInactive()
 
             jest.advanceTimersByTime(15_000)
             // A fresh active signal (e.g. an SSE heartbeat) cancels the scheduled teardown.
-            logic.actions.markActive()
+            logic.actions.markActive('posthog-integration')
 
             await expectLogic(logic, () => {
                 jest.advanceTimersByTime(60_000)
@@ -191,7 +191,7 @@ describe('wizardActiveSessionDetectorLogic', () => {
         })
 
         it('keeps the original deadline when scheduleMarkInactive is repeated (idempotent)', async () => {
-            logic.actions.markActive()
+            logic.actions.markActive('posthog-integration')
             logic.actions.scheduleMarkInactive() // deadline = now + 30s
 
             jest.advanceTimersByTime(20_000)

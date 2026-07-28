@@ -101,7 +101,11 @@ function InstallOptions({ onContinue }: { onContinue: () => void }): JSX.Element
 function InstallStep({ onContinue }: { onContinue: () => void }): JSX.Element {
     const isLocalRunActive = useLocalWizardRunActive(SELF_DRIVING_WORKFLOW_ID)
     return isLocalRunActive ? (
-        <InstallationProgressView mode="local" workflowId={SELF_DRIVING_WORKFLOW_ID} />
+        <InstallationProgressView
+            mode="local"
+            workflowId={SELF_DRIVING_WORKFLOW_ID}
+            continueHint="Keep answering the wizard in your terminal. Progress shows up here as it goes, so you can carry on with the rest of onboarding whenever you like."
+        />
     ) : (
         <InstallOptions onContinue={onContinue} />
     )
