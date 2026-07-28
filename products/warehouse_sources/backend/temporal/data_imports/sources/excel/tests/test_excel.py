@@ -55,6 +55,9 @@ class TestDedupeHeaders(SimpleTestCase):
             # A header already containing the suffixed form must not collide onto it — naive
             # per-base counting yields two "A_2" columns, which the table can't have.
             ("existing_suffix_is_skipped", ("A", "A_2", "A"), ["A", "A_2", "A_3"]),
+            # A 32KB cell abused as a header is data, not a name — and cached discovery results
+            # must stay small. Truncated twins stay distinct via the suffix.
+            ("overlong_names_truncate", ("x" * 300, "x" * 301), ["x" * 255, "x" * 255 + "_2"]),
         ]
     )
     def test_produces_unique_names(self, _name: str, header: tuple, expected: list[str]) -> None:

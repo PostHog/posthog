@@ -51,6 +51,11 @@ MAX_COLUMNS_PER_SHEET = 2000
 # retains per entry. Real workbooks are dozens of sheets times dozens of columns.
 MAX_TOTAL_COLUMNS = 20_000
 
+# An Excel cell can hold 32,767 characters, but a column name that long is data in the wrong row, and
+# retaining it (column caps notwithstanding) is what would blow up the discovery memo. Truncation
+# keeps the workbook importable; the dedupe suffix keeps truncated twins distinct.
+MAX_COLUMN_NAME_LENGTH = 255
+
 
 class ExcelReadError(Exception):
     """The workbook couldn't be read. The message is safe to surface to the user."""
@@ -143,6 +148,7 @@ def dedupe_headers(header: tuple) -> list[str]:
     used: set[str] = set()
     for index, value in enumerate(header):
         base = str(value).strip() if value is not None and str(value).strip() else f"column_{index + 1}"
+        base = base[:MAX_COLUMN_NAME_LENGTH]
         name = base
         suffix = 2
         while name in used:
@@ -164,8 +170,9 @@ def list_sheets(team_id: int, upload_id: str, filename: str) -> list[tuple[str, 
     Memoized per process: an upload is immutable (replacing the file mints a new upload_id), and
     discovery runs in web requests that call this twice each (credential validation, then the schema
     list) — without the cache every call re-downloads and re-parses a workbook of up to 50 MB. The
-    retained footprint is bounded: each entry is capped by MAX_TOTAL_COLUMNS, and discovery is a
-    bursty setup activity so a handful of recent workbooks per worker is plenty. Callers must not
+    retained footprint is bounded: each entry holds at most MAX_TOTAL_COLUMNS names of at most
+    MAX_COLUMN_NAME_LENGTH characters, and discovery is a bursty setup activity so a handful of
+    recent workbooks per worker is plenty. Callers must not
     mutate the returned value.
     """
     workbook = _open_workbook(_uploaded_workbook_bytes(team_id, upload_id, filename))
