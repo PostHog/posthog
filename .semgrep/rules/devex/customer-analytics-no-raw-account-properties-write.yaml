@@ -2,16 +2,13 @@ rules:
     - id: customer-analytics-no-raw-account-properties-write
       message: |
           Don't write Account `_properties` directly. Every account write must go through the
-          AccountManager chokepoint — `Account.objects.create_account(...)` or
-          `Account.objects.update_account(...)` — which validates and coerces properties via
-          `AccountProperties.from_input`.
+          facade chokepoint — `facade.api.create_account(...)` or `facade.api.update_account(...)`
+          — which validates and coerces properties via `AccountProperties.from_input`.
 
           Passing `_properties=` to `.create(...)` or assigning `account._properties = ...`
           bypasses that validation and can persist malformed properties.
 
-          Pass `properties=<dict>` to the manager instead. Tags and the surrounding transaction
-          are the caller's responsibility (see `api/serializers.py` and `max_tools/upsert_account.py`
-          for the pattern).
+          Pass `properties=<dict>` to the facade function instead.
 
           Test setup may build fixtures directly, so this rule excludes tests. For a genuine
           non-test exception, add
@@ -23,6 +20,7 @@ rules:
               - '/products/customer_analytics/backend/**'
           exclude:
               - '/products/customer_analytics/backend/models/account.py'
+              - '/products/customer_analytics/backend/facade/api.py'
               - '**/test_*.py'
               - '**/*_test.py'
               - '**/test/**'
