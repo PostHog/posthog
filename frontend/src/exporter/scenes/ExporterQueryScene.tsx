@@ -1,5 +1,6 @@
 import '../ExportedInsight/ExportedInsight.scss'
 
+import clsx from 'clsx'
 import { BindLogic, useMountedLogic } from 'kea'
 
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
@@ -7,10 +8,11 @@ import { DISPLAY_TYPES_WITHOUT_LEGEND } from 'lib/components/InsightLegend/utils
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { DISPLAYS_WITH_IN_CHART_LEGEND } from 'scenes/insights/insightVizDataLogic'
 
 import { Query } from '~/queries/Query/Query'
 import { SharingConfigurationSettings } from '~/queries/schema/schema-general'
-import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
+import { getDisplay, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType, InsightLogicProps } from '~/types'
 
 import { ExportedData } from '../types'
@@ -34,22 +36,9 @@ export default function ExporterQueryScene({
 }): JSX.Element {
     useMountedLogic(dataThemeLogic({ themes }))
 
-    if (isInsightVizNode(query) && isTrendsQuery(query.source) && query.source.trendsFilter?.showLegend) {
-        // The exporter renders its own horizontal legend below the chart, never the
-        // in-chart side legend — mirrors ExportedInsight.
-        query = {
-            ...query,
-            source: { ...query.source, trendsFilter: { ...query.source.trendsFilter, showLegend: false } },
-        }
-    }
-
-    const insightLogicProps: InsightLogicProps = {
-        dashboardItemId: 'new-adhoc-export',
-        doNotLoad: true,
-    }
-
-    const trendsDisplay =
-        isInsightVizNode(query) && isTrendsQuery(query.source) ? query.source.trendsFilter?.display : undefined
+    // getDisplay rather than a raw trendsFilter read, so deprecated display aliases pick the same
+    // legend layout here as the chart they get normalized to.
+    const trendsDisplay = isInsightVizNode(query) && isTrendsQuery(query.source) ? getDisplay(query.source) : undefined
     const showLegend =
         exportOptions.legend &&
         isInsightVizNode(query) &&
@@ -57,9 +46,42 @@ export default function ExporterQueryScene({
         !SINGLE_SERIES_DISPLAY_TYPES.includes(trendsDisplay as ChartDisplayType) &&
         !DISPLAY_TYPES_WITHOUT_LEGEND.includes(trendsDisplay as ChartDisplayType)
 
+    // Displays covered by the quill in-chart legend draw the legend inside the chart itself.
+    const usesQuillInChartLegend =
+        !trendsDisplay || DISPLAYS_WITH_IN_CHART_LEGEND.includes(trendsDisplay as ChartDisplayType)
+
+    if (isInsightVizNode(query) && isTrendsQuery(query.source)) {
+        query = {
+            ...query,
+            source: {
+                ...query.source,
+                trendsFilter: usesQuillInChartLegend
+                    ? // Pinned to the bottom to match the legacy exported layout (legend below the chart).
+                      { ...query.source.trendsFilter, showLegend: !!showLegend, legendPosition: 'bottom' }
+                    : // The legend is rendered separately below, so don't show it alongside the chart too.
+                      { ...query.source.trendsFilter, showLegend: false },
+            },
+        }
+    }
+
+    // `query` carries the display type, breakdown, and formulas. Without it insightDataLogic falls back
+    // to a bare default TrendsQuery, and every ad-hoc export renders as a plain line chart. The
+    // `new-AdHoc.` prefix is what gates that props-query path — insightDataLogic ignores `props.query`
+    // under any other dashboardItemId.
+    const insightLogicProps: InsightLogicProps = {
+        dashboardItemId: 'new-AdHoc.export',
+        query,
+        doNotLoad: true,
+    }
+
     return (
         <BindLogic logic={insightLogic} props={insightLogicProps}>
-            <div className="ExportedInsight">
+            <div
+                className={clsx(
+                    'ExportedInsight',
+                    trendsDisplay === ChartDisplayType.Metric && 'ExportedInsight--metric'
+                )}
+            >
                 <div className="ExportedInsight__content">
                     <Query
                         query={query}
@@ -69,7 +91,7 @@ export default function ExporterQueryScene({
                         readOnly
                         inSharedMode
                     />
-                    {showLegend && (
+                    {showLegend && !usesQuillInChartLegend && (
                         <div className="p-4">
                             <InsightLegend horizontal readOnly />
                         </div>
