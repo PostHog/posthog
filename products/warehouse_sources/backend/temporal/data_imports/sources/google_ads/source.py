@@ -88,8 +88,8 @@ class GoogleAdsSource(
     api_docs_url = "https://developers.google.com/google-ads/api/docs/release-notes"
     # Google sunsets each major ~12 months after release; v24 (released 2026-04-22) is projected
     # for ~May 2027 but has no firm date on the sunset page yet, so `sunset_at` stays None until
-    # Google publishes one. v25 reads the same resources/fields as v24 (its breaking changes only
-    # remove the lifecycle-goal resources this source never reads), so repinning needs no transform.
+    # Google publishes one. Existing v24 pins stay on v24 until then — Google still serves it, and
+    # the repin belongs in the PR that records the real sunset date.
     deprecated_versions = (VersionDeprecation(version="v24", sunset_at=None),)
 
     @property
