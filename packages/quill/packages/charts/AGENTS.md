@@ -53,6 +53,12 @@ const series: Series[] = [
 
 Charts fill their container and need a parent with real dimensions — a `0`-height flex child renders nothing. Give the wrapper an explicit height (`h-64`, `flex-1` in a sized column). Sparkline alone takes `height`/`width` props.
 
+Overlays (axis labels, axis titles, reference/goal lines, value labels, legend, tooltip) are DOM, positioned from the scales; the grid, axis lines, tick marks, and the series themselves are canvas.
+That split is the first thing to check when a chart looks broken: if the labels and goal lines render in the right places but the plot area is empty, the layout is fine and the canvas alone failed.
+Check the cheap causes first: `theme.skipDraw` suppresses all canvas painting by design, and a `drawStatic` that throws leaves the frame it was clearing empty.
+Beyond those, the bitmap is discarded either by `syncCanvasSize` reallocating it (a real resize) or by the browser losing the 2D context, and `useChartCanvas` repaints after both — so a blank plot under correct overlays means one of those paths didn't schedule its repaint.
+Safari is the exception: it never fires `contextrestored`, so a context lost there stays blank.
+
 ## Composition
 
 ```tsx
@@ -95,7 +101,7 @@ Charts fill their container and need a parent with real dimensions — a `0`-hei
 
 Import test helpers from `@posthog/quill-charts/testing` (jsdom-only).
 
-- `getHogChart(scope?)` reads rendered overlays via stable `data-attr` hooks — `yTicks()`, `xTicks()`, `valueLabels()`, `referenceLines()`, axis titles, `seriesCount`, etc. Its `waitForTooltip()` returns a structured `TooltipSnapshot` but only when the chart was mounted via `renderHogChart` (it needs the captured tooltip context).
+- `getHogChart(scope?)` reads rendered overlays via stable `data-attr` hooks — `yTicks()`, `xTicks()`, `valueLabels()`, `referenceLines()`, axis titles, `seriesCount`, etc. Its `waitForTooltip()` returns a structured `TooltipSnapshot` but only when the chart was mounted via `renderHogChart` (it needs the captured tooltip context). `canvas` is the static (data) canvas, for asserting the backing store or dispatching a canvas-level event — use it instead of `container.querySelector('canvas')`.
 - For a chart rendered outside `renderHogChart` (e.g. a real product scene), read the tooltip from the DOM: `getHogChartTooltip()` / `waitForHogChartTooltip()` return the portal element; `createHogChartTooltip(el)` wraps it as `{ element, isPinned }`. If the chart renders the built-in `DefaultTooltip`, use `createDefaultTooltipAccessor(el)` for `label()`, `rows()`, `value(seriesLabel)`, `swatchColors()`, and `total()` — it reads `DefaultTooltip`'s `data-attr="hog-chart-tooltip-*"` hooks (a stable testing contract; keep the accessor and the component's attrs in sync).
 
 ## Maintenance
