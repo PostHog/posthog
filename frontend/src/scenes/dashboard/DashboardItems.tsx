@@ -554,12 +554,13 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                 const queryError = getInsightQueryError(insight)
                                 const apiErrored =
                                     isErrorTile || !!queryError || refreshStatus[insight.short_id]?.errored || false
+                                const refreshError = refreshStatus[insight.short_id]?.error
                                 const apiError = isErrorTile
                                     ? new ApiError(undefined, 500, undefined, {
                                           detail: tile.error!.message,
                                           code: 'dashboard_tile_error',
                                       })
-                                    : queryError || refreshStatus[insight.short_id]?.error
+                                    : refreshError || queryError
                                 const loadingQueued = isErrorTile ? false : isRefreshingQueued(insight.short_id)
                                 const loading = isErrorTile ? false : isRefreshing(insight.short_id)
 

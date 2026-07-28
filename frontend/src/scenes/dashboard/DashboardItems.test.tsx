@@ -420,6 +420,7 @@ describe('DashboardItems', () => {
                 },
             },
         }
+        const refreshStatus = {}
         mockedUseValues.mockImplementation((logic) => {
             if (logic === dashboardLogic) {
                 return {
@@ -431,7 +432,7 @@ describe('DashboardItems', () => {
                     isRefreshingQueued: () => false,
                     isRefreshing: () => false,
                     highlightedInsightId: null,
-                    refreshStatus: {},
+                    refreshStatus,
                     dashboardStreaming: false,
                     effectiveEditBarFilters: {},
                     effectiveDashboardVariableOverrides: {},
@@ -452,7 +453,7 @@ describe('DashboardItems', () => {
             return {}
         })
 
-        const { container } = render(<DashboardItems />)
+        const { container, rerender } = render(<DashboardItems />)
         const insightCard = container.querySelector('[data-attr="insight-card"]')
 
         expect(insightCard).toHaveAttribute('data-api-errored', 'true')
@@ -462,5 +463,21 @@ describe('DashboardItems', () => {
             'data-api-error-detail',
             'This query ran out of memory before it could finish'
         )
+
+        Object.assign(refreshStatus, {
+            abc123: {
+                errored: true,
+                error: {
+                    status: 503,
+                    detail: 'The refreshed query failed',
+                    code: 'refresh_failed',
+                },
+            },
+        })
+        rerender(<DashboardItems />)
+
+        expect(insightCard).toHaveAttribute('data-api-error-status', '503')
+        expect(insightCard).toHaveAttribute('data-api-error-code', 'refresh_failed')
+        expect(insightCard).toHaveAttribute('data-api-error-detail', 'The refreshed query failed')
     })
 })
