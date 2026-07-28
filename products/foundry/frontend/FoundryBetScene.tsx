@@ -59,6 +59,14 @@ function BetNodeTree({ nodes }: { nodes: BetNodeRecord[] }): JSX.Element | null 
     )
 }
 
+interface GateCheckRow {
+    name: string
+    type: string
+    pass: boolean
+    required: boolean
+    details: string
+}
+
 function GateReportCard({ events }: { events: BetEventRecord[] }): JSX.Element | null {
     const latestGateResult = [...events].reverse().find((event) => event.kind === 'gate.result')
     if (!latestGateResult) {
@@ -67,7 +75,7 @@ function GateReportCard({ events }: { events: BetEventRecord[] }): JSX.Element |
     const payload = (latestGateResult.payload ?? {}) as Record<string, any>
     const skipped = Boolean(payload.skipped)
     const passed = Boolean(payload.pass)
-    const violations = (payload.violations ?? []) as { code?: string; message?: string; severity?: string }[]
+    const checks = (payload.checks ?? []) as GateCheckRow[]
 
     return (
         <div className="border rounded p-3 flex flex-col gap-2" data-attr="foundry-gate-card">
@@ -85,15 +93,44 @@ function GateReportCard({ events }: { events: BetEventRecord[] }): JSX.Element |
                 ) : null}
             </div>
             {skipped && payload.reason ? <div className="text-muted text-xs">{String(payload.reason)}</div> : null}
-            {violations.length > 0 && (
-                <ul className="flex flex-col gap-1">
-                    {violations.map((violation, index) => (
-                        <li key={index} className="text-xs flex items-center gap-1">
-                            <LemonTag type="warning">{violation.severity ?? violation.code ?? 'violation'}</LemonTag>
-                            {violation.message}
-                        </li>
-                    ))}
-                </ul>
+            {checks.length > 0 && (
+                <LemonTable
+                    dataSource={checks}
+                    size="small"
+                    embedded
+                    rowKey={(check) => check.name}
+                    expandable={{
+                        expandedRowRender: (check) => (
+                            <div className="p-2 bg-surface-primary border-t text-xs whitespace-pre-wrap">
+                                {check.details}
+                            </div>
+                        ),
+                        rowExpandable: (check) => Boolean(check.details),
+                    }}
+                    columns={[
+                        { title: 'Check', key: 'name', render: (_, check) => <code>{check.name}</code> },
+                        { title: 'Type', key: 'type', render: (_, check) => <span>{check.type}</span> },
+                        {
+                            title: 'Required',
+                            key: 'required',
+                            render: (_, check) => (
+                                <LemonTag type={check.required ? 'default' : 'muted'}>
+                                    {check.required ? 'required' : 'optional'}
+                                </LemonTag>
+                            ),
+                        },
+                        {
+                            title: 'Result',
+                            key: 'pass',
+                            render: (_, check) =>
+                                check.pass ? (
+                                    <LemonTag type="success">pass</LemonTag>
+                                ) : (
+                                    <LemonTag type={check.required ? 'danger' : 'warning'}>fail</LemonTag>
+                                ),
+                        },
+                    ]}
+                />
             )}
         </div>
     )
@@ -136,10 +173,17 @@ function EventPayloadSummary({ event }: { event: BetEventRecord }): JSX.Element 
             </span>
         )
     }
+    if (event.kind === 'note') {
+        return <span className="text-muted">{String(payload.message ?? '')}</span>
+    }
     if (event.kind === 'gate.result') {
+        const checks = (payload.checks ?? []) as { name?: string }[]
         const violations = (payload.violations ?? []) as { code?: string; message?: string }[]
         return payload.pass ? (
-            <LemonTag type="success">pass</LemonTag>
+            <span className="flex items-center gap-1">
+                <LemonTag type="success">pass</LemonTag>
+                {checks.length > 0 ? <span className="text-muted text-xs">{checks.length} checks</span> : null}
+            </span>
         ) : (
             <span className="flex flex-wrap gap-1">
                 <LemonTag type="danger">fail</LemonTag>
