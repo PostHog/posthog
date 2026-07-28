@@ -39,13 +39,21 @@ function asEmbeddedChart(query: Record<string, any>): Node {
     return node as Node
 }
 
-/** A SQL node draws a table unless it was given a graphical display, and only a graph needs a box. */
+/**
+ * A SQL node draws a table unless it was given a graphical display, and only a graph needs a box.
+ *
+ * `Auto` is not one: it defers to the data visualization, which reads the result and draws a table
+ * for nonnumeric columns or a bold number for a single numeric one. Neither wants a graph's fixed
+ * height — the table ends up clipped into a scrolling region and the number sits in an oversized
+ * card — and nothing here can tell which it will be before the query returns. So it sizes to its
+ * content, like the table an absent display already produces.
+ */
 function isGraphicalSqlNode(query: Node): boolean {
     if (!isDataVisualizationNode(query)) {
         return false
     }
     const { display } = query as DataVisualizationNode
-    return !!display && display !== ChartDisplayType.ActionsTable
+    return !!display && display !== ChartDisplayType.ActionsTable && display !== ChartDisplayType.Auto
 }
 
 // Written out per size rather than built from one map: Tailwind only emits classes it can read
