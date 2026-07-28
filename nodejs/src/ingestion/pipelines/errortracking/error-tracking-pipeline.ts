@@ -162,11 +162,13 @@ export function createErrorTrackingPipeline(config: ErrorTrackingPipelineConfig)
         // keys on the hashed distinct_id assigned by the cookieless step.
         .pipeChunk(createSkipCookielessRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
         .parseMessage()
-        .resolveTeam([
-            countOk('resolved_teams', (output) => ({
-                team_id: String(output.team.id),
-            })),
-        ])
+        .resolveTeam({
+            topHog: [
+                countOk('resolved_teams', (output) => ({
+                    team_id: String(output.team.id),
+                })),
+            ],
+        })
         // Carry the Kafka message byte size through for Cymbal batch chunking.
         .pipe(createAttachMessageBytesStep())
         // Cookieless processing: rewrites event.distinct_id for cookieless

@@ -286,12 +286,14 @@ export class CommonPreTeamStage<
         private readonly chain: PreTeamChain<TInput, TContext, ROut, CBatch, TCurrent>
     ) {}
 
-    /** Per-element step; consecutive pipes run in one sequential block. */
+    /** Per-element step; consecutive pipes run in one sequential block.
+     * `options.topHog` records metric factories around the step. */
     pipe<U extends { message: Message; headers: EventHeaders }, R2 extends ROut>(
         step: ProcessingStep<TCurrent, U, R2>,
-        options?: { retry?: RetryOptions }
+        options?: { retry?: RetryOptions; topHog?: TopHogMetricFactory<TCurrent, U>[] }
     ): CommonPreTeamStage<TInput, TContext, ROut, CBatch, U> {
-        return new CommonPreTeamStage(this.config, this.beforeBatchCallback, this.chain.extend(step, options))
+        const wrapped = options?.topHog?.length ? createTopHogWrapper(this.config.topHog)(step, options.topHog) : step
+        return new CommonPreTeamStage(this.config, this.beforeBatchCallback, this.chain.extend(wrapped, options))
     }
 
     /** Chunk-level step (e.g. rate-limit-to-overflow); closes the open sequential block. */
@@ -311,17 +313,17 @@ export class CommonPreTeamStage<
      * Parse the message body; after this, body-dependent steps can be piped.
      *
      * Parse timing and raw message sizes are always recorded to topHog
-     * (`parseMessageTopHogMetrics`); `extraMetrics` appends pipeline-specific
-     * factories on top.
+     * (`parseMessageTopHogMetrics`); `options.topHog` appends
+     * pipeline-specific metric factories on top.
      */
-    parseMessage(
-        extraMetrics?: TopHogMetricFactory<TCurrent, TCurrent & { event: IncomingEvent }>[]
-    ): CommonPreTeamStage<TInput, TContext, ROut, CBatch, TCurrent & { event: IncomingEvent }> {
+    parseMessage(options?: {
+        topHog?: TopHogMetricFactory<TCurrent, TCurrent & { event: IncomingEvent }>[]
+    }): CommonPreTeamStage<TInput, TContext, ROut, CBatch, TCurrent & { event: IncomingEvent }> {
         const topHog = createTopHogWrapper(this.config.topHog)
         return this.pipe(
             topHog(createParseKafkaMessageStep<TCurrent>(), [
                 ...parseMessageTopHogMetrics<TCurrent, TCurrent & { event: IncomingEvent }>(),
-                ...(extraMetrics ?? []),
+                ...(options?.topHog ?? []),
             ])
         )
     }
@@ -331,15 +333,18 @@ export class CommonPreTeamStage<
      * open the team-aware scope: every step piped after this runs inside
      * `handleIngestionWarnings`, with warnings routed to the resolved team.
      *
-     * `metrics` records topHog metrics around the team-resolution step (e.g.
-     * a per-team resolved counter).
+     * `options.topHog` records metric factories around the team-resolution
+     * step (e.g. a per-team resolved counter).
      */
     resolveTeam(
         this: CommonPreTeamStage<TInput, TContext, ROut, CBatch, TCurrent & { event: IncomingEvent }>,
-        metrics?: TopHogMetricFactory<TCurrent & { event: IncomingEvent }, TeamResolved<TCurrent>>[]
+        options?: {
+            topHog?: TopHogMetricFactory<TCurrent & { event: IncomingEvent }, TeamResolved<TCurrent>>[]
+        }
     ): CommonTeamStage<TInput, TContext, ROut, CBatch, TeamResolved<TCurrent>, TeamResolved<TCurrent>> {
         const step = createResolveTeamStep<TCurrent & { event: IncomingEvent }>(this.config.teamManager)
         const topHog = createTopHogWrapper(this.config.topHog)
+        const metrics = options?.topHog
         const resolved = this.chain.extend(metrics?.length ? topHog(step, metrics) : step)
         return new CommonTeamStage(
             this.config,
@@ -377,16 +382,18 @@ export class CommonTeamStage<
         private readonly chain: TeamChain<TPost, TContext, ROut, TCurrent>
     ) {}
 
-    /** Per-element step; consecutive pipes run in one sequential block. */
+    /** Per-element step; consecutive pipes run in one sequential block.
+     * `options.topHog` records metric factories around the step. */
     pipe<U, R2 extends ROut>(
         step: ProcessingStep<TCurrent, U, R2>,
-        options?: { retry?: RetryOptions }
+        options?: { retry?: RetryOptions; topHog?: TopHogMetricFactory<TCurrent, U>[] }
     ): CommonTeamStage<TInput, TContext, ROut, CBatch, TPost, U> {
+        const wrapped = options?.topHog?.length ? createTopHogWrapper(this.config.topHog)(step, options.topHog) : step
         return new CommonTeamStage(
             this.config,
             this.beforeBatchCallback,
             this.preTeamTransform,
-            this.chain.extend(step, options)
+            this.chain.extend(wrapped, options)
         )
     }
 
