@@ -17,6 +17,15 @@ export const BillingAlertMetricEnumApi = {
 } as const
 
 /**
+ * * `USD` - USD
+ */
+export type CurrencyEnumApi = (typeof CurrencyEnumApi)[keyof typeof CurrencyEnumApi]
+
+export const CurrencyEnumApi = {
+    Usd: 'USD',
+} as const
+
+/**
  * * `relative_increase` - Relative increase
  * * `absolute_value` - Absolute value
  * * `absolute_increase` - Absolute increase
@@ -36,24 +45,14 @@ export const ThresholdTypeEnumApi = {
  * * `snoozed` - Snoozed
  * * `broken` - Broken
  */
-export type BillingAlertConfigurationStateEnumApi =
-    (typeof BillingAlertConfigurationStateEnumApi)[keyof typeof BillingAlertConfigurationStateEnumApi]
+export type BillingAlertStateEnumApi = (typeof BillingAlertStateEnumApi)[keyof typeof BillingAlertStateEnumApi]
 
-export const BillingAlertConfigurationStateEnumApi = {
+export const BillingAlertStateEnumApi = {
     NotFiring: 'not_firing',
     Firing: 'firing',
     Errored: 'errored',
     Snoozed: 'snoozed',
     Broken: 'broken',
-} as const
-
-/**
- * * `24` - 24
- */
-export type CheckIntervalHoursEnumApi = (typeof CheckIntervalHoursEnumApi)[keyof typeof CheckIntervalHoursEnumApi]
-
-export const CheckIntervalHoursEnumApi = {
-    Number24: 24,
 } as const
 
 /**
@@ -134,8 +133,10 @@ export interface BillingAlertConfigurationApi {
      *
      * * `spend` - Spend */
     readonly metric: BillingAlertMetricEnumApi
-    /** Server-controlled currency for spend values. */
-    readonly currency: string
+    /** Server-controlled currency for spend values.
+     *
+     * * `USD` - USD */
+    readonly currency: CurrencyEnumApi
     /** Revision incremented whenever evaluation behavior changes. */
     readonly configuration_revision: number
     /** Threshold rule type.
@@ -173,11 +174,14 @@ export interface BillingAlertConfigurationApi {
      * @maximum 72
      */
     evaluation_delay_hours?: number
-    readonly state: BillingAlertConfigurationStateEnumApi
-    /** Billing alerts evaluate one UTC billing date per day.
+    /** Current lifecycle state of this alert.
      *
-     * * `24` - 24 */
-    check_interval_hours?: CheckIntervalHoursEnumApi
+     * * `not_firing` - Not firing
+     * * `firing` - Firing
+     * * `errored` - Errored
+     * * `snoozed` - Snoozed
+     * * `broken` - Broken */
+    readonly state: BillingAlertStateEnumApi
     /**
      * Minimum hours between repeated firing notifications.
      * @minimum 0
@@ -188,20 +192,35 @@ export interface BillingAlertConfigurationApi {
      * ISO 8601 timestamp until which evaluation and notifications are snoozed, or null to resume.
      * @nullable
      */
-    snooze_until?: string | null
-    /** @nullable */
+    snoozed_until?: string | null
+    /**
+     * When the next scheduled evaluation is due.
+     * @nullable
+     */
     readonly next_check_at: string | null
-    /** @nullable */
+    /**
+     * When this alert was last evaluated.
+     * @nullable
+     */
     readonly last_checked_at: string | null
-    /** @nullable */
+    /**
+     * When notifications were last delivered for this alert.
+     * @nullable
+     */
     readonly last_notified_at: string | null
+    /** Number of consecutive failed evaluations. */
     readonly consecutive_failures: number
     /** Notification destination groups configured for this alert, including their shared HogFunctions. */
     readonly destinations: readonly BillingAlertDestinationSummaryApi[]
     /** Destination groups to create or delete in the same transaction as this configuration write. */
     destination_changes?: BillingAlertDestinationChangesApi
+    /** When this alert was created. */
     readonly created_at: string
-    readonly updated_at: string
+    /**
+     * When this alert was last updated.
+     * @nullable
+     */
+    readonly updated_at: string | null
 }
 
 export interface PaginatedBillingAlertConfigurationListApi {
@@ -246,8 +265,10 @@ export interface PatchedBillingAlertConfigurationApi {
      *
      * * `spend` - Spend */
     readonly metric?: BillingAlertMetricEnumApi
-    /** Server-controlled currency for spend values. */
-    readonly currency?: string
+    /** Server-controlled currency for spend values.
+     *
+     * * `USD` - USD */
+    readonly currency?: CurrencyEnumApi
     /** Revision incremented whenever evaluation behavior changes. */
     readonly configuration_revision?: number
     /** Threshold rule type.
@@ -285,11 +306,14 @@ export interface PatchedBillingAlertConfigurationApi {
      * @maximum 72
      */
     evaluation_delay_hours?: number
-    readonly state?: BillingAlertConfigurationStateEnumApi
-    /** Billing alerts evaluate one UTC billing date per day.
+    /** Current lifecycle state of this alert.
      *
-     * * `24` - 24 */
-    check_interval_hours?: CheckIntervalHoursEnumApi
+     * * `not_firing` - Not firing
+     * * `firing` - Firing
+     * * `errored` - Errored
+     * * `snoozed` - Snoozed
+     * * `broken` - Broken */
+    readonly state?: BillingAlertStateEnumApi
     /**
      * Minimum hours between repeated firing notifications.
      * @minimum 0
@@ -300,20 +324,35 @@ export interface PatchedBillingAlertConfigurationApi {
      * ISO 8601 timestamp until which evaluation and notifications are snoozed, or null to resume.
      * @nullable
      */
-    snooze_until?: string | null
-    /** @nullable */
+    snoozed_until?: string | null
+    /**
+     * When the next scheduled evaluation is due.
+     * @nullable
+     */
     readonly next_check_at?: string | null
-    /** @nullable */
+    /**
+     * When this alert was last evaluated.
+     * @nullable
+     */
     readonly last_checked_at?: string | null
-    /** @nullable */
+    /**
+     * When notifications were last delivered for this alert.
+     * @nullable
+     */
     readonly last_notified_at?: string | null
+    /** Number of consecutive failed evaluations. */
     readonly consecutive_failures?: number
     /** Notification destination groups configured for this alert, including their shared HogFunctions. */
     readonly destinations?: readonly BillingAlertDestinationSummaryApi[]
     /** Destination groups to create or delete in the same transaction as this configuration write. */
     destination_changes?: BillingAlertDestinationChangesApi
+    /** When this alert was created. */
     readonly created_at?: string
-    readonly updated_at?: string
+    /**
+     * When this alert was last updated.
+     * @nullable
+     */
+    readonly updated_at?: string | null
 }
 
 /**
@@ -388,39 +427,70 @@ export interface BillingAlertEventApi {
      * * `spend` - Spend */
     readonly metric: BillingAlertMetricEnumApi
     /**
+     * Metric value for the evaluated billing date.
      * @nullable
      * @pattern ^-?\d{0,14}(?:\.\d{0,6})?$
      */
     readonly current_value: string | null
     /**
+     * Average metric value across the baseline window.
      * @nullable
      * @pattern ^-?\d{0,14}(?:\.\d{0,6})?$
      */
     readonly baseline_value: string | null
     /**
+     * Current value minus the baseline value.
      * @nullable
      * @pattern ^-?\d{0,14}(?:\.\d{0,6})?$
      */
     readonly absolute_delta: string | null
     /**
+     * Percentage change against the baseline value.
      * @nullable
      * @pattern ^-?\d{0,22}(?:\.\d{0,6})?$
      */
     readonly relative_delta_percentage: string | null
+    /** Whether the evaluated value breached the configured threshold. */
     readonly threshold_breached: boolean
-    /** @nullable */
-    readonly state_before: string | null
-    /** @nullable */
-    readonly state_after: string | null
-    /** @nullable */
+    /** Alert state before this event was applied.
+     *
+     * * `not_firing` - Not firing
+     * * `firing` - Firing
+     * * `errored` - Errored
+     * * `snoozed` - Snoozed
+     * * `broken` - Broken */
+    readonly state_before: BillingAlertStateEnumApi | null
+    /** Alert state after this event was applied.
+     *
+     * * `not_firing` - Not firing
+     * * `firing` - Firing
+     * * `errored` - Errored
+     * * `snoozed` - Snoozed
+     * * `broken` - Broken */
+    readonly state_after: BillingAlertStateEnumApi | null
+    /**
+     * When notifications for this event were delivered.
+     * @nullable
+     */
     readonly notification_sent_at: string | null
+    /** Notification targets recorded for this event. */
     readonly targets_notified: unknown
-    /** @nullable */
+    /**
+     * Milliseconds spent fetching billing data for this evaluation.
+     * @nullable
+     */
     readonly query_duration_ms: number | null
-    /** @nullable */
+    /**
+     * Exception class name recorded when the evaluation failed.
+     * @nullable
+     */
     readonly error_code: string | null
-    /** @nullable */
+    /**
+     * Failure description recorded when the evaluation failed.
+     * @nullable
+     */
     readonly error_message: string | null
+    /** Human-readable explanation of the evaluation outcome. */
     readonly reason: string
 }
 
@@ -429,23 +499,6 @@ export interface BillingAlertCheckNowResponseApi {
     event: BillingAlertEventApi
     /** Number of destination HogFunctions queued. */
     dispatched_destinations: number
-}
-
-export interface BillingAlertCreateDestinationApi {
-    /** Destination type.
-     *
-     * * `slack` - slack
-     * * `webhook` - webhook
-     * * `teams` - teams */
-    type: NotificationDestinationTypeEnumApi
-    /** Slack integration ID in the alert execution project. */
-    slack_workspace_id?: number
-    /** Slack channel ID for alert delivery. */
-    slack_channel_id?: string
-    /** Optional Slack channel name shown in the UI. */
-    slack_channel_name?: string
-    /** HTTPS webhook URL for webhook or Microsoft Teams delivery. */
-    webhook_url?: string
 }
 
 export interface BillingAlertDestinationResponseApi {

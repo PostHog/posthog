@@ -107,7 +107,7 @@ class TestBillingAlertActivities(BaseTest):
         self._alert(name="Future", next_check_at=now + timedelta(hours=1))
         self._alert(name="Disabled", enabled=False, next_check_at=now)
         self._alert(name="Broken", state=BillingAlertConfiguration.State.BROKEN, next_check_at=now)
-        self._alert(name="Snoozed", snooze_until=now + timedelta(hours=1), next_check_at=now)
+        self._alert(name="Snoozed", snoozed_until=now + timedelta(hours=1), next_check_at=now)
 
         alert_ids = set(due_billing_alerts_q(now).values_list("id", flat=True))
 

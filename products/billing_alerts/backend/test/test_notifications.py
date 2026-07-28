@@ -284,10 +284,10 @@ class TestBillingAlertNotifications(BaseTest):
             now=NOW,
             billing_response=_billing_response([60, 60, 100]),
         )
-        snooze_until = NOW.replace(day=24)
+        snoozed_until = NOW.replace(day=24)
         BillingAlertConfiguration.objects.filter(pk=alert.pk).update(
             state=BillingAlertConfiguration.State.SNOOZED,
-            snooze_until=snooze_until,
+            snoozed_until=snoozed_until,
             configuration_revision=alert.configuration_revision + 1,
             updated_at=NOW,
         )
@@ -297,7 +297,7 @@ class TestBillingAlertNotifications(BaseTest):
 
         alert.refresh_from_db()
         assert alert.state == BillingAlertConfiguration.State.SNOOZED
-        assert alert.snooze_until == snooze_until
+        assert alert.snoozed_until == snoozed_until
         assert alert.last_notified_at is None
 
     def test_stale_delivery_commit_preserves_concurrent_threshold_reset(self) -> None:

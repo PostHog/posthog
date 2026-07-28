@@ -47,8 +47,8 @@ const billingAlertCreate = (): ToolBase<typeof BillingAlertCreateSchema, Schemas
         if (params.cooldown_hours !== undefined) {
             body['cooldown_hours'] = params.cooldown_hours
         }
-        if (params.snooze_until !== undefined) {
-            body['snooze_until'] = params.snooze_until
+        if (params.snoozed_until !== undefined) {
+            body['snoozed_until'] = params.snoozed_until
         }
         if (params.destination_changes !== undefined) {
             body['destination_changes'] = params.destination_changes
@@ -102,8 +102,8 @@ const billingAlertUpdate = (): ToolBase<typeof BillingAlertUpdateSchema, Schemas
         if (params.cooldown_hours !== undefined) {
             body['cooldown_hours'] = params.cooldown_hours
         }
-        if (params.snooze_until !== undefined) {
-            body['snooze_until'] = params.snooze_until
+        if (params.snoozed_until !== undefined) {
+            body['snoozed_until'] = params.snoozed_until
         }
         if (params.destination_changes !== undefined) {
             body['destination_changes'] = params.destination_changes

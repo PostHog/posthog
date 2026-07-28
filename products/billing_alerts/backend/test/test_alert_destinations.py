@@ -35,7 +35,6 @@ class TestBillingAlertDestinations(APIBaseTest):
             "name": "Daily spend spike",
             "threshold_type": "relative_increase",
             "threshold_percentage": "50",
-            "check_interval_hours": 24,
         }
         payload.update(overrides)
         return payload

@@ -62,18 +62,13 @@ export const BillingAlertsCreateBody = /* @__PURE__ */ zod.object({
         .max(billingAlertsCreateBodyEvaluationDelayHoursMax)
         .optional()
         .describe('Hours after a UTC billing date ends before it becomes eligible for evaluation.'),
-    check_interval_hours: zod
-        .literal(24)
-        .describe('\* `24` - 24')
-        .optional()
-        .describe('Billing alerts evaluate one UTC billing date per day.\n\n\* `24` - 24'),
     cooldown_hours: zod
         .number()
         .min(billingAlertsCreateBodyCooldownHoursMin)
         .max(billingAlertsCreateBodyCooldownHoursMax)
         .optional()
         .describe('Minimum hours between repeated firing notifications.'),
-    snooze_until: zod.iso
+    snoozed_until: zod.iso
         .datetime({ offset: true })
         .nullish()
         .describe('ISO 8601 timestamp until which evaluation and notifications are snoozed, or null to resume.'),
@@ -170,18 +165,13 @@ export const BillingAlertsUpdateBody = /* @__PURE__ */ zod.object({
         .max(billingAlertsUpdateBodyEvaluationDelayHoursMax)
         .optional()
         .describe('Hours after a UTC billing date ends before it becomes eligible for evaluation.'),
-    check_interval_hours: zod
-        .literal(24)
-        .describe('\* `24` - 24')
-        .optional()
-        .describe('Billing alerts evaluate one UTC billing date per day.\n\n\* `24` - 24'),
     cooldown_hours: zod
         .number()
         .min(billingAlertsUpdateBodyCooldownHoursMin)
         .max(billingAlertsUpdateBodyCooldownHoursMax)
         .optional()
         .describe('Minimum hours between repeated firing notifications.'),
-    snooze_until: zod.iso
+    snoozed_until: zod.iso
         .datetime({ offset: true })
         .nullish()
         .describe('ISO 8601 timestamp until which evaluation and notifications are snoozed, or null to resume.'),
@@ -282,18 +272,13 @@ export const BillingAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(billingAlertsPartialUpdateBodyEvaluationDelayHoursMax)
         .optional()
         .describe('Hours after a UTC billing date ends before it becomes eligible for evaluation.'),
-    check_interval_hours: zod
-        .literal(24)
-        .describe('\* `24` - 24')
-        .optional()
-        .describe('Billing alerts evaluate one UTC billing date per day.\n\n\* `24` - 24'),
     cooldown_hours: zod
         .number()
         .min(billingAlertsPartialUpdateBodyCooldownHoursMin)
         .max(billingAlertsPartialUpdateBodyCooldownHoursMax)
         .optional()
         .describe('Minimum hours between repeated firing notifications.'),
-    snooze_until: zod.iso
+    snoozed_until: zod.iso
         .datetime({ offset: true })
         .nullish()
         .describe('ISO 8601 timestamp until which evaluation and notifications are snoozed, or null to resume.'),

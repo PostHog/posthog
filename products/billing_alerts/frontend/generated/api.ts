@@ -11,8 +11,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     BillingAlertCheckNowResponseApi,
     BillingAlertConfigurationApi,
-    BillingAlertCreateDestinationApi,
     BillingAlertDeleteDestinationApi,
+    BillingAlertDestinationCreateDataApi,
     BillingAlertDestinationResponseApi,
     BillingAlertsEventsListParams,
     BillingAlertsListParams,
@@ -176,14 +176,14 @@ export const getBillingAlertsDestinationsCreateUrl = (organizationId: string, id
 export const billingAlertsDestinationsCreate = async (
     organizationId: string,
     id: string,
-    billingAlertCreateDestinationApi: BillingAlertCreateDestinationApi,
+    billingAlertDestinationCreateDataApi: BillingAlertDestinationCreateDataApi,
     options?: RequestInit
 ): Promise<BillingAlertDestinationResponseApi> => {
     return apiMutator<BillingAlertDestinationResponseApi>(getBillingAlertsDestinationsCreateUrl(organizationId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(billingAlertCreateDestinationApi),
+        body: JSON.stringify(billingAlertDestinationCreateDataApi),
     })
 }
 
