@@ -6,10 +6,14 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.organization import OrganizationMembership
+from posthog.models.team.team import Team
 
-from ee.api.agentic_provisioning import AUTH_CODE_CACHE_PREFIX
+from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX
 from ee.api.agentic_provisioning.test.base import TEST_PARTNER_SCOPES, ProvisioningTestBase
+from ee.models.rbac.access_control import AccessControl
 
 TOKEN_URL = "/api/agentic/oauth/token"
 
@@ -54,6 +58,31 @@ class TestOAuthTokenExchange(ProvisioningTestBase):
         assert "id" in team_entry
         assert "name" in team_entry
         assert "organization_id" in team_entry
+
+    def test_available_teams_exclude_acl_restricted_teams(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        restricted_team = Team.objects.create_with_data(
+            initiating_user=self.user, organization=self.organization, name="Restricted team"
+        )
+        AccessControl.objects.create(
+            team=restricted_team,
+            access_level="none",
+            resource="project",
+            resource_id=str(restricted_team.id),
+        )
+
+        data = self._request_bearer_token().json()
+        listed = data["account"]["available_teams"]
+
+        assert self.team.id in [team["id"] for team in listed]
+        assert restricted_team.id not in [team["id"] for team in listed]
+        assert restricted_team.name not in [team["name"] for team in listed]
 
     def test_code_is_single_use(self):
         code, verifier = self._mint_auth_code()
