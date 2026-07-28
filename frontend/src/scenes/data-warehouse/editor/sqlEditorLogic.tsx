@@ -32,7 +32,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import api, { ApiError } from 'lib/api'
+import api, { ApiConfig, ApiError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -80,6 +80,8 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
+import { validateMetricName } from 'products/data_catalog/frontend/common'
+import { dataCatalogMetricsCreate, dataCatalogMetricsPartialUpdate } from 'products/data_catalog/frontend/generated/api'
 import { DagSelector, openCreateDagDialog } from 'products/data_modeling/frontend/DagSelector'
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 import { validateEndpointName } from 'products/endpoints/frontend/common'
@@ -238,7 +240,7 @@ export interface QueryTab {
     draft?: DataWarehouseSavedQueryDraft
 }
 
-export type SqlEditorSource = 'insight' | 'endpoint' | 'view'
+export type SqlEditorSource = 'insight' | 'endpoint' | 'view' | 'metric'
 
 export interface DataWarehouseAccessControlModalProps {
     resource: AccessControlResourceType.WarehouseTable | AccessControlResourceType.WarehouseView
@@ -494,6 +496,7 @@ export interface sqlEditorLogicValues {
     diffShowRunButton: boolean | undefined
     editingAccessControlObject: DataWarehouseAccessControlModalProps | null
     editingInsight: QueryBasedInsightModel | null
+    editingMetricName: string | null
     editingView: DataWarehouseSavedQuery | undefined
     editorKey: string
     editorSource: SqlEditorSource
@@ -857,6 +860,18 @@ export interface sqlEditorLogicActions {
         name: string
         queryOverride: string | undefined
     }
+    saveAsMetric: () => {
+        value: true
+    }
+    saveAsMetricSubmit: (
+        name: string,
+        description: string,
+        queryOverride?: string
+    ) => {
+        description: string
+        name: string
+        queryOverride: string | undefined
+    }
     saveAsView: (
         materializeAfterSave?: any,
         fromDraft?: string
@@ -908,6 +923,9 @@ export interface sqlEditorLogicActions {
     }
     setEditingInsightName: (name: string) => {
         name: string
+    }
+    setEditingMetricName: (metricName: string | null) => {
+        metricName: string | null
     }
     setEditorSource: (source: SqlEditorSource) => {
         source: SqlEditorSource
@@ -988,6 +1006,9 @@ export interface sqlEditorLogicActions {
         loading: boolean
     }
     syncUrlWithQuery: () => {
+        value: true
+    }
+    updateEditingMetric: () => {
         value: true
     }
     updateInsight: () => {
@@ -1182,6 +1203,14 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             queryOverride,
             dagId,
         }),
+        saveAsMetric: true,
+        saveAsMetricSubmit: (name: string, description: string, queryOverride?: string) => ({
+            name,
+            description,
+            queryOverride,
+        }),
+        setEditingMetricName: (metricName: string | null) => ({ metricName }),
+        updateEditingMetric: true,
         updateInsight: true,
         setEditingInsightName: (name: string) => ({ name }),
         setEditingInsightDescription: (description: string) => ({ description }),
@@ -1402,6 +1431,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             'insight' as SqlEditorSource,
             {
                 setEditorSource: (_, { source }) => source,
+            },
+        ],
+        editingMetricName: [
+            null as string | null,
+            {
+                setEditingMetricName: (_, { metricName }) => metricName,
             },
         ],
         dashboardId: [
@@ -2431,6 +2466,73 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     lemonToast.error(error.detail || 'Failed to create endpoint')
                 }
             },
+            saveAsMetric: async () => {
+                const candidates = resolveSaveCandidates()
+                const selectedRef = { current: candidates.queries[candidates.initialIndex] }
+                LemonDialog.openForm({
+                    title: 'Save as metric',
+                    initialValues: { name: '', description: '' },
+                    content: (
+                        <>
+                            <LemonField name="name" label="Name">
+                                <LemonInput placeholder="monthly_active_users" autoFocus />
+                            </LemonField>
+                            <LemonField name="description" label="Description" className="mt-2">
+                                <LemonInput placeholder="What this metric measures and how to read it" />
+                            </LemonField>
+                            <SaveTargetCycler
+                                candidates={candidates}
+                                onChange={(q) => {
+                                    selectedRef.current = q
+                                }}
+                            />
+                        </>
+                    ),
+                    errors: {
+                        name: (name) => validateMetricName(name?.trim() || ''),
+                        description: (description) => (!description?.trim() ? 'Add a description' : undefined),
+                    },
+                    onSubmit: async ({ name, description }) =>
+                        actions.saveAsMetricSubmit(name.trim(), description.trim(), selectedRef.current),
+                })
+            },
+            saveAsMetricSubmit: async ({ name, description, queryOverride }) => {
+                try {
+                    const metric = await dataCatalogMetricsCreate(String(ApiConfig.getCurrentTeamId()), {
+                        name,
+                        description,
+                        definition: normalizeRawQuerySource({
+                            ...(values.sourceQuery.source as HogQLQuery),
+                            query: queryOverride ?? values.queryInput ?? '',
+                        }) as unknown as Record<string, unknown>,
+                    })
+                    lemonToast.success('Metric created')
+                    router.actions.push(urls.dataCatalogMetric(metric.name))
+                } catch (error: any) {
+                    lemonToast.error(error.detail || 'Failed to create metric')
+                }
+            },
+            updateEditingMetric: async () => {
+                if (!values.editingMetricName) {
+                    return
+                }
+                try {
+                    await dataCatalogMetricsPartialUpdate(
+                        String(ApiConfig.getCurrentTeamId()),
+                        values.editingMetricName,
+                        {
+                            definition: normalizeRawQuerySource({
+                                ...(values.sourceQuery.source as HogQLQuery),
+                                query: values.queryInput ?? '',
+                            }) as unknown as Record<string, unknown>,
+                        }
+                    )
+                    lemonToast.success('Metric updated')
+                    router.actions.push(urls.dataCatalogMetric(values.editingMetricName))
+                } catch (error: any) {
+                    lemonToast.error(error.detail || 'Failed to update metric')
+                }
+            },
             setEditingInsightName: ({ name }) => {
                 if (values.activeTab) {
                     actions.updateTab({ ...values.activeTab, name })
@@ -2968,10 +3070,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             if (
                 searchParams.source === 'endpoint' ||
                 searchParams.source === 'insight' ||
-                searchParams.source === 'view'
+                searchParams.source === 'view' ||
+                searchParams.source === 'metric'
             ) {
                 actions.setEditorSource(searchParams.source)
             }
+            actions.setEditingMetricName(searchParams.edit_metric ?? null)
             if (searchParams.dashboard) {
                 const parsed = parseInt(searchParams.dashboard, 10)
                 if (!isNaN(parsed)) {

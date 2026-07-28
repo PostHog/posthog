@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { ReactNode } from 'react'
+import { ReactNode, useState } from 'react'
 
 import { IconCheck, IconGraph, IconExternal, IconPlay, IconRefresh, IconServer, IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonTag } from '@posthog/lemon-ui'
@@ -9,12 +9,13 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTextAreaMarkdown } from 'lib/lemon-ui/LemonTextArea/LemonTextAreaMarkdown'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -57,7 +58,7 @@ interface MetricAction {
 const DRIFT_APPROVE_DISABLED = 'This metric has drifted from its source insight. Refresh it first.'
 
 export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProps): JSX.Element {
-    const { metric, metricLoading, mutating, runResult, runResultLoading, editingDefinition, draftSql, draftMarkdown } =
+    const { metric, metricLoading, mutating, runResult, runResultLoading, editingDefinition, draftMarkdown } =
         useValues(dataCatalogMetricSceneLogic)
     const {
         approveMetric,
@@ -66,7 +67,6 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
         updateMetric,
         loadRunResult,
         setEditingDefinition,
-        setDraftSql,
         setDraftMarkdown,
     } = useActions(dataCatalogMetricSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -151,7 +151,10 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
                       key: 'open-sql',
                       label: 'Open in SQL editor',
                       icon: <IconServer />,
-                      onClick: () => router.actions.push(urls.sqlEditor({ query: definitionSql })),
+                      onClick: () =>
+                          router.actions.push(
+                              urls.sqlEditor({ query: definitionSql, source: 'metric', metricName: metric.name })
+                          ),
                   },
               ]
             : []),
@@ -239,13 +242,10 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
                 <MetricDefinition
                     metric={metric}
                     editingDefinition={editingDefinition}
-                    draftSql={draftSql}
                     draftMarkdown={draftMarkdown}
                     saving={mutating}
-                    onDraftSql={setDraftSql}
                     onDraftMarkdown={setDraftMarkdown}
                     onEdit={setEditingDefinition}
-                    onSaveSql={(query) => confirmAndUpdate({ definition: { kind: 'HogQLQuery', query } })}
                     onSaveMarkdown={(markdown) =>
                         confirmAndUpdate({ definition: { kind: 'MarkdownDefinition', markdown } })
                     }
@@ -318,7 +318,6 @@ function MetricMetadata({
             <StatusRow metric={metric} />
             <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm max-w-2xl">
                 <MetadataItem label="Owner" value={metric.owner || 'Unassigned'} />
-                <MetadataItem label="Unit" value={metric.unit || 'None'} />
                 <MetadataItem label="Approved by" value={metric.approved_by?.email || 'Not approved'} />
                 <MetadataItem label="Approved at" value={metric.approved_at || 'Not approved'} />
                 <MetadataItem label="Last run" value={metric.last_run_at || 'Never'} />
@@ -354,9 +353,7 @@ function MetricMetadata({
                     ]}
                 />
             )}
-            <div className="flex items-end gap-2 max-w-md">
-                <UnitEditor unit={metric.unit || ''} onSave={onSaveUnit} />
-            </div>
+            <UnitEditor key={metric.unit || ''} unit={metric.unit || ''} onSave={onSaveUnit} />
         </div>
     )
 }
@@ -371,53 +368,54 @@ function MetadataItem({ label, value }: { label: string; value: string }): JSX.E
 }
 
 function UnitEditor({ unit, onSave }: { unit: string; onSave: (unit: string) => void }): JSX.Element {
+    const [value, setValue] = useState(unit)
     return (
-        <LemonButton type="secondary" size="small" onClick={() => onSave(unit)} tooltip="Save the current unit value">
-            Save unit
-        </LemonButton>
+        <LemonField.Pure label="Unit" info="How the result is measured, like users, dollars, or percent.">
+            <div className="flex items-center gap-2 max-w-md">
+                <LemonInput value={value} onChange={setValue} placeholder="users" />
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    disabledReason={value === unit ? 'No changes to save' : undefined}
+                    onClick={() => onSave(value)}
+                >
+                    Save
+                </LemonButton>
+            </div>
+        </LemonField.Pure>
     )
 }
 
 function MetricDefinition({
     metric,
     editingDefinition,
-    draftSql,
     draftMarkdown,
     saving,
-    onDraftSql,
     onDraftMarkdown,
     onEdit,
-    onSaveSql,
     onSaveMarkdown,
 }: {
     metric: DataCatalogMetricApi
     editingDefinition: boolean
-    draftSql: string
     draftMarkdown: string
     saving: boolean
-    onDraftSql: (value: string) => void
     onDraftMarkdown: (value: string) => void
     onEdit: (editing: boolean) => void
-    onSaveSql: (query: string) => void
     onSaveMarkdown: (markdown: string) => void
 }): JSX.Element {
     const kind = metric.definition_kind
+    const sql = definitionField(metric, 'query')
 
     if (kind === 'HogQLQuery') {
         return (
             <Section title="Definition">
-                <CodeEditor
-                    language="hogQL"
-                    value={draftSql}
-                    onChange={(value) => onDraftSql(value ?? '')}
-                    height={280}
-                    options={{ minimap: { enabled: false }, wordWrap: 'on', automaticLayout: true }}
-                />
-                <div className="flex gap-2">
-                    <LemonButton type="primary" size="small" loading={saving} onClick={() => onSaveSql(draftSql)}>
-                        Save
-                    </LemonButton>
-                    <LemonButton type="secondary" size="small" to={urls.sqlEditor({ query: draftSql })}>
+                <CodeSnippet language={Language.SQL}>{sql}</CodeSnippet>
+                <div>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        to={urls.sqlEditor({ query: sql, source: 'metric', metricName: metric.name })}
+                    >
                         Open in SQL editor
                     </LemonButton>
                 </div>
@@ -466,8 +464,7 @@ function MetricDefinition({
                         <LemonButton
                             type="secondary"
                             size="small"
-                            loading={saving}
-                            onClick={() => onSaveSql('SELECT count() FROM events')}
+                            to={urls.sqlEditor({ source: 'metric', metricName: metric.name })}
                         >
                             Write SQL
                         </LemonButton>
@@ -491,27 +488,16 @@ function MetricDefinition({
                 This metric is derived from an insight. Edit the query in the insight, then refresh the metric.
             </p>
             {metric.source_insight_short_id && (
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    to={urls.insightView(metric.source_insight_short_id as InsightShortId)}
-                >
-                    View source insight
-                </LemonButton>
+                <div>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        to={urls.insightView(metric.source_insight_short_id as InsightShortId)}
+                    >
+                        View source insight
+                    </LemonButton>
+                </div>
             )}
-            <LemonCollapse
-                panels={[
-                    {
-                        key: 'query',
-                        header: 'Query definition',
-                        content: (
-                            <CodeSnippet language={Language.JSON}>
-                                {JSON.stringify(metric.definition, null, 2)}
-                            </CodeSnippet>
-                        ),
-                    },
-                ]}
-            />
         </Section>
     )
 }

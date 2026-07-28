@@ -376,12 +376,15 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         saveAsInsight,
         saveAsView,
         saveAsEndpoint,
+        saveAsMetric,
+        updateEditingMetric,
         setSourceQuery,
         setSuggestedQueryInput,
         reportAIQueryPromptOpen,
         setEditingInsightName,
         setEditingInsightDescription,
     } = useActions(sqlEditorLogic)
+    const { editingMetricName } = useValues(sqlEditorLogic)
     const { response, responseError, responseLoading } = useValues(dataNodeLogic)
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
 
@@ -418,6 +421,11 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                         return
                     }
 
+                    if (item.action === 'metric') {
+                        saveAsMetric()
+                        return
+                    }
+
                     saveAsView()
                 },
                 accessDisabledReason:
@@ -430,6 +438,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         [
             saveAsEndpoint,
             saveAsInsight,
+            saveAsMetric,
             saveAsMenuItems.secondary,
             saveAsView,
             saveAsViewAccessDisabledReason,
@@ -440,6 +449,11 @@ function SQLEditorSceneTitle(): JSX.Element | null {
     const onPrimarySaveClick = (): void => {
         if (saveAsMenuItems.primary.action === 'endpoint') {
             saveAsEndpoint()
+            return
+        }
+
+        if (saveAsMenuItems.primary.action === 'metric') {
+            saveAsMetric()
             return
         }
 
@@ -710,36 +724,49 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                 />
                             </>
                         ) : (
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                onClick={onPrimarySaveClick}
-                                disabledReason={
-                                    saveAsDisabledReason ??
-                                    (saveAsMenuItems.primary.action === 'endpoint'
-                                        ? saveAsEndpointAccessDisabledReason
-                                        : saveAsMenuItems.primary.action === 'view'
-                                          ? saveAsViewAccessDisabledReason
-                                          : undefined)
-                                }
-                                sideAction={{
-                                    icon: <IconChevronDown />,
-                                    'data-attr': 'sql-editor-save-options-button',
-                                    dropdown: {
-                                        placement: 'bottom-end',
-                                        overlay: (
-                                            <LemonMenuOverlay
-                                                items={secondarySaveMenuItems.map((item) => ({
-                                                    ...item,
-                                                    disabledReason: saveAsDisabledReason ?? item.accessDisabledReason,
-                                                }))}
-                                            />
-                                        ),
-                                    },
-                                }}
-                            >
-                                {saveAsMenuItems.primary.label}
-                            </LemonButton>
+                            <>
+                                {editingMetricName && (
+                                    <LemonButton
+                                        type="primary"
+                                        size="small"
+                                        onClick={() => updateEditingMetric()}
+                                        data-attr="sql-editor-update-metric"
+                                    >
+                                        Update metric
+                                    </LemonButton>
+                                )}
+                                <LemonButton
+                                    type={editingMetricName ? 'secondary' : 'primary'}
+                                    size="small"
+                                    onClick={onPrimarySaveClick}
+                                    disabledReason={
+                                        saveAsDisabledReason ??
+                                        (saveAsMenuItems.primary.action === 'endpoint'
+                                            ? saveAsEndpointAccessDisabledReason
+                                            : saveAsMenuItems.primary.action === 'view'
+                                              ? saveAsViewAccessDisabledReason
+                                              : undefined)
+                                    }
+                                    sideAction={{
+                                        icon: <IconChevronDown />,
+                                        'data-attr': 'sql-editor-save-options-button',
+                                        dropdown: {
+                                            placement: 'bottom-end',
+                                            overlay: (
+                                                <LemonMenuOverlay
+                                                    items={secondarySaveMenuItems.map((item) => ({
+                                                        ...item,
+                                                        disabledReason:
+                                                            saveAsDisabledReason ?? item.accessDisabledReason,
+                                                    }))}
+                                                />
+                                            ),
+                                        },
+                                    }}
+                                >
+                                    {saveAsMenuItems.primary.label}
+                                </LemonButton>
+                            </>
                         )}
                     </div>
                 }
