@@ -195,8 +195,9 @@ def get_session_experiment_contexts(
     endpoint — already-warm sessions are skipped, cold ones are computed in shared scans and
     written back so a later single-session request hits cache. Sessions whose recording
     metadata doesn't exist (yet) are omitted and never cached, mirroring the single endpoint's
-    not-found rule. The batch is best-effort: a day-chunk whose scans fail is logged and
-    omitted rather than failing the whole request, and a session whose metric enrichment was
+    not-found rule; so are ids without a parseable uuidv7 timestamp, whose metadata lookup
+    would otherwise run unbounded. The batch is best-effort: a day-chunk whose scans fail is
+    logged and omitted rather than failing the whole request, and a session whose metric enrichment was
     truncated by the shared scan's metric cap is returned but not cached, so the cache never
     holds less than a single-session request would compute.
     """
@@ -212,11 +213,13 @@ def get_session_experiment_contexts(
 
     if cold_ids:
         # Bounded below by the batch's oldest uuidv7-derived session start (with clock-skew
-        # slack). An id that defeats the bound is simply not found here and never cached as
-        # absent, so the single-session endpoint — whose lookup falls back to an unbounded
-        # scan — still resolves it on demand.
+        # slack); ids with no usable bound are excluded from the lookup entirely so one bad id
+        # can't unbound the scan. An id that defeats or lacks the bound is simply not found
+        # here and never cached as absent, so the single-session endpoint — whose lookup falls
+        # back to an unbounded scan — still resolves it on demand.
+        bounded_ids, lower_bound = _bounded_metadata_ids(cold_ids)
         metadata_by_id = SessionReplayEvents().get_group_metadata(
-            cold_ids, team, recordings_min_timestamp=_batch_metadata_lower_bound(cold_ids)
+            bounded_ids, team, recordings_min_timestamp=lower_bound
         )
         windows = [
             _SessionWindow(
@@ -241,17 +244,19 @@ def get_session_experiment_contexts(
     return {session_id: results[session_id] for session_id in unique_ids if session_id in results}
 
 
-def _batch_metadata_lower_bound(session_ids: list[str]) -> Optional[datetime]:
-    """Lower bound for the batch metadata scan, from the uuidv7 timestamps the session ids
-    embed (with clock-skew slack). None — an unbounded scan — as soon as one id carries no
-    parseable timestamp."""
-    bounds: list[datetime] = []
-    for session_id in session_ids:
-        bound = uuidv7_session_lower_bound(session_id)
-        if bound is None:
-            return None
-        bounds.append(bound)
-    return min(bounds) if bounds else None
+def _bounded_metadata_ids(session_ids: list[str]) -> tuple[list[str], Optional[datetime]]:
+    """The session ids whose embedded uuidv7 timestamp yields a metadata-scan lower bound
+    (with clock-skew slack), and the oldest of those bounds. Ids without a usable bound are
+    excluded rather than queried: keeping one in would force the whole batch's metadata scan
+    unbounded across the table's retained date range. The batch is best-effort, so such an
+    id (rare legacy formats, or garbage) is simply omitted — the single-session endpoint,
+    whose lookup falls back to an unbounded scan, still resolves it on demand."""
+    bounds_by_id = {
+        session_id: bound for session_id in session_ids if (bound := uuidv7_session_lower_bound(session_id)) is not None
+    }
+    if not bounds_by_id:
+        return [], None
+    return list(bounds_by_id), min(bounds_by_id.values())
 
 
 def _chunk_windows_by_recording_day(windows: list[_SessionWindow]) -> list[list[_SessionWindow]]:

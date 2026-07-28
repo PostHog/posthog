@@ -6,6 +6,7 @@ from posthog.test.base import ClickhouseTestMixin, _create_event, flush_persons_
 from unittest.mock import patch
 
 from django.core.cache import cache
+from django.test import SimpleTestCase
 
 from rest_framework import status
 
@@ -23,7 +24,11 @@ from products.access_control.backend.facade.api import upsert_property_access_co
 from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
 from products.actions.backend.models.action import Action
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
-from products.experiments.backend.session_context import MAX_SESSION_CONTEXT_BATCH, _query_stamped_flag_properties
+from products.experiments.backend.session_context import (
+    MAX_SESSION_CONTEXT_BATCH,
+    _bounded_metadata_ids,
+    _query_stamped_flag_properties,
+)
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.api.test.base import APILicensedTest
@@ -1237,3 +1242,18 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
             headers={"authorization": f"Bearer {token}"},
         )
         assert response.status_code == status.HTTP_200_OK
+
+
+class TestBoundedMetadataIds(SimpleTestCase):
+    def test_id_without_usable_bound_is_excluded_instead_of_unbounding_the_scan(self) -> None:
+        # One legacy/garbage id in a batch must not remove the min_first_timestamp bound from
+        # the whole metadata query — it gets dropped from the lookup, keeping the bound from
+        # the ids that parse.
+        bounded_ids, lower_bound = _bounded_metadata_ids([SESSION_ID, "legacy-session-id", DAY_TWO_SESSION_ID])
+
+        assert bounded_ids == [SESSION_ID, DAY_TWO_SESSION_ID]
+        assert lower_bound is not None
+        assert lower_bound <= DAY_TWO_RECORDING_START
+
+    def test_all_ids_without_bound_yield_empty_lookup(self) -> None:
+        assert _bounded_metadata_ids(["legacy-a", "legacy-b"]) == ([], None)
