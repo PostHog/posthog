@@ -22,7 +22,8 @@ const DEFINITION_TYPE_OPTIONS: { value: NewMetricDefinitionType; label: string }
 export function NewMetricModal(): JSX.Element {
     const { newMetricModalOpen, newMetricForm, isCreatingMetric, savedInsights, savedInsightsLoading } =
         useValues(metricsLogic)
-    const { setNewMetricForm, createMetric, closeNewMetricModal, openSqlEditorForNewMetric } = useActions(metricsLogic)
+    const { setNewMetricForm, createMetric, closeNewMetricModal, openSqlEditorForNewMetric, setInsightSearch } =
+        useActions(metricsLogic)
 
     const nameError = validateMetricName(newMetricForm.name.trim())
     const submitDisabledReason = nameError
@@ -126,6 +127,7 @@ export function NewMetricModal(): JSX.Element {
                                     label: insight.label,
                                 }))}
                                 loading={savedInsightsLoading}
+                                onInputChange={setInsightSearch}
                                 placeholder="Search insights"
                                 data-attr="data-catalog-new-metric-insight"
                             />

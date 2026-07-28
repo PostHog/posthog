@@ -75,6 +75,7 @@ export interface metricsLogicValues {
     allMetrics: DataCatalogMetricApi[]
     allMetricsLoading: boolean
     filters: MetricsFilters
+    insightSearch: string
     isCreatingMetric: boolean
     metrics: DataCatalogMetricApi[]
     newMetricForm: NewMetricForm
@@ -156,6 +157,9 @@ export interface metricsLogicActions {
     setFilters: (filters: Partial<MetricsFilters>) => {
         filters: Partial<MetricsFilters>
     }
+    setInsightSearch: (search: string) => {
+        search: string
+    }
     setNewMetricForm: (form: Partial<NewMetricForm>) => {
         form: Partial<NewMetricForm>
     }
@@ -184,6 +188,7 @@ export const metricsLogic = kea<metricsLogicType>([
         openSqlEditorForNewMetric: true,
         closeNewMetricModal: true,
         setNewMetricForm: (form: Partial<NewMetricForm>) => ({ form }),
+        setInsightSearch: (search: string) => ({ search }),
         createMetric: true,
         setCreatingMetric: (creating: boolean) => ({ creating }),
         approveMetric: (name: string) => ({ name }),
@@ -191,7 +196,7 @@ export const metricsLogic = kea<metricsLogicType>([
         deleteMetric: (name: string) => ({ name }),
         setActionInFlight: (name: string, inFlight: boolean) => ({ name, inFlight }),
     }),
-    loaders(() => ({
+    loaders(({ values }) => ({
         allMetrics: [
             [] as DataCatalogMetricApi[],
             {
@@ -204,8 +209,16 @@ export const metricsLogic = kea<metricsLogicType>([
         savedInsights: [
             [] as SavedInsightOption[],
             {
-                loadSavedInsights: async () => {
-                    const response = await api.insights.list({ saved: true, basic: true, limit: 300 })
+                // Search server-side so insights beyond the first page are still selectable.
+                loadSavedInsights: async (_, breakpoint) => {
+                    await breakpoint(300)
+                    const response = await api.insights.list({
+                        saved: true,
+                        basic: true,
+                        limit: 100,
+                        search: values.insightSearch || undefined,
+                    })
+                    breakpoint()
                     return (response.results || [])
                         .filter((insight) => !!insight.short_id)
                         .map((insight) => ({
@@ -250,6 +263,14 @@ export const metricsLogic = kea<metricsLogicType>([
                 setActionInFlight: (state, { name, inFlight }) => ({ ...state, [name]: inFlight }),
             },
         ],
+        insightSearch: [
+            '',
+            {
+                setInsightSearch: (_, { search }) => search,
+                openNewMetricModal: () => '',
+                closeNewMetricModal: () => '',
+            },
+        ],
     }),
     selectors({
         metrics: [
@@ -276,6 +297,7 @@ export const metricsLogic = kea<metricsLogicType>([
     }),
     listeners(({ values, actions }) => ({
         openNewMetricModal: () => actions.loadSavedInsights(),
+        setInsightSearch: () => actions.loadSavedInsights(),
         openSqlEditorForNewMetric: () => {
             actions.closeNewMetricModal()
             router.actions.push(urls.sqlEditor({ source: 'metric' }))
