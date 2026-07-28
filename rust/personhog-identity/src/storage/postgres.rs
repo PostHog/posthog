@@ -9,24 +9,26 @@ use personhog_common::grpc::{current_client_name, current_method_name};
 use personhog_common::persons::person_uuid;
 
 use crate::storage::error::StorageResult;
-use crate::storage::types::{Person, PersonStub, StubOutcome};
+use crate::storage::types::{Person, PersonIdentity, PersonStub, StubOutcome};
 use crate::storage::{IdentityStorage, DB_QUERY_DURATION};
-
-const POOL_LABEL: &str = "primary";
 
 pub struct PostgresIdentityStorage {
     pub primary_pool: PgPool,
+    pub replica_pool: PgPool,
 }
 
 impl PostgresIdentityStorage {
-    pub fn new(primary_pool: PgPool) -> Self {
-        Self { primary_pool }
+    pub fn new(primary_pool: PgPool, replica_pool: PgPool) -> Self {
+        Self {
+            primary_pool,
+            replica_pool,
+        }
     }
 
-    fn query_labels(operation: &str) -> [(String, String); 4] {
+    fn query_labels(operation: &str, pool: &str) -> [(String, String); 4] {
         [
             ("operation".to_string(), operation.to_string()),
-            ("pool".to_string(), POOL_LABEL.to_string()),
+            ("pool".to_string(), pool.to_string()),
             ("client".to_string(), current_client_name().to_string()),
             ("method".to_string(), current_method_name().to_string()),
         ]
@@ -43,7 +45,7 @@ impl IdentityStorage for PostgresIdentityStorage {
             return Ok(HashMap::new());
         }
 
-        let labels = Self::query_labels("resolve_distinct_ids");
+        let labels = Self::query_labels("resolve_distinct_ids", "primary");
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
         let team_ids: Vec<i32> = keys.iter().map(|(t, _)| *t as i32).collect();
@@ -93,12 +95,60 @@ impl IdentityStorage for PostgresIdentityStorage {
         Ok(resolved)
     }
 
+    async fn resolve_identities(
+        &self,
+        keys: &[(i64, String)],
+    ) -> StorageResult<HashMap<(i64, String), PersonIdentity>> {
+        if keys.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let labels = Self::query_labels("resolve_identities", "replica");
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let team_ids: Vec<i32> = keys.iter().map(|(t, _)| *t as i32).collect();
+        let distinct_ids: Vec<String> = keys.iter().map(|(_, d)| d.clone()).collect();
+
+        // Sync-owned identity columns only: properties and version are the
+        // writer's lagging projections, so this read never exposes them.
+        let rows = sqlx::query!(
+            r#"
+            SELECT k.team_id as "key_team_id!", k.distinct_id as "key_distinct_id!",
+                   p.id as "id!", p.uuid as "uuid!", p.created_at as "created_at!",
+                   p.is_identified as "is_identified!"
+            FROM unnest($1::int[], $2::text[]) AS k(team_id, distinct_id)
+            JOIN posthog_persondistinctid pdi
+              ON pdi.team_id = k.team_id AND pdi.distinct_id = k.distinct_id
+            JOIN posthog_person p
+              ON p.team_id = pdi.team_id AND p.id = pdi.person_id
+            "#,
+            &team_ids,
+            &distinct_ids
+        )
+        .fetch_all(&self.replica_pool)
+        .await?;
+
+        let mut resolved = HashMap::with_capacity(rows.len());
+        for row in rows {
+            resolved.insert(
+                (i64::from(row.key_team_id), row.key_distinct_id),
+                PersonIdentity {
+                    person_id: row.id,
+                    uuid: row.uuid,
+                    created_at: row.created_at,
+                    is_identified: row.is_identified,
+                },
+            );
+        }
+        Ok(resolved)
+    }
+
     async fn create_person_stubs(&self, stubs: &[PersonStub]) -> StorageResult<Vec<StubOutcome>> {
         if stubs.is_empty() {
             return Ok(Vec::new());
         }
 
-        let labels = Self::query_labels("create_person_stubs");
+        let labels = Self::query_labels("create_person_stubs", "primary");
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
         let uuids: Vec<Uuid> = stubs

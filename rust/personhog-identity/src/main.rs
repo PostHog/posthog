@@ -39,7 +39,27 @@ fn create_storage(config: &Config) -> Arc<PostgresIdentityStorage> {
         .expect("Failed to create primary database pool");
     tracing::info!("Created primary database pool");
 
-    Arc::new(PostgresIdentityStorage::new(primary_pool))
+    let replica_url = config.replica_database_url();
+    let replica_pool = if replica_url == config.primary_database_url {
+        tracing::info!("Replica database URL matches primary; sharing the primary pool");
+        primary_pool.clone()
+    } else {
+        let replica_pool_config = PoolConfig {
+            min_connections: config.min_pg_connections,
+            max_connections: config.max_pg_connections,
+            acquire_timeout: config.acquire_timeout(),
+            idle_timeout: config.idle_timeout(),
+            test_before_acquire: false,
+            statement_timeout_ms: config.statement_timeout(),
+            pool_name: Some("replica".to_string()),
+        };
+        let pool = get_pool_with_config(replica_url, replica_pool_config)
+            .expect("Failed to create replica database pool");
+        tracing::info!("Created replica database pool");
+        pool
+    };
+
+    Arc::new(PostgresIdentityStorage::new(primary_pool, replica_pool))
 }
 
 #[tokio::main]
@@ -154,12 +174,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
-    spawn_pool_monitor(
-        vec![MonitoredPool {
-            pool: storage.primary_pool.clone(),
-            label: "primary".to_string(),
+    let mut monitored_pools = vec![MonitoredPool {
+        pool: storage.primary_pool.clone(),
+        label: "primary".to_string(),
+        max_connections: config.max_pg_connections,
+    }];
+    if config.replica_database_url() != config.primary_database_url {
+        monitored_pools.push(MonitoredPool {
+            pool: storage.replica_pool.clone(),
+            label: "replica".to_string(),
             max_connections: config.max_pg_connections,
-        }],
+        });
+    }
+    spawn_pool_monitor(
+        monitored_pools,
         Duration::from_secs(config.pool_monitor_interval_secs),
     );
 

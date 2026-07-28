@@ -1,9 +1,10 @@
 //! The gRPC service surface. This module is dispatch-only: each RPC family
-//! lives in its own submodule (get_or_create today; resolution, claims,
+//! lives in its own submodule (get_or_create and resolve today; claims,
 //! splits, and merge classification will follow the same pattern).
 
 pub mod error;
 pub mod get_or_create;
+pub mod resolve;
 pub mod validation;
 
 use std::sync::Arc;
@@ -14,7 +15,7 @@ use personhog_proto::personhog::identity::v1::person_hog_identity_server::Person
 use personhog_proto::personhog::identity::v1::{
     GetOrCreatePersonByDistinctIdRequest, GetOrCreatePersonByDistinctIdResponse,
     GetOrCreatePersonResult, GetOrCreatePersonsByDistinctIdsRequest,
-    GetOrCreatePersonsByDistinctIdsResponse,
+    GetOrCreatePersonsByDistinctIdsResponse, ResolveDistinctIdsRequest, ResolveDistinctIdsResponse,
 };
 
 use crate::leader::PropertyWriter;
@@ -98,5 +99,13 @@ impl PersonHogIdentity for PersonHogIdentityService {
         Ok(Response::new(GetOrCreatePersonsByDistinctIdsResponse {
             results,
         }))
+    }
+
+    async fn resolve_distinct_ids(
+        &self,
+        request: Request<ResolveDistinctIdsRequest>,
+    ) -> Result<Response<ResolveDistinctIdsResponse>, Status> {
+        let results = self.resolve_keys(request.into_inner().keys).await?;
+        Ok(Response::new(ResolveDistinctIdsResponse { results }))
     }
 }

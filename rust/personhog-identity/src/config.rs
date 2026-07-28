@@ -7,10 +7,16 @@ pub struct Config {
     #[envconfig(default = "127.0.0.1:50055")]
     pub grpc_address: SocketAddr,
 
-    /// Primary database URL. All identity work (resolution and stub creation)
-    /// runs on the primary — the identity plane is synchronous with Postgres.
+    /// Primary database URL. Identity writes and strong resolution (the
+    /// get-or-create path) run on the primary — the identity plane is
+    /// synchronous with Postgres.
     #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog")]
     pub primary_database_url: String,
+
+    /// Replica database URL, serving eventual-consistency resolution
+    /// (ResolveDistinctIds). Falls back to the primary URL when unset.
+    #[envconfig(default = "")]
+    pub replica_database_url: String,
 
     #[envconfig(default = "10")]
     pub max_pg_connections: u32,
@@ -99,6 +105,15 @@ impl Config {
             max_batch_size: self.max_batch_size,
             max_distinct_id_length: self.max_distinct_id_length,
             max_extra_distinct_ids: self.max_extra_distinct_ids,
+        }
+    }
+
+    /// The replica database URL, falling back to the primary when unset.
+    pub fn replica_database_url(&self) -> &str {
+        if self.replica_database_url.is_empty() {
+            &self.primary_database_url
+        } else {
+            &self.replica_database_url
         }
     }
 

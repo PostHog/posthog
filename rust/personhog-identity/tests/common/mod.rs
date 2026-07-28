@@ -19,7 +19,9 @@ impl TestContext {
         let pool = PgPool::connect(&database_url)
             .await
             .expect("Failed to connect to test database");
-        let storage = Arc::new(PostgresIdentityStorage::new(pool.clone()));
+        // Tests point both pools at the one test database; the replica pool
+        // only differs in production topology.
+        let storage = Arc::new(PostgresIdentityStorage::new(pool.clone(), pool.clone()));
         let team_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
         Self {
             pool,

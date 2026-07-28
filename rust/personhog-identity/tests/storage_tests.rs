@@ -477,3 +477,31 @@ async fn resolve_returns_only_existing_keys() {
 
     ctx.cleanup().await.ok();
 }
+
+#[tokio::test]
+async fn resolve_identities_scopes_keys_by_team_and_omits_unknown_keys() {
+    let ctx_a = TestContext::new().await;
+    let ctx_b = TestContext::new().await;
+    let person_a = ctx_a.insert_person_with_distinct_id("shared-did").await;
+    let person_b = ctx_b.insert_person_with_distinct_id("shared-did").await;
+
+    let resolved = ctx_a
+        .storage
+        .resolve_identities(&[
+            (ctx_a.team_id, "shared-did".to_string()),
+            (ctx_b.team_id, "shared-did".to_string()),
+            (ctx_a.team_id, "unknown".to_string()),
+        ])
+        .await
+        .expect("resolve should succeed");
+
+    assert_eq!(resolved.len(), 2);
+    let identity_a = &resolved[&(ctx_a.team_id, "shared-did".to_string())];
+    assert_eq!(identity_a.person_id, person_a);
+    assert!(!identity_a.is_identified);
+    let identity_b = &resolved[&(ctx_b.team_id, "shared-did".to_string())];
+    assert_eq!(identity_b.person_id, person_b);
+
+    ctx_a.cleanup().await.ok();
+    ctx_b.cleanup().await.ok();
+}

@@ -7,13 +7,14 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 
 pub use error::{StorageError, StorageResult};
-pub use types::{Person, PersonStub, StubOutcome};
+pub use types::{Person, PersonIdentity, PersonStub, StubOutcome};
 
 pub const DB_QUERY_DURATION: &str = "personhog_identity_db_query_duration_ms";
 
-/// Storage operations for the identity service. All queries run on the
-/// Postgres primary: identity resolution must never be stale, and stub
-/// creation is a sync-plane write.
+/// Storage operations for the identity service. Writes and strong resolution
+/// run on the Postgres primary — the get-or-create path must never see stale
+/// mappings. Eventual resolution (`resolve_identities`) runs on the replica
+/// pool for the hot per-event read path.
 #[async_trait]
 pub trait IdentityStorage: Send + Sync {
     /// Batch-resolve (team_id, distinct_id) keys to persons on the primary.
@@ -22,6 +23,14 @@ pub trait IdentityStorage: Send + Sync {
         &self,
         keys: &[(i64, String)],
     ) -> StorageResult<HashMap<(i64, String), Person>>;
+
+    /// Batch-resolve (team_id, distinct_id) keys to identity columns on the
+    /// replica pool (eventually consistent). Returns a map keyed by
+    /// (team_id, distinct_id); unresolved keys are absent.
+    async fn resolve_identities(
+        &self,
+        keys: &[(i64, String)],
+    ) -> StorageResult<HashMap<(i64, String), PersonIdentity>>;
 
     /// Create person stubs (uuidv5 from team_id:distinct_id, version 0, empty
     /// properties) plus their distinct id rows in one multi-row transaction.

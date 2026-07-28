@@ -1,6 +1,7 @@
 syntax = "proto3";
 package personhog.identity.v1;
 
+import "personhog/types/v1/common.proto";
 import "personhog/types/v1/person.proto";
 
 // GetOrCreatePersonEntry is a single get-or-create key: resolve distinct_id
@@ -68,6 +69,41 @@ message GetOrCreatePersonsByDistinctIdsResponse {
   repeated GetOrCreatePersonResult results = 1;
 }
 
+// PersonIdentity is the identity-plane view of a person: the sync-owned
+// identity columns only. Properties and version are deliberately absent —
+// their single author is the owning leader, and the Postgres copies this RPC
+// reads are the writer's lagging projections. A caller that needs the current
+// version or properties needs the leader, which is the strong read.
+message PersonIdentity {
+  int64 person_id = 1;
+  string uuid = 2;
+  // Epoch millis.
+  int64 created_at = 3;
+  bool is_identified = 4;
+}
+
+message ResolveDistinctIdsRequest {
+  // Max 250 per request. Keys may span teams. Any malformed key (non-positive
+  // or out-of-range team_id, empty or oversized distinct_id) rejects the whole
+  // request with INVALID_ARGUMENT.
+  repeated personhog.types.v1.TeamDistinctId keys = 1;
+}
+
+// ResolveDistinctIdResult is the per-key outcome of a batch resolve.
+message ResolveDistinctIdResult {
+  int64 team_id = 1;
+  string distinct_id = 2;
+  // Absent when the distinct id does not map to a person (NOT_FOUND). Reads
+  // are eventually consistent: a mapping committed on the primary may not be
+  // visible yet.
+  optional PersonIdentity identity = 3;
+}
+
+message ResolveDistinctIdsResponse {
+  // Same order as the request keys.
+  repeated ResolveDistinctIdResult results = 1;
+}
+
 // PersonHogIdentity owns the identity graph: distinct id resolution and
 // get-or-create orchestration across the sync plane (Postgres primary) and
 // the async plane (leader-owned properties). Ingestion calls this service
@@ -83,4 +119,7 @@ message GetOrCreatePersonsByDistinctIdsResponse {
 service PersonHogIdentity {
   rpc GetOrCreatePersonByDistinctId(GetOrCreatePersonByDistinctIdRequest) returns (GetOrCreatePersonByDistinctIdResponse);
   rpc GetOrCreatePersonsByDistinctIds(GetOrCreatePersonsByDistinctIdsRequest) returns (GetOrCreatePersonsByDistinctIdsResponse);
+  // Eventual-consistency identity resolution for the hot per-event path: one
+  // replica-pool probe, identity columns only, no properties.
+  rpc ResolveDistinctIds(ResolveDistinctIdsRequest) returns (ResolveDistinctIdsResponse);
 }

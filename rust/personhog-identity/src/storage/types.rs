@@ -1,5 +1,28 @@
 pub use personhog_common::persons::Person;
 
+/// The identity-plane view of a person: the sync-owned identity columns
+/// only. Properties and version are deliberately absent — their single
+/// author is the owning leader, and the Postgres copies are the writer's
+/// lagging projections; exposing them here would hand callers stale data.
+#[derive(Debug, Clone)]
+pub struct PersonIdentity {
+    pub person_id: i64,
+    pub uuid: uuid::Uuid,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub is_identified: bool,
+}
+
+impl From<PersonIdentity> for personhog_proto::personhog::identity::v1::PersonIdentity {
+    fn from(identity: PersonIdentity) -> Self {
+        Self {
+            person_id: identity.person_id,
+            uuid: identity.uuid.to_string(),
+            created_at: identity.created_at.timestamp_millis(),
+            is_identified: identity.is_identified,
+        }
+    }
+}
+
 /// A single stub-creation request: the primary distinct id derives the
 /// deterministic person UUID; extra distinct ids are mapped in the same
 /// transaction.

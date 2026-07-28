@@ -1,6 +1,7 @@
 use tonic::Status;
 
 use personhog_proto::personhog::identity::v1::GetOrCreatePersonEntry;
+use personhog_proto::personhog::types::v1::TeamDistinctId;
 
 /// Request-shape limits, sourced from service configuration.
 #[derive(Debug, Clone)]
@@ -32,14 +33,7 @@ pub fn validate_entry(
     limits: &RequestLimits,
     entry: &GetOrCreatePersonEntry,
 ) -> Result<(), Status> {
-    // The persons DB stores team_id as int4 and the storage layer narrows
-    // with `as i32` — an unchecked value above i32::MAX would wrap and read
-    // or write another tenant's rows.
-    if entry.team_id <= 0 || entry.team_id > i32::MAX as i64 {
-        return Err(Status::invalid_argument(
-            "team_id must be a positive 32-bit integer",
-        ));
-    }
+    validate_team_id(entry.team_id)?;
     validate_distinct_id(limits, &entry.distinct_id)?;
     if entry.extra_distinct_ids.len() > limits.max_extra_distinct_ids {
         return Err(Status::invalid_argument(format!(
@@ -50,6 +44,25 @@ pub fn validate_entry(
     }
     for extra in &entry.extra_distinct_ids {
         validate_distinct_id(limits, extra)?;
+    }
+    Ok(())
+}
+
+#[allow(clippy::result_large_err)]
+pub fn validate_key(limits: &RequestLimits, key: &TeamDistinctId) -> Result<(), Status> {
+    validate_team_id(key.team_id)?;
+    validate_distinct_id(limits, &key.distinct_id)
+}
+
+// The persons DB stores team_id as int4 and the storage layer narrows with
+// `as i32` — an unchecked value above i32::MAX would wrap and read or write
+// another tenant's rows.
+#[allow(clippy::result_large_err)]
+fn validate_team_id(team_id: i64) -> Result<(), Status> {
+    if team_id <= 0 || team_id > i32::MAX as i64 {
+        return Err(Status::invalid_argument(
+            "team_id must be a positive 32-bit integer",
+        ));
     }
     Ok(())
 }

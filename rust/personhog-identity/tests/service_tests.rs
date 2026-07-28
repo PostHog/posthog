@@ -13,10 +13,10 @@ use personhog_identity::service::PersonHogIdentityService;
 use personhog_proto::personhog::identity::v1::person_hog_identity_server::PersonHogIdentity;
 use personhog_proto::personhog::identity::v1::{
     GetOrCreatePersonByDistinctIdRequest, GetOrCreatePersonEntry,
-    GetOrCreatePersonsByDistinctIdsRequest,
+    GetOrCreatePersonsByDistinctIdsRequest, ResolveDistinctIdsRequest,
 };
 use personhog_proto::personhog::types::v1::{
-    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+    TeamDistinctId, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
 };
 
 /// Records calls and replays queued responses; defaults to an "updated, no
@@ -288,6 +288,96 @@ async fn batch_over_limit_is_rejected() {
         ))
         .await
         .expect_err("batch should be rejected");
+    assert_eq!(status.code(), Code::InvalidArgument);
+
+    t.ctx.cleanup().await.ok();
+}
+
+fn resolve_key(team_id: i64, distinct_id: &str) -> TeamDistinctId {
+    TeamDistinctId {
+        team_id,
+        distinct_id: distinct_id.to_string(),
+    }
+}
+
+#[tokio::test]
+async fn resolve_returns_per_key_results_in_request_order() {
+    let t = ServiceTestContext::new().await;
+    let person_id = t.ctx.insert_person_with_distinct_id("res-known").await;
+
+    let response = t
+        .service
+        .resolve_distinct_ids(Request::new(ResolveDistinctIdsRequest {
+            keys: vec![
+                resolve_key(t.ctx.team_id, "res-known"),
+                resolve_key(t.ctx.team_id, "res-unknown"),
+                resolve_key(t.ctx.team_id, "res-known"),
+            ],
+        }))
+        .await
+        .expect("rpc should succeed")
+        .into_inner();
+
+    assert_eq!(response.results.len(), 3);
+    for (result, expected_did) in
+        response
+            .results
+            .iter()
+            .zip(["res-known", "res-unknown", "res-known"])
+    {
+        assert_eq!(result.team_id, t.ctx.team_id);
+        assert_eq!(result.distinct_id, expected_did);
+    }
+    let known = response.results[0]
+        .identity
+        .as_ref()
+        .expect("known key should resolve");
+    assert_eq!(known.person_id, person_id);
+    assert!(!known.is_identified);
+    assert!(known.created_at > 0);
+    assert!(response.results[1].identity.is_none());
+    // Duplicate keys resolve identically, including after the first.
+    assert_eq!(response.results[2].identity.as_ref(), Some(known));
+
+    t.ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn resolve_rejects_malformed_keys_and_oversized_batches() {
+    let t = ServiceTestContext::with_limits(RequestLimits {
+        max_batch_size: 2,
+        max_distinct_id_length: 400,
+        max_extra_distinct_ids: 5000,
+    })
+    .await;
+
+    // One malformed key rejects the whole request, valid keys included: an
+    // out-of-range team_id would wrap under the storage layer's i32 narrowing
+    // and probe another tenant's rows.
+    for bad in [
+        resolve_key(0, "user"),
+        resolve_key(i32::MAX as i64 + 1, "user"),
+        resolve_key(t.ctx.team_id, ""),
+    ] {
+        let status = t
+            .service
+            .resolve_distinct_ids(Request::new(ResolveDistinctIdsRequest {
+                keys: vec![resolve_key(t.ctx.team_id, "user"), bad],
+            }))
+            .await
+            .expect_err("malformed key should reject the request");
+        assert_eq!(status.code(), Code::InvalidArgument);
+    }
+
+    let status = t
+        .service
+        .resolve_distinct_ids(Request::new(ResolveDistinctIdsRequest {
+            keys: (0..3)
+                .map(|i| resolve_key(t.ctx.team_id, &format!("user-{i}")))
+                .collect(),
+        }))
+        .await
+        .expect_err("oversized batch should be rejected");
     assert_eq!(status.code(), Code::InvalidArgument);
 
     t.ctx.cleanup().await.ok();
