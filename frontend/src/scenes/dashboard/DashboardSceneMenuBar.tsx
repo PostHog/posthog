@@ -90,7 +90,7 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
 
     const { user } = useValues(userLogic)
     const { tags } = useValues(tagsModel)
-    const { canCopyToProject } = useValues(interProjectCopyLogic)
+    const { copyToProjectDisabledReason } = useValues(interProjectCopyLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const hasDashboardColors = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS]
     const showMetalytics = dashboard != null && metalyticsInstanceId != null && !!featureFlags[FEATURE_FLAGS.METALYTICS]
@@ -160,15 +160,15 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                         </>
                     )}
                     <SceneMenuBarFileItems dataAttrKey={RESOURCE_TYPE} />
-                    {canCopyToProject && (
-                        <SceneMenuBarItem
-                            onClick={() => push(urls.resourceTransfer('Dashboard', dashboard.id))}
-                            data-attr={`${RESOURCE_TYPE}-menubar-copy-to-project`}
-                        >
-                            <IconCopy />
-                            Copy to another project
-                        </SceneMenuBarItem>
-                    )}
+                    <SceneMenuBarItem
+                        disabled={!!copyToProjectDisabledReason}
+                        tooltip={copyToProjectDisabledReason ?? undefined}
+                        onClick={() => push(urls.resourceTransfer('Dashboard', dashboard.id))}
+                        data-attr={`${RESOURCE_TYPE}-menubar-copy-to-project`}
+                    >
+                        <IconCopy />
+                        Copy to another project
+                    </SceneMenuBarItem>
                     <SceneMenuBarItem
                         opensFloatingUi
                         onClick={() => setTerraformModalOpen(true)}

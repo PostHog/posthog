@@ -59,7 +59,7 @@ export function DashboardScenePanel(): JSX.Element | null {
 
     const { user } = useValues(userLogic)
     const { tags } = useValues(tagsModel)
-    const { canCopyToProject } = useValues(interProjectCopyLogic)
+    const { copyToProjectDisabledReason } = useValues(interProjectCopyLogic)
     const hasDashboardColors = useFeatureFlag('PRODUCT_ANALYTICS_DASHBOARD_COLORS')
 
     const { push } = useActions(router)
@@ -87,17 +87,16 @@ export function DashboardScenePanel(): JSX.Element | null {
                             dataAttrKey={RESOURCE_TYPE}
                             onClick={() => showDuplicateDashboardModal(dashboard.id, dashboard.name)}
                         />
-                        {canCopyToProject && (
-                            <ButtonPrimitive
-                                menuItem
-                                onClick={() => push(urls.resourceTransfer('Dashboard', dashboard.id))}
-                                data-attr="dashboard-copy-to-project"
-                                tooltip="Copy this dashboard to another project"
-                            >
-                                <IconCopy />
-                                Copy to another project
-                            </ButtonPrimitive>
-                        )}
+                        <ButtonPrimitive
+                            menuItem
+                            disabled={!!copyToProjectDisabledReason}
+                            onClick={() => push(urls.resourceTransfer('Dashboard', dashboard.id))}
+                            data-attr="dashboard-copy-to-project"
+                            tooltip={copyToProjectDisabledReason ?? 'Copy this dashboard to another project'}
+                        >
+                            <IconCopy />
+                            Copy to another project
+                        </ButtonPrimitive>
                         <ScenePin dataAttrKey={RESOURCE_TYPE} onClick={togglePinned} isPinned={isPinned} />
                         <SceneFullscreen
                             dataAttrKey={RESOURCE_TYPE}

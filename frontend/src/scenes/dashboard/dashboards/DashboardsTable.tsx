@@ -21,6 +21,7 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
+import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -77,6 +78,7 @@ export function DashboardsTable({
     const { openMoveToModal } = useActions(moveToLogic)
     const { reportDashboardMoveInitiated } = useActions(eventUsageLogic)
     const { itemsByRef } = useValues(projectTreeDataLogic)
+    const { canCopyToProject } = useValues(interProjectCopyLogic)
 
     // Prefer the tree arm's complete entryByRef over the sidebar's lazily-loaded itemsByRef, so every
     // dashboard is movable even before the sidebar has populated.
@@ -255,6 +257,16 @@ export function DashboardsTable({
                                       >
                                           Duplicate
                                       </LemonButton>
+
+                                      {canCopyToProject && (
+                                          <LemonButton
+                                              to={urls.resourceTransfer('Dashboard', id)}
+                                              fullWidth
+                                              data-attr="dashboard-list-copy-to-project"
+                                          >
+                                              Copy to another project
+                                          </LemonButton>
+                                      )}
 
                                       {moveEntry && (
                                           <AccessControlAction
