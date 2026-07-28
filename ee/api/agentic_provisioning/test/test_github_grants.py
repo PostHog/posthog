@@ -247,8 +247,8 @@ class TestGitHubGrants(ProvisioningTestBase):
         assert response.status_code == 404
         assert response.json()["error"]["code"] == "grant_not_found"
 
-    def test_repositories_grant_of_other_partner_returns_404(self):
-        other_partner = OAuthApplication.objects.create(
+    def _create_other_partner(self) -> OAuthApplication:
+        return OAuthApplication.objects.create(
             name="Other Partner",
             client_id="other_partner_client_id",
             client_secret="",
@@ -260,6 +260,9 @@ class TestGitHubGrants(ProvisioningTestBase):
             provisioning_active=True,
             provisioning_can_create_accounts=True,
         )
+
+    def test_repositories_grant_of_other_partner_returns_404(self):
+        other_partner = self._create_other_partner()
         grant = github_grants.create_grant(other_partner, AUTHORIZATION, "octocat@example.com")
         response = self._get_grants(f"/api/agentic/provisioning/github/grants/{grant.grant_id}/repositories")
         assert response.status_code == 404
@@ -283,6 +286,27 @@ class TestGitHubGrants(ProvisioningTestBase):
         assert first.status_code == 200
         assert second.status_code == 429
         assert second["Retry-After"]
+
+    def test_repositories_poll_budget_is_not_shared_across_partners(self):
+        grant = github_grants.create_grant(self.partner, AUTHORIZATION, "octocat@example.com")
+        url = f"/api/agentic/provisioning/github/grants/{grant.grant_id}/repositories"
+        other_partner = self._create_other_partner()
+        other_bearer = self._request_bearer_token(partner=other_partner).json()["access_token"]
+
+        def fake_github_request(method, request_url, **kwargs):
+            if request_url.endswith("/user/installations"):
+                return INSTALLATIONS_RESPONSE
+            return REPOSITORIES_RESPONSE
+
+        with (
+            patch("ee.api.agentic_provisioning.throttling.GITHUB_GRANT_POLL_RATE_LIMIT_MAX", 1),
+            patch("ee.api.agentic_provisioning.github_grants.github_request", side_effect=fake_github_request),
+        ):
+            foreign = self._get_with_bearer(url, other_bearer)
+            owner = self._get_grants(url)
+
+        assert foreign.status_code == 404
+        assert owner.status_code == 200
 
     def test_repositories_github_failure_returns_502(self):
         grant = github_grants.create_grant(self.partner, AUTHORIZATION, "octocat@example.com")

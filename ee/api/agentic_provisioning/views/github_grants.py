@@ -73,8 +73,8 @@ class GitHubGrantsCreateView(ConfidentialPartnerAPIView):
 
 
 class GitHubGrantRepositoriesView(ConfidentialPartnerAPIView):
-    # Keyed per grant id, so polls against an unknown id can only exhaust that
-    # id's own budget.
+    # Keyed per calling partner and grant id, so polls against an id the caller does
+    # not own can only exhaust the caller's own budget.
     partner_throttle_classes = [GrantPollThrottle]
 
     def get(self, request: Request, grant_id: str) -> Response:

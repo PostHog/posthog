@@ -187,8 +187,14 @@ class GrantPollThrottle(BaseThrottle):
         grant_id = getattr(view, "kwargs", {}).get("grant_id", "")
         if not grant_id:
             return True
+        # DRF checks throttles before the handler loads the grant and rejects a
+        # partner mismatch, so the key carries the caller's partner too. Without it a
+        # partner that learns another partner's grant id could spend the owner's
+        # budget on it. A grant only ever belongs to one partner, so scoping the key
+        # this way does not split any legitimate caller's quota.
+        partner_id = getattr(request.auth, "id", "unauthenticated")
         window_index = int(time.time()) // GITHUB_GRANT_POLL_RATE_LIMIT_WINDOW_SECONDS
-        key = f"{GITHUB_GRANT_POLL_RATE_LIMIT_PREFIX}{grant_id}:{window_index}"
+        key = f"{GITHUB_GRANT_POLL_RATE_LIMIT_PREFIX}{partner_id}:{grant_id}:{window_index}"
         count = _fixed_window_count(key, GITHUB_GRANT_POLL_RATE_LIMIT_WINDOW_SECONDS)
         return count <= GITHUB_GRANT_POLL_RATE_LIMIT_MAX
 
