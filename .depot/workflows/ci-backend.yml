@@ -58,13 +58,13 @@
 # - Test durations restored from Depot Cache (posthog-test-durations- prefix), refreshed by
 #   .depot/workflows/ci-backend-update-test-timing.yml, so shard counts match GitHub Actions.
 #   Committed .test_durations is the fallback.
-# - Sharding-plan pinning for re-runs: canonical snapshots the durations files as a
-#   run-scoped artifact in turbo-discover (plus a per-segment durations restore feeding it)
-#   and re-run attempts restore that snapshot, so a re-run shard re-collects exactly the
-#   tests that failed in attempt 1 instead of resharding from a newer daily cache. The
-#   shadow strips artifact uploads (above) and is a non-blocking timing trial whose signal
-#   is attempt-1 runs, so it keeps plain floating cache restores; changes confined to that
-#   pinning need no depot bump.
+# - Sharding-plan pinning: canonical snapshots the durations files as a run-scoped
+#   artifact in turbo-discover (plus a per-segment durations restore feeding it) and every
+#   test job applies that snapshot, so all shards of all attempts plan from identical
+#   timing data and a re-run shard re-collects the tests it failed with instead of
+#   resharding from a fresher cache entry. The shadow strips artifact uploads (above) and
+#   is a non-blocking timing trial, so it keeps plain floating cache restores; changes
+#   confined to that pinning need no depot bump.
 # - master (push) runs only check-migrations to prime the shared schema cache; the
 #   test matrices are skipped on master (canonical runs them). PRs and dispatches
 #   run the full graph — that is where the apples-to-apples comparison happens
