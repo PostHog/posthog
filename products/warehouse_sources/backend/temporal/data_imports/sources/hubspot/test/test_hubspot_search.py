@@ -5,7 +5,10 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
-from requests.exceptions import JSONDecodeError as RequestsJSONDecodeError
+from requests.exceptions import (
+    ChunkedEncodingError,
+    JSONDecodeError as RequestsJSONDecodeError,
+)
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot import (
     HubspotPathologicalWindowError,
@@ -19,6 +22,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hu
     hubspot_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.settings import (
+    HUBSPOT_API_VERSION_2026_03,
+    HUBSPOT_API_VERSION_V3,
     HUBSPOT_ENDPOINTS,
     SEARCH_PAGE_SIZE,
     SEARCH_RESULT_CAP,
@@ -185,6 +190,29 @@ class TestResolveSearchProperties:
         assert props.count("hs_lastmodifieddate") == 1
         assert props.count("hs_object_id") == 1
 
+    def test_default_props_discover_custom_and_thread_version(self) -> None:
+        # include_custom_props=True with no selection: non-hs_ custom props are appended,
+        # and the pinned api_version reaches the property-discovery call.
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot._get_property_names",
+            return_value=["amount", "hs_internal_only", "custom_field"],
+        ) as get_names_mock:
+            props, _ = _resolve_search_properties(
+                api_key="k",
+                refresh_token="r",
+                endpoint="deals",
+                object_type="deal",
+                selected_properties=None,
+                include_custom_props=True,
+                required_props=["hs_lastmodifieddate", "hs_object_id"],
+                logger=MagicMock(),
+                source_id=None,
+                api_version=HUBSPOT_API_VERSION_2026_03,
+            )
+        assert "custom_field" in props  # non-hs_ custom prop discovered and appended
+        assert "hs_internal_only" not in props  # hs_ props are not auto-added
+        assert get_names_mock.call_args.kwargs["api_version"] == HUBSPOT_API_VERSION_2026_03
+
     def test_invalid_selected_ignored(self) -> None:
         logger = MagicMock()
         with patch(
@@ -217,6 +245,7 @@ class TestBatchReadAssociations:
             refresh_token="r",
             source_id=None,
             logger=MagicMock(),
+            api_version=HUBSPOT_API_VERSION_V3,
         )
         assert result == {}
 
@@ -242,11 +271,43 @@ class TestBatchReadAssociations:
                 refresh_token="r",
                 source_id=None,
                 logger=MagicMock(),
+                api_version=HUBSPOT_API_VERSION_V3,
             )
 
         assert calls[0]["url"].endswith("/crm/v4/associations/contacts/deals/batch/read")
         assert calls[0]["json"] == {"inputs": [{"id": "1"}, {"id": "2"}, {"id": "3"}]}
         assert result["1"] == [{"id": "9", "type": "x"}]
+
+    @pytest.mark.parametrize(
+        "api_version,expected_suffix",
+        [
+            (HUBSPOT_API_VERSION_V3, "/crm/v4/associations/contacts/deals/batch/read"),
+            (HUBSPOT_API_VERSION_2026_03, "/crm/associations/2026-03/contacts/deals/batch/read"),
+        ],
+    )
+    def test_url_carries_pinned_api_version(self, api_version: str, expected_suffix: str) -> None:
+        calls = []
+
+        def _post(url, headers=None, json=None, timeout=None):  # noqa: ARG001
+            calls.append({"url": url})
+            return _make_response(200, {"results": []})
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
+            new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(_post)})(),
+        ):
+            _batch_read_associations(
+                from_entity_plural="contacts",
+                to_entity_plural="deals",
+                ids=["1"],
+                headers={"authorization": "Bearer x"},
+                refresh_token="r",
+                source_id=None,
+                logger=MagicMock(),
+                api_version=api_version,
+            )
+
+        assert calls[0]["url"].endswith(expected_suffix)
 
     def test_splits_into_chunks_of_batch_size(self) -> None:
         posts = []
@@ -272,6 +333,7 @@ class TestBatchReadAssociations:
                 refresh_token="r",
                 source_id=None,
                 logger=MagicMock(),
+                api_version=HUBSPOT_API_VERSION_V3,
             )
 
         assert len(posts) == 3
@@ -293,6 +355,7 @@ class TestBatchReadAssociations:
                 refresh_token="r",
                 source_id=None,
                 logger=MagicMock(),
+                api_version=HUBSPOT_API_VERSION_V3,
             )
         assert result == {}
 
@@ -388,6 +451,7 @@ class TestGetRowsViaSearch:
                     db_incremental_field_last_value=_RECENT_SEED_ISO,
                     include_custom_props=False,
                     now_ms=_FIXED_NOW_MS,
+                    api_version=HUBSPOT_API_VERSION_V3,
                 )
             )
 
@@ -426,6 +490,7 @@ class TestGetRowsViaSearch:
                     db_incremental_field_last_value=seed_iso,
                     include_custom_props=False,
                     now_ms=_FIXED_NOW_MS,
+                    api_version=HUBSPOT_API_VERSION_V3,
                 )
             )
 
@@ -463,12 +528,45 @@ class TestGetRowsViaSearch:
                     db_incremental_field_last_value="2024-01-01T00:00:00.000Z",  # ignored on resume
                     include_custom_props=False,
                     now_ms=_FIXED_NOW_MS + 999_999_999,  # ignored on resume (sync_end_ms from state wins)
+                    api_version=HUBSPOT_API_VERSION_V3,
                 )
             )
 
         body = captured[0]["json"]
         assert int(body["filterGroups"][0]["filters"][0]["value"]) == last + 1  # last_cursor_ms + 1
         assert int(body["filterGroups"][0]["filters"][1]["value"]) == end  # sync_end_ms from state, not now_ms
+
+    @pytest.mark.parametrize(
+        "api_version,expected_suffix",
+        [
+            (HUBSPOT_API_VERSION_V3, "/crm/v3/objects/deals/search"),
+            (HUBSPOT_API_VERSION_2026_03, "/crm/objects/2026-03/deals/search"),
+        ],
+    )
+    def test_search_url_carries_pinned_api_version(self, api_version: str, expected_suffix: str) -> None:
+        manager = _make_manager()
+        logger = MagicMock()
+        side_effect, captured = _setup_search_post([_make_response(200, _search_page([]))])
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
+            new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(side_effect)})(),
+        ):
+            list(
+                get_rows_via_search(
+                    api_key="k",
+                    refresh_token="r",
+                    endpoint="deals",
+                    logger=logger,
+                    resumable_source_manager=manager,
+                    db_incremental_field_last_value=_RECENT_SEED_ISO,
+                    include_custom_props=False,
+                    now_ms=_FIXED_NOW_MS,
+                    api_version=api_version,
+                )
+            )
+
+        assert captured[0]["url"].endswith(expected_suffix)
 
     def test_ignores_next_url_resume_state(self) -> None:
         # A stale next_url from the GET path should not leak into the search path.
@@ -491,6 +589,7 @@ class TestGetRowsViaSearch:
                     db_incremental_field_last_value=_RECENT_SEED_ISO,
                     include_custom_props=False,
                     now_ms=_FIXED_NOW_MS,
+                    api_version=HUBSPOT_API_VERSION_V3,
                 )
             )
 
@@ -531,6 +630,7 @@ class TestGetRowsViaSearch:
                     db_incremental_field_last_value=sync_start_iso,
                     include_custom_props=False,
                     now_ms=sync_end,
+                    api_version=HUBSPOT_API_VERSION_V3,
                 )
             )
 
@@ -563,6 +663,7 @@ class TestGetRowsViaSearch:
                     db_incremental_field_last_value=_RECENT_SEED_ISO,
                     include_custom_props=False,
                     now_ms=_FIXED_NOW_MS,
+                    api_version=HUBSPOT_API_VERSION_V3,
                 )
             )
 
@@ -606,6 +707,7 @@ class TestGetRowsViaSearch:
                     db_incremental_field_last_value=_RECENT_SEED_ISO,
                     include_custom_props=False,
                     now_ms=_FIXED_NOW_MS,
+                    api_version=HUBSPOT_API_VERSION_V3,
                 )
             )
 
@@ -650,6 +752,7 @@ class TestGetRowsViaSearch:
                         db_incremental_field_last_value=str(identical_cursor - 1),
                         include_custom_props=False,
                         now_ms=identical_cursor + 1_000,
+                        api_version=HUBSPOT_API_VERSION_V3,
                     )
                 )
 
@@ -684,6 +787,7 @@ class TestGetRowsViaSearch:
                     db_incremental_field_last_value=sync_start_iso,
                     include_custom_props=False,
                     now_ms=sync_end,
+                    api_version=HUBSPOT_API_VERSION_V3,
                 )
             )
 
@@ -722,6 +826,7 @@ class TestGetRowsViaSearch:
                     db_incremental_field_last_value=_RECENT_SEED_ISO,
                     include_custom_props=False,
                     now_ms=_FIXED_NOW_MS,
+                    api_version=HUBSPOT_API_VERSION_V3,
                 )
             )
 
@@ -760,6 +865,7 @@ class TestGetRowsViaSearch:
                     db_incremental_field_last_value=_RECENT_SEED_ISO,
                     include_custom_props=False,
                     now_ms=_FIXED_NOW_MS,
+                    api_version=HUBSPOT_API_VERSION_V3,
                 )
             )
 
@@ -795,6 +901,7 @@ class TestGetRowsViaSearch:
                     db_incremental_field_last_value=_RECENT_SEED_ISO,
                     include_custom_props=False,
                     now_ms=_FIXED_NOW_MS,
+                    api_version=HUBSPOT_API_VERSION_V3,
                 )
             )
 
@@ -825,6 +932,7 @@ class TestGetRowsViaSearch:
                     db_incremental_field_last_value=_RECENT_SEED_ISO,
                     include_custom_props=False,
                     now_ms=_FIXED_NOW_MS,
+                    api_version=HUBSPOT_API_VERSION_V3,
                 )
             )
 
@@ -847,6 +955,7 @@ class TestHubspotSourceRouting:
                     logger=MagicMock(),
                     resumable_source_manager=MagicMock(),
                     use_search_path=True,
+                    api_version=HUBSPOT_API_VERSION_V3,
                 )
         finally:
             HUBSPOT_ENDPOINTS["deals"].cursor_filter_property_field = original
@@ -860,6 +969,7 @@ class TestHubspotSourceRouting:
             resumable_source_manager=MagicMock(),
             use_search_path=True,
             db_incremental_field_last_value=None,
+            api_version=HUBSPOT_API_VERSION_V3,
         )
         # SourceResponse should be returned with partition settings preserved.
         assert resp.name == "deals"
@@ -874,6 +984,7 @@ class TestHubspotSourceRouting:
             logger=MagicMock(),
             resumable_source_manager=MagicMock(),
             use_search_path=False,
+            api_version=HUBSPOT_API_VERSION_V3,
         )
         assert resp.name == "deals"
 
@@ -912,6 +1023,7 @@ class TestGetRowsFullRefresh:
                     logger=logger,
                     resumable_source_manager=manager,
                     include_custom_props=False,
+                    api_version=HUBSPOT_API_VERSION_V3,
                 )
             )
 
@@ -944,6 +1056,7 @@ class TestGetRowsFullRefresh:
                     logger=logger,
                     resumable_source_manager=manager,
                     include_custom_props=False,
+                    api_version=HUBSPOT_API_VERSION_V3,
                 )
             )
 
@@ -981,10 +1094,52 @@ class TestGetRowsFullRefresh:
                     logger=logger,
                     resumable_source_manager=manager,
                     include_custom_props=False,
+                    api_version=HUBSPOT_API_VERSION_V3,
                 )
             )
 
         # The truncated response was reissued (same URL) and the retry yielded the row.
+        assert len(captured_urls) == 2
+        assert captured_urls[0] == captured_urls[1]
+        assert sum(t.num_rows for t in tables) == 1
+
+    def test_chunked_encoding_error_is_retried(self) -> None:
+        # Regression: a connection dropped mid-stream (server closes early during chunked
+        # transfer) raises requests' ChunkedEncodingError, which isn't a ConnectionError
+        # subclass. It must be treated as transient and retried, not crash the whole import.
+        from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot import get_rows
+
+        manager = _make_manager()
+        logger = MagicMock()
+
+        good = _make_response(200, {"results": [{"id": "1", "properties": {"hs_object_id": "1"}}]})
+        responses = iter([ChunkedEncodingError("Connection broken"), good])
+        captured_urls: list[str] = []
+
+        def _get(url, headers=None, timeout=None):  # noqa: ARG001
+            captured_urls.append(url)
+            next_response = next(responses)
+            if isinstance(next_response, Exception):
+                raise next_response
+            return next_response
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
+            new=lambda *_a, **_k: type("_S", (), {"get": staticmethod(_get)})(),
+        ):
+            tables = list(
+                get_rows(
+                    api_key="k",
+                    refresh_token="r",
+                    endpoint="deals",
+                    logger=logger,
+                    resumable_source_manager=manager,
+                    include_custom_props=False,
+                    api_version=HUBSPOT_API_VERSION_V3,
+                )
+            )
+
+        # The dropped connection was retried (same URL) and the second attempt yielded the row.
         assert len(captured_urls) == 2
         assert captured_urls[0] == captured_urls[1]
         assert sum(t.num_rows for t in tables) == 1

@@ -5,12 +5,10 @@ import { IconArrowLeft, IconDocument, IconEllipsis, IconExternal, IconPullReques
 import { LemonButton, LemonTabs, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { ScoutLink } from 'lib/signals/ScoutLink'
 import { scoutDisplayName } from 'lib/signals/signalCardSourceLine'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { urls } from 'scenes/urls'
@@ -38,9 +36,19 @@ import { ConventionalCommitScopeTag } from '../cards/ReportCard'
 import { CommitContent } from './artefactTypes'
 import { DetailSection } from './DetailSection'
 import { DiscussReportButton } from './DiscussReportButton'
-import { PullRequestBranchTag, PullRequestDiffPanel } from './PullRequestDiffPanel'
+import { PrChecksSection } from './PrChecksSection'
+import { PrCommentsSection } from './PrCommentsSection'
+import {
+    PullRequestBranchTag,
+    PullRequestBranchTagSkeleton,
+    PullRequestDiffPanel,
+    PullRequestDiffPending,
+    PullRequestDiffStat,
+    PullRequestDiffStatSkeleton,
+} from './PullRequestDiffPanel'
 import { ReportActivitySection } from './ReportActivitySection'
-import { ReportDetailAction, useReportDetailActions } from './ReportDetailActions'
+import { useReportDetailActions } from './ReportDetailActions'
+import { ReportFeedbackFooter } from './ReportFeedbackFooter'
 import { ReportTasksSection } from './ReportTasksSection'
 import { SuggestedReviewersSection } from './SuggestedReviewersSection'
 
@@ -158,9 +166,10 @@ function MetaSourceStack({
         return null
     }
     // Name the authoring scout on a scout-authored report so it's clear at a glance who wrote it,
-    // and link the name straight to the scout's detail page.
+    // and link the name straight to the scout's detail page. The scout may not sort first among mixed
+    // sources, so key off whether any source is a scout rather than just the primary.
     const scoutName = scoutDisplayName(scoutSkillName)
-    const showScout = primary.key === SignalSourceProduct.SignalsScout && !!scoutName
+    const showScout = entries.some(({ key }) => key === SignalSourceProduct.SignalsScout) && !!scoutName
     return (
         <Tooltip title={sourceProductsTooltipTitle(entries)}>
             <span className="inline-flex items-center gap-1.5 min-w-0 cursor-help">
@@ -246,23 +255,31 @@ export function ReportDetailSkeleton(): JSX.Element {
 
 interface InboxDetailFrameProps {
     report: SignalReport
-    /** Active inbox tab — drives the copy-link target in the merged header. */
+    /** Active inbox tab — drives the back link and the report URL seeded into Discuss. */
     tab: InboxTabKey
     /** Summary section heading icon + title. */
     summary: { icon: ReactNode; title: string }
+    /** Content rendered in the main column directly under the Summary (e.g. the PR conversation). */
+    summaryFooter?: ReactNode
     /** Extra primary action(s) rendered after the shared report actions. */
     primaryAction?: ReactNode
-    /** Diff body. When present, the overview and this render behind two tabs (GitHub-style PR view). */
+    /** Whether to render the Overview / Files changed tab bar. Driven by whether the report has a PR
+     * (known immediately), not by whether the diff has loaded — so the tab bar doesn't pop in a beat
+     * later and shift the layout. */
+    showFilesTab?: boolean
+    /** Diff body rendered under the "Files changed" tab (may be a skeleton while the commit artefact loads). */
     diffSection?: ReactNode
     /** Branch tag shown in the "Files changed" tab label, so the tab signals there's code behind it. */
     diffBranchTag?: ReactNode
+    /** +/- line-count stat shown in the "Files changed" tab label, right of the branch. */
+    diffStat?: ReactNode
     /** Extra sections (Tasks, Reviewers) – defaults applied by callers. */
     children?: ReactNode
 }
 
 /**
  * Shared chrome for the Report and Pull request detail bodies. Owns the full page header
- * (title, copy link) merged with the badges/meta/actions, then summary on the left
+ * (title) merged with the badges/meta/actions, then summary on the left
  * and supporting sections (Evidence, Runs, Reviewers) on the right. Mirrors desktop
  * `InboxDetailFrame`. AgentRunDetail keeps its own layout + shell header.
  */
@@ -270,17 +287,20 @@ export function InboxDetailFrame({
     report,
     tab,
     summary,
+    summaryFooter,
     primaryAction,
+    showFilesTab,
     diffSection,
     diffBranchTag,
+    diffStat,
     children,
 }: InboxDetailFrameProps): JSX.Element {
     const { reportSignals, reportSignalsLoading, priorityExplanation, actionabilityExplanation } = useValues(
         inboxReportDetailLogic({ reportId: report.id, report })
     )
-    // GitHub-style PR view: when a diff is present, the overview and the diff live behind two tabs.
+    // GitHub-style PR view: when the report has a PR, the overview and the diff live behind two tabs.
     const [activeDetailTab, setActiveDetailTab] = useState<'overview' | 'files'>('overview')
-    const hasDiff = !!diffSection
+    const hasDiff = !!showFilesTab
     const signals = reportSignals ?? []
     const evidenceCount = reportSignals !== null ? signals.length : report.signal_count
     const hasEvidence = evidenceCount > 0
@@ -290,23 +310,13 @@ export function InboxDetailFrame({
 
     const conventionalTitle = parseConventionalCommitTitle(report.title)
     const displayTitle = displayConventionalCommitTitle(report.title, 'Untitled report')
-    // Absolute URL to this report – used for the copy-link action and seeded into the Discuss prompt
-    // so the agent can open and read the report directly.
+    // Absolute URL to this report – seeded into the Discuss prompt so the agent can open and read
+    // the report directly.
     const reportUrl = `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport(tab, report.id))}`
 
     // Secondary actions as data so the same set renders inline as buttons on wide layouts and as a
     // standard `LemonMenu` on narrow ones; the primary action stays inline either way.
-    const detailActions = useReportDetailActions(report)
-    const reportActions: ReportDetailAction[] = [
-        {
-            key: 'copy-link',
-            label: 'Copy link',
-            icon: <IconLink />,
-            tooltip: 'Copy a link to this report',
-            onClick: () => void copyToClipboard(reportUrl, 'report link'),
-        },
-        ...detailActions,
-    ]
+    const reportActions = useReportDetailActions(report)
     const overflowMenuItems: LemonMenuItem[] = reportActions.map((action) => ({
         label: action.label,
         icon: action.icon,
@@ -316,7 +326,7 @@ export function InboxDetailFrame({
 
     const overviewBody = (
         <div className="grid grid-cols-1 @5xl:grid-cols-[minmax(0,80ch)_minmax(22rem,1fr)] gap-5">
-            <div className="min-w-0">
+            <div className="min-w-0 flex flex-col gap-5">
                 <DetailSection icon={summary.icon} title={summary.title}>
                     {report.summary ? (
                         <LemonMarkdown
@@ -331,6 +341,10 @@ export function InboxDetailFrame({
                         </p>
                     )}
                 </DetailSection>
+                {summaryFooter}
+                {/* The rating closes out the report body, where the reading ends – ahead of the
+                    supporting sections, which stack underneath once the layout drops to one column. */}
+                <ReportFeedbackFooter report={report} />
             </div>
 
             <div className="flex flex-col min-w-0 gap-5">
@@ -430,15 +444,18 @@ export function InboxDetailFrame({
                                 </LemonButton>
                             ))}
                         </div>
-                        <LemonMenu items={overflowMenuItems} placement="bottom-end">
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                icon={<IconEllipsis />}
-                                aria-label="More actions"
-                                className="@4xl:hidden"
-                            />
-                        </LemonMenu>
+                        {/* A resolved report past its refund window has no secondary actions at all. */}
+                        {overflowMenuItems.length > 0 && (
+                            <LemonMenu items={overflowMenuItems} placement="bottom-end">
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconEllipsis />}
+                                    aria-label="More actions"
+                                    className="@4xl:hidden"
+                                />
+                            </LemonMenu>
+                        )}
                     </div>
                 </div>
             </div>
@@ -454,10 +471,20 @@ export function InboxDetailFrame({
                             label: (
                                 <span className="flex items-center gap-1.5">
                                     <span>Files changed</span>
+                                    {diffStat}
                                     {diffBranchTag}
                                 </span>
                             ),
-                            content: <>{diffSection}</>,
+                            // `LemonTabs` renders only the active tab, so the rating row is repeated
+                            // at the end of the diff – otherwise reviewing a PR's code and stopping
+                            // there leaves no way to rate the report. Both rows drive the same
+                            // report-keyed logic, so a rating given on one reads back on the other.
+                            content: (
+                                <div className="flex flex-col gap-5">
+                                    {diffSection}
+                                    <ReportFeedbackFooter report={report} />
+                                </div>
+                            ),
                         },
                     ]}
                 />
@@ -480,7 +507,7 @@ function prFilesUrl(prUrl: string): string {
  * the branch's diff against the default branch alongside the overview. Runs keep their own `AgentRunDetail`.
  */
 export function ReportDetail({ report, tab }: { report: SignalReport; tab: InboxTabKey }): JSX.Element {
-    const { latestCommitArtefact } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
+    const { latestCommitArtefact, reportArtefacts } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
 
     const prUrl = safeHttpUrl(report.implementation_pr_url)
     const prRef = prUrl ? parsePrUrlParts(prUrl) : null
@@ -490,6 +517,10 @@ export function ReportDetail({ report, tab }: { report: SignalReport; tab: Inbox
     // tab when that artefact carries the repo + branch the diff endpoint needs.
     const commit = latestCommitArtefact ? (latestCommitArtefact.content as CommitContent) : null
     const canDiff = !!(commit?.repository && commit?.branch)
+    // A PR-bearing report always gets the tab bar right away — driven by `hasPr` (immediate) rather than
+    // the diff artefact (a beat later), so the tabs don't pop in and shift the layout. While the commit
+    // artefact is still loading, the tab label and body show skeletons.
+    const artefactsLoaded = reportArtefacts !== null
 
     return (
         <InboxDetailFrame
@@ -510,14 +541,33 @@ export function ReportDetail({ report, tab }: { report: SignalReport; tab: Inbox
                     </LemonButton>
                 ) : undefined
             }
+            showFilesTab={hasPr || canDiff}
             diffSection={
-                canDiff && commit && latestCommitArtefact ? (
+                canDiff && commit ? (
                     <PullRequestDiffPanel report={report} commit={commit} />
+                ) : hasPr ? (
+                    <PullRequestDiffPending artefactsLoaded={artefactsLoaded} />
                 ) : undefined
             }
             diffBranchTag={
-                canDiff && commit && latestCommitArtefact ? <PullRequestBranchTag commit={commit} /> : undefined
+                canDiff && commit ? (
+                    <PullRequestBranchTag commit={commit} />
+                ) : hasPr && !artefactsLoaded ? (
+                    <PullRequestBranchTagSkeleton />
+                ) : undefined
             }
-        />
+            diffStat={
+                canDiff && commit ? (
+                    <PullRequestDiffStat report={report} commit={commit} />
+                ) : hasPr && !artefactsLoaded ? (
+                    <PullRequestDiffStatSkeleton />
+                ) : undefined
+            }
+            // The PR conversation sits under the Summary as primary content; CI checks stay in the
+            // sidebar. Both drop themselves when there's nothing to show.
+            summaryFooter={hasPr ? <PrCommentsSection report={report} /> : undefined}
+        >
+            {hasPr && <PrChecksSection report={report} />}
+        </InboxDetailFrame>
     )
 }

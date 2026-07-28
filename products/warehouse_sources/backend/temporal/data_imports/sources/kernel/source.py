@@ -19,7 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import KernelSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kernel import KernelSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.kernel.kernel import (
     kernel_source,
     validate_credentials as validate_kernel_credentials,
@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class KernelSource(SimpleSource[KernelSourceConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog - safe for public docs
+    api_docs_url = "https://onkernel.com/docs/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -84,6 +85,7 @@ You can create an API key in your [Kernel dashboard](https://dashboard.onkernel.
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = KERNEL_ENDPOINTS[endpoint]
@@ -105,7 +107,11 @@ You can create an API key in your [Kernel dashboard](https://dashboard.onkernel.
         return schemas
 
     def validate_credentials(
-        self, config: KernelSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: KernelSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         ok, status = validate_kernel_credentials(config.api_key)
         if ok:

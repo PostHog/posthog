@@ -29,7 +29,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub.
     DOCKERHUB_ENDPOINTS,
     ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DockerhubSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dockerhub import (
+    DockerhubSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -43,6 +45,9 @@ def _namespace_for_config(config: DockerhubSourceConfig) -> str:
 @SourceRegistry.register
 class DockerhubSource(ResumableSource[DockerhubSourceConfig, DockerhubResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://docs.docker.com/reference/api/hub/latest/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -120,6 +125,7 @@ You can create a personal access token with **Read** access under **Account sett
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — the Hub management API exposes no server-side
         # updated_after/since filter on repositories or tags, so there is no incremental cursor.
@@ -138,7 +144,11 @@ You can create a personal access token with **Read** access under **Account sett
         return schemas
 
     def validate_credentials(
-        self, config: DockerhubSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: DockerhubSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # Both endpoints read from the same namespace with the same token, so a single login +
         # namespace probe validates access to every schema.

@@ -30,13 +30,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AppfollowSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appfollow import (
+    AppfollowSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class AppfollowSource(ResumableSource[AppfollowSourceConfig, AppfollowResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://docs.api.appfollow.io/reference/overview"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -94,6 +99,7 @@ Note that AppFollow bills API usage against a credit balance (reviews and rating
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = APPFOLLOW_ENDPOINTS[endpoint]
@@ -114,7 +120,11 @@ Note that AppFollow bills API usage against a credit balance (reviews and rating
         return schemas
 
     def validate_credentials(
-        self, config: AppfollowSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: AppfollowSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         status = check_credentials(config.api_key)
         if status is None:

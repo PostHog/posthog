@@ -45,6 +45,11 @@ class TestComputePrFingerprint:
             ("ci_status", "pending", "failing"),
             ("review_decision", None, "changes_requested"),
             ("state", "open", "closed"),
+            # A new head commit failing with the same coarse ci_status as its
+            # predecessor must still read as a change — without the SHA, an agent
+            # push that fails again would hash identically to the previous failure
+            # and the follow-up would never re-fire.
+            ("head_sha", "aaa111", "bbb222"),
         ]
     )
     def test_changes_when_actionable_field_changes(self, field, before, after):
@@ -155,7 +160,7 @@ class TestGetPrContextActivity:
             "url": pr_url,
             "state": "open",
             "ci_status": "failing",
-            "review_decision": None,
+            "review_decision": "changes_requested",
             "unresolved_threads": 1,
         }
         integration = MagicMock()
@@ -169,6 +174,11 @@ class TestGetPrContextActivity:
         assert result.pr_url == pr_url
         assert result.pr_state == "open"
         assert result.fingerprint == compute_pr_fingerprint(snapshot)
+        # The actionable signals must flow through — the CI follow-up loop keys
+        # its fire/skip decision on them.
+        assert result.ci_status == "failing"
+        assert result.changes_requested is True
+        assert result.unresolved_threads == 1
         integration.get_pull_request_snapshot.assert_called_once_with(pr_url)
 
     @pytest.mark.django_db

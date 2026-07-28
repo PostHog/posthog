@@ -37,7 +37,7 @@ function DatasetCard({
     const progress = hasProgress ? Math.round((status.completed_partitions / status.total_partitions!) * 100) : null
 
     return (
-        <LemonCard className="p-4 space-y-4">
+        <LemonCard className="p-4 space-y-4" hoverEffect={false}>
             <div className="flex items-start justify-between gap-3">
                 <div className="flex items-start gap-3">
                     <div className="text-xl text-muted mt-0.5">{icon}</div>
@@ -111,18 +111,18 @@ export function OverviewTab(): JSX.Element {
             sorter: (a, b) => a.backfilled_schemas / a.total_schemas - b.backfilled_schemas / b.total_schemas,
         },
         {
-            title: 'Pending imports',
-            dataIndex: 'pending_batches',
-            render: (pendingBatches) =>
-                typeof pendingBatches === 'number' ? pendingBatches.toLocaleString() : 'Unavailable',
-            sorter: (a, b) => (a.pending_batches ?? -1) - (b.pending_batches ?? -1),
-        },
-        {
             title: 'Last source import',
             dataIndex: 'last_synced_at',
             render: (lastSyncedAt) =>
                 typeof lastSyncedAt === 'string' ? humanFriendlyDetailedTime(lastSyncedAt) : 'Not synced yet',
             sorter: (a, b) => new Date(a.last_synced_at ?? 0).getTime() - new Date(b.last_synced_at ?? 0).getTime(),
+        },
+        {
+            title: 'Applied to warehouse',
+            dataIndex: 'last_applied_at',
+            render: (lastAppliedAt) =>
+                typeof lastAppliedAt === 'string' ? humanFriendlyDetailedTime(lastAppliedAt) : 'Not recorded yet',
+            sorter: (a, b) => new Date(a.last_applied_at ?? 0).getTime() - new Date(b.last_applied_at ?? 0).getTime(),
         },
     ]
 
@@ -202,7 +202,7 @@ export function OverviewTab(): JSX.Element {
                 />
             </div>
 
-            <LemonCard className="p-0 overflow-hidden">
+            <LemonCard className="p-0 overflow-hidden" hoverEffect={false}>
                 <div className="p-4 flex items-start justify-between gap-3 border-b">
                     <div>
                         <h3 className="mb-1">Imported source tables</h3>

@@ -2,7 +2,7 @@ from posthog.test.base import APIBaseTest
 
 from parameterized import parameterized
 
-from posthog.models import Team
+from posthog.models import Team, User
 
 from products.review_hog.backend.models import ReviewSkillConfig
 from products.review_hog.backend.reviewer.lazy_seed import sync_canonical_perspectives
@@ -23,9 +23,15 @@ class TestReviewPerspectiveConfigAPI(APIBaseTest):
         sync_canonical_perspectives(self.team)
         self.base = f"/api/projects/{self.team.id}/review_hog/perspectives"
 
-    def _author_custom(self) -> None:
+    def _author_custom(self, created_by: User | None = None) -> None:
         LLMSkill.objects.create(
-            team=self.team, name=_CUSTOM, description="d", body="x" * 250, version=1, is_latest=True
+            team=self.team,
+            name=_CUSTOM,
+            description="d",
+            body="x" * 250,
+            version=1,
+            is_latest=True,
+            created_by=created_by or self.user,
         )
 
     def test_list_shows_canonicals_enabled_and_custom_disabled(self) -> None:
@@ -90,6 +96,20 @@ class TestReviewPerspectiveConfigAPI(APIBaseTest):
         res = self.client.patch(f"{self.base}/{skill_name}/", {"enabled": True}, format="json")
         assert res.status_code == expected_status
 
+    def test_a_teammates_custom_perspective_is_hidden_and_not_enableable(self) -> None:
+        # Visibility is author-only: a custom another user authored must not appear in this user's
+        # menu, and PATCHing it by exact name (the old backdoor) must 404 as if it didn't exist.
+        teammate = User.objects.create(email="teammate-perspectives@example.com")
+        self._author_custom(created_by=teammate)
+
+        listing = self.client.get(f"{self.base}/")
+        patched = self.client.patch(f"{self.base}/{_CUSTOM}/", {"enabled": True}, format="json")
+
+        assert listing.status_code == 200
+        assert _CUSTOM not in {item["skill_name"] for item in listing.json()}
+        assert patched.status_code == 404
+        assert not ReviewSkillConfig.objects.for_team(self.team.id).filter(skill_name=_CUSTOM).exists()
+
     def test_environment_url_resolves_to_the_canonical_team(self) -> None:
         # With an environment (child team) id in the URL, the canonicalized `for_team` filter and a
         # raw-id create kwarg used to contradict each other: the config row landed on the parent, the
@@ -130,7 +150,7 @@ class TestReviewPerspectiveConfigAPI(APIBaseTest):
     def test_list_api_key_scope_is_llm_skill(self, _name: str, scopes: list[str], expected_status: int) -> None:
         # The menu returns skill body/description, so the endpoint is scoped `llm_skill` like the
         # skills API — a revert to INTERNAL would reject the read-scoped key here AND silently skip
-        # the llm_analytics RBAC gate for session users.
+        # the llm_skill RBAC gate for session users.
         api_key = self.create_personal_api_key_with_scopes(scopes)
         self.client.logout()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")

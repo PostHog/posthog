@@ -58,6 +58,26 @@ describe('visionActionsLogic', () => {
             })
     })
 
+    it('keeps the built-in digest in the shared list so the Observations-tab card can find it', async () => {
+        // The digest must NOT be filtered out here: scannerDigestLogic reads this list to populate the
+        // hero card. The Summaries-and-alerts table hides it at render time instead (VisionActionsTab).
+        const digest = { ...action('digest'), is_scanner_digest: true } as VisionActionApi
+        useMocks({
+            get: {
+                '/api/projects/:team/vision/actions/': { results: [digest, action('a')], count: 2 },
+            },
+        })
+        logic.actions.loadActions()
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({
+                visionActions: expect.arrayContaining([
+                    expect.objectContaining({ id: 'digest', is_scanner_digest: true }),
+                    expect.objectContaining({ id: 'a' }),
+                ]),
+            })
+    })
+
     it('toggleActionEnabled optimistically flips the row and marks it in-flight', async () => {
         await expectLogic(logic, () => {
             logic.actions.loadActionsSuccess([action('a', true)])
@@ -104,6 +124,7 @@ describe('visionActionsLogic', () => {
             alert_frequency: 'on_breach',
             alert_metric: 'count',
             alert_threshold: 1,
+            alert_direction: 'above',
             alert_window_days: 1,
         }
         expect(buildActionBody(form, 's1')).toEqual({
@@ -135,6 +156,7 @@ describe('visionActionsLogic', () => {
             alert_frequency: 'on_breach',
             alert_metric: 'count',
             alert_threshold: 1,
+            alert_direction: 'above',
             alert_window_days: 1,
         }
         const body = buildActionBody(form, 's1')
@@ -161,6 +183,10 @@ describe('visionActionsLogic', () => {
             alert_frequency: 'on_breach',
             alert_metric: 'count',
             alert_threshold: 1,
+            // A stale "below" on a count metric (e.g. carried over from an avg-score edit) must not
+            // persist — "at most N matches" is a confusing quiet-window alarm, so counts are pinned to
+            // "at least". Only the average score exposes a direction choice.
+            alert_direction: 'below',
             alert_window_days: 1,
         }
         const body = buildActionBody(form, 's1')
@@ -169,6 +195,7 @@ describe('visionActionsLogic', () => {
             frequency: 'on_breach',
             metric: 'count',
             threshold: 1,
+            direction: 'above',
             window_days: 1,
         })
         expect(body.selection).toEqual({ tags: ['rage-click'] })
@@ -181,5 +208,9 @@ describe('visionActionsLogic', () => {
         // Every-match alerts carry no threshold machinery — just the frequency and the count metric.
         const everyMatch = buildActionBody({ ...form, alert_frequency: 'every_match' }, 's1')
         expect(everyMatch.alert_config).toEqual({ frequency: 'every_match', metric: 'count' })
+
+        // The average score keeps the user's direction choice — "below a floor" is its natural alarm.
+        const avgBelow = buildActionBody({ ...form, alert_metric: 'avg_score', alert_direction: 'below' }, 's1')
+        expect(avgBelow.alert_config).toEqual(expect.objectContaining({ metric: 'avg_score', direction: 'below' }))
     })
 })

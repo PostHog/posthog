@@ -20,7 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SageHRSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sagehr import SageHRSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.sage_hr.sage_hr import (
     SageHRResumeConfig,
     sage_hr_source,
@@ -36,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class SageHRSource(ResumableSource[SageHRSourceConfig, SageHRResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
+    api_docs_url = "https://sagehr.docs.apiary.io/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -103,6 +105,7 @@ An admin must first enable API access under **Settings → Integrations → API*
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — Sage HR exposes no updated-since style server-side
         # filter, so there is no timestamp cursor to advance an incremental sync.
@@ -121,7 +124,11 @@ An admin must first enable API access under **Settings → Integrations → API*
         return schemas
 
     def validate_credentials(
-        self, config: SageHRSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: SageHRSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The API key is account-wide, so a single probe validates access to every schema.
         return validate_sage_hr_credentials(config.subdomain, config.api_key)

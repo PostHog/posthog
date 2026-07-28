@@ -1,8 +1,12 @@
 import { formatDateRangeLabel } from 'lib/components/DateFilter/DateRangePicker/utils'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { dayjs } from 'lib/dayjs'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
-import { AnyPropertyFilter } from '~/types'
+import { AnyPropertyFilter, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
+
+import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
+import { DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS } from 'products/logs/frontend/logsConfigLogic'
 
 export function formatFilterGroupValues(filterGroup: Record<string, any> | undefined): string[] {
     const group = filterGroup?.values?.[0]
@@ -93,8 +97,10 @@ function matchesKey(key: string, candidates: string[]): boolean {
     return candidates.some((candidate) => key === candidate || key.endsWith(`.${candidate}`))
 }
 
-export function isDistinctIdKey(key: string): boolean {
-    return matchesKey(key, DISTINCT_ID_KEYS)
+// Configured keys (the team's `logs_distinct_id_attribute_keys` setting) match exactly;
+// only the built-in convention list gets dot-suffix matching.
+export function isDistinctIdKey(key: string, configuredKeys?: string[]): boolean {
+    return (configuredKeys ?? []).includes(key) || matchesKey(key, DISTINCT_ID_KEYS)
 }
 
 // Configured keys (the team's `logs_session_id_attribute_keys` setting) match exactly;
@@ -147,4 +153,47 @@ export function getSessionIdFromLogAttributes(
     configuredKeys?: string[]
 ): string | null {
     return getSessionIdWithKey(attributes, resourceAttributes, configuredKeys)?.value ?? null
+}
+
+// Wide enough to cover a session around a single event without drowning it in unrelated logs.
+export const SESSION_LOGS_WINDOW_MINUTES = 30
+
+export function buildDateRangeAround(timestamp: string, windowMinutes: number): { date_from: string; date_to: string } {
+    const center = dayjs(timestamp)
+    return {
+        date_from: center.subtract(windowMinutes, 'minute').toISOString(),
+        date_to: center.add(windowMinutes, 'minute').toISOString(),
+    }
+}
+
+// Builds logs viewer filters scoped to one session, for other products surfacing logs
+// (error tracking, session replay). Filters on the team's configured session ID keys
+// (OR across keys, exact match), defaulting to the SDK convention; a timestamp scopes
+// the date range to ±30 minutes so old sessions aren't hidden by the default range.
+export function buildLogsSessionFilters(
+    sessionId: string,
+    configuredKeys?: string[],
+    timestamp?: string
+): Partial<LogsViewerFilters> {
+    const keys = configuredKeys?.length ? configuredKeys : DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS
+    const filters: Partial<LogsViewerFilters> = {
+        filterGroup: {
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    type: FilterLogicalOperator.Or,
+                    values: keys.map((key) => ({
+                        key,
+                        value: [sessionId],
+                        operator: PropertyOperator.Exact,
+                        type: PropertyFilterType.LogAttribute,
+                    })),
+                },
+            ],
+        },
+    }
+    if (timestamp) {
+        filters.dateRange = buildDateRangeAround(timestamp, SESSION_LOGS_WINDOW_MINUTES)
+    }
+    return filters
 }

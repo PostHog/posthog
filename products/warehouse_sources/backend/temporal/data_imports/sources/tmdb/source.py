@@ -19,13 +19,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import TMDbSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.tmdb.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-    TMDB_ENDPOINTS,
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tmdb import TMDbSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.tmdb.settings import ENDPOINTS, INCREMENTAL_FIELDS
 from products.warehouse_sources.backend.temporal.data_imports.sources.tmdb.tmdb import (
     TMDbResumeConfig,
     tmdb_source,
@@ -36,6 +35,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TMDbSource(ResumableSource[TMDbSourceConfig, TMDbResumeConfig]):
+    supported_versions = ("3",)
+    default_version = "3"
+    api_docs_url = "https://developer.themoviedb.org/reference/intro/getting-started"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.TMDB
@@ -69,8 +72,9 @@ Create a free API key (v3 auth) in your [TMDB account settings](https://www.them
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            # An invalid or revoked TMDB API key surfaces as a 401 when `_fetch` calls
-            # `raise_for_status()`. Retrying can't fix a credential problem, so stop the sync.
+            # An invalid or revoked TMDB API key surfaces as a 401 whose HTTPError message the client
+            # scrubs the api_key from but keeps this host prefix. Retrying can't fix a credential
+            # problem, so stop the sync.
             "401 Client Error: Unauthorized for url: https://api.themoviedb.org": "Your TMDB API key is invalid or has been revoked. Create a new key in your TMDB account settings, then reconnect.",
         }
 
@@ -81,26 +85,14 @@ Create a free API key (v3 auth) in your [TMDB account settings](https://www.them
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                # TMDB v3 list endpoints expose no server-side updated-after filter, so every table is
-                # full refresh only.
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-                should_sync_default=TMDB_ENDPOINTS[endpoint].should_sync_default,
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # TMDB v3 list endpoints expose no server-side updated-after filter, so every endpoint has
+        # empty incremental fields and is full refresh only.
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: TMDbSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: TMDbSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         return validate_tmdb_credentials(config.api_key)
 
@@ -123,6 +115,7 @@ Create a free API key (v3 auth) in your [TMDB account settings](https://www.them
         return tmdb_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )

@@ -1,4 +1,6 @@
+import time
 import datetime
+from itertools import batched
 
 from django.db import close_old_connections, transaction
 from django.db.models import Q
@@ -18,6 +20,9 @@ from products.error_tracking.backend.temporal.symbol_set_cleanup.types import (
 )
 
 logger = structlog.get_logger(__name__)
+
+_DELETE_REQUEST_BATCH_SIZE = 1000
+_DELETE_REQUEST_PACING_SECONDS = 0.1
 
 
 def _cleanup_filter(inputs: SymbolSetCleanupInputs) -> Q:
@@ -47,6 +52,15 @@ def _delete_symbol_set_batch(symbol_set_ids: list[str]) -> tuple[int, set[str]]:
         left_deleted, left_failed = _delete_symbol_set_batch(symbol_set_ids[:midpoint])
         right_deleted, right_failed = _delete_symbol_set_batch(symbol_set_ids[midpoint:])
         return left_deleted + right_deleted, left_failed | right_failed
+
+
+def _delete_symbol_set_contents_with_pacing(storage_ptrs: list[str]) -> list[str]:
+    failed_storage_ptrs: list[str] = []
+    for batch_number, storage_ptr_batch in enumerate(batched(storage_ptrs, _DELETE_REQUEST_BATCH_SIZE, strict=False)):
+        if batch_number > 0:
+            time.sleep(_DELETE_REQUEST_PACING_SECONDS)
+        failed_storage_ptrs.extend(delete_symbol_set_contents_many(list(storage_ptr_batch)))
+    return failed_storage_ptrs
 
 
 @activity.defn
@@ -116,7 +130,7 @@ def cleanup_symbol_sets_activity(inputs: SymbolSetCleanupInputs) -> SymbolSetCle
         ]
         if deleted_storage_ptrs:
             try:
-                failed_storage_ptrs = delete_symbol_set_contents_many(deleted_storage_ptrs)
+                failed_storage_ptrs = _delete_symbol_set_contents_with_pacing(deleted_storage_ptrs)
             except Exception as exc:
                 failed_storage_ptrs = deleted_storage_ptrs
                 logger.exception(

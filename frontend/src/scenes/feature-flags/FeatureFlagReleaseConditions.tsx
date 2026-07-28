@@ -15,7 +15,7 @@ import { INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { GroupsAccessStatus, groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
-import { IconArrowDown, IconArrowUp, IconOpenInNew, IconSubArrowRight } from 'lib/lemon-ui/icons'
+import { IconArrowDown, IconArrowUp, IconErrorOutline, IconOpenInNew, IconSubArrowRight } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -50,6 +50,7 @@ import {
     FeatureFlagReleaseConditionsLogicProps,
     featureFlagReleaseConditionsLogic,
     isDistinctIdFilter,
+    withResolvedFlagLabels,
 } from './featureFlagReleaseConditionsLogic'
 import { getPropertySelectErrorMessages } from './propertySelectErrorMessages'
 
@@ -131,6 +132,7 @@ export function FeatureFlagReleaseConditions({
         propertySelectErrors,
         affectedCounts,
         totalCounts,
+        blastRadiusErrors,
         filtersTaxonomicOptions,
         aggregationTargetName,
         properties,
@@ -146,6 +148,7 @@ export function FeatureFlagReleaseConditions({
         addConditionSet,
         moveConditionSetUp,
         moveConditionSetDown,
+        calculateBlastRadiusForCondition,
     } = useActions(releaseConditionsLogic)
 
     const { showGroupsOptions, groupTypes, aggregationLabel } = useValues(groupsModel)
@@ -365,7 +368,7 @@ export function FeatureFlagReleaseConditions({
                                 pageKey={`feature-flag-${id}-${group.sort_key}-${filterGroups.length}-${
                                     filters.aggregation_group_type_index ?? ''
                                 }`}
-                                propertyFilters={group?.properties}
+                                propertyFilters={withResolvedFlagLabels(group?.properties, getFlagKey)}
                                 logicalRowDivider
                                 addText="Add condition"
                                 onChange={(properties) => updateConditionSet(index, undefined, properties)}
@@ -444,16 +447,39 @@ export function FeatureFlagReleaseConditions({
                                 of <b>{aggregationTargetName(group.aggregation_group_type_index)}</b> in this set.
                                 {(() => {
                                     const targetIndex = group.aggregation_group_type_index
+                                    const resolvedGroupTypeIndex = resolveAggregationGroupTypeIndex(
+                                        targetIndex,
+                                        filters.aggregation_group_type_index
+                                    )
                                     const pluralName = aggregationTargetName(targetIndex)
-                                    const singularName = aggregationLabel(
-                                        resolveAggregationGroupTypeIndex(
-                                            targetIndex,
-                                            filters.aggregation_group_type_index
-                                        ),
-                                        true
-                                    ).singular
-                                    const affected = group.sort_key ? affectedCounts[group.sort_key] : undefined
-                                    const total = group.sort_key ? totalCounts[group.sort_key] : undefined
+                                    const singularName = aggregationLabel(resolvedGroupTypeIndex, true).singular
+                                    const sortKey = group.sort_key
+                                    const affected = sortKey ? affectedCounts[sortKey] : undefined
+                                    const total = sortKey ? totalCounts[sortKey] : undefined
+                                    if (sortKey && blastRadiusErrors[sortKey]) {
+                                        return (
+                                            <div
+                                                role="status"
+                                                className="basis-full flex items-center gap-2 mt-1 text-secondary"
+                                            >
+                                                <IconErrorOutline className="text-danger text-base shrink-0" />
+                                                <span>Couldn't estimate how many {pluralName} match.</span>
+                                                <LemonButton
+                                                    type="secondary"
+                                                    size="xsmall"
+                                                    onClick={() =>
+                                                        calculateBlastRadiusForCondition(
+                                                            sortKey,
+                                                            group.properties,
+                                                            resolvedGroupTypeIndex
+                                                        )
+                                                    }
+                                                >
+                                                    Retry
+                                                </LemonButton>
+                                            </div>
+                                        )
+                                    }
                                     if (affected === undefined || affected < 0 || total === undefined) {
                                         return (
                                             <div className="basis-full flex items-center mt-1">

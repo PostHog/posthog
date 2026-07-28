@@ -15,6 +15,7 @@ import { billingLogic } from './billingLogic'
 import { formatFlatRate } from './BillingProductAddon'
 import { billingProductLogic } from './billingProductLogic'
 import { ConfirmDowngradeModal } from './ConfirmDowngradeModal'
+import { ConfirmPurchaseModal } from './ConfirmPurchaseModal'
 import { ConfirmUpgradeModal } from './ConfirmUpgradeModal'
 import { DATA_PIPELINES_CUTOFF_DATE } from './constants'
 import { TrialCancellationSurveyModal } from './TrialCancellationSurveyModal'
@@ -44,8 +45,7 @@ export const BillingProductAddonActions = ({
     purchaseDisabledReason,
     onPurchaseClick,
 }: BillingProductAddonActionsProps): JSX.Element => {
-    const { billing, billingError, currentPlatformAddon, unusedPlatformAddonAmount, switchPlanLoading } =
-        useValues(billingLogic)
+    const { billing, billingError, currentPlatformAddon, switchPlanLoading } = useValues(billingLogic)
     const { preflight } = useValues(preflightLogic)
     const {
         currentAndUpgradePlans,
@@ -54,17 +54,29 @@ export const BillingProductAddonActions = ({
         isSubscribedToAnotherAddon,
         isDataPipelinesDeprecated,
         isLowerTierThanCurrentAddon,
-        proratedAmount,
+        amountDueToday,
+        appliedCreditBalance,
         isProrated,
         surveyID,
     } = useValues(billingProductLogic({ product: addon, productRef }))
 
     const { toggleIsPricingModalOpen, reportSurveyShown, setSurveyResponse, initiateProductUpgrade, activateTrial } =
         useActions(billingProductLogic({ product: addon }))
-    const { showConfirmUpgradeModal, showConfirmDowngradeModal } = useActions(billingProductLogic({ product: addon }))
+    const { showConfirmUpgradeModal, showConfirmDowngradeModal, showConfirmPurchaseModal } = useActions(
+        billingProductLogic({ product: addon })
+    )
     const { reportBillingAddonPlanSwitchStarted } = useActions(eventUsageLogic)
     const upgradePlan = currentAndUpgradePlans?.upgradePlan
     const isTrialEligible = !!addon.trial
+    // amountDueToday is what will actually hit the card right now — prorated and net of any credit
+    // balance (the same number the confirmation modal itemizes). The qualifier says which of the
+    // two mechanisms produced it, so "$0.00 today" is never left unexplained.
+    const todayPriceQualifier =
+        appliedCreditBalance > 0
+            ? amountDueToday === 0
+                ? 'covered by credits'
+                : 'prorated, credits applied'
+            : 'prorated'
     const renderSubscribedActions = (): JSX.Element | null => {
         if (addon.contact_support) {
             return null
@@ -125,7 +137,9 @@ export const BillingProductAddonActions = ({
                             {isTrialEligible ? (
                                 <span>{addon.trial?.length} day free trial</span>
                             ) : hidePricingNote && isProrated ? (
-                                <span>${proratedAmount.toFixed(2)} today (prorated)</span>
+                                <span>
+                                    ${amountDueToday.toFixed(2)} today ({todayPriceQualifier})
+                                </span>
                             ) : (
                                 <span>{formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)}</span>
                             )}
@@ -150,10 +164,18 @@ export const BillingProductAddonActions = ({
                         }
                         loading={billingProductLoading === addon.type || trialLoading}
                         onClick={() => {
-                            onPurchaseClick?.()
                             if (isTrialEligible) {
+                                onPurchaseClick?.()
                                 activateTrial()
+                            } else if (hasFlatRate) {
+                                // Flat-rate add-ons are charged immediately when a card is on file, so
+                                // confirm the amount first. Defer onPurchaseClick (the parent "activating"
+                                // lock) until the user actually confirms — firing it on open would strand
+                                // the cards on "Please wait…" if they cancel, since that lock only clears
+                                // on a billing reload.
+                                showConfirmPurchaseModal()
                             } else {
+                                onPurchaseClick?.()
                                 initiateProductUpgrade(addon, currentAndUpgradePlans?.upgradePlan, '')
                             }
                         }}
@@ -188,22 +210,12 @@ export const BillingProductAddonActions = ({
             )
         }
 
-        if (isProrated && !isSubscribedToAnotherAddon) {
+        // Fresh add or upgrade from another add-on (amountDueToday nets out unused time on the
+        // current add-on when switching). Downgrades don't show a pay-today line.
+        if (isProrated && (!isSubscribedToAnotherAddon || !isLowerTierThanCurrentAddon)) {
             return (
                 <p className={pricingInfoClassName}>
-                    Pay ~${proratedAmount.toFixed(2)} today (prorated) and
-                    <br />
-                    {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)} every month thereafter.
-                </p>
-            )
-        }
-
-        // Upgrading from another add-on to this one
-        if (isSubscribedToAnotherAddon && !isLowerTierThanCurrentAddon && isProrated) {
-            const amountDue = Math.max(0, proratedAmount - unusedPlatformAddonAmount)
-            return (
-                <p className={pricingInfoClassName}>
-                    Pay ~${amountDue.toFixed(2)} today (prorated) and
+                    Pay ~${amountDueToday.toFixed(2)} today ({todayPriceQualifier}) and
                     <br />
                     {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)} every month thereafter.
                 </p>
@@ -242,7 +254,6 @@ export const BillingProductAddonActions = ({
         }
 
         const hasFlatRate = !!upgradePlan.flat_rate
-        const amountDue = Math.max(0, proratedAmount - unusedPlatformAddonAmount)
         const showLabel = hasFlatRate && !(hidePricingNote && !isProrated)
 
         return (
@@ -250,7 +261,9 @@ export const BillingProductAddonActions = ({
                 {showLabel && (
                     <h4 className="leading-5 font-bold mb-0 flex gap-x-0.5 whitespace-nowrap">
                         {hidePricingNote && isProrated ? (
-                            <span>${amountDue.toFixed(2)} today (prorated)</span>
+                            <span>
+                                ${amountDueToday.toFixed(2)} today ({todayPriceQualifier})
+                            </span>
                         ) : (
                             formatFlatRate(Number(upgradePlan.unit_amount_usd), upgradePlan.unit)
                         )}
@@ -345,6 +358,7 @@ export const BillingProductAddonActions = ({
             {surveyID === TRIAL_CANCELLATION_SURVEY_ID && <TrialCancellationSurveyModal product={addon} />}
             <ConfirmUpgradeModal product={addon} />
             <ConfirmDowngradeModal product={addon} />
+            <ConfirmPurchaseModal product={addon} onConfirm={onPurchaseClick} />
         </div>
     )
 }

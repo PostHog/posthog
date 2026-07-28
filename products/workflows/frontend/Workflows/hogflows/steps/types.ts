@@ -280,6 +280,10 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         config: z.object({
             message_category_id: z.string().optional(),
             message_category_type: z.enum(['marketing', 'transactional']).optional(),
+            // When false, no open pixel is injected, links are not rewritten, and the send uses the
+            // untracked SES configuration set. Absent/true means tracked. Keep in sync with
+            // nodejs/src/cdp/schema/hogflow.ts.
+            tracking_enabled: z.boolean().optional(),
             template_uuid: z.string().optional(), // May be used later to specify a specific template version
             template_id: z.literal('template-email'),
             inputs: z.record(z.string(), CyclotronInputSchema),
@@ -326,6 +330,10 @@ export const isOptOutEligibleAction = (
 
 export const isEmailAction = (action: HogFlowAction): action is Extract<HogFlowAction, { type: 'function_email' }> => {
     return ['function_email'].includes(action.type)
+}
+
+export const isPushAction = (action: HogFlowAction): action is Extract<HogFlowAction, { type: 'function_push' }> => {
+    return ['function_push'].includes(action.type)
 }
 
 export const isFunctionAction = (

@@ -30,12 +30,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.elasticema
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ElasticemailSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.elasticemail import (
+    ElasticemailSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class ElasticemailSource(ResumableSource[ElasticemailSourceConfig, ElasticEmailResumeConfig]):
+    supported_versions = ("v4",)
+    default_version = "v4"
+    api_docs_url = "https://elasticemail.com/developers/api-documentation/rest-api"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.ELASTICEMAIL
@@ -90,6 +96,7 @@ Grant the key read access to the data you want to sync (Contacts, Campaigns, Tem
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = ELASTICEMAIL_ENDPOINTS[endpoint]
@@ -111,7 +118,11 @@ Grant the key read access to the data you want to sync (Contacts, Campaigns, Tem
         return schemas
 
     def validate_credentials(
-        self, config: ElasticemailSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ElasticemailSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # At source-create (schema_name=None) probe a cheap generic endpoint; for a specific schema, probe
         # that endpoint's path so we surface a per-endpoint permission problem early.
@@ -139,7 +150,8 @@ Grant the key read access to the data you want to sync (Contacts, Campaigns, Tem
         return elasticemail_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

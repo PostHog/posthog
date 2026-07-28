@@ -80,6 +80,8 @@ ActivityScope = Literal[
     "ExternalDataSource",
     "ExternalDataSchema",
     "Evaluation",
+    "LLMPrompt",
+    "LLMPromptLabel",
     "LLMTrace",
     "AIGatewayCredit",
     "WebAnalyticsFilterPreset",
@@ -87,6 +89,7 @@ ActivityScope = Literal[
     "Log",
     "LogsAlertConfiguration",
     "LogsExclusionRule",
+    "LogsRetentionRule",
     "DashboardWidget",
     "ProductTour",
     "Ticket",
@@ -97,6 +100,7 @@ ActivityScope = Literal[
     "Metric",
     "TableCertification",
     "Billing",
+    "Loop",
 ]
 ChangeAction = Literal[
     "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out", "copied"
@@ -199,6 +203,19 @@ class ActivityLog(UUIDTModel):
                 name="idx_alog_team_scp_act_crtd",
                 condition=models.Q(was_impersonated=False) & models.Q(is_system=False),
             ),
+            # Advanced activity logs default list ordering. The org- and team-scoped list
+            # endpoints order by -created_at with no scope filter, so the scope-led indexes
+            # above can't serve the sort, and the org indexes above are partial on a detail
+            # predicate the list query never carries. These full indexes let the LIMITed
+            # ordered scan walk created_at directly instead of sorting the whole partition.
+            models.Index(
+                fields=["organization_id", "-created_at"],
+                name="idx_alog_org_created_at",
+            ),
+            models.Index(
+                fields=["team_id", "-created_at"],
+                name="idx_alog_team_created_at",
+            ),
         ]
 
     team_id = models.PositiveIntegerField(null=True)
@@ -262,6 +279,15 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
         # Full content snapshot including action inputs (auth headers, API keys) — record that a
         # draft was staged/published/discarded, never its contents.
         "draft",
+        # Encrypted secret function inputs (Fernet ciphertext) — a diff would be noise at best and
+        # leak-adjacent at worst; record that they changed, never the values.
+        "encrypted_inputs",
+        "draft_encrypted_inputs",
+        # The action graph can carry secret function inputs (auth headers, API keys). New writes strip
+        # them into encrypted_inputs, but a legacy row's first write would diff its still-plaintext
+        # `before` against the stripped `after`, leaking the secret. Record that actions changed, never
+        # the contents — the per-version content audit lives in the revisions feature instead.
+        "actions",
     ],
     "OrganizationDomain": [
         "_scim_bearer_token",
@@ -343,6 +369,12 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
         "consecutive_failures",
         "state",
     ],
+    "Loop": [
+        "last_run_at",
+        "last_run_status",
+        "last_error",
+        "consecutive_failures",
+    ],
     "PersonalAPIKey": [
         "last_used_at",
     ],
@@ -414,11 +446,31 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
 ]
 
 field_exclusions: dict[AuditableScope, list[str]] = {
+    "HogFlow": [
+        # System-maintained skip-forward map for deleted steps, refreshed as a side effect of graph
+        # writes — bookkeeping, not a user edit, so keep it out of change diffs.
+        "action_redirects",
+    ],
     "Metric": [
         # Derived/throttled fields, not user-meaningful change diffs.
         "last_run_at",
         "source_insight_query_hash",
         "referenced_table_names",
+    ],
+    "Loop": [
+        # FK relations are not JSON-serializable for the change detail (same reason
+        # FeatureFlag/Subscription exclude theirs).
+        "team",
+        "sandbox_environment",
+        # Reverse FKs (LoopTrigger, LoopFire): reading them goes through those models' own
+        # fail-closed TeamScopedManagers with no ambient team scope at signal-handling time.
+        "triggers",
+        "fires",
+        # Run bookkeeping, not user-meaningful config.
+        "last_run_at",
+        "last_run_status",
+        "last_error",
+        "consecutive_failures",
     ],
     "OrganizationDomain": [
         "organization",

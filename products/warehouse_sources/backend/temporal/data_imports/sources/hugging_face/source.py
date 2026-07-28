@@ -19,19 +19,29 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import HuggingFaceSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.huggingface import (
+    HuggingFaceSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.hugging_face.hugging_face import (
     HuggingFaceResumeConfig,
     hugging_face_source,
     validate_credentials as validate_hugging_face_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.hugging_face.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.hugging_face.settings import (
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class HuggingFaceSource(ResumableSource[HuggingFaceSourceConfig, HuggingFaceResumeConfig]):
+    api_docs_url = "https://huggingface.co/docs/hub/api"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -105,26 +115,19 @@ Set **Username or organization** to the namespace whose models, datasets, and Sp
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # The Hub has no server-side timestamp range filter (it silently ignores `since`), so every
-        # endpoint is full refresh only. Repo metadata (likes, downloads, lastModified) mutates in
-        # place, so append-only would drop updates — hence no incremental/append.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # endpoint is full refresh only (INCREMENTAL_FIELDS is empty). Repo metadata (likes,
+        # downloads, lastModified) mutates in place, so append-only would drop updates.
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: HuggingFaceSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: HuggingFaceSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_hugging_face_credentials(config.api_token):
             return True, None
@@ -144,6 +147,8 @@ Set **Username or organization** to the namespace whose models, datasets, and Sp
             api_token=config.api_token,
             endpoint=inputs.schema_name,
             author=config.author,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every Hugging Face endpoint is full refresh
         )

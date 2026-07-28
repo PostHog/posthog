@@ -100,9 +100,13 @@ class SourceInputs:
     # Multi-schema import context, read by `resolve_source_location`.
     schema_metadata: Optional[dict[str, Any]] = None
     s3_folder_name: Optional[str] = None
+    # Effective vendor API version: the source instance's pin resolved through the source's
+    # `default_version`. Sources with a versioned vendor API thread it to their request layer.
+    api_version: Optional[str] = None
 
 
 class PipelineResult(TypedDict):
     should_trigger_cdp_producer: bool
     consumer_manages_job_status: NotRequired[bool]
     skip_post_import_activities: NotRequired[bool]
+    prepared_queryable_folder: NotRequired[str]

@@ -20,6 +20,7 @@ const STATUS_STYLES: Record<
     { label: string; type: 'success' | 'warning' | 'danger' | 'muted' }
 > = {
     delivered: { label: 'Delivered', type: 'success' },
+    generated: { label: 'Generated', type: 'success' },
     pending: { label: 'Pending', type: 'muted' },
     partial_failure: { label: 'Partial failure', type: 'warning' },
     failed: { label: 'Failed', type: 'danger' },

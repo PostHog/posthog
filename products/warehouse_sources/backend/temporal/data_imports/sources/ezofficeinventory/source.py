@@ -30,7 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ezofficein
     EZOFFICEINVENTORY_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ezofficeinventory import (
     EZOfficeInventorySourceConfig,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -41,6 +41,7 @@ class EZOfficeInventorySource(ResumableSource[EZOfficeInventorySourceConfig, EZO
     # `get_schemas` iterates a static endpoint catalog with no I/O, so the table list is safe to
     # render in public docs without credentials.
     lists_tables_without_credentials = True
+    api_docs_url = "https://ezo.io/ezofficeinventory/developers/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -73,6 +74,7 @@ class EZOfficeInventorySource(ResumableSource[EZOfficeInventorySourceConfig, EZO
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -93,7 +95,11 @@ class EZOfficeInventorySource(ResumableSource[EZOfficeInventorySourceConfig, EZO
         return schemas
 
     def validate_credentials(
-        self, config: EZOfficeInventorySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: EZOfficeInventorySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         is_valid, error_message = validate_ezofficeinventory_credentials(config.api_key, config.subdomain)
         if is_valid:
@@ -120,8 +126,10 @@ class EZOfficeInventorySource(ResumableSource[EZOfficeInventorySourceConfig, EZO
             api_key=config.api_key,
             subdomain=config.subdomain,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every EZOfficeInventory endpoint is full refresh
         )
 
     @property

@@ -69,6 +69,12 @@ class FOSSColumnOptimizer:
         table_column: TableColumn = "properties",
     ) -> set[ColumnName]:
         "Transforms a list of property names to what columns are needed for that query"
+        if not used_properties:
+            return set()
+        # The native-JSON events schema has no mat_* columns; property SQL reads subcolumns off the
+        # JSON column itself, so that column is all a query needs to select.
+        if table == "events" and self.filter.hogql_context.uses_new_events_schema():
+            return {table_column}
         column_names = set()
         for property_name, _, _ in used_properties:
             column = get_materialized_column_for_property(table, table_column, property_name)

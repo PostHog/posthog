@@ -3,5 +3,5 @@
   "rootPath": "./frontend/src",
   "typesPath": "./frontend/src",
   "writePaths": true,
-  "inlinePaths": ["./frontend/src/scenes/notebooks"]
+  "inline": true
 }

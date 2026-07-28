@@ -19,8 +19,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import TempoSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tempo import TempoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.tempo.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -37,6 +40,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TempoSource(ResumableSource[TempoSourceConfig, TempoResumeConfig]):
+    supported_versions = ("4",)
+    default_version = "4"
+    api_docs_url = "https://apidocs.tempo.io/"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -92,24 +99,14 @@ You can create an API token under **Settings → API Integration** in [Tempo](ht
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                # Only worklogs expose a server-side incremental filter (`updatedFrom`).
-                supports_incremental=bool(INCREMENTAL_FIELDS.get(endpoint)),
-                supports_append=bool(INCREMENTAL_FIELDS.get(endpoint)),
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # Only worklogs expose a server-side incremental filter (`updatedFrom`); an endpoint with
+        # incremental fields supports both incremental and append, everything else is full refresh.
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: TempoSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: TempoSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         # Tempo tokens carry granular scopes: at source-create we only confirm the token is genuine
         # (a 403 counts as valid); with a schema name we confirm the scope for that endpoint.
@@ -118,7 +115,7 @@ You can create an API token under **Settings → API Integration** in [Tempo](ht
         return validate_credentials(config.api_token, endpoint=schema_name)
 
     def get_endpoint_permissions(
-        self, config: TempoSourceConfig, team_id: int, endpoints: list[str]
+        self, config: TempoSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
     ) -> dict[str, str | None]:
         permissions: dict[str, str | None] = {}
         for endpoint in endpoints:
@@ -151,7 +148,8 @@ You can create an API token under **Settings → API Integration** in [Tempo](ht
         return tempo_source(
             api_token=config.api_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value,

@@ -355,11 +355,16 @@ def is_wizard_self_driving_program(request) -> bool:
     can only tell they're "the wizard". The self-driving program additionally tags its
     UA with a `program: self-driving` marker, letting callers attribute its work apart
     from other wizard runs.
+
+    When the request is proxied through the PostHog MCP server, that server overwrites
+    `User-Agent` with its own token and forwards the wizard's original UA — marker
+    included — in `X-Posthog-Mcp-User-Agent`. Inspect both so the marker is found whether
+    the wizard called us directly or via the MCP server.
     """
     user_agent = request.headers.get("user-agent", "") or ""
-    if not isinstance(user_agent, str):
-        return False
-    return "posthog/wizard" in user_agent and bool(_WIZARD_SELF_DRIVING_PROGRAM_RE.search(user_agent))
+    mcp_user_agent = request.headers.get("X-Posthog-Mcp-User-Agent", "") or ""
+    combined = "\n".join(part for part in (user_agent, mcp_user_agent) if isinstance(part, str))
+    return "posthog/wizard" in combined and bool(_WIZARD_SELF_DRIVING_PROGRAM_RE.search(combined))
 
 
 MAX_HEADER_VALUE_LENGTH = 1000

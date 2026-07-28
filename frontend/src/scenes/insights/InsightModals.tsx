@@ -91,14 +91,8 @@ function InsightAlertsModals({ insightLogicProps }: { insightLogicProps: Insight
     const { query } = useValues(insightDataLogic(insightProps))
     const { push } = useActions(router)
 
-    const hogqlAlertsEnabled = useFeatureFlag('HOGQL_INSIGHT_ALERTS')
-    const funnelAlertsEnabled = useFeatureFlag('FUNNEL_INSIGHT_ALERTS')
     const metricsAlertsEnabled = useFeatureFlag('METRICS')
-    const canCreateAlertForInsight = areAlertsSupportedForInsight(query, {
-        hogqlAlertsEnabled,
-        funnelAlertsEnabled,
-        metricsAlertsEnabled,
-    })
+    const canCreateAlertForInsight = areAlertsSupportedForInsight(query, { metricsAlertsEnabled })
 
     return (
         <>
@@ -121,6 +115,7 @@ function InsightAlertsModals({ insightLogicProps }: { insightLogicProps: Insight
                     alertId={alertId === null || alertId === 'new' ? undefined : alertId}
                     insightShortId={insight.short_id as InsightShortId}
                     insightId={insight.id}
+                    insightName={insight.name}
                     onEditSuccess={() => push(urls.insightAlerts(insight.short_id as InsightShortId))}
                     insightLogicProps={insightLogicProps}
                 />

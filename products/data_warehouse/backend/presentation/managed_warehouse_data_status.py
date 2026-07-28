@@ -4,10 +4,9 @@ READINESS_STATE_CHOICES = [
     "not_configured",
     "waiting",
     "backfilling",
-    "catching_up",
     "up_to_date",
     "needs_attention",
-    "unknown",
+    "sync_paused",
 ]
 
 
@@ -50,14 +49,10 @@ class ManagedWarehouseSourceTableStatusSerializer(serializers.Serializer):
     total_chunks = serializers.IntegerField(
         allow_null=True, help_text="Total backfill chunks, or null before the copy plan is ready."
     )
-    pending_batches = serializers.IntegerField(
-        allow_null=True, help_text="Imported batches waiting to be applied, or null when queue status is unavailable."
-    )
-    oldest_pending_at = serializers.DateTimeField(
-        allow_null=True, help_text="Creation time of the oldest unapplied imported batch."
-    )
     last_applied_at = serializers.DateTimeField(
-        allow_null=True, help_text="When an imported batch was most recently applied to the warehouse."
+        allow_null=True,
+        help_text="When an imported batch was most recently applied to the warehouse, or null if no apply "
+        "has been recorded for this table.",
     )
     last_synced_at = serializers.DateTimeField(
         allow_null=True, help_text="When PostHog most recently completed the upstream source import."
@@ -76,9 +71,10 @@ class ManagedWarehouseSourceSummarySerializer(serializers.Serializer):
     backfilled_schemas = serializers.IntegerField(
         help_text="Number of schemas whose one-time historical copy into the warehouse has completed."
     )
-    pending_batches = serializers.IntegerField(
+    last_applied_at = serializers.DateTimeField(
         allow_null=True,
-        help_text="Imported batches waiting to be applied across this source's schemas, or null when queue status is unavailable.",
+        help_text="Most recent time an imported batch was applied to the warehouse across this source's "
+        "schemas, or null if no apply has been recorded.",
     )
     last_synced_at = serializers.DateTimeField(
         allow_null=True, help_text="Most recent upstream source import completion across this source's schemas."

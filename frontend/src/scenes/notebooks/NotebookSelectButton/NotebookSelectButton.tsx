@@ -145,8 +145,7 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
     const { createNotebook } = useActions(notebooksModel)
 
     const openAndAddToNotebook = (notebookShortId: string, exists: boolean): void => {
-        const position = props.resource ? 'end' : 'start'
-        void openNotebook(notebookShortId, NotebookTarget.Popover, position, (theNotebookLogic) => {
+        void openNotebook(notebookShortId, NotebookTarget.Popover, (theNotebookLogic) => {
             if (!exists && props.resource) {
                 theNotebookLogic.actions.insertAfterLastNode([props.resource])
             }

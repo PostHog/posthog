@@ -103,6 +103,13 @@ impl WorkerHealth {
         self.drain_deadline.is_some()
     }
 
+    /// Whether this worker is currently eligible for routing: Healthy or
+    /// Degraded, and not draining. The single definition behind both
+    /// [`WorkerRegistry::healthy_workers`] and the debug snapshot.
+    fn is_routable(&self) -> bool {
+        !self.is_draining() && matches!(self.state, WorkerState::Healthy | WorkerState::Degraded)
+    }
+
     /// Attempt a state transition. Returns true if the transition happened.
     ///
     /// Transitions to the same state are ignored. Transitions within
@@ -294,6 +301,7 @@ impl WorkerRegistry {
                     url,
                     state: health.state.as_str().to_string(),
                     draining: health.is_draining(),
+                    routable: health.is_routable(),
                     consecutive_probe_failures: health.consecutive_probe_failures,
                     passive_error_rate,
                     passive_samples,
@@ -316,13 +324,7 @@ impl WorkerRegistry {
     pub fn healthy_workers(&self) -> Vec<WorkerId> {
         self.workers
             .iter()
-            .filter(|e| {
-                !e.value().is_draining()
-                    && matches!(
-                        e.value().state,
-                        WorkerState::Healthy | WorkerState::Degraded
-                    )
-            })
+            .filter(|e| e.value().is_routable())
             .map(|e| e.key().clone())
             .collect()
     }

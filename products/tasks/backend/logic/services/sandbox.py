@@ -59,6 +59,10 @@ class SandboxTemplate(str, Enum):
     VM_BASE = "vm_base"
 
     STREAMLIT_BASE = "streamlit_base"
+    # Minimal template (git, node, uv — no agent server, no skills). For review/exec
+    # sandboxes like stamphog that never run the agent server. See
+    # Dockerfile.sandbox-slim and modal_sandbox.py's SLIM_BASE image definition.
+    SLIM_BASE = "slim_base"
 
 
 class ExecutionResult(BaseModel):
@@ -167,6 +171,8 @@ def build_agent_runtime_env_prefix(
     provider: str | None = None,
     model: str | None = None,
     reasoning_effort: str | None = None,
+    context_window: str | None = None,
+    fast_mode: bool | None = None,
     initial_permission_mode: str | None = None,
     event_ingest_token: str | None = None,
     event_ingest_url: str | None = None,
@@ -179,6 +185,9 @@ def build_agent_runtime_env_prefix(
         "POSTHOG_CODE_PROVIDER": provider,
         "POSTHOG_CODE_MODEL": model,
         "POSTHOG_CODE_REASONING_EFFORT": reasoning_effort,
+        "POSTHOG_CODE_CONTEXT_WINDOW": context_window,
+        # Explicit false pins fast mode off even if a stale env value survives in a resumed sandbox.
+        "POSTHOG_CODE_FAST_MODE": None if fast_mode is None else ("true" if fast_mode else "false"),
         "POSTHOG_CODE_INITIAL_PERMISSION_MODE": initial_permission_mode,
         "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN": event_ingest_token,
         "POSTHOG_TASK_RUN_EVENT_INGEST_URL": event_ingest_url,
@@ -246,7 +255,22 @@ class SandboxBase(ABC):
         result = self.execute("grep -q autoPublish /scripts/node_modules/.bin/agent-server", timeout_seconds=10)
         return result.exit_code == 0
 
-    def clone_repository(self, repository: str, github_token: str | None = "", shallow: bool = True) -> ExecutionResult:
+    def agent_server_supports_exec_permission_regex(self) -> bool:
+        """Same probe as --autoPublish: check the installed binary before passing
+        --posthogExecPermissionRegex; unsupported binaries degrade to server-side auto-approval of
+        exec sub-tools instead of crashing at launch."""
+        result = self.execute(
+            "grep -q posthogExecPermissionRegex /scripts/node_modules/.bin/agent-server", timeout_seconds=10
+        )
+        return result.exit_code == 0
+
+    def clone_repository(
+        self,
+        repository: str,
+        github_token: str | None = "",
+        shallow: bool = True,
+        branch: str | None = None,
+    ) -> ExecutionResult:
         if not self.is_running():
             raise RuntimeError("Sandbox not in running state.")
 
@@ -261,6 +285,7 @@ class SandboxBase(ABC):
         org_path = f"{WORKING_DIR}/repos/{org}"
 
         depth_flag = f" --depth {shlex.quote('1')}" if shallow else ""
+        branch_flag = f" --branch {shlex.quote(branch)}" if branch else ""
         # Skip blobs over 128kB during full clones — large test snapshots and auto-generated
         # files get fetched on demand. Shallow clones are already small enough.
         blob_filter = "" if shallow else " --filter=blob:limit=128k"
@@ -268,7 +293,8 @@ class SandboxBase(ABC):
             f"rm -rf {shlex.quote(target_path)} && "
             f"mkdir -p {shlex.quote(org_path)} && "
             f"cd {shlex.quote(org_path)} && "
-            f"git clone --single-branch{blob_filter}{depth_flag} {shlex.quote(repo_url)} {shlex.quote(repo)}"
+            f"git clone --single-branch{blob_filter}{depth_flag}{branch_flag} "
+            f"{shlex.quote(repo_url)} {shlex.quote(repo)}"
         )
         _logger.info(f"Cloning repository {repository} to {target_path} in sandbox {self.id} (shallow={shallow})")
         return self.execute(clone_command, timeout_seconds=5 * 60)
@@ -312,8 +338,11 @@ class SandboxBase(ABC):
         provider: str | None = None,
         model: str | None = None,
         reasoning_effort: str | None = None,
+        context_window: str | None = None,
+        fast_mode: bool | None = None,
         initial_permission_mode: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
+        relayed_mcp_servers: list[str] | None = None,
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
         event_ingest_url: str | None = None,

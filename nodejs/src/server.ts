@@ -14,6 +14,7 @@ import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { ServerCommands } from '~/common/utils/commands'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
+import { isDevEnv } from '~/common/utils/env-utils'
 import { GeoIPService } from '~/common/utils/geoip'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
@@ -38,7 +39,9 @@ import { CdpPrecalculatedFiltersConsumer } from './cdp/consumers/cdp-precalculat
 import { CdpRerunWorkerConsumer } from './cdp/consumers/cdp-rerun-worker.consumer'
 import { createCdpProducerRegistry } from './cdp/outputs/producer-registry'
 import { CdpProducerName } from './cdp/outputs/producers'
+import { createCdpOutputsRegistry } from './cdp/outputs/registry'
 import { CyclotronV2JanitorService, CyclotronV2Manager, CyclotronV2Worker } from './cdp/services/cyclotron-v2'
+import { EmailReputationWorkerService } from './cdp/services/email-reputation/temporal/email-reputation-worker.service'
 import { HogFlowScheduleService } from './cdp/services/hogflow-schedule/hogflow-schedule.service'
 import { HOGFLOW_BATCH_RESOLVE_QUEUE } from './cdp/services/hogflows/batch-resolver.types'
 import { HogFlowBatchPersonQueryService } from './cdp/services/hogflows/hogflow-batch-person-query.service'
@@ -47,11 +50,12 @@ import { CyclotronJobQueuePostgres } from './cdp/services/job-queue/job-queue-po
 import { CyclotronJobQueuePostgresV2 } from './cdp/services/job-queue/job-queue-postgres-v2'
 import { CyclotronJobQueueRateLimitedPostgresV2 } from './cdp/services/job-queue/job-queue-rate-limited-postgres-v2'
 import { hasEmailSigningKey } from './cdp/services/messaging/helpers/tracking-code'
+import { HogInvocationResultsService } from './cdp/services/monitoring/hog-invocation-results.service'
 import { createSesRateLimiterValkeyPool } from './cdp/services/rate-limiter/rate-limiter-valkey-pool'
 import { RateLimiterService } from './cdp/services/rate-limiter/rate-limiter.service'
 import { EncryptedFields } from './cdp/utils/encryption-utils'
 import { CleanupResources, NodeServer, ServerLifecycle } from './servers/base-server'
-import { PluginServerService, PluginsServerConfig, RedisPool } from './types'
+import { HealthCheckResultOk, PluginServerService, PluginsServerConfig, RedisPool } from './types'
 
 /**
  * PluginServer handles CDP, logs, evaluation scheduler, and local-dev combined modes.
@@ -107,13 +111,21 @@ export class PluginServer implements NodeServer {
             capabilities.cdpHogflowSubscriptionMatcher ||
             capabilities.cdpRerunWorker
         )
+        // The janitor records poison-pill give-ups as failed invocation results,
+        // so it needs the Kafka producer registry — but NOT createCdpSharedServices
+        // (persons/geoip/integrations), which the minimal janitor deployment isn't
+        // provisioned for (DATABASE_URL=NOT_REQUIRED, personhog off). Gate only the
+        // producer on the janitor capability.
+        const needsCdpProducer = needsCdp || capabilities.cdpCyclotronV2Janitor
         // 1. Shared infrastructure (always needed)
         const { teamManager } = await this.createSharedInfrastructure()
 
         // 2. Services shared by CDP (geoip, repos, encryption)
         let cdpServices: Awaited<ReturnType<typeof this.createCdpSharedServices>> | undefined
-        if (needsCdp) {
+        if (needsCdpProducer) {
             this.cdpProducerRegistry = await createCdpProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
+        }
+        if (needsCdp) {
             cdpServices = await this.createCdpSharedServices()
         }
 
@@ -218,6 +230,13 @@ export class PluginServer implements NodeServer {
                 const batchResolverProducer = this.config.CYCLOTRON_NODE_DATABASE_URL
                     ? new CyclotronV2Manager({
                           pool: { dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL, maxConnections: 5 },
+                          rescheduleFloorSeconds: this.config.CYCLOTRON_NODE_RESCHEDULE_FLOOR_SECONDS,
+                          rescheduleWakeRatePerSecond: this.config.CYCLOTRON_NODE_RESCHEDULE_WAKE_RATE_PER_SECOND,
+                          rescheduleMinWindowSeconds: this.config.CYCLOTRON_NODE_RESCHEDULE_MIN_WINDOW_SECONDS,
+                          rescheduleMaxWindowSeconds: this.config.CYCLOTRON_NODE_RESCHEDULE_MAX_WINDOW_SECONDS,
+                          rescheduleChunkSize: this.config.CYCLOTRON_NODE_RESCHEDULE_CHUNK_SIZE,
+                          rescheduleMaxChunksPerCall: this.config.CYCLOTRON_NODE_RESCHEDULE_MAX_CHUNKS_PER_CALL,
+                          rescheduleChunkSleepMs: this.config.CYCLOTRON_NODE_RESCHEDULE_CHUNK_SLEEP_MS,
                       })
                     : null
                 const api = new CdpApi(
@@ -245,18 +264,29 @@ export class PluginServer implements NodeServer {
                 throw new Error('CYCLOTRON_NODE_DATABASE_URL not configured but required for CyclotronV2JanitorService')
             }
             serviceLoaders.push(async () => {
-                const janitor = new CyclotronV2JanitorService({
-                    pool: {
-                        dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL!,
-                        maxConnections: this.config.CYCLOTRON_NODE_MAX_CONNECTIONS,
-                        idleTimeoutMs: this.config.CYCLOTRON_NODE_IDLE_TIMEOUT_MS,
+                // Build a results service so the janitor can record poison-pill
+                // give-ups as failed, replayable invocation results before
+                // deleting the cyclotron row.
+                const outputs = createCdpOutputsRegistry().build(this.cdpProducerRegistry!, this.config)
+                const invocationResults = new HogInvocationResultsService(outputs, this.config)
+                const janitor = new CyclotronV2JanitorService(
+                    {
+                        pool: {
+                            dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL!,
+                            maxConnections: this.config.CYCLOTRON_NODE_MAX_CONNECTIONS,
+                            idleTimeoutMs: this.config.CYCLOTRON_NODE_IDLE_TIMEOUT_MS,
+                        },
+                        cleanupBatchSize: this.config.CYCLOTRON_NODE_JANITOR_CLEANUP_BATCH_SIZE,
+                        cleanupIntervalMs: this.config.CYCLOTRON_NODE_JANITOR_CLEANUP_INTERVAL_MS,
+                        stallTimeoutMs: this.config.CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS,
+                        maxTouchCount: this.config.CYCLOTRON_NODE_JANITOR_MAX_TOUCH_COUNT,
+                        cleanupGraceMs: this.config.CYCLOTRON_NODE_JANITOR_CLEANUP_GRACE_MS,
+                        poisonRecoveryEnabled: this.config.CYCLOTRON_NODE_POISON_PILL_RECOVERY_ENABLED,
+                        stallBackoffBaseMs: this.config.CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_BASE_MS,
+                        stallBackoffMaxMs: this.config.CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_MAX_MS,
                     },
-                    cleanupBatchSize: this.config.CYCLOTRON_NODE_JANITOR_CLEANUP_BATCH_SIZE,
-                    cleanupIntervalMs: this.config.CYCLOTRON_NODE_JANITOR_CLEANUP_INTERVAL_MS,
-                    stallTimeoutMs: this.config.CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS,
-                    maxTouchCount: this.config.CYCLOTRON_NODE_JANITOR_MAX_TOUCH_COUNT,
-                    cleanupGraceMs: this.config.CYCLOTRON_NODE_JANITOR_CLEANUP_GRACE_MS,
-                })
+                    invocationResults
+                )
                 await janitor.start()
                 return janitor.service
             })
@@ -364,6 +394,34 @@ export class PluginServer implements NodeServer {
                 const scheduler = new HogFlowScheduleService(this.config)
                 scheduler.start()
                 return Promise.resolve(scheduler.service)
+            })
+        }
+
+        if (capabilities.emailReputationEvaluator) {
+            serviceLoaders.push(async () => {
+                const worker = new EmailReputationWorkerService(this.config, { postgres: this.postgres! })
+                try {
+                    await worker.start()
+                } catch (error) {
+                    // In dev this capability rides along with the full CDP set — don't take the whole
+                    // plugin server down (or fail its /_health) when the local Temporal isn't running.
+                    // Dedicated deployments should crash and restart.
+                    if (isDevEnv()) {
+                        logger.warn('[EmailReputationWorker] failed to start, continuing without it (dev only)', {
+                            error,
+                        })
+                        // start() may have failed partway (worker already polling): tear down
+                        // whatever came up so the stub doesn't hide an unsupervised worker.
+                        await worker.stop().catch(() => {})
+                        return {
+                            id: 'email-reputation-evaluator',
+                            onShutdown: () => Promise.resolve(),
+                            healthcheck: () => new HealthCheckResultOk(),
+                        }
+                    }
+                    throw error
+                }
+                return worker.service
             })
         }
 

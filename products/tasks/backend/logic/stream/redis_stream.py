@@ -16,7 +16,7 @@ logger = structlog.get_logger(__name__)
 
 # Keep enough live history for users who open an in-progress run late while
 # still bounding Redis growth to the sandbox lifetime.
-TASK_RUN_STREAM_MAX_LENGTH = 20_000
+TASK_RUN_STREAM_MAX_LENGTH = 5_000
 TASK_RUN_STREAM_TIMEOUT = SANDBOX_TTL_SECONDS
 TASK_RUN_STREAM_SEQUENCE_TIMEOUT = int(SANDBOX_EVENT_INGEST_TOKEN_TTL.total_seconds())
 TASK_RUN_STREAM_PREFIX = "task-run-stream:"

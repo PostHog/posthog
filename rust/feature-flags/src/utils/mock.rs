@@ -417,6 +417,7 @@ mod tests {
             cohort_type: None,
             last_backfill_person_properties_at: None,
             last_backfill_events_at: None,
+            condition_type: None,
         };
 
         let mock_cohort = mock!(Cohort,

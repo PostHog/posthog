@@ -172,6 +172,13 @@ export interface ReviewRecentReviewApi {
     blind_spot_issue_count: number | null
 }
 
+export interface ReviewRecentReviewsPageApi {
+    /** The scoped reviews: in-progress runs first, then completed newest first. */
+    results: ReviewRecentReviewApi[]
+    /** Whether reviews exist beyond this page — drives the list's "Show more" button. */
+    has_more: boolean
+}
+
 export interface ReviewSelectionChunkApi {
     /** The chunk this row describes, as numbered by the chunker. */
     chunk_id: number
@@ -197,16 +204,6 @@ export interface ReviewPerspectiveSelectionApi {
     chunks: ReviewSelectionChunkApi[]
 }
 
-export interface ReviewFindingLineRangeApi {
-    /** First affected line. */
-    start: number
-    /**
-     * Last affected line; null for a single line.
-     * @nullable
-     */
-    end: number | null
-}
-
 /**
  * * `must_fix` - must_fix
  * * `should_fix` - should_fix
@@ -219,6 +216,16 @@ export const ReviewIssuePriorityEnumApi = {
     ShouldFix: 'should_fix',
     Consider: 'consider',
 } as const
+
+export interface ReviewFindingLineRangeApi {
+    /** First affected line. */
+    start: number
+    /**
+     * Last affected line; null for a single line.
+     * @nullable
+     */
+    end: number | null
+}
 
 /**
  * * `bug` - bug
@@ -385,6 +392,12 @@ export interface ReviewDetailApi {
     perspective_selection: ReviewPerspectiveSelectionApi | null
     /** The rendered review body published to GitHub, as markdown. */
     report_markdown: string
+    /** The urgency threshold the completed turn's publishing gated on (stamped at finalize from the run's own resolve snapshot); null for turns that predate its recording — readers fall back to the viewer's current setting as an approximation.
+     *
+     * * `must_fix` - must_fix
+     * * `should_fix` - should_fix
+     * * `consider` - consider */
+    run_urgency_threshold: ReviewIssuePriorityEnumApi | null
     /** The latest turn's validated findings, most urgent first. */
     findings: ReviewFindingApi[]
     /** The latest turn's findings the validator dismissed, with its reasoning. */
@@ -409,6 +422,23 @@ export interface ReviewPerspectiveStatsApi {
     perspectives: ReviewPerspectiveStatItemApi[]
 }
 
+export interface ReviewTriggerRequestApi {
+    /** GitHub pull request URL to review, e.g. 'https://github.com/PostHog/posthog.com/pull/123'. The repository must be accessible to the project's GitHub App installation. */
+    pr_url: string
+}
+
+export interface ReviewTriggerResponseApi {
+    /** Temporal workflow id for the started review run; empty when no run was started. */
+    workflow_id: string
+    /** Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the pull request's current commit already has a published review (no new run starts). */
+    status: string
+}
+
+export interface ReviewTriggerErrorApi {
+    /** Human-readable explanation of why the trigger was rejected. */
+    error: string
+}
+
 /**
  * * `consider` - Consider
  * * `should_fix` - Should Fix
@@ -427,12 +457,14 @@ export interface ReviewUserSettingsApi {
     review_inbox_prs?: boolean
     /** Review the user's pull requests when the trigger label is added on GitHub. On by default; turning it off makes the label trigger skip PRs this user authored. */
     review_labeled_prs?: boolean
-    /** Minimum priority a validated finding needs to be published: 'consider' publishes everything, 'should_fix' (default) drops consider-level findings, 'must_fix' publishes only blocking issues.
+    /** Minimum priority a validated finding needs to be published: 'consider' (default) publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues.
      *
      * * `consider` - Consider
      * * `should_fix` - Should Fix
      * * `must_fix` - Must Fix */
     urgency_threshold?: UrgencyThresholdEnumApi
+    /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog team while the product is in alpha). */
+    readonly can_trigger_reviews: boolean
 }
 
 export interface PatchedReviewUserSettingsApi {
@@ -440,12 +472,14 @@ export interface PatchedReviewUserSettingsApi {
     review_inbox_prs?: boolean
     /** Review the user's pull requests when the trigger label is added on GitHub. On by default; turning it off makes the label trigger skip PRs this user authored. */
     review_labeled_prs?: boolean
-    /** Minimum priority a validated finding needs to be published: 'consider' publishes everything, 'should_fix' (default) drops consider-level findings, 'must_fix' publishes only blocking issues.
+    /** Minimum priority a validated finding needs to be published: 'consider' (default) publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues.
      *
      * * `consider` - Consider
      * * `should_fix` - Should Fix
      * * `must_fix` - Must Fix */
     urgency_threshold?: UrgencyThresholdEnumApi
+    /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog team while the product is in alpha). */
+    readonly can_trigger_reviews?: boolean
 }
 
 export interface ReviewValidatorConfigApi {
@@ -463,3 +497,46 @@ export interface PatchedReviewValidatorConfigSelectApi {
     /** Set true to make this the single validator that runs on the user's PR reviews. Only true is accepted — validators are single-active, so you switch by selecting a different one, not by deactivating the current one. */
     active?: boolean
 }
+
+export type ReviewHogReviewsListParams = {
+    /**
+     * Maximum rows to return. The list grows this instead of paging by offset — in-progress rows reorder the list between refreshes, so offset pages would shift under the reader.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Whose reviews to list: `mine` (the default) for reviews the requesting user ran plus reviews of pull requests they authored (matched via their linked GitHub login), `everyone` for every review on this project.
+     *
+     * * `mine` - mine
+     * * `everyone` - everyone
+     * @minLength 1
+     */
+    scope?: ReviewHogReviewsListScope
+}
+
+export type ReviewHogReviewsListScope = (typeof ReviewHogReviewsListScope)[keyof typeof ReviewHogReviewsListScope]
+
+export const ReviewHogReviewsListScope = {
+    Mine: 'mine',
+    Everyone: 'everyone',
+} as const
+
+export type ReviewHogReviewsPerspectiveStatsRetrieveParams = {
+    /**
+     * Whose reviews to aggregate: `mine` (the default) for reviews the requesting user ran plus reviews of pull requests they authored (matched via their linked GitHub login), `everyone` for every review on this project.
+     *
+     * * `mine` - mine
+     * * `everyone` - everyone
+     * @minLength 1
+     */
+    scope?: ReviewHogReviewsPerspectiveStatsRetrieveScope
+}
+
+export type ReviewHogReviewsPerspectiveStatsRetrieveScope =
+    (typeof ReviewHogReviewsPerspectiveStatsRetrieveScope)[keyof typeof ReviewHogReviewsPerspectiveStatsRetrieveScope]
+
+export const ReviewHogReviewsPerspectiveStatsRetrieveScope = {
+    Mine: 'mine',
+    Everyone: 'everyone',
+} as const

@@ -1,24 +1,22 @@
 import re
 import dataclasses
-from collections.abc import Iterator
-from typing import Any
+from typing import Any, Optional
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.devin_ai.settings import DEVIN_AI_ENDPOINTS
 
 DEVIN_AI_BASE_URL = "https://api.devin.ai"
 # v3 cursor pagination caps `first` at 200.
 PAGE_SIZE = 200
-
-
-class DevinAIRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
@@ -50,113 +48,138 @@ def _endpoint_path(endpoint: str, org_id: str) -> str:
     return DEVIN_AI_ENDPOINTS[endpoint].path.format(org_id=_validate_org_id(org_id))
 
 
-@retry(
-    retry=retry_if_exception_type(
-        (
-            DevinAIRetryableError,
-            requests.ReadTimeout,
-            requests.ConnectionError,
-            requests.exceptions.ChunkedEncodingError,
-        )
-    ),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_page(
-    session: requests.Session,
-    url: str,
-    params: dict[str, Any],
-    headers: dict[str, str],
-    logger: FilteringBoundLogger,
-) -> dict:
-    response = session.get(url, params=params, headers=headers, timeout=60)
+class DevinCursorPaginator(BasePaginator):
+    """Cursor paginator for Devin's v3 list envelope.
 
-    # 429 (rate limit) and 5xx are transient — retry with backoff.
-    if response.status_code == 429 or response.status_code >= 500:
-        raise DevinAIRetryableError(f"Devin API error (retryable): status={response.status_code}, url={url}")
+    The response body carries ``{"items", "end_cursor", "has_next_page"}``. Each page after the first
+    is fetched with ``after=<previous end_cursor>``. Pagination stops as soon as the API reports no
+    next page OR omits the cursor — the ``has_next_page`` guard defends against a stale cursor lingering
+    on the final page (which would otherwise loop forever). Resumable: a saved ``after`` cursor is
+    replayed onto the first request so a restart continues from the last completed page.
+    """
 
-    if not response.ok:
-        logger.error(f"Devin API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
+    def __init__(self) -> None:
+        super().__init__()
+        self._after: Optional[str] = None
 
-    return response.json()
+    def _apply_cursor(self, request: Request) -> None:
+        if self._after is None:
+            return
+        if request.params is None:
+            request.params = {}
+        request.params["after"] = self._after
 
+    def init_request(self, request: Request) -> None:
+        # Seed a resumed cursor onto the first request.
+        self._apply_cursor(request)
 
-def get_status_code(api_key: str, org_id: str, endpoint: str) -> int:
-    """Cheap single-page probe used by credential validation. Returns the HTTP status code."""
-    url = f"{DEVIN_AI_BASE_URL}{_endpoint_path(endpoint, org_id)}"
-    response = make_tracked_session().get(url, params={"first": 1}, headers=_get_headers(api_key), timeout=10)
-    return response.status_code
+    def update_request(self, request: Request) -> None:
+        self._apply_cursor(request)
 
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        try:
+            body = response.json()
+        except Exception:
+            body = None
+        if not isinstance(body, dict):
+            self._has_next_page = False
+            return
 
-def get_rows(
-    api_key: str,
-    org_id: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[DevinAIResumeConfig],
-) -> Iterator[Any]:
-    headers = _get_headers(api_key)
-    # One session reused across every page so urllib3 keeps the connection alive.
-    session = make_tracked_session()
+        next_cursor = body.get("end_cursor")
+        if body.get("has_next_page") and next_cursor:
+            self._after = next_cursor
+            self._has_next_page = True
+        else:
+            self._has_next_page = False
 
-    url = f"{DEVIN_AI_BASE_URL}{_endpoint_path(endpoint, org_id)}"
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        # ``_after`` already points at the next page's cursor; only meaningful while more pages remain.
+        return {"after": self._after} if self._has_next_page and self._after is not None else None
 
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    after = resume.after if resume else None
-    if after:
-        logger.debug(f"Devin: resuming {endpoint} from cursor: {after}")
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        after = state.get("after")
+        if after is not None:
+            self._after = after
+            self._has_next_page = True
 
-    # Yield one full page at a time and only save state at the page boundary, after the page has been
-    # yielded. The pipeline batches internally, so a source-level batcher would only double-buffer and,
-    # because it spans pages, would force a mid-page save that drops the un-yielded tail on crash-resume.
-    while True:
-        params: dict[str, Any] = {"first": PAGE_SIZE}
-        if after:
-            params["after"] = after
-
-        data = _fetch_page(session, url, params, headers, logger)
-
-        items = data.get("items", [])
-        if items:
-            yield items
-
-        next_cursor = data.get("end_cursor")
-        if not data.get("has_next_page") or not next_cursor:
-            break
-
-        after = next_cursor
-        # Save state AFTER yielding the page so a crash re-fetches this page (merge dedupes on the
-        # primary key) rather than skipping it.
-        resumable_source_manager.save_state(DevinAIResumeConfig(after=next_cursor))
+    def __str__(self) -> str:
+        return "DevinCursorPaginator()"
 
 
 def devin_ai_source(
     api_key: str,
     org_id: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[DevinAIResumeConfig],
+    db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     endpoint_config = DEVIN_AI_ENDPOINTS[endpoint]
 
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": DEVIN_AI_BASE_URL,
+            # Only the non-secret Accept header goes here; the Bearer token is supplied via the
+            # framework `auth` config so its value is redacted from logs.
+            "headers": {"Accept": "application/json"},
+            "auth": {"type": "bearer", "token": api_key},
+        },
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    # `_endpoint_path` validates org_id so a malformed value can't inject `/` or `?`
+                    # and retarget the stored key at a different Devin API path.
+                    "path": _endpoint_path(endpoint, org_id),
+                    "params": {"first": PAGE_SIZE},
+                    "data_selector": "items",
+                    "paginator": DevinCursorPaginator(),
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.after is not None:
+            initial_paginator_state = {"after": resume.after}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields the
+        # last page (merge dedupes on the primary key) rather than skipping it.
+        if state and state.get("after") is not None:
+            resumable_source_manager.save_state(DevinAIResumeConfig(after=str(state["after"])))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            org_id=org_id,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-        ),
+        items=lambda: resource,
         primary_keys=endpoint_config.primary_keys,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if endpoint_config.partition_key else None,
         partition_format="week" if endpoint_config.partition_key else None,
         partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
+        column_hints=resource.column_hints,
     )
+
+
+def get_status_code(api_key: str, org_id: str, endpoint: str) -> int:
+    """Cheap single-page probe used by credential validation. Returns the HTTP status code."""
+    url = f"{DEVIN_AI_BASE_URL}{_endpoint_path(endpoint, org_id)}"
+    session = make_tracked_session(redact_values=(api_key,))
+    response = session.get(url, params={"first": 1}, headers=_get_headers(api_key), timeout=10)
+    return response.status_code
 
 
 def validate_credentials(api_key: str, org_id: str, endpoint: str = "sessions") -> int:

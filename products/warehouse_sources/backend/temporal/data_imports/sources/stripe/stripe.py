@@ -428,12 +428,13 @@ def get_rows(
     db_incremental_field_earliest_value: Optional[Any],
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[StripeResumeConfig],
+    api_version: str,
     should_use_incremental_field: bool = False,
 ):
     client = StripeClient(
         api_key,
         stripe_account=account_id,
-        stripe_version="2024-09-30.acacia",
+        stripe_version=api_version,
         max_network_retries=2,
         base_addresses=_stripe_base_addresses(),
         http_client=_tracked_stripe_http_client(),
@@ -619,6 +620,7 @@ def stripe_source(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[StripeResumeConfig],
     webhook_source_manager: WebhookSourceManager,
+    api_version: str,
     should_use_incremental_field: bool = False,
 ):
     column_mapping = get_dlt_mapping_for_external_table(f"stripe_{endpoint.lower()}")
@@ -647,6 +649,7 @@ def stripe_source(
             logger=logger,
             should_use_incremental_field=should_use_incremental_field,
             resumable_source_manager=resumable_source_manager,
+            api_version=api_version,
         )
 
     return SourceResponse(

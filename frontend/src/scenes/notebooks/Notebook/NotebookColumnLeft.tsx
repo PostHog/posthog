@@ -1,33 +1,13 @@
 import clsx from 'clsx'
-import { BindLogic, BuiltLogic, useActions, useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { useValues } from 'kea'
 
-import { LemonButton } from '@posthog/lemon-ui'
-
-import { usePageVisibility } from 'lib/hooks/usePageVisibility'
-import { LemonWidget } from 'lib/lemon-ui/LemonWidget'
-
-import { ErrorBoundary } from '~/layout/ErrorBoundary'
-
-import { notebookNodeLogic } from '../Nodes/notebookNodeLogic'
-import type { notebookNodeLogicType } from '../Nodes/notebookNodeLogic'
-import { isMarkdownNotebookContent } from './markdownNotebookV2'
 import { NotebookHistory } from './NotebookHistory'
-import { NotebookKernelInfo } from './NotebookKernelInfo'
 import { notebookLogic } from './notebookLogic'
-import { NotebookTableOfContents } from './NotebookTableOfContents'
 
 export const NotebookColumnLeft = (): JSX.Element | null => {
-    const { content, editingNodeLogicsForLeft, isShowingLeftColumn, showHistory, showKernelInfo, showTableOfContents } =
-        useValues(notebookLogic)
-    const isMarkdownNotebook = isMarkdownNotebookContent(content)
+    const { isShowingLeftColumn, showHistory } = useValues(notebookLogic)
 
-    const shouldShowTableOfContents = showTableOfContents && !isMarkdownNotebook
-    const shouldShowNodeSettings = editingNodeLogicsForLeft.length > 0 && !isMarkdownNotebook
-    const shouldShowKernelInfo = showKernelInfo && !isMarkdownNotebook
-    const isShowingEffectiveLeftColumn =
-        isShowingLeftColumn &&
-        (shouldShowNodeSettings || showHistory || shouldShowTableOfContents || shouldShowKernelInfo)
+    const isShowingEffectiveLeftColumn = isShowingLeftColumn && showHistory
 
     return (
         <div
@@ -35,97 +15,7 @@ export const NotebookColumnLeft = (): JSX.Element | null => {
                 'NotebookColumn--showing': isShowingEffectiveLeftColumn,
             })}
         >
-            <div className="NotebookColumn__content">
-                {isShowingEffectiveLeftColumn ? (
-                    <>
-                        {shouldShowNodeSettings
-                            ? editingNodeLogicsForLeft.map((logic) => (
-                                  <div key={logic.values.nodeId}>
-                                      <NotebookNodeSettingsOffset logic={logic} />
-                                      <NotebookNodeSettingsWidget logic={logic} />
-                                  </div>
-                              ))
-                            : null}
-                        {showHistory ? <NotebookHistory /> : null}
-                        {shouldShowTableOfContents ? <NotebookTableOfContents /> : null}
-                        {shouldShowKernelInfo ? <NotebookKernelInfo /> : null}
-                    </>
-                ) : null}
-            </div>
+            <div className="NotebookColumn__content">{isShowingEffectiveLeftColumn ? <NotebookHistory /> : null}</div>
         </div>
-    )
-}
-
-export const NotebookNodeSettingsOffset = ({ logic }: { logic: BuiltLogic<notebookNodeLogicType> }): JSX.Element => {
-    const { ref } = useValues(logic)
-    const offsetRef = useRef<HTMLDivElement>(null)
-    const [height, setHeight] = useState(0)
-    const { isVisible: isPageVisible } = usePageVisibility()
-
-    useEffect(() => {
-        if (!isPageVisible) {
-            return
-        }
-
-        // Interval to check the relative positions of the node and the offset div
-        // updating the height so that it always is inline
-        const updateHeight = (): void => {
-            if (ref && offsetRef.current) {
-                const newHeight = ref.getBoundingClientRect().top - offsetRef.current.getBoundingClientRect().top
-
-                if (height !== newHeight) {
-                    setHeight(newHeight)
-                }
-            }
-        }
-
-        const interval = setInterval(updateHeight, 100)
-        updateHeight()
-
-        return () => clearInterval(interval)
-    }, [ref, height, isPageVisible])
-
-    return (
-        <div
-            ref={offsetRef}
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{
-                height,
-            }}
-        />
-    )
-}
-
-export const NotebookNodeSettingsWidget = ({ logic }: { logic: BuiltLogic<notebookNodeLogicType> }): JSX.Element => {
-    const { setEditingNodeEditing } = useActions(notebookLogic)
-    const { Settings, nodeAttributes, title } = useValues(logic)
-    const { updateAttributes, selectNode } = useActions(logic)
-
-    return (
-        <LemonWidget
-            title={`Editing '${title}'`}
-            className="NotebookColumn__widget"
-            actions={
-                <>
-                    <LemonButton size="small" onClick={() => setEditingNodeEditing(nodeAttributes.nodeId, false)}>
-                        Done
-                    </LemonButton>
-                </>
-            }
-        >
-            <div onClick={() => selectNode()}>
-                {Settings ? (
-                    <ErrorBoundary>
-                        <BindLogic logic={notebookNodeLogic} props={{ attributes: nodeAttributes }}>
-                            <Settings
-                                key={nodeAttributes.nodeId}
-                                attributes={nodeAttributes}
-                                updateAttributes={updateAttributes}
-                            />
-                        </BindLogic>
-                    </ErrorBoundary>
-                ) : null}
-            </div>
-        </LemonWidget>
     )
 }

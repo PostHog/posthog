@@ -1,6 +1,5 @@
 import uuid
 from dataclasses import dataclass
-from textwrap import dedent
 from typing import Any
 
 import structlog
@@ -36,81 +35,81 @@ logger = structlog.get_logger(__name__)
 MAX_SUMMARIES = 100
 
 
-DRAFT_PROMPT_TOOL_DESCRIPTION = dedent("""
-    Use this tool to write or improve the instruction prompt for the Replay Vision scanner the user is
-    currently configuring, then fill it into their configuration form.
+DRAFT_PROMPT_TOOL_DESCRIPTION = """
+Use this tool to write or improve the instruction prompt for the Replay Vision scanner the user is
+currently configuring, then fill it into their configuration form.
 
-    # When to use
-    - The user is configuring a scanner and asks for help writing, drafting, or improving its prompt
-    - The user describes what they want a scanner to detect, summarize, classify, or score and wants that turned into a good prompt
+# When to use
+- The user is configuring a scanner and asks for help writing, drafting, or improving its prompt
+- The user describes what they want a scanner to detect, summarize, classify, or score and wants that turned into a good prompt
 
-    # How to write a good scanner prompt
-    A scanner prompt is the instruction the model follows while watching a single session recording.
-    Write it as a direct, specific instruction grounded in observable behavior. The shape depends on the scanner type:
-    - monitor: a yes/no question about whether something happened (e.g. "Did the user fail to complete checkout?").
-      State what counts as a yes, and ask for a one-sentence reason.
-    - classifier: an instruction to categorize the session along one dimension (e.g. by primary user intent).
-      Describe the dimension; the tag vocabulary is configured separately, so don't list tags in the prompt.
-    - scorer: an instruction to rate the session on a single dimension (e.g. frustration).
-      Describe what a low score versus a high score means; the numeric scale is configured separately.
-    - summarizer: an instruction for what the summary should focus on (e.g. the user's goal and the obstacles they hit).
+# How to write a good scanner prompt
+A scanner prompt is the instruction the model follows while watching a single session recording.
+Write it as a direct, specific instruction grounded in observable behavior. The shape depends on the scanner type:
+- monitor: a yes/no question about whether something happened (e.g. "Did the user fail to complete checkout?").
+  State what counts as a yes, and ask for a one-sentence reason.
+- classifier: an instruction to categorize the session along one dimension (e.g. by primary user intent).
+  Describe the dimension; the tag vocabulary is configured separately, so don't list tags in the prompt.
+- scorer: an instruction to rate the session on a single dimension (e.g. frustration).
+  Describe what a low score versus a high score means; the numeric scale is configured separately.
+- summarizer: an instruction for what the summary should focus on (e.g. the user's goal and the obstacles they hit).
 
-    Keep it concrete. Avoid vague adjectives, multi-part questions, and references to data the model cannot
-    observe in a recording (e.g. revenue, account tier).
+Keep it concrete. Avoid vague adjectives, multi-part questions, and references to data the model cannot
+observe in a recording (e.g. revenue, account tier).
 
-    # After drafting
-    Call this tool with the finished prompt — it fills the prompt field in the form the user is editing.
-    Then briefly explain the choices you made so the user can refine them.
-    """).strip()
-
-
-SUMMARIZE_SUMMARIES_TOOL_DESCRIPTION = dedent("""
-    Use this tool to reason across the per-session summaries produced by a Replay Vision *summarizer* scanner.
-
-    # When to use
-    - The user asks for common themes, patterns, or a digest across a summarizer scanner's sessions
-    - The user asks what users are doing, where they struggle, or what stands out across the summarized recordings
-    - The user wants a "summary of the summaries"
-
-    # What it returns
-    The scanner's most recent per-session summaries. Synthesize them to answer the user's question —
-    surface recurring themes, notable outliers, and concrete takeaways rather than restating each summary.
-    """).strip()
+# After drafting
+Call this tool with the finished prompt — it fills the prompt field in the form the user is editing.
+Then briefly explain the choices you made so the user can refine them.
+"""
 
 
-SEARCH_OBSERVATIONS_TOOL_DESCRIPTION = dedent("""
-    Use this tool to find session recordings by the *meaning* of what Replay Vision scanners observed in them —
-    a semantic search over the model's reasoning, not exact keywords. Each match is a real session recording.
+SUMMARIZE_SUMMARIES_TOOL_DESCRIPTION = """
+Use this tool to reason across the per-session summaries produced by a Replay Vision *summarizer* scanner.
 
-    # When to use
-    - The user asks to find recordings/sessions *where* something happened or *because of* some behavior, bug, or
-      theme (e.g. "find recordings where users struggled with checkout", "which sessions got a low score because of
-      a broken button?")
-    - The user wants recordings whose observed reasoning mentions a concept, even if worded differently
+# When to use
+- The user asks for common themes, patterns, or a digest across a summarizer scanner's sessions
+- The user asks what users are doing, where they struggle, or what stands out across the summarized recordings
+- The user wants a "summary of the summaries"
 
-    # Scope
-    - Pass a `scanner_id` to search one specific scanner.
-    - When `scanner_id` is unset, the search defaults to the scanner the user is currently viewing; if they
-      aren't on a scanner page it spans every Replay Vision scanner they can read.
+# What it returns
+The scanner's most recent per-session summaries. Synthesize them to answer the user's question —
+surface recurring themes, notable outliers, and concrete takeaways rather than restating each summary.
+"""
 
-    Works for every scanner type (monitor, classifier, scorer, summarizer).
 
-    # Narrowing by exact result
-    Combine the semantic `query` with structured filters when the user names a concrete outcome. The filter is
-    applied first, then the semantic ranking runs only over the matching recordings — so always pass these when
-    the user states an exact result:
-    - `verdict` for monitor scanners (e.g. ["yes"] for "recordings that had a YES result because of ...")
-    - `tags` for classifier scanners (e.g. ["abandoned"] for "sessions classified as abandoned because of ...").
-      Pass the tag as the user phrases it — matching is case/format-insensitive (e.g. "Frustrated Or Confused"
-      matches the stored `frustrated_or_confused`).
-    - `min_score` / `max_score` for scorer scanners (e.g. max_score=0 for "scored 0 because of ...")
-    Put only the meaning in `query` (e.g. "broken checkout button"), and the exact outcome in these filters.
+SEARCH_OBSERVATIONS_TOOL_DESCRIPTION = """
+Use this tool to find session recordings by the *meaning* of what Replay Vision scanners observed in them —
+a semantic search over the model's reasoning, not exact keywords. Each match is a real session recording.
 
-    # What it returns
-    The best-matching observations, ranked by semantic closeness, each with its session (recording) id, the
-    scanner it came from, verdict/score/tags, and the reasoning snippet. Cite the matching recordings and
-    synthesize the reasons rather than restating each row.
-    """).strip()
+# When to use
+- The user asks to find recordings/sessions *where* something happened or *because of* some behavior, bug, or
+  theme (e.g. "find recordings where users struggled with checkout", "which sessions got a low score because of
+  a broken button?")
+- The user wants recordings whose observed reasoning mentions a concept, even if worded differently
+
+# Scope
+- Pass a `scanner_id` to search one specific scanner.
+- When `scanner_id` is unset, the search defaults to the scanner the user is currently viewing; if they
+  aren't on a scanner page it spans every Replay Vision scanner they can read.
+
+Works for every scanner type (monitor, classifier, scorer, summarizer).
+
+# Narrowing by exact result
+Combine the semantic `query` with structured filters when the user names a concrete outcome. The filter is
+applied first, then the semantic ranking runs only over the matching recordings — so always pass these when
+the user states an exact result:
+- `verdict` for monitor scanners (e.g. ["yes"] for "recordings that had a YES result because of ...")
+- `tags` for classifier scanners (e.g. ["abandoned"] for "sessions classified as abandoned because of ...").
+  Pass the tag as the user phrases it — matching is case/format-insensitive (e.g. "Frustrated Or Confused"
+  matches the stored `frustrated_or_confused`).
+- `min_score` / `max_score` for scorer scanners (e.g. max_score=0 for "scored 0 because of ...")
+Put only the meaning in `query` (e.g. "broken checkout button"), and the exact outcome in these filters.
+
+# What it returns
+The best-matching observations, ranked by semantic closeness, each with its session (recording) id, the
+scanner it came from, verdict/score/tags, and the reasoning snippet. Cite the matching recordings and
+synthesize the reasons rather than restating each row.
+"""
 
 # Default and hard cap on how many observations the search returns to Max's context.
 DEFAULT_SEARCH_LIMIT = 20
