@@ -336,6 +336,9 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "run_interval_minutes": "run interval (minutes)",
         "emit": "emit findings",
     },
+    "OAuthApplication": {
+        "_provisioning_config": "provisioning config",
+    },
     "OrganizationDomain": {
         "jit_provisioning_enabled": "just-in-time provisioning",
         "sso_enforcement": "SSO enforcement",

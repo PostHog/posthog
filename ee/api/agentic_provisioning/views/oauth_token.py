@@ -370,10 +370,7 @@ class OAuthTokenView(ProvisioningAPIView):
                 )
             new_scope = " ".join(narrowed_scopes)
 
-            # provisioning_partner_type is a stable marker set at partner registration;
-            # checking it instead of is_provisioning_partner prevents a bypass when an admin
-            # clears that flag to disable a partner without revoking its tokens.
-            if oauth_app and oauth_app.provisioning_partner_type:
+            if oauth_app and oauth_app.is_provisioning_partner:
                 enforce_partner_rate_limit(oauth_app, "token_exchanges")
 
             old_access = old_refresh.access_token

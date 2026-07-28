@@ -21,10 +21,7 @@ from rest_framework.views import APIView
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.team.team import Team
 
-from ee.api.agentic_provisioning.authentication import (
-    ConfidentialPartnerAuthentication,
-    ProvisioningBearerAuthentication,
-)
+from ee.api.agentic_provisioning.authentication import GitHubGrantsAuthentication, ProvisioningBearerAuthentication
 from ee.api.agentic_provisioning.exceptions import Envelope, ProvisioningError, render_provisioning_error
 from ee.api.agentic_provisioning.region_proxy import RegionProxyMixin
 from ee.api.agentic_provisioning.serializers import first_error_message
@@ -65,7 +62,7 @@ class ProvisioningAPIView(RegionProxyMixin, APIView):
             raise TypeError(
                 f"{cls.__name__} declares no authentication_classes. Provisioning endpoints are "
                 "partner-facing, so set authentication_classes (for example to "
-                "ConfidentialPartnerAuthentication) or, if it must authenticate inside the "
+                "GitHubGrantsAuthentication) or, if it must authenticate inside the "
                 "handler, set authenticates_in_handler = True."
             )
 
@@ -119,23 +116,41 @@ class ProvisioningAPIView(RegionProxyMixin, APIView):
         return serializer.validated_data
 
 
-class ConfidentialPartnerAPIView(ProvisioningAPIView):
-    """Base for confidential-partner endpoints (GitHub grants).
+class GitHubGrantsAPIView(ProvisioningAPIView):
+    """Base for the GitHub grant endpoints.
 
     The partner rides ``request.auth``, having proven itself with either a signed
     ``private_key_jwt`` assertion or a verified client secret. A public partner is identified
-    only by a client_id anyone can send, so it never reaches these endpoints.
+    only by a client_id anyone can send, so it never reaches these endpoints, and a confidential
+    one still needs ``can_use_github_grants`` granted.
     """
 
-    authentication_classes = [ConfidentialPartnerAuthentication]
+    authentication_classes = [GitHubGrantsAuthentication]
 
 
 class BearerResourceAPIView(ProvisioningAPIView):
-    """Base for the bearer-authenticated resource endpoints (status envelope)."""
+    """Base for the bearer-authenticated resource endpoints (status envelope).
+
+    An endpoint that does more than ordinary resource provisioning calls
+    :meth:`require_capability` in its handler.
+    """
 
     error_envelope = "status"
     region_proxy_strategy = "bearer_lookup"
     authentication_classes = [ProvisioningBearerAuthentication]
+
+    def require_capability(self, access_token: OAuthAccessToken, capability: str, resource_id: str = "") -> None:
+        """Refuse an endpoint the partner has not been granted.
+
+        ``ProvisioningBearerAuthentication`` only establishes that the token belongs to an
+        active partner allowed to provision resources at all, so anything beyond that is
+        checked here rather than being implied by holding a token.
+        """
+        app = access_token.application
+        if app is None or not getattr(app.provisioning, capability):
+            raise ProvisioningError(
+                "forbidden", "This endpoint is not enabled for this partner", resource_id=resource_id, status=403
+            )
 
     def parse_resource_team_id(self, resource_id: str, access_token: OAuthAccessToken) -> int:
         try:

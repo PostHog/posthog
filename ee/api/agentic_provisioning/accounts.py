@@ -37,13 +37,15 @@ from ee.api.agentic_provisioning.wizard import (
 
 
 def partner_label(partner: OAuthApplication | None) -> str:
-    if partner is None:
+    """How a partner is named to a user, in the org it provisions and on the consent screen.
+
+    The app's own name, which is what the user already saw when they authorized it. There used
+    to be a separate admin-set label that took precedence; a second name for the same partner
+    only ever meant the two could disagree.
+    """
+    if partner is None or not partner.name:
         return "Partner"
-    if partner.provisioning_partner_type:
-        return partner.provisioning_partner_type.capitalize()
-    if partner.name:
-        return partner.name
-    return "Partner"
+    return partner.name
 
 
 def get_callback_url(app: OAuthApplication | None) -> str | None:
@@ -135,7 +137,7 @@ def handle_existing_user(
     Consent also picks the project (see agentic_authorize), so nothing the partner sends can
     select a team for an account it did not create.
     """
-    if partner.provisioning_skip_existing_user_consent:
+    if partner.provisioning.skip_existing_user_consent:
         capture_provisioning_event(
             "account_request",
             "silent_blocked_existing_user",

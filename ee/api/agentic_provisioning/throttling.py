@@ -94,7 +94,7 @@ def _count_partner_request(partner: OAuthApplication, endpoint: str) -> tuple[in
     if endpoint not in PARTNER_RATE_LIMIT_DEFAULTS:
         raise ValueError(f"Unknown rate limit endpoint: {endpoint}")
 
-    override = getattr(partner, f"provisioning_rate_limit_{endpoint}", None)
+    override = getattr(partner.provisioning.rate_limits, endpoint, None)
     limit = override if override is not None else PARTNER_RATE_LIMIT_DEFAULTS[endpoint]
 
     if limit <= 0:
@@ -177,11 +177,11 @@ class ResourceCreatesThrottle(PartnerRateThrottle):
     error_message = "Rate limit exceeded for this partner. Try again later."
 
     def get_partner(self, request: Request) -> OAuthApplication | None:
+        # Plain OAuth apps whose tokens reach this endpoint are not partners and carry no
+        # partner quota. Keyed on is_provisioning_partner rather than any capability flag, so
+        # revoking a capability narrows what a partner may do without also un-throttling it.
         partner = super().get_partner(request)
-        # provisioning_partner_type is the stable partner marker; apps without
-        # it (plain OAuth apps whose tokens reach this endpoint) are not
-        # subject to partner quotas.
-        if partner is None or not partner.provisioning_partner_type:
+        if partner is None or not partner.is_provisioning_partner:
             return None
         return partner
 
