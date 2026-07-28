@@ -3,8 +3,6 @@ import '@testing-library/jest-dom'
 import { cleanup, render } from '@testing-library/react'
 import { BindLogic } from 'kea'
 
-import { useFeatureFlagVariantKey } from '@posthog/react'
-
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 
@@ -21,12 +19,6 @@ jest.mock('lib/components/FullScreen', () => ({
 jest.mock('scenes/max/MaxTool', () => ({
     MaxTool: ({ children }: any) => <>{children}</>,
 }))
-jest.mock('@posthog/react', () => ({
-    ...jest.requireActual('@posthog/react'),
-    useFeatureFlagVariantKey: jest.fn(),
-}))
-
-const mockUseFeatureFlagVariantKey = jest.mocked(useFeatureFlagVariantKey)
 
 const MOCK_DASHBOARD: DashboardType<QueryBasedInsightModel> = {
     id: 5,
@@ -169,24 +161,4 @@ describe('DashboardHeader', () => {
             logic.unmount()
         }
     )
-
-    it.each([
-        { variant: 'control', showsLabel: false },
-        { variant: 'control_b', showsLabel: false },
-        { variant: 'test', showsLabel: true },
-    ])('$variant variant sets the PostHog AI button label', ({ variant, showsLabel }) => {
-        mockUseFeatureFlagVariantKey.mockReturnValue(variant)
-
-        const { logic } = renderHeader({ dashboard: MOCK_DASHBOARD })
-        const aiButton = document.querySelector('[data-attr="open-context-panel-ai-button"]')
-
-        expect(aiButton).toBeInTheDocument()
-        if (showsLabel) {
-            expect(aiButton).toHaveTextContent('PostHog AI')
-        } else {
-            expect(aiButton).not.toHaveTextContent('PostHog AI')
-        }
-
-        logic.unmount()
-    })
 })

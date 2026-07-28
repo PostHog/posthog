@@ -3,7 +3,9 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import UservoiceSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.uservoice import (
+    UservoiceSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.uservoice.settings import (
     ENDPOINTS,
     USERVOICE_ENDPOINTS,

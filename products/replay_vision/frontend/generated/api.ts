@@ -11,6 +11,10 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AffectedCohortRequestApi,
     AffectedCohortResponseApi,
+    ApplyPromptSuggestionRequestApi,
+    BulkObserveRequestApi,
+    BulkObserveResponseApi,
+    CreateTaskFromObservationResponseApi,
     CurrentPromptSuggestionApi,
     EstimateRequestApi,
     EstimateResponseApi,
@@ -30,6 +34,7 @@ import type {
     ReplayScannerApi,
     ReplayScannerPromptSuggestionApi,
     RetryResponseApi,
+    RunActionResponseApi,
     ScannerCreatorsResponseApi,
     ScannerImpactApi,
     ScannerStatsResponseApi,
@@ -170,6 +175,26 @@ export const visionActionsDestroy = async (projectId: string, id: string, option
     })
 }
 
+export const getVisionActionsRunCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/actions/${id}/run/`
+}
+
+/**
+ * Run this summary now, without waiting for its schedule — synthesizes a group summary over the
+ * observations since the last summary (or the last 24h). The recurring schedule is untouched: the
+ * engine advances next_run_at only at scheduled claim time, never in the run itself.
+ */
+export const visionActionsRunCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<RunActionResponseApi> => {
+    return apiMutator<RunActionResponseApi>(getVisionActionsRunCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getVisionActionsRunsListUrl = (
     projectId: string,
     visionActionId: string,
@@ -292,12 +317,30 @@ export const visionObservationsRetrieve = async (
     })
 }
 
+export const getVisionObservationsCreateTaskCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/observations/${id}/create_task/`
+}
+
+/**
+ * Create a PostHog Task from this observation's finding so it can be triaged and fixed. Title and description are derived from the scanner and its result. Record-only: this does not start the coding agent. Idempotent per observation: once a task exists, repeat calls return its id with a 200 instead of creating a duplicate.
+ */
+export const visionObservationsCreateTaskCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CreateTaskFromObservationResponseApi> => {
+    return apiMutator<CreateTaskFromObservationResponseApi>(getVisionObservationsCreateTaskCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getVisionObservationsLabelCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/vision/observations/${id}/label/`
 }
 
 /**
- * Set or update the observation's shared label: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. One label per observation, shared across the team; these labels feed prompt improvement. Requires session recording edit access.
+ * Set or update the observation's shared label: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. One label per observation, shared across the team; these labels feed prompt improvement. Requires editor access to the scanner.
  */
 export const visionObservationsLabelCreate = async (
     projectId: string,
@@ -318,7 +361,7 @@ export const getVisionObservationsLabelDestroyUrl = (projectId: string, id: stri
 }
 
 /**
- * Remove the observation's shared label. Requires session recording edit access.
+ * Remove the observation's shared label. Requires editor access to the scanner.
  */
 export const visionObservationsLabelDestroy = async (
     projectId: string,
@@ -487,6 +530,28 @@ export const visionScannersAffectedCohortCreate = async (
     })
 }
 
+export const getVisionScannersBulkObserveCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${id}/bulk_observe/`
+}
+
+/**
+ * Apply this scanner to many sessions on demand. Starts as many as fit under the in-flight
+ * caps and monthly credit quota, reporting the rest as skipped rather than failing the batch.
+ */
+export const visionScannersBulkObserveCreate = async (
+    projectId: string,
+    id: string,
+    bulkObserveRequestApi: BulkObserveRequestApi,
+    options?: RequestInit
+): Promise<BulkObserveResponseApi> => {
+    return apiMutator<BulkObserveResponseApi>(getVisionScannersBulkObserveCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(bulkObserveRequestApi),
+    })
+}
+
 export const getVisionScannersImpactRetrieveUrl = (
     projectId: string,
     id: string,
@@ -621,12 +686,34 @@ export const visionScannersObservationsRetrieve = async (
     )
 }
 
+export const getVisionScannersObservationsCreateTaskCreateUrl = (projectId: string, scannerId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/create_task/`
+}
+
+/**
+ * Create a PostHog Task from this observation's finding so it can be triaged and fixed. Title and description are derived from the scanner and its result. Record-only: this does not start the coding agent. Idempotent per observation: once a task exists, repeat calls return its id with a 200 instead of creating a duplicate.
+ */
+export const visionScannersObservationsCreateTaskCreate = async (
+    projectId: string,
+    scannerId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CreateTaskFromObservationResponseApi> => {
+    return apiMutator<CreateTaskFromObservationResponseApi>(
+        getVisionScannersObservationsCreateTaskCreateUrl(projectId, scannerId, id),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
 export const getVisionScannersObservationsLabelCreateUrl = (projectId: string, scannerId: string, id: string) => {
     return `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/label/`
 }
 
 /**
- * Set or update the observation's shared label: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. One label per observation, shared across the team; these labels feed prompt improvement. Requires session recording edit access.
+ * Set or update the observation's shared label: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. One label per observation, shared across the team; these labels feed prompt improvement. Requires editor access to the scanner.
  */
 export const visionScannersObservationsLabelCreate = async (
     projectId: string,
@@ -651,7 +738,7 @@ export const getVisionScannersObservationsLabelDestroyUrl = (projectId: string, 
 }
 
 /**
- * Remove the observation's shared label. Requires session recording edit access.
+ * Remove the observation's shared label. Requires editor access to the scanner.
  */
 export const visionScannersObservationsLabelDestroy = async (
     projectId: string,
@@ -765,12 +852,13 @@ export const getVisionScannersPromptSuggestionsApplyCreateUrl = (projectId: stri
 }
 
 /**
- * Apply this suggestion: write its prompt to the scanner (bumping the scanner version) and mark the suggestion applied. Only the current pending suggestion can be applied. Requires session recording edit access.
+ * Apply this suggestion: write a config to the scanner (the prompt plus any type-specific config such as classifier tags or the monitor allow_inconclusive flag), bumping the scanner version, and mark the suggestion applied. Pass `config` to apply an edited subset of the recommendation; omit it to apply the full suggested config. Only the current pending suggestion can be applied. Requires session recording edit access.
  */
 export const visionScannersPromptSuggestionsApplyCreate = async (
     projectId: string,
     scannerId: string,
     id: string,
+    applyPromptSuggestionRequestApi?: ApplyPromptSuggestionRequestApi,
     options?: RequestInit
 ): Promise<ReplayScannerPromptSuggestionApi> => {
     return apiMutator<ReplayScannerPromptSuggestionApi>(
@@ -778,6 +866,8 @@ export const visionScannersPromptSuggestionsApplyCreate = async (
         {
             ...options,
             method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(applyPromptSuggestionRequestApi),
         }
     )
 }
@@ -791,7 +881,7 @@ export const getVisionScannersPromptSuggestionsDismissCreateUrl = (
 }
 
 /**
- * Dismiss this suggestion without applying it. Only the current pending suggestion can be dismissed. Requires session recording edit access.
+ * Dismiss this suggestion without applying it. Only the current pending suggestion can be dismissed. Requires editor access to the scanner.
  */
 export const visionScannersPromptSuggestionsDismissCreate = async (
     projectId: string,
@@ -817,7 +907,7 @@ export const getVisionScannersPromptSuggestionsEvaluateCreateUrl = (
 }
 
 /**
- * Test this suggestion before applying it: re-run the scanner with the suggested prompt against already-rated sessions in the background and compare each fresh output with the stored one. Results land on the suggestion's `evaluation` field. Poll `current` while status is running. `session_limit` controls how many rated sessions are re-run (thumbs-down prioritized, up to `evaluation_session_cap`). Each successful re-run charges credits like a normal observation of the same model. The request is refused with 402 when the planned credits exceed what is left of the monthly limit. Only monitor and classifier scanners are supported. Requires session recording edit access.
+ * Test this suggestion before applying it: re-run the scanner with the suggested prompt against already-rated sessions in the background and compare each fresh output with the stored one. Results land on the suggestion's `evaluation` field. Poll `current` while status is running. `session_limit` controls how many rated sessions are re-run (thumbs-down prioritized, up to `evaluation_session_cap`). Each successful re-run charges credits like a normal observation of the same model. The request is refused with 402 when the planned credits exceed what is left of the monthly limit. Monitor and classifier scanners get a kept/fixed/regressed classification, while scorer and summarizer scanners show the raw before and after output. Requires session recording edit access.
  */
 export const visionScannersPromptSuggestionsEvaluateCreate = async (
     projectId: string,
@@ -863,7 +953,7 @@ export const getVisionScannersPromptSuggestionsGenerateCreateUrl = (projectId: s
 }
 
 /**
- * Generate a fresh prompt suggestion from the team's current ratings. The previous pending suggestion becomes history (superseded). Requires at least one rated observation and session recording edit access.
+ * Generate a fresh prompt suggestion from the team's current ratings. The previous pending suggestion becomes history (superseded). Requires at least one rated observation and editor access to the scanner.
  */
 export const visionScannersPromptSuggestionsGenerateCreate = async (
     projectId: string,

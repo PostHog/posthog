@@ -23,8 +23,6 @@ import {
     SignalReportArtefact,
     SignalReportArtefactResponse,
     SignalReportStateRequest,
-    SignalScoutConfig,
-    SignalScoutConfigUpdate,
     SignalScoutEmission,
     SignalScoutEmissionReportLink,
     SignalScoutRunSummary,
@@ -160,9 +158,6 @@ import {
     InsightModel,
     IntegrationType,
     JiraProjectType,
-    LLMPrompt,
-    LLMPromptPublic,
-    LLMPromptResolveResponse,
     LinearTeamType,
     LinkType,
     LinkedInAdsAccountType,
@@ -223,6 +218,7 @@ import {
     UserBasicType,
     UserInterviewType,
     UserType,
+    WarehouseTableFileUpload,
     WebAnalyticsFilterPresetType,
     WebhookInfo,
 } from '~/types'
@@ -362,11 +358,63 @@ export function getCookie(name: string): string | null {
     return cookieValue
 }
 
+function isAbortError(error: unknown): boolean {
+    return (error as { name?: string } | null)?.name === 'AbortError'
+}
+
 export async function getJSONOrNull(response: Response): Promise<any> {
     try {
         return await response.json()
-    } catch {
+    } catch (error) {
+        // A body read cancelled mid-stream (navigation, superseded request) surfaces here as an
+        // AbortError. Propagate it so it flows through the normal cancellation path instead of
+        // masquerading as a successful `null` — otherwise callers dereference it (`.results`,
+        // `.count`, …) and blow up with a `Cannot read properties of null` TypeError.
+        if (isAbortError(error)) {
+            throw error
+        }
         return null
+    }
+}
+
+/**
+ * Parse the body of a *successful* response, which is expected to be JSON.
+ *
+ * Unlike getJSONOrNull (best-effort parsing of error bodies, where callers opt into handling
+ * null), a non-empty body that isn't valid JSON is treated as a failure rather than silently
+ * yielding null. Handing null back where callers expect the documented JSON shape is what turns
+ * a transient backend/proxy hiccup (a non-JSON 2xx body) into a
+ * `Cannot read properties of null (reading 'results')` crash deep inside loaders across the app.
+ * An empty body (e.g. 204 No Content) still resolves to null, and aborts propagate as AbortError.
+ *
+ * The body is read as text first so the decision rests on actual content, not on headers —
+ * chunked/compressed responses carry no content-length, and a truncated `application/json` body
+ * must still surface as a failure. The thrown ApiError deliberately carries no `status`: the
+ * HTTP status was 2xx, and recovery paths keyed on `status === undefined || status >= 500`
+ * should classify a garbled body like the fetch-level network failure it effectively is. The
+ * real status stays in the message for triage.
+ */
+async function getJSONFromSuccessResponse(response: Response, method: string, url: string): Promise<any> {
+    const requestContext = (): string =>
+        `[${method} ${new URL(url, location.origin).pathname}] (status ${response.status})`
+    let text: string
+    try {
+        text = await response.text()
+    } catch (error) {
+        if (isAbortError(error)) {
+            throw error
+        }
+        // The body stream failed mid-read (e.g. a network drop truncating a chunked response) —
+        // the response is unusable, so surface it instead of handing callers a null.
+        throw new ApiError(`Failed to read response body ${requestContext()}`)
+    }
+    if (!text.trim()) {
+        return null
+    }
+    try {
+        return JSON.parse(text)
+    } catch {
+        throw new ApiError(`Malformed JSON response ${requestContext()}`)
     }
 }
 
@@ -1218,17 +1266,6 @@ export class ApiRequest {
         return this.signalScoutRuns(teamId).addPathComponent(id)
     }
 
-    public signalScoutConfigs(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId)
-            .addPathComponent('signals')
-            .addPathComponent('scout')
-            .addPathComponent('configs')
-    }
-
-    public signalScoutConfig(id: string, teamId?: TeamType['id']): ApiRequest {
-        return this.signalScoutConfigs(teamId).addPathComponent(id)
-    }
-
     // # Tasks
     public tasks(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('tasks')
@@ -2000,26 +2037,6 @@ export class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('dataset_items').addPathComponent(id)
     }
 
-    public llmPrompts(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('llm_prompts')
-    }
-
-    public llmPromptByName(name: string, teamId?: TeamType['id']): ApiRequest {
-        return this.llmPrompts(teamId).addPathComponent('name').addPathComponent(name)
-    }
-
-    public llmPromptArchiveByName(name: string, teamId?: TeamType['id']): ApiRequest {
-        return this.llmPromptByName(name, teamId).addPathComponent('archive')
-    }
-
-    public llmPromptDuplicateByName(name: string, teamId?: TeamType['id']): ApiRequest {
-        return this.llmPromptByName(name, teamId).addPathComponent('duplicate')
-    }
-
-    public llmPromptResolveByName(name: string, teamId?: TeamType['id']): ApiRequest {
-        return this.llmPrompts(teamId).addPathComponent('resolve').addPathComponent('name').addPathComponent(name)
-    }
-
     public evaluationRuns(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('evaluation_runs')
     }
@@ -2535,7 +2552,10 @@ const api = {
             if (Object.keys(query).length) {
                 request.withQueryString(query)
             }
-            return await request.get({ signal })
+            const response = await request.get({ signal })
+            // Guard the declared array contract: an edge/error response (or a stale bundle) may
+            // return a non-array, which would break callers that iterate over the result.
+            return Array.isArray(response) ? response : []
         },
         async create(data: { ref?: string; type?: string }): Promise<FileSystemEntry> {
             return await new ApiRequest().fileSystemLogView().create({ data })
@@ -2686,6 +2706,8 @@ const api = {
                     ActivityScope.COHORT,
                     ActivityScope.OAUTH_APPLICATION,
                     ActivityScope.EXTERNAL_DATA_SCHEMA,
+                    ActivityScope.LLM_PROMPT,
+                    ActivityScope.LLM_PROMPT_LABEL,
                 ].includes(scopes[0]) ||
                 scopes.length > 1
             ) {
@@ -2976,17 +2998,39 @@ const api = {
         }> {
             return new ApiRequest().tracingSpans().withAction('duration-histogram').create({ signal, data: { query } })
         },
+        async latencyHeatmap(
+            query: {
+                dateRange?: { date_from?: string | null; date_to?: string | null }
+                serviceNames?: string[]
+                statusCodes?: number[]
+                filterGroup?: PropertyGroupFilter
+                // true (default) buckets root spans only (a distribution of traces); false buckets
+                // every matching span — pair with a span name filter for operation-scoped pages.
+                rootSpans?: boolean
+            },
+            signal?: AbortSignal
+        ): Promise<{
+            // Sparse cells ordered by time then bucket. Every time bucket appears at least once —
+            // empty buckets come back as a {time, bucket_ns: 0, count: 0} sentinel row.
+            results: { time: string; bucket_ns: number; count: number }[]
+        }> {
+            return new ApiRequest().tracingSpans().withAction('latency-heatmap').create({ signal, data: { query } })
+        },
         async aggregate(
             query: {
                 dateRange?: { date_from?: string | null; date_to?: string | null }
                 serviceNames?: string[]
                 filterGroup?: PropertyGroupFilter
                 compareFilter?: { compare?: boolean; compare_to?: string | null }
+                limit?: number
+                offset?: number
             },
             signal?: AbortSignal
         ): Promise<{
             results: AggregatedSpanRow[]
             compare?: AggregatedSpanRow[] | null
+            has_more?: boolean
+            next_offset?: number | null
         }> {
             return new ApiRequest().tracingSpans().withAction('aggregate').create({ signal, data: { query } })
         },
@@ -4920,6 +4964,9 @@ const api = {
                 media?: { mime_type: string; data: string }[]
             } | null
             error: string | null
+            // Direct (no-sandbox) runs only: the full capped row set for client-side paging,
+            // present while the backend's query result is alive (~20 min).
+            rows?: (string | number | null)[][]
         }> {
             return await new ApiRequest().notebook(notebookId).withAction(`sql_v2/runs/${runId}`).get()
         },
@@ -5200,14 +5247,14 @@ const api = {
                 .get()
             return Object.entries(response).map(([user_uuid, { name, email }]) => ({ user_uuid, name, email }))
         },
-        // PUT replaces the content of a `suggested_reviewers` artefact (only writable type).
-        // Backend: SignalReportArtefactViewSet.update.
-        async updateArtefact(
+        // PUT the report's full suggested-reviewers list (create-or-replace). Addressed by report so a
+        // report with no reviewers yet (and thus no artefact) can still be assigned one.
+        // Backend: SignalReportViewSet.reviewers.
+        async setReviewers(
             reportId: SignalReport['id'],
-            artefactId: string,
             content: Record<string, any>[]
         ): Promise<SignalReportArtefact> {
-            return await new ApiRequest().signalReportArtefact(reportId, artefactId).put({ data: { content } })
+            return await new ApiRequest().signalReport(reportId).withAction('reviewers').put({ data: { content } })
         },
     },
 
@@ -5222,8 +5269,7 @@ const api = {
         },
     },
 
-    // Scouts: scheduled agents that sweep the project and emit findings. Backend:
-    // SignalScoutRunViewSet (runs) + SignalScoutConfigViewSet (configs).
+    // Scout runs still use the legacy client. Scout configs use the generated Signals client.
     signalScout: {
         runs: {
             // Newest-first raw array (not paginated), capped at 100 server-side.
@@ -5262,18 +5308,6 @@ const api = {
                     .signalScoutRuns()
                     .withAction('emissions/reports/batch')
                     .create({ data: { run_ids: runIds } })
-            },
-        },
-        configs: {
-            // Newest-first raw array, ordered by skill_name.
-            async list(): Promise<SignalScoutConfig[]> {
-                return await new ApiRequest().signalScoutConfigs().get()
-            },
-            async update(id: string, data: SignalScoutConfigUpdate): Promise<SignalScoutConfig> {
-                return await new ApiRequest().signalScoutConfig(id).update({ data })
-            },
-            async delete(id: string): Promise<void> {
-                return await new ApiRequest().signalScoutConfig(id).delete()
             },
         },
     },
@@ -5646,8 +5680,16 @@ const api = {
     },
 
     dataWarehouseTables: {
-        async list(): Promise<PaginatedResponse<DataWarehouseTable>> {
-            return await new ApiRequest().dataWarehouseTables().get()
+        async list(params?: {
+            limit?: number
+            offset?: number
+            search?: string
+            include_columns?: boolean
+        }): Promise<PaginatedResponse<DataWarehouseTable>> {
+            return await new ApiRequest()
+                .dataWarehouseTables()
+                .withQueryString(params ?? {})
+                .get()
         },
         async get(tableId: DataWarehouseTable['id']): Promise<DataWarehouseTable> {
             return await new ApiRequest().dataWarehouseTable(tableId).get()
@@ -5672,6 +5714,19 @@ const api = {
         },
         async refreshSchema(tableId: DataWarehouseTable['id']): Promise<void> {
             await new ApiRequest().dataWarehouseTable(tableId).withAction('refresh_schema').create()
+        },
+        // FormData, not JSON — the browser sets the multipart boundary itself, so don't add a
+        // Content-Type header here (`api.createResponse` already skips it for FormData bodies).
+        async uploadFile(data: FormData): Promise<WarehouseTableFileUpload> {
+            return await new ApiRequest().dataWarehouseTables().withAction('upload_file').create({ data })
+        },
+        async createFromUpload(data: {
+            upload_id: string
+            filename: string
+            file_format: string
+            table_name: string
+        }): Promise<DataWarehouseTable> {
+            return await new ApiRequest().dataWarehouseTables().withAction('create_from_upload').create({ data })
         },
     },
 
@@ -5914,6 +5969,7 @@ const api = {
         async refreshSchemas(sourceId: ExternalDataSource['id']): Promise<{
             added: number
             deleted: number
+            auto_enabled: number
             total_tables_seen: number
         }> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('refresh_schemas').create()
@@ -6017,6 +6073,7 @@ const api = {
             publication_exists?: boolean
             lag_bytes?: number | null
             published_tables?: string[]
+            schedule_paused?: boolean
         }> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('cdc_status').get()
         },
@@ -6613,8 +6670,14 @@ const api = {
         },
     },
     hogFlows: {
-        async getHogFlows(): Promise<PaginatedResponse<HogFlow>> {
-            return await new ApiRequest().hogFlows().get()
+        async getHogFlows(params?: {
+            search?: string
+            status?: HogFlow['status']
+            created_by?: string
+            limit?: number
+            offset?: number
+        }): Promise<CountedPaginatedResponse<HogFlow>> {
+            return await new ApiRequest().hogFlows().withQueryString(params).get()
         },
         async getHogFlow(hogFlowId: HogFlow['id']): Promise<HogFlow> {
             return await new ApiRequest().hogFlow(hogFlowId).get()
@@ -7035,6 +7098,7 @@ const api = {
                 assignee?: string
                 tags?: string
                 distinct_ids?: string
+                emails?: string
                 search?: string
                 date_from?: string
                 date_to?: string
@@ -7102,57 +7166,10 @@ const api = {
         },
     },
 
-    llmPrompts: {
-        list(params?: {
-            search?: string
-            order_by?: string
-            offset?: number
-            limit?: number
-        }): Promise<CountedPaginatedResponse<LLMPrompt>> {
-            return new ApiRequest().llmPrompts().withQueryString(params).get()
-        },
-
-        getByName(promptName: string, params?: { version?: number }): Promise<LLMPromptPublic> {
-            return new ApiRequest().llmPromptByName(promptName).withQueryString(params).get()
-        },
-
-        resolveByName(
-            promptName: string,
-            params?: {
-                version?: number
-                version_id?: string
-                offset?: number
-                before_version?: number
-                limit?: number
-            }
-        ): Promise<LLMPromptResolveResponse> {
-            return new ApiRequest().llmPromptResolveByName(promptName).withQueryString(params).get()
-        },
-
-        async update(
-            promptName: string,
-            data: { prompt: LLMPrompt['prompt']; base_version: number; version_description?: string }
-        ): Promise<LLMPrompt> {
-            return await new ApiRequest().llmPromptByName(promptName).update({ data })
-        },
-
-        async archiveByName(promptName: string): Promise<void> {
-            await new ApiRequest().llmPromptArchiveByName(promptName).create({ data: {} })
-        },
-
-        async create(data: { name: LLMPrompt['name']; prompt: LLMPrompt['prompt'] }): Promise<LLMPrompt> {
-            return await new ApiRequest().llmPrompts().create({ data })
-        },
-
-        async duplicateByName(promptName: string, newName: string): Promise<LLMPrompt> {
-            return await new ApiRequest().llmPromptDuplicateByName(promptName).create({ data: { new_name: newName } })
-        },
-    },
-
     /** Fetch data from specified URL. The result already is JSON-parsed. */
     async get<T = any>(url: string, options?: ApiMethodOptions): Promise<T> {
         const res = await api.getResponse(url, options)
-        return await getJSONOrNull(res)
+        return await getJSONFromSuccessResponse(res, 'GET', url)
     },
 
     async getResponse(url: string, options?: ApiMethodOptions): Promise<Response> {
@@ -7205,7 +7222,7 @@ const api = {
             })
         })
 
-        return await getJSONOrNull(response)
+        return await getJSONFromSuccessResponse(response, method, url)
     },
 
     async update<T = any, P = any>(url: string, data: P, options?: ApiMethodOptions): Promise<T> {
@@ -7218,7 +7235,7 @@ const api = {
 
     async create<T = any, P = any>(url: string, data?: P, options?: ApiMethodOptions): Promise<T> {
         const res = await api.createResponse(url, data, options)
-        return await getJSONOrNull(res)
+        return await getJSONFromSuccessResponse(res, 'POST', url)
     },
 
     async createResponse(url: string, data?: any, options?: ApiMethodOptions): Promise<Response> {

@@ -122,7 +122,9 @@ export const ConversationsOpenCreateBody = /* @__PURE__ */ zod
                             .describe('Optional human-readable label rendered in the context block.'),
                         value: zod.string().optional().describe('Free-text content. Only for `text` attachments.'),
                     })
-                    .describe('One typed attachment carried by a sandbox message.')
+                    .describe(
+                        'One typed attachment carried by a sandbox message.\n\nDEPRECATED PATH — do not extend. This structured `attached_context` (and its server-side wrap in\n`context_wrapper.py`) exists only for the legacy Max conversations bridge and is removed with it;\nthe live path wraps context client-side (`products\/posthog_ai\/frontend\/utils\/posthogContextBlock.ts`).'
+                    )
             )
             .optional()
             .describe('Typed PostHog entities (and free text) attached to this message.'),
@@ -151,41 +153,6 @@ export const ConversationsQueueCreateBody = /* @__PURE__ */ zod.looseObject({})
 export const ConversationsQueuePartialUpdateBody = /* @__PURE__ */ zod.looseObject({})
 
 export const ConversationsQueueClearCreateBody = /* @__PURE__ */ zod.looseObject({})
-
-export const ConversationsTicketsCreateBody = /* @__PURE__ */ zod
-    .object({
-        status: zod
-            .enum(['new', 'open', 'pending', 'on_hold', 'resolved'])
-            .describe(
-                '\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
-            )
-            .optional()
-            .describe(
-                'Ticket status: new, open, pending, on_hold, or resolved\n\n\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
-            ),
-        priority: zod
-            .union([
-                zod
-                    .enum(['low', 'medium', 'high', 'critical'])
-                    .describe('\* `low` - Low\n\* `medium` - Medium\n\* `high` - High\n\* `critical` - Critical'),
-                zod.enum(['']),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                'Ticket priority: low, medium, high, or critical. Null if unset.\n\n\* `low` - Low\n\* `medium` - Medium\n\* `high` - High\n\* `critical` - Critical'
-            ),
-        anonymous_traits: zod.unknown().optional().describe('Customer-provided traits such as name and email'),
-        ai_resolved: zod.boolean().optional(),
-        escalation_reason: zod.string().nullish(),
-        sla_due_at: zod.iso
-            .datetime({ offset: true })
-            .nullish()
-            .describe('SLA deadline set via workflows. Null means no SLA.'),
-        snoozed_until: zod.iso.datetime({ offset: true }).nullish(),
-        tags: zod.array(zod.unknown()).optional(),
-    })
-    .describe('Serializer mixin that handles tags for objects.')
 
 /**
  * Handle ticket updates including assignee changes.
@@ -403,6 +370,12 @@ export const ConversationsViewsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys.'
         ),
+    is_favorited: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user.'
+        ),
 })
 
 export const conversationsViewsPartialUpdateBodyNameMax = 400
@@ -414,6 +387,12 @@ export const ConversationsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys.'
+        ),
+    is_favorited: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user.'
         ),
 })
 

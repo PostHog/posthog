@@ -1,5 +1,7 @@
 from dataclasses import dataclass, field
 
+from products.warehouse_sources.backend.types import IncrementalField
+
 
 @dataclass
 class CoassembleEndpointConfig:
@@ -37,4 +39,4 @@ COASSEMBLE_ENDPOINTS: dict[str, CoassembleEndpointConfig] = {
 
 ENDPOINTS = tuple(COASSEMBLE_ENDPOINTS.keys())
 
-INCREMENTAL_FIELDS: dict[str, list[dict[str, str]]] = {}
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}

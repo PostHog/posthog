@@ -422,6 +422,16 @@ describe('onboardingLogic — flow composition', () => {
                     type: logic.actionTypes.recordProductIntentOnboardingComplete,
                     payload: { product_type: ProductKey.PRODUCT_ANALYTICS } as any,
                 },
+                (action) => {
+                    if (action.type !== logic.actionTypes.updateCurrentTeam) {
+                        return false
+                    }
+                    expect(action.payload).toMatchObject({
+                        completed_snippet_onboarding: true,
+                        has_completed_onboarding_for: { [ProductKey.PRODUCT_ANALYTICS]: true },
+                    })
+                    return true
+                },
             ])
         })
 
@@ -474,6 +484,25 @@ describe('onboardingLogic — flow composition', () => {
             await expectLogic(logic, () => {
                 logic.actions.completeOnboarding()
             }).toNotHaveDispatchedActions(['recordProductIntentOnboardingComplete', 'setIsCompleting'])
+        })
+    })
+
+    describe('completeContextOnboarding', () => {
+        it('persists both onboarding completion signals', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.completeContextOnboarding()
+            }).toDispatchActions([
+                (action) => {
+                    if (action.type !== logic.actionTypes.updateCurrentTeam) {
+                        return false
+                    }
+                    expect(action.payload).toMatchObject({
+                        completed_snippet_onboarding: true,
+                        has_completed_onboarding_for: { [ProductKey.PRODUCT_ANALYTICS]: true },
+                    })
+                    return true
+                },
+            ])
         })
     })
 

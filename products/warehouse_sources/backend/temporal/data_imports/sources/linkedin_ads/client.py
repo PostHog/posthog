@@ -23,6 +23,8 @@ logger = structlog.get_logger(__name__)
 LINKEDIN_SPONSORED_URN_PREFIX = "urn:li:sponsored"
 MAX_PAGE_SIZE = 1000
 CREATIVES_PAGE_SIZE = 100  # creatives backend returns transient 500s on heavier requests
+# Default LinkedIn Marketing API version header. Callers pass a resolved version through the
+# source's version dispatch; this default backs the legacy `v1` pin and credential-probe paths.
 API_VERSION = "202508"
 
 # `q=analytics` silently truncates a response at 15k elements. With DAILY granularity an element
@@ -119,12 +121,12 @@ def _retry_wait(retry_state: RetryCallState) -> float:
 class LinkedinAdsClient:
     """LinkedIn Marketing API client."""
 
-    def __init__(self, access_token: str):
+    def __init__(self, access_token: str, api_version: str = API_VERSION):
         if not access_token:
             raise ValueError("Access token required")
         self.access_token = access_token
         self.client = RestliClient()
-        self.api_version = API_VERSION
+        self.api_version = api_version
 
     def get_accounts(self) -> list[dict[str, Any]]:
         """Every ad account the authorized member can access. `q=search` is paginated, so a single

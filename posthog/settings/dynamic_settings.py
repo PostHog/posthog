@@ -287,19 +287,45 @@ CONSTANCE_CONFIG = {
         bool,
     ),
     "WEB_ANALYTICS_WARMING_DAYS": (
-        get_from_env("WEB_ANALYTICS_WARMING_DAYS", default=7, type_cast=int),
-        "Number of days to look back for frequently-run web analytics queries",
+        get_from_env("WEB_ANALYTICS_WARMING_DAYS", default=14, type_cast=int),
+        "Number of days of system.query_log to look back for frequently-run web analytics queries. "
+        "A longer window catches teams that use web analytics every few days rather than daily. "
+        "The selection is cached (WEB_ANALYTICS_WARMING_SELECTION_TTL_SECONDS), so the fleet-wide "
+        "scan runs on that cadence — not every warming run.",
+        int,
+    ),
+    "WEB_ANALYTICS_WARMING_SELECTION_TTL_SECONDS": (
+        get_from_env("WEB_ANALYTICS_WARMING_SELECTION_TTL_SECONDS", default=21600, type_cast=int),
+        "How long the fleet-wide demand selection is cached in object storage. Warming replays the "
+        "cached shape list every run; the expensive query_log scan only re-runs once this expires (default 6h).",
         int,
     ),
     "WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT": (
-        get_from_env("WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT", default=10, type_cast=int),
-        "Minimum query count threshold for web analytics cache warming",
+        get_from_env("WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT", default=2, type_cast=int),
+        "Per-shape floor: minimum runs in the lookback window for a query shape to be warmed. "
+        "2 covers every shape a user returned to; misses cost only a live serve (warm-behind).",
         int,
     ),
     "WEB_ANALYTICS_WARMING_TEAMS_TO_WARM": (
         get_from_env("WEB_ANALYTICS_WARMING_TEAMS_TO_WARM", default=[2], type_cast=list[int]),
         "Teams that will have web analytics cache warming enabled",
         list[int],
+    ),
+    "WEB_ANALYTICS_WARMING_MAX_SHAPES": (
+        get_from_env("WEB_ANALYTICS_WARMING_MAX_SHAPES", default=400000, type_cast=int),
+        "Cap on the number of hot query shapes web analytics warming selects fleet-wide per run. "
+        "Sized above the ~234k shapes the 14-day min=2 selection produces, with headroom for growth, so "
+        "the cap doesn't silently truncate weekly-cadence teams; raising it warms more shapes at the cost "
+        "of more background compute.",
+        int,
+    ),
+    "WEB_ANALYTICS_WARMING_SHAPE_CONCURRENCY": (
+        get_from_env("WEB_ANALYTICS_WARMING_SHAPE_CONCURRENCY", default=16, type_cast=int),
+        "Worker threads for the web analytics warm pass. Cold bucket builds dominate a first run "
+        "(each shape builds one bucket per day of its range), so a higher value drains the selection "
+        "faster but adds load to the offline ClickHouse pool. Clamped to 1-64; the pool is fixed per "
+        "pass, so a change applies when the next warming run starts — no redeploy needed.",
+        int,
     ),
 }
 
@@ -355,7 +381,10 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "CLICKHOUSE_HEDGED_APP_QUERIES",
     "REDIRECT_APP_TO_US",
     "WEB_ANALYTICS_WARMING_DAYS",
+    "WEB_ANALYTICS_WARMING_SELECTION_TTL_SECONDS",
     "WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT",
+    "WEB_ANALYTICS_WARMING_MAX_SHAPES",
+    "WEB_ANALYTICS_WARMING_SHAPE_CONCURRENCY",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)

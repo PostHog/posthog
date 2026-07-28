@@ -32,7 +32,7 @@ import { computeDaysOfWeekUpdate, getExcludedDaysOfWeek, type IsoDayOfWeek } fro
 
 // Chip labels double as dateMapping keys; filter at module load so a renamed chip can never
 // silently produce the wrong range.
-const NAMED_CHIPS = ['Today', 'Yesterday', 'This week', 'This month', 'Year to date', 'All time'].filter((name) =>
+const NAMED_CHIPS = ['Today', 'Yesterday', 'This week', 'This month', 'This year', 'All time'].filter((name) =>
     dateMapping.some(({ key }) => key === name)
 )
 

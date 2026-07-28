@@ -124,7 +124,7 @@ export type contextPickerLogicType = MakeLogicType<
  * Global store of context the user explicitly picked via the composer's @-affordance. Just another
  * provider on `attachedContextLogic` (id `user-picker`): picks upsert into `pickedItems`, and every
  * change re-registers the provider, so picked refs flow into `contextItems` and the send-time
- * `<posthog_context>` wrap with zero extra plumbing.
+ * context-block wrap with zero extra plumbing.
  */
 export const contextPickerLogic = kea<contextPickerLogicType>([
     path(['products', 'posthog_ai', 'frontend', 'logics', 'contextPickerLogic']),

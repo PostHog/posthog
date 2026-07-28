@@ -1,14 +1,11 @@
 """Orchestrates a metric-symptom investigation into one structured result.
 
 Composes the existing primitives — characterize the primary metric, check each
-companion metric over the same window, classify blast radius from the movers —
-into a single `InvestigationResult`. That result is the seam between investigate
-and display: the agent narrates it, the in-app explorer renders it, and the
-incident report serializes it, all from the same shape.
-
-The metric->trace pivot (`evidence.trace_exemplars`) is left empty until the
-`metric_samples` table lands; the seam is defined here so wiring it in later
-doesn't change the result shape.
+companion metric over the same window, classify blast radius from the movers,
+pull trace exemplars from the anomaly window — into a single
+`InvestigationResult`. That result is the seam between investigate and display:
+the agent narrates it, the in-app explorer renders it, and the incident report
+serializes it, all from the same shape.
 """
 
 from __future__ import annotations
@@ -26,7 +23,9 @@ from products.metrics.backend.facade.contracts import (
     InvestigationResult,
     MetricAnomalyReport,
     MetricFilter,
+    TraceExemplar,
 )
+from products.metrics.backend.metric_event_samples_query_runner import MetricEventSamplesQueryRunner
 
 # A companion counts as "moved with the symptom" once it changes by more than
 # this fraction over the window (matches the eye test of "basically flat"
@@ -44,6 +43,14 @@ _DEFAULT_HISTOGRAM_QUANTILE = 0.95
 # Label keys that name the emitting service, used to implicate one for the
 # logs/traces pivot.
 _SERVICE_KEYS = ("service_name", "service.name")
+
+# Enough exemplars to pivot from without bloating the serialized result the
+# agent and incident report carry around.
+_MAX_TRACE_EXEMPLARS = 5
+
+# Newest-first fetch size; only traced samples survive, so read more than the
+# cap to ride out untraced emissions interleaved in the window.
+_EXEMPLAR_SAMPLE_FETCH_LIMIT = 100
 
 
 def investigate(
@@ -98,7 +105,9 @@ def investigate(
     service_name = _implicated_service(symptom)
     evidence = InvestigationEvidence(
         service_name=service_name,
-        trace_exemplars=(),  # filled by the trace-pivot primitive once samples land
+        trace_exemplars=_trace_exemplars(
+            team=team, metric_name=metric_name, anomaly_from=anomaly_from, anomaly_to=anomaly_to
+        ),
         log_filter=_log_filter(service_name, symptom) if service_name else None,
     )
     chart_specs = _build_chart_specs(symptom, companion_verdicts, filters, quantile)
@@ -165,6 +174,40 @@ def _classify_blast_radius(symptom: MetricAnomalyReport) -> str:
     if second == 0.0 or top >= second * DOMINANT_MOVER_RATIO:
         return "localized"
     return "shared"
+
+
+def _trace_exemplars(
+    *,
+    team: Team,
+    metric_name: str,
+    anomaly_from: dt.datetime,
+    anomaly_to: dt.datetime,
+) -> tuple[TraceExemplar, ...]:
+    """The newest traced emissions of the symptom metric inside the anomaly
+    window, capped — concrete traces to pivot into at the moment things broke.
+    Emissions without trace context are skipped; no samples means no pivot."""
+    rows = MetricEventSamplesQueryRunner(
+        team=team,
+        metric_name=metric_name,
+        date_from=anomaly_from,
+        date_to=anomaly_to,
+        limit=_EXEMPLAR_SAMPLE_FETCH_LIMIT,
+    ).run()
+    exemplars: list[TraceExemplar] = []
+    for row in rows:
+        if not row["trace_id"]:
+            continue
+        exemplars.append(
+            TraceExemplar(
+                trace_id=row["trace_id"],
+                span_id=row["span_id"],
+                timestamp=row["timestamp"],
+                value=row["value"],
+            )
+        )
+        if len(exemplars) == _MAX_TRACE_EXEMPLARS:
+            break
+    return tuple(exemplars)
 
 
 def _implicated_service(symptom: MetricAnomalyReport) -> str | None:

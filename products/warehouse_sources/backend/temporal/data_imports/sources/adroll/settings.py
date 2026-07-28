@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from typing import Optional
 
+from products.warehouse_sources.backend.types import IncrementalField
+
 
 @dataclass
 class AdRollEndpointConfig:
@@ -41,3 +43,6 @@ ADROLL_ENDPOINTS: dict[str, AdRollEndpointConfig] = {
 }
 
 ENDPOINTS = tuple(ADROLL_ENDPOINTS.keys())
+
+# Entity endpoints have no updated_at filter — every endpoint is full refresh.
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {name: [] for name in ADROLL_ENDPOINTS}
