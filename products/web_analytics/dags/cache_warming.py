@@ -516,11 +516,12 @@ def get_warmable_queries_op(context: dagster.OpExecutionContext) -> list[dict]:
 RAW_REPLAY_MIN_QUERY_COUNT = 10
 
 # Worker threads for the warm pass. The pass is IO-bound (cache checks, CH
-# reads/inserts), so a small pool cuts wall time ~8x at the widened selection
-# size; kept well under the OFFLINE per-user query-slot budget so a build wave
-# can't starve other traffic (the same slot pool the inline-build saturation
-# incidents exhausted).
-WARMING_SHAPE_CONCURRENCY = 8
+# reads/inserts), so a pool cuts wall time at the widened selection size. A cold
+# first run is dominated by per-day bucket builds — hundreds of thousands of them
+# — so this is the main throughput lever, but raising it adds load to the offline
+# ClickHouse pool. Read live from WEB_ANALYTICS_WARMING_SHAPE_CONCURRENCY so a
+# slow run can be sped up (or throttled) without a redeploy; this is the fallback.
+WARMING_SHAPE_CONCURRENCY = 16
 
 # Heartbeat cadence for the warm pass. Cold bucket builds run ~1s each, so a full
 # selection can take hours; without a heartbeat the op is silent start to finish
@@ -625,12 +626,14 @@ def warm_queries_op(context: dagster.OpExecutionContext, queries: list[dict]) ->
             # a long pass doesn't accumulate stale connections per thread.
             close_old_connections()
 
+    concurrency = get_instance_setting("WEB_ANALYTICS_WARMING_SHAPE_CONCURRENCY") or WARMING_SHAPE_CONCURRENCY
     outcomes: dict[str, int] = {}
     total = len(queries)
     processed = 0
     started_at = time.monotonic()
     last_log_at = started_at
-    with ThreadPoolExecutor(max_workers=WARMING_SHAPE_CONCURRENCY) as pool:
+    context.log.info(f"Warming {total} shapes across {len(teams)} teams (concurrency={concurrency})")
+    with ThreadPoolExecutor(max_workers=concurrency) as pool:
         # pool.map yields on this (op) thread, so context.log here is safe — unlike
         # the worker-thread logging inside _warm_one.
         for outcome in pool.map(_warm_one, queries):
@@ -638,10 +641,13 @@ def warm_queries_op(context: dagster.OpExecutionContext, queries: list[dict]) ->
             processed += 1
             now = time.monotonic()
             if now - last_log_at >= WARMING_PROGRESS_LOG_INTERVAL_SECONDS:
-                rate = processed / (now - started_at)
+                elapsed = now - started_at
+                rate = processed / elapsed
+                eta_min = (total - processed) / rate / 60 if rate > 0 else 0
+                breakdown = ", ".join(f"{k}={v}" for k, v in sorted(outcomes.items()))
                 context.log.info(
-                    f"Warming progress: {processed}/{total} shapes processed "
-                    f"({outcomes.get('warmed', 0)} warmed, {rate:.0f}/s)"
+                    f"Warming progress: {processed}/{total} ({100 * processed // total}%) "
+                    f"at {rate:.0f}/s, ETA ~{eta_min:.0f}m — {breakdown}"
                 )
                 last_log_at = now
 
@@ -651,15 +657,22 @@ def warm_queries_op(context: dagster.OpExecutionContext, queries: list[dict]) ->
     queries_unsupported = outcomes.get("unsupported", 0)
 
     context.log.info(
-        f"Warmed {queries_warmed} queries ({queries_skipped} already fresh, "
+        f"Warmed {queries_warmed} queries in {(time.monotonic() - started_at) / 60:.1f}m "
+        f"({queries_skipped} already fresh, {outcomes.get('skipped_duplicate', 0)} duplicate, "
+        f"{outcomes.get('skipped_raw_low_demand', 0)} low-demand raw, "
+        f"{outcomes.get('team_missing', 0)} churned/missing teams, "
         f"{queries_failed} failed, {queries_unsupported} unsupported kinds)"
     )
     context.add_output_metadata(
         {
             "queries_warmed": queries_warmed,
             "queries_skipped": queries_skipped,
+            "queries_skipped_duplicate": outcomes.get("skipped_duplicate", 0),
+            "queries_skipped_raw_low_demand": outcomes.get("skipped_raw_low_demand", 0),
+            "teams_missing": outcomes.get("team_missing", 0),
             "queries_failed": queries_failed,
             "queries_unsupported": queries_unsupported,
+            "concurrency": concurrency,
         }
     )
 
