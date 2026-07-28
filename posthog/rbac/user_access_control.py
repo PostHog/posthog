@@ -90,6 +90,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "tracing",
     "replay_scanner",
     "toolbar",
+    "cookie_banner",
     "llm_playground",
 )
 
@@ -453,6 +454,8 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "replay_scanner"
     if name in ("visionaction", "visionactionrun"):
         return "vision_action"
+    if name == "cookiebannerconfig":
+        return "cookie_banner"
 
     if name not in API_SCOPE_OBJECTS or name in INTERNAL_API_SCOPE_OBJECTS:
         return None

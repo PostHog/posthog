@@ -79,6 +79,7 @@ post_delete:products.cdp.backend.models.plugin.plugin_reload_needed
 post_delete:products.cohorts.backend.models.cohort.cohort_people_changed
 post_delete:products.cohorts.backend.models.dependencies.clear_team_cohort_dependency_cache
 post_delete:products.cohorts.backend.models.dependencies.cohort_deleted
+post_delete:products.cookie_banner.backend.models.cookie_banner_config_changed
 post_delete:products.event_definitions.backend.models.event_definition._invalidate_default_event_info_on_delete
 post_delete:products.feature_flags.backend.flags_cache.cohort_changed_flags_cache
 post_delete:products.feature_flags.backend.flags_cache.evaluation_context_changed_flags_cache
@@ -161,6 +162,7 @@ post_save:products.cohorts.backend.models.dependencies.cohort_changed
 post_save:products.cohorts.backend.models.dependencies.cohort_conditions_changed_backfill
 post_save:products.conversations.backend.signals.emit_ticket_created_event
 post_save:products.conversations.backend.signals.post_github_reply_on_team_message
+post_save:products.cookie_banner.backend.models.cookie_banner_config_changed
 post_save:products.conversations.backend.signals.post_slack_reply_on_team_message
 post_save:products.conversations.backend.signals.post_teams_reply_on_team_message
 post_save:products.conversations.backend.signals.send_email_reply_on_team_message

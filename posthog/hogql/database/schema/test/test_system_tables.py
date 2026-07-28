@@ -35,6 +35,7 @@ from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import Cohort
 from products.conversations.backend.models import Ticket
+from products.cookie_banner.backend.models import CookieBannerConfig
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
@@ -221,6 +222,11 @@ def _create_annotation(team: Team, label: str) -> Annotation:
 def _create_cohort_calculation_history(team: Team, label: str) -> CohortCalculationHistory:
     cohort = Cohort.objects.create(team=team, name=f"cohort_for_calc_{label}")
     return CohortCalculationHistory.objects.create(team=team, cohort=cohort, filters={})
+
+
+def _create_cookie_banner_config(team: Team, label: str) -> CookieBannerConfig:
+    with team_scope(team.pk):
+        return CookieBannerConfig.objects.create(team=team, appearance={"title": f"banner_{label}"})
 
 
 def _create_dashboard(team: Team, label: str) -> Dashboard:
@@ -674,6 +680,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("business_knowledge_sources", _create_business_knowledge_source),
     ("cohorts", _create_cohort),
     ("cohort_calculation_history", _create_cohort_calculation_history),
+    ("cookie_banner_configs", _create_cookie_banner_config),
     ("custom_property_definitions", _create_custom_property_definition),
     ("dashboards", _create_dashboard),
     ("dashboard_tiles", _create_dashboard_tile),

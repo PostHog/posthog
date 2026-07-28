@@ -318,6 +318,7 @@ export enum AccessControlResourceType {
     Tracing = 'tracing',
     ReplayScanner = 'replay_scanner',
     Toolbar = 'toolbar',
+    CookieBanner = 'cookie_banner',
 }
 
 interface UserBaseType {
@@ -5720,6 +5721,7 @@ export const API_SCOPE_OBJECTS = [
     'cohort',
     'comment',
     'conversation',
+    'cookie_banner',
     'customer_analytics',
     'customer_journey',
     'customer_profile_config',

@@ -188,7 +188,11 @@ class TestAccessLevelHelpersProperties(TestCase):
 ACCESS_CONTROLLED_RESOURCES = set(ACCESS_CONTROL_RESOURCES) | set(RESOURCE_INHERITANCE_MAP)
 
 # resource -> reason; only for models that genuinely can't be created in a unit test
-EXCLUSIONS: dict[str, str] = {}
+EXCLUSIONS: dict[str, str] = {
+    # OneToOneField(team): at most one config per team, but the queryset scenarios build
+    # several objects on the same team. Resource-level rows still cover the resource.
+    "cookie_banner": "CookieBannerConfig is a per-team singleton",
+}
 
 
 def _build_evaluation(team: Team, user: User, model_cls: type[models.Model]) -> models.Model:

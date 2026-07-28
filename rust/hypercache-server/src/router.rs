@@ -16,7 +16,7 @@ use tower_http::{
 };
 
 use crate::{
-    api::{remote_config, surveys},
+    api::{cookie_banner, remote_config, surveys},
     config::Config,
 };
 
@@ -24,22 +24,29 @@ use crate::{
 pub struct State {
     pub surveys_hypercache_reader: Arc<HyperCacheReader>,
     pub config_hypercache_reader: Arc<HyperCacheReader>,
+    pub cookie_banner_hypercache_reader: Arc<HyperCacheReader>,
     pub surveys_negative_cache: Option<NegativeCache>,
     pub config_negative_cache: Option<NegativeCache>,
+    pub cookie_banner_negative_cache: Option<NegativeCache>,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn router(
     surveys_hypercache_reader: Arc<HyperCacheReader>,
     config_hypercache_reader: Arc<HyperCacheReader>,
+    cookie_banner_hypercache_reader: Arc<HyperCacheReader>,
     surveys_negative_cache: Option<NegativeCache>,
     config_negative_cache: Option<NegativeCache>,
+    cookie_banner_negative_cache: Option<NegativeCache>,
     config: Config,
 ) -> Router {
     let state = State {
         surveys_hypercache_reader,
         config_hypercache_reader,
+        cookie_banner_hypercache_reader,
         surveys_negative_cache,
         config_negative_cache,
+        cookie_banner_negative_cache,
     };
 
     // Permissive CORS policy matching the feature-flags service
@@ -67,6 +74,11 @@ pub fn router(
         .route(
             "/array/:token/config.js",
             any(remote_config::config_js_endpoint),
+        )
+        // Cookie banner standalone runtime (consent management script, loads before posthog-js)
+        .route(
+            "/array/:token/cookie-banner.js",
+            any(cookie_banner::cookie_banner_js_endpoint),
         )
         // Catch-all 404s for known prefixes to avoid high-cardinality unmatched paths in metrics.
         // Without these, unmatched requests fall through with the raw URI as the metric label,

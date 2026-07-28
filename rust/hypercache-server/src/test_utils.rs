@@ -70,7 +70,14 @@ pub mod helpers {
         surveys_reader: Arc<HyperCacheReader>,
         config_reader: Arc<HyperCacheReader>,
     ) -> Router {
-        build_router(surveys_reader, config_reader, None, None)
+        build_router(
+            surveys_reader,
+            config_reader,
+            mock_reader("array", "cookie-banner.js", MockRedisClient::new()),
+            None,
+            None,
+            None,
+        )
     }
 
     /// Build a test router with negative caches enabled, returning the router
@@ -84,23 +91,60 @@ pub mod helpers {
         let router = build_router(
             surveys_reader,
             config_reader,
+            mock_reader("array", "cookie-banner.js", MockRedisClient::new()),
             Some(surveys_nc.clone()),
             Some(config_nc.clone()),
+            None,
         );
         (router, surveys_nc, config_nc)
+    }
+
+    /// Build a test router around a cookie banner mock; surveys/config are empty.
+    pub fn test_router_cookie_banner(cookie_banner_redis: MockRedisClient) -> Router {
+        build_router(
+            mock_reader("surveys", "surveys.json", MockRedisClient::new()),
+            mock_reader("array", "config.json", MockRedisClient::new()),
+            mock_reader("array", "cookie-banner.js", cookie_banner_redis),
+            None,
+            None,
+            None,
+        )
+    }
+
+    /// Build a test router with a cookie banner mock, a config mock, and negative
+    /// caches on both, returning (router, config_nc, cookie_banner_nc).
+    pub fn test_router_cookie_banner_with_negative_caches(
+        cookie_banner_redis: MockRedisClient,
+        config_redis: MockRedisClient,
+    ) -> (Router, NegativeCache, NegativeCache) {
+        let config_nc = NegativeCache::new(100, 300);
+        let cookie_banner_nc = NegativeCache::new(100, 300);
+        let router = build_router(
+            mock_reader("surveys", "surveys.json", MockRedisClient::new()),
+            mock_reader("array", "config.json", config_redis),
+            mock_reader("array", "cookie-banner.js", cookie_banner_redis),
+            None,
+            Some(config_nc.clone()),
+            Some(cookie_banner_nc.clone()),
+        );
+        (router, config_nc, cookie_banner_nc)
     }
 
     fn build_router(
         surveys_reader: Arc<HyperCacheReader>,
         config_reader: Arc<HyperCacheReader>,
+        cookie_banner_reader: Arc<HyperCacheReader>,
         surveys_negative_cache: Option<NegativeCache>,
         config_negative_cache: Option<NegativeCache>,
+        cookie_banner_negative_cache: Option<NegativeCache>,
     ) -> Router {
         let state = State {
             surveys_hypercache_reader: surveys_reader,
             config_hypercache_reader: config_reader,
+            cookie_banner_hypercache_reader: cookie_banner_reader,
             surveys_negative_cache,
             config_negative_cache,
+            cookie_banner_negative_cache,
         };
 
         Router::new()
@@ -115,6 +159,10 @@ pub mod helpers {
             .route(
                 "/array/:token/config.js",
                 axum::routing::any(crate::api::remote_config::config_js_endpoint),
+            )
+            .route(
+                "/array/:token/cookie-banner.js",
+                axum::routing::any(crate::api::cookie_banner::cookie_banner_js_endpoint),
             )
             .with_state(state)
     }
@@ -146,6 +194,27 @@ pub mod helpers {
         let body_str = String::from_utf8(body.to_vec()).unwrap();
 
         (status, body_str)
+    }
+
+    /// Send a request with an arbitrary method, returning (status, body, headers).
+    pub async fn request_with_method(
+        router: &Router,
+        method: &str,
+        uri: &str,
+    ) -> (StatusCode, String, axum::http::HeaderMap) {
+        let request = Request::builder()
+            .method(method)
+            .uri(uri)
+            .body(Body::empty())
+            .unwrap();
+
+        let response = router.clone().oneshot(request).await.unwrap();
+        let status = response.status();
+        let resp_headers = response.headers().clone();
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body_str = String::from_utf8(body.to_vec()).unwrap();
+
+        (status, body_str, resp_headers)
     }
 
     /// Send a GET request with custom headers.

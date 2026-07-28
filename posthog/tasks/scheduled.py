@@ -78,6 +78,7 @@ from products.conversations.backend.tasks import (
     poll_teams_shared_channels,
     wake_snoozed_tickets,
 )
+from products.cookie_banner.backend.tasks import sync_all_cookie_banner_artifacts
 from products.data_modeling.backend.facade.tasks import cleanup_expired_test_saved_queries
 from products.data_warehouse.backend.facade.tasks import (
     reconcile_all_managed_warehouse_tables_task,
@@ -772,6 +773,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="0", minute=str(randrange(0, 40))),
         sync_all_surveys_cache.s(),
         name="sync all surveys cache",
+    )
+
+    # Backstop for cookie banner artifacts: covers rotated tokens and environments
+    # created since the last banner save (the config-change signal can't see those)
+    sender.add_periodic_task(
+        crontab(hour="1", minute=str(randrange(0, 40))),
+        sync_all_cookie_banner_artifacts.s(),
+        name="sync all cookie banner artifacts",
     )
 
     sender.add_periodic_task(

@@ -100,5 +100,6 @@ export const getStorybookAppContext = (): AppContext => ({
         error_tracking: 'manager',
         metrics: 'manager',
         replay_scanner: 'manager',
+        cookie_banner: 'manager',
     },
 })

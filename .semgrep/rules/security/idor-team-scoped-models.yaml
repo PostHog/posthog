@@ -94,6 +94,7 @@ rules:
                               |Comment
                               |Conversation
                               |ConversationRestoreToken
+                              |CookieBannerConfig
                               |CoreMemory
                               |CustomerJourney
                               |CustomerProfileConfig
@@ -417,6 +418,7 @@ rules:
                         |Comment
                         |Conversation
                         |ConversationRestoreToken
+                        |CookieBannerConfig
                         |CoreMemory
                         |CustomerJourney
                         |CustomerProfileConfig

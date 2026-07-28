@@ -13,6 +13,7 @@ const NEGATIVE_CACHE_INSERT_METRIC: &str = "hypercache_server_negative_cache_ins
 pub enum CacheNamespace {
     Surveys,
     Array,
+    CookieBanner,
 }
 
 impl CacheNamespace {
@@ -21,10 +22,13 @@ impl CacheNamespace {
             LazyLock::new(|| vec![("namespace".to_string(), "surveys".to_string())]);
         static ARRAY: LazyLock<Vec<(String, String)>> =
             LazyLock::new(|| vec![("namespace".to_string(), "array".to_string())]);
+        static COOKIE_BANNER: LazyLock<Vec<(String, String)>> =
+            LazyLock::new(|| vec![("namespace".to_string(), "cookie_banner".to_string())]);
 
         match self {
             CacheNamespace::Surveys => &SURVEYS,
             CacheNamespace::Array => &ARRAY,
+            CacheNamespace::CookieBanner => &COOKIE_BANNER,
         }
     }
 }

@@ -60,34 +60,50 @@ where
             None => return,
         };
 
-    // Build one negative cache per namespace when enabled. Keeping them separate
-    // avoids false positives: a token missing from surveys can legitimately exist
-    // in remote config.
-    let (surveys_negative_cache, config_negative_cache) = if *config.negative_cache_enabled {
-        tracing::info!(
-            max_entries = config.negative_cache_max_entries,
-            ttl_seconds = config.negative_cache_ttl_seconds,
-            "Negative cache enabled"
-        );
-        (
-            Some(NegativeCache::new(
-                config.negative_cache_max_entries,
-                config.negative_cache_ttl_seconds,
-            )),
-            Some(NegativeCache::new(
-                config.negative_cache_max_entries,
-                config.negative_cache_ttl_seconds,
-            )),
-        )
-    } else {
-        (None, None)
-    };
+    // Cookie banner HyperCache: namespace "array", value "cookie-banner.js", token-based
+    let cookie_banner_hypercache_reader =
+        match create_hypercache_reader(redis_client.clone(), "array", "cookie-banner.js", &config)
+            .await
+        {
+            Some(reader) => reader,
+            None => return,
+        };
+
+    // Build one negative cache per artifact when enabled. Keeping them separate
+    // avoids false positives: a token missing from surveys or the cookie banner
+    // can legitimately exist in remote config.
+    let (surveys_negative_cache, config_negative_cache, cookie_banner_negative_cache) =
+        if *config.negative_cache_enabled {
+            tracing::info!(
+                max_entries = config.negative_cache_max_entries,
+                ttl_seconds = config.negative_cache_ttl_seconds,
+                "Negative cache enabled"
+            );
+            (
+                Some(NegativeCache::new(
+                    config.negative_cache_max_entries,
+                    config.negative_cache_ttl_seconds,
+                )),
+                Some(NegativeCache::new(
+                    config.negative_cache_max_entries,
+                    config.negative_cache_ttl_seconds,
+                )),
+                Some(NegativeCache::new(
+                    config.negative_cache_max_entries,
+                    config.negative_cache_ttl_seconds,
+                )),
+            )
+        } else {
+            (None, None, None)
+        };
 
     let app = crate::router::router(
         surveys_hypercache_reader,
         config_hypercache_reader,
+        cookie_banner_hypercache_reader,
         surveys_negative_cache,
         config_negative_cache,
+        cookie_banner_negative_cache,
         config,
     );
 

@@ -62,6 +62,45 @@ def indent_js(js_content: str, indent: int = 4) -> str:
     return joined
 
 
+def purge_cdn_urls(paths: list[str]) -> None:
+    """Purge the given URL paths (e.g. '/array/<token>/config') across every configured
+    CDN purge domain. Shared by RemoteConfig and per-token artifacts owned by products
+    (the cookie banner's /array/<token>/cookie-banner.js)."""
+    if (
+        not settings.REMOTE_CONFIG_CDN_PURGE_ENDPOINT
+        or not settings.REMOTE_CONFIG_CDN_PURGE_TOKEN
+        or not settings.REMOTE_CONFIG_CDN_PURGE_DOMAINS
+    ):
+        return
+
+    data: dict[str, Any] = {"files": []}
+
+    for domain in settings.REMOTE_CONFIG_CDN_PURGE_DOMAINS:
+        # Check if the domain starts with https:// and if not add it
+        full_domain = domain if domain.startswith("https://") else f"https://{domain}"
+        for path in paths:
+            data["files"].append({"url": f"{full_domain}{path}"})
+
+    logger.info("Purging CDN URLs", {"data": data})
+
+    try:
+        res = requests.post(
+            settings.REMOTE_CONFIG_CDN_PURGE_ENDPOINT,
+            headers={"Authorization": f"Bearer {settings.REMOTE_CONFIG_CDN_PURGE_TOKEN}"},
+            json=data,
+            timeout=10,
+        )
+
+        if res.status_code != 200:
+            raise Exception(f"Failed to purge CDN URLs: {res.status_code} {res.text}")
+
+    except Exception:
+        logger.exception("Failed to purge CDN URLs", paths=paths)
+        REMOTE_CONFIG_CDN_PURGE_COUNTER.labels(result="failure").inc()
+    else:
+        REMOTE_CONFIG_CDN_PURGE_COUNTER.labels(result="success").inc()
+
+
 class RemoteConfig(UUIDTModel):
     """
     RemoteConfig is a helper model. There is one per team and stores a highly cacheable JSON object
@@ -442,39 +481,12 @@ class RemoteConfig(UUIDTModel):
             raise
 
     def _purge_cdn(self):
-        if (
-            not settings.REMOTE_CONFIG_CDN_PURGE_ENDPOINT
-            or not settings.REMOTE_CONFIG_CDN_PURGE_TOKEN
-            or not settings.REMOTE_CONFIG_CDN_PURGE_DOMAINS
-        ):
-            return
-
-        data: dict[str, Any] = {"files": []}
-
-        for domain in settings.REMOTE_CONFIG_CDN_PURGE_DOMAINS:
-            # Check if the domain starts with https:// and if not add it
-            full_domain = domain if domain.startswith("https://") else f"https://{domain}"
-            data["files"].append({"url": f"{full_domain}/array/{self.team.api_token}/config"})
-            data["files"].append({"url": f"{full_domain}/array/{self.team.api_token}/config.js"})
-
-        logger.info(f"Purging CDN for team {self.team_id}", {"data": data})
-
-        try:
-            res = requests.post(
-                settings.REMOTE_CONFIG_CDN_PURGE_ENDPOINT,
-                headers={"Authorization": f"Bearer {settings.REMOTE_CONFIG_CDN_PURGE_TOKEN}"},
-                json=data,
-                timeout=10,
-            )
-
-            if res.status_code != 200:
-                raise Exception(f"Failed to purge CDN for team {self.team_id}: {res.status_code} {res.text}")
-
-        except Exception:
-            logger.exception(f"Failed to purge CDN for team {self.team_id}")
-            REMOTE_CONFIG_CDN_PURGE_COUNTER.labels(result="failure").inc()
-        else:
-            REMOTE_CONFIG_CDN_PURGE_COUNTER.labels(result="success").inc()
+        purge_cdn_urls(
+            [
+                f"/array/{self.team.api_token}/config",
+                f"/array/{self.team.api_token}/config.js",
+            ]
+        )
 
     @staticmethod
     def purge_cdn_by_tag(tag: str):
