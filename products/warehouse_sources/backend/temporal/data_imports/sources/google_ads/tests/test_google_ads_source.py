@@ -38,6 +38,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads
     GoogleAdsColumn,
     GoogleAdsTable,
     _get_integration,
+    _get_versioned_service,
     _is_rejected_page_token_error,
     _is_stale_page_token_error,
     _is_transient_client_init_error,
@@ -376,6 +377,22 @@ class TestGrpcReceiveLimit:
 
         keys = [key for key, _ in google_ads_client_module._GRPC_CHANNEL_OPTIONS]
         assert keys.count("grpc.max_receive_message_length") == 1
+
+
+class TestGetVersionedService:
+    def test_unavailable_api_version_raises_clear_error(self):
+        # A resolved version the installed SDK can't serve (stale pin, version skew) otherwise
+        # surfaces as the SDK's opaque "Specified service ... does not exist" ValueError.
+        client = mock.MagicMock()
+        with pytest.raises(ValueError, match="not available in the installed google-ads SDK"):
+            _get_versioned_service(client, "GoogleAdsFieldService", version="v999")
+        client.get_service.assert_not_called()
+
+    def test_available_api_version_delegates_to_get_service(self):
+        client = mock.MagicMock()
+        service = _get_versioned_service(client, "GoogleAdsFieldService", version="v23")
+        client.get_service.assert_called_once_with("GoogleAdsFieldService", version="v23", interceptors=None)
+        assert service is client.get_service.return_value
 
 
 class TestValidateCredentials:

@@ -1,6 +1,8 @@
 import time
 import typing
+import pkgutil
 import datetime as dt
+import importlib.util
 import collections.abc
 
 from django.conf import settings
@@ -219,6 +221,37 @@ def google_ads_client(config: GoogleAdsSourceConfigUnion, team_id: int) -> Googl
     return client
 
 
+def _installed_google_ads_api_versions() -> list[str]:
+    """Version subpackages (`vNN`) bundled in the installed google-ads SDK."""
+    package = importlib.import_module("google.ads.googleads")
+    return sorted(
+        name for _, name, _ in pkgutil.iter_modules(package.__path__) if name.startswith("v") and name[1:].isdigit()
+    )
+
+
+def _get_versioned_service(
+    client: GoogleAdsClient,
+    name: str,
+    *,
+    version: str,
+    interceptors: list | None = None,
+) -> typing.Any:
+    """Fetch a versioned Google Ads service, failing clearly on an unavailable API version.
+
+    ``client.get_service`` raises an opaque ``ValueError`` ("Specified service ... does not exist
+    in Google Ads API <v>", chaining a ``ModuleNotFoundError``) when the requested version's
+    package isn't bundled in the installed google-ads SDK — e.g. a source resolving to a version
+    the SDK no longer ships. Surface the version mismatch itself so it's diagnosable rather than
+    reading as a missing-service bug.
+    """
+    if importlib.util.find_spec(f"google.ads.googleads.{version}") is None:
+        available = ", ".join(_installed_google_ads_api_versions()) or "none"
+        raise ValueError(
+            f"Google Ads API {version} is not available in the installed google-ads SDK (available: {available})."
+        )
+    return client.get_service(name, version=version, interceptors=interceptors)
+
+
 class GoogleAdsColumn(Column):
     """Represents a column of a Google Ads resource."""
 
@@ -408,8 +441,8 @@ def get_schemas(config: GoogleAdsSourceConfigUnion, team_id: int, api_version: s
     Only selectable fields are, well, selected.
     """
     client = google_ads_client(config, team_id)
-    gaf_service = client.get_service(
-        "GoogleAdsFieldService", version=api_version, interceptors=tracked_interceptors(GOOGLE_ADS_HOST)
+    gaf_service = _get_versioned_service(
+        client, "GoogleAdsFieldService", version=api_version, interceptors=tracked_interceptors(GOOGLE_ADS_HOST)
     )
     fields_query = _search_fields_with_transient_retry(
         gaf_service, "select name, data_type, is_repeated, type_url where selectable = true"
@@ -544,8 +577,8 @@ def google_ads_source(
 
     def get_rows() -> collections.abc.Iterator[pa.Table]:
         client = google_ads_client(config, team_id)
-        service: GoogleAdsServiceClient = client.get_service(
-            "GoogleAdsService", version=api_version, interceptors=tracked_interceptors(GOOGLE_ADS_HOST)
+        service: GoogleAdsServiceClient = _get_versioned_service(
+            client, "GoogleAdsService", version=api_version, interceptors=tracked_interceptors(GOOGLE_ADS_HOST)
         )
         customer_id = clean_customer_id(config.customer_id)
 
