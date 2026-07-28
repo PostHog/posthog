@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPlus, IconRocket } from '@posthog/icons'
-import { LemonSegmentedButton, LemonSkeleton, LemonSnack, LemonSwitch } from '@posthog/lemon-ui'
+import { IconPlus, IconRocket, IconX } from '@posthog/icons'
+import { LemonSegmentedButton, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 import {
     Button,
     ButtonGroup,
@@ -32,22 +32,53 @@ const THRESHOLD_SEGMENTS = PRIORITY_THRESHOLD_OPTIONS.map(({ value }) => ({
     label: THRESHOLD_SEGMENT_LABELS[value],
 }))
 
-function BaseBranchOverrideChips(): JSX.Element | null {
+function BaseBranchOverrideRows(): JSX.Element | null {
     const { baseBranchOverrides } = useValues(signalTeamConfigLogic)
-    const { removeBaseBranchOverride } = useActions(signalTeamConfigLogic)
+    const { updateBaseBranchOverride, removeBaseBranchOverride } = useActions(signalTeamConfigLogic)
+    const { getIntegrationsByKind } = useValues(integrationsLogic)
+    const githubIntegrations = getIntegrationsByKind(['github'])
 
     if (baseBranchOverrides.length === 0) {
         return null
     }
 
     return (
-        <div className="flex flex-wrap gap-1">
-            {baseBranchOverrides.map(({ repo, branch }) => (
-                <LemonSnack key={repo} title={`${repo} → ${branch}`} onClose={() => removeBaseBranchOverride(repo)}>
-                    <span className="text-default">{repo}</span>
-                    <span className="text-muted"> → {branch}</span>
-                </LemonSnack>
-            ))}
+        <div className="flex flex-col gap-1">
+            {baseBranchOverrides.map(({ repo, branch }) => {
+                const integration =
+                    githubIntegrations.find(
+                        (candidate) => candidate.display_name.toLowerCase() === repo.split('/')[0]
+                    ) ?? githubIntegrations[0]
+                return (
+                    <div key={repo} className="flex items-center gap-1">
+                        <span className="text-xs text-default min-w-0 flex-1 truncate" title={repo}>
+                            {repo}
+                        </span>
+                        {integration ? (
+                            <GitHubBranchCombobox
+                                integrationId={integration.id}
+                                repo={repo}
+                                value={branch}
+                                onChange={(next) => {
+                                    if (next) {
+                                        updateBaseBranchOverride(repo, next)
+                                    }
+                                }}
+                            />
+                        ) : (
+                            <span className="text-xs text-muted shrink-0">{branch}</span>
+                        )}
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            aria-label={`Remove base branch override for ${repo}`}
+                            onClick={() => removeBaseBranchOverride(repo)}
+                        >
+                            <IconX />
+                        </Button>
+                    </div>
+                )
+            })}
         </div>
     )
 }
@@ -128,7 +159,7 @@ function BaseBranchOverrides(): JSX.Element {
                 PRs open against each repository's default branch. Add an override to target a different branch, like
                 develop.
             </p>
-            <BaseBranchOverrideChips />
+            <BaseBranchOverrideRows />
             {integrationIds.length > 0 ? (
                 <BaseBranchOverridePicker integrationIds={integrationIds} />
             ) : (

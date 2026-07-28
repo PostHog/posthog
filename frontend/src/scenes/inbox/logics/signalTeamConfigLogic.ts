@@ -62,6 +62,13 @@ export interface signalTeamConfigLogicActions {
     setDraftBaseBranchBranch: (branch: string) => {
         branch: string
     }
+    updateBaseBranchOverride: (
+        repo: string,
+        branch: string
+    ) => {
+        repo: string
+        branch: string
+    }
     setDraftBaseBranchIntegrationId: (integrationId: number | null) => {
         integrationId: number | null
     }
@@ -108,6 +115,7 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
         setDraftBaseBranchBranch: (branch: string) => ({ branch }),
         clearDraftBaseBranch: true,
         addBaseBranchOverride: true,
+        updateBaseBranchOverride: (repo: string, branch: string) => ({ repo, branch }),
         removeBaseBranchOverride: (repo: string) => ({ repo }),
     }),
     loaders({
@@ -187,6 +195,15 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
                 },
             })
             actions.clearDraftBaseBranch()
+        },
+        updateBaseBranchOverride: ({ repo, branch }) => {
+            const trimmed = branch.trim()
+            if (!trimmed || values.teamConfig?.autostart_base_branches?.[repo] === trimmed) {
+                return
+            }
+            actions.patchTeamConfig({
+                autostart_base_branches: { ...values.teamConfig?.autostart_base_branches, [repo]: trimmed },
+            })
         },
         removeBaseBranchOverride: ({ repo }) => {
             const next = { ...values.teamConfig?.autostart_base_branches }

@@ -78,6 +78,22 @@ describe('signalTeamConfigLogic', () => {
         expect(logic.values.canAddBaseBranchOverride).toBe(false)
     })
 
+    it('updates an existing override branch without touching others', async () => {
+        await mountWith({ 'acme/web': 'staging', 'acme/api': 'develop' })
+        logic.actions.updateBaseBranchOverride('acme/web', 'release')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(lastPostBody?.autostart_base_branches).toEqual({ 'acme/web': 'release', 'acme/api': 'develop' })
+    })
+
+    it('does not persist an update to the branch already stored', async () => {
+        await mountWith({ 'acme/web': 'staging' })
+        logic.actions.updateBaseBranchOverride('acme/web', 'staging')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(lastPostBody).toBeNull()
+    })
+
     it('removes only the targeted override', async () => {
         await mountWith({ 'acme/web': 'staging', 'acme/api': 'develop' })
         logic.actions.removeBaseBranchOverride('acme/web')
