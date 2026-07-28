@@ -16,6 +16,7 @@ from clickhouse_driver.errors import ServerException as ClickHouseServerExceptio
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
 from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.direct_redshift_table import DirectRedshiftTable
@@ -29,7 +30,8 @@ from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_param_
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.errors import CHQueryErrorTooManySimultaneousQueries, wrap_clickhouse_query_error
+from posthog.errors import CORRUPTED_PARQUET_METADATA_MESSAGE, wrap_clickhouse_query_error
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.schema_enums import DatabaseSerializedFieldType
@@ -39,6 +41,7 @@ from posthog.sync import database_sync_to_async
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
+    LEGACY_CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
     clean_type,
     reconstruct_ordered_columns,
@@ -78,6 +81,7 @@ ExtractErrors = {
     "Bucket or key name are invalid in S3 URI": "The provided file or bucket doesn't exist",
     "S3 exception: `NoSuchBucket`, message: 'The specified bucket does not exist.'": "The provided bucket doesn't exist",
     "Either the file is corrupted or this is not a parquet file": "The provided file is not in Parquet format",
+    "deserialize thrift": CORRUPTED_PARQUET_METADATA_MESSAGE,
     "Rows have different amount of values": "The provided file has rows with different amount of values",
     "The operation is not valid for the object's storage class": "Some files in the bucket are archived (e.g. Glacier or S3 Intelligent-Tiering archive). Restore them to Standard storage or narrow the URL pattern to exclude archived files.",
 }
@@ -196,7 +200,7 @@ def get_hogql_field_for_column(
     # Support for 'old' style columns
     if isinstance(column_definition, str):
         hogql_type_str = clickhouse_type.partition("(")[0]
-        return CLICKHOUSE_HOGQL_MAPPING[hogql_type_str](name=column_name, nullable=is_nullable)
+        return LEGACY_CLICKHOUSE_HOGQL_MAPPING[hogql_type_str](name=column_name, nullable=is_nullable)
 
     return STR_TO_HOGQL_MAPPING.get(
         str(column_definition.get("hogql", "UnknownDatabaseField")),
@@ -611,11 +615,20 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
     def hogql_definition(
         self, modifiers: Optional["HogQLQueryModifiers"] = None
-    ) -> HogQLDataWarehouseTable | DirectPostgresTable | DirectMySQLTable | DirectSnowflakeTable | DirectRedshiftTable:
+    ) -> (
+        HogQLDataWarehouseTable
+        | DirectPostgresTable
+        | DirectMySQLTable
+        | DirectSnowflakeTable
+        | DirectRedshiftTable
+        | DirectClickHouseTable
+    ):
         # Deferred: importing data_warehouse's facade at module scope creates an import cycle
         # (data_warehouse models -> this model package -> data_warehouse.facade.sources -> ...).
         # These direct-query option keys are only needed here, at query-build time.
         from products.data_warehouse.backend.facade.sources import (  # noqa: PLC0415 — breaks an import cycle
+            DIRECT_CLICKHOUSE_DATABASE_OPTION,
+            DIRECT_CLICKHOUSE_TABLE_OPTION,
             DIRECT_MYSQL_SCHEMA_OPTION,
             DIRECT_MYSQL_TABLE_OPTION,
             DIRECT_POSTGRES_CATALOG_OPTION,
@@ -737,6 +750,35 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 connection_metadata=self.external_data_source.connection_metadata,
             )
 
+        # Engine-keyed (no is_direct_clickhouse) to satisfy the source-agnostic guard. The
+        # is_direct_query check is load-bearing: direct_engine ignores access_method, and a synced
+        # source's tables must stay S3-backed — as a direct table, every ordinary query against
+        # them fails (the printer's team_id guard doesn't skip DirectSQLTable).
+        if (
+            self.external_data_source
+            and self.external_data_source.is_direct_query
+            and self.external_data_source.direct_engine == "clickhouse"
+        ):
+            job_inputs = self.external_data_source.job_inputs or {}
+            clickhouse_database = (
+                self.options.get(DIRECT_CLICKHOUSE_DATABASE_OPTION)
+                if isinstance(self.options.get(DIRECT_CLICKHOUSE_DATABASE_OPTION), str)
+                else job_inputs.get("database", "default")
+            )
+            clickhouse_table_name = (
+                self.options.get(DIRECT_CLICKHOUSE_TABLE_OPTION)
+                if isinstance(self.options.get(DIRECT_CLICKHOUSE_TABLE_OPTION), str)
+                else self.name
+            )
+            return DirectClickHouseTable(
+                name=self.name,
+                fields=fields,
+                clickhouse_database=clickhouse_database,
+                clickhouse_table_name=clickhouse_table_name,
+                external_data_source_id=str(self.external_data_source_id),
+                connection_metadata=self.external_data_source.connection_metadata,
+            )
+
         # Replace fields with any redefined fields if they exist
         external_table_fields = external_tables.get(self.table_name_without_prefix())
         default_fields = external_tables.get("*", {})
@@ -843,13 +885,21 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             raise
 
     def _safe_expose_ch_error(self, err):
+        # Match ExtractErrors against the raw ClickHouse message: wrap_clickhouse_query_error may
+        # rewrite the message for some codes (e.g. STD_EXCEPTION), which would hide the substrings
+        # we key on here.
+        raw_message = err.message if isinstance(err, ClickHouseServerException) else str(err)
         err = wrap_clickhouse_query_error(err)
-        for key, value in ExtractErrors.items():
-            if key in err.message:
-                raise Exception(value)
 
-        if isinstance(err, CHQueryErrorTooManySimultaneousQueries):
+        # Capacity errors are transient — surface them so the caller can retry. Check this
+        # before the message matching below, since ClickHouseAtCapacity is an APIException
+        # and has no `.message` attribute.
+        if isinstance(err, ClickHouseAtCapacity):
             raise err
+
+        for key, value in ExtractErrors.items():
+            if key in raw_message:
+                raise Exception(value)
 
         raise Exception(
             "Could not read the files from your storage bucket. Check that the files URL pattern, file format, "

@@ -1,5 +1,7 @@
+from typing import Any
 from uuid import UUID
 
+from drf_spectacular.openapi import AutoSchema
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
@@ -19,6 +21,11 @@ from products.tasks.backend.presentation.serializers import (
     ChannelFeedMessageWriteSerializer,
     ChannelSerializer,
     ChannelWriteSerializer,
+    TaskActivityMarkReadResponseSerializer,
+    TaskActivityMarkReadSerializer,
+    TaskActivityPageSerializer,
+    TaskActivityQuerySerializer,
+    TaskActivitySerializer,
     TaskMentionQuerySerializer,
     TaskMentionSerializer,
     TaskThreadMessageSerializer,
@@ -197,6 +204,96 @@ class TaskMentionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         limit = request.validated_query_data["limit"]
         mentions = tasks_facade.list_mentions(self.team_id, self._user_id(), since=since, limit=limit)
         return Response(TaskMentionSerializer(mentions, many=True).data)
+
+
+class _ActivityPageEnvelopeSchema(AutoSchema):
+    """Stops drf-spectacular's list-view heuristic from wrapping the `list` response in an array.
+
+    `list` returns a single page envelope (`results` + `unread_count`), not a bare collection.
+    Forcing the heuristic off renames the operation to `*_retrieve`, so pin the operationId back
+    to keep the generated client's `*List` name.
+    """
+
+    def _is_list_view(self, serializer: Any = None) -> bool:
+        return False
+
+    def get_operation_id(self) -> str:
+        operation_id = super().get_operation_id()
+        if getattr(self.view, "action", None) == "list" and operation_id.endswith("_retrieve"):
+            return operation_id.removesuffix("_retrieve") + "_list"
+        return operation_id
+
+
+class TaskActivityViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """
+    API for the requester's activity feed — one row per task they are involved in (created,
+    @-mentioned in, or authored a thread message on), most-recent activity first.
+    """
+
+    authentication_classes = [
+        SessionAuthentication,
+        PersonalAPIKeyAuthentication,
+        OAuthAccessTokenAuthentication,
+    ]
+    permission_classes = [IsAuthenticated, APIScopePermission]
+    scope_object = "task"
+    http_method_names = ["get", "post", "head", "options"]
+    serializer_class = TaskActivitySerializer
+    # `list` hands back one envelope carrying its own unread total, so neither DRF's
+    # pagination wrapper nor spectacular's array wrapper describes what it sends.
+    pagination_class = None
+    schema = _ActivityPageEnvelopeSchema()
+
+    def _user_id(self) -> int | None:
+        return getattr(self.request.user, "id", None)
+
+    @validated_request(
+        query_serializer=TaskActivityQuerySerializer,
+        responses={
+            200: OpenApiResponse(response=TaskActivityPageSerializer, description="Tasks, most-recent activity first"),
+        },
+        summary="List the requester's task activity",
+        description=(
+            "Tasks the requester is involved in (created, mentioned, or messaged), one row per task, "
+            "most-recent activity first, restricted to tasks they can see."
+        ),
+    )
+    def list(self, request, *args, **kwargs):
+        activity = tasks_facade.list_task_activity(
+            self.team_id,
+            self._user_id(),
+            limit=request.validated_query_data["limit"],
+            before=request.validated_query_data.get("before"),
+            before_id=request.validated_query_data.get("before_id"),
+        )
+        return Response(TaskActivityPageSerializer(activity).data)
+
+    # @extend_schema must sit OUTSIDE @action: DRF's @action resets func.kwargs, wiping any schema
+    # annotation applied earlier — including @validated_request's — from the generated OpenAPI.
+    @extend_schema(
+        request=TaskActivityMarkReadSerializer,
+        responses={
+            200: OpenApiResponse(response=TaskActivityMarkReadResponseSerializer, description="Remaining unread total"),
+        },
+        summary="Mark task activity read",
+        description=(
+            "Clear the unread flag on the requester's feed rows for the given tasks. Read state is per "
+            "task, so opening a task through any surface clears the same row."
+        ),
+    )
+    @action(detail=False, methods=["post"], url_path="mark_read", required_scopes=["task:write"])
+    @validated_request(request_serializer=TaskActivityMarkReadSerializer)
+    def mark_read(self, request, *args, **kwargs):
+        activities = [
+            (activity["task_id"], activity["seen_before"]) for activity in request.validated_data["activities"]
+        ]
+        marked_read = tasks_facade.mark_task_activity_read(self.team_id, self._user_id(), activities)
+        return Response(
+            {
+                "marked_read": marked_read,
+                "unread_count": tasks_facade.count_unread_task_activity(self.team_id, self._user_id()),
+            }
+        )
 
 
 class TaskThreadMessageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

@@ -184,6 +184,7 @@ const workflowsList = (): ToolBase<typeof WorkflowsListSchema, WithPostHogUrl<Sc
                     id: params.id,
                     limit: params.limit,
                     offset: params.offset,
+                    search: params.search,
                     status: params.status,
                     updated_at: params.updated_at,
                 },
@@ -433,12 +434,6 @@ const workflowsUpdate = (): ToolBase<typeof WorkflowsUpdateSchema, WithPostHogUr
             }
             if (params.exit_condition !== undefined) {
                 body['exit_condition'] = params.exit_condition
-            }
-            if (params.edges !== undefined) {
-                body['edges'] = params.edges
-            }
-            if (params.actions !== undefined) {
-                body['actions'] = params.actions
             }
             if (params.variables !== undefined) {
                 body['variables'] = params.variables

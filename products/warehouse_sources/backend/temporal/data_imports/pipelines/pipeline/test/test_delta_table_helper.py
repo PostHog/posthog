@@ -379,6 +379,32 @@ class TestGetDeltaTableUnrecoverableErrors:
                 s3._rm.assert_not_awaited()
                 assert helper.is_first_sync is False
 
+    @pytest.mark.asyncio
+    async def test_is_deltatable_failure_is_captured_and_reraised(self):
+        """The `is_deltatable` existence check is a separate S3 call from the DeltaTable() open
+        handled above, and callers span best-effort maintenance to the main write path, so a
+        failure here can't be swallowed as "no table" (that would trip should_overwrite_table and
+        wipe an existing table) — it must be captured for visibility and reraised."""
+        helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
+        delta_uri = "s3://bucket/team_id/job_id/t"
+
+        module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper"
+        with (
+            patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value=delta_uri)),
+            patch(f"{module}.deltalake.DeltaTable") as mock_delta_table,
+            patch(f"{module}.capture_exception") as mock_capture,
+        ):
+            mock_delta_table.is_deltatable.side_effect = OSError(
+                "Generic S3 error: Received redirect without LOCATION, this normally indicates "
+                "an incorrectly configured region"
+            )
+
+            with pytest.raises(OSError, match="Received redirect without LOCATION"):
+                await helper.get_delta_table()
+
+            mock_capture.assert_called_once()
+            assert helper.is_first_sync is False
+
 
 class TestWriteToDeltalakeCommitMetadataPassThrough:
     """Covers that commit_metadata is forwarded to deltalake.write_deltalake as CommitProperties."""
