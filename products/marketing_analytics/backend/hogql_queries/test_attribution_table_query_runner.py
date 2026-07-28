@@ -200,6 +200,49 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         self.assertAlmostEqual(self._by_breakdown(response)["c"][AttributionMode.LAST_TOUCH], expected, places=4)
         self.assertEqual(response.results[0].influencedConversions, int(expected))
 
+    def test_sessions_missing_from_the_sessions_table_are_not_touchpoints(self):
+        # A session id that resolves to no session row comes back as epoch zero, not null, because the join
+        # fills a non-nullable column with its default. Testing for null instead of for a real timestamp let
+        # 1970 touchpoints into the array, where they sorted to the front, consumed truncation slots, and
+        # earned nothing — so conversions whose own session was one of these silently went uncredited.
+        create_person(team=self.team, distinct_ids=["p1"])
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp=ONE_DAY_BEFORE,
+            properties={
+                "$session_id": "00000000-0000-0000-0000-000000000000",
+                "$pathname": "/",
+                "$referring_domain": "$direct",
+                "utm_campaign": "unresolvable",
+            },
+        )
+        self._session("p1", ONE_DAY_BEFORE, utm_campaign="real")
+        self._conversion("p1", CONVERSION_AT)
+
+        by_campaign = self._by_breakdown(self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN))
+
+        self.assertNotIn("unresolvable", by_campaign)
+        self.assertAlmostEqual(by_campaign["real"][AttributionMode.LINEAR], 1.0, places=4)
+
+    def test_conversions_before_the_date_range_are_not_credited(self):
+        # Touchpoint collection reaches a lookback window further back than the date range, and the
+        # conversion side used to ride on that same widened scan: conversions from the older stretch were
+        # credited and counted, so the table silently reported a much longer period than the one asked for.
+        create_person(team=self.team, distinct_ids=["p1"])
+        self._session("p1", "2022-12-20T12:00:00Z", utm_campaign="c")
+        self._conversion("p1", "2022-12-21T12:00:00Z", revenue=500.0)  # before date_from
+        self._session("p1", ONE_DAY_BEFORE, utm_campaign="c")
+        self._conversion("p1", CONVERSION_AT, revenue=100.0)  # inside the range
+
+        response = self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN, date_from="2023-01-01")
+
+        self.assertEqual(response.totalConversions, 1)
+        row = response.results[0]
+        self.assertEqual(row.influencedConversions, 1)
+        self.assertAlmostEqual(row.influencedValue or 0.0, 100.0, places=2)
+
     def test_conversions_in_the_same_second_stay_separate(self):
         # Conversions were keyed by (dimension, person, timestamp) with the timestamp truncated to whole
         # seconds, so a retry or a batched server-side send merged two conversions into one: the influenced

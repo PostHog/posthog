@@ -98,7 +98,10 @@ _TOTALS_CTE = "attribution_totals"
 
 # Ceiling on how many sessions of one person can earn credit. Bots and shared devices would otherwise
 # fan out touchpoints x conversions in (D) and (E) far enough to dominate the query. Touchpoints are
-# sorted before truncating, so this keeps a person's earliest sessions and drops their most recent.
+# sorted before truncating and the *most recent* are kept, because only touches within a lookback window
+# of a conversion can be credited and conversions sit at the end of the range. Keeping the oldest instead
+# would strand a heavy person's conversions with no eligible touchpoint at all, dropping them from the
+# table; this way they keep their credit, and only first touch becomes approximate for such a person.
 MAX_TOUCHPOINTS_PER_PERSON = 500
 
 _BREAKDOWN_VALUE = "breakdown_value"
@@ -309,6 +312,11 @@ class MarketingAnalyticsAttributionQueryRunner(
         person's unrelated events. `groupUniqArray` additionally collapses every pageview in a session to
         one touchpoint during aggregation.
         """
+        # Bounded to the display range, not the lookback-extended range the outer WHERE allows. The
+        # pageview branch of that WHERE reaches back a further lookback window to collect touchpoints, and
+        # without this bound every conversion in that older stretch would be credited too: the table would
+        # silently report a range far longer than the one asked for, and the extra conversions would mostly
+        # land as unattributed because touchpoint collection doesn't reach back a window before *them*.
         conversions: ast.Expr = ast.Call(
             name="groupArrayIf",
             args=[
@@ -318,14 +326,18 @@ class MarketingAnalyticsAttributionQueryRunner(
                         self._conversion_value_expr(goal),
                     ]
                 ),
-                self._conversion_condition(goal),
+                ast.And(
+                    exprs=[
+                        self._conversion_condition(goal),
+                        *self._get_where_conditions(date_range, date_field="events.timestamp"),
+                    ]
+                ),
             ],
         )
 
-        # Sorted before truncating: `groupUniqArray` is hash-backed, so its order is unrelated to time.
-        # Slicing it raw would keep an arbitrary subset, and first/last touch would then pick the extremes
-        # of that subset rather than the person's real first and last sessions. The cap bounds the
-        # touchpoints x conversions fan-out in (D) and (E), which is where a heavy person gets expensive.
+        # Sorted before truncating: `groupUniqArray` is hash-backed, so its order is unrelated to time and
+        # slicing it raw would keep an arbitrary subset. The negative offset takes the tail of the sorted
+        # array, i.e. the most recent sessions — see MAX_TOUCHPOINTS_PER_PERSON for why that direction.
         touchpoints = ast.Call(
             name="arraySlice",
             args=[
@@ -349,8 +361,7 @@ class MarketingAnalyticsAttributionQueryRunner(
                         )
                     ],
                 ),
-                ast.Constant(value=1),
-                ast.Constant(value=MAX_TOUCHPOINTS_PER_PERSON),
+                ast.Constant(value=-MAX_TOUCHPOINTS_PER_PERSON),
             ],
         )
 
@@ -422,10 +433,19 @@ class MarketingAnalyticsAttributionQueryRunner(
         conditions: list[ast.Expr] = [
             self._pageview_condition(),
             ast.Call(name="notEmpty", args=[ast.Field(chain=["events", "$session_id"])]),
-            # A session id that resolves to no session row (aged out of the sessions table) has a null
-            # start, which can't be compared against the window and so could never earn credit. Rejected
-            # here rather than downstream so it doesn't sort to the front and consume truncation slots.
-            ast.Call(name="isNotNull", args=[ast.Field(chain=["events", "session", "$start_timestamp"])]),
+            # A session id that resolves to no session row yields epoch zero rather than null, because the
+            # join fills a non-nullable column with its default. Test for a real timestamp rather than for
+            # null: 1970 can never satisfy the attribution window, so such a touchpoint earns nothing, and
+            # left in place it would sort to the very front and consume truncation slots. When a
+            # conversion's own session is one of these, dropping it here is what keeps the conversion out
+            # of the attributed count instead of silently crediting nobody.
+            ast.CompareOperation(
+                left=ast.Call(
+                    name="toUnixTimestamp", args=[ast.Field(chain=["events", "session", "$start_timestamp"])]
+                ),
+                op=ast.CompareOperationOp.Gt,
+                right=ast.Constant(value=0),
+            ),
         ]
         if self.query.excludeDirectTraffic:
             conditions.append(

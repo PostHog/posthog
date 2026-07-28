@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
-import { IconChevronDown } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSelect, Tooltip } from '@posthog/lemon-ui'
-import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuTrigger } from '@posthog/quill'
+import { IconGear } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonDivider, LemonSelect, LemonSwitch, Popover } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
+import { IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { urls } from 'scenes/urls'
 
 import { MarketingAnalyticsAttributionBreakdown } from '~/queries/schema/schema-general'
@@ -49,6 +50,7 @@ export function AttributionTab(): JSX.Element {
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
     const { dateFilter } = useValues(marketingAnalyticsLogic)
     const { setDates } = useActions(marketingAnalyticsLogic)
+    const [optionsOpen, setOptionsOpen] = useState(false)
 
     const settingsUrl = urls.settings('environment-marketing-analytics', 'marketing-settings')
 
@@ -68,6 +70,51 @@ export function AttributionTab(): JSX.Element {
             value: days,
             label: days === attributionWindowDays ? `${days} days (default)` : `${days} days`,
         }))
+
+    const optionsContent = (
+        <div className="flex w-80 max-w-[90vw] flex-col gap-4 p-3">
+            <div>
+                <div className="text-muted mb-2 text-xs font-semibold uppercase">Conversion period</div>
+                <DateFilter dateFrom={dateFilter.dateFrom} dateTo={dateFilter.dateTo} onChange={setDates} />
+                <div className="text-muted mt-1 text-xs">
+                    Conversions in this period get credited. Their touchpoints can come from earlier.
+                </div>
+            </div>
+            <div>
+                <div className="text-muted mb-2 text-xs font-semibold uppercase">Lookback window</div>
+                <LemonSelect
+                    fullWidth
+                    value={effectiveLookbackDays}
+                    onChange={(value) =>
+                        // Picking the default stores null, so a later settings change flows through.
+                        value && setLookbackWindowDays(value === attributionWindowDays ? null : value)
+                    }
+                    options={lookbackOptions}
+                />
+                <div className="text-muted mt-1 text-xs">
+                    How far back before each conversion a touchpoint can earn credit. The default comes from your
+                    marketing settings.
+                </div>
+            </div>
+            <LemonDivider className="my-0" />
+            <LemonSwitch
+                fullWidth
+                checked={excludeDirectTraffic}
+                onChange={setExcludeDirectTraffic}
+                label="Exclude direct traffic"
+                tooltip="Direct sessions stop counting as touchpoints, and the credit they would have taken is shared across the remaining ones."
+                data-attr="marketing-attribution-exclude-direct"
+            />
+            <LemonSwitch
+                fullWidth
+                checked={effectiveAllowMultipleConversions}
+                onChange={setAllowMultipleConversionsPerVisitor}
+                label="Count repeat conversions"
+                tooltip="Count every conversion a person makes, not just their first. Turning this on can push the rate columns above one conversion per visitor, so they're shown as a ratio instead of a percentage."
+                data-attr="marketing-attribution-allow-multiple-conversions"
+            />
+        </div>
+    )
 
     return (
         <div className="flex flex-col">
@@ -106,63 +153,29 @@ export function AttributionTab(): JSX.Element {
                                 ]}
                             />
                         </div>
-                        <DropdownMenu>
-                            <DropdownMenuTrigger
-                                render={
-                                    <LemonButton
-                                        size="small"
-                                        type="secondary"
-                                        sideIcon={<IconChevronDown />}
-                                        data-attr="marketing-attribution-options"
-                                    />
-                                }
-                            >
-                                {activeOptionCount > 0 ? `Options (${activeOptionCount})` : 'Options'}
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="start" className="max-w-100 min-w-fit">
-                                <DropdownMenuCheckboxItem
-                                    checked={excludeDirectTraffic}
-                                    onCheckedChange={setExcludeDirectTraffic}
-                                    closeOnClick={false}
-                                    data-attr="marketing-attribution-exclude-direct"
-                                >
-                                    Exclude direct traffic
-                                </DropdownMenuCheckboxItem>
-                                <DropdownMenuCheckboxItem
-                                    checked={effectiveAllowMultipleConversions}
-                                    onCheckedChange={setAllowMultipleConversionsPerVisitor}
-                                    closeOnClick={false}
-                                    data-attr="marketing-attribution-allow-multiple-conversions"
-                                >
-                                    Count repeat conversions
-                                </DropdownMenuCheckboxItem>
-                            </DropdownMenuContent>
-                        </DropdownMenu>
                     </div>
                 }
                 right={
-                    <>
-                        <div className="flex items-center gap-2">
-                            <Tooltip title="How far back before each conversion a touchpoint can earn credit. The default comes from your marketing settings.">
-                                <span className="text-secondary">Lookback window</span>
-                            </Tooltip>
-                            <LemonSelect
-                                size="small"
-                                value={effectiveLookbackDays}
-                                onChange={(value) =>
-                                    // Picking the default stores null, so a later settings change flows through.
-                                    value && setLookbackWindowDays(value === attributionWindowDays ? null : value)
-                                }
-                                options={lookbackOptions}
-                            />
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <Tooltip title="Conversions in this period get credited. Their touchpoints can come from up to the lookback window before it.">
-                                <span className="text-secondary">Conversion period</span>
-                            </Tooltip>
-                            <DateFilter dateFrom={dateFilter.dateFrom} dateTo={dateFilter.dateTo} onChange={setDates} />
-                        </div>
-                    </>
+                    <Popover
+                        visible={optionsOpen}
+                        onClickOutside={() => setOptionsOpen(false)}
+                        placement="bottom-end"
+                        overlay={optionsContent}
+                    >
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={
+                                <IconWithCount count={activeOptionCount} showZero={false}>
+                                    <IconGear />
+                                </IconWithCount>
+                            }
+                            onClick={() => setOptionsOpen(!optionsOpen)}
+                            data-attr="marketing-attribution-options"
+                        >
+                            Options
+                        </LemonButton>
+                    </Popover>
                 }
             />
             <div className="mt-4 flex flex-col gap-4 pb-8">
