@@ -38,7 +38,11 @@ function collectStringLeaves(root: unknown, out: string[]): void {
                 continue
             }
             seen.add(value)
-            stack.push(...(Array.isArray(value) ? value : Object.values(value)))
+            // Push one-by-one: spreading an unbounded user-supplied array would
+            // exceed V8's argument limit and throw RangeError.
+            for (const item of Array.isArray(value) ? value : Object.values(value)) {
+                stack.push(item)
+            }
         }
     }
 }

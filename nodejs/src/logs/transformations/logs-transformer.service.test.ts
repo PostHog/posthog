@@ -400,6 +400,22 @@ describe('LogsTransformerService', () => {
         expect(printed?.message).not.toContain('super-secret-key')
     })
 
+    it('handles very large secret arrays without failing the function', async () => {
+        // Spreading an unbounded array onto the traversal stack throws RangeError
+        // past V8's argument limit, turning a legitimate function into a failure.
+        const big = Array.from({ length: 150_000 }, (_, i) => `secret-${i}`)
+        setFunctions([
+            await createFunction(`return record`, {
+                encrypted_inputs: { many: { value: big, order: 0 } },
+            } as any),
+        ])
+        const records = [createRecord()]
+
+        await service.transformRecords(TEAM_ID, records)
+
+        expect(records[0].attributes?.['$transformations_failed']).toBeUndefined()
+    })
+
     it('redacts deeply nested encrypted input values with no depth limit', async () => {
         // AnyInputField accepts arbitrary JSON; a depth cap would let a secret below
         // the cap escape redaction entirely.
