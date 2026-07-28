@@ -401,3 +401,39 @@ class LogsExclusionRule(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields
 
     def __str__(self) -> str:
         return f"{self.name} (team={self.team_id})"
+
+
+class LogsRetentionRule(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+    """User-defined rules that override how long matching log lines are retained (evaluated in ingestion
+    when enabled). First matching rule by (priority, created_at) wins; logs matching no rule keep the
+    team's default retention (`Team.logs_settings.retention_days`)."""
+
+    # Plain team FK — like LogsExclusionRule and TeamLogsConfig, retention rules are per-environment,
+    # so this deliberately does not use TeamScopedRootMixin (whose canonical-team save() rewrite would
+    # let one child environment mutate a sibling's rules). Tenant isolation is enforced at the API layer
+    # via safely_get_queryset filtering on team_id; the model is tracked in scoping/baseline_unmigrated.txt.
+    # db_constraint=False on the hot-table FKs (team, created_by) keeps the CreateModel migration
+    # lock-free — creating a real FK constraint would take a SHARE ROW EXCLUSIVE lock on the parent.
+    # Enforcement stays at the ORM level (cascade/set-null run through the Django collector).
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
+    )
+    name = models.CharField(max_length=255)
+    enabled = models.BooleanField(default=False)
+    priority = models.PositiveIntegerField(
+        default=0,
+        help_text="Lower values run first; first matching rule wins. Ties use created_at ascending (same as ingestion query order).",
+    )
+    # {"filter_group": <PropertyGroupFilter>, "retention_days": <14|30|90>}
+    config = models.JSONField(default=dict)
+    version = models.PositiveIntegerField(default=1)
+
+    class Meta:
+        db_table = "logs_logsretentionrule"
+        indexes = [
+            models.Index(fields=["team_id", "enabled", "priority"], name="logs_retention_team_en_pr_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name} (team={self.team_id})"
