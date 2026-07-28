@@ -21,7 +21,7 @@ export const getEveSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                     <CodeBlock
                         language="bash"
                         code={dedent`
-                            npm install @posthog/ai @opentelemetry/exporter-trace-otlp-http @vercel/otel
+                            npm install @posthog/ai @opentelemetry/api @opentelemetry/exporter-trace-otlp-http @vercel/otel
                         `}
                     />
                 </>
@@ -57,6 +57,7 @@ export const getEveSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                     <CodeBlock
                         language="typescript"
                         code={dedent`
+                            import { trace } from '@opentelemetry/api'
                             import { PostHogTraceExporter } from '@posthog/ai/otel'
                             import { registerOTel } from '@vercel/otel'
                             import { defineInstrumentation } from 'eve/instrumentation'
@@ -70,6 +71,20 @@ export const getEveSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                     host: process.env.POSTHOG_HOST,
                                   }),
                                 }),
+                              events: {
+                                'step.started'(input) {
+                                  const distinctId =
+                                    input.session.auth.initiator?.principalId ??
+                                    input.session.auth.current?.principalId
+
+                                  if (!distinctId) {
+                                    return undefined
+                                  }
+
+                                  trace.getActiveSpan()?.setAttribute('posthog.distinct_id', distinctId)
+                                  return { runtimeContext: { posthog_distinct_id: distinctId } }
+                                },
+                              },
                             })
                         `}
                     />
@@ -81,6 +96,13 @@ export const getEveSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                             framework as Eve, and groups turns using `eve.session.id`.
                         </Markdown>
                     </CalloutBox>
+
+                    <Markdown>
+                        Eve exposes the user who started the session as `session.auth.initiator`. If that value is not
+                        available, this example uses the caller for the current turn. The active span attribute
+                        identifies the Eve turn, and the runtime context identifies its AI SDK spans. Remove the
+                        `events` block to capture events without identifying a user.
+                    </Markdown>
 
                     <Blockquote>
                         <Markdown>
