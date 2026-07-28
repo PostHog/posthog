@@ -101,3 +101,24 @@ class Experiment:
     start_date: datetime | None = None
     end_date: datetime | None = None
     updated_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class ExperimentVariantSignificance:
+    """One metric/variant's normalized significance read, off the raw
+    ``ExperimentQueryRunner`` result (bayesian ``chance_to_win``/frequentist ``p_value``
+    stay internal to the query runner at this integration depth — only the boolean
+    ``significant`` flag crosses the facade boundary)."""
+
+    key: str
+    significant: bool
+
+
+@dataclass(frozen=True)
+class ExperimentSignificanceResult:
+    """Best-effort synchronous significance summary across an experiment's primary
+    metrics. See ``get_experiment_significance`` for when this is ``None`` instead."""
+
+    metrics_evaluated: int
+    variants: list[ExperimentVariantSignificance]
+    any_significant: bool

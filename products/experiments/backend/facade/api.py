@@ -5,15 +5,28 @@ This module provides the public interface for creating and managing experiments
 using framework-free DTOs, wrapping the existing ExperimentService.
 """
 
+import logging
+
 from rest_framework.exceptions import ValidationError
 
+from posthog.schema import ExperimentQuery
+
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.models.experiment import Experiment as ExperimentModel
 
-from .contracts import CreateExperimentInput, Experiment
+from .contracts import CreateExperimentInput, Experiment, ExperimentSignificanceResult, ExperimentVariantSignificance
+
+logger = logging.getLogger(__name__)
+
+# A generous but bounded cap: significance reads are best-effort evidence for a Foundry
+# verdict proposal, not a UI page that must show every metric — one runaway experiment
+# with dozens of metrics must not make a scout sweep pay for all of them.
+MAX_METRICS_FOR_SIGNIFICANCE = 10
 
 
 def create_experiment(*, team: Team, user: User, input_dto: CreateExperimentInput) -> Experiment:
@@ -87,6 +100,50 @@ def create_experiment(*, team: Team, user: User, input_dto: CreateExperimentInpu
 
     # Convert model to DTO
     return _experiment_model_to_dto(experiment_model)
+
+
+def get_experiment_significance(*, team: Team, experiment_id: int) -> ExperimentSignificanceResult | None:
+    """Best-effort synchronous significance read off an experiment's primary metrics.
+
+    Returns ``None`` when the experiment has no primary metrics configured — the common
+    case for a freshly-funded Foundry bet (``metrics=[]`` by default, see
+    ``products/foundry/backend/logic/__init__.py::fund_bet``), so this condition simply
+    never fires until a human adds a metric — or when every metric query fails to
+    parse/execute (logged, not raised: a caller sweeping many experiments must not crash
+    on one bad one). Runs the same synchronous ``ExperimentQueryRunner`` engine the
+    experiment results UI uses, one query per primary metric; no new metric computation.
+    """
+    try:
+        experiment = ExperimentModel.objects.get(id=experiment_id, team_id=team.id)
+    except ExperimentModel.DoesNotExist:
+        return None
+    metrics = experiment.metrics or []
+    if not metrics:
+        return None
+
+    variants: list[ExperimentVariantSignificance] = []
+    for metric_dict in metrics[:MAX_METRICS_FOR_SIGNIFICANCE]:
+        try:
+            query = ExperimentQuery(experiment_id=experiment_id, metric=metric_dict)
+            response = ExperimentQueryRunner(query=query, team=team).run(
+                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+            )
+        except Exception:
+            logger.exception("experiments facade: significance query failed", extra={"experiment_id": experiment_id})
+            continue
+        for variant_result in getattr(response, "variant_results", None) or []:
+            if variant_result.significant is not None:
+                variants.append(
+                    ExperimentVariantSignificance(key=variant_result.key, significant=variant_result.significant)
+                )
+
+    if not variants:
+        return None
+    return ExperimentSignificanceResult(
+        metrics_evaluated=len(metrics),
+        variants=variants,
+        any_significant=any(v.significant for v in variants),
+    )
 
 
 def _experiment_model_to_dto(experiment: ExperimentModel) -> Experiment:

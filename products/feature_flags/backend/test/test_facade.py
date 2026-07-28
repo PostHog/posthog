@@ -23,6 +23,7 @@ from products.feature_flags.backend.facade.api import (
     create_flag,
     flag_disable_requires_approval,
     set_flag_active,
+    set_rollout_percentage,
     ship_variant,
     update_flag,
 )
@@ -274,6 +275,59 @@ class TestFeatureFlagFacadeGatedWrites(APIBaseTest):
 
         flag.refresh_from_db()
         assert flag.active is True
+
+
+class TestSetRolloutPercentage(APIBaseTest):
+    """Foundry's exposure ramp (ADR-6) is the first caller of this write surface — these
+    guard the filters-rewrite logic it depends on, not covered by the generic gated-write
+    tests above."""
+
+    def _create_flag(self, *, active: bool = False, filters: dict | None = None) -> FeatureFlag:
+        return FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="exposure-ramp-flag", active=active, filters=filters or {}
+        )
+
+    def test_updates_first_group_preserving_other_groups_and_multivariate(self):
+        flag = self._create_flag(
+            active=True,
+            filters={
+                "groups": [
+                    {"properties": [], "rollout_percentage": 10},
+                    {"properties": [], "rollout_percentage": 5},
+                ],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+
+        set_rollout_percentage(self.team.id, flag.id, 60, user=None)
+
+        flag.refresh_from_db()
+        assert flag.filters["groups"][0]["rollout_percentage"] == 60
+        assert flag.filters["groups"][1]["rollout_percentage"] == 5
+        assert [v["rollout_percentage"] for v in flag.filters["multivariate"]["variants"]] == [50, 50]
+
+    def test_creates_catch_all_group_when_flag_has_none(self):
+        flag = self._create_flag(filters={})
+
+        set_rollout_percentage(self.team.id, flag.id, 25, user=None)
+
+        flag.refresh_from_db()
+        assert len(flag.filters["groups"]) == 1
+        assert flag.filters["groups"][0]["rollout_percentage"] == 25
+
+    @parameterized.expand([(True, True), (False, False)])
+    def test_ensure_active_controls_whether_the_flag_is_flipped_on(self, ensure_active, expected_active):
+        flag = self._create_flag(active=False, filters={"groups": [{"properties": [], "rollout_percentage": 0}]})
+
+        set_rollout_percentage(self.team.id, flag.id, 10, ensure_active=ensure_active, user=None)
+
+        flag.refresh_from_db()
+        assert flag.active is expected_active
 
 
 class TestRedactUnchangedEncryptedPayloads:

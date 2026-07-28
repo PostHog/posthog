@@ -35,6 +35,7 @@ from posthog.rbac.user_access_control import UserAccessControl
 from products.approvals.backend.policies import PolicyEngine
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
+from products.feature_flags.backend.facade.filters import set_first_release_condition_rollout
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -264,6 +265,39 @@ def ship_variant(
         release_condition_description=release_condition_description,
     )
     return update_flag(flag, {"filters": new_filters}, team=team, user=user, request=request)
+
+
+def set_rollout_percentage(
+    team_id: int, flag_id: int, rollout_pct: float, *, ensure_active: bool = False, user: Any = None
+) -> FeatureFlag:
+    """Set a flag's single release condition's rollout_percentage, preserving everything
+    else about its filters — the write surface automated rollout orchestration (e.g.
+    Foundry's exposure ramp, see products/foundry/backend/temporal/expose_workflow.py)
+    uses to advance a flag's overall exposure percentage step by step, through the gated
+    write path, without importing the FeatureFlag model.
+
+    Resolves team/flag by id so callers never need a model instance. ``user=None`` (the
+    default) is a system write — see module docstring — the expected case for automated
+    rollout advancement with no acting human. Delegates the filters rewrite to
+    ``set_first_release_condition_rollout`` (the same pure helper survey adaptive sampling
+    already uses) when the flag has a release group; a flag with none yet (only possible if
+    a caller funds a bet with a completely empty flag config) gets a single catch-all group
+    instead of raising — this write surface must not depend on how the flag was created.
+    ``ensure_active`` also flips the flag on in the same write — pass it for a ramp's first
+    step only, since later steps would otherwise pay for a no-op ``active`` write each time.
+    """
+    team = Team.objects.get(id=team_id)
+    flag = FeatureFlag.objects.get(id=flag_id, team_id=team_id)
+    current_filters = flag.filters or {}
+    rollout_percentage = round(rollout_pct)
+    if current_filters.get("groups"):
+        new_filters = set_first_release_condition_rollout(current_filters, rollout_percentage)
+    else:
+        new_filters = {**current_filters, "groups": [{"properties": [], "rollout_percentage": rollout_percentage}]}
+    data: dict[str, Any] = {"filters": new_filters}
+    if ensure_active:
+        data["active"] = True
+    return update_flag(flag, data, team=team, user=user)
 
 
 def user_can_edit_flag(flag: FeatureFlag, *, team: Team, user: Any) -> bool:
