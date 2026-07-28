@@ -2906,27 +2906,27 @@ def _pick_relay_text(*, text: str, text_parts: list[str] | None) -> str:
     return text
 
 
-def _post_ci_followup_as_github_comment(run: TaskRun, pr_url: str, body: str) -> bool:
-    """Post a run follow-up message as a comment on its already-opened PR.
+def _post_ci_followup_as_github_comment(run: TaskRun, pr_url: str, body: str) -> None:
+    """Best-effort: post a run follow-up message as a comment on its already-opened PR.
 
-    Returns True when the comment was posted, False to fall back to a Slack relay
-    (no GitHub integration on the task, or the GitHub API rejected the comment).
+    Failures (no GitHub integration on the task, or the GitHub API rejecting the comment) are
+    logged and swallowed. The caller drops the message from Slack regardless — a failed comment
+    must not resurface autonomous CI noise in the thread.
     """
     integration = run.task.github_integration
     if integration is None:
-        return False
+        logger.warning("task_run_ci_followup_comment_no_integration", extra={"run_id": str(run.id)})
+        return
     try:
         result = GitHubIntegration(integration).comment_on_pull_request_from_url(pr_url, body)
     except Exception:
         logger.exception("task_run_ci_followup_comment_failed", extra={"run_id": str(run.id)})
-        return False
+        return
     if not result.get("success"):
         logger.warning(
             "task_run_ci_followup_comment_rejected",
             extra={"run_id": str(run.id), "error": result.get("error")},
         )
-        return False
-    return True
 
 
 def relay_task_run_message(
@@ -2976,9 +2976,11 @@ def relay_task_run_message(
     # Once the run has opened a PR, autonomous CI/review follow-ups (the agent re-triggered by
     # the CI loop, not by a person) belong on the PR, not trailing behind the "PR opened" card in
     # Slack. A reply to a human's thread message carries that message's id — those stay in Slack so
-    # the conversation isn't diverted. Autonomous follow-ups have no answering message_id.
+    # the conversation isn't diverted. Autonomous follow-ups have no answering message_id: comment
+    # on the PR best-effort and drop the message from Slack either way — never fall back to Slack.
     pr_url = (run.output or {}).get("pr_url")
-    if pr_url and message_id is None and _post_ci_followup_as_github_comment(run, pr_url, trimmed):
+    if pr_url and message_id is None:
+        _post_ci_followup_as_github_comment(run, pr_url, trimmed)
         return "skipped", None
 
     if bool((run.state or {}).get(AGENT_DESIGN_STATE_KEY)):

@@ -5135,12 +5135,11 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
     @patch("products.tasks.backend.facade.api.GitHubIntegration")
     @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
-    def test_relay_message_falls_back_to_slack_when_github_comment_fails(self, mock_execute_relay, mock_github_class):
+    def test_relay_message_ci_followup_dropped_when_github_comment_fails(self, mock_execute_relay, mock_github_class):
         task, run = self._pr_run_with_slack_and_github()
         mock_github = MagicMock()
         mock_github.comment_on_pull_request_from_url.return_value = {"success": False, "error": "boom"}
         mock_github_class.return_value = mock_github
-        mock_execute_relay.return_value = "relay-1"
 
         response = self.client.post(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/",
@@ -5149,8 +5148,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"status": "accepted", "relay_id": "relay-1"})
-        mock_execute_relay.assert_called_once()
+        self.assertEqual(response.json(), {"status": "skipped"})
+        mock_execute_relay.assert_not_called()
 
     @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
     def test_relay_message_skips_when_no_slack_mapping(self, mock_execute_relay):
