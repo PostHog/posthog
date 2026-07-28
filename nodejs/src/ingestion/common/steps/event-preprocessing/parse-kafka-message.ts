@@ -4,7 +4,7 @@ import { sanitizeEvent } from '~/common/utils/event'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { UUID } from '~/common/utils/utils'
-import { TopHogMetricFactory, max, sum, timer } from '~/ingestion/framework/extensions/tophog'
+import { TopHogMetricFactory, count, max, sum, timer } from '~/ingestion/framework/extensions/tophog'
 import { dlq, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { EventHeaders, IncomingEvent, PipelineEvent } from '~/types'
@@ -23,6 +23,7 @@ export function parseMessageTopHogMetrics<
     const byToken = (input: TInput) => ({ token: input.headers.token ?? 'unknown' })
     const messageBytes = (input: TInput) => input.message.value?.length ?? 0
     return [
+        count('messages_by_token', byToken),
         timer('parse_time_ms_by_token', byToken),
         sum('message_size_by_token', byToken, messageBytes),
         max('max_message_size_by_token', byToken, messageBytes),

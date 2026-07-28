@@ -492,6 +492,7 @@ describe('createParseKafkaMessageStep', () => {
             // The parse itself DLQ'd — the metrics below were still recorded
             // from the raw message.
             expect(result).toEqual(dlq('failed_parse_message', expect.any(Error)))
+            expect(records.get('messages_by_token')).toEqual([{ key: { token: 'token-a' }, value: 1 }])
             expect(records.get('message_size_by_token')).toEqual([
                 { key: { token: 'token-a' }, value: malformed.length },
             ])
@@ -509,6 +510,7 @@ describe('createParseKafkaMessageStep', () => {
                 'max_message_size_by_token',
                 'message_size_by_token',
                 'message_size_by_token_per_partition',
+                'messages_by_token',
                 'parse_time_ms_by_token',
             ])
         })
@@ -529,6 +531,7 @@ describe('createParseKafkaMessageStep', () => {
             })
 
             expect(result.type).toBe(PipelineResultType.OK)
+            expect(records.get('messages_by_token')).toEqual([{ key: { token: 'unknown' }, value: 1 }])
             expect(records.get('message_size_by_token')).toEqual([{ key: { token: 'unknown' }, value: value.length }])
             expect(records.get('max_message_size_by_token')).toEqual([
                 { key: { token: 'unknown' }, value: value.length },

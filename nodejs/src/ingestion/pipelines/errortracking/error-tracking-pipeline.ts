@@ -33,7 +33,7 @@ import { createReadOnlyProcessGroupsStep } from '~/ingestion/common/steps/event-
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
 import { IngestionOverflowMode } from '~/ingestion/config'
 import { BatchingContext, BatchingPipeline } from '~/ingestion/framework/batching-pipeline'
-import { TopHogRegistry, count, countOk, createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
+import { TopHogRegistry, count } from '~/ingestion/framework/extensions/tophog'
 import { createBatch } from '~/ingestion/framework/helpers'
 
 import { createAttachMessageBytesStep } from './attach-message-bytes-step'
@@ -138,8 +138,6 @@ export function createErrorTrackingPipeline(config: ErrorTrackingPipelineConfig)
         topHog,
     } = config
 
-    const topHogWrapper = createTopHogWrapper(topHog)
-
     const preCymbal = newCommonIngestionPipeline<ErrorTrackingPipelineInput, { message: Message }, OverflowOutput>({
         teamManager,
         outputs,
@@ -162,13 +160,7 @@ export function createErrorTrackingPipeline(config: ErrorTrackingPipelineConfig)
         // keys on the hashed distinct_id assigned by the cookieless step.
         .pipeChunk(createSkipCookielessRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
         .parseMessage()
-        .resolveTeam({
-            topHog: [
-                countOk('resolved_teams', (output) => ({
-                    team_id: String(output.team.id),
-                })),
-            ],
-        })
+        .resolveTeam()
         // Carry the Kafka message byte size through for Cymbal batch chunking.
         .pipe(createAttachMessageBytesStep())
         // Cookieless processing: rewrites event.distinct_id for cookieless
@@ -205,22 +197,17 @@ export function createErrorTrackingPipeline(config: ErrorTrackingPipelineConfig)
             // Map group types to indexes (read-only, no new group types created)
             .pipe(createReadOnlyProcessGroupsStep(groupTypeManager))
             .pipe(createCreateEventStep(EVENTS_OUTPUT))
-            .pipe(
-                topHogWrapper(
-                    createEmitEventStep({
-                        outputs,
-                    }),
-                    [
-                        count('emitted_events', (input) => ({
-                            team_id: String(input.teamId),
-                        })),
-                        count('emitted_events_per_distinct_id', (input) => ({
-                            team_id: String(input.teamId),
-                            distinct_id: input.eventsToEmit[0]?.event.distinct_id ?? '',
-                        })),
-                    ]
-                )
-            )
+            .pipe(createEmitEventStep({ outputs }), {
+                topHog: [
+                    count('emitted_events', (input) => ({
+                        team_id: String(input.teamId),
+                    })),
+                    count('emitted_events_per_distinct_id', (input) => ({
+                        team_id: String(input.teamId),
+                        distinct_id: input.eventsToEmit[0]?.event.distinct_id ?? '',
+                    })),
+                ],
+            })
             .pipe(createRecordIngestionLagStep())
             .build()
     )
