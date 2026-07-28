@@ -1733,27 +1733,23 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             if obj.is_system_managed:
                 raise PermissionDenied("This source is managed by PostHog and cannot be changed through this API.")
 
-    @staticmethod
-    def _can_write_schema(user_access_control, schema: ExternalDataSchema) -> bool:
-        # Same resolution the schema viewset's permission uses: the synced table (which falls back to
-        # the source), or the source before first sync. A schema carries no rules of its own.
-        level = user_access_control.get_user_access_level(schema.table or schema.source)
-        return level is not None and access_level_satisfied_for_resource("warehouse_table", level, "editor")
-
     def _assert_can_write_schemas(self, schemas: Iterable[ExternalDataSchema]) -> None:
         """Per-table gate for source-level endpoints that write or sync schemas.
 
         Editor on the source isn't enough: a table can be locked below that, and these endpoints
-        never resolve a schema through DRF's object permissions, so nothing else checks it.
+        never resolve a schema through DRF's object permissions, so nothing else checks it. Each
+        schema resolves like the schema viewset's permission: through its table, which falls back
+        to the source via RESOURCE_FALLBACK_MAP.
         """
         # Service credentials are synthetic users UserAccessControl can't evaluate; they're gated by
         # API scope + project membership. Mirror AccessControlPermission.
         if is_service_auth(self.request):
             return
-        user_access_control = self.user_access_control
-        locked = [schema for schema in schemas if not self._can_write_schema(user_access_control, schema)]
-        if locked:
-            raise PermissionDenied("You do not have editor access to every table in this source.")
+        uac = self.user_access_control
+        for schema in schemas:
+            level = uac.get_user_access_level(schema.table or schema.source)
+            if level is None or not access_level_satisfied_for_resource("warehouse_table", level, "editor"):
+                raise PermissionDenied("You do not have editor access to every table in this source.")
 
     def dangerously_get_permissions(self):
         # The account picker enumerates every account/site the connected provider exposes, so require

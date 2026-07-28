@@ -484,8 +484,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         }
 
     def get_user_access_level(self, schema: ExternalDataSchema) -> str | None:  # type: ignore[override]  # narrows the mixin's Model — DRF always dispatches with this serializer's instance
-        # The synced table's access (which itself falls back to the source, via RESOURCE_FALLBACK_MAP),
-        # or the source's before first sync. Drives the row's sync/delete gating in the UI.
+        # The synced table's access, which itself falls back to the source via RESOURCE_FALLBACK_MAP.
+        # Drives the row's sync/delete gating in the UI.
         uac = self.user_access_control
         if uac is None:
             return None
