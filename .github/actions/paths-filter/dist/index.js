@@ -42684,11 +42684,19 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 const fs = __importStar(__nccwpck_require__(9896));
 const core = __importStar(__nccwpck_require__(7484));
 const github = __importStar(__nccwpck_require__(3228));
+const utils_1 = __nccwpck_require__(8006);
 const filter_1 = __nccwpck_require__(9037);
 const file_1 = __nccwpck_require__(3765);
 const git = __importStar(__nccwpck_require__(1243));
+const retry_1 = __nccwpck_require__(9809);
 const shell_escape_1 = __nccwpck_require__(6880);
 const csv_escape_1 = __nccwpck_require__(6146);
+// api.github.com occasionally refuses or stalls a connection. Without these bounds a single
+// blip fails change detection, which red-flags the whole workflow before any test runs.
+const API_ATTEMPTS = 3;
+const API_RETRY_BASE_DELAY_MS = 2000;
+// Deadline for one attempt (all of its paginated requests) - undici only bounds connect time
+const API_ATTEMPT_TIMEOUT_MS = 30000;
 async function run() {
     try {
         const workingDirectory = core.getInput('working-directory', { required: false });
@@ -42752,16 +42760,32 @@ async function getChangedFiles(token, base, ref, initialFetchDepth) {
                 core.warning(`'base' input parameter is ignored when action is triggered by pull request event`);
             }
             const pr = github.context.payload.pull_request;
+            const isPullRequestTarget = github.context.eventName === 'pull_request_target';
             if (token) {
-                return await getChangedFilesFromApi(token, pr);
+                try {
+                    return await getChangedFilesFromApi(token, pr);
+                }
+                catch (error) {
+                    if (isPullRequestTarget) {
+                        // pull_request_target runs against the base branch and must not fetch code from
+                        // the fork, so there is no safe local diff to fall back to
+                        throw error;
+                    }
+                    // The local diff compares the PR merge commit against the base SHA, so it can report
+                    // files that only landed on the base branch - over-reporting runs extra jobs, while
+                    // failing here would run none at all
+                    core.warning(`Failed to fetch changed files from GitHub API (${getErrorMessage(error)}) - falling back to change detection using git diff`);
+                }
             }
-            if (github.context.eventName === 'pull_request_target') {
+            else if (isPullRequestTarget) {
                 // pull_request_target is executed in context of base branch and GITHUB_SHA points to last commit in base branch
                 // Therefore it's not possible to look at changes in last commit
                 // At the same time we don't want to fetch any code from forked repository
                 throw new Error(`'token' input parameter is required if action is triggered by 'pull_request_target' event`);
             }
-            core.info('Github token is not available - changes will be detected using git diff');
+            else {
+                core.info('Github token is not available - changes will be detected using git diff');
+            }
             const baseSha = (_a = github.context.payload.pull_request) === null || _a === void 0 ? void 0 : _a.base.sha;
             const defaultBranch = (_b = github.context.payload.repository) === null || _b === void 0 ? void 0 : _b.default_branch;
             const currentRef = await git.getCurrentRef();
@@ -42821,51 +42845,63 @@ async function getChangedFilesFromGit(base, head, initialFetchDepth) {
 async function getChangedFilesFromApi(token, pullRequest) {
     core.startGroup(`Fetching list of changed files for PR#${pullRequest.number} from Github API`);
     try {
-        const client = github.getOctokit(token);
-        const per_page = 100;
-        const files = [];
-        core.info(`Invoking listFiles(pull_number: ${pullRequest.number}, per_page: ${per_page})`);
-        for await (const response of client.paginate.iterator(client.rest.pulls.listFiles.endpoint.merge({
-            owner: github.context.repo.owner,
-            repo: github.context.repo.repo,
-            pull_number: pullRequest.number,
-            per_page
-        }))) {
-            if (response.status !== 200) {
-                throw new Error(`Fetching list of changed files from GitHub API failed with error code ${response.status}`);
-            }
-            core.info(`Received ${response.data.length} items`);
-            for (const row of response.data) {
-                core.info(`[${row.status}] ${row.filename}`);
-                // There's no obvious use-case for detection of renames
-                // Therefore we treat it as if rename detection in git diff was turned off.
-                // Rename is replaced by delete of original filename and add of new filename
-                if (row.status === file_1.ChangeStatus.Renamed) {
-                    files.push({
-                        filename: row.filename,
-                        status: file_1.ChangeStatus.Added
-                    });
-                    files.push({
-                        // 'previous_filename' for some unknown reason isn't in the type definition or documentation
-                        filename: row.previous_filename,
-                        status: file_1.ChangeStatus.Deleted
-                    });
-                }
-                else {
-                    // Github status and git status variants are same except for deleted files
-                    const status = row.status === 'removed' ? file_1.ChangeStatus.Deleted : row.status;
-                    files.push({
-                        filename: row.filename,
-                        status
-                    });
-                }
-            }
-        }
-        return files;
+        return await (0, retry_1.withRetry)(async () => await listChangedFilesFromApi(token, pullRequest), {
+            attempts: API_ATTEMPTS,
+            baseDelayMs: API_RETRY_BASE_DELAY_MS,
+            onRetry: (error, attempt, delayMs) => core.info(`Attempt ${attempt} failed (${getErrorMessage(error)}) - retrying in ${delayMs}ms`)
+        });
     }
     finally {
         core.endGroup();
     }
+}
+async function listChangedFilesFromApi(token, pullRequest) {
+    // A fresh client per attempt, so each attempt gets its own deadline. getOctokit shallow-merges
+    // these options over @actions/github's own defaults, so its proxy agent/fetch has to be carried
+    // over by hand or a proxied runner would lose it.
+    const client = github.getOctokit(token, {
+        request: { ...utils_1.defaults.request, signal: AbortSignal.timeout(API_ATTEMPT_TIMEOUT_MS) }
+    });
+    const per_page = 100;
+    const files = [];
+    core.info(`Invoking listFiles(pull_number: ${pullRequest.number}, per_page: ${per_page})`);
+    for await (const response of client.paginate.iterator(client.rest.pulls.listFiles.endpoint.merge({
+        owner: github.context.repo.owner,
+        repo: github.context.repo.repo,
+        pull_number: pullRequest.number,
+        per_page
+    }))) {
+        if (response.status !== 200) {
+            throw new Error(`Fetching list of changed files from GitHub API failed with error code ${response.status}`);
+        }
+        core.info(`Received ${response.data.length} items`);
+        for (const row of response.data) {
+            core.info(`[${row.status}] ${row.filename}`);
+            // There's no obvious use-case for detection of renames
+            // Therefore we treat it as if rename detection in git diff was turned off.
+            // Rename is replaced by delete of original filename and add of new filename
+            if (row.status === file_1.ChangeStatus.Renamed) {
+                files.push({
+                    filename: row.filename,
+                    status: file_1.ChangeStatus.Added
+                });
+                files.push({
+                    // 'previous_filename' for some unknown reason isn't in the type definition or documentation
+                    filename: row.previous_filename,
+                    status: file_1.ChangeStatus.Deleted
+                });
+            }
+            else {
+                // Github status and git status variants are same except for deleted files
+                const status = row.status === 'removed' ? file_1.ChangeStatus.Deleted : row.status;
+                files.push({
+                    filename: row.filename,
+                    status
+                });
+            }
+        }
+    }
+    return files;
 }
 function exportResults(results, format) {
     core.info('Results:');
@@ -42924,6 +42960,39 @@ function getErrorMessage(error) {
     return String(error);
 }
 run();
+
+
+/***/ }),
+
+/***/ 9809:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.withRetry = withRetry;
+const defaultSleep = async (ms) => {
+    await new Promise(resolve => setTimeout(resolve, ms));
+};
+async function withRetry(operation, options) {
+    const { attempts, baseDelayMs, onRetry, sleep = defaultSleep } = options;
+    let lastError;
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+        try {
+            return await operation();
+        }
+        catch (error) {
+            lastError = error;
+            if (attempt === attempts) {
+                break;
+            }
+            const delayMs = baseDelayMs * 2 ** (attempt - 1);
+            onRetry === null || onRetry === void 0 ? void 0 : onRetry(error, attempt, delayMs);
+            await sleep(delayMs);
+        }
+    }
+    throw lastError;
+}
 
 
 /***/ }),

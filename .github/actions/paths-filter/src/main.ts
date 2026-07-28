@@ -1,16 +1,25 @@
 import * as fs from 'fs'
 import * as core from '@actions/core'
 import * as github from '@actions/github'
+import {defaults as octokitDefaults} from '@actions/github/lib/utils'
 import {GetResponseDataTypeFromEndpointMethod} from '@octokit/types'
 import {PullRequest, PushEvent} from '@octokit/webhooks-types'
 
 import {Filter, FilterResults} from './filter'
 import {File, ChangeStatus} from './file'
 import * as git from './git'
+import {withRetry} from './retry'
 import {backslashEscape, shellEscape} from './list-format/shell-escape'
 import {csvEscape} from './list-format/csv-escape'
 
 type ExportFormat = 'none' | 'csv' | 'json' | 'shell' | 'escape'
+
+// api.github.com occasionally refuses or stalls a connection. Without these bounds a single
+// blip fails change detection, which red-flags the whole workflow before any test runs.
+const API_ATTEMPTS = 3
+const API_RETRY_BASE_DELAY_MS = 2000
+// Deadline for one attempt (all of its paginated requests) - undici only bounds connect time
+const API_ATTEMPT_TIMEOUT_MS = 30000
 
 async function run(): Promise<void> {
   try {
@@ -82,16 +91,33 @@ async function getChangedFiles(token: string, base: string, ref: string, initial
         core.warning(`'base' input parameter is ignored when action is triggered by pull request event`)
       }
       const pr = github.context.payload.pull_request as PullRequest
+      const isPullRequestTarget = github.context.eventName === 'pull_request_target'
       if (token) {
-        return await getChangedFilesFromApi(token, pr)
-      }
-      if (github.context.eventName === 'pull_request_target') {
+        try {
+          return await getChangedFilesFromApi(token, pr)
+        } catch (error) {
+          if (isPullRequestTarget) {
+            // pull_request_target runs against the base branch and must not fetch code from
+            // the fork, so there is no safe local diff to fall back to
+            throw error
+          }
+          // The local diff compares the PR merge commit against the base SHA, so it can report
+          // files that only landed on the base branch - over-reporting runs extra jobs, while
+          // failing here would run none at all
+          core.warning(
+            `Failed to fetch changed files from GitHub API (${getErrorMessage(
+              error
+            )}) - falling back to change detection using git diff`
+          )
+        }
+      } else if (isPullRequestTarget) {
         // pull_request_target is executed in context of base branch and GITHUB_SHA points to last commit in base branch
         // Therefore it's not possible to look at changes in last commit
         // At the same time we don't want to fetch any code from forked repository
         throw new Error(`'token' input parameter is required if action is triggered by 'pull_request_target' event`)
+      } else {
+        core.info('Github token is not available - changes will be detected using git diff')
       }
-      core.info('Github token is not available - changes will be detected using git diff')
       const baseSha = github.context.payload.pull_request?.base.sha
       const defaultBranch = github.context.payload.repository?.default_branch
       const currentRef = await git.getCurrentRef()
@@ -168,54 +194,68 @@ async function getChangedFilesFromGit(base: string, head: string, initialFetchDe
 async function getChangedFilesFromApi(token: string, pullRequest: PullRequest): Promise<File[]> {
   core.startGroup(`Fetching list of changed files for PR#${pullRequest.number} from Github API`)
   try {
-    const client = github.getOctokit(token)
-    const per_page = 100
-    const files: File[] = []
-
-    core.info(`Invoking listFiles(pull_number: ${pullRequest.number}, per_page: ${per_page})`)
-    for await (const response of client.paginate.iterator(
-      client.rest.pulls.listFiles.endpoint.merge({
-        owner: github.context.repo.owner,
-        repo: github.context.repo.repo,
-        pull_number: pullRequest.number,
-        per_page
-      })
-    )) {
-      if (response.status !== 200) {
-        throw new Error(`Fetching list of changed files from GitHub API failed with error code ${response.status}`)
-      }
-      core.info(`Received ${response.data.length} items`)
-
-      for (const row of response.data as GetResponseDataTypeFromEndpointMethod<typeof client.rest.pulls.listFiles>) {
-        core.info(`[${row.status}] ${row.filename}`)
-        // There's no obvious use-case for detection of renames
-        // Therefore we treat it as if rename detection in git diff was turned off.
-        // Rename is replaced by delete of original filename and add of new filename
-        if (row.status === ChangeStatus.Renamed) {
-          files.push({
-            filename: row.filename,
-            status: ChangeStatus.Added
-          })
-          files.push({
-            // 'previous_filename' for some unknown reason isn't in the type definition or documentation
-            filename: (<any>row).previous_filename as string,
-            status: ChangeStatus.Deleted
-          })
-        } else {
-          // Github status and git status variants are same except for deleted files
-          const status = row.status === 'removed' ? ChangeStatus.Deleted : (row.status as ChangeStatus)
-          files.push({
-            filename: row.filename,
-            status
-          })
-        }
-      }
-    }
-
-    return files
+    return await withRetry(async () => await listChangedFilesFromApi(token, pullRequest), {
+      attempts: API_ATTEMPTS,
+      baseDelayMs: API_RETRY_BASE_DELAY_MS,
+      onRetry: (error, attempt, delayMs) =>
+        core.info(`Attempt ${attempt} failed (${getErrorMessage(error)}) - retrying in ${delayMs}ms`)
+    })
   } finally {
     core.endGroup()
   }
+}
+
+async function listChangedFilesFromApi(token: string, pullRequest: PullRequest): Promise<File[]> {
+  // A fresh client per attempt, so each attempt gets its own deadline. getOctokit shallow-merges
+  // these options over @actions/github's own defaults, so its proxy agent/fetch has to be carried
+  // over by hand or a proxied runner would lose it.
+  const client = github.getOctokit(token, {
+    request: {...octokitDefaults.request, signal: AbortSignal.timeout(API_ATTEMPT_TIMEOUT_MS)}
+  })
+  const per_page = 100
+  const files: File[] = []
+
+  core.info(`Invoking listFiles(pull_number: ${pullRequest.number}, per_page: ${per_page})`)
+  for await (const response of client.paginate.iterator(
+    client.rest.pulls.listFiles.endpoint.merge({
+      owner: github.context.repo.owner,
+      repo: github.context.repo.repo,
+      pull_number: pullRequest.number,
+      per_page
+    })
+  )) {
+    if (response.status !== 200) {
+      throw new Error(`Fetching list of changed files from GitHub API failed with error code ${response.status}`)
+    }
+    core.info(`Received ${response.data.length} items`)
+
+    for (const row of response.data as GetResponseDataTypeFromEndpointMethod<typeof client.rest.pulls.listFiles>) {
+      core.info(`[${row.status}] ${row.filename}`)
+      // There's no obvious use-case for detection of renames
+      // Therefore we treat it as if rename detection in git diff was turned off.
+      // Rename is replaced by delete of original filename and add of new filename
+      if (row.status === ChangeStatus.Renamed) {
+        files.push({
+          filename: row.filename,
+          status: ChangeStatus.Added
+        })
+        files.push({
+          // 'previous_filename' for some unknown reason isn't in the type definition or documentation
+          filename: (<any>row).previous_filename as string,
+          status: ChangeStatus.Deleted
+        })
+      } else {
+        // Github status and git status variants are same except for deleted files
+        const status = row.status === 'removed' ? ChangeStatus.Deleted : (row.status as ChangeStatus)
+        files.push({
+          filename: row.filename,
+          status
+        })
+      }
+    }
+  }
+
+  return files
 }
 
 function exportResults(results: FilterResults, format: ExportFormat): void {

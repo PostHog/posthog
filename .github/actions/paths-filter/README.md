@@ -65,6 +65,20 @@ changed:
   - added|modified: ['src/**', '!src/vendor/**']
 ```
 
+## Surviving GitHub API blips
+
+On pull requests the action asks the REST API which files changed.
+A single connect timeout to `api.github.com` used to fail the step outright, which red-flags the whole workflow before any test runs.
+The API call now gets a per-attempt deadline and up to three attempts with exponential backoff.
+If all of them fail, the action falls back to detecting changes locally with `git diff` — the same path it takes when no `token` is supplied.
+
+Two consequences worth knowing:
+
+- The fallback needs the repository on disk, so keep `actions/checkout` before this action.
+- The local diff compares the PR merge commit against the base SHA, so a fallback run can report files that only landed on the base branch and trigger more jobs than strictly needed. That beats triggering none.
+
+`pull_request_target` still fails on API errors, because diffing there would mean fetching code from the fork.
+
 ## Rebuilding after source changes
 
 The action runs the committed `dist/index.js` bundle. After editing anything under `src/`,
