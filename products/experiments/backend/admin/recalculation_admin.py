@@ -154,10 +154,7 @@ class ExperimentMetricsRecalculationAdmin(admin.ModelAdmin):
             messages.error(request, "This recalculation is already terminal; nothing to change.")
             return HttpResponseRedirect(change_url)
 
-        # Cancelling the workflow after force-failing keeps a still-running run from burning ClickHouse quota
-        # alongside a status that now says it's done. Best-effort: a finished/never-started run just no-ops.
-        if status == ExperimentMetricsRecalculation.Status.FAILED:
-            cancel_recalculation_workflow(str(obj.pk))
+        cancel_recalculation_workflow(str(obj.pk))
 
         obj.refresh_from_db()
         self.log_change(request, obj, f"Manually marked {status} from admin.")
