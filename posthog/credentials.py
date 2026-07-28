@@ -1,8 +1,8 @@
 from dataclasses import dataclass, field
 from typing import NewType
 
-# Distinct static types for the two halves of an AWS key pair. They are plain `str` at runtime;
-# the point is that a type checker rejects passing a secret where a key id is expected.
+# Distinct static types for the two halves of an AWS key pair. They are plain `str` at runtime.
+# The point is that a type checker rejects passing a secret where a key id is expected.
 AWSAccessKeyId = NewType("AWSAccessKeyId", str)
 AWSSecretAccessKey = NewType("AWSSecretAccessKey", str)
 
