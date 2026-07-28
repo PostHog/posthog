@@ -21,15 +21,7 @@ Ingestion warnings surface to users through PostHog's health check system — th
    - `warning` — ingested, but modified or partially rejected.
    - `info` — informational, or an intentional, team-configured drop.
 3. **Route by type** using the table below. Where a `references/fixing-*.md` file exists, read it — it has the full diagnosis and per-SDK fixes; load only the file you need.
-4. **Pull the offending events**: health issues don't carry per-event samples, so use `posthog:execute-sql` against the `system.ingestion_warnings` table to see the raw `details` and affected distinct IDs for a type:
-   ```sql
-   SELECT type, timestamp, details
-   FROM system.ingestion_warnings
-   WHERE type = '<warning_type>' AND timestamp > now() - INTERVAL 7 DAY
-   ORDER BY timestamp DESC
-   LIMIT 20
-   ```
-   `details` is the raw JSON the pipeline recorded (`distinctId`, `eventUuid`, and type-specific fields) — pull one out with `JSONExtractString(details, 'distinctId')`.
+4. **Pull the offending events**: health issues don't carry per-event samples, so use `posthog:execute-sql` against `system.ingestion_warnings` to see the raw `details` and affected distinct IDs for a type — e.g. `SELECT timestamp, details FROM system.ingestion_warnings WHERE type = '<warning_type>' AND timestamp > now() - INTERVAL 7 DAY ORDER BY timestamp DESC LIMIT 20`. `details` is the raw JSON the pipeline recorded (`distinctId`, `eventUuid`, and type-specific fields) — pull one out with `JSONExtractString(details, 'distinctId')`.
 5. **Verify any fix**: the `ingestion_warning` health issue auto-resolves once the warning stops firing, so re-run `posthog:health-issues-list` (or re-query `system.ingestion_warnings` with a fresh time window) after the fix and confirm there are no new occurrences. Warnings are debounced per team+type+key, so judge by "no new occurrences", not by historical counts shrinking.
 
 One identity caveat that applies throughout: **distinct IDs are not persons**. An identified user usually has several distinct IDs mapping to one person; resolve sampled distinct IDs to persons (`posthog:persons-list`) before reasoning about patterns.
