@@ -71,12 +71,11 @@ export type EmailMetricRow = {
     // Sends without open/click tracking (step toggle off or no recipient consent). These can never
     // record opens/clicks, so engagement reads against trackedSends rather than sent.
     untracked: number
-    // ponytail: this is tracked sends, not tracked deliveries. `email_untracked` and `email_sent` are
-    // pushed together on the same keys at send time, so the subtraction is exact and can never go
-    // negative, whereas `delivered - untracked` mixes send-time and webhook-time counts and goes
-    // non-positive once an untracked audience starts bouncing. A true tracked-deliveries denominator
-    // would need an untracked counter emitted at delivery time in the SES webhook, keyed off
-    // `mail.tags['ses:configuration-set']`.
+    // Tracked sends, not tracked deliveries. `email_untracked` and `email_sent` are pushed together on
+    // the same keys at send time, so the subtraction is exact and can never go negative, whereas
+    // `delivered - untracked` mixes send-time and webhook-time counts and goes non-positive once an
+    // untracked audience starts bouncing. A true tracked-deliveries denominator would need an untracked
+    // counter emitted at delivery time in the SES webhook, keyed off `mail.tags['ses:configuration-set']`.
     trackedSends: number
 }
 
