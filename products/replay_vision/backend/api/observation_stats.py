@@ -282,6 +282,9 @@ def _summarizer_stats(queryset: QuerySet[ReplayObservation]) -> dict[str, Any]:
             SELECT 'total' AS bucket, NULL AS term, COUNT(*) AS c FROM succeeded s
             WHERE COALESCE(jsonb_array_length(s.scanner_result -> 'model_output' -> 'friction_points'), 0) > 0
                OR COALESCE(jsonb_array_length(s.scanner_result -> 'model_output' -> 'keywords'), 0) > 0
+            UNION ALL
+            SELECT 'friction_total' AS bucket, NULL AS term, COUNT(*) AS c FROM succeeded s
+            WHERE COALESCE(jsonb_array_length(s.scanner_result -> 'model_output' -> 'friction_points'), 0) > 0
             """,
             inner_params,
         )
@@ -290,9 +293,12 @@ def _summarizer_stats(queryset: QuerySet[ReplayObservation]) -> dict[str, Any]:
     friction_counts: dict[str, int] = {}
     keyword_counts: dict[str, int] = {}
     total_with_facets = 0
+    total_with_friction = 0
     for bucket, term, count in rows:
         if bucket == "total":
             total_with_facets = count
+        elif bucket == "friction_total":
+            total_with_friction = count
         elif term is not None:
             target = friction_counts if bucket == "friction" else keyword_counts
             target[term] = target.get(term, 0) + count
@@ -301,6 +307,7 @@ def _summarizer_stats(queryset: QuerySet[ReplayObservation]) -> dict[str, Any]:
         "friction_ranked": _rank_counts(friction_counts, key="term"),
         "keyword_ranked": _rank_counts(keyword_counts, key="term"),
         "total_with_facets": total_with_facets,
+        "total_with_friction": total_with_friction,
     }
 
 

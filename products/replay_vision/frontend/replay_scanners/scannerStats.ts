@@ -117,6 +117,7 @@ export interface SummarizerFacetStats {
     frictionRanked: [string, number][]
     keywordRanked: [string, number][]
     totalWithFacets: number
+    totalWithFriction: number
 }
 
 export function deriveSummarizerFacetStats(stats: ObservationStatsApi | null): SummarizerFacetStats {
@@ -124,5 +125,6 @@ export function deriveSummarizerFacetStats(stats: ObservationStatsApi | null): S
         frictionRanked: (stats?.summarizer?.friction_ranked ?? []).map((f) => [f.term, f.count] as [string, number]),
         keywordRanked: (stats?.summarizer?.keyword_ranked ?? []).map((f) => [f.term, f.count] as [string, number]),
         totalWithFacets: stats?.summarizer?.total_with_facets ?? 0,
+        totalWithFriction: stats?.summarizer?.total_with_friction ?? 0,
     }
 }
