@@ -12,7 +12,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.adyen.adyen import AdyenResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.adyen.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
@@ -24,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.adyen.sett
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.adyen.source import AdyenSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.adyen import AdyenSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
