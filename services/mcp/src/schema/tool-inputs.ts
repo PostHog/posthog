@@ -2,7 +2,6 @@ import { z } from 'zod'
 
 // Relative (not `@/`) imports: this module is loaded by the tsx schema-generation
 // script, and both modules are pure constants/functions — no `.md` imports to choke on.
-import { PLAYBOOK_IDS, PLAYBOOK_URI_PREFIX } from '../tools/agentPlatform/playbookIds'
 import { normalizeParamAliases } from '../tools/cast-helpers'
 
 export const BusinessKnowledgeUrlSourceCreateSchema = z.object({
@@ -23,14 +22,6 @@ export const BusinessKnowledgeUrlSourceCreateSchema = z.object({
         .default(false)
         .describe(
             "When true, this source's content is injected into every support reply prompt as general context (tone, policies, direction), not just when it matches a query."
-        ),
-})
-
-export const AgentResolveResourceSchema = z.object({
-    resource: z
-        .string()
-        .describe(
-            `Which builder playbook to fetch. Accepts either a bare id (one of: ${PLAYBOOK_IDS.join(', ')}) or its URI form (\`${PLAYBOOK_URI_PREFIX}<id>\`). A playbook is a markdown guide for using the agent-platform authoring tools well; it comes back with the live, scope-aware tool surface for the operation. Fetch the playbook rather than recalling tool names from memory.`
         ),
 })
 

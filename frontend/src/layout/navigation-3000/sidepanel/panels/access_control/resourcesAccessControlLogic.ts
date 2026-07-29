@@ -195,8 +195,10 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
                     AccessControlResourceType.ErrorTracking,
                     AccessControlResourceType.ReplayScanner,
                     AccessControlResourceType.Survey,
+                    AccessControlResourceType.Ticket,
                     AccessControlResourceType.WebAnalytics,
                     AccessControlResourceType.Toolbar,
+                    AccessControlResourceType.LlmPlayground,
                     AccessControlResourceType.Workflow,
                     AccessControlResourceType.Tracing,
                 ]

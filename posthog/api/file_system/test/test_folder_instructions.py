@@ -6,7 +6,7 @@ from posthog.test.base import APIBaseTest
 from rest_framework import status
 
 from posthog.api.file_system.folder_instructions_service import FOLDER_INSTRUCTIONS_MAX_BYTES
-from posthog.models import Organization, Team
+from posthog.models import Organization, Team, User
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.file_system.folder_instructions import FileSystemFolderInstructions
 
@@ -170,6 +170,44 @@ class TestDesktopFolderInstructionsAPI(APIBaseTest):
 
         response = self.client.patch(self._instructions_url(str(other_folder.id)), {"content": "leak"})
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, response.json())
+
+    def test_me_folder_and_instructions_are_private_to_the_creator(self):
+        folder_id = self._create_desktop_folder("me")
+        self.client.patch(self._instructions_url(folder_id), {"content": "private"})
+        child = FileSystem.objects.create(
+            team=self.team,
+            path="me/private-canvas",
+            depth=2,
+            type="dashboard",
+            surface="desktop",
+            created_by=self.user,
+        )
+
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "testpass")
+        other_user.is_staff = True
+        other_user.save()
+        self.client.force_login(other_user)
+
+        listing = self.client.get(f"/api/projects/{self.team.id}/desktop_file_system/?type=folder")
+        self.assertNotIn(folder_id, [row["id"] for row in listing.json()["results"]])
+        children = self.client.get(f"/api/projects/{self.team.id}/desktop_file_system/?parent=me")
+        self.assertNotIn(str(child.id), [row["id"] for row in children.json()["results"]])
+        count = self.client.post(f"/api/projects/{self.team.id}/desktop_file_system/count_by_path?path=me")
+        self.assertNotIn(str(child.id), [row["id"] for row in count.json()["entries"]])
+        self.assertEqual(
+            self.client.get(f"/api/projects/{self.team.id}/desktop_file_system/{child.id}/").status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+        self.assertEqual(self.client.get(self._instructions_url(folder_id)).status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(
+            self.client.patch(self._instructions_url(folder_id), {"content": "leak"}).status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+        own_folder_id = self._create_desktop_folder("me")
+        self.assertNotEqual(own_folder_id, folder_id)
+        self.client.delete(f"/api/projects/{self.team.id}/desktop_file_system/{own_folder_id}/")
+        self.assertTrue(FileSystem.objects.filter(id=child.id).exists())
 
     def test_personal_api_key_can_read_and_publish_instructions(self):
         folder_id = self._create_desktop_folder()

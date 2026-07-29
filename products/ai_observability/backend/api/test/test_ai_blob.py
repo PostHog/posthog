@@ -1,6 +1,7 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 HASH = "a" * 64
@@ -23,13 +24,24 @@ class TestAIBlobEndpoint(APIBaseTest):
         assert mock_read.call_args.args[0] == f"aio/{self.team.pk}/sha256/{HASH}"
         assert mock_read.call_args.kwargs["bucket"] == "ai-blobs"
 
+    @parameterized.expand(
+        [
+            ("image/heic", "image/heic", None),
+            ("image/heif", "image/heif", None),
+            ("image/avif", "image/avif", None),
+            ("image/svg+xml", "application/octet-stream", "attachment"),
+            ("application/pdf", "application/octet-stream", "attachment"),
+        ]
+    )
     @patch("products.ai_observability.backend.api.ai_blob.object_storage.read_object")
-    def test_non_allowlisted_mime_serves_as_download(self, mock_read) -> None:
-        mock_read.return_value = (b"pdf-bytes", "application/pdf")
+    def test_disposition_follows_stored_mime(
+        self, stored_mime: str, expected_content_type: str, expected_disposition: str | None, mock_read
+    ) -> None:
+        mock_read.return_value = (b"blob-bytes", stored_mime)
         response = self.client.get(self._url())
         assert response.status_code == status.HTTP_200_OK
-        assert response["Content-Type"] == "application/octet-stream"
-        assert response["Content-Disposition"].startswith("attachment")
+        assert response["Content-Type"] == expected_content_type
+        assert response.headers.get("Content-Disposition") == expected_disposition
 
     @patch("products.ai_observability.backend.api.ai_blob.object_storage.read_object")
     def test_missing_object_is_404(self, mock_read) -> None:

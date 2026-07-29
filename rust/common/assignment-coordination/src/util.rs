@@ -32,6 +32,13 @@ pub fn now_seconds() -> i64 {
         .as_secs() as i64
 }
 
+pub fn now_millis() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64
+}
+
 /// Compare current and desired assignments to find partitions that need to move.
 ///
 /// Returns `(partition, old_owner, new_owner)` for each partition whose owner
