@@ -149,6 +149,7 @@ The operation is idempotent and skips non-creators.
 **Column configurator:** `AccountsColumnConfigurator.tsx` no longer persists columns itself — "Done" closes only.
 Column changes are saved as part of a view via `AccountsViewSelector.tsx` (the view dropdown in `AccountsTabFilters`), which offers "Save current view" (creates) and "Update '<name>'" (patches the selected view).
 The configurator's footer also surfaces that path (`SaveViewButton`): "Update "<name>"" when the current view is editable (disabled until dirty), otherwise "Save as new view" — both delegate to `accountsViewsLogic` (`updateView` / `setIsCreating`), the latter opening the create-view modal that `AccountsViewSelector` renders.
+The available-columns picker defaults to an "All columns" category that searches across every non-freeform group at once (each result row shows its source group); picking a category in the dropdown narrows the search to it, and "SQL expression" stays a dedicated freeform entry.
 
 ## Max / agent integration
 

@@ -360,28 +360,33 @@ function SelectedAccountColumn({
     )
 }
 
+const ALL_COLUMNS_KEY = 'all'
+type PickerGroupKey = AccountColumnGroupKey | typeof ALL_COLUMNS_KEY
+
 function AvailableColumnsPicker({ groups, loading }: { groups: AccountColumnGroup[]; loading: boolean }): JSX.Element {
     const { selectColumns } = useValues(accountsColumnConfigLogic)
     const { selectColumn } = useActions(accountsColumnConfigLogic)
-    const [activeGroupKey, setActiveGroupKey] = useState<AccountColumnGroupKey>('account_properties')
+    const [activeGroupKey, setActiveGroupKey] = useState<PickerGroupKey>(ALL_COLUMNS_KEY)
     const [search, setSearch] = useState('')
     const [sqlInput, setSqlInput] = useState('')
 
     const activeGroup = useMemo(
-        () => groups.find((g) => g.key === activeGroupKey) ?? groups[0],
+        () => (activeGroupKey === ALL_COLUMNS_KEY ? null : (groups.find((g) => g.key === activeGroupKey) ?? null)),
         [groups, activeGroupKey]
     )
 
     const filteredOptions = useMemo(() => {
-        if (!activeGroup || activeGroup.isFreeform) {
+        if (activeGroup?.isFreeform) {
             return []
         }
+        const searchableGroups = activeGroup ? [activeGroup] : groups.filter((g) => !g.isFreeform)
         const query = search.trim().toLowerCase()
-        if (!query) {
-            return activeGroup.options
-        }
-        return activeGroup.options.filter((option) => option.name.toLowerCase().includes(query))
-    }, [activeGroup, search])
+        return searchableGroups.flatMap((group) =>
+            group.options
+                .filter((option) => !query || option.name.toLowerCase().includes(query))
+                .map((option) => ({ ...option, groupLabel: group.label }))
+        )
+    }, [groups, activeGroup, search])
 
     const isSelected = (expression: string): boolean => selectColumns.includes(expression)
 
@@ -395,7 +400,9 @@ function AvailableColumnsPicker({ groups, loading }: { groups: AccountColumnGrou
 
     const searchPlaceholder = activeGroup?.isFreeform
         ? 'Use the SQL expression panel below'
-        : `Search ${activeGroup?.label.toLowerCase() ?? 'columns'}`
+        : activeGroup
+          ? `Search ${activeGroup.label.toLowerCase()}`
+          : 'Search all columns'
 
     return (
         <div className="flex flex-col gap-2">
@@ -433,7 +440,10 @@ function AvailableColumnsPicker({ groups, loading }: { groups: AccountColumnGrou
                             {filteredOptions.map((option) => {
                                 const already = isSelected(option.expression)
                                 return (
-                                    <li key={option.expression} className="border-b border-border last:border-b-0">
+                                    <li
+                                        key={`${option.groupLabel}::${option.expression}`}
+                                        className="border-b border-border last:border-b-0"
+                                    >
                                         <LemonButton
                                             fullWidth
                                             size="small"
@@ -442,6 +452,9 @@ function AvailableColumnsPicker({ groups, loading }: { groups: AccountColumnGrou
                                             data-attr={`accounts-column-option-${option.name}`}
                                         >
                                             <span className="flex-1 font-mono">{option.name}</span>
+                                            {!activeGroup ? (
+                                                <span className="ml-2 text-xs text-secondary">{option.groupLabel}</span>
+                                            ) : null}
                                             {option.type ? (
                                                 <span className="ml-2 text-xs text-secondary">{option.type}</span>
                                             ) : null}
@@ -463,19 +476,26 @@ function CategoryPicker({
     onChange,
 }: {
     groups: AccountColumnGroup[]
-    activeKey: AccountColumnGroupKey
-    onChange: (key: AccountColumnGroupKey) => void
+    activeKey: PickerGroupKey
+    onChange: (key: PickerGroupKey) => void
 }): JSX.Element {
     return (
         <LemonSearchableSelect
             size="xsmall"
             value={activeKey}
-            options={groups.map((group) => ({
-                value: group.key,
-                label: group.label,
-                'data-attr': `accounts-columns-group-item-${group.key}`,
-            }))}
-            onChange={(key) => key && onChange(key as AccountColumnGroupKey)}
+            options={[
+                {
+                    value: ALL_COLUMNS_KEY,
+                    label: 'All columns',
+                    'data-attr': `accounts-columns-group-item-${ALL_COLUMNS_KEY}`,
+                },
+                ...groups.map((group) => ({
+                    value: group.key,
+                    label: group.label,
+                    'data-attr': `accounts-columns-group-item-${group.key}`,
+                })),
+            ]}
+            onChange={(key) => key && onChange(key as PickerGroupKey)}
             searchPlaceholder="Search categories"
             dropdownPlacement="bottom-end"
             data-attr="accounts-columns-group"
