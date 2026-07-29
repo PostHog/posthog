@@ -4,10 +4,13 @@ use std::time::Duration;
 
 use anyhow::Context;
 use axum::Router;
-use common_ingestion_warnings::{observe_delivery, KafkaWarningEmitter, WarningEmitter};
+use common_ingestion_warnings::{
+    observe_delivery, KafkaWarningEmitter, WarningEmitter, INGESTION_WARNINGS_EMITTER_ENABLED,
+};
 use common_kafka::config::KafkaConfig as WarningsKafkaConfig;
 use common_kafka::kafka_producer::create_threaded_kafka_producer;
 use common_redis::RedisClient;
+use metrics::gauge;
 use tracing::{info, warn};
 
 use crate::ai_s3::AiBlobStorage;
@@ -725,11 +728,12 @@ fn build_warnings_kafka_config(
 /// `common_kafka::kafka_producer::create_threaded_kafka_producer` from a
 /// dedicated, warnings-only `common_kafka::config::KafkaConfig` (fire-and-forget
 /// acks/retries, a small queue) with `observe_delivery` as its delivery
-/// callback — it shares only the destination cluster (hosts/TLS) and the
-/// `client_ingestion_warning` topic with capture's main event producer, never
-/// its tuning or connection. When built, a background task heartbeats the
-/// advisory lifecycle handle, sweeps the throttle's per-key state, and flushes
-/// the producer once at shutdown.
+/// callback — by default it shares only the destination cluster (hosts/TLS) and
+/// the `client_ingestion_warning` topic with capture's main event producer,
+/// never its tuning or connection. All three are overridable via
+/// `CAPTURE_INGESTION_WARNINGS_KAFKA_{HOSTS,TLS,TOPIC}`. When built, a background
+/// task heartbeats the advisory lifecycle handle, sweeps the throttle's per-key
+/// state, and flushes the producer once at shutdown.
 ///
 /// Fail-open note: unlike the previous bespoke producer (which never pinged
 /// brokers at startup), `create_threaded_kafka_producer` does a one-time
@@ -743,8 +747,39 @@ async fn create_ingestion_warning_emitter(
         return None;
     }
 
-    if config.kafka.kafka_hosts.is_empty() {
-        warn!("ingestion warnings enabled but KAFKA_HOSTS is empty; emitter disabled");
+    // Past this point the operator asked for warnings, so every exit reports
+    // through the gauge. Leaving it unset above keeps "disabled" distinct from
+    // "enabled but broken".
+    let report_disabled = || gauge!(INGESTION_WARNINGS_EMITTER_ENABLED).set(0.0);
+
+    let hosts = config
+        .capture_ingestion_warnings_kafka_hosts
+        .clone()
+        .unwrap_or_else(|| config.kafka.kafka_hosts.clone());
+    let topic = config
+        .capture_ingestion_warnings_kafka_topic
+        .clone()
+        .unwrap_or_else(|| config.kafka.kafka_client_ingestion_warning_topic.clone());
+    let tls = config
+        .capture_ingestion_warnings_kafka_tls
+        .unwrap_or(config.kafka.kafka_tls);
+
+    if hosts.is_empty() {
+        warn!(
+            "ingestion warnings enabled but no Kafka hosts \
+             (CAPTURE_INGESTION_WARNINGS_KAFKA_HOSTS, KAFKA_HOSTS); emitter disabled"
+        );
+        report_disabled();
+        return None;
+    }
+
+    if topic.is_empty() {
+        warn!(
+            "ingestion warnings enabled but no Kafka topic \
+             (CAPTURE_INGESTION_WARNINGS_KAFKA_TOPIC, KAFKA_CLIENT_INGESTION_WARNING_TOPIC); \
+             emitter disabled"
+        );
+        report_disabled();
         return None;
     }
 
@@ -752,12 +787,13 @@ async fn create_ingestion_warning_emitter(
         warn!(
             "ingestion warnings enabled but no lifecycle handle was registered; emitter disabled"
         );
+        report_disabled();
         return None;
     };
 
     let warnings_kafka_config = build_warnings_kafka_config(
-        config.kafka.kafka_hosts.clone(),
-        config.kafka.kafka_tls,
+        hosts,
+        tls,
         config.capture_ingestion_warnings_kafka_queue_mib,
         config.capture_ingestion_warnings_kafka_message_max_bytes,
     );
@@ -774,14 +810,12 @@ async fn create_ingestion_warning_emitter(
             tracing::error!(
                 "failed to create ingestion warnings producer, emitter disabled: {e:#}"
             );
+            report_disabled();
             return None;
         }
     };
 
-    let emitter = Arc::new(KafkaWarningEmitter::new(
-        producer,
-        config.kafka.kafka_client_ingestion_warning_topic.clone(),
-    ));
+    let emitter = Arc::new(KafkaWarningEmitter::new(producer, topic.clone()));
 
     let emitter_bg = emitter.clone();
     tokio::spawn(async move {
@@ -805,10 +839,8 @@ async fn create_ingestion_warning_emitter(
         }
     });
 
-    info!(
-        topic = config.kafka.kafka_client_ingestion_warning_topic.as_str(),
-        "ingestion warnings emitter enabled"
-    );
+    gauge!(INGESTION_WARNINGS_EMITTER_ENABLED).set(1.0);
+    info!(topic = topic.as_str(), "ingestion warnings emitter enabled");
     Some(emitter)
 }
 
