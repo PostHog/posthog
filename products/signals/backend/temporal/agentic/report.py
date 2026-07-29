@@ -279,13 +279,17 @@ def _append_agentic_report_artefacts(
                 attribution=draft.attribution,
                 reevaluate_autostart=False,
             )
-        if charts is not None:
-            # We only reach here when this run's summary is becoming the report's prose, so the
-            # charts column is being replaced to match it. A batch that busts the whole-set contract
-            # (over the count/size caps, or a duplicate id an agent produced) can't be stored, but it
-            # also must not fail an otherwise-good research run — so store no charts rather than the
-            # previous set, which would now sit under an unrelated summary. Any `chart:` link in the
-            # new summary then degrades to its label, which is the graceful miss.
+        # `charts is not None` means this run's summary is becoming the report's prose, so the charts
+        # column may be replaced to match it. Three cases, because the model's output is untrusted:
+        #   - a valid non-empty set replaces the column (refresh / drop-individual works);
+        #   - an *empty* set does NOT overwrite an existing set. The presentation field is optional, so
+        #     a turn that omits it and a turn that deliberately drops every chart both arrive as `[]` —
+        #     indistinguishable, and silently wiping user-visible charts is the worse failure. A human
+        #     can clear charts from the inbox; the pipeline never auto-clears to zero.
+        #   - a cap-busting set (too many, too large, or a duplicate id the agent produced) can't be
+        #     stored, and mustn't fail an otherwise-good run — clear to none so the previous set can't
+        #     sit under an unrelated new summary. Any `chart:` link then degrades to its label.
+        if charts:
             batch_error = chart_batch_error(charts)
             if batch_error:
                 logger.warning(
@@ -297,6 +301,10 @@ def _append_agentic_report_artefacts(
                 )
             payload = [] if batch_error else [chart.model_dump(mode="json") for chart in charts]
             SignalReport.objects.filter(id=report_id, team_id=team_id).update(charts=payload)
+        elif charts is not None:
+            logger.info(
+                "run authored no charts; leaving the report's existing set", report_id=report_id, team_id=team_id
+            )
 
 
 async def _persist_agentic_report_artefacts(

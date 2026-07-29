@@ -290,8 +290,15 @@ def chart_batch_error(charts: Sequence[ReportChart]) -> str | None:
     """
     if len(charts) > MAX_REPORT_CHARTS:
         return f"a report accepts at most {MAX_REPORT_CHARTS} charts ({len(charts)})"
-    if chart_batch_query_chars(charts) > MAX_REPORT_CHARTS_QUERY_CHARS:
-        return f"the charts' queries exceed {MAX_REPORT_CHARTS_QUERY_CHARS} characters in total"
+    total_query_chars = chart_batch_query_chars(charts)
+    if total_query_chars > MAX_REPORT_CHARTS_QUERY_CHARS:
+        # Echo the actual total, not just the limit: a scout agent reads this error off its
+        # emit_report / edit_report tool call and needs to know how far over budget it is to trim
+        # and retry. The total is already computed for the comparison, so including it is free.
+        return (
+            f"the charts' queries total {total_query_chars} characters, "
+            f"the limit is {MAX_REPORT_CHARTS_QUERY_CHARS} across one report"
+        )
     seen: set[str] = set()
     for chart in charts:
         if chart.chart_id in seen:

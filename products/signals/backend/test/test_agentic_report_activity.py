@@ -511,6 +511,26 @@ async def test_not_actionable_run_leaves_existing_charts_untouched(monkeypatch, 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+async def test_empty_chart_result_does_not_wipe_existing_charts(monkeypatch, ateam):
+    # The presentation `charts` field is optional, so a re-research that omits it — or the model just
+    # not attending to it — arrives as []. That must not silently wipe a report's existing charts;
+    # only a valid non-empty set replaces them. `_build_research_output()` carries no charts.
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        signal_count=2,
+        total_weight=1.3,
+        charts=[_EXISTING_CHART],
+    )
+
+    await _run_activity_with_output(monkeypatch, ateam, report, _build_research_output())
+
+    stored_charts = await database_sync_to_async(lambda: SignalReport.objects.get(id=report.id).charts)()
+    assert stored_charts == [_EXISTING_CHART]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_duplicate_chart_ids_clear_the_set_rather_than_persisting_stale(monkeypatch, ateam):
     # A batch that busts the whole-set contract (here, two charts under one id) can't be stored, and
     # must not leave the previous set sitting under the run's new summary either — the column is
