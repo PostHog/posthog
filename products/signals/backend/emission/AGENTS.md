@@ -8,7 +8,8 @@ Each emitted signal is sent to the Signals workflow (`products/signals/backend/a
 Signals from different sources and types are then combined into signal groups and processed into signal reports to help users find issues with their products.
 
 This means the `description` field must be written for embedding quality:
-it should capture the meaning of the record in a source-agnostic way so that semantically similar signals group well regardless of origin.
+it should capture the meaning of the record in a source-agnostic way
+so that semantically similar signals group well regardless of origin.
 
 ## Architecture
 
@@ -60,7 +61,8 @@ Users enable sources via the Inbox Sources modal.
 
 1. **Create the emitter module** — add a file in this directory (e.g., `jira_issues.py`).
    Follow existing emitters (`zendesk_tickets.py`, `github_issues.py`, `conversations_tickets.py`) for the pattern:
-   define which fields to query, write a pure emitter function that transforms a record dict into a signal output (or `None` if data is insufficient), define a `record_fetcher` (use `data_warehouse_record_fetcher` for warehouse sources, or write a new fetcher for other sources), optionally define an LLM actionability prompt and/or a summarization prompt with threshold, and export the final config as a module-level constant.
+   define which fields to query,
+   write a pure emitter function that transforms a record dict into a signal output (or `None` if data is insufficient), define a `record_fetcher` (use `data_warehouse_record_fetcher` for warehouse sources, or write a new fetcher for other sources), optionally define an LLM actionability prompt and/or a summarization prompt with threshold, and export the final config as a module-level constant.
    **Avoid querying PII fields** (user IDs, email addresses, names, organization IDs, etc.) unless they are strictly required to locate the entity in the source system later.
    Prefer opaque record IDs and URLs over fields that identify people or organizations.
 2. **Register in `registry.py`** — import the config and add it inside `_register_all_emitters()`.
@@ -87,7 +89,8 @@ DEBUG=1 ./manage.py emit_signals_from_fixture --type conversations --team-id 1 -
 DEBUG=1 ./manage.py emit_signals_from_fixture --type zendesk --team-id 1 --fixture path/to/custom.json
 ```
 
-`--type` accepts `zendesk`, `github`, `linear`, or `conversations` and maps to the matching auto-registered config in `registry.py`.
+`--type` accepts `zendesk`, `github`, `linear`, or `conversations`
+and maps to the matching auto-registered config in `registry.py`.
 The command requires `DEBUG=True` and is intended for local iteration only.
 
 ## Maintaining this file

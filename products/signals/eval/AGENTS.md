@@ -9,18 +9,21 @@ The eval feeds 92 synthetic signals (from 42 ground-truth groups) through the **
 LLM query generation, embedding search, LLM matching, specificity verification, summarization, safety judging, and actionability judging.
 Infrastructure is mocked — an in-memory embedding store (`mock.py`) replaces ClickHouse + Kafka, and a `ReportStore` replaces Postgres.
 
-Signals arrive in a deterministic random order (seeded RNG), interleaved across groups to simulate real-world arrival patterns.
+Signals arrive in a deterministic random order (seeded RNG),
+interleaved across groups to simulate real-world arrival patterns.
 
 ### Pipeline stages per signal
 
 1. **Pre-emit** — summarize long descriptions, check actionability (Claude Haiku via the internal LLM gateway).
    Signals that fail actionability are dropped.
-2. **Match** — generate search queries (LLM), embed queries (OpenAI), cosine search against stored signals, LLM match to existing report or create new, verify specificity of match (LLM).
+2. **Match** — generate search queries (LLM), embed queries (OpenAI),
+   cosine search against stored signals, LLM match to existing report or create new, verify specificity of match (LLM).
 3. **Persist** — store the signal + embedding, update report metadata.
 
 After all signals are processed:
 
-4. **Judge** — for each report: summarize signals (LLM), judge safety (prompt injection detection), judge actionability.
+4. **Judge** — for each report: summarize signals (LLM),
+   judge safety (prompt injection detection), judge actionability.
 
 ## How to run
 
@@ -115,7 +118,8 @@ python manage.py clear_eval_data --source X    # filter by eval source tag
 ## Concurrency model
 
 - Signals run through the pipeline concurrently (semaphore-bounded, 70 max).
-- The match + persist step is serialized behind `asyncio.Lock` — this ensures the embedding store and report store see a consistent view when deciding whether a signal joins an existing report or creates a new one.
+- The match + persist step is serialized behind `asyncio.Lock` —
+  this ensures the embedding store and report store see a consistent view when deciding whether a signal joins an existing report or creates a new one.
 - Report judging runs concurrently (all reports at once).
 
 # Reports
@@ -170,7 +174,9 @@ ORDER BY cnt DESC
 
 ### Specificity judge impact
 
-Compares pre- and post-specificity correctness to show how often the specificity judge helps (prevents overgroup), hurts (causes undergroup), or has no effect.
+Compares pre- and post-specificity correctness to show
+how often the specificity judge helps (prevents overgroup),
+hurts (causes undergroup), or has no effect.
 
 ```sql
 SELECT
