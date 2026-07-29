@@ -10,6 +10,7 @@ import {
     type DiscountReportEntry,
     type EndpointCandidate,
     type RunTotals,
+    UNCHECKED_WARN_FRACTION,
     accumulateModelRow,
     buildDefaultCost,
     buildModelCost,
@@ -19,6 +20,7 @@ import {
     finalizeTotals,
     foldModelIntoTotals,
     parseDiscountRate,
+    readEndpointsFromOpenRouter,
     renderDiscountReport,
     sanitizeReportCell,
     withoutDiscount,
@@ -72,6 +74,9 @@ describe('parseDiscountRate()', () => {
         { description: 'an object', discount: {} },
         { description: 'an array', discount: ['0.5'] },
         { description: 'a boolean', discount: true },
+        { description: 'an empty string', discount: '' },
+        { description: 'a whitespace string', discount: '   ' },
+        { description: 'an unparseable string', discount: 'abc' },
     ])('warns on a present but unusable rate: $description', ({ discount }) => {
         // Silently reading these as "no promotion" stores the promo price as list.
         const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
@@ -82,6 +87,20 @@ describe('parseDiscountRate()', () => {
     it('stays silent when there is no rate at all', () => {
         const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
         parseDiscountRate({}, 'x/y')
+        expect(warn).not.toHaveBeenCalled()
+    })
+
+    it('warns exactly once on an unparseable string rate', () => {
+        // The decimal parser logs its own failure, so classifying before we hand
+        // it the value is what keeps a single bad field to a single line.
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+        expect(parseDiscountRate({ discount: 'abc' }, 'x/y')).toBe(0)
+        expect(warn).toHaveBeenCalledTimes(1)
+    })
+
+    it('stays silent on an unparseable rate when warnings are suppressed', () => {
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+        parseDiscountRate({ discount: 'abc' }, 'x/y', false)
         expect(warn).not.toHaveBeenCalled()
     })
 
@@ -588,6 +607,13 @@ describe('foldModelIntoTotals()', () => {
         expect(out.models).toHaveLength(0)
     })
 
+    it('leaves the totals it was handed untouched', () => {
+        const base = start()
+        foldModelIntoTotals('a/b', listPricing, [], base)
+        expect(base.models).toHaveLength(0)
+        expect(base.uncheckedModels).toBe(0)
+    })
+
     it('warns naming the model it skipped', () => {
         const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
         foldModelIntoTotals('a/b', undefined, [], start())
@@ -602,6 +628,13 @@ describe('finalizeTotals()', () => {
         // Unsorted output rewrites the whole file every run and opens a PR on noise.
         const out = finalizeTotals({ models: [row('z/z'), row('a/a')], discounts: [], uncheckedModels: 0 })
         expect(out.models.map((m) => m.model)).toEqual(['a/a', 'z/z'])
+    })
+
+    it('leaves the totals it was handed untouched', () => {
+        // Same contract accumulateModelRow carries; the family grew past its test.
+        const base: RunTotals = { models: [row('z/z'), row('a/a')], discounts: [], uncheckedModels: 0 }
+        finalizeTotals(base)
+        expect(base.models.map((m) => m.model)).toEqual(['z/z', 'a/a'])
     })
 
     it('carries the other totals through unchanged', () => {
@@ -639,6 +672,38 @@ describe('collectModelRows()', () => {
         expect(totals.models.map((m) => m.model)).toEqual(['a/a'])
     })
 
+    it('reports the unchecked count with its denominator', async () => {
+        // 17-of-367 is the healthy steady state; without the denominator that
+        // reads identically to a degraded run. Assert the whole phrase: the
+        // per-model progress line also carries an "n/m" and would satisfy a
+        // bare substring check.
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+        jest.spyOn(console, 'log').mockImplementation(() => {})
+        await collectModelRows([priced('a/a'), priced('b/b')], noEndpoints)
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('2/2 model(s) had no usable endpoint pricing'))
+    })
+
+    it('warns rather than logs once too much of the catalogue is unchecked', async () => {
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+        jest.spyOn(console, 'log').mockImplementation(() => {})
+        await collectModelRows([priced('a/a')], noEndpoints)
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('degraded'))
+    })
+
+    it('stays at log level when the unchecked share is within the steady state', async () => {
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+        const log = jest.spyOn(console, 'log').mockImplementation(() => {})
+        // One unchecked model in a catalogue large enough to stay under the share.
+        const models = [priced('a/a'), ...Array.from({ length: 20 }, (_, i) => priced(`m/${i}`))]
+        await collectModelRows(models, (id) => Promise.resolve(id === 'a/a' ? [] : [endpoint('openai', '0.000001')]))
+        expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('degraded'))
+        expect(log).toHaveBeenCalledWith(expect.stringContaining('1/21 model(s) had no usable endpoint pricing'))
+    })
+
+    it('pins the unchecked warn share to a literal', () => {
+        expect(UNCHECKED_WARN_FRACTION).toBe(0.1)
+    })
+
     it('counts models whose endpoints came back empty', async () => {
         const totals = await collectModelRows([priced('a/a'), priced('b/b')], noEndpoints)
         expect(totals.uncheckedModels).toBe(2)
@@ -660,6 +725,45 @@ describe('collectModelRows()', () => {
             return Promise.resolve([])
         })
         expect(seen).toEqual(['a/a', 'b/b'])
+    })
+})
+
+describe('readEndpointsFromOpenRouter()', () => {
+    const mockFetch = (impl: () => unknown): jest.SpyInstance =>
+        jest.spyOn(global, 'fetch' as never).mockImplementation(impl as never)
+
+    it('returns the endpoints the payload carries', async () => {
+        mockFetch(() => Promise.resolve({ ok: true, json: () => Promise.resolve({ data: { endpoints: [1, 2] } }) }))
+        await expect(readEndpointsFromOpenRouter('a/b')).resolves.toEqual([1, 2])
+    })
+
+    it('degrades to no endpoints on a non-ok response, and says so', async () => {
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+        mockFetch(() => Promise.resolve({ ok: false, status: 429, statusText: 'Too Many Requests' }))
+        await expect(readEndpointsFromOpenRouter('a/b')).resolves.toEqual([])
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('a/b'))
+    })
+
+    it('degrades to no endpoints when the request throws, and says so', async () => {
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+        mockFetch(() => Promise.reject(new Error('socket hang up')))
+        await expect(readEndpointsFromOpenRouter('a/b')).resolves.toEqual([])
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('Error fetching'), 'a/b', expect.anything())
+    })
+
+    it('degrades to no endpoints when the payload has no endpoints key', async () => {
+        mockFetch(() => Promise.resolve({ ok: true, json: () => Promise.resolve({}) }))
+        await expect(readEndpointsFromOpenRouter('a/b')).resolves.toEqual([])
+    })
+
+    it('encodes each path segment of the model id', async () => {
+        let requested = ''
+        mockFetch(((url: string) => {
+            requested = url
+            return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: { endpoints: [] } }) })
+        }) as never)
+        await readEndpointsFromOpenRouter('anthropic/claude-sonnet-5:batch')
+        expect(requested).toContain('anthropic/claude-sonnet-5%3Abatch')
     })
 })
 

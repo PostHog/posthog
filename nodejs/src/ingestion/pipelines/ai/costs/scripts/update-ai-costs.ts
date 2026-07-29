@@ -61,22 +61,25 @@ const parsePricingNumber = (value: unknown): number | undefined => {
  * promotion is divided back out. Returns 0 for absent, zero, or out-of-range.
  */
 export const parseDiscountRate = (pricing: Record<string, unknown>, context?: string, warn = true): number => {
-    if (pricing.discount === undefined || pricing.discount === null) {
+    const raw = pricing.discount
+    if (raw === undefined || raw === null) {
         return 0
     }
 
-    // Present but unusable, at or above 1 (divide by zero or sign flip), or
-    // negative. Negatives read the raw value because parsePricingNumber clamps
-    // them to 0, which is otherwise indistinguishable from "no promotion".
-    const parsed = parsePricingNumber(pricing.discount)
-    if (parsed === undefined || parsed >= 1 || Number(pricing.discount) < 0) {
+    // Classify with Number(), which never throws, so an unusable rate never
+    // reaches parsePricingNumber and cannot draw a second parse-failure log for
+    // the same field. A rate at or above 1 would divide by zero or flip the
+    // sign; a negative one is malformed data that the clamp would hide.
+    const asNumber =
+        typeof raw === 'number' ? raw : typeof raw === 'string' && raw.trim() !== '' ? Number(raw) : Number.NaN
+    if (!Number.isFinite(asNumber) || asNumber < 0 || asNumber >= 1) {
         if (warn) {
-            console.warn(`Ignoring out-of-range discount ${String(pricing.discount)} for ${context ?? 'unknown model'}`)
+            console.warn(`Ignoring unusable discount ${String(raw)} for ${context ?? 'unknown model'}`)
         }
         return 0
     }
 
-    return parsed
+    return parsePricingNumber(raw) ?? 0
 }
 
 /**
@@ -190,6 +193,9 @@ export interface DiscountReportEntry {
     endpoints: Array<{ key: string; discount: number }>
     confirmation: DiscountConfirmation
 }
+
+/** Share of the catalogue that may go unchecked before the run says so loudly. */
+export const UNCHECKED_WARN_FRACTION = 0.1
 
 /** Table rows rendered before the remainder collapses into a count line. */
 export const DISCOUNT_REPORT_ROW_LIMIT = 200
@@ -446,18 +452,22 @@ export const collectModelRows = async (models: ListedModel[], readEndpoints: End
     }
 
     if (totals.uncheckedModels > 0) {
-        // Alias and meta-router models carry no per-endpoint pricing, so a
-        // handful here is the steady state; aggregated to keep it readable.
-        console.log(
-            `${totals.uncheckedModels} model(s) had no usable endpoint pricing and were not checked for promotions`
-        )
+        // Alias and meta-router models carry no per-endpoint pricing, so a handful
+        // here is the steady state. The denominator is what separates that from a
+        // degraded endpoints API, which also strips per-provider keys.
+        const line = `${totals.uncheckedModels}/${models.length} model(s) had no usable endpoint pricing`
+        if (totals.uncheckedModels > models.length * UNCHECKED_WARN_FRACTION) {
+            console.warn(`${line}: endpoint pricing looks degraded, per-provider prices are missing`)
+        } else {
+            console.log(line)
+        }
     }
 
     return finalizeTotals(totals)
 }
 
 /** Endpoint reader against the live API. Every failure degrades to no endpoints. */
-const readEndpointsFromOpenRouter: EndpointFetcher = async (modelId) => {
+export const readEndpointsFromOpenRouter: EndpointFetcher = async (modelId) => {
     const encoded = modelId
         .split('/')
         .map((segment: string) => encodeURIComponent(segment))
