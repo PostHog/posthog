@@ -327,6 +327,40 @@ class TestLoginAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{permitted_team.id}/", HTTP_AUTHORIZATION=f"Bearer {key_value}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    def _blocked_admin_parked_in_permitted_org(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        permitted_org, permitted_team = self._second_org_with_team()
+        self.user.current_organization = permitted_org
+        self.user.current_team = permitted_team
+        self.user.save()
+        self._enforce_current_test_org()
+        self.client.force_login(self.user)
+
+    def test_cross_org_admin_cannot_modify_enforcing_org_via_custom_permission_chain(self):
+        # OrganizationViewSet's update chain comes from dangerously_get_permissions, which must not
+        # skip domain enforcement: PATCHing the org is the endpoint that could disable the setting.
+        self._blocked_admin_parked_in_permitted_org()
+
+        response = self.client.patch(f"/api/organizations/{self.organization.id}/", {"enforce_verified_domains": False})
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "verified_domain_required")
+        self.organization.refresh_from_db()
+        self.assertTrue(self.organization.enforce_verified_domains)
+
+    def test_cross_org_admin_cannot_create_invites_for_enforcing_org(self):
+        # Invite creation also runs on a custom permission chain; a member the org no longer admits
+        # must not be able to act in it, even when inviting a verified-domain email.
+        self._blocked_admin_parked_in_permitted_org()
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/invites/", {"target_email": "new@hogflix.com"}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "verified_domain_required")
+
     @patch("posthog.api.authentication.is_email_available", return_value=True)
     @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
     def test_email_unverified_user_cant_log_in_if_email_available(

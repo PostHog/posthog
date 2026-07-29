@@ -247,9 +247,13 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
     # so we offer a way to add additional classes
     def get_permissions(self):
         try:
-            return self.dangerously_get_permissions()
+            dangerously_defined = self.dangerously_get_permissions()
         except NotImplementedError:
             pass
+        else:
+            # Domain enforcement is a tenant boundary, not an authorization level: views that
+            # shape their own permission chain cannot opt out of it.
+            return [*dangerously_defined, VerifiedDomainEnforcementPermission()]
 
         if isinstance(self.request.successful_authenticator, InternalAPIAuthentication):
             return [IsAuthenticated()]

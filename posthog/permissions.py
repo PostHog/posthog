@@ -29,7 +29,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions import Conflict, EnterpriseFeatureException, PaidFeatureException
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR
-from posthog.models import Organization, OrganizationDomain, OrganizationMembership, Team, User
+from posthog.models import Organization, OrganizationDomain, OrganizationMembership, Project, Team, User
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl, ordered_access_levels
 from posthog.scopes import INTERNAL_API_SCOPE_OBJECTS, APIScopeObject, APIScopeObjectOrNotSupported
 from posthog.session.reauth import sensitive_action_reference, step_up_required
@@ -252,9 +252,15 @@ class VerifiedDomainEnforcementPermission(BasePermission):
     """
 
     def has_permission(self, request: Request, view) -> bool:
-        # The root organizations viewset's URL pk isn't in parents_query_dict, so the target can
-        # only be resolved per object below.
-        if view.basename == "organizations":
+        if not isinstance(request.user, User):
+            return True
+
+        # Root viewsets (organizations, projects, environments) carry no parent URL kwargs, and the
+        # mixin's `organization` falls back to the user's current organization there, which is not
+        # the request's target. Gate on the fetched object below instead. Views deriving their
+        # target from the current team (`param_derived_from_user_current_team`) are the exception:
+        # for those the current team is the target by construction.
+        if not view.parent_query_kwargs and not view.param_derived_from_user_current_team:
             return True
 
         organization = self._target_organization(view)
@@ -263,9 +269,11 @@ class VerifiedDomainEnforcementPermission(BasePermission):
         return self._admits(request, organization)
 
     def has_object_permission(self, request: Request, view, object: Model) -> bool:
-        if view.basename != "organizations" or not isinstance(object, Organization):
-            return True
-        return self._admits(request, object)
+        if isinstance(object, Organization):
+            return self._admits(request, object)
+        if isinstance(object, Team | Project):
+            return self._admits(request, object.organization)
+        return True
 
     def _admits(self, request: Request, organization: Organization) -> bool:
         user = request.user
