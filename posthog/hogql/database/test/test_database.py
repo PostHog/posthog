@@ -10,7 +10,9 @@ from unittest import TestCase
 from unittest.mock import patch
 
 from django.conf import settings
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 from pydantic import BaseModel
@@ -67,6 +69,7 @@ from posthog.hogql.test.utils import pretty_print_in_tests
 from posthog.models.group_type_mapping import invalidate_group_types_cache
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
@@ -923,6 +926,45 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert db.has_table("whatever_endpoint")
         assert "some_field" in db.get_table("events").fields
         assert "timestamp" in db.get_table("whatever0").fields
+
+    def test_fetch_sources_selects_only_the_pk_of_joined_user_rows(self):
+        # A column that exists on User but not yet in Postgres (code deployed ahead of its migration)
+        # used to break every HogQL query here: the warehouse fetches joined the whole user row for a
+        # creator check that only compares identity, so the missing column killed the database build.
+        credential = DataWarehouseCredential.objects.create(
+            team=self.team, access_key="_accesskey", access_secret="_secret"
+        )
+        DataWarehouseTable.objects.create(
+            name="whatever",
+            team=self.team,
+            columns={"id": "String"},
+            credential=credential,
+            url_pattern="",
+            created_by=self.user,
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="whatever_view",
+            query={"query": "SELECT id FROM whatever"},
+            columns={"id": "String"},
+            created_by=self.user,
+        )
+
+        with CaptureQueriesContext(connection) as queries:
+            Database._fetch_sources(team=self.team, user=self.user)
+
+        warehouse_queries_joining_user = [
+            query["sql"]
+            for query in queries.captured_queries
+            if "posthog_datawarehouse" in query["sql"] and "posthog_user" in query["sql"]
+        ]
+        assert warehouse_queries_joining_user, "expected the warehouse fetches to still join the creator"
+        unused_user_columns = [
+            f'"posthog_user"."{field.column}"' for field in User._meta.concrete_fields if not field.primary_key
+        ]
+        for sql in warehouse_queries_joining_user:
+            for column in unused_user_columns:
+                assert column not in sql, f"{column} should not be selected when building the HogQL database"
 
     def test_materialized_backing_filter_keeps_source_tables_but_hides_backing_tables(self):
         credential = DataWarehouseCredential.objects.create(

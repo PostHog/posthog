@@ -1335,8 +1335,10 @@ class Database(BaseModel):
                         DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
                         .exclude(deleted=True)
                         .order_by("name")
-                        # created_by for the access-control creator check
+                        # created_by for the access-control creator check, which only compares
+                        # identity - so the joined user row is narrowed to its primary key
                         .select_related("table", "managed_viewset", "created_by")
+                        .defer(*_deferred_user_columns("created_by"))
                         # credential attached in bulk below, not joined per row
                     )
                     if not is_managed_viewset_enabled:
@@ -1351,8 +1353,9 @@ class Database(BaseModel):
                         DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
                         .filter(origin=DataWarehouseSavedQuery.Origin.ENDPOINT)
                         .exclude(deleted=True)
-                        # created_by for the access-control creator check
+                        # created_by for the access-control creator check, narrowed to its pk
                         .select_related("table", "created_by")
+                        .defer(*_deferred_user_columns("created_by"))
                         # credential attached in bulk below, not joined per row
                     )
                 except Exception as e:
@@ -1402,8 +1405,10 @@ class Database(BaseModel):
                         # source, so an orphan can't shadow the live table sharing its name.
                         DataWarehouseTable.raw_objects.filter(team_id=team.pk)
                         .queryable()
-                        # created_by is hydrated for the warehouse access-control creator check
+                        # created_by is hydrated for the warehouse access-control creator check,
+                        # narrowed to its pk since the check only compares identity
                         .select_related("created_by")
+                        .defer(*_deferred_user_columns("created_by"))
                         # credential/external_data_source attached in bulk below, not joined per row; the
                         # access_method filter still joins the source for its WHERE without hydrating it.
                         # Deterministic tiebreak when two live tables share a name: newest wins, since
@@ -2408,6 +2413,24 @@ def _preload_active_external_data_schemas(warehouse_tables: Sequence[DataWarehou
         warehouse_table.__dict__["_active_external_data_schemas"] = schemas_by_table_id.get(str(warehouse_table.id), [])
 
 
+@cache
+def _deferred_user_columns(relation: str, *, keep: tuple[str, ...] = ()) -> tuple[str, ...]:
+    """Field names to defer so a joined user row contributes only the columns the caller reads.
+
+    Derived from the User model instead of listed literally, so a column added to `User` is deferred
+    automatically. Without that, every HogQL query fails with `UndefinedColumn` between a deploy and
+    its migration applying: the column exists in Python, Django puts it in the SELECT, Postgres
+    doesn't have it yet, and the whole database build dies rather than just the new feature.
+    """
+    from posthog.models.user import User  # noqa: PLC0415
+
+    return tuple(
+        f"{relation}__{field.name}"
+        for field in User._meta.concrete_fields
+        if not field.primary_key and field.name not in keep
+    )
+
+
 def _attach_decrypted_credentials(warehouse_tables: Sequence[DataWarehouseTable], *, team_id: int) -> None:
     """Prime each table's `credential` FK from one bulk fetch of the distinct credentials.
 
@@ -2547,6 +2570,7 @@ def _settled_catalog_certifications(
             .exclude(table__external_data_source__deleted=True)
             .exclude(saved_query__deleted=True)
             .select_related("certified_by")
+            .defer(*_deferred_user_columns("certified_by", keep=("email",)))
         )
         for certification in certifications:
             serialized = DatabaseSchemaTableCertification(
