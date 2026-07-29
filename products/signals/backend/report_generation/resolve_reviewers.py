@@ -234,10 +234,11 @@ def _rank_scored_candidates(
 
     # Activity-only owners (in the area map, but with no blame or agent-proposed weight) only
     # ever carry a broad "Recently active in <area>" justification, and the area lookup can walk
-    # up to shallow, monorepo-wide paths — so surfacing them next to a real commit-based reviewer
-    # just pads the list with noise. Keep them only as a genuine last resort: when there is no
-    # weighted candidate at all, dropping them would leave the report with no reviewer.
-    if login_weights:
+    # up to shallow, monorepo-wide paths — so surfacing them next to a live reviewer just pads
+    # the list with noise. Drop them when a weighted candidate is itself still active in the area
+    # (that candidate is the real reviewer). Keep them only when every weighted candidate is stale
+    # or absent — then the area's current contributors are the best reviewer we have.
+    if any(login in activity_by_login for login in login_weights):
         scores = {login: score for login, score in scores.items() if login in login_weights}
 
     def rank_key(item: tuple[str, float]) -> tuple[float, int, str]:
