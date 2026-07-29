@@ -121,6 +121,7 @@ from posthog.hogql_queries.query_failure_handling import (
     budget_for_limit_context,
     build_failure_exception,
     classify_failure,
+    is_served_from_query_failure_cache,
 )
 from posthog.hogql_queries.query_metadata import extract_query_metadata
 from posthog.hogql_queries.utils.event_usage import log_event_usage_from_query_metadata
@@ -1921,7 +1922,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         analytics_props=analytics_props,
                     )
                 except Exception as exc:
-                    if getattr(exc, "served_from_query_failure_cache", False):
+                    if is_served_from_query_failure_cache(exc):
                         # ClickHouse was never touched; the original failure was already
                         # classified and captured when it happened.
                         slo.succeed(error_category="query_failure_cache")

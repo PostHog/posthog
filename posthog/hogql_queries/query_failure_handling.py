@@ -68,3 +68,11 @@ def build_failure_exception(record: QueryFailureRecord) -> APIException:
     error = FAILURE_KIND_EXCEPTIONS[record.kind](detail=" ".join(sentences))
     error.served_from_query_failure_cache = True  # type: ignore[attr-defined]
     return error
+
+
+def is_served_from_query_failure_cache(error: BaseException) -> bool:
+    """Whether this exception is a remembered failure replayed by the circuit breaker rather than a
+    fresh one. ClickHouse was never touched, and the original was already reported when it happened,
+    so every layer that reports errors must skip these — otherwise one real failure is reported once
+    per suppressed retry for the length of the backoff window."""
+    return getattr(error, "served_from_query_failure_cache", False)

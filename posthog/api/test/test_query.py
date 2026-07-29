@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime, timedelta
 
 from freezegun import freeze_time
 from posthog.test.base import (
@@ -42,7 +43,10 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, QueryTags
 from posthog.event_usage import EventSource
+from posthog.exceptions import ClickHouseQueryTimeOut
+from posthog.hogql_queries.query_failure_handling import build_failure_exception
 from posthog.models.utils import UUIDT
+from posthog.query_cache.failures import QueryFailureRecord
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 from products.product_analytics.backend.models.insight_variable import InsightVariable
@@ -64,6 +68,35 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         detail = response.json()["detail"]
         self.assertEqual(detail, CONCURRENCY_LIMIT_USER_MESSAGE)
         self.assertNotIn("app:query:per-org", detail)
+
+    @parameterized.expand([("breaker_served", True, 0), ("fresh_failure", False, 1)])
+    def test_breaker_served_failure_is_not_reported_to_error_tracking(
+        self, _name: str, served_from_query_failure_cache: bool, expected_captures: int
+    ):
+        # The circuit breaker replays a remembered timeout for the whole backoff window without
+        # touching ClickHouse. Reporting those here turned one real timeout into one reported error
+        # per suppressed retry.
+        error = ClickHouseQueryTimeOut()
+        if served_from_query_failure_cache:
+            error = build_failure_exception(
+                QueryFailureRecord(
+                    kind="timeout",
+                    detail=str(error),
+                    consecutive_failures=2,
+                    last_failed_at=datetime.now(UTC),
+                    open_until=datetime.now(UTC) + timedelta(minutes=5),
+                )
+            )
+
+        with patch("posthog.api.query.process_query_model", side_effect=error):
+            with patch("posthog.api.query.capture_exception") as mock_capture:
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/query/",
+                    {"query": HogQLQuery(query="select 1").model_dump()},
+                )
+
+        self.assertEqual(response.status_code, status.HTTP_504_GATEWAY_TIMEOUT)
+        self.assertEqual(mock_capture.call_count, expected_captures)
 
     @snapshot_clickhouse_queries
     def test_select_hogql_expressions(self):
