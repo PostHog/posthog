@@ -57,6 +57,7 @@ def upsert_session(params: UpsertWizardSessionInput) -> tuple[WizardSessionDTO, 
                 ],
                 "event_plan": event_plan,
                 "error": params.error,
+                "pending_input": params.pending_input,
             },
         )
         if previous_run_phase != RunPhase.COMPLETED.value and params.run_phase == RunPhase.COMPLETED:
@@ -140,6 +141,7 @@ def _to_dto(instance: WizardSession) -> WizardSessionDTO:
         ),
         event_plan=instance.event_plan,
         error=instance.error,
+        pending_input=instance.pending_input,
         created_at=instance.created_at,
         updated_at=instance.updated_at,
     )

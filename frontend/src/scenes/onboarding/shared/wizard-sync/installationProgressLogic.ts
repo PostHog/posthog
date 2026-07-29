@@ -48,6 +48,29 @@ export function isSessionFresh(session: WizardSessionDTOApi, now: number): boole
     return !Number.isNaN(updatedAt) && now - updatedAt < SESSION_CURRENT_THRESHOLD_MS
 }
 
+// A dead wizard can't clear its own prompt (the clearing push never arrives), so the attention state
+// must go quiet with the session: gated on the server's staleness verdict and a live (running) phase.
+export function pendingInputFromSession(session: WizardSessionDTOApi | null): WizardPendingInput | null {
+    if (!session || session.is_stale || session.run_phase !== 'running') {
+        return null
+    }
+    const raw = session.pending_input
+    if (!raw?.id) {
+        return null
+    }
+    // The prompt text goes straight into JSX, and the type is the serializer's promise rather than a
+    // runtime guarantee, so keep non-strings out: a row written before the field was typed would
+    // otherwise crash the render of an app-wide widget.
+    const prompts = Array.isArray(raw.prompts) ? raw.prompts.filter((p): p is string => typeof p === 'string') : []
+    return {
+        id: raw.id,
+        askedAt: raw.asked_at ?? session.updated_at,
+        questionCount: raw.question_count ?? 1,
+        sensitive: raw.sensitive === true,
+        prompts: raw.sensitive === true ? [] : prompts,
+    }
+}
+
 // Per-session telemetry guards, deliberately module-scoped rather than on the kea `cache`: the logic
 // unmounts whenever its last consumer does (FAB gate flips, install step navigated away), and a
 // remount wipes `cache` — so a cache-based guard would let the SSE redeliver a still-in-flight
@@ -97,6 +120,16 @@ export interface InstallationStep {
     source?: 'wizard'
 }
 
+/** The wizard's in-flight `wizard_ask` prompt, published on the session row while the CLI is
+ * blocked on the user. Sensitive asks (secrets) carry no prompt text by design. */
+export interface WizardPendingInput {
+    id: string
+    askedAt: string
+    questionCount: number
+    sensitive: boolean
+    prompts: string[]
+}
+
 export interface InstallationProgress {
     phase: InstallationPhase
     steps: InstallationStep[]
@@ -105,6 +138,9 @@ export interface InstallationProgress {
     /** The bound PR was merged (webhook-recorded on the run's output). */
     prMerged: boolean
     isCurrent: boolean
+    /** Set while the wizard is waiting on the user in the terminal — the widget's attention state.
+     * Cleared by the next session push without the field (answered, cancelled, or timed out). */
+    pendingInput: WizardPendingInput | null
 }
 
 export interface InstallationProgressLogicProps {
@@ -292,6 +328,7 @@ export function cloudProgress(
         prUrl,
         prMerged,
         isCurrent: phase !== 'idle',
+        pendingInput: phase === 'running' ? pendingInputFromSession(session) : null,
     }
 }
 
@@ -313,6 +350,7 @@ export function localProgress(
             prUrl: null,
             prMerged: false,
             isCurrent: false,
+            pendingInput: null,
         }
     }
 
@@ -342,7 +380,15 @@ export function localProgress(
               }
             : null
 
-    return { phase, steps, error, prUrl: null, prMerged: false, isCurrent: sessionIsCurrent && !dismissed }
+    return {
+        phase,
+        steps,
+        error,
+        prUrl: null,
+        prMerged: false,
+        isCurrent: sessionIsCurrent && !dismissed,
+        pendingInput: phase === 'running' && !dismissed ? pendingInputFromSession(latestSession) : null,
+    }
 }
 
 // A finished local run rendered from its persisted snapshot, after the live session stream has
@@ -358,6 +404,7 @@ export function progressFromFinishedLocalRun(handle: FinishedLocalRunHandle): In
         prUrl: null,
         prMerged: false,
         isCurrent: true,
+        pendingInput: null,
     }
 }
 
