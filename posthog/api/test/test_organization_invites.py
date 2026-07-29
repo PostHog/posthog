@@ -31,8 +31,8 @@ NAME_SEEDS = ["John", "Jane", "Alice", "Bob", ""]
 
 
 def _enable_domain_enforcement(organization: Organization, domain: str, acting_user_email: str) -> None:
-    # The acting admin's own domain has to be verified too, otherwise enforcement locks them out of
-    # the organization they're administering — the serializer refuses that configuration.
+    # The acting admin's own domain has to be verified too, otherwise per-request enforcement 403s
+    # their invite API calls before the code under test runs.
     organization.enforce_verified_domains = True
     organization.save()
     for verified_domain in {domain, acting_user_email.split("@")[1]}:

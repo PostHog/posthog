@@ -970,6 +970,9 @@ class TestUserAPI(APIBaseTest):
 
     @patch("posthog.api.user.login")
     def test_email_verification_skips_auto_login_when_org_requires_verified_domain(self, mock_login):
+        # The user clicking a verification email holds no session — and a logged-in blocked member
+        # wouldn't reach the view anyway, since per-request enforcement rejects them at the auth layer.
+        self.client.logout()
         self.organization.enforce_verified_domains = True
         self.organization.save()
         OrganizationDomain.objects.create(
