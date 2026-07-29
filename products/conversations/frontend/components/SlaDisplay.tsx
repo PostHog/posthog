@@ -20,8 +20,6 @@ export function SlaDisplay({
     const breached = diffMs < 0
     const atRisk = !breached && diffMs < 60 * 60 * 1000
 
-    // Use the styled lemon-ui Tooltip rather than the native `title` attribute,
-    // which the browser is slow to pop on hover and can't be styled to match.
     return (
         <Tooltip title={`SLA due ${due.format('YYYY-MM-DD HH:mm:ss')}`}>
             <span
