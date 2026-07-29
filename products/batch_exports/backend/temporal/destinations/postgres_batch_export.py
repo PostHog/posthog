@@ -130,6 +130,9 @@ NON_RETRYABLE_ERROR_TYPES = (
     # Raised when a PostgreSQL stored procedure or function fails.
     # We don't (at the moment) create or run any ourselves, so it must be something set up by the user.
     "SqlRoutineException",
+    # The inputs are missing required connection details (e.g. credentials or host).
+    # This usually means the backing integration is misconfigured or absent, so retrying won't help.
+    "PostgreSQLMissingRequiredInputsError",
 )
 
 
@@ -154,6 +157,16 @@ class PostgreSQLTransactionError(Exception):
 
     def __init__(self, max_attempts: int, err_msg: str):
         super().__init__(f"A transaction failed to complete after {max_attempts} attempts: {err_msg}")
+
+
+class PostgreSQLMissingRequiredInputsError(Exception):
+    """Raised when the export is missing required connection inputs (credentials or host/port).
+
+    This usually means the backing integration is misconfigured or absent, so retrying won't recover it.
+    """
+
+    def __init__(self, err_msg: str):
+        super().__init__(f"The export is missing required connection inputs: {err_msg}")
 
 
 class _PostgreSQLClientInputsProtocol(typing.Protocol):
@@ -933,7 +946,12 @@ async def insert_into_postgres_activity_from_stage(inputs: PostgresInsertInputs)
         )[:63]
 
         client_inputs = await _get_postgresql_integration(inputs) or inputs
-        pg_client = PostgreSQLClient.from_inputs(client_inputs, database=inputs.database)
+        try:
+            pg_client = PostgreSQLClient.from_inputs(client_inputs, database=inputs.database)
+        except ValueError as err:
+            # Missing credentials/host usually means a misconfigured or absent integration, which retrying
+            # can't recover. Surface it as a non-retryable error so the export fails fast instead of breaching SLA.
+            raise PostgreSQLMissingRequiredInputsError(str(err)) from err
 
         async with pg_client.connect() as pg_client:
             table_exists = False

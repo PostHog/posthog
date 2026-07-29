@@ -1,7 +1,7 @@
 import { ComponentType, useState } from 'react'
 
 import * as einsteinPng from '@posthog/brand/hoggies/png/einstein'
-import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
 import * as reporterPng from '@posthog/brand/hoggies/png/reporter'
 
 import { pngHoggie } from 'lib/brand/hoggies'

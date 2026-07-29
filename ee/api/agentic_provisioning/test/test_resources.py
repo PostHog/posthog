@@ -6,8 +6,8 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 
+from ee.api.agentic_provisioning.credentials import maybe_create_provisioned_pat
 from ee.api.agentic_provisioning.test.base import ProvisioningTestBase
-from ee.api.agentic_provisioning.views import _maybe_create_provisioned_pat
 
 
 class TestProvisioningResources(ProvisioningTestBase):
@@ -24,7 +24,25 @@ class TestProvisioningResources(ProvisioningTestBase):
         assert "api_key" in data["complete"]["access_configuration"]
         assert "host" in data["complete"]["access_configuration"]
 
-    @patch("ee.api.agentic_provisioning.views._capture_provisioning_event")
+    def test_create_resource_rate_limited_uses_status_envelope(self):
+        self.partner.provisioning_rate_limit_resource_creates = 1
+        self.partner.save(update_fields=["provisioning_rate_limit_resource_creates"])
+        token = self._get_bearer_token()
+
+        assert self._post_with_bearer("/api/agentic/provisioning/resources", token=token).status_code == 200
+
+        res = self._post_with_bearer("/api/agentic/provisioning/resources", token=token)
+        assert res.status_code == 429
+        assert res["Retry-After"]
+
+        # Resource endpoints speak the "status" envelope, not the typed one.
+        assert res.json() == {
+            "status": "error",
+            "id": "",
+            "error": {"code": "rate_limited", "message": "Rate limit exceeded for this partner. Try again later."},
+        }
+
+    @patch("ee.api.agentic_provisioning.views.resources.capture_provisioning_event")
     def test_create_resource_capture_attributes_client(self, mock_capture_event):
         token = self._get_bearer_token()
         res = self._post_with_bearer(
@@ -170,7 +188,7 @@ class TestProvisioningResources(ProvisioningTestBase):
             scopes=["insight:read"],
             provisioning_issues_personal_api_key=gate_on,
         )
-        result = _maybe_create_provisioned_pat(self.user, self.team, app, "insight:read")
+        result = maybe_create_provisioned_pat(self.user, self.team, app, "insight:read")
         if gate_on:
             assert result is not None
             pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
@@ -706,7 +724,7 @@ class TestCreateProvisionedPat(ProvisioningTestBase):
         ]
     )
     def test_label_prefix_resolution(self, _name, label_prefix, expected_label_template):
-        api_key = _maybe_create_provisioned_pat(
+        api_key = maybe_create_provisioned_pat(
             self.user, self.team, self._minting_app(), "query:read", label_prefix=label_prefix
         )
         assert api_key is not None
@@ -717,7 +735,7 @@ class TestCreateProvisionedPat(ProvisioningTestBase):
     def test_label_is_truncated_to_40_chars(self):
         self.team.name = "A" * 60
         self.team.save()
-        _maybe_create_provisioned_pat(
+        maybe_create_provisioned_pat(
             self.user, self.team, self._minting_app(), "query:read", label_prefix="LongPartnerName"
         )
         pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
@@ -732,5 +750,5 @@ class TestCreateProvisionedPat(ProvisioningTestBase):
         app.scopes = []
         app.save(update_fields=["scopes"])
         initial_count = PersonalAPIKey.objects.filter(user=self.user).count()
-        assert _maybe_create_provisioned_pat(self.user, self.team, app, "query:read") is None
+        assert maybe_create_provisioned_pat(self.user, self.team, app, "query:read") is None
         assert PersonalAPIKey.objects.filter(user=self.user).count() == initial_count
