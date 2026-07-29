@@ -854,6 +854,7 @@ def create_and_run_task(
     signal_report_id: str | None = None,
     internal: bool = False,
     sandbox_environment_id: str | None = None,
+    channel_id: str | UUID | None = None,
     **extra,
 ) -> contracts.CreatedTaskDTO:
     """Create a task and (optionally) kick off its processing workflow.
@@ -861,6 +862,10 @@ def create_and_run_task(
     Thin wrapper over ``Task.create_and_run`` that returns ids + the created run as a DTO
     instead of leaking the ORM ``Task``. ``team`` is a core ``posthog.Team`` (not a tasks
     model). Less-common keyword arguments are forwarded verbatim via ``**extra``.
+
+    ``channel_id`` files the task into a channel's feed (the channel it was kicked off in);
+    left NULL for non-channel surfaces. A stale/foreign id is ignored rather than raising —
+    feed placement must never break task creation.
     """
     task = Task.create_and_run(
         team=team,
@@ -878,6 +883,11 @@ def create_and_run_task(
         sandbox_environment_id=sandbox_environment_id,
         **extra,
     )
+    if channel_id is not None:
+        channel = Channel.objects.for_team(task.team_id).filter(id=channel_id, deleted=False).first()
+        if channel is not None:
+            task.channel = channel
+            task.save(update_fields=["channel", "updated_at"])
     latest = task.latest_run
     return contracts.CreatedTaskDTO(
         task_id=task.id,
@@ -5002,23 +5012,42 @@ def _channel_to_dto(channel: Channel) -> contracts.ChannelDTO:
 
 
 def _ensure_personal_channel(team_id: int, user_id: int) -> Channel:
+    # for_team so this works outside request scope too (Temporal activities filing a
+    # Slack task into #me) — the fail-closed manager raises on a bare read without it.
     # select_related so _channel_to_dto doesn't lazy-load created_by per call.
     try:
-        channel, _ = Channel.objects.select_related("created_by").get_or_create(
-            team_id=team_id,
-            created_by_id=user_id,
-            channel_type=Channel.ChannelType.PERSONAL,
-            deleted=False,
-            defaults={"name": Channel.PERSONAL_CHANNEL_NAME},
+        channel, _ = (
+            Channel.objects.for_team(team_id)
+            .select_related("created_by")
+            .get_or_create(
+                team_id=team_id,
+                created_by_id=user_id,
+                channel_type=Channel.ChannelType.PERSONAL,
+                deleted=False,
+                defaults={"name": Channel.PERSONAL_CHANNEL_NAME},
+            )
         )
     except IntegrityError:
-        channel = Channel.objects.select_related("created_by").get(
-            team_id=team_id,
-            created_by_id=user_id,
-            channel_type=Channel.ChannelType.PERSONAL,
-            deleted=False,
+        channel = (
+            Channel.objects.for_team(team_id)
+            .select_related("created_by")
+            .get(
+                team_id=team_id,
+                created_by_id=user_id,
+                channel_type=Channel.ChannelType.PERSONAL,
+                deleted=False,
+            )
         )
     return channel
+
+
+def ensure_personal_channel(team_id: int, user_id: int) -> contracts.ChannelDTO:
+    """Get-or-create the user's personal "#me" channel and return it as a DTO.
+
+    Public counterpart of ``_ensure_personal_channel`` for callers outside a request
+    (Temporal activities) that need the channel id without touching the ORM.
+    """
+    return _channel_to_dto(_ensure_personal_channel(team_id, user_id))
 
 
 def list_channels(team_id: int, user_id: int | None) -> list[contracts.ChannelDTO]:

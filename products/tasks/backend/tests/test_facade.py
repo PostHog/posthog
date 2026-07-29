@@ -1,6 +1,7 @@
 import importlib
 from datetime import timedelta
 from typing import ClassVar
+from uuid import uuid4
 
 from unittest.mock import patch
 
@@ -17,7 +18,7 @@ from products.tasks.backend.facade import (
     contracts,
     warm as warm_facade,
 )
-from products.tasks.backend.models import SandboxCustomImage, SandboxEnvironment, Task, TaskRun
+from products.tasks.backend.models import Channel, SandboxCustomImage, SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PLACEHOLDER, build_wizard_pr_agent_prompt
 
 FACADE_MODULES = [
@@ -559,6 +560,41 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertEqual(run.state["pending_dispatch"]["create_pr"], False)
         self.assertEqual(run.state["pending_dispatch"]["posthog_mcp_scopes"], "full")
         self.assertEqual(run.state["pending_dispatch"]["user_id"], self.user.id)
+
+    @parameterized.expand([("valid_channel", True), ("stale_channel", False)])
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_task_files_into_channel(self, _name, use_real_channel, _mock_workflow):
+        Integration.objects.create(team=self.team, kind="github", config={})
+        channel = Channel.objects.create(
+            team=self.team, name="engineering", channel_type=Channel.ChannelType.PUBLIC, created_by=self.user
+        )
+        created = facade.create_and_run_task(
+            team=self.team,
+            title="Created via facade",
+            description="desc",
+            origin_product=facade.TaskOriginProduct.USER_CREATED,
+            user_id=self.user.id,
+            repository="posthog/posthog",
+            channel_id=str(channel.id) if use_real_channel else str(uuid4()),
+        )
+        task = Task.objects.get(id=created.task_id)
+        # A real id files the task into that channel's feed; a stale/foreign id is dropped
+        # rather than raising, so feed placement never breaks task creation.
+        self.assertEqual(task.channel_id, channel.id if use_real_channel else None)
+
+    def test_ensure_personal_channel_idempotent_outside_request_scope(self):
+        # No ambient team_scope here, like a Temporal activity — the fail-closed manager
+        # would raise on a bare read, so this also guards the for_team scoping.
+        first = facade.ensure_personal_channel(self.team.id, self.user.id)
+        second = facade.ensure_personal_channel(self.team.id, self.user.id)
+        self.assertEqual(first.id, second.id)
+        self.assertEqual(first.channel_type, Channel.ChannelType.PERSONAL)
+        self.assertEqual(
+            Channel.objects.unscoped()
+            .filter(team=self.team, channel_type=Channel.ChannelType.PERSONAL, deleted=False)
+            .count(),
+            1,
+        )
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_wizard_cloud_run_seeds_pending_user_message(self, _mock_workflow):
