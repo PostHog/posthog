@@ -150,14 +150,12 @@ export async function checkConditions(
 }
 
 // A wait whose timers reference data that hasn't arrived yet (a person property written by an
-// earlier step lands via ingestion, not synchronously) re-checks on this instead of sleeping to the
-// deadline. Short because it only has to outlast ingestion lag, and it stops as soon as a timer
-// resolves.
-//
-// Must stay comfortably above PersonsManagerService's 1-minute person cache: a retry that lands
-// inside the cache window re-reads the same stale person, so the timer would never resolve and the
-// wait would retry until its deadline. Don't lower this below a minute.
-const UNRESOLVED_TIMER_RETRY_SECONDS = 5 * 60
+// earlier step lands via ingestion, not synchronously) re-checks on the legacy cap rather than
+// sleeping to its deadline. Deliberately the same interval as the poll it replaces: a timer that
+// never becomes resolvable then costs exactly what it costs today, instead of retrying faster and
+// spending more. It also keeps every retry clear of PersonsManagerService's 1-minute person cache,
+// which a shorter interval would read straight back through.
+const UNRESOLVED_TIMER_RETRY_SECONDS = DEFAULT_WAIT_DURATION_SECONDS
 
 /**
  * How long this wait may sleep before its condition is re-checked.

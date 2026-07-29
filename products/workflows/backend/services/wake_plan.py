@@ -222,6 +222,18 @@ def _collect_thresholds(node: ast.Expr) -> tuple[list[ast.Expr], Optional[str]]:
     return [], f"clock reference in unsupported position ({type(node).__name__})"
 
 
+# Roots the executor puts in scope when it evaluates a timer (see earliestFutureTimer). A threshold
+# reading anything else - a data warehouse table, a group - compiles fine and then resolves to null at
+# runtime, which would look like "data hasn't landed yet" forever instead of an honest refusal.
+_RUNTIME_TIMER_ROOTS = {"person", "event"}
+
+
+def _unevaluable_roots(node: ast.Expr) -> set[str]:
+    collector = _FieldChainCollector()
+    collector.visit(node)
+    return {str(chain[0]) for chain in collector.chains if chain and str(chain[0]) not in _RUNTIME_TIMER_ROOTS}
+
+
 def analyze_wait_condition(condition_expr: ast.Expr, team_id: int) -> WakePlan:
     """
     Build the wake plan for one wait_until_condition.
@@ -235,6 +247,12 @@ def analyze_wait_condition(condition_expr: ast.Expr, team_id: int) -> WakePlan:
     if reason is not None:
         plan.unsupported_reason = reason
         return plan
+
+    for threshold in thresholds:
+        unevaluable = _unevaluable_roots(threshold)
+        if unevaluable:
+            plan.unsupported_reason = f"threshold reads {', '.join(sorted(unevaluable))}, not available at wake time"
+            return plan
 
     context = HogQLContext(team_id=team_id)
     plan.timers = [create_bytecode(threshold, context=context).bytecode for threshold in thresholds]

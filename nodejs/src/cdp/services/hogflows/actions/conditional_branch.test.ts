@@ -304,6 +304,47 @@ describe('action.conditional_branch', () => {
                 expect(result.scheduledAt!.toISO()).toEqual(DateTime.utc().plus({ days: 6 }).toISO())
             })
 
+            it('parks to the earliest of several timers, not the latest', async () => {
+                // An OR'd condition yields one timer per branch and any of them can flip it, so the
+                // wait must wake at the soonest. Choosing the latest would sleep straight through the
+                // earlier flip - the exact silent-miss this whole change exists to prevent. Waking
+                // early is free: the condition is re-checked and the job simply re-parks.
+                const timerFor = (key: string): any[] => [
+                    '_H',
+                    1,
+                    32,
+                    key,
+                    32,
+                    'properties',
+                    32,
+                    'person',
+                    1,
+                    3,
+                    2,
+                    'toUnixTimestamp',
+                    1,
+                ]
+                waitAction.config.max_wait_duration = '30d'
+                waitAction.config.wake_plan = {
+                    streams: ['person'],
+                    timers: [timerFor('later_at'), timerFor('sooner_at')],
+                }
+                waitInvocation.person = {
+                    properties: {
+                        later_at: DateTime.utc().plus({ days: 9 }).toISO(),
+                        sooner_at: DateTime.utc().plus({ days: 2 }).toISO(),
+                    },
+                } as any
+
+                const result = await handler.execute({
+                    invocation: waitInvocation,
+                    action: waitAction,
+                    result: createInvocationResult(waitInvocation),
+                })
+
+                expect(result.scheduledAt!.toISO()).toEqual(DateTime.utc().plus({ days: 2 }).toISO())
+            })
+
             it('never sleeps past the step deadline even when the timer is later', async () => {
                 // A timer beyond max_wait must not extend the wait: the deadline is a hard ceiling, and
                 // overshooting it would strand the run instead of letting it take the timeout branch.
@@ -322,10 +363,12 @@ describe('action.conditional_branch', () => {
                 expect(result.scheduledAt).toEqual(DateTime.utc().plus({ hours: 1 }))
             })
 
-            it('retries shortly when a timer cannot resolve yet', async () => {
+            it('falls back to the polling cap when a timer cannot resolve yet', async () => {
                 // The production flow writes the date it waits on in the preceding step, and that write
-                // lands via ingestion — so the timer is unresolvable on first park. It must retry soon,
-                // never sleep to the deadline, or the wake is lost for the whole max_wait.
+                // lands via ingestion — so the timer is unresolvable on first park. It re-checks on the
+                // same interval the poll uses: never sleeping to the deadline (which would lose the wake
+                // for the whole max_wait), and never faster than today, so a timer that stays
+                // unresolvable cannot cost more churn than the poll it replaces.
                 waitAction.config.max_wait_duration = '30d'
                 waitAction.config.wake_plan = { streams: ['person'], timers: [dueAtTimer] }
                 waitInvocation.person = { properties: {} } as any
@@ -336,7 +379,7 @@ describe('action.conditional_branch', () => {
                     result: createInvocationResult(waitInvocation),
                 })
 
-                expect(result.scheduledAt).toEqual(DateTime.utc().plus({ minutes: 5 }))
+                expect(result.scheduledAt).toEqual(DateTime.utc().plus({ minutes: 10 }))
             })
 
             it('parks to the deadline when the condition has no clock dependence', async () => {

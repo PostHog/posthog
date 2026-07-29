@@ -136,6 +136,21 @@ class TestWakePlan(SimpleTestCase):
         )
         assert result.result["dt"] == datetime(2026, 8, 8, 0, 0, tzinfo=UTC).timestamp()
 
+    def test_days_until_with_a_non_literal_offset(self):
+        # "within N days of X" where N is itself a person property. The offset can't be folded into a
+        # negative constant, so inversion goes through the 0 - x arithmetic path instead; a sign slip
+        # there would park on the wrong side of the date and still look plausible.
+        plan = self._plan(
+            "dateDiff('day', now(), toDateTime(person.properties.ends_at)) <= toInt(person.properties.notice_days)"
+        )
+
+        assert plan.unsupported_reason is None
+        result = execute_bytecode(
+            plan.timers[0],
+            globals={"person": {"properties": {"ends_at": "2026-08-10T00:00:00Z", "notice_days": "3"}}},
+        )
+        assert result.result["dt"] == datetime(2026, 8, 7, 0, 0, tzinfo=UTC).timestamp()
+
     @parameterized.expand(
         [
             # Reversed against the direction the expression moves: "days since" falling below a
@@ -189,6 +204,17 @@ class TestWakePlan(SimpleTestCase):
 
         assert plan.unsupported_reason is not None
         assert plan.needs_polling is True
+        assert plan.timers == []
+
+    def test_warehouse_backed_threshold_is_refused(self):
+        # A live flow waits on a date held in a data warehouse table. The expression inverts cleanly,
+        # so the analyzer used to call it schedulable - but the executor only puts person and event in
+        # scope, so the timer would resolve to null on every wake and look like "not landed yet"
+        # forever. Refusing it keeps the wait on the polling backstop, which is honest.
+        plan = self._plan("dateDiff('day', now(), toDateTime(supabase_user_stats.trial_ends_at)) <= 2")
+
+        assert plan.needs_polling is True
+        assert "supabase_user_stats" in plan.unsupported_reason
         assert plan.timers == []
 
     def test_condition_without_clock_needs_no_timer(self):

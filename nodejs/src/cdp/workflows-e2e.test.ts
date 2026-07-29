@@ -1007,7 +1007,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             expect(seconds).toBeLessThan(4.1 * 86400)
         })
 
-        it('retries soon when the referenced data has not landed yet', async () => {
+        it('falls back to the polling cap when the referenced data has not landed yet', async () => {
             // Production writes trial_expiration_at in the step before this one, via async capture, so
             // the timer is unresolvable on first park. It must retry in minutes — sleeping to the 20d
             // deadline here would silently lose the wake for every run.
@@ -1017,8 +1017,8 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             await triggerWorkflow(createGlobals())
 
             const seconds = await parkedInSeconds()
-            expect(seconds).toBeGreaterThan(4 * 60)
-            expect(seconds).toBeLessThan(6 * 60)
+            expect(seconds).toBeGreaterThan(9 * 60)
+            expect(seconds).toBeLessThan(11 * 60)
         })
 
         it('re-parks to the real instant once the awaited data lands', async () => {
@@ -1034,7 +1034,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
 
             await triggerWorkflow(createGlobals())
 
-            expect(await parkedInSeconds()).toBeLessThan(6 * 60)
+            expect(await parkedInSeconds()).toBeLessThan(11 * 60)
 
             // Ingestion catches up: the person now carries the date the wait is keyed on.
             mockPersonRepo.fetchPersonsByDistinctIds.mockResolvedValue([
