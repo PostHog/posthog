@@ -246,5 +246,16 @@ describe('userLogic', () => {
 
             expect(captureSpy).toHaveBeenCalled()
         })
+
+        it('shows a field-level backend error on the user details form instead of only a toast', async () => {
+            const detail = 'There is already an account with this email address.'
+            jest.spyOn(api, 'update').mockRejectedValue({ status: 400, code: 'unique', attr: 'email', detail })
+
+            await expectLogic(userLogic, () => {
+                userLogic.actions.updateUser({ email: 'taken@example.com' })
+            }).toDispatchActions(['updateUserFailure', 'setUserDetailsManualErrors'])
+
+            expect(userLogic.values.userDetailsErrors.email).toEqual(detail)
+        })
     })
 })

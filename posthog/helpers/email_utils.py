@@ -324,8 +324,13 @@ class EmailMultiRecordHandler:
 
 class EmailValidationHelper:
     @staticmethod
-    def user_exists(email: str) -> bool:
-        return EmailLookupHandler.get_user_by_email(email) is not None
+    def user_exists(email: str, include_inactive: bool = False) -> bool:
+        """Case-insensitive check for an account on this address.
+
+        Pass `include_inactive=True` when guarding a write to the unique `email` column, since
+        deactivated users keep holding their address there.
+        """
+        return EmailLookupHandler.get_user_by_email(email, is_active=None if include_inactive else True) is not None
 
 
 ESP_SUPPRESSION_CACHE_TTL_IN_SECONDS = 86400  # 1 day

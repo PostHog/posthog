@@ -991,6 +991,38 @@ class TestUserAPI(APIBaseTest):
         mock_is_email_available.assert_not_called()
         mock_send_email_change_emails.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("exact_match", "taken@example.com", True),
+            ("different_case", "TAKEN@example.com", True),
+            ("inactive_account", "taken@example.com", False),
+        ]
+    )
+    @patch("posthog.api.user.is_email_available", return_value=True)
+    @patch("posthog.api.email_verification.send_email_verification")
+    def test_cannot_change_email_to_an_address_another_account_uses(
+        self, _name, new_email, other_user_is_active, mock_send_email_verification, _mock_is_email_available
+    ):
+        other_user = self._create_user("taken@example.com")
+        other_user.is_active = other_user_is_active
+        other_user.save()
+        self.user.email = "alpha@example.com"
+        self.user.save()
+
+        response = self.client.patch("/api/users/@me/", {"email": new_email})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == self.validation_error_response(
+            "There is already an account with this email address. Log in to that account instead, "
+            "or contact support if you need the address freed up.",
+            code="unique",
+            attr="email",
+        )
+        self.user.refresh_from_db()
+        assert self.user.email == "alpha@example.com"
+        assert self.user.pending_email is None
+        mock_send_email_verification.assert_not_called()
+
     def test_cannot_upgrade_yourself_to_staff_user(self):
         response = self.client.patch("/api/users/@me/", {"is_staff": True})
 
@@ -2748,6 +2780,21 @@ class TestEmailVerificationAPI(APIBaseTest):
         self.user.refresh_from_db()
         assert self.user.email == "new@posthog.com"
         assert self.user.pending_email is None
+
+    def test_verification_fails_gracefully_if_pending_email_was_claimed_meanwhile(self):
+        self.client.logout()
+        self.user.pending_email = self.other_user.email.upper()
+        self.user.save()
+        original_email = self.user.email
+
+        token = email_verification_token_generator.make_token(self.user)
+        response = self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "unique"
+        self.user.refresh_from_db()
+        assert self.user.email == original_email
+        assert self.user.pending_email == self.other_user.email.upper()
 
     def test_email_verification_does_not_log_in_user_with_2fa_totp(self):
         # If the user has a TOTP device configured, verifying their email must

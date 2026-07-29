@@ -24,6 +24,9 @@ export interface UserDetailsFormType {
     email: string
 }
 
+/** Fields rendered by the user details form, so a backend error on one can be shown inline. */
+const USER_DETAILS_INLINE_ERROR_FIELDS = new Set(['first_name', 'last_name', 'email'])
+
 type DigestProjectSettingKey =
     | 'error_tracking_weekly_digest_project_enabled'
     | 'web_analytics_weekly_digest_project_enabled'
@@ -729,6 +732,12 @@ export const userLogic = kea<userLogicType>([
         },
         updateUserFailure: ({ errorObject }) => {
             lemonToast.dismiss('updateUser')
+            // Field-level errors (e.g. the email address already belongs to another account) belong
+            // next to the input the person has to change, not in a toast that scrolls away.
+            if (errorObject?.detail && USER_DETAILS_INLINE_ERROR_FIELDS.has(errorObject?.attr)) {
+                actions.setUserDetailsManualErrors({ [errorObject.attr]: errorObject.detail })
+                return
+            }
             lemonToast.error(errorObject?.detail || 'Error saving preferences', {
                 toastId: 'updateUser',
             })

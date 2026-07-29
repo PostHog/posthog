@@ -14,7 +14,7 @@ from django.contrib.auth import login, update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.utils import timezone as django_timezone
@@ -75,7 +75,7 @@ from posthog.event_usage import (
     report_user_verified_email,
 )
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers.email_utils import EmailNormalizer, validate_display_name
+from posthog.helpers.email_utils import EmailNormalizer, EmailValidationHelper, validate_display_name
 from posthog.helpers.session_cache import SessionCache
 from posthog.helpers.two_factor_session import has_passkeys, set_two_factor_verified_in_session
 from posthog.middleware import (
@@ -136,6 +136,11 @@ NUM_2FA_BACKUP_CODES = 10
 
 MAX_PIPELINE_NOTIFICATIONS = 1000
 _PIPELINE_ID_PATTERN = re.compile(r"^(?:hog_function|batch_export|plugin_config):[0-9a-zA-Z-]{1,128}$")
+
+EMAIL_ALREADY_IN_USE_MESSAGE = (
+    "There is already an account with this email address. Log in to that account instead, "
+    "or contact support if you need the address freed up."
+)
 
 
 def _validate_pipeline_notifications(incoming: dict, merged: dict) -> None:
@@ -352,6 +357,9 @@ class UserSerializer(serializers.ModelSerializer):
 
         extra_kwargs = {
             "password": {"write_only": True},
+            # DRF's auto-generated UniqueValidator only matches exactly and its default message
+            # says nothing about what to do next, so `validate_email` below owns this check.
+            "email": {"validators": []},
         }
 
     def validate_first_name(self, value: str) -> str:
@@ -359,6 +367,17 @@ class UserSerializer(serializers.ModelSerializer):
 
     def validate_last_name(self, value: str) -> str:
         return validate_display_name(value)
+
+    def validate_email(self, value: str) -> str:
+        instance = cast(Optional[User], self.instance)
+        if instance and EmailNormalizer.normalize(value) == EmailNormalizer.normalize(instance.email):
+            return value  # Unchanged, so there's nothing to collide with
+
+        # Inactive users still hold their address in the unique `email` column, so they count too.
+        if EmailValidationHelper.user_exists(value, include_inactive=True):
+            raise serializers.ValidationError(EMAIL_ALREADY_IN_USE_MESSAGE, code="unique")
+
+        return value
 
     def get_has_password(self, instance: User) -> bool:
         return bool(instance.password) and instance.has_usable_password()
@@ -1085,12 +1104,20 @@ class UserViewSet(
 
         if user.pending_email:
             old_email = user.email
-            with transaction.atomic():
-                user.email = user.pending_email
-                user.pending_email = None
-                user.save(update_fields=["email", "pending_email"])
-                # Delete social auth so the old external identity can't keep logging in.
-                UserSocialAuth.objects.filter(user=user).delete()
+            pending_email = user.pending_email
+            # The address can have been claimed in the meantime, so re-check before writing it into
+            # the unique `email` column. The IntegrityError catch closes the remaining race.
+            if User.objects.exclude(pk=user.pk).filter(email__iexact=pending_email).exists():
+                raise serializers.ValidationError({"email": [EMAIL_ALREADY_IN_USE_MESSAGE]}, code="unique")
+            try:
+                with transaction.atomic():
+                    user.email = pending_email
+                    user.pending_email = None
+                    user.save(update_fields=["email", "pending_email"])
+                    # Delete social auth so the old external identity can't keep logging in.
+                    UserSocialAuth.objects.filter(user=user).delete()
+            except IntegrityError:
+                raise serializers.ValidationError({"email": [EMAIL_ALREADY_IN_USE_MESSAGE]}, code="unique")
             send_email_change_emails.delay(datetime.now(UTC).isoformat(), user.first_name, old_email, user.email)
             revoke_other_sessions_for_request(request, user)
 
