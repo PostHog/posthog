@@ -2932,6 +2932,7 @@ def signal_task_run_user_message(
     message_id: str | None = None,
     actor_slack_user_id: str | None = None,
     steer: bool = False,
+    created_via_code: bool = False,
 ) -> bool | None:
     """Queue a user_message follow-up signal on the run's workflow.
 
@@ -2965,11 +2966,11 @@ def signal_task_run_user_message(
             logger.warning("Follow-up signal target workflow gone for task run %s", run.id)
             return False
         raise
-    record_task_run_user_activity(run.id, team_id)
+    record_task_run_user_activity(run.id, team_id, created_via_code=created_via_code)
     return True
 
 
-def record_task_run_user_activity(run_id: str | UUID, team_id: int) -> None:
+def record_task_run_user_activity(run_id: str | UUID, team_id: int, *, created_via_code: bool = False) -> None:
     """Stamp a user message against the run's open sandbox usage sessions.
 
     Best-effort (the ledger swallows its own failures): records last-activity on
@@ -2980,7 +2981,7 @@ def record_task_run_user_activity(run_id: str | UUID, team_id: int) -> None:
         record_task_run_user_activity as _record_user_activity,
     )
 
-    _record_user_activity(run_id, team_id)
+    _record_user_activity(run_id, team_id, created_via_code=created_via_code)
 
 
 def get_task_run_sandbox_connection(
@@ -3235,7 +3236,12 @@ def _github_credential_source_extra_state(pr_authorship_mode, github_user_token:
 
 
 def bootstrap_task_run(
-    task_id: str | UUID, team_id: int, user_id: int | None, *, validated_data: dict
+    task_id: str | UUID,
+    team_id: int,
+    user_id: int | None,
+    *,
+    validated_data: dict,
+    created_via_code: bool = False,
 ) -> contracts.TaskRunCreateResult | None:
     """Create a task run (without starting execution) from validated bootstrap data.
 
@@ -3369,7 +3375,13 @@ def bootstrap_task_run(
     logger.info(
         "Creating task run for task %s with mode=%s, branch=%s, environment=%s", task.id, mode, branch, environment
     )
-    run = task.create_run(environment=environment, mode=mode, branch=branch, extra_state=extra_state)
+    run = task.create_run(
+        environment=environment,
+        mode=mode,
+        branch=branch,
+        extra_state=extra_state,
+        created_via_code=created_via_code,
+    )
 
     if imported_mcp_servers or relayed_mcp_servers:
         update_fields = ["updated_at"]
@@ -3463,7 +3475,13 @@ def check_task_run_startable(run_id: str | UUID, task_id: str | UUID, team_id: i
 
 
 def start_task_run(
-    run_id: str | UUID, task_id: str | UUID, team_id: int, user_id: int | None, *, validated_data: dict
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    user_id: int | None,
+    *,
+    validated_data: dict,
+    created_via_code: bool = False,
 ) -> tuple[str, UUID | None]:
     """Apply run-scoped attachments and trigger the cloud workflow for a startable run.
 
@@ -3480,6 +3498,8 @@ def start_task_run(
     if run is None:
         return "not_found", None
     task = run.task
+    run.created_via_code = created_via_code
+    run.save(update_fields=["created_via_code", "updated_at"])
 
     pending_user_message = validated_data.get("pending_user_message")
     pending_user_artifact_ids = validated_data.get("pending_user_artifact_ids") or []
@@ -3525,7 +3545,12 @@ def start_task_run(
 
 
 def resume_task_run_in_cloud(
-    run_id: str | UUID, task_id: str | UUID, team_id: int, user_id: int | None
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    user_id: int | None,
+    *,
+    created_via_code: bool = False,
 ) -> tuple[str, contracts.TaskRunDetailDTO | None, str | None]:
     """Resume a run in a cloud sandbox, terminating any prior workflow.
 
@@ -3595,6 +3620,8 @@ def resume_task_run_in_cloud(
         prior_environment = run.environment
         prior_completed_at = run.completed_at
         prior_state = dict(run.state or {})
+        prior_created_via_code = run.created_via_code
+        run.created_via_code = created_via_code
         run.prepare_for_cloud_handoff()
 
     logger.info("Resuming task run in cloud", extra={"task_run_id": str(run.id), "task_id": str(run.task_id)})
@@ -3614,8 +3641,19 @@ def resume_task_run_in_cloud(
             run.environment = prior_environment
             run.completed_at = prior_completed_at
             run.state = prior_state
+            run.created_via_code = prior_created_via_code
             run.error_message = "Failed to start cloud workflow"
-            run.save(update_fields=["status", "environment", "completed_at", "state", "error_message", "updated_at"])
+            run.save(
+                update_fields=[
+                    "status",
+                    "environment",
+                    "completed_at",
+                    "state",
+                    "created_via_code",
+                    "error_message",
+                    "updated_at",
+                ]
+            )
         run.publish_stream_state_event()
         return "workflow_failed", None, None
 
@@ -4095,6 +4133,25 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
             )
 
     return _task_detail_to_dto(_task_detail_queryset().get(pk=task.pk))
+
+
+def create_signal_report_task(
+    team_id: int, user_id: int | None, *, validated_data: dict
+) -> tuple[contracts.TaskDetailDTO, bool]:
+    from products.signals.backend.models import SignalReport, SignalReportTask  # noqa: PLC0415
+    from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION  # noqa: PLC0415
+
+    report = validated_data["signal_report"]
+    with transaction.atomic():
+        SignalReport.objects.select_for_update().get(id=report.id, team_id=team_id)
+        existing = SignalReportTask.objects.filter(
+            team_id=team_id,
+            report_id=report.id,
+            relationship=TASK_RUN_TYPE_IMPLEMENTATION,
+        ).first()
+        if existing is not None:
+            return _task_detail_to_dto(_task_detail_queryset().get(pk=existing.task_id)), False
+        return create_task(team_id, user_id, validated_data=validated_data), True
 
 
 def set_task_title(task_id: str | UUID, team_id: int, title: str) -> bool:

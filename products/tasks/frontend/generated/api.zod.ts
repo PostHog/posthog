@@ -2875,6 +2875,130 @@ export const TasksThreadMessagesSendToAgentCreateBody = /* @__PURE__ */ zod
     .describe("Response shape for one message in a task's thread.")
 
 /**
+ * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
+ */
+export const tasksFromSignalReportCreateBodyTitleMax = 255
+
+export const tasksFromSignalReportCreateBodyRepositoryMax = 255
+
+export const tasksFromSignalReportCreateBodySignalReportTaskRelationshipDefault = `implementation`
+export const tasksFromSignalReportCreateBodyBranchMax = 255
+
+export const tasksFromSignalReportCreateBodyPendingUserArtifactIdsItemMax = 128
+
+export const TasksFromSignalReportCreateBody = /* @__PURE__ */ zod
+    .object({
+        title: zod
+            .string()
+            .max(tasksFromSignalReportCreateBodyTitleMax)
+            .optional()
+            .describe('Short human-readable title. Auto-generated from `description` when omitted.'),
+        title_manually_set: zod
+            .boolean()
+            .optional()
+            .describe('Whether the title was set by a human (vs auto-generated from the description).'),
+        description: zod
+            .string()
+            .optional()
+            .describe('Free-form description of the work to be done. Used as the prompt passed to the agent.'),
+        repository: zod
+            .string()
+            .max(tasksFromSignalReportCreateBodyRepositoryMax)
+            .nullish()
+            .describe('Target GitHub repository in `organization\/repo` format (e.g. `posthog\/posthog-js`).'),
+        github_integration: zod.number().nullish().describe('GitHub integration for this task.'),
+        github_user_integration: zod
+            .uuid()
+            .nullish()
+            .describe('User-scoped GitHub integration to use for user-authored cloud runs.'),
+        signal_report: zod.uuid().nullish().describe('Signal report this task implements, when created from a report.'),
+        signal_report_task_relationship: zod
+            .enum(['implementation'])
+            .describe('\* `implementation` - implementation')
+            .default(tasksFromSignalReportCreateBodySignalReportTaskRelationshipDefault)
+            .describe('Signal report relationship created by this endpoint.\n\n\* `implementation` - implementation'),
+        json_schema: zod.unknown().optional().describe('JSON schema used to validate the output of the task.'),
+        internal: zod
+            .boolean()
+            .optional()
+            .describe('If true, this task is for internal use and should not be exposed to end users.'),
+        archived: zod.boolean().optional().describe('If true, the task is hidden from default list responses.'),
+        ci_prompt: zod
+            .string()
+            .nullish()
+            .describe('Custom prompt for CI fixes. If blank, a default prompt will be used.'),
+        branch: zod
+            .string()
+            .max(tasksFromSignalReportCreateBodyBranchMax)
+            .nullish()
+            .describe(
+                'Branch the user has selected for this cloud task. Write-only and not persisted on the task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch is otherwise carried on the run). Omit to match a warm Run on the default branch.'
+            ),
+        runtime_adapter: zod
+            .union([zod.enum(['claude', 'codex']).describe('\* `claude` - claude\n\* `codex` - codex'), zod.null()])
+            .optional()
+            .describe(
+                "Selected runtime adapter ('claude' or 'codex'). Write-only and not persisted on the task: used only to reuse a pre-warmed Run started on the same runtime. A value differing from the warm Run's runtime skips reuse so the task isn't silently run on the wrong runtime.\n\n\* `claude` - claude\n\* `codex` - codex"
+            ),
+        model: zod
+            .string()
+            .nullish()
+            .describe(
+                'Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model.'
+            ),
+        reasoning_effort: zod
+            .union([
+                zod
+                    .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
+                    .describe(
+                        '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+            ),
+        pending_user_message: zod
+            .string()
+            .nullish()
+            .describe(
+                'First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.'
+            ),
+        pending_user_artifact_ids: zod
+            .array(zod.string().max(tasksFromSignalReportCreateBodyPendingUserArtifactIdsItemMax))
+            .optional()
+            .describe(
+                "Run artifact ids (already uploaded to the pre-warmed Run) to attach to the forwarded first message when creation reuses that warm Run, e.g. skill bundles or file attachments. If any id is missing from the warm Run's manifest, warm reuse is skipped and the task is created cold. Ignored when no warm Run is matched."
+            ),
+        auto_publish: zod
+            .boolean()
+            .nullish()
+            .describe(
+                "When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask. Write-only and not persisted on the task: persisted into the reused warm Run's state when creation activates one, so resumes of that Run honor it. Ignored when no warm Run is reused — cold creation takes it via the run start endpoint instead."
+            ),
+        channel: zod.uuid().nullish().describe('Channel this task is owned by (the channel it was kicked off in).'),
+        sandbox_environment_id: zod
+            .uuid()
+            .nullish()
+            .describe('Sandbox environment selected for matching a pre-warmed cloud run. Not persisted on the task.'),
+        custom_image_id: zod
+            .uuid()
+            .nullish()
+            .describe('Custom image selected for matching a pre-warmed cloud run. Not persisted on the task.'),
+        runtime: zod
+            .enum(['acp', 'pi'])
+            .describe('\* `acp` - ACP\n\* `pi` - Pi')
+            .optional()
+            .describe(
+                "Agent protocol and harness used for this task's runs. Defaults to ACP when omitted.\n\n\* `acp` - ACP\n\* `pi` - Pi"
+            ),
+    })
+    .describe(
+        'Request body for creating or updating a task.\n\nField required\/default semantics match the ``Task`` model. The view passes\n``validated_data`` (integration\/report PK fields already resolved to instances) to the\nfacade ``create_task`` \/ ``update_task`` functions.'
+    )
+
+/**
  * Returns summary for the requested tasks: `id`, `title`, `repository`, `created_at`, `updated_at`, and the latest run's `status` and `environment`.
  * @summary Fetch task summaries by ID
  */

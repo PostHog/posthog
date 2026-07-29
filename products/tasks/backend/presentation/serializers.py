@@ -596,6 +596,10 @@ class TaskWriteSerializer(serializers.Serializer):
 
     def validate_origin_product(self, value):
         """Reject internal-only origins that are set by server-side flows, never by API callers."""
+        if value == tasks_facade.TaskOriginProduct.SIGNAL_REPORT:
+            raise serializers.ValidationError(
+                "Update PostHog Code to start tasks from Inbox. Signal report tasks can no longer be created through the generic tasks API."
+            )
         if value == tasks_facade.TaskOriginProduct.IMAGE_BUILDER:
             raise serializers.ValidationError("origin_product 'image_builder' is reserved for image-builder sessions")
         if value == tasks_facade.TaskOriginProduct.EXPERIMENTS:
@@ -641,6 +645,12 @@ class TaskWriteSerializer(serializers.Serializer):
         return normalized
 
     def validate(self, attrs: dict) -> dict:
+        if self.context.get("is_update"):
+            immutable_fields = {"origin_product", "signal_report"}.intersection(self.initial_data)
+            if immutable_fields:
+                raise serializers.ValidationError(
+                    dict.fromkeys(immutable_fields, "This field cannot be changed after task creation.")
+                )
         if "runtime" in self.initial_data and "runtime" not in self.fields:
             raise serializers.ValidationError({"runtime": "Runtime cannot be changed after task creation."})
 
@@ -684,6 +694,27 @@ class TaskCreateSerializer(TaskWriteSerializer):
         required=False,
         help_text="Agent protocol and harness used for this task's runs. Defaults to ACP when omitted.",
     )
+
+
+class SignalReportTaskCreateSerializer(TaskCreateSerializer):
+    origin_product = serializers.HiddenField(  # type: ignore[assignment]
+        default=tasks_facade.TaskOriginProduct.SIGNAL_REPORT
+    )
+    signal_report_task_relationship = serializers.ChoiceField(  # type: ignore[assignment]
+        choices=["implementation"],
+        default="implementation",
+        write_only=True,
+        help_text="Signal report relationship created by this endpoint.",
+    )
+
+    def validate_origin_product(self, value):
+        return value
+
+    def validate(self, attrs: dict) -> dict:
+        attrs = super().validate(attrs)
+        if not attrs.get("signal_report"):
+            raise serializers.ValidationError({"signal_report": "This field is required."})
+        return attrs
 
 
 class TaskRunSetOutputRequestSerializer(serializers.Serializer):

@@ -157,7 +157,6 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
     title_manually_set = models.BooleanField(default=False)
     description = models.TextField()
     origin_product = models.CharField(max_length=20, choices=OriginProduct)
-
     # Repository configuration
     github_integration = models.ForeignKey(
         "posthog.Integration",
@@ -386,6 +385,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         mode: str = "background",
         extra_state: dict | None = None,
         branch: str | None = None,
+        created_via_code: bool | None = None,
     ) -> "TaskRun":
         state: dict = {} if self.runtime == Task.Runtime.PI else {"mode": mode}
         if extra_state:
@@ -408,6 +408,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             **({"environment": environment} if environment else {}),
             state=state,
             branch=branch,
+            created_via_code=created_via_code,
         )
         task_run.publish_stream_state_event()
         observe_task_run_created(task_run)
@@ -1533,6 +1534,11 @@ class TaskRun(models.Model):
         blank=True,
         related_name="active_runs",
     )
+    created_via_code = models.BooleanField(
+        null=True,
+        editable=False,
+        help_text="Whether the current cloud execution was initiated by a PostHog Code OAuth application",
+    )
 
     branch = models.CharField(max_length=255, blank=True, null=True, help_text="Branch name for the run")
 
@@ -1697,6 +1703,7 @@ class TaskRun(models.Model):
                 "completed_at",
                 "error_message",
                 "state",
+                "created_via_code",
                 "updated_at",
             ]
         )
@@ -2280,6 +2287,11 @@ class SandboxSession(TeamScopedRootMixin, UUIDModel):
         null=True,
         blank=True,
         help_text="Task origin at provision time, denormalized for per-origin aggregation",
+    )
+    created_via_code = models.BooleanField(
+        null=True,
+        editable=False,
+        help_text="PostHog Code OAuth provenance at provision time",
     )
     prewarmed = models.BooleanField(default=False, help_text="Sandbox was provisioned ahead of any user demand")
     vm_runtime = models.BooleanField(

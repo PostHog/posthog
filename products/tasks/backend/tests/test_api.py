@@ -24,11 +24,21 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from posthog.models import Integration, Organization, OrganizationMembership, PersonalAPIKey, Team, User
+from posthog.models import (
+    Integration,
+    OAuthAccessToken,
+    OAuthApplication,
+    Organization,
+    OrganizationMembership,
+    PersonalAPIKey,
+    Team,
+    User,
+)
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.user_integration import UserIntegration
 from posthog.models.utils import generate_random_token_personal
 from posthog.storage import object_storage
+from posthog.temporal.oauth import POSTHOG_CODE_OAUTH_CLIENT_IDS
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.tasks.backend.facade import api as tasks_facade
@@ -936,6 +946,32 @@ class TestTaskVisibilityInternalDebugRegionGate(BaseTaskAPITest):
 
 
 class TestTaskAPI(BaseTaskAPITest):
+    def _authenticate_with_session(self) -> None:
+        self.client.force_authenticate(user=None)
+        self.client.force_login(self.user)
+
+    def _code_oauth_client(self) -> APIClient:
+        application = OAuthApplication.objects.create(
+            name="PostHog Code",
+            client_id=next(iter(POSTHOG_CODE_OAUTH_CLIENT_IDS)),
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="posthog-code://oauth/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.user,
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token="pha_code_task_create",
+            expires=django_timezone.now() + timedelta(hours=1),
+            scope="task:read task:write",
+        )
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}")
+        return client
+
     def test_list_tasks(self):
         self.create_task("Task 1")
         self.create_task("Task 2")
@@ -1245,6 +1281,17 @@ class TestTaskAPI(BaseTaskAPITest):
         task = Task.objects.get(id=data["id"])
         self.assertEqual(task.origin_product, Task.OriginProduct.USER_CREATED)
 
+    def test_create_cloud_run_records_code_oauth_provenance(self):
+        task = self.create_task()
+        response = self._code_oauth_client().post(
+            f"/api/projects/{self.team.id}/tasks/{task.id}/runs/",
+            {"environment": "cloud", "mode": "interactive"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(TaskRun.objects.get(id=response.json()["id"]).created_via_code)
+
     def test_create_task_with_hogdesk_origin_product(self):
         # HogDesk creates Code tasks from a support ticket's Code chat with this
         # origin. Ensure the value round-trips through the API — the serializer
@@ -1354,17 +1401,17 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["attr"], "github_user_integration")
 
-    def test_create_task_with_signal_report_same_team(self):
+    def test_create_signal_report_task_from_dedicated_action(self):
         from products.signals.backend.models import SignalReport, SignalReportTask
         from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION, signals_task_ids
 
         report = SignalReport.objects.create(team=self.team)
+        self._authenticate_with_session()
         response = self.client.post(
-            "/api/projects/@current/tasks/",
+            "/api/projects/@current/tasks/from_signal_report/",
             {
                 "title": "Signal Task",
                 "description": "From a signal report",
-                "origin_product": "signal_report",
                 "signal_report": str(report.id),
                 "signal_report_task_relationship": "implementation",
             },
@@ -1383,69 +1430,73 @@ class TestTaskAPI(BaseTaskAPITest):
             ).exists()
         )
 
-    def test_create_task_with_signal_report_discussion_records_artefact_without_gate_row(self):
-        from products.signals.backend.models import SignalReport, SignalReportTask
-        from products.signals.backend.task_run_artefacts import (
-            TASK_RUN_TYPE_DISCUSSION,
-            TASK_RUN_TYPE_IMPLEMENTATION,
-            signals_task_ids,
-        )
-
-        report = SignalReport.objects.create(team=self.team)
-        response = self.client.post(
-            "/api/projects/@current/tasks/",
+        repeated_response = self.client.post(
+            "/api/projects/@current/tasks/from_signal_report/",
             {
-                "title": "Discuss report",
-                "description": "Let's discuss this report",
-                "origin_product": "signal_report",
+                "title": "Another task",
+                "description": "Try to implement the same report again",
                 "signal_report": str(report.id),
-                "signal_report_task_relationship": "discussion",
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        data = response.json()
-        # A discussion link is recorded as a discussion task_run artefact only — it must NOT open the
-        # implementation spend gate (no SignalReportTask row, no implementation artefact), otherwise a
-        # discuss-the-report task would block the auto-start pipeline.
-        self.assertEqual(signals_task_ids(report_id=str(report.id), type=TASK_RUN_TYPE_DISCUSSION), [data["id"]])
-        self.assertEqual(signals_task_ids(report_id=str(report.id), type=TASK_RUN_TYPE_IMPLEMENTATION), [])
-        self.assertFalse(SignalReportTask.objects.filter(report=report, task_id=data["id"]).exists())
 
-    def test_create_task_with_signal_report_accepts_free_form_relationship(self):
-        from products.signals.backend.models import SignalReport, SignalReportTask
-        from products.signals.backend.task_run_artefacts import signals_task_ids
+        self.assertEqual(repeated_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(repeated_response.json()["id"], data["id"])
+        self.assertEqual(
+            SignalReportTask.objects.filter(
+                report=report,
+                relationship=TASK_RUN_TYPE_IMPLEMENTATION,
+            ).count(),
+            1,
+        )
 
-        # The relationship is a free-form task_run label — no value is reserved. A non-implementation
-        # relationship records only the work-log artefact (no SignalReportTask gate row).
+    def test_generic_create_rejects_signal_report_with_upgrade_message(self):
+        from products.signals.backend.models import SignalReport
+
         report = SignalReport.objects.create(team=self.team)
+        self._authenticate_with_session()
         response = self.client.post(
             "/api/projects/@current/tasks/",
             {
-                "title": "Research",
                 "description": "From a signal report",
                 "origin_product": "signal_report",
+                "signal_report": str(report.id),
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Update PostHog Code", response.json()["detail"])
+
+    def test_signal_report_action_rejects_non_implementation_relationship(self):
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team)
+        self._authenticate_with_session()
+        response = self.client.post(
+            "/api/projects/@current/tasks/from_signal_report/",
+            {
+                "title": "Research",
+                "description": "From a signal report",
                 "signal_report": str(report.id),
                 "signal_report_task_relationship": "research",
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        data = response.json()
-        self.assertEqual(signals_task_ids(report_id=str(report.id), type="research"), [data["id"]])
-        self.assertFalse(SignalReportTask.objects.filter(report=report, task_id=data["id"]).exists())
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_create_task_with_signal_report_different_team_rejected(self):
         from products.signals.backend.models import SignalReport
 
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
         report = SignalReport.objects.create(team=other_team)
+        self._authenticate_with_session()
         response = self.client.post(
-            "/api/projects/@current/tasks/",
+            "/api/projects/@current/tasks/from_signal_report/",
             {
                 "title": "Cross-team Task",
                 "description": "Should be rejected",
-                "origin_product": "signal_report",
                 "signal_report": str(report.id),
             },
             format="json",
@@ -1460,7 +1511,7 @@ class TestTaskAPI(BaseTaskAPITest):
             {"origin_product": "signal_report"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         task.refresh_from_db()
         self.assertEqual(task.origin_product, Task.OriginProduct.USER_CREATED)
 
@@ -1474,7 +1525,7 @@ class TestTaskAPI(BaseTaskAPITest):
             {"signal_report": str(report.id)},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         task.refresh_from_db()
         self.assertIsNone(task.signal_report_id)
 
@@ -1926,6 +1977,7 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(task_run.state["initial_permission_mode"], "auto")
         self.assertEqual(task_run.state["run_source"], "manual")
         self.assertEqual(task_run.state["auto_publish"], True)
+        self.assertFalse(task_run.created_via_code)
         mock_workflow.assert_not_called()
 
     # is_url_allowed resolves DNS for real in CI, and example.com subdomains don't resolve.
@@ -2274,6 +2326,21 @@ class TestTaskAPI(BaseTaskAPITest):
             user_id=self.user.id,
             posthog_mcp_scopes="full",
         )
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_start_existing_cloud_run_records_code_oauth_provenance(self, _mock_workflow):
+        task = self.create_task()
+        task_run = task.create_run(environment=TaskRun.Environment.CLOUD)
+
+        response = self._code_oauth_client().post(
+            f"/api/projects/{self.team.id}/tasks/{task.id}/runs/{task_run.id}/start/",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task_run.refresh_from_db()
+        self.assertTrue(task_run.created_via_code)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_start_run_endpoint_starts_pi_task(self, mock_workflow):

@@ -24,16 +24,24 @@ def _config(**overrides) -> SandboxConfig:
 
 
 class SandboxUsageBase(APIBaseTest):
-    def _run(self, *, state: dict | None = None) -> TaskRun:
+    def _run(self, *, state: dict | None = None, created_via_code: bool | None = None) -> TaskRun:
         task = Task.objects.create(
-            team=self.team, title="t", description="", origin_product=Task.OriginProduct.USER_CREATED
+            team=self.team,
+            title="t",
+            description="",
+            origin_product=Task.OriginProduct.USER_CREATED,
         )
-        return TaskRun.objects.create(task=task, team=self.team, state=state or {})
+        return TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            state=state or {},
+            created_via_code=created_via_code,
+        )
 
 
 class TestSandboxSessionWrites(SandboxUsageBase):
     def test_open_attributes_cold_runs_immediately(self):
-        run = self._run()
+        run = self._run(created_via_code=True)
 
         open_sandbox_session(run_id=run.id, sandbox_id="sb-cold", config=_config())
 
@@ -41,6 +49,7 @@ class TestSandboxSessionWrites(SandboxUsageBase):
         assert session.team_id == self.team.id
         assert session.task_run_id == run.id
         assert session.origin_product == Task.OriginProduct.USER_CREATED
+        assert session.created_via_code is True
         assert session.user_attributed_at is not None
         assert session.prewarmed is False
         assert session.vm_runtime is False
@@ -173,6 +182,17 @@ class TestSandboxSessionWrites(SandboxUsageBase):
             )
 
         assert SandboxSession.objects.unscoped().get(sandbox_id="sb-claim").user_attributed_at is not None
+
+    def test_code_claim_updates_run_and_open_session_provenance(self):
+        run = self._run(state={"prewarmed": True, "await_user_message": True})
+        open_sandbox_session(run_id=run.id, sandbox_id="sb-code-claim", config=_config())
+
+        record_task_run_user_activity(run.id, self.team.id, created_via_code=True)
+
+        run.refresh_from_db()
+        session = SandboxSession.objects.unscoped().get(sandbox_id="sb-code-claim")
+        assert run.created_via_code is True
+        assert session.created_via_code is True
 
 
 class TestSandboxUsageAggregation(SandboxUsageBase):

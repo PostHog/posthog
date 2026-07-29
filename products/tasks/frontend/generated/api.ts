@@ -54,6 +54,7 @@ import type {
     SandboxEnvironmentDTOApi,
     SandboxEnvironmentWriteApi,
     SandboxListParams,
+    SignalReportTaskCreateApi,
     SlackThreadContextResponseApi,
     StreamReadTokenResponseApi,
     TaskActivityListParams,
@@ -1981,6 +1982,26 @@ export const tasksActiveWizardRunRetrieve = async (
     return apiMutator<WizardCloudRunDTOApi | void>(getTasksActiveWizardRunRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getTasksFromSignalReportCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tasks/from_signal_report/`
+}
+
+/**
+ * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
+ */
+export const tasksFromSignalReportCreate = async (
+    projectId: string,
+    signalReportTaskCreateApi?: SignalReportTaskCreateApi,
+    options?: RequestInit
+): Promise<TaskDetailDTOApi> => {
+    return apiMutator<TaskDetailDTOApi>(getTasksFromSignalReportCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportTaskCreateApi),
     })
 }
 
