@@ -365,15 +365,17 @@ class QueryDateRange:
         return self.date_to_start_of_interval_hogql(self.date_from_as_hogql())
 
     def date_from_with_adjusted_start_of_interval_hogql(self) -> ast.Call:
-        if self.interval_name == "week":
-            # in `where` queries with week intervals, we need to return the date_from instead of the start of the week
-            # this ensures that we only fetch records after the date_from
+        if self.interval_name in ("week", "month", "quarter", "year"):
+            # in `where` queries with intervals coarser than a day, filter from the start of `date_from`'s day
+            # rather than the start of the interval bucket. This ensures we only fetch records at or after
+            # date_from, matching how the day interval already behaves and keeping grouped totals consistent
+            # with the selected date range.
             return ast.Call(
                 name="toStartOfInterval",
                 args=[
                     self.date_from_as_hogql(),
                     ast.Call(
-                        name=f"toIntervalDay",
+                        name="toIntervalDay",
                         args=[ast.Constant(value=1)],
                     ),
                 ],

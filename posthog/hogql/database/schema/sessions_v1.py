@@ -21,14 +21,8 @@ from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES, Ch
 from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractorV1
 from posthog.hogql.errors import ResolutionError
 
-from posthog.models.sessions.sql import (
-    SELECT_SESSION_PROP_STRING_VALUES_SQL,
-    SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER,
-)
 from posthog.queries.insight import insight_sync_execute
 from posthog.schema_enums import BounceRatePageViewMode
-
-from products.event_definitions.backend.models.property_definition import PropertyType
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -464,6 +458,9 @@ def get_lazy_session_table_properties_v1(search: Optional[str]):
         "$end_pathname",
     }
 
+    # lazy import keeps the event-definitions ORM off this module's import path
+    from products.event_definitions.backend.models.property_definition import PropertyType  # noqa: PLC0415
+
     # some fields should have a specific property type which isn't derivable from the type of database field
     property_type_overrides = {
         "$session_duration": PropertyType.Duration,
@@ -532,6 +529,12 @@ SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR_MAP = {
 
 
 def get_lazy_session_table_values_v1(key: str, search_term: Optional[str], team: "Team"):
+    # lazy import keeps the sessions SQL module (Django ORM) off this module's import path
+    from posthog.models.sessions.sql import (  # noqa: PLC0415
+        SELECT_SESSION_PROP_STRING_VALUES_SQL,
+        SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER,
+    )
+
     # the sessions table does not have a properties json object like the events and person tables
 
     if key == "$channel_type":

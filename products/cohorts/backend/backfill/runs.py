@@ -1,9 +1,11 @@
 from collections.abc import Iterable
+from datetime import UTC, datetime
 from typing import Any
 
 from django.conf import settings
 from django.db import transaction
 from django.db.models.functions import Now
+from django.utils import timezone as django_timezone
 
 from posthog.models.team.team import Team
 
@@ -16,6 +18,7 @@ from products.cohorts.backend.models.backfill import (
     CohortBackfillRunCohort,
     CohortBackfillRunStatus,
     CohortBackfillScope,
+    CohortBackfillTrigger,
 )
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.leaf_shape import walk_filter_leaves
@@ -122,9 +125,20 @@ def create_team_backfill_run(
     trigger_kind: str,
     cohort_ids: Iterable[int] | None = None,
     created_by_id: int | None = None,
+    boundary_at: datetime | None = None,
 ) -> CohortBackfillRun:
     if not is_realtime_cohort_team(team_id):
         raise ValueError(f"Team {team_id} is not in the realtime cohort allowlist")
+
+    if boundary_at is not None:
+        if trigger_kind != CohortBackfillTrigger.DISASTER_RECOVERY:
+            raise ValueError("boundary_at is only valid for disaster recovery runs")
+        if django_timezone.is_naive(boundary_at):
+            raise ValueError("boundary_at must include a UTC offset")
+        try:
+            boundary_at = boundary_at.astimezone(UTC)
+        except OverflowError as error:
+            raise ValueError("boundary_at falls outside the supported UTC range") from error
 
     requested_ids = set(cohort_ids) if cohort_ids is not None else None
     with transaction.atomic():
@@ -161,6 +175,7 @@ def create_team_backfill_run(
             trigger_kind=trigger_kind,
             scope=CohortBackfillScope.TEAM,
             status=status,
+            boundary_at=boundary_at,
             timezone=team.timezone,
             pinned=_pinned_payload(cohorts),
             preconditions=preconditions,
@@ -187,22 +202,32 @@ def supersede_active_runs(team_id: int, cohort_ids: Iterable[int]) -> int:
     if not cohort_id_set:
         return 0
 
+    error = "Cohort definition changed during backfill"
     with transaction.atomic():
-        participations = CohortBackfillRunCohort.objects.for_team(team_id).filter(
-            cohort_id__in=cohort_id_set,
-            superseded_at__isnull=True,
-            run__status__in=ACTIVE_COHORT_BACKFILL_RUN_STATUSES,
+        # Resolve the targets first, then write run rows before participation rows. The finalizer
+        # locks in that order (run FOR UPDATE, then participations via stamp_events_readiness), so
+        # the opposite order here would deadlock the two on a cohort-scoped run.
+        targets = list(
+            CohortBackfillRunCohort.objects.for_team(team_id)
+            .filter(
+                cohort_id__in=cohort_id_set,
+                superseded_at__isnull=True,
+                run__status__in=ACTIVE_COHORT_BACKFILL_RUN_STATUSES,
+            )
+            .values_list("id", "run_id", "run__scope")
         )
-        cohort_run_ids = list(
-            participations.filter(run__scope=CohortBackfillScope.COHORT).values_list("run_id", flat=True)
-        )
-        participation_count = participations.update(
-            superseded_at=Now(), error="Cohort definition changed during backfill"
-        )
+        if not targets:
+            return 0
+
+        cohort_run_ids = [run_id for _, run_id, scope in targets if scope == CohortBackfillScope.COHORT]
         if cohort_run_ids:
             CohortBackfillRun.objects.for_team(team_id).filter(id__in=cohort_run_ids).update(
                 status=CohortBackfillRunStatus.SUPERSEDED,
                 finished_at=Now(),
-                error="Cohort definition changed during backfill",
+                error=error,
             )
-        return participation_count
+        return (
+            CohortBackfillRunCohort.objects.for_team(team_id)
+            .filter(id__in=[participation_id for participation_id, _, _ in targets], superseded_at__isnull=True)
+            .update(superseded_at=Now(), error=error)
+        )

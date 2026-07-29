@@ -13,6 +13,8 @@ from posthog.schema import (
     SourceFieldOauthConfig,
 )
 
+from posthog.models.integration import Integration
+
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
     SourceInputs,
     SourceResponse,
@@ -25,7 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleanalytics import (
     GoogleAnalyticsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.google_analytics import (
@@ -68,6 +70,13 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
             "ACCESS_TOKEN_SCOPE_INSUFFICIENT": "Insufficient permissions. Please reconnect your Google Analytics account with the required scopes.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `_run_report` already retries Data API quota exhaustion in-line with backoff; if it's
+        # still exhausted once those retries run out, the property's token quota refills over
+        # time and the resumable source picks up from the last saved chunk, so let Temporal
+        # retry the activity without paging it as a bug.
+        return {"(retryable)"}
+
     def get_schemas(
         self,
         config: GoogleAnalyticsSourceConfig,
@@ -75,6 +84,7 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -119,6 +129,7 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
         config: GoogleAnalyticsSourceConfig,
         team_id: int,
         schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         property_id = normalize_property_id(config.property_id)
         if not property_id.isdigit():
@@ -147,6 +158,13 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
 
         try:
             session = google_analytics_session(config.google_analytics_integration_id, team_id)
+        except Integration.DoesNotExist:
+            # The stored OAuth integration row has been deleted/disconnected before validation runs.
+            # Caught explicitly so an unrelated model's DoesNotExist still surfaces as a real bug below.
+            return (
+                False,
+                "The Google Analytics connection for this source no longer exists. Please reconnect your Google account.",
+            )
         except Exception as e:
             return False, f"Could not load Google Analytics credentials: {e}"
 
@@ -195,7 +213,7 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
                 "devices, locations, traffic sources, and events). Requires a Google account with read access "
                 "to the GA4 property."
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             featureFlag="dwh-google-analytics",
             iconPath="/static/services/google_analytics.png",
             docsUrl="https://posthog.com/docs/cdp/sources/google-analytics",

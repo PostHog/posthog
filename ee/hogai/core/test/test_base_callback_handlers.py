@@ -6,8 +6,6 @@ from unittest.mock import Mock, patch
 import posthoganalytics
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 
-from posthog.settings.ingestion import DedicatedAIEndpointRollout
-
 from products.posthog_ai.backend.models.assistant import Conversation
 
 from ee.hogai.chat_agent.runner import ChatAgentRunner
@@ -73,7 +71,6 @@ class TestBaseAgentRunnerCallbackHandlers(BaseTest):
             "US",
             flush_at=1,
             before_send=ai_event_truncator,
-            dedicated_ai_endpoint_stage=DedicatedAIEndpointRollout.RUNNER,
         )
 
     @patch("ee.hogai.core.runner.is_cloud")
@@ -107,13 +104,11 @@ class TestBaseAgentRunnerCallbackHandlers(BaseTest):
             "EU",
             flush_at=1,
             before_send=ai_event_truncator,
-            dedicated_ai_endpoint_stage=DedicatedAIEndpointRollout.RUNNER,
         )
         mock_get_client.assert_any_call(
             "US",
             flush_at=1,
             before_send=ai_event_truncator,
-            dedicated_ai_endpoint_stage=DedicatedAIEndpointRollout.RUNNER,
         )
 
     @patch("ee.hogai.core.runner.is_cloud")

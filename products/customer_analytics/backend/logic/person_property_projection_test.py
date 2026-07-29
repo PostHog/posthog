@@ -26,7 +26,9 @@ class PersonPropertyProjectionTest(TeamScopedTestMixin, BaseTest):
         flag_patch.start()
         self.addCleanup(flag_patch.stop)
 
-    def _person_source(self, name, key_column, column_property_map, *, is_enabled=True, schema=None):
+    def _person_source(
+        self, name, key_column, column_property_map, *, is_enabled=True, schema=None, column_descriptions=None
+    ):
         definition = create_custom_property_definition(
             team_id=self.team.id, name=name, target_type=TargetType.PERSON.value
         )
@@ -36,6 +38,7 @@ class PersonPropertyProjectionTest(TeamScopedTestMixin, BaseTest):
             external_data_schema=schema or self.schema,
             key_column=key_column,
             column_property_map=column_property_map,
+            column_descriptions=column_descriptions,
             is_enabled=is_enabled,
         )
 
@@ -92,6 +95,24 @@ class PersonPropertyProjectionTest(TeamScopedTestMixin, BaseTest):
         assert config.definition_id == str(source.definition_id)
         assert config.key_column == "distinct_id"
         assert config.column_property_map == {"plan": "plan_tier"}
+        # No descriptions configured -> empty mapping, not None.
+        assert config.property_descriptions == {}
+
+    def test_sync_sources_rekey_column_descriptions_onto_property_names(self):
+        # Descriptions are stored keyed by warehouse column but stamped onto property definitions
+        # keyed by property name; the resolver must re-key and drop descriptions for unmapped columns.
+        self._person_source(
+            "A",
+            "distinct_id",
+            {"plan": "plan_tier", "seats": "seat_count"},
+            column_descriptions={"plan": "The plan tier", "unmapped": "ignored", "seats": ""},
+        )
+
+        configs = person_property_sync_sources(self.team.id, self.schema.id)
+
+        assert configs is not None and len(configs) == 1
+        # 'plan' re-keyed to 'plan_tier'; 'unmapped' dropped (no column); 'seats' dropped (blank).
+        assert configs[0].property_descriptions == {"plan_tier": "The plan tier"}
 
     def test_sync_sources_none_when_no_person_sources(self):
         assert person_property_sync_sources(self.team.id, self.schema.id) is None

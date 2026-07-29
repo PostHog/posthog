@@ -59,6 +59,25 @@ TASK_RUN_DISPATCH_CALLBACK_TOTAL = Counter(
     ],
 )
 
+AGENT_OTEL_TELEMETRY_STAMPED_TOTAL = Counter(
+    "posthog_tasks_agent_otel_telemetry_stamped_total",
+    "Agent-run OTel telemetry rollout decisions stamped into run state at dispatch "
+    "(tasks-agent-run-otel-telemetry flag). First-time stamps only; resumes reuse the stamp.",
+    labelnames=["enabled"],
+)
+
+RUN_LOG_MIRROR_ENTRIES_TOTAL = Counter(
+    "posthog_tasks_run_log_mirror_entries_total",
+    "Task-run log entries mirrored to stdout for the internal Logs project (run_log_mirror).",
+    labelnames=["origin_product"],
+)
+
+RUN_LOG_MIRROR_OTLP_BATCHES_TOTAL = Counter(
+    "posthog_tasks_run_log_mirror_otlp_batches_total",
+    "Direct-OTLP mirror batch deliveries by outcome (the local-dev leg; unset in cloud).",
+    labelnames=["outcome"],
+)
+
 PREWARMED_ACTIVATED_TOTAL = Counter(
     "posthog_tasks_prewarmed_activated_total",
     "Pre-warmed Runs that received their first user message (the warm sandbox got used, not reaped)",
@@ -163,6 +182,30 @@ PUSH_DISPATCHER_FAILURES_TOTAL = Counter(
     "posthog_tasks_push_dispatcher_failures_total",
     "Push-notification dispatch attempts that failed and were swallowed by the best-effort dispatcher",
     labelnames=["kind", "reason"],
+)
+
+# reason is one of: created, deduped, overlap_skipped, rate_capped, disabled, gate_blocked
+# (LoopFireResult.reason), a fixed, code-defined set, safe as a label.
+LOOP_FIRE_TOTAL = Counter(
+    "posthog_tasks_loop_fire_total",
+    "Loop trigger fire outcomes",
+    labelnames=["reason"],
+)
+
+LOOP_AUTO_PAUSED_TOTAL = Counter(
+    "posthog_tasks_loop_auto_paused_total",
+    "Loops auto-paused after exceeding the consecutive-failure threshold",
+)
+
+CodeUsageGateOutcome = Literal["checked_allowed", "checked_blocked", "fail_open"]
+
+# outcome: checked_allowed/checked_blocked when the LLM gateway answered the usage check,
+# fail_open when a gateway/token error let the run proceed unchecked (see LOOPS.md Security:
+# a degraded gateway must not silently remove the only cost backstop).
+CODE_USAGE_GATE_CHECK_TOTAL = Counter(
+    "posthog_tasks_code_usage_gate_check_total",
+    "Cloud usage-gate check outcomes for PostHog Code runs",
+    labelnames=["outcome"],
 )
 
 
@@ -326,3 +369,15 @@ def observe_followup_delivery_failed(task_run: "TaskRun", *, retryable: bool) ->
         origin_product=origin_product_label(task_run),
         retryable="true" if retryable else "false",
     ).inc()
+
+
+def observe_loop_fire(*, reason: str) -> None:
+    LOOP_FIRE_TOTAL.labels(reason=reason).inc()
+
+
+def observe_loop_auto_paused() -> None:
+    LOOP_AUTO_PAUSED_TOTAL.inc()
+
+
+def observe_code_usage_gate_check(*, outcome: CodeUsageGateOutcome) -> None:
+    CODE_USAGE_GATE_CHECK_TOTAL.labels(outcome=outcome).inc()

@@ -1,4 +1,6 @@
 .ImpersonationNotice {
+    --impersonation-notice-border-accent: var(--color-border-warning);
+
     display: flex;
     width: 26rem;
     background-color: var(--color-bg-surface-primary);
@@ -38,6 +40,8 @@
     }
 
     &--read-write {
+        --impersonation-notice-border-accent: var(--color-border-error);
+
         .ImpersonationNotice__sidebar {
             background: var(--danger);
         }
@@ -163,18 +167,31 @@
         color: var(--text-primary);
     }
 
-    // The change-user menu trigger sits inline in the "Signed in as …" sentence,
-    // so it reads as the (clickable) email rather than a standalone button.
-    &__user-trigger.LemonButton {
+    &__inline-trigger.LemonButton {
         display: inline-flex;
-        max-width: 100%;
         min-height: auto;
-        padding: 0 0.25rem;
         font-size: inherit;
-        font-weight: 600;
         vertical-align: baseline;
-        border: 1px solid var(--color-border-warning);
+    }
+
+    &__user-trigger.LemonButton {
+        max-width: 100%;
+        font-weight: 600;
+        border: 1px solid var(--impersonation-notice-border-accent);
         border-radius: var(--radius);
+    }
+
+    &__expiry {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        font-size: var(--text-xs);
+        color: var(--color-text-tertiary);
+
+        // Match the refresh icon to the subtle expiry text.
+        .LemonButton {
+            --lemon-button-color: var(--color-text-tertiary);
+        }
     }
 }
 

@@ -33,6 +33,7 @@ from products.review_hog.backend.reviewer.constants import (
     CHUNKING_ONESHOT_MAX_ADDITIONS,
     CHUNKING_REASONING_EFFORT,
     CHUNKING_RUNTIME_ADAPTER,
+    DEFAULT_URGENCY_THRESHOLD,
     REVIEW_INITIAL_PERMISSION_MODE,
     REVIEW_MODEL,
     REVIEW_REASONING_EFFORT,
@@ -174,8 +175,8 @@ class ReviewMeta:
     # early-exit gate skips a dead re-trigger turn. Distinct from `snapshotted` (head moved) because a
     # head can be unchanged yet not-yet-published (a prior no-publish turn) and must still publish.
     already_published: bool
-    # New inline comments since the last turn's watermark — logged only for now (they don't force a
-    # turn yet; see ARCHITECTURE.md). Will gate the early-exit once ReviewHog reacts to comments.
+    # New inline comments since the last turn's watermark — logged only for now; they don't force a
+    # turn yet (see DECISIONS.md, Stage 5b). Will gate the early-exit once ReviewHog reacts to comments.
     new_comment_count: int
     # The PR author's GitHub login (`pr_metadata.author`), so the parent can resolve the acting user
     # whose enabled perspectives this review applies.
@@ -216,7 +217,7 @@ class ResolveActingUserResult:
     # `review_labeled_prs` is the AUTHOR's opt-out: when the acting user is the default-user
     # fallback, it is forced True — a borrowed user's personal switch never governs someone else's PR.
     review_labeled_prs: bool = True
-    urgency_threshold: str = IssuePriority.SHOULD_FIX.value
+    urgency_threshold: str = IssuePriority.CONSIDER.value
     review_inbox_prs: bool = False
     # Which chain link resolved: "author" | "default" | "override" (observability + tests).
     resolved_from: str = "author"
@@ -336,9 +337,9 @@ class BuildBodyInput:
     run_index: int
     # This turn's survivor ids (`DedupResult.issue_ids`); content reloads from the finding rows.
     issue_ids: list[str]
-    # The acting user's threshold, snapshotted at resolve time. Defaulted so payloads serialized
-    # before the field existed still deserialize (they keep today's should_fix behavior).
-    urgency_threshold: str = IssuePriority.SHOULD_FIX.value
+    # The acting user's threshold, snapshotted at resolve time. Defaulted so pre-field payloads
+    # still deserialize — a missing field takes the current default, not the run's original gate.
+    urgency_threshold: str = IssuePriority.CONSIDER.value
 
 
 @dataclass
@@ -351,7 +352,7 @@ class PublishInput:
     repo: str
     pr_number: int
     # Same snapshot as `BuildBodyInput.urgency_threshold`, so body counts and comments agree.
-    urgency_threshold: str = IssuePriority.SHOULD_FIX.value
+    urgency_threshold: str = IssuePriority.CONSIDER.value
 
 
 @dataclass
@@ -390,6 +391,9 @@ class FinalizeStatusCommentInput:
     # The run's snapshotted threshold, so the held-back explanation matches what publish enforced.
     urgency_threshold: str
     review_url: str | None = None
+    # Whose threshold gated the run ("author" / "override" / "default", from the resolve snapshot) —
+    # the held-back sentence must blame the right settings. Defaulted so pre-field payloads deserialize.
+    resolved_from: str = "author"
 
 
 # --- Setup activities ------------------------------------------------------------------------------
@@ -604,8 +608,14 @@ def _resolve_acting_user(
         # user never imports their personal switch into someone else's PR.
         review_labeled_prs=settings.review_labeled_prs if resolved_from in ("author", "override") else True,
         # str() unwraps the TextChoices member an unsaved defaults instance carries — the payload
-        # must hold the plain value.
-        urgency_threshold=str(settings.urgency_threshold),
+        # must hold the plain value. A default-resolved run gates at the built-in default, never the
+        # borrowed run user's saved threshold — the same "borrowed settings must not leak into
+        # someone else's PR" rule that forces review_labeled_prs above.
+        urgency_threshold=(
+            str(settings.urgency_threshold)
+            if resolved_from in ("author", "override")
+            else DEFAULT_URGENCY_THRESHOLD.value
+        ),
         review_inbox_prs=settings.review_inbox_prs,
         resolved_from=resolved_from,
     )
@@ -1152,7 +1162,14 @@ def _build_and_finalize(
         published_priorities=published_priorities_for(IssuePriority(urgency_threshold)),
     )
     finalize_review_report(
-        team_id=team_id, report_id=report_id, body_markdown=body, run_index=run_index, head_sha=head_sha
+        team_id=team_id,
+        report_id=report_id,
+        body_markdown=body,
+        run_index=run_index,
+        head_sha=head_sha,
+        # The same snapshot the body above and the publish gate consume — stamped so the detail view
+        # buckets this turn's findings by the gate that actually ran.
+        urgency_threshold=urgency_threshold,
     )
 
 
@@ -1239,6 +1256,7 @@ async def finalize_status_comment_activity(input: FinalizeStatusCommentInput) ->
         run_index=input.run_index,
         urgency_threshold=input.urgency_threshold,
         review_url=input.review_url,
+        resolved_from=input.resolved_from,
     )
 
 

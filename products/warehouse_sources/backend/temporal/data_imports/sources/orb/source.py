@@ -20,7 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import OrbSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.orb import OrbSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.orb.orb import (
     OrbResumeConfig,
     orb_source,
@@ -32,6 +32,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OrbSource(ResumableSource[OrbSourceConfig, OrbResumeConfig]):
+    api_docs_url = "https://docs.withorb.com/"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.ORB
@@ -85,6 +87,7 @@ You can create an API key in your [Orb account settings](https://app.withorb.com
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -103,7 +106,7 @@ You can create an API key in your [Orb account settings](https://app.withorb.com
         return schemas
 
     def validate_credentials(
-        self, config: OrbSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: OrbSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         if validate_orb_credentials(config.api_key):
             return True, None

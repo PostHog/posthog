@@ -364,9 +364,8 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
         user = self._get_user()
         event = self._get_recipient_event_or_404()
-        if event.archivable:
-            NotificationArchiveState.objects.get_or_create(notification_event=event, user=user)
-            invalidate_unread_count(user.id, self.team.organization_id)
+        NotificationArchiveState.objects.get_or_create(notification_event=event, user=user)
+        invalidate_unread_count(user.id, self.team.organization_id)
         return Response({"status": "ok"})
 
     @validated_request(request_serializer=BulkNotificationIdsRequestSerializer)
@@ -385,7 +384,6 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 id__in=ids,  # nosemgrep: idor-taint-user-input-to-model-get
                 organization_id=self.team.organization_id,
                 resolved_user_ids__contains=[user.id],
-                archivable=True,
             ).values_list("id", flat=True)
         )
         if eligible_ids:
@@ -401,7 +399,7 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             return Response({"updated": 0})
 
         user = self._get_user()
-        queryset = self._get_base_queryset().filter(archivable=True, archived=False)
+        queryset = self._get_base_queryset().filter(archived=False)
         event_ids = list(queryset.values_list("id", flat=True))
         if event_ids:
             archive_states = [NotificationArchiveState(notification_event_id=eid, user=user) for eid in event_ids]

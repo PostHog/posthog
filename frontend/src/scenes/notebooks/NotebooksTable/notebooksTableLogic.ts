@@ -49,10 +49,12 @@ export interface notebooksTableLogicValues {
 export interface notebooksTableLogicActions {
     deleteNotebookSuccess: (
         notebooks: NotebookListItemType[],
-        payload?: {
-            shortId: string
-            title: string | undefined
-        }
+        payload?:
+            | {
+                  shortId: string
+                  title: string | undefined
+              }
+            | undefined
     ) => {
         notebooks: NotebookListItemType[]
         payload?: {

@@ -268,6 +268,17 @@ def test_malformed_policy_hard_fails(tmp_path: Path, mutate) -> None:
         load_policy(bad, lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
 
 
+def test_server_owned_digest_section_is_allowed_and_ignored(tmp_path: Path) -> None:
+    # The hosted server declares a `digest:` top-level section it parses itself; the engine must
+    # tolerate (not require, not read) it, or any repo with a digest channel crashes every review.
+    data = _valid_policy_dict()
+    data["digest"] = {"channel": "eng-merges"}
+    path = tmp_path / "policy.yml"
+    path.write_text(yaml.safe_dump(data))
+    loaded = load_policy(path, lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
+    assert loaded.version == 1
+
+
 # ── 3. Folder-override resolution ──
 
 

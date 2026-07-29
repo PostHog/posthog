@@ -1,13 +1,15 @@
 import dataclasses
-from collections.abc import Iterator
 from typing import Any, Optional
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.rocketlane.settings import ROCKETLANE_ENDPOINTS
 
@@ -15,14 +17,9 @@ ROCKETLANE_BASE_URL = "https://api.rocketlane.com/api/1.0"
 # The list endpoints cap `pageSize` at 100 (values above the cap fall back to 100), so 100 minimises
 # round trips.
 PAGE_SIZE = 100
-REQUEST_TIMEOUT_SECONDS = 60
 # Cheap endpoint used to confirm an api-key is genuine. The key is account-wide, so one probe
 # validates access to every list endpoint.
 DEFAULT_PROBE_PATH = "/users"
-
-
-class RocketlaneRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
@@ -34,105 +31,137 @@ class RocketlaneResumeConfig:
     page_token: Optional[str] = None
 
 
-def _headers(api_key: str) -> dict[str, str]:
-    # Rocketlane expects the raw key in an `api-key` header — no "Bearer " prefix.
-    return {"api-key": api_key, "Accept": "application/json"}
+def _headers() -> dict[str, str]:
+    # Auth (the raw key in an `api-key` header, no "Bearer " prefix) is supplied via the framework
+    # auth config so its value is redacted from logs and error messages; only the non-secret accept
+    # header is set here.
+    return {"Accept": "application/json"}
 
 
-@retry(
-    retry=retry_if_exception_type((RocketlaneRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_page(
-    session: requests.Session,
-    path: str,
-    page_token: Optional[str],
-    page_size: int,
-    logger: FilteringBoundLogger,
-) -> dict[str, Any]:
-    params: dict[str, Any] = {"pageSize": page_size}
-    # Omit `pageToken` on the first request; an empty token returns page 1.
-    if page_token:
-        params["pageToken"] = page_token
+class RocketlaneCursorPaginator(BasePaginator):
+    """Follows Rocketlane's `pagination.nextPageToken` cursor via a `pageToken` query param.
 
-    response = session.get(
-        f"{ROCKETLANE_BASE_URL}{path}",
-        params=params,
-        timeout=REQUEST_TIMEOUT_SECONDS,
-    )
+    Terminates when the API reports `hasMore=false`, stops handing back a token, or returns an empty
+    page (the last guards against a server-side cursor bug that would otherwise loop forever). The
+    built-in cursor paginator only inspects the token, so it can't reproduce the empty-page/`hasMore`
+    stops the source relies on — hence this small local subclass. Resumable: the saved cursor points
+    at the next unfetched page, so a crash re-fetches from there (merge dedupes on the primary key).
+    """
 
-    # Rocketlane signals rate limiting with 429 (error code TOO_MANY_REQUEST); back off and retry.
-    if response.status_code == 429 or response.status_code >= 500:
-        raise RocketlaneRetryableError(f"Rocketlane API error (retryable): status={response.status_code}, path={path}")
+    def __init__(self) -> None:
+        super().__init__()
+        self._page_token: Optional[str] = None
 
-    if not response.ok:
-        logger.error(f"Rocketlane API error: status={response.status_code}, body={response.text}, path={path}")
-        response.raise_for_status()
+    def _apply(self, request: Request) -> None:
+        # Omit `pageToken` on the first request; an empty token returns page 1.
+        if self._page_token:
+            if request.params is None:
+                request.params = {}
+            request.params["pageToken"] = self._page_token
 
-    return response.json()
+    def init_request(self, request: Request) -> None:
+        self._apply(request)
 
+    def update_request(self, request: Request) -> None:
+        self._apply(request)
 
-def get_rows(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[RocketlaneResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
-    config = ROCKETLANE_ENDPOINTS[endpoint]
-    # `redact_values` masks the api-key in logged URLs and captured samples.
-    session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    page_token: Optional[str] = resume.page_token if resume else None
-    if resume and resume.page_token:
-        logger.debug(f"Rocketlane: resuming {endpoint} from saved page token")
-
-    while True:
-        data = _fetch_page(session, config.path, page_token, PAGE_SIZE, logger)
-
-        # `data` is always present in a well-formed list response; missing it means a malformed
-        # response, so fail loudly rather than silently advancing past lost rows.
-        rows = data["data"]
-        if rows:
-            yield rows
-
-        pagination = data.get("pagination") or {}
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        # An empty page ends the stream even if the API keeps advertising a cursor.
+        if not data:
+            self._has_next_page = False
+            return
+        try:
+            body = response.json()
+        except Exception:
+            body = {}
+        pagination = body.get("pagination") or {} if isinstance(body, dict) else {}
         next_token = pagination.get("nextPageToken")
-        # Stop when the API says there are no more pages, when it stops handing back a cursor, or when
-        # a page comes back empty (guards against a server-side cursor bug looping forever).
-        if not pagination.get("hasMore") or not next_token or not rows:
-            break
+        # Stop when the API says there are no more pages or stops handing back a cursor.
+        if not pagination.get("hasMore") or not next_token:
+            self._has_next_page = False
+            return
+        self._page_token = next_token
+        self._has_next_page = True
 
-        page_token = next_token
-        # Save AFTER yielding so a crash re-fetches from the token pointing at the *next* page (the
-        # already-yielded pages are persisted); merge dedupes the re-pulled page on the primary key.
-        resumable_source_manager.save_state(RocketlaneResumeConfig(page_token=page_token))
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        return {"page_token": self._page_token} if self._has_next_page and self._page_token else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        token = state.get("page_token")
+        if token:
+            self._page_token = token
+            self._has_next_page = True
+
+    def __str__(self) -> str:
+        return "RocketlaneCursorPaginator()"
 
 
 def rocketlane_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[RocketlaneResumeConfig],
+    db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = ROCKETLANE_ENDPOINTS[endpoint]
 
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": ROCKETLANE_BASE_URL,
+            "headers": _headers(),
+            # Rocketlane expects the raw key in an `api-key` header — framework auth redacts it.
+            "auth": {"type": "api_key", "api_key": api_key, "name": "api-key", "location": "header"},
+            "paginator": RocketlaneCursorPaginator(),
+        },
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": {"pageSize": PAGE_SIZE},
+                    "data_selector": "data",
+                    # `data` is always present in a well-formed list response; a 200 body without it
+                    # means the shape changed — fail loud rather than silently syncing 0 rows.
+                    "data_selector_required": True,
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.page_token:
+            initial_paginator_state = {"page_token": resume.page_token}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-fetches
+        # from the token pointing at the next page (the already-yielded pages are persisted) — merge
+        # dedupes the re-pulled page on the primary key.
+        if state and state.get("page_token"):
+            resumable_source_manager.save_state(RocketlaneResumeConfig(page_token=state["page_token"]))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
+        column_hints=resource.column_hints,
     )
 
 
@@ -143,7 +172,7 @@ def check_access(api_key: str, path: str = DEFAULT_PROBE_PATH) -> tuple[int, Opt
     connection problem, other HTTP status otherwise. The api-key is account-wide, so one probe
     validates access to every list endpoint.
     """
-    session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
+    session = make_tracked_session(headers={"api-key": api_key, **_headers()}, redact_values=(api_key,))
     try:
         response = session.get(f"{ROCKETLANE_BASE_URL}{path}", params={"pageSize": 1}, timeout=15)
     except Exception as e:

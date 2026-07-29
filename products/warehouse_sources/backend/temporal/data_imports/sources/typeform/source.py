@@ -21,7 +21,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import TypeformSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.typeform import (
+    TypeformSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.typeform.settings import (
     ALLOWED_TYPEFORM_API_BASE_URLS,
     DEFAULT_TYPEFORM_API_BASE_URL,
@@ -108,10 +110,11 @@ You can generate a personal access token in your [Typeform account settings](htt
                             ),
                         ],
                         caption=(
-                            "Completed responses sync incrementally. Including partial & started responses "
-                            "syncs the whole responses table as a full refresh on every run, since Typeform "
-                            "has no cursor that covers partial responses. **After changing this, resync the "
-                            "responses table for the new setting to take effect.**"
+                            "Completed responses sync incrementally. Including partial and started responses "
+                            "syncs the whole responses table on every run, since Typeform has no cursor for "
+                            "partial responses. **To apply this change to an existing source, use 'Delete table "
+                            "and resync' on the responses table. 'Sync now' alone won't backfill the responses "
+                            "you're adding.**"
                         ),
                     ),
                 ],
@@ -139,6 +142,7 @@ You can generate a personal access token in your [Typeform account settings](htt
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         include_partials = (config.response_types or RESPONSE_TYPE_COMPLETED_ONLY) != RESPONSE_TYPE_COMPLETED_ONLY
 
@@ -164,7 +168,11 @@ You can generate a personal access token in your [Typeform account settings](htt
         return schemas
 
     def validate_credentials(
-        self, config: TypeformSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: TypeformSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         api_base_url = config.api_base_url or DEFAULT_TYPEFORM_API_BASE_URL
         if api_base_url not in ALLOWED_TYPEFORM_API_BASE_URLS:

@@ -20,7 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import KoyebSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.koyeb import KoyebSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.koyeb.koyeb import (
     KoyebResumeConfig,
     koyeb_source,
@@ -36,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class KoyebSource(ResumableSource[KoyebSourceConfig, KoyebResumeConfig]):
+    api_docs_url = "https://www.koyeb.com/docs/reference/api"
+
     # `get_schemas` iterates the static endpoint catalog with no I/O, so the public docs can
     # render the table list without credentials.
     lists_tables_without_credentials = True
@@ -95,6 +97,7 @@ Create an API token under [API settings](https://app.koyeb.com/user/settings/api
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -112,7 +115,7 @@ Create an API token under [API settings](https://app.koyeb.com/user/settings/api
         return schemas
 
     def validate_credentials(
-        self, config: KoyebSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: KoyebSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         return validate_koyeb_credentials(config.api_token)
 
@@ -128,7 +131,8 @@ Create an API token under [API settings](https://app.koyeb.com/user/settings/api
         return koyeb_source(
             api_token=config.api_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

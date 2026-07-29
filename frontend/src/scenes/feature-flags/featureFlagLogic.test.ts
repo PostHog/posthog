@@ -8,10 +8,14 @@ import {
 
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
+import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -55,8 +59,15 @@ import {
     scheduleDateToProjectTzISO,
     slugifyFeatureFlagKey,
     validateFeatureFlagKey,
+    validateFeatureFlagVariantKey,
 } from './featureFlagLogic'
 import { featureFlagsLogic } from './featureFlagsLogic'
+
+jest.mock('posthog-js')
+
+function capturesOf(event: string): any[][] {
+    return (posthog.capture as jest.Mock).mock.calls.filter(([name]) => name === event)
+}
 
 // jest.config.ts sets clearMocks: true, so these mock.fn() call histories reset before every test.
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
@@ -1799,6 +1810,63 @@ describe('featureFlagLogic', () => {
             expect(dialogProps.primaryButton?.children).toBe('Disable flag')
             dialogOpenSpy.mockRestore()
         })
+
+        // onDisableAndArchive is optional at every hop between this listener and
+        // checkFeatureFlagConfirmation, so dropping it anywhere still compiles and would silently
+        // put test-variant users back on the control dialog.
+        it('offers disable and archive to the test variant, archiving via the disable confirmation', async () => {
+            const dialogOpenSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            jest.spyOn(api, 'update').mockResolvedValueOnce({
+                ...MOCK_FEATURE_FLAG,
+                archived: true,
+                active: false,
+            })
+            enabledFeaturesLogic.actions.setFeatureFlags([FEATURE_FLAGS.FEATURE_FLAG_DISABLE_AND_ARCHIVE_EXPERIMENT], {
+                [FEATURE_FLAGS.FEATURE_FLAG_DISABLE_AND_ARCHIVE_EXPERIMENT]: 'test',
+            })
+            logic.actions.setFeatureFlag({ ...MOCK_FEATURE_FLAG, active: true })
+
+            await expectLogic(logic, () => logic.actions.toggleFeatureFlagActive(false)).toFinishAllListeners()
+
+            const dialogProps = dialogOpenSpy.mock.calls[0][0]
+            expect(dialogProps.primaryButton?.children).toBe('Disable and archive')
+
+            dialogProps.primaryButton?.onClick?.(undefined as any)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(capturesOf('feature flag archived')).toEqual([
+                ['feature flag archived', { via: 'disable-confirmation' }],
+            ])
+            dialogOpenSpy.mockRestore()
+        })
+    })
+
+    describe('updateFeatureFlagArchived archive telemetry', () => {
+        // One test here rejects the archive request on purpose; kea-loaders would log the failure
+        beforeEach(silenceKeaLoadersErrors)
+        afterEach(resumeKeaLoadersErrors)
+
+        beforeEach(() => {
+            ;(posthog.capture as jest.Mock).mockClear()
+        })
+
+        it('captures "feature flag archived" only after the archive succeeds', async () => {
+            jest.spyOn(api, 'update').mockResolvedValueOnce({ ...MOCK_FEATURE_FLAG, archived: true, active: false })
+
+            logic.actions.updateFeatureFlagArchived({ archived: true, via: 'archive-dialog' })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(capturesOf('feature flag archived')).toEqual([['feature flag archived', { via: 'archive-dialog' }]])
+        })
+
+        it('does not capture "feature flag archived" when the archive request fails', async () => {
+            jest.spyOn(api, 'update').mockRejectedValueOnce({ status: 409, data: { detail: 'Conflict' } })
+
+            logic.actions.updateFeatureFlagArchived({ archived: true, via: 'archive-dialog' })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(capturesOf('feature flag archived')).toHaveLength(0)
+        })
     })
 
     describe('copyFlagSuccess', () => {
@@ -2268,6 +2336,27 @@ describe('validateFeatureFlagKey', () => {
 
     it('accepts key at exactly 400 characters', () => {
         expect(validateFeatureFlagKey('a'.repeat(400))).toBeUndefined()
+    })
+})
+
+describe('validateFeatureFlagVariantKey', () => {
+    it.each([
+        { key: 'control', desc: 'plain key' },
+        { key: 'provider/model-1.2', desc: 'slashes and dots (model-id style)' },
+        { key: '0.85', desc: 'dotted number' },
+        { key: 'a/b/c.d_e-f', desc: 'mixed dots, slashes, hyphens, underscores' },
+    ])('accepts valid variant key: $desc', ({ key }) => {
+        expect(validateFeatureFlagVariantKey(key)).toBeUndefined()
+    })
+
+    it.each([
+        { key: 'foo bar', error: 'Only letters', desc: 'spaces' },
+        { key: 'foo,bar', error: 'Only letters', desc: 'commas' },
+        { key: 'foo?bar', error: 'Only letters', desc: 'question marks' },
+        { key: '', error: 'Please set a key', desc: 'empty key' },
+        { key: 'a'.repeat(401), error: '400 characters', desc: 'over 400 characters' },
+    ])('rejects variant key with $desc', ({ key, error }) => {
+        expect(validateFeatureFlagVariantKey(key)).toContain(error)
     })
 })
 

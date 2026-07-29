@@ -37,10 +37,10 @@ export interface notebookSceneLogicActions {
     } // notebookLogic
     createNotebook: (
         location: NotebookTarget,
-        title?: string,
-        content?: JSONContent[],
-        onCreate?: (notebook: BuiltLogic<notebookLogicType>) => void,
-        shortId?: string
+        title?: string | undefined,
+        content?: JSONContent[] | undefined,
+        onCreate?: ((notebook: BuiltLogic<notebookLogicType>) => void) | undefined,
+        shortId?: string | undefined
     ) => {
         content: JSONContent[] | undefined
         location: NotebookTarget

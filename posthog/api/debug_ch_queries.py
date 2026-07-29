@@ -34,7 +34,7 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.permissions import APIScopePermission
 from posthog.settings.base_variables import DEBUG
-from posthog.settings.data_stores import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
+from posthog.settings.data_stores import CLICKHOUSE_AUX_CLUSTER, CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 from products.analytics_platform.backend.models import PreaggregationJob
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
@@ -85,36 +85,15 @@ def _cache_table_stats() -> list[dict]:
     ttl_only_drop_parts=1, so each partition id is the day the partition drops — the
     per-partition breakdown doubles as a TTL/growth timeline.
     """
+    # Each sharded table's parts live on the cluster its Distributed table targets: exposures on
+    # the main cluster, metric_events on the aux cluster — so system.parts must be read per cluster.
     tables = {
-        SHARDED_EXPERIMENT_EXPOSURES_TABLE(): DISTRIBUTED_EXPERIMENT_EXPOSURES_TABLE(),
-        SHARDED_EXPERIMENT_METRIC_EVENTS_TABLE(): DISTRIBUTED_EXPERIMENT_METRIC_EVENTS_TABLE(),
+        SHARDED_EXPERIMENT_EXPOSURES_TABLE(): (DISTRIBUTED_EXPERIMENT_EXPOSURES_TABLE(), CLICKHOUSE_CLUSTER),
+        SHARDED_EXPERIMENT_METRIC_EVENTS_TABLE(): (
+            DISTRIBUTED_EXPERIMENT_METRIC_EVENTS_TABLE(),
+            CLICKHOUSE_AUX_CLUSTER,
+        ),
     }
-    # cluster() reads one replica per shard. clusterAllReplicas would visit every replica and,
-    # unlike query_log (deduped via is_initial_query), each replica of a shard reports the same
-    # parts — rows/bytes would be multiplied by the replica count.
-    response = sync_execute(
-        """
-        SELECT
-            table,
-            partition,
-            sum(rows) AS rows,
-            sum(bytes_on_disk) AS bytes_on_disk,
-            count() AS parts
-        FROM cluster(%(cluster)s, system, parts)
-        WHERE
-            database = %(database)s
-            AND table IN %(tables)s
-            AND active
-        GROUP BY table, partition
-        ORDER BY table, partition
-        SETTINGS skip_unavailable_shards=1
-        """,
-        {
-            "cluster": CLICKHOUSE_CLUSTER,
-            "database": CLICKHOUSE_DATABASE,
-            "tables": list(tables.keys()),
-        },
-    )
 
     stats: dict[str, dict[str, Any]] = {
         sharded: {
@@ -127,19 +106,56 @@ def _cache_table_stats() -> list[dict]:
             "newest_partition": None,
             "partitions": [],
         }
-        for sharded, base in tables.items()
+        for sharded, (base, _) in tables.items()
     }
-    for table, partition, rows, bytes_on_disk, parts in response:
-        entry = stats.get(table)
-        if entry is None:
+
+    for cluster in dict.fromkeys(cluster for _, cluster in tables.values()):
+        cluster_tables = [sharded for sharded, (_, c) in tables.items() if c == cluster]
+        # cluster() reads one replica per shard. clusterAllReplicas would visit every replica and,
+        # unlike query_log (deduped via is_initial_query), each replica of a shard reports the same
+        # parts — rows/bytes would be multiplied by the replica count.
+        try:
+            response = sync_execute(
+                """
+                SELECT
+                    table,
+                    partition,
+                    sum(rows) AS rows,
+                    sum(bytes_on_disk) AS bytes_on_disk,
+                    count() AS parts
+                FROM cluster(%(cluster)s, system, parts)
+                WHERE
+                    database = %(database)s
+                    AND table IN %(tables)s
+                    AND active
+                GROUP BY table, partition
+                ORDER BY table, partition
+                SETTINGS skip_unavailable_shards=1
+                """,
+                {
+                    "cluster": cluster,
+                    "database": CLICKHOUSE_DATABASE,
+                    "tables": cluster_tables,
+                },
+            )
+        except Exception:
+            # One cluster being unreachable (or absent in a single-cluster deployment) must not
+            # take down the stats read from the healthy cluster.
+            logger.exception("cache_health: failed to read system.parts from cluster %s", cluster)
+            for sharded in cluster_tables:
+                stats[sharded]["unavailable"] = True
             continue
-        entry["total_rows"] += rows
-        entry["bytes_on_disk"] += bytes_on_disk
-        entry["active_parts"] += parts
-        entry["partition_count"] += 1
-        entry["partitions"].append(
-            {"partition": partition, "rows": rows, "bytes_on_disk": bytes_on_disk, "parts": parts}
-        )
+        for table, partition, rows, bytes_on_disk, parts in response:
+            entry = stats.get(table)
+            if entry is None:
+                continue
+            entry["total_rows"] += rows
+            entry["bytes_on_disk"] += bytes_on_disk
+            entry["active_parts"] += parts
+            entry["partition_count"] += 1
+            entry["partitions"].append(
+                {"partition": partition, "rows": rows, "bytes_on_disk": bytes_on_disk, "parts": parts}
+            )
     for entry in stats.values():
         if entry["partitions"]:
             entry["oldest_partition"] = entry["partitions"][0]["partition"]

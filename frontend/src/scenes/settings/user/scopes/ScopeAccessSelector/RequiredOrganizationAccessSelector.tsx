@@ -29,6 +29,7 @@ export const RequiredOrganizationAccessSelector = ({
                         if (autoSelectFirst && arrayValue.length === 0 && organizations.length > 0) {
                             onChange([organizations[0].id])
                         }
+                        // eslint-disable-next-line react-hooks/exhaustive-deps -- autoSelectFirst is a reactive prop; keep it so the effect re-runs if it changes
                     }, [autoSelectFirst, arrayValue.length, onChange])
 
                     return (

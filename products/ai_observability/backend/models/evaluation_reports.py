@@ -9,21 +9,24 @@ from posthog.models.utils import UUIDTModel
 
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
-from .evaluation_configs import REPORTABLE_OUTPUT_TYPES
-from .evaluations import EvaluationTarget
+from .evaluation_configs import REPORTABLE_OUTPUT_TYPES_BY_TARGET
 
 
 class EvaluationReportQuerySet(models.QuerySet):
     def reportable(self) -> "EvaluationReportQuerySet":
-        return self.filter(
-            evaluation__output_type__in=REPORTABLE_OUTPUT_TYPES,
-            evaluation__target=EvaluationTarget.GENERATION,
-        )
+        reportable_filter = models.Q()
+        for target, output_types in REPORTABLE_OUTPUT_TYPES_BY_TARGET.items():
+            reportable_filter |= models.Q(
+                evaluation__target=target,
+                evaluation__output_type__in=output_types,
+            )
+        return self.filter(reportable_filter)
 
     def deliverable(self) -> "EvaluationReportQuerySet":
         return self.reportable().filter(
             enabled=True,
             deleted=False,
+            evaluation__enabled=True,
             evaluation__deleted=False,
         )
 
@@ -82,6 +85,7 @@ class EvaluationReport(UUIDTModel):
     enabled = models.BooleanField(default=True)
     deleted = models.BooleanField(default=False)
     last_delivered_at = models.DateTimeField(null=True, blank=True)
+    last_attempted_at = models.DateTimeField(null=True, blank=True)
 
     # Count-based trigger settings (only used when frequency='every_n')
     trigger_threshold = models.IntegerField(

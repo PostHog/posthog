@@ -85,6 +85,9 @@ describe('PushNotificationService', () => {
         fetchUtils = {
             trackedFetch: mockTrackedFetch,
             maxFetchTimeoutMs: 10000,
+            maxRetries: 3,
+            backoffBaseMs: 1000,
+            backoffMaxMs: 30000,
         }
 
         redisStore = new Map<string, string>()
@@ -194,14 +197,16 @@ describe('PushNotificationService', () => {
             expect(mockTrackedFetch).not.toHaveBeenCalled()
         })
 
-        it('sets error when push fails', async () => {
+        it('fails terminally (no retry) on a non-retriable 4xx', async () => {
             const invocation = createSendPushNotificationInvocation({
                 '$device_push_subscription_test-project': encryptedFields.encrypt('device-token-123'),
             })
+            // A 400 is a client error that won't change on retry (bad payload), unlike a 429/5xx.
             mockTrackedFetch.mockResolvedValue({
                 fetchError: null,
                 fetchResponse: {
-                    status: 500,
+                    status: 400,
+                    headers: {},
                     text: () => Promise.resolve('{}'),
                     dump: () => Promise.resolve(),
                 },
@@ -211,6 +216,79 @@ describe('PushNotificationService', () => {
             const result = await service.executeSendPushNotification(invocation)
 
             expect(result.error).toBeTruthy()
+            expect(result.finished).toBe(true)
+            expect(result.invocation.queueScheduledAt).toBeUndefined()
+            expect(result.metrics).toContainEqual(expect.objectContaining({ metric_name: 'push_failed' }))
+        })
+
+        it('reschedules a transient failure and re-runs the send on the retry (round trip)', async () => {
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_test-project': encryptedFields.encrypt('device-token-123'),
+            })
+            // First attempt: FCM 500 is transient, so the invocation is rescheduled rather than dropped.
+            mockTrackedFetch.mockResolvedValueOnce({
+                fetchError: null,
+                fetchResponse: {
+                    status: 500,
+                    headers: {},
+                    text: () => Promise.resolve('{}'),
+                    dump: () => Promise.resolve(),
+                },
+                fetchDuration: 10,
+            })
+
+            const first = await service.executeSendPushNotification(invocation)
+
+            expect(first.finished).toBe(false)
+            expect(first.invocation.queueScheduledAt).toBeDefined()
+            expect(first.error).toBeUndefined()
+            // The P1 guard: queueParameters must be restored, or the retry dequeue resumes the hog VM
+            // instead of re-entering this service, pops an empty stack, and drops the notification.
+            expect(first.invocation.queueParameters?.type).toBe('sendPushNotification')
+            expect(first.invocation.queueMetadata).toEqual(expect.objectContaining({ tries: 1 }))
+            // A rescheduled attempt reports no terminal outcome yet.
+            expect(first.metrics).not.toContainEqual(expect.objectContaining({ metric_name: 'push_failed' }))
+
+            // Feed the rescheduled invocation back through the executor: the send must actually re-run.
+            mockTrackedFetch.mockResolvedValueOnce({
+                fetchError: null,
+                fetchResponse: {
+                    status: 200,
+                    headers: {},
+                    text: () => Promise.resolve('{}'),
+                    dump: () => Promise.resolve(),
+                },
+                fetchDuration: 10,
+            })
+
+            const second = await service.executeSendPushNotification(first.invocation)
+
+            expect(second.finished).toBe(true)
+            expect(second.metrics).toContainEqual(expect.objectContaining({ metric_name: 'push_sent', count: 1 }))
+        })
+
+        it('stops rescheduling once the retry budget is exhausted', async () => {
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_test-project': encryptedFields.encrypt('device-token-123'),
+            })
+            invocation.queueMetadata = { tries: 3 } // == maxRetries
+            mockTrackedFetch.mockResolvedValue({
+                fetchError: null,
+                fetchResponse: {
+                    status: 429,
+                    headers: {},
+                    text: () => Promise.resolve('{}'),
+                    dump: () => Promise.resolve(),
+                },
+                fetchDuration: 10,
+            })
+
+            const result = await service.executeSendPushNotification(invocation)
+
+            expect(result.finished).toBe(true)
+            expect(result.error).toBeTruthy()
+            expect(result.invocation.queueScheduledAt).toBeUndefined()
+            expect(result.metrics).toContainEqual(expect.objectContaining({ metric_name: 'push_failed' }))
         })
 
         it('prunes an unregistered FCM token and skips the channel without erroring', async () => {
@@ -631,30 +709,74 @@ describe('PushNotificationService', () => {
             expect(result.error).toBeUndefined()
         })
 
-        it('retries when one channel is skipped and another genuinely fails', async () => {
+        it('reschedules without re-counting the skipped channel on the retry attempt', async () => {
             ;(integrationManager.get as jest.Mock).mockImplementation((id: number) =>
                 Promise.resolve(id === 1 ? firebaseIntegration : apnsIntegration)
             )
-            // Only the APNS token is registered: FCM is skipped (not a delivery), APNS is attempted.
+            // FCM has no token (skipped), APNS fails transiently. Nothing delivered, so this reschedules,
+            // and the skip must not be counted on the rescheduled attempt — it's emitted only at the
+            // terminal outcome, so per-notification counts don't inflate on every retry.
             const invocation = createSendPushNotificationInvocation({
                 '$device_push_subscription_com.example.app': encryptedFields.encrypt('apns-token'),
             })
             invocation.queueParameters = { ...invocation.queueParameters, integrationIds: [1, 2] } as any
-            // APNS fails - nothing was delivered, so this must retry rather than silently drop the push.
             mockTrackedFetch.mockResolvedValue({
                 fetchError: null,
-                fetchResponse: { status: 500, text: () => Promise.resolve('{}'), dump: () => Promise.resolve() },
+                fetchResponse: {
+                    status: 500,
+                    headers: {},
+                    text: () => Promise.resolve('{}'),
+                    dump: () => Promise.resolve(),
+                },
                 fetchDuration: 10,
             })
 
             const result = await service.executeSendPushNotification(invocation)
 
-            expect(result.error).toBeTruthy()
-            // The error is also surfaced to the hog template, so its failure message is not blank.
-            expect(result.invocation.state.vmState!.stack.at(-1)).toEqual({
-                success: false,
-                error: expect.any(String),
+            expect(result.finished).toBe(false)
+            expect(result.invocation.queueParameters?.type).toBe('sendPushNotification')
+            expect(result.metrics).not.toContainEqual(expect.objectContaining({ metric_name: 'push_skipped' }))
+            expect(result.metrics).not.toContainEqual(expect.objectContaining({ metric_name: 'push_failed' }))
+        })
+
+        it('reschedules using the longest Retry-After across failed channels', async () => {
+            ;(integrationManager.get as jest.Mock).mockImplementation((id: number) =>
+                Promise.resolve(id === 1 ? firebaseIntegration : apnsIntegration)
+            )
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_test-project': encryptedFields.encrypt('fcm-token'),
+                '$device_push_subscription_com.example.app': encryptedFields.encrypt('apns-token'),
             })
+            invocation.queueParameters = { ...invocation.queueParameters, integrationIds: [1, 2] } as any
+            // FCM 500 (short backoff) then APNs 429 with Retry-After: 30. Retrying re-attempts both, so the
+            // delay must clear the longer 30s window, not FCM's sub-2s backoff.
+            mockTrackedFetch.mockResolvedValueOnce({
+                fetchError: null,
+                fetchResponse: {
+                    status: 500,
+                    headers: {},
+                    text: () => Promise.resolve('{}'),
+                    dump: () => Promise.resolve(),
+                },
+                fetchDuration: 10,
+            })
+            mockTrackedFetch.mockResolvedValueOnce({
+                fetchError: null,
+                fetchResponse: {
+                    status: 429,
+                    headers: { 'retry-after': '30' },
+                    text: () => Promise.resolve('{}'),
+                    dump: () => Promise.resolve(),
+                },
+                fetchDuration: 10,
+            })
+
+            const result = await service.executeSendPushNotification(invocation)
+
+            expect(result.finished).toBe(false)
+            const delayMs = result.invocation.queueScheduledAt!.toMillis() - Date.now()
+            expect(delayMs).toBeGreaterThan(20_000)
+            expect(delayMs).toBeLessThanOrEqual(30_000)
         })
     })
 })

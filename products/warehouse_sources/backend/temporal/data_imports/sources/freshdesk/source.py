@@ -28,7 +28,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.freshdesk.
     validate_credentials as validate_freshdesk_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshdesk.settings import FRESHDESK_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FreshdeskSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.freshdesk import (
+    FreshdeskSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # This first cut covers Freshdesk's top-level v2 endpoints only. Fan-out resources
@@ -115,6 +117,7 @@ Your **API key** is on your Freshdesk profile settings page (click your profile 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -133,7 +136,11 @@ Your **API key** is on your Freshdesk profile settings page (click your profile 
         return schemas
 
     def validate_credentials(
-        self, config: FreshdeskSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: FreshdeskSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if not _SUBDOMAIN_REGEX.match(normalize_subdomain(config.subdomain)):
             return False, "Freshdesk domain is invalid"
@@ -173,7 +180,8 @@ Your **API key** is on your Freshdesk profile settings page (click your profile 
             api_key=config.api_key,
             subdomain=config.subdomain,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

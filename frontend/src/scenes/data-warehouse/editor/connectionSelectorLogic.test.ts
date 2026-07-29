@@ -29,6 +29,17 @@ describe('connectionSelectorLogic', () => {
                 id: 'conn-123',
                 prefix: 'warehouse',
                 engine: 'postgres',
+                source_type: 'Postgres',
+                access_method: 'direct',
+                supports_hogql: true,
+            },
+            {
+                id: 'conn-456',
+                prefix: 'prod',
+                engine: null,
+                source_type: 'MySQL',
+                access_method: 'warehouse',
+                supports_hogql: true,
             },
         ])
     })
@@ -37,9 +48,19 @@ describe('connectionSelectorLogic', () => {
         logic?.unmount()
     })
 
-    it('loads connection options on mount', async () => {
+    it('does not fetch on mount — embedded editors mount this logic without the selector', async () => {
         logic = connectionSelectorLogic()
         logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockConnectionsList).not.toHaveBeenCalled()
+    })
+
+    it('loads connection options when the selector requests them', async () => {
+        logic = connectionSelectorLogic()
+        logic.mount()
+        logic.actions.maybeLoadConnectionOptions()
 
         await expectLogic(logic).toFinishAllListeners()
 
@@ -52,10 +73,42 @@ describe('connectionSelectorLogic', () => {
                     label: 'warehouse (Postgres)',
                     managementUrl: urls.dataWarehouseSource('managed-conn-123'),
                 }),
+                // Synced source: no detected engine — label derives from source_type + synced marker
+                expect.objectContaining({
+                    value: 'conn-456',
+                    label: 'prod (MySQL · synced)',
+                    managementUrl: urls.dataWarehouseSource('managed-conn-456'),
+                }),
             ])
         )
         expect(logic.values.connectionSelectOptions[1].options).toEqual(
             expect.arrayContaining([expect.not.objectContaining({ managementUrl: expect.anything() })])
+        )
+    })
+
+    // Pins the label the ManagedWarehouseConnection story relies on — it's long enough to need
+    // truncating in the sidebar, which is the regression that story guards (support ticket 65030).
+    it('labels a managed warehouse with its prefix and engine', async () => {
+        mockConnectionsList.mockResolvedValue([
+            {
+                id: 'conn-duck',
+                prefix: 'managed_warehouse',
+                engine: 'duckdb',
+                source_type: 'ManagedWarehouse',
+                access_method: 'direct',
+                supports_hogql: true,
+            },
+        ])
+        logic = connectionSelectorLogic()
+        logic.mount()
+        logic.actions.maybeLoadConnectionOptions()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.connectionSelectOptions[0].options).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ value: 'conn-duck', label: 'managed_warehouse (DuckDB)' }),
+            ])
         )
     })
 

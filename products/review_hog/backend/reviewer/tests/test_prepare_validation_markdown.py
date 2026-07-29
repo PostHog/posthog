@@ -7,9 +7,9 @@ from products.review_hog.backend.reviewer.models.issues_review import Issue, Iss
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList, FileInfo
 from products.review_hog.backend.reviewer.tools.prepare_validation_markdown import build_review_body
 
-# The default (should_fix) threshold — matches the pre-threshold PUBLISHED_PRIORITIES behavior these
-# tests were written against.
-_DEFAULT_PUBLISHED = published_priorities_for(IssuePriority.SHOULD_FIX)
+# The should_fix threshold: publishes should_fix and must_fix, drops consider. These tests use it to
+# exercise the publish gate, not the default (consider), which publishes everything.
+_SHOULD_FIX_PUBLISHED = published_priorities_for(IssuePriority.SHOULD_FIX)
 
 
 def _issue(issue_id: str, priority: IssuePriority = IssuePriority.MUST_FIX) -> Issue:
@@ -56,7 +56,7 @@ def test_only_validated_issues_count_and_chunk_appears() -> None:
         issues=issues,
         validations=validations,
         pr_files=_pr_files(),
-        published_priorities=_DEFAULT_PUBLISHED,
+        published_priorities=_SHOULD_FIX_PUBLISHED,
     )
 
     assert "# ReviewHog Report" in body
@@ -76,7 +76,7 @@ def test_chunk_with_no_valid_issue_is_skipped() -> None:
         issues=issues,
         validations=validations,
         pr_files=_pr_files(),
-        published_priorities=_DEFAULT_PUBLISHED,
+        published_priorities=_SHOULD_FIX_PUBLISHED,
     )
 
     assert "## Bugfix" in body
@@ -128,10 +128,42 @@ def test_other_findings_section_membership(
         issues=[issue],
         validations=validations,
         pr_files=_pr_files(),
-        published_priorities=_DEFAULT_PUBLISHED,
+        published_priorities=_SHOULD_FIX_PUBLISHED,
     )
 
     assert ("Membership marker finding" in body) is expected_in_section
+
+
+def test_off_diff_finding_sections_lead_with_validation() -> None:
+    # The off-diff section must render its collapsed blocks in the same deliberate reading order as
+    # the inline comment (verdict first, then description, then fix). The two renderers are separate
+    # templates, so the inline-comment order test can't catch _render_off_diff_section flipping back
+    # to description-first.
+    chunks_data = ChunksList(chunks=[_chunk(1, "bugfix")])
+    issue = Issue(
+        id="1-1-1",
+        title="Off-diff finding",
+        file="src/auth.py",
+        lines=[LineRange(start=240, end=240)],
+        issue="problem",
+        suggestion="fix",
+        priority=IssuePriority.SHOULD_FIX,
+    )
+    validations = {"1-1-1": IssueValidation(is_valid=True, argumentation="verified", category="bug")}
+
+    body = build_review_body(
+        chunks_data=chunks_data,
+        issues=[issue],
+        validations=validations,
+        pr_files=_pr_files(),
+        published_priorities=_SHOULD_FIX_PUBLISHED,
+    )
+
+    positions = [
+        body.index(f"<summary><strong>{label}</strong></summary>")
+        for label in ("Why we think it's a valid issue", "Issue description", "Suggested fix")
+    ]
+    assert positions == sorted(positions)
 
 
 @pytest.mark.parametrize(
@@ -158,7 +190,7 @@ def test_chunk_count_reflects_effective_priority(
         issues=[issue],
         validations=validations,
         pr_files=_pr_files(),
-        published_priorities=_DEFAULT_PUBLISHED,
+        published_priorities=_SHOULD_FIX_PUBLISHED,
     )
 
     if expected_count_line is None:

@@ -19,8 +19,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MixMaxSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mixmax import MixMaxSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixmax.mixmax import (
     MixmaxResumeConfig,
     mixmax_source,
@@ -29,9 +32,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mixmax.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixmax.settings import ENDPOINTS, MIXMAX_ENDPOINTS
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
+# Mixmax exposes no server-side timestamp filter, so every endpoint is full refresh only — no
+# endpoint carries incremental fields.
+MIXMAX_INCREMENTAL_FIELDS: dict[str, list] = {}
+MIXMAX_DESCRIPTIONS = {name: config.description for name, config in MIXMAX_ENDPOINTS.items() if config.description}
+
 
 @SourceRegistry.register
 class MixMaxSource(ResumableSource[MixMaxSourceConfig, MixmaxResumeConfig]):
+    api_docs_url = "https://developer.mixmax.com/"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -92,27 +101,23 @@ API access requires a Growth+ or Enterprise plan with the API feature enabled on
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Mixmax exposes no server-side timestamp filter, so every endpoint is full refresh only.
-        def _build_schema(endpoint: str) -> SourceSchema:
-            endpoint_config = MIXMAX_ENDPOINTS[endpoint]
-            return SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
-                should_sync_default=endpoint_config.should_sync_default,
-                description=endpoint_config.description,
-            )
-
-        schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # Mixmax exposes no server-side timestamp filter, so every endpoint is full refresh only
+        # (empty incremental-fields map -> supports_incremental/append False for every table).
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            MIXMAX_INCREMENTAL_FIELDS,
+            names,
+            descriptions=MIXMAX_DESCRIPTIONS,
+        )
 
     def validate_credentials(
-        self, config: MixMaxSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: MixMaxSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_mixmax_credentials(config.api_key):
             return True, None
@@ -131,6 +136,8 @@ API access requires a Growth+ or Enterprise plan with the API feature enabled on
         return mixmax_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every Mixmax endpoint is full refresh
         )

@@ -1,14 +1,11 @@
 import re
 import dataclasses
-from collections.abc import Iterator
-from typing import Any
+from typing import Any, Optional, cast
 from urllib.parse import quote
 
 import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.algolia.settings import (
     ALGOLIA_ENDPOINTS,
@@ -16,6 +13,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.algolia.se
     PaginationStyle,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
+    JSONResponseCursorPaginator,
+    PageNumberPaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    Endpoint,
+    HTTPMethodBasic,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 # Algolia's REST API is served per-application. The main host handles both reads and the
@@ -47,10 +57,6 @@ class AlgoliaResumeConfig:
     page: int | None = None
 
 
-class AlgoliaRetryableError(Exception):
-    pass
-
-
 def _base_url(application_id: str) -> str:
     if not _APPLICATION_ID_RE.match(application_id):
         raise InvalidApplicationIdError("Algolia Application ID must be alphanumeric (letters and digits only)")
@@ -66,141 +72,137 @@ def _get_headers(application_id: str, api_key: str) -> dict[str, str]:
     }
 
 
-def _endpoint_url(application_id: str, config: AlgoliaEndpointConfig, index_name: str | None) -> str:
+def _endpoint_path(config: AlgoliaEndpointConfig, index_name: str | None) -> str:
     path = config.path
     if config.requires_index:
         if not index_name:
             raise ValueError(f"Algolia endpoint '{config.name}' requires an index name")
         path = path.format(index=quote(index_name, safe=""))
-    return f"{_base_url(application_id)}{path}"
+    return path
 
 
-@retry(
-    retry=retry_if_exception_type((AlgoliaRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch(
-    session: requests.Session,
-    method: str,
-    url: str,
-    headers: dict[str, str],
-    logger: FilteringBoundLogger,
-    params: dict[str, Any] | None = None,
-    body: dict[str, Any] | None = None,
-) -> dict:
-    response = session.request(method, url, headers=headers, params=params, json=body, timeout=60)
-
-    # Algolia rate-limits the API and surfaces transient errors as 429 / 5xx; retry those.
-    if response.status_code == 429 or response.status_code >= 500:
-        raise AlgoliaRetryableError(f"Algolia API error (retryable): status={response.status_code}, url={url}")
-
-    if not response.ok:
-        logger.error(f"Algolia API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
-
-    return response.json()
+def _endpoint_url(application_id: str, config: AlgoliaEndpointConfig, index_name: str | None) -> str:
+    return f"{_base_url(application_id)}{_endpoint_path(config, index_name)}"
 
 
-def _iter_cursor(
-    session: requests.Session,
-    url: str,
-    headers: dict[str, str],
-    config: AlgoliaEndpointConfig,
-    logger: FilteringBoundLogger,
-    batcher: Batcher,
-    manager: ResumableSourceManager[AlgoliaResumeConfig],
-    resume: AlgoliaResumeConfig | None,
-) -> Iterator[Any]:
-    """Page the browse endpoint via its opaque cursor; a missing cursor signals end of index."""
-    cursor = resume.cursor if resume else None
-    while True:
-        body: dict[str, Any] = {"hitsPerPage": config.page_size}
-        if cursor:
-            body["cursor"] = cursor
-        data = _fetch(session, "POST", url, headers, logger, body=body)
+class AlgoliaPageNumberPaginator(PageNumberPaginator):
+    """Page-number paginator matching Algolia's mixed termination rules.
 
-        next_cursor = data.get("cursor")
-        for item in data.get(config.data_selector, []):
-            batcher.batch(item)
-            if batcher.should_yield():
-                yield batcher.get_table()
-                # Save after yielding so a crash re-yields the last batch (merge dedupes on
-                # the primary key) rather than skipping it.
-                if next_cursor:
-                    manager.save_state(AlgoliaResumeConfig(cursor=next_cursor))
+    `GET /1/indexes` reports the page count directly (`nbPages`, handled via `total_path`); the
+    synonyms/rules search endpoints don't, so when `nbPages` is absent a short final page (fewer
+    rows than requested) signals the end without paying an extra empty-page request.
+    """
 
-        if not next_cursor:
-            break
-        cursor = next_cursor
-        manager.save_state(AlgoliaResumeConfig(cursor=cursor))
+    def __init__(self, page_size: int, **kwargs: Any) -> None:
+        super().__init__(total_path="nbPages", **kwargs)
+        self.page_size = page_size
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        super().update_state(response, data)
+        if not self._has_next_page:
+            return
+        try:
+            body = response.json()
+            nb_pages = body.get("nbPages") if isinstance(body, dict) else None
+        except Exception:
+            nb_pages = None
+        if nb_pages is None and data is not None and len(data) < self.page_size:
+            self._has_next_page = False
 
 
-def _iter_pages(
-    session: requests.Session,
-    url: str,
-    headers: dict[str, str],
-    config: AlgoliaEndpointConfig,
-    logger: FilteringBoundLogger,
-    batcher: Batcher,
-    manager: ResumableSourceManager[AlgoliaResumeConfig],
-    resume: AlgoliaResumeConfig | None,
-) -> Iterator[Any]:
-    """Page the search (synonyms/rules) and list (indices) endpoints via 0-based page numbers."""
-    page = resume.page if resume and resume.page is not None else 0
-    while True:
-        if config.method == "POST":
-            data = _fetch(session, "POST", url, headers, logger, body={"page": page, "hitsPerPage": config.page_size})
-        else:
-            data = _fetch(session, "GET", url, headers, logger, params={"page": page, "hitsPerPage": config.page_size})
-
-        items = data.get(config.data_selector, [])
-        next_page = page + 1
-        for item in items:
-            batcher.batch(item)
-            if batcher.should_yield():
-                yield batcher.get_table()
-                manager.save_state(AlgoliaResumeConfig(page=next_page))
-
-        if not items:
-            break
-        # `indices` reports the page count directly; the search endpoints don't, so fall back to
-        # a short final page (fewer rows than requested) to detect the end.
-        nb_pages = data.get("nbPages")
-        if nb_pages is not None:
-            if next_page >= nb_pages:
-                break
-        elif len(items) < config.page_size:
-            break
-
-        page = next_page
-        manager.save_state(AlgoliaResumeConfig(page=page))
+def _build_paginator(config: AlgoliaEndpointConfig) -> BasePaginator:
+    if config.pagination == PaginationStyle.CURSOR:
+        # Browse pages via an opaque cursor carried in the POST body; a missing cursor in the
+        # response signals end of index.
+        return JSONResponseCursorPaginator(cursor_path="cursor", cursor_param="cursor", param_location="json")
+    # Search endpoints (synonyms/rules) page via a 0-based `page` in the POST body; the indices
+    # listing pages via `page` in the query string.
+    return AlgoliaPageNumberPaginator(
+        page_size=config.page_size,
+        base_page=0,
+        page_param="page",
+        param_location="json" if config.method == "POST" else "query",
+    )
 
 
-def get_rows(
+def algolia_source(
     endpoint: str,
     application_id: str,
     api_key: str,
     index_name: str | None,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     manager: ResumableSourceManager[AlgoliaResumeConfig],
-) -> Iterator[Any]:
+) -> SourceResponse:
     config = ALGOLIA_ENDPOINTS[endpoint]
-    headers = _get_headers(application_id, api_key)
-    url = _endpoint_url(application_id, config, index_name)
-    batcher = Batcher(logger=logger, chunk_size=5000, chunk_size_bytes=100 * 1024 * 1024)
-    session = make_tracked_session(redact_values=(api_key,))
+    is_cursor = config.pagination == PaginationStyle.CURSOR
 
-    resume = manager.load_state() if manager.can_resume() else None
-
-    if config.pagination == PaginationStyle.CURSOR:
-        yield from _iter_cursor(session, url, headers, config, logger, batcher, manager, resume)
+    endpoint_config: Endpoint = {
+        "path": _endpoint_path(config, index_name),
+        "method": cast(HTTPMethodBasic, config.method),
+        "data_selector": config.data_selector,
+        "paginator": _build_paginator(config),
+    }
+    # Rows requested per page (`hitsPerPage`) travel where the page token does: in the POST body
+    # for browse/search, in the query string for the GET indices listing.
+    if config.method == "POST":
+        endpoint_config["json"] = {"hitsPerPage": config.page_size}
     else:
-        yield from _iter_pages(session, url, headers, config, logger, batcher, manager, resume)
+        endpoint_config["params"] = {"hitsPerPage": config.page_size}
 
-    if batcher.should_yield(include_incomplete_chunk=True):
-        yield batcher.get_table()
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": _base_url(application_id),
+            # The API key is supplied via the framework auth config so its value is redacted from
+            # logs; only the non-secret application ID / content headers are set here.
+            "headers": {
+                "X-Algolia-Application-Id": application_id,
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+            },
+            "auth": {"type": "api_key", "api_key": api_key, "name": "X-Algolia-API-Key", "location": "header"},
+        },
+        "resource_defaults": {},
+        "resources": [{"name": endpoint, "endpoint": endpoint_config}],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if manager.can_resume():
+        resume = manager.load_state()
+        if resume is not None:
+            if is_cursor and resume.cursor is not None:
+                initial_paginator_state = {"cursor": resume.cursor}
+            elif not is_cursor and resume.page is not None:
+                initial_paginator_state = {"page": resume.page}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; the hook fires AFTER a page is yielded so a crash
+        # re-yields the last page (merge dedupes on the primary key) rather than skipping it.
+        if not state:
+            return
+        if is_cursor:
+            if state.get("cursor") is not None:
+                manager.save_state(AlgoliaResumeConfig(cursor=state["cursor"]))
+        elif state.get("page") is not None:
+            manager.save_state(AlgoliaResumeConfig(page=int(state["page"])))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
+    return SourceResponse(
+        name=endpoint,
+        items=lambda: resource,
+        primary_keys=config.primary_keys,
+        # Full-refresh endpoints with no stable datetime field to partition on.
+        partition_count=1,
+        partition_size=1,
+    )
 
 
 def validate_credentials(
@@ -283,31 +285,4 @@ def validate_credentials(
         False,
         f"Algolia returned an unexpected status ({response.status_code}). Check your Application ID "
         "and API key, then try again.",
-    )
-
-
-def algolia_source(
-    endpoint: str,
-    application_id: str,
-    api_key: str,
-    index_name: str | None,
-    logger: FilteringBoundLogger,
-    manager: ResumableSourceManager[AlgoliaResumeConfig],
-) -> SourceResponse:
-    config = ALGOLIA_ENDPOINTS[endpoint]
-
-    return SourceResponse(
-        name=endpoint,
-        items=lambda: get_rows(
-            endpoint=endpoint,
-            application_id=application_id,
-            api_key=api_key,
-            index_name=index_name,
-            logger=logger,
-            manager=manager,
-        ),
-        primary_keys=config.primary_keys,
-        # Full-refresh endpoints with no stable datetime field to partition on.
-        partition_count=1,
-        partition_size=1,
     )

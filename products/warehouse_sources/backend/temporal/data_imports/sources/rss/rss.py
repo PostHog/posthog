@@ -1,28 +1,36 @@
 import dataclasses
-from collections.abc import Iterator
 from typing import Any, Optional
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+    rest_api_resources,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    PageNumberPaginator,
+    SinglePagePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    AuthConfig,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.rss.settings import RSS_ENDPOINTS
 
 RSS_BASE_URL = "https://api.rss.com/v4"
 # The episodes endpoint accepts a `limit` of up to 100 (default 100); the largest page minimises
 # round trips.
 PAGE_SIZE = 100
-REQUEST_TIMEOUT_SECONDS = 60
+FIRST_PAGE = 1
 # Cheap endpoint used to confirm an API key is genuine. The key is account-wide, so one probe
 # validates access to every endpoint.
 DEFAULT_PROBE_PATH = "/podcasts"
-
-
-class RssRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
@@ -30,171 +38,185 @@ class RssResumeConfig:
     """Resume state for the per-podcast episodes fan-out.
 
     `podcasts` and `categories` are single unpaginated requests, so only the episodes endpoint
-    persists state: which podcasts are fully synced and the next page of the podcast in flight.
-    Page-number pagination with `order=oldest` is deterministic, so a crashed sync resumes from the
-    page after the last one yielded; merge dedupes re-pulled rows on the primary key.
+    persists state. The framework fan-out now checkpoints into `fanout_state`; the legacy fields are
+    kept (with defaults) only so state saved before the migration still parses
+    (`ResumableSourceManager._load_json` does `dataclass(**saved)`). An old-shape bookmark restarts
+    the fan-out from scratch — merge dedupes the re-pulled rows on the primary key.
     """
 
+    # Legacy fan-out bookmark shape (pre-migration). Kept so old saved state still constructs.
     completed_podcast_ids: list[int] = dataclasses.field(default_factory=list)
     current_podcast_id: int | None = None
-    next_page: int = 1
+    next_page: int = FIRST_PAGE
+    # Framework fan-out checkpoint: {"completed": [child_path, ...], "current": child_path | None,
+    # "child_state": {"page": N} | None}.
+    fanout_state: dict | None = None
 
 
-def _headers(api_key: str) -> dict[str, str]:
-    return {"X-Api-Key": api_key, "Accept": "application/json"}
+class RssPageNumberPaginator(PageNumberPaginator):
+    """Page-number paginator that also stops on a short page.
+
+    RSS.com episode pages carry no total count; a page with fewer than `limit` rows is the last one,
+    so stopping there saves the extra empty-page request the base paginator would otherwise pay. This
+    mirrors the hand-rolled source's `len(items) < PAGE_SIZE` termination exactly.
+    """
+
+    def __init__(self, limit: int) -> None:
+        super().__init__(base_page=FIRST_PAGE)
+        self.limit = limit
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        super().update_state(response, data)
+        if self._has_next_page and data is not None and len(data) < self.limit:
+            self._has_next_page = False
 
 
-@retry(
-    retry=retry_if_exception_type((RssRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_list(
-    session: requests.Session,
-    path: str,
-    params: dict[str, Any],
-    logger: FilteringBoundLogger,
-) -> list[dict[str, Any]]:
-    response = session.get(
-        f"{RSS_BASE_URL}{path}",
-        params=params,
-        timeout=REQUEST_TIMEOUT_SECONDS,
-    )
-
-    if response.status_code == 429 or response.status_code >= 500:
-        raise RssRetryableError(f"RSS.com API error (retryable): status={response.status_code}, path={path}")
-
-    if not response.ok:
-        logger.error(f"RSS.com API error: status={response.status_code}, body={response.text}, path={path}")
-        response.raise_for_status()
-
-    data = response.json()
-    # Every RSS.com list endpoint returns a bare JSON array of objects.
-    if not isinstance(data, list):
-        raise RssRetryableError(f"RSS.com returned an unexpected payload for {path}: {type(data).__name__}")
-
-    return data
+def _auth_config(api_key: str) -> AuthConfig:
+    # Framework auth (not a hand-built header) so the key is redacted from logs/captured samples.
+    return {"type": "api_key", "api_key": api_key, "name": "X-Api-Key", "location": "header"}
 
 
-def _get_episode_rows(
-    session: requests.Session,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[RssResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
-    config = RSS_ENDPOINTS["episodes"]
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    completed = set(resume.completed_podcast_ids) if resume else set()
-    if resume:
-        logger.debug(f"RSS.com: resuming episodes fan-out, {len(completed)} podcasts already synced")
-
-    podcasts = _fetch_list(session, RSS_ENDPOINTS["podcasts"].path, {}, logger)
-
-    for podcast in podcasts:
-        podcast_id = podcast["id"]
-        if podcast_id in completed:
-            continue
-
-        page = resume.next_page if resume is not None and resume.current_podcast_id == podcast_id else 1
-        path = config.path.format(podcast_id=podcast_id)
-
-        while True:
-            # `order=oldest` gives stable append-only ordering: episodes published mid-sync land on
-            # the final pages instead of shifting every earlier page boundary by one.
-            items = _fetch_list(session, path, {"page": page, "limit": PAGE_SIZE, "order": "oldest"}, logger)
-            if items:
-                # Episode rows don't carry their parent id, so inject it — it is part of the primary
-                # key and what users join back to the podcasts table on.
-                yield [{**item, "podcast_id": podcast_id} for item in items]
-
-            # A short or empty page marks the end of this podcast's episodes.
-            if len(items) < PAGE_SIZE:
-                break
-
-            page += 1
-            # Save AFTER yielding so a crash re-fetches from the next page (already-yielded pages
-            # are persisted); merge dedupes the re-pulled page on the primary key.
-            resumable_source_manager.save_state(
-                RssResumeConfig(
-                    completed_podcast_ids=sorted(completed),
-                    current_podcast_id=podcast_id,
-                    next_page=page,
-                )
-            )
-
-        completed.add(podcast_id)
-        resumable_source_manager.save_state(RssResumeConfig(completed_podcast_ids=sorted(completed)))
-
-
-def get_rows(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[RssResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
+def _top_level_resource(endpoint: str, api_key: str, team_id: int, job_id: str) -> Resource:
     config = RSS_ENDPOINTS[endpoint]
-    session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": RSS_BASE_URL,
+            "headers": {"Accept": "application/json"},
+            "auth": _auth_config(api_key),
+            # A single unpaginated request returns the whole collection.
+            "paginator": SinglePagePaginator(),
+        },
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    # Every RSS.com list endpoint returns a bare JSON array; a 200 whose body isn't a
+                    # list means an unexpected/transient payload — reissue it rather than syncing 0
+                    # rows (the hand-rolled source raised a retryable error here).
+                    "data_selector_malformed_retryable": True,
+                },
+            }
+        ],
+    }
+    return rest_api_resource(rest_config, team_id, job_id, None)
 
-    if config.fan_out_podcasts:
-        yield from _get_episode_rows(session, logger, resumable_source_manager)
-        return
 
-    # podcasts / categories: a single unpaginated request returns the whole collection.
-    items = _fetch_list(session, config.path, {}, logger)
-    if items:
-        yield items
+def _fan_out_episodes_resource(
+    api_key: str,
+    team_id: int,
+    job_id: str,
+    manager: ResumableSourceManager[RssResumeConfig],
+) -> Resource:
+    config = RSS_ENDPOINTS["episodes"]
+    parent_config = RSS_ENDPOINTS["podcasts"]
+
+    # include_from_parent injects the parent's id under `_podcasts_id`; rename it to `podcast_id`
+    # (kept as-is, no cast) so child rows keep the exact shape the hand-rolled source produced
+    # (`{**item, "podcast_id": podcast_id}`). It's part of the composite primary key.
+    prefixed_parent_id = f"_{parent_config.name}_id"
+
+    def _inject_podcast_id(row: dict[str, Any]) -> dict[str, Any]:
+        row["podcast_id"] = row.pop(prefixed_parent_id)
+        return row
+
+    parent_resource: EndpointResource = {
+        "name": parent_config.name,
+        "endpoint": {
+            "path": parent_config.path,
+            "paginator": SinglePagePaginator(),
+            "data_selector_malformed_retryable": True,
+        },
+    }
+    child_resource: EndpointResource = {
+        "name": config.name,
+        "include_from_parent": ["id"],
+        "data_map": _inject_podcast_id,
+        "endpoint": {
+            "path": config.path,
+            "params": {
+                "podcast_id": {"type": "resolve", "resource": parent_config.name, "field": "id"},
+                # `order=oldest` gives stable append-only ordering: episodes published mid-sync land
+                # on the final pages instead of shifting every earlier page boundary by one.
+                "order": "oldest",
+                "limit": PAGE_SIZE,
+            },
+            "paginator": RssPageNumberPaginator(limit=PAGE_SIZE),
+            # A bare JSON array is expected; a non-list body means the response shape changed —
+            # fail loud instead of silently syncing 0 rows.
+            "data_selector_required": True,
+        },
+    }
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": RSS_BASE_URL,
+            "headers": {"Accept": "application/json"},
+            "auth": _auth_config(api_key),
+        },
+        "resources": [parent_resource, child_resource],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if manager.can_resume():
+        resume = manager.load_state()
+        # Only a framework-shape checkpoint seeds the fan-out; an old-shape bookmark starts it fresh
+        # and merge dedupes the re-pulled rows.
+        if resume is not None and resume.fanout_state is not None:
+            initial_paginator_state = resume.fanout_state
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state is not None:
+            manager.save_state(RssResumeConfig(fanout_state=state))
+
+    resources = rest_api_resources(
+        rest_config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+    return next(resource for resource in resources if resource.name == config.name)
 
 
 def rss_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[RssResumeConfig],
 ) -> SourceResponse:
     config = RSS_ENDPOINTS[endpoint]
 
+    if config.fan_out_podcasts:
+        resource = _fan_out_episodes_resource(api_key, team_id, job_id, resumable_source_manager)
+    else:
+        resource = _top_level_resource(endpoint, api_key, team_id, job_id)
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
     )
 
 
-def check_access(api_key: str, path: str = DEFAULT_PROBE_PATH) -> tuple[int, Optional[str]]:
-    """Probe a single endpoint to validate the API key.
-
-    Returns ``(status, message)``: ``200`` reachable, ``401``/``402``/``403`` auth or plan failure,
-    ``0`` for a connection problem, other HTTP status otherwise.
-    """
-    session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
-    try:
-        response = session.get(f"{RSS_BASE_URL}{path}", timeout=15)
-    except Exception as e:
-        return 0, f"Could not connect to RSS.com: {e}"
-
-    if response.status_code in (401, 402, 403):
-        return response.status_code, None
-
-    if not response.ok:
-        return response.status_code, f"RSS.com returned HTTP {response.status_code}"
-
-    return 200, None
-
-
 def validate_credentials(api_key: str) -> tuple[bool, str | None]:
-    status, message = check_access(api_key)
-    if status == 200:
+    # The API key is account-wide, so a single probe validates access to every endpoint. A bad key
+    # 401/403s, a plan gap 402s. `redact_values` masks the key from any captured sample.
+    ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        f"{RSS_BASE_URL}{DEFAULT_PROBE_PATH}",
+        headers={"X-Api-Key": api_key, "Accept": "application/json"},
+    )
+    if ok:
         return True, None
     if status in (401, 403):
         return False, "Invalid RSS.com API key"
     if status == 402:
         return False, "The RSS.com API is only available on RSS.com Network plans. Upgrade your plan, then reconnect."
-    return False, message or "Could not validate RSS.com API key"
+    if status is None:
+        return False, "Could not validate RSS.com API key"
+    return False, f"RSS.com returned HTTP {status}"

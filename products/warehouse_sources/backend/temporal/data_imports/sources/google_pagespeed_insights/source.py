@@ -19,7 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlepagespeedinsights import (
     GooglePageSpeedInsightsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_pagespeed_insights.google_pagespeed_insights import (
@@ -39,6 +39,9 @@ class GooglePageSpeedInsightsSource(SimpleSource[GooglePageSpeedInsightsSourceCo
     # `get_schemas` iterates a static endpoint catalog with no I/O, so the table list is safe to render
     # in public docs without credentials.
     lists_tables_without_credentials = True
+    supported_versions = ("v5",)
+    default_version = "v5"
+    api_docs_url = "https://developers.google.com/speed/docs/insights/v5/get-started"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -106,6 +109,13 @@ Each analysis is a full Lighthouse run and can take several seconds. Each URL is
             "403 Client Error: Forbidden for url: https://pagespeedonline.googleapis.com": "Your API key does not have access to the PageSpeed Insights API. Enable the API for your Google Cloud project and check any key restrictions, then reconnect.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # 429/5xx are already retried internally with backoff (see google_pagespeed_insights.py's
+        # tenacity-wrapped `_fetch`); if those retries still exhaust, the failure is transient and
+        # self-recovering, so let Temporal retry the activity without surfacing it as tracked
+        # exception noise.
+        return {"PageSpeed Insights API error (retryable)"}
+
     def get_schemas(
         self,
         config: GooglePageSpeedInsightsSourceConfig,
@@ -113,6 +123,7 @@ Each analysis is a full Lighthouse run and can take several seconds. Each URL is
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -134,7 +145,11 @@ Each analysis is a full Lighthouse run and can take several seconds. Each URL is
         return schemas
 
     def validate_credentials(
-        self, config: GooglePageSpeedInsightsSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: GooglePageSpeedInsightsSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_google_pagespeed_insights_credentials(config.api_key, config.urls)
 

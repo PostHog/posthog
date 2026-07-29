@@ -10,6 +10,7 @@ from django.utils import timezone
 import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
@@ -25,6 +26,9 @@ from products.warehouse_sources.backend.models.table import HIDDEN_COLUMNS, Data
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     emit_signals_enabled_for,
     person_property_sync_enabled_for,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
+    get_v3_pipeline_lock_holder,
 )
 
 WAREHOUSE_PIPELINES_V3_FLAG = "warehouse-pipelines-v3"
@@ -101,6 +105,22 @@ def _enrichment_pending(team_id: int, table: DataWarehouseTable | None, schema: 
     # "" is the table-level annotation; absent description on both schema and annotations means work.
     table_needs_description = not bool(schema.description) and "" not in annotated
     return bool(new_columns or table_needs_description)
+
+
+def _verify_v3_lock_still_held(team_id: int, schema_id: uuid.UUID) -> None:
+    """Fail fast if another run stole the v3 lock during this run's startup window,
+    instead of double-writing the Delta table. Best-effort: skipped when Redis is down."""
+    run_id = activity.info().workflow_run_id
+    if not run_id:
+        return
+    holder = get_v3_pipeline_lock_holder(team_id, str(schema_id))
+    if holder is None:
+        return
+    if holder != run_id:
+        raise ApplicationError(
+            "v3 pipeline lock lost to another run before job creation",
+            non_retryable=True,
+        )
 
 
 def _build_schema_snapshot(schema: ExternalDataSchema) -> dict[str, Any]:
@@ -190,6 +210,7 @@ def create_external_data_job_model_activity(
         pipeline_version = ExternalDataJob.PipelineVersion.V2
         if inputs.is_v3:
             pipeline_version = ExternalDataJob.PipelineVersion.V3
+            _verify_v3_lock_still_held(inputs.team_id, inputs.schema_id)
 
         job = ExternalDataJob.objects.create(
             team_id=inputs.team_id,

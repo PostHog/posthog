@@ -30,13 +30,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AnthropicSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.anthropic import (
+    AnthropicSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class AnthropicSource(ResumableSource[AnthropicSourceConfig, AnthropicResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("2023-06-01",)
+    default_version = "2023-06-01"
+    api_docs_url = "https://platform.claude.com/docs/en/api/versioning"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -90,6 +95,7 @@ Create an Admin API key (prefixed `sk-ant-admin...`) in your [Anthropic Console]
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = ANTHROPIC_ENDPOINTS[endpoint]
@@ -109,7 +115,11 @@ Create an Admin API key (prefixed `sk-ant-admin...`) in your [Anthropic Console]
         return schemas
 
     def validate_credentials(
-        self, config: AnthropicSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: AnthropicSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_anthropic_credentials(config.api_key):
             return True, None
@@ -128,9 +138,9 @@ Create an Admin API key (prefixed `sk-ant-admin...`) in your [Anthropic Console]
         return anthropic_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
