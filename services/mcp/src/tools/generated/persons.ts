@@ -31,6 +31,15 @@ const personsBulkDelete = (): ToolBase<typeof PersonsBulkDeleteSchema, unknown> 
         if (params.distinct_ids !== undefined) {
             body['distinct_ids'] = params.distinct_ids
         }
+        if (params.properties !== undefined) {
+            body['properties'] = params.properties
+        }
+        if (params.search !== undefined) {
+            body['search'] = params.search
+        }
+        if (params.dry_run !== undefined) {
+            body['dry_run'] = params.dry_run
+        }
         if (params.delete_events !== undefined) {
             body['delete_events'] = params.delete_events
         }

@@ -193,7 +193,12 @@ export const PersonsUpdatePropertyCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * This endpoint allows you to bulk delete persons, either by the PostHog person IDs or by distinct IDs. You can pass in a maximum of 1000 IDs per call. Only events captured before the request will be deleted.
+ * This endpoint allows you to bulk delete persons, either by the PostHog person IDs, by distinct IDs, or by a person filter.
+ *
+ * With `ids` or `distinct_ids` you can pass in a maximum of 1000 IDs per call. With `properties` and/or `search`
+ * the matching persons are resolved server-side: each call deletes up to 1000 matching persons and returns
+ * `has_more`, so you repeat the same request until `has_more` is false rather than enumerating IDs yourself.
+ * Send `dry_run` first to see how many persons a filter matches. Only events captured before the request will be deleted.
  */
 export const PersonsBulkDeleteCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -207,6 +212,7 @@ export const PersonsBulkDeleteCreateQueryParams = /* @__PURE__ */ zod.object({
     format: zod.enum(['csv', 'json']).optional(),
 })
 
+export const personsBulkDeleteCreateBodyDryRunDefault = false
 export const personsBulkDeleteCreateBodyDeleteEventsDefault = false
 export const personsBulkDeleteCreateBodyDeleteRecordingsDefault = false
 export const personsBulkDeleteCreateBodyKeepPersonDefault = false
@@ -217,6 +223,44 @@ export const PersonsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
         .array(zod.string())
         .optional()
         .describe('A list of distinct IDs whose associated persons will be deleted (max 1000).'),
+    properties: zod
+        .array(
+            zod.object({
+                key: zod
+                    .string()
+                    .describe('The person property to filter on, or the cohort ID when `type` is `cohort`.'),
+                value: zod
+                    .union([zod.string(), zod.number(), zod.boolean(), zod.array(zod.string())])
+                    .optional()
+                    .describe('The value to compare against. A list for operators like `exact` with multiple options.'),
+                operator: zod
+                    .string()
+                    .optional()
+                    .describe(
+                        'Comparison operator, for example `exact`, `icontains`, `gt`, `is_set`. Defaults to `exact`.'
+                    ),
+                type: zod
+                    .string()
+                    .optional()
+                    .describe('Either `person` (filter on a person property) or `cohort`. Defaults to `person`.'),
+            })
+        )
+        .optional()
+        .describe(
+            'Person property filters describing which persons to delete, in the same format as the `properties` parameter of the persons list endpoint. Deletes one page of up to 1000 matching persons per call, so repeat the same request while `has_more` is true to delete the rest.'
+        ),
+    search: zod
+        .string()
+        .optional()
+        .describe(
+            'Restrict the persons to delete to those matching this search term. Can be combined with `properties`.'
+        ),
+    dry_run: zod
+        .boolean()
+        .default(personsBulkDeleteCreateBodyDryRunDefault)
+        .describe(
+            'If true, nothing is deleted and `persons_found` reports how many persons the request would delete in total. Use this to confirm the scope of a filter before running it.'
+        ),
     delete_events: zod
         .boolean()
         .default(personsBulkDeleteCreateBodyDeleteEventsDefault)

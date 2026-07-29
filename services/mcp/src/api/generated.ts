@@ -54713,11 +54713,28 @@ export namespace Schemas {
       timestamp: string;
     }
 
+    export interface PersonBulkDeleteFilter {
+      /** The person property to filter on, or the cohort ID when `type` is `cohort`. */
+      key: string;
+      /** The value to compare against. A list for operators like `exact` with multiple options. */
+      value?: string | number | boolean | string[];
+      /** Comparison operator, for example `exact`, `icontains`, `gt`, `is_set`. Defaults to `exact`. */
+      operator?: string;
+      /** Either `person` (filter on a person property) or `cohort`. Defaults to `person`. */
+      type?: string;
+    }
+
     export interface PersonBulkDeleteRequest {
       /** A list of PostHog person UUIDs to delete (max 1000). */
       ids?: string[];
       /** A list of distinct IDs whose associated persons will be deleted (max 1000). */
       distinct_ids?: string[];
+      /** Person property filters describing which persons to delete, in the same format as the `properties` parameter of the persons list endpoint. Deletes one page of up to 1000 matching persons per call, so repeat the same request while `has_more` is true to delete the rest. */
+      properties?: PersonBulkDeleteFilter[];
+      /** Restrict the persons to delete to those matching this search term. Can be combined with `properties`. */
+      search?: string;
+      /** If true, nothing is deleted and `persons_found` reports how many persons the request would delete in total. Use this to confirm the scope of a filter before running it. */
+      dry_run?: boolean;
       /** If true, queue deletion of all events associated with these persons. */
       delete_events?: boolean;
       /** If true, queue deletion of all recordings associated with these persons. */
@@ -54729,10 +54746,12 @@ export namespace Schemas {
     export type PersonBulkDeleteResponseDeletionErrorsItem = { [key: string]: unknown };
 
     export interface PersonBulkDeleteResponse {
-      /** Number of persons matched by the provided IDs or distinct IDs. */
+      /** Number of persons matched by this call. When `dry_run` is true, the total number of persons the filter matches. */
       persons_found: number;
-      /** Number of person records deleted from the database. 0 if keep_person was true. */
+      /** Number of person records deleted from the database. 0 if keep_person or dry_run was true. */
       persons_deleted: number;
+      /** Whether more persons still match the filter. Repeat the same request until this is false. Always false when deleting by explicit IDs. */
+      has_more: boolean;
       /** Whether event deletion was requested for the matched persons. If a deletion was already queued for a person, it will not be duplicated. */
       events_queued_for_deletion: boolean;
       /** Whether recording deletion was requested for the matched persons. If a deletion was already queued for a person, it will not be duplicated. */

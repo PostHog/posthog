@@ -524,7 +524,12 @@ export const getPersonsBulkDeleteCreateUrl = (projectId: string, params?: Person
 }
 
 /**
- * This endpoint allows you to bulk delete persons, either by the PostHog person IDs or by distinct IDs. You can pass in a maximum of 1000 IDs per call. Only events captured before the request will be deleted.
+ * This endpoint allows you to bulk delete persons, either by the PostHog person IDs, by distinct IDs, or by a person filter.
+ *
+ * With `ids` or `distinct_ids` you can pass in a maximum of 1000 IDs per call. With `properties` and/or `search`
+ * the matching persons are resolved server-side: each call deletes up to 1000 matching persons and returns
+ * `has_more`, so you repeat the same request until `has_more` is false rather than enumerating IDs yourself.
+ * Send `dry_run` first to see how many persons a filter matches. Only events captured before the request will be deleted.
  */
 export const personsBulkDeleteCreate = async (
     projectId: string,
