@@ -173,6 +173,22 @@ class TestRunPostLoadDeltaMaintenance:
         else:
             update_config.assert_not_called()
 
+    @parameterized.expand([("non_cdc", False), ("cdc", True)])
+    @pytest.mark.asyncio
+    async def test_prepares_s3_files_with_post_maintenance_file_list(self, _name: str, is_cdc: bool) -> None:
+        # Compaction/vacuum maintenance above can rewrite or delete files referenced by the
+        # pre-maintenance file_uris snapshot the caller passed in. Regression: prepare_s3_files_for_querying
+        # was called with that stale snapshot, raising FileNotFoundError on files maintenance just removed.
+        schema = _make_schema(is_cdc=is_cdc)
+        post_maintenance_uris = ["s3://bucket/orders/compacted.parquet"]
+        helper = _make_helper(file_uris=post_maintenance_uris)
+
+        _, prepare_s3 = await _run_post_load(schema, helper, cdc_write_mode="incremental" if is_cdc else None)
+
+        prepare_s3.assert_awaited_once()
+        assert prepare_s3.await_args is not None
+        assert prepare_s3.await_args.args[2] == post_maintenance_uris
+
     @parameterized.expand(
         [
             # A genuine maintenance bug must still be captured for visibility.
