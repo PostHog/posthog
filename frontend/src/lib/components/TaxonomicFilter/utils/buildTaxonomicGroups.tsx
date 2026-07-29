@@ -1047,12 +1047,9 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             getValue: (option: Record<string, any>) => option.key,
             valuesEndpoint: (key) => {
                 if (key === 'visited_page') {
-                    return (
-                        `api/environments/${teamId}/events/values/?key=` +
-                        encodeURIComponent('$current_url') +
-                        '&event_name=' +
-                        encodeURIComponent('$pageview')
-                    )
+                    // The filter matches replay's own all_urls, so suggestions must come from there
+                    // too — $pageview events miss mobile, SPA and custom pageview setups entirely.
+                    return `api/environments/${teamId}/session_recordings/property_values/?key=visited_page`
                 }
             },
             getPopoverHeader: () => 'Replay',

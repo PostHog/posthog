@@ -1165,6 +1165,21 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings/1")
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
+    def test_visited_page_values_come_from_replay_urls_not_pageview_events(self) -> None:
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id=str(uuid7()),
+            distinct_id="user",
+            first_timestamp=now() - relativedelta(days=1),
+            last_timestamp=now() - relativedelta(days=1),
+            all_urls=["https://example.com/pricing"],
+            ensure_analytics_event_in_session=False,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/property_values?key=visited_page")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"results": [{"name": "https://example.com/pricing"}]}
+
     def test_get_matching_events_for_must_not_send_multiple_session_ids(self) -> None:
         query_params = [
             f'session_ids=["{str(uuid7())}", "{str(uuid7())}"]',

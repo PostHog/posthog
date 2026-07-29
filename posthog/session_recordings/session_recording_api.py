@@ -103,6 +103,10 @@ from posthog.session_recordings.queries.session_replay_events import (
     SessionReplayEvents,
     get_latest_session_event_properties,
 )
+from posthog.session_recordings.queries.session_replay_url_values import (
+    VISITED_PAGE_VALUES_LIMIT,
+    get_visited_page_values,
+)
 from posthog.session_recordings.recordings import recording_s3_client
 from posthog.session_recordings.recordings.errors import BlockFetchError, RecordingDeletedError
 from posthog.session_recordings.recordings.recording_api_client import RecordingApiClient, recording_api_client
@@ -875,7 +879,7 @@ class SessionRecordingViewSet(
 ):
     authentication_classes = [ExportRendererAuthentication]
     scope_object = "session_recording"
-    scope_object_read_actions = ["list", "retrieve", "snapshots"]
+    scope_object_read_actions = ["list", "retrieve", "snapshots", "property_values"]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = SessionRecordingSerializer
     # We don't use this
@@ -1016,6 +1020,26 @@ class SessionRecordingViewSet(
 
         response.headers["Server-Timing"] = ServerTimingsGathered().to_header_string(timings)
         return response
+
+    @extend_schema(
+        exclude=True,
+        description="""
+        Suggested values for a recording property filter, read from replay's own data.
+        This API is intended for internal use and might have unannounced breaking changes.""",
+    )
+    @action(methods=["GET"], detail=False)
+    def property_values(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        key = request.GET.get("key")
+        if key != "visited_page":
+            raise exceptions.ValidationError(f"Unsupported recording property key: {key}")
+
+        results = get_visited_page_values(
+            team=self.team,
+            user=cast(User, request.user) if request.user.is_authenticated else None,
+            search_value=request.GET.get("value"),
+            limit=VISITED_PAGE_VALUES_LIMIT,
+        )
+        return Response({"results": [{"name": url} for url in results]})
 
     @extend_schema(
         exclude=True,
