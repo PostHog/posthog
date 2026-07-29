@@ -170,8 +170,9 @@ pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
         ("duration_ms", json!(duration_ms)),
         ("success", json!(upload_result.is_ok())),
     ];
-    if let Err(ref e) = upload_result {
-        props.push(("error", json!(format!("{:#}", e))));
+    match upload_result {
+        Ok(ref summary) => props.extend(summary.telemetry_props()),
+        Err(ref e) => props.push(("error", json!(format!("{:#}", e)))),
     }
     context().capture_event("error_tracking_cli_sourcemaps_upload_finished", props);
 
