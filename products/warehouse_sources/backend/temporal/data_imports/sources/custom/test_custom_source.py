@@ -411,6 +411,24 @@ class TestCustomSourceAssembleManifest(SimpleTestCase):
         manifest = source._assemble_manifest(config)
         assert manifest["client"]["base_url"] == "https://api.example.com"
 
+    def test_accepts_already_parsed_manifest_object(self):
+        # The create/validate API can hand us the manifest as an already-parsed object rather than a
+        # JSON string; that used to reach json.loads(dict) and raise an uncaught TypeError.
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=_minimal_manifest())  # type: ignore[arg-type]
+        manifest = source._assemble_manifest(config)
+        assert manifest["client"]["base_url"] == "https://api.example.com"
+
+    def test_does_not_mutate_manifest_object_when_injecting_secrets(self):
+        # A dict manifest is deep-copied before secret injection so credentials never leak back into
+        # the caller's (persisted, redacted) config.
+        stored = _minimal_manifest()
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=stored, auth_token="ya29.secret")  # type: ignore[arg-type]
+        assembled = source._assemble_manifest(config)
+        assert assembled["client"]["auth"]["token"] == "ya29.secret"
+        assert "token" not in stored["client"]["auth"]
+
     @parameterized.expand(
         [
             ("bearer", {"type": "bearer"}, {"auth_token": "ya29.secret"}, "token", "ya29.secret"),

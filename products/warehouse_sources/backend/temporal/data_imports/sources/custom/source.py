@@ -905,10 +905,20 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         API layer can redact them. This rebuilds the full config the REST
         engine consumes.
         """
-        try:
-            manifest = json.loads(config.manifest_json)
-        except json.JSONDecodeError as exc:
-            raise ManifestValidationError(f"Manifest is not valid JSON: {exc.msg} (line {exc.lineno}, col {exc.colno})")
+        raw = config.manifest_json
+        # `manifest_json` is declared as a JSON string, but the create/validate API can hand us an
+        # already-parsed object when a client submits the manifest as JSON rather than a JSON-encoded
+        # string. Accept both — deep-copy the object so the in-place secret injection below never
+        # writes credentials back into the caller's (persisted) config.
+        if isinstance(raw, str):
+            try:
+                manifest = json.loads(raw)
+            except json.JSONDecodeError as exc:
+                raise ManifestValidationError(
+                    f"Manifest is not valid JSON: {exc.msg} (line {exc.lineno}, col {exc.colno})"
+                )
+        else:
+            manifest = copy.deepcopy(raw)
         # Structural validation only — no resource-graph checks. This runs on
         # every sync and schema listing of already-stored manifests, so a
         # graph problem on one resource must not take down the source's other
