@@ -11,9 +11,9 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.marketo.settings import (
     ASSET_MAX_RETURN,
     BULK_WINDOW_DAYS,
@@ -160,16 +160,29 @@ class MarketoClient:
     def base_url(self) -> str:
         return self._base_url
 
+    def _redact(self, text: str) -> str:
+        """Strip credential literals from text bound for logs or a persisted error."""
+        for secret in (self._client_secret, self._client_id):
+            if secret:
+                text = text.replace(secret, "***")
+        return text
+
     def _mint_token(self) -> str:
-        response = self._session.get(
-            f"{self._base_url}/identity/oauth/token",
-            params={
-                "grant_type": "client_credentials",
-                "client_id": self._client_id,
-                "client_secret": self._client_secret,
-            },
-            timeout=REQUEST_TIMEOUT_SECONDS,
-        )
+        try:
+            response = self._session.get(
+                f"{self._base_url}/identity/oauth/token",
+                params={
+                    "grant_type": "client_credentials",
+                    "client_id": self._client_id,
+                    "client_secret": self._client_secret,
+                },
+                timeout=REQUEST_TIMEOUT_SECONDS,
+            )
+        except requests.RequestException as e:
+            # Connection/timeout errors carry the prepared URL, which here embeds the client
+            # secret as a query param. That string is persisted as the import's latest_error,
+            # so scrub the credentials before it can leak to anyone viewing failed imports.
+            raise MarketoAuthError(f"Could not reach Marketo identity endpoint: {self._redact(str(e))}") from None
         if not response.ok:
             raise MarketoAuthError(
                 f"Marketo authentication failed: status={response.status_code}, body={response.text[:500]}"

@@ -7,6 +7,7 @@ from typing import Any, Optional, cast
 import pytest
 from unittest import mock
 
+import requests
 from requests import Response
 from requests.structures import CaseInsensitiveDict
 
@@ -260,6 +261,23 @@ class TestMarketo:
 
         with pytest.raises(MarketoAuthError):
             client.access_token()
+
+    def test_transport_error_while_minting_a_token_redacts_credentials(self) -> None:
+        # A connection/timeout error carries the prepared URL, which embeds the credentials as
+        # query params; that string is persisted as the import's latest_error, so both literals
+        # must be scrubbed before the error escapes.
+        session = mock.MagicMock()
+        session.get.side_effect = requests.ConnectionError(
+            "Max retries exceeded with url: /identity/oauth/token?client_id=client-id&client_secret=client-secret"
+        )
+        client = _make_client(session)
+
+        with pytest.raises(MarketoAuthError) as excinfo:
+            client.access_token()
+
+        message = str(excinfo.value)
+        assert "client-secret" not in message
+        assert "client-id" not in message
 
     def test_session_is_built_without_http_sample_capture(self) -> None:
         # Marketo responses carry lead emails and arbitrary customer fields the generic scrubber
