@@ -10,7 +10,12 @@ from django.utils import timezone
 
 from rest_framework.test import APIClient
 
-from ee.api.agentic_provisioning.views import AUTH_CODE_CACHE_PREFIX
+from posthog.constants import AvailableFeature
+from posthog.models.organization import OrganizationMembership
+from posthog.models.team.team import Team
+
+from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX
+from ee.models.rbac.access_control import AccessControl
 
 TEST_PARTNER_CLIENT_ID = "test_partner_client_id"
 
@@ -117,3 +122,18 @@ class ProvisioningTestBase(APIBaseTest):
 
     def _get_bearer_token(self) -> str:
         return self._request_bearer_token().json()["access_token"]
+
+    def _restrict_team_access(self, team: Team) -> None:
+        """Make ``self.user`` an org member who is denied access to ``team``."""
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        AccessControl.objects.create(
+            team=team,
+            access_level="none",
+            resource="project",
+            resource_id=str(team.id),
+        )
