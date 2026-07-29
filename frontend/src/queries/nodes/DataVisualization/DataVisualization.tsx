@@ -280,7 +280,6 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         component = (
             <PieChart
                 className="p-3"
-                uniqueKey={props.uniqueKey?.toString() ?? dataVisualizationProps.key}
                 xData={_xData}
                 yData={_yData}
                 chartSettings={chartSettings}

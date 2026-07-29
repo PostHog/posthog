@@ -11,10 +11,10 @@ import { useSqlChartModel } from './useSqlChartModel'
 const handleChartError = makeChartErrorHandler('sql-combo-chart')
 
 /**
- * SQL mixed bar + line/area graph rendered via @posthog/quill-charts' {@link TimeSeriesComboChart},
- * gated behind the `product-analytics-quill-sql-charts` flag (see {@link LineGraph}). Handles the
- * mixed-type case the line-only and bar-only paths can't. Tooltip content (per-column formatting,
- * total row) is configured in {@link buildComboChartConfig}.
+ * SQL mixed bar + line/area graph rendered via @posthog/quill-charts' {@link TimeSeriesComboChart}
+ * (see {@link sqlChartComponentFor}). Handles the mixed-type case the line-only and bar-only paths
+ * can't. Tooltip content (per-column formatting, total row) is configured in
+ * {@link buildComboChartConfig}.
  */
 export const SqlComboGraph = (props: LineGraphProps): JSX.Element => {
     const model = useSqlChartModel(props, buildComboChartConfig)
