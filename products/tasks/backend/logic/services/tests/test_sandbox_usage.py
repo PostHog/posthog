@@ -14,7 +14,7 @@ from products.tasks.backend.logic.services.sandbox_usage import (
     open_sandbox_session,
     record_task_run_user_activity,
 )
-from products.tasks.backend.models import SandboxSession, Task, TaskRun
+from products.tasks.backend.models import Loop, SandboxSession, Task, TaskRun
 
 
 def _config(**overrides) -> SandboxConfig:
@@ -98,6 +98,27 @@ class TestSandboxSessionWrites(SandboxUsageBase):
         open_sandbox_session(run_id=run.id, sandbox_id="sb-vm", config=_config(vm_runtime=True))
 
         assert SandboxSession.objects.unscoped().get(sandbox_id="sb-vm").vm_runtime is True
+
+    def test_open_snapshots_loop_internal_classification(self):
+        loop = Loop.objects.unscoped().create(
+            team=self.team,
+            name="Internal loop",
+            instructions="Run",
+            runtime_adapter="claude",
+            internal=True,
+        )
+        task = Task.objects.create(
+            team=self.team,
+            title="Loop task",
+            description="",
+            origin_product=Task.OriginProduct.LOOP,
+            loop=loop,
+        )
+        run = TaskRun.objects.create(task=task, team=self.team)
+
+        open_sandbox_session(run_id=run.id, sandbox_id="sb-loop", config=_config())
+
+        assert SandboxSession.objects.unscoped().get(sandbox_id="sb-loop").loop_internal is True
 
     def test_open_retry_never_regresses_attribution(self):
         run = self._run(state={"await_user_message": True})

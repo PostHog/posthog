@@ -2293,6 +2293,11 @@ class SandboxSession(TeamScopedRootMixin, UUIDModel):
         editable=False,
         help_text="PostHog Code OAuth provenance at provision time",
     )
+    loop_internal = models.BooleanField(
+        null=True,
+        editable=False,
+        help_text="Loop internal classification at provision time",
+    )
     prewarmed = models.BooleanField(default=False, help_text="Sandbox was provisioned ahead of any user demand")
     vm_runtime = models.BooleanField(
         default=False, help_text="Modal VM runtime rather than gVisor (billed differently)"

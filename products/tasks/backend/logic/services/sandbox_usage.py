@@ -58,17 +58,26 @@ def open_sandbox_session(
         with transaction.atomic():
             run = (
                 TaskRun.objects.select_for_update(of=("self",))
-                .select_related("task")
-                .only("id", "team_id", "state", "created_via_code", "task__origin_product")
+                .select_related("task", "task__loop")
+                .only(
+                    "id",
+                    "team_id",
+                    "state",
+                    "created_via_code",
+                    "task__origin_product",
+                    "task__loop__internal",
+                )
                 .get(id=run_id)
             )
             state = run.state or {}
+            loop = run.task.loop
             created_at = sandbox_created_at or timezone.now()
             shape = {
                 "team_id": run.team_id,
                 "task_run_id": run.id,
                 "origin_product": run.task.origin_product,
                 "created_via_code": run.created_via_code,
+                "loop_internal": loop.internal if loop is not None else None,
                 "prewarmed": bool(state.get("prewarmed")),
                 "vm_runtime": config.is_vm,
                 "cpu_cores": config.cpu_cores,

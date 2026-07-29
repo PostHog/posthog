@@ -25,4 +25,13 @@ class Migration(migrations.Migration):
                 null=True,
             ),
         ),
+        migrations.AddField(
+            model_name="sandboxsession",
+            name="loop_internal",
+            field=models.BooleanField(
+                editable=False,
+                help_text="Loop internal classification at provision time",
+                null=True,
+            ),
+        ),
     ]
