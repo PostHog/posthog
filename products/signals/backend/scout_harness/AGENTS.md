@@ -162,6 +162,14 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
     `SignalProjectProfile` snapshot.
   - `runs.py` — `runs_*` tools that read past `SignalScoutRun` rows for dedupe and
     cross-skill awareness.
+  - `run_metadata.py` — `record_run_metadata`, the scout's structured self-report:
+    merges a flat scalar map into the run row's `metadata["self_reported"]` sub-object
+    mid-run (flags like `has_agent_feedback`, `validation_run`; snake*case keys,
+    scalar values, capped). The runner-stamped top-level metadata keys stay
+    write-once; this sub-object is the one mutable region. The prompt's
+    \_Self-report what kind of run this was* section steers scouts to record only
+    facts the harness can't derive itself (emit tallies and report ids are already
+    columns).
 - `profile/`
   - `builders.py` — deterministic builders that compute the inventory payload for
     `SignalProjectProfile`. Sections fall into three layers: capability / configured
@@ -267,13 +275,15 @@ one sandbox session → zero or more emitted signals.
   (`/project/{team_id}/tasks/{task_id}?runId={task_run_id}`) and is the join key for the
   LLM-analytics token / cost roll-up. Failure context (status, error, full chat log via
   LLMA) lives on the `TaskRun`; the harness persists no run state on the bridge row.
-  The bridge row does carry a write-once `metadata` JSON column stamped at creation — the
-  API-native record of run context that isn't worth a dedicated column. Known keys today:
-  `model` / `runtime_adapter` / `reasoning_effort`, the triple the run was routed on when the
-  `scouts-model-selection` gate (or a runtime pin) overrode the agent-server default (`{}` on the
-  default path). Surfaced verbatim on the run serializers / `scout-runs-*` MCP tools; new
-  operationally-relevant run dimensions should be stamped there by `_create_run_row`, not grown
-  as ad-hoc columns.
+  The bridge row does carry a `metadata` JSON column — the API-native record of run context
+  that isn't worth a dedicated column, in two regions. Top-level keys are stamped write-once at
+  creation by `_create_run_row` (today: `model` / `runtime_adapter` / `reasoning_effort`, the
+  triple the run was routed on when the `scouts-model-selection` gate or a runtime pin overrode
+  the agent-server default; `{}` on the default path) — new runner-known run dimensions belong
+  there, not as ad-hoc columns. The nested `self_reported` object is the scout's own structured
+  self-report, merged into mid-run via the `scout-record-run-metadata` tool
+  (`tools/run_metadata.py`). Both surface verbatim on the run serializers / `scout-runs-*` MCP
+  tools.
 - Each run emits scout-owned lifecycle analytics events (best-effort, keyed on the team):
   `signals_scout_run_started` (the run cleared the guards and a TaskRun exists),
   `signals_scout_run_finished` (terminal: `completed`/`failed`/`cancelled` + runtime + emit

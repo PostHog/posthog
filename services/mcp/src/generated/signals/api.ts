@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 39 enabled ops
+ * PostHog API - MCP 40 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -1415,6 +1415,27 @@ export const SignalsScoutEmitSignalBody = /* @__PURE__ */ zod
             ),
     })
     .describe('Request body for `emit-finding`. Run attribution is taken from the URL path.')
+
+/**
+ * Merge a flat map of scalar dimensions into the run's `self_reported` metadata — the scout's structured self-report of what kind of run this was (e.g. `has_self_improvement_report: true`, `has_agent_feedback: true`, `validation_run: true`). Merge semantics: re-recording a key overwrites its value, so refining a flag later in the run is safe. Only usable while the run is in progress. The map surfaces verbatim under `metadata.self_reported` on the run detail and list responses.
+ * @summary Record self-reported metadata on a run
+ */
+export const SignalsScoutRecordRunMetadataParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    run_id: zod.string().describe('UUID of the `SignalScoutRun` bridge row.'),
+})
+
+export const SignalsScoutRecordRunMetadataBody = /* @__PURE__ */ zod.object({
+    metadata: zod
+        .record(zod.string(), zod.union([zod.string(), zod.number(), zod.boolean()]))
+        .describe(
+            "Flat map of run dimensions to merge into the run's `self_reported` metadata. Keys are snake_case identifiers (lowercase letters, digits, underscores; start with a letter; max 64 chars); values are scalars — string (max 200 chars), boolean, or number. Nested objects\/lists are rejected, and the merged map is capped at 25 keys. Re-using a key overwrites its value. Use it for facts only you can observe — e.g. `has_self_improvement_report: true`, `has_agent_feedback: true`, `validation_run: true` — not for what the harness already records (emit tallies, report ids)."
+        ),
+})
 
 /**
  * Return the team's recently emitted scout findings across *every* run, newest first — the cross-run counterpart to the per-run `emissions` action. Each row carries its `run_id`, so you can regroup by run without first listing runs and fanning out one `emissions` call each. Pass `skill_name` to scope to a single scout, and `date_from` / `date_to` (a half-open window on `emitted_at`) to bound or paginate — set `date_to` to the oldest emission's `emitted_at` to walk back past the limit. Pure Postgres, no ClickHouse round-trip. Capped at 200 rows (default 50).

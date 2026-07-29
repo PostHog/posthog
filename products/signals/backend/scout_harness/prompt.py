@@ -224,6 +224,17 @@ def _self_validation_followups_section(*, report_channel: bool, can_emit_report:
     return _SELF_VALIDATION_FOLLOWUPS_TEMPLATE.format(resurface_clause=clause)
 
 
+# Shared across both channels: the record-metadata endpoint is internal-scope like the scratchpad,
+# so every scout can call it — no per-tool gating needed. The "don't self-report what the harness
+# records" rule keeps this from drifting into a duplicate of the emit tallies and report-id columns.
+_RUN_METADATA_SELF_REPORT = """# Self-report what kind of run this was
+
+Your run row carries a `self_reported` metadata map — a few structured facts that let your team and the fleet tooling see at a glance what a run did, without parsing prose summaries. Record them with `scout-record-run-metadata` (pass your `run_id`) the moment the action happens, or in one call near close-out.
+
+- **Record only what the harness can't see for itself.** Findings you emit and reports you author or edit are already recorded on your run row — never self-report those. Do record notable actions and run character: `has_self_improvement_report: true` when you escalated a self-improvement suggestion as an inbox report, `has_agent_feedback: true` when you submitted scout feedback to the PostHog team, `validation_run: true` when you spent the run working your follow-up queue — plus any dimension your skill body asks you to track.
+- Keys are snake_case identifiers; values are short scalars (string, boolean, or number) — a label or a count, never prose. Re-recording a key overwrites its value, so set a flag when it happens and refine it later if needed.
+- This is a tally, not a channel: it never replaces emitting, remembering, or your close-out summary."""
+
 _RECENCY_LENS = """# Recency lens
 
 Default to recent windows (~last 72h) when querying — fresh evidence is usually more actionable. Widen for slower patterns (cycles, drift, accumulation, multi-week experiments). Your skill body may set a different default for its domain."""
@@ -522,6 +533,7 @@ def _signal_tail_sections(*, followup_section: str) -> list[str]:
         _SCOUT_NOTES,
         _FLEET_SEAMS,
         followup_section,
+        _RUN_METADATA_SELF_REPORT,
         _RECENCY_LENS,
         _FINDING_SCHEMA,
         _TAGGING,
@@ -585,6 +597,7 @@ def _report_tail_sections(
         _SCOUT_NOTES,
         _FLEET_SEAMS,
         followup_section,
+        _RUN_METADATA_SELF_REPORT,
         _RECENCY_LENS,
         *channel_sections,
         _WRITING_STYLE,

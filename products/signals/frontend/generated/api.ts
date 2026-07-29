@@ -32,6 +32,8 @@ import type {
     ProjectProfileApi,
     PullRequestChecksResponseApi,
     PullRequestCommentsResponseApi,
+    RecordRunMetadataRequestApi,
+    RecordRunMetadataResponseApi,
     RememberRequestApi,
     ReportSignalsResponseApi,
     ScoutEmissionReportLinkApi,
@@ -963,6 +965,28 @@ export const signalsScoutEmitSignal = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(emitFindingRequestApi),
+    })
+}
+
+export const getSignalsScoutRecordRunMetadataUrl = (projectId: string, runId: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/${runId}/record-metadata/`
+}
+
+/**
+ * Merge a flat map of scalar dimensions into the run's `self_reported` metadata — the scout's structured self-report of what kind of run this was (e.g. `has_self_improvement_report: true`, `has_agent_feedback: true`, `validation_run: true`). Merge semantics: re-recording a key overwrites its value, so refining a flag later in the run is safe. Only usable while the run is in progress. The map surfaces verbatim under `metadata.self_reported` on the run detail and list responses.
+ * @summary Record self-reported metadata on a run
+ */
+export const signalsScoutRecordRunMetadata = async (
+    projectId: string,
+    runId: string,
+    recordRunMetadataRequestApi: RecordRunMetadataRequestApi,
+    options?: RequestInit
+): Promise<RecordRunMetadataResponseApi> => {
+    return apiMutator<RecordRunMetadataResponseApi>(getSignalsScoutRecordRunMetadataUrl(projectId, runId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(recordRunMetadataRequestApi),
     })
 }
 

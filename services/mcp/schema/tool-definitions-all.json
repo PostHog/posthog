@@ -8182,6 +8182,20 @@
             "readOnlyHint": true
         }
     },
+    "scout-record-run-metadata": {
+        "description": "Merge a flat map of scalar dimensions into your run's `self_reported` metadata — your structured self-report of what kind of run this was (e.g. `has_self_improvement_report: true`, `has_agent_feedback: true`, `validation_run: true`). Keys are snake_case identifiers; values are strings, booleans, or numbers. Merge semantics: re-recording a key overwrites its value, so refining a flag later in the run is safe and the call is idempotent. Don't self-report what the harness already records (emit tallies, report ids) — use it for facts only you can observe. Only usable while the run is in progress; the map surfaces under `metadata.self_reported` on `scout-runs-list` / `scout-runs-retrieve`.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Record self-reported metadata on a run",
+        "title": "Record self-reported metadata on a run",
+        "required_scopes": ["signal_scout_internal:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "scout-run-now": {
         "description": "Dispatch one on-demand run of a scout by its config `id`, regardless of its schedule — useful to test a scout right after authoring it, or to refresh its findings on demand. The run executes asynchronously and inherits the scheduled path's guards: it returns 429 if the project is over its Signals credits quota or its daily scout-run budget, and 409 if a run for this scout is already in progress. A manual run counts against the same daily run budget the scheduled runs draw from, so avoid triggering repeated runs of the same scout in a short window — each one consumes the project's scout-run allowance for the day. A manual run does not change the scout's schedule, and a disabled scout can still be run this way (to test before enabling). Returns the workflow id immediately — poll `scout-runs-list` for the resulting run and its findings.",
         "category": "Signals",

@@ -81,9 +81,10 @@ class RunSummary:
     # one-liner. Both are surfaced only for failed/cancelled runs — null otherwise (incl. success).
     error: str | None = None
     failure_reason: str | None = None
-    # Scout-owned per-run context stamped at run creation (today: the routed model triple —
-    # `model` / `runtime_adapter` / `reasoning_effort`). Empty for default-model runs and rows
-    # predating the column.
+    # Scout-owned per-run context: runner-stamped keys from run creation (today: the routed model
+    # triple — `model` / `runtime_adapter` / `reasoning_effort`) plus the nested `self_reported`
+    # scalar map the scout merges into mid-run via the record-metadata tool. Empty for
+    # default-model runs that self-reported nothing, and rows predating the column.
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
@@ -124,9 +125,10 @@ class RunDetail:
     # one-liner. Both are surfaced only for failed/cancelled runs — null otherwise (incl. success).
     error: str | None = None
     failure_reason: str | None = None
-    # Scout-owned per-run context stamped at run creation (today: the routed model triple —
-    # `model` / `runtime_adapter` / `reasoning_effort`). Empty for default-model runs and rows
-    # predating the column.
+    # Scout-owned per-run context: runner-stamped keys from run creation (today: the routed model
+    # triple — `model` / `runtime_adapter` / `reasoning_effort`) plus the nested `self_reported`
+    # scalar map the scout merges into mid-run via the record-metadata tool. Empty for
+    # default-model runs that self-reported nothing, and rows predating the column.
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:

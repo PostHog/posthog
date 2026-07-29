@@ -86,6 +86,8 @@ from products.signals.backend.scout_harness.serializers import (
     ProjectProfileQuerySerializer,
     ProjectProfileSerializer,
     RecentEmissionsQuerySerializer,
+    RecordRunMetadataRequestSerializer,
+    RecordRunMetadataResponseSerializer,
     RememberRequestSerializer,
     ScoutEmissionReportLinkSerializer,
     ScoutMemberSerializer,
@@ -143,6 +145,7 @@ from products.signals.backend.scout_harness.tools.report import (
     edit_report_sync,
     emit_report_sync,
 )
+from products.signals.backend.scout_harness.tools.run_metadata import InvalidRunMetadataError, record_run_metadata
 from products.signals.backend.scout_harness.tools.runs import (
     DEFAULT_FINDINGS_WINDOW_HOURS,
     fleet_findings_summary,
@@ -839,6 +842,57 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "remediation": result.remediation,
                 }
             ).data,
+            status=status.HTTP_200_OK,
+        )
+
+    @validated_request(
+        request_serializer=RecordRunMetadataRequestSerializer,
+        parameters=[_RUN_ID_PATH_PARAMETER],
+        responses={
+            200: OpenApiResponse(
+                response=RecordRunMetadataResponseSerializer,
+                description="Metadata merged; returns the run's full self-reported map.",
+            ),
+            400: OpenApiResponse(description="Invalid metadata shape (bad key, non-scalar value, over the key cap)."),
+            404: OpenApiResponse(description="Run not found for this project."),
+        },
+        summary="Record self-reported metadata on a run",
+        description=(
+            "Merge a flat map of scalar dimensions into the run's `self_reported` metadata — the scout's "
+            "structured self-report of what kind of run this was (e.g. `has_self_improvement_report: true`, "
+            "`has_agent_feedback: true`, `validation_run: true`). Merge semantics: re-recording a key "
+            "overwrites its value, so refining a flag later in the run is safe. Only usable while the run "
+            "is in progress. The map surfaces verbatim under `metadata.self_reported` on the run detail and "
+            "list responses."
+        ),
+        operation_id="signals_scout_record_run_metadata",
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="record-metadata",
+        required_scopes=["signal_scout_internal:write"],
+        pagination_class=None,
+    )
+    def record_metadata(self, request: Request, **kwargs) -> Response:
+        run_id = _parse_run_id_or_404(kwargs)
+        run = (
+            SignalScoutRun.objects.select_related("task_run")
+            .filter(team_id=_canonical_team_id(self), id=run_id)
+            .first()
+        )
+        if run is None:
+            raise exceptions.NotFound()
+        if run.task_run.status != tasks_facade.TaskRunStatus.IN_PROGRESS:
+            raise exceptions.ValidationError(
+                {"status": f"Metadata can only be recorded on in-progress runs (current: {run.task_run.status})."}
+            )
+        try:
+            merged = record_run_metadata(run_id=run.id, updates=request.validated_data["metadata"])
+        except InvalidRunMetadataError as exc:
+            raise exceptions.ValidationError({"detail": str(exc)})
+        return Response(
+            RecordRunMetadataResponseSerializer({"run_id": str(run.id), "self_reported": merged}).data,
             status=status.HTTP_200_OK,
         )
 

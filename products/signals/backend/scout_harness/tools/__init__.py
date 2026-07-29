@@ -37,6 +37,15 @@ from products.signals.backend.scout_harness.tools.report import (
     emit_report,
     emit_report_sync,
 )
+from products.signals.backend.scout_harness.tools.run_metadata import (
+    MAX_SELF_REPORTED_KEY_LENGTH,
+    MAX_SELF_REPORTED_KEYS,
+    MAX_SELF_REPORTED_VALUE_LENGTH,
+    SELF_REPORTED_METADATA_KEY,
+    InvalidRunMetadataError,
+    record_run_metadata,
+    validate_self_reported_updates,
+)
 from products.signals.backend.scout_harness.tools.runs import (
     DEFAULT_RUN_SEARCH_LIMIT,
     MAX_RUN_SEARCH_LIMIT,
@@ -61,12 +70,17 @@ __all__ = [
     "EvidenceEntry",
     "InvalidEmitError",
     "InvalidNoteError",
+    "InvalidRunMetadataError",
     "InvalidScratchpadError",
     "MAX_EVIDENCE_ENTRIES",
     "MAX_RUN_SEARCH_LIMIT",
+    "MAX_SELF_REPORTED_KEYS",
+    "MAX_SELF_REPORTED_KEY_LENGTH",
+    "MAX_SELF_REPORTED_VALUE_LENGTH",
     "MAX_TAG_LENGTH",
     "MAX_TAGS_PER_FINDING",
     "PROFILE_TTL",
+    "SELF_REPORTED_METADATA_KEY",
     "ProjectProfile",
     "ReportEvidence",
     "ScoutNote",
@@ -86,7 +100,9 @@ __all__ = [
     "leave_note",
     "list_notes",
     "normalize_tags",
+    "record_run_metadata",
     "remember",
     "search_scratchpad",
     "search_recent_runs",
+    "validate_self_reported_updates",
 ]

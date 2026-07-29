@@ -59426,6 +59426,28 @@ export namespace Schemas {
       recorded: boolean;
     }
 
+    /**
+     * Flat map of run dimensions to merge into the run's `self_reported` metadata. Keys are snake_case identifiers (lowercase letters, digits, underscores; start with a letter; max 64 chars); values are scalars — string (max 200 chars), boolean, or number. Nested objects/lists are rejected, and the merged map is capped at 25 keys. Re-using a key overwrites its value. Use it for facts only you can observe — e.g. `has_self_improvement_report: true`, `has_agent_feedback: true`, `validation_run: true` — not for what the harness already records (emit tallies, report ids).
+     */
+    export type RecordRunMetadataRequestMetadata = {[key: string]: string | number | boolean};
+
+    export interface RecordRunMetadataRequest {
+      /** Flat map of run dimensions to merge into the run's `self_reported` metadata. Keys are snake_case identifiers (lowercase letters, digits, underscores; start with a letter; max 64 chars); values are scalars — string (max 200 chars), boolean, or number. Nested objects/lists are rejected, and the merged map is capped at 25 keys. Re-using a key overwrites its value. Use it for facts only you can observe — e.g. `has_self_improvement_report: true`, `has_agent_feedback: true`, `validation_run: true` — not for what the harness already records (emit tallies, report ids). */
+      metadata: RecordRunMetadataRequestMetadata;
+    }
+
+    /**
+     * The run's full `self_reported` map after the merge — prior keys plus this call's updates.
+     */
+    export type RecordRunMetadataResponseSelfReported = {[key: string]: string | number | boolean};
+
+    export interface RecordRunMetadataResponse {
+      /** UUID of the run the metadata was recorded on. */
+      run_id: string;
+      /** The run's full `self_reported` map after the merge — prior keys plus this call's updates. */
+      self_reported: RecordRunMetadataResponseSelfReported;
+    }
+
     export interface RecordVisitResponse {
       /** True once today's visit row exists for the user. */
       recorded: boolean;
@@ -61984,9 +62006,9 @@ export namespace Schemas {
     }
 
     /**
-     * Scout-owned per-run context stamped at run start. Known keys today: `model`, `runtime_adapter`, and `reasoning_effort` — the triple the run was routed on when the `scouts-model-selection` gate (or a runtime pin) overrode the agent-server default. Empty object when the run rode the default model, or for runs predating the field.
+     * Scout-owned per-run context. Top-level keys are stamped by the runner at run start (today: `model`, `runtime_adapter`, and `reasoning_effort` — the triple the run was routed on when the `scouts-model-selection` gate or a runtime pin overrode the agent-server default). The nested `self_reported` object is the map of scalar dimensions the scout recorded about its own run mid-flight via `record-metadata` (e.g. `has_agent_feedback: true`). Empty object when neither wrote anything, or for runs predating the field.
      */
-    export type SignalScoutRunDetailMetadata = {[key: string]: string};
+    export type SignalScoutRunDetailMetadata = { [key: string]: unknown };
 
     /**
      * Full `SignalScoutRun` projection used by `get-run`. Same shape as the summary
@@ -62053,14 +62075,14 @@ export namespace Schemas {
       emitted_report_ids: string[];
       /** The `SignalReport` ids this run mutated via the `edit_report` channel (rewrote title/summary and/or appended a note), deduped. Distinct from `emitted_report_ids`: edit can target any inbox report, so these are generally not reports the run authored. Empty for runs that edited no report. */
       edited_report_ids: string[];
-      /** Scout-owned per-run context stamped at run start. Known keys today: `model`, `runtime_adapter`, and `reasoning_effort` — the triple the run was routed on when the `scouts-model-selection` gate (or a runtime pin) overrode the agent-server default. Empty object when the run rode the default model, or for runs predating the field. */
+      /** Scout-owned per-run context. Top-level keys are stamped by the runner at run start (today: `model`, `runtime_adapter`, and `reasoning_effort` — the triple the run was routed on when the `scouts-model-selection` gate or a runtime pin overrode the agent-server default). The nested `self_reported` object is the map of scalar dimensions the scout recorded about its own run mid-flight via `record-metadata` (e.g. `has_agent_feedback: true`). Empty object when neither wrote anything, or for runs predating the field. */
       metadata: SignalScoutRunDetailMetadata;
     }
 
     /**
-     * Scout-owned per-run context stamped at run start. Known keys today: `model`, `runtime_adapter`, and `reasoning_effort` — the triple the run was routed on when the `scouts-model-selection` gate (or a runtime pin) overrode the agent-server default. Empty object when the run rode the default model, or for runs predating the field.
+     * Scout-owned per-run context. Top-level keys are stamped by the runner at run start (today: `model`, `runtime_adapter`, and `reasoning_effort` — the triple the run was routed on when the `scouts-model-selection` gate or a runtime pin overrode the agent-server default). The nested `self_reported` object is the map of scalar dimensions the scout recorded about its own run mid-flight via `record-metadata` (e.g. `has_agent_feedback: true`). Empty object when neither wrote anything, or for runs predating the field.
      */
-    export type SignalScoutRunSummaryMetadata = {[key: string]: string};
+    export type SignalScoutRunSummaryMetadata = { [key: string]: unknown };
 
     /**
      * Lightweight projection of a `SignalScoutRun` row used by `search-recent-runs`.
@@ -62127,7 +62149,7 @@ export namespace Schemas {
       emitted_report_ids: string[];
       /** The `SignalReport` ids this run mutated via the `edit_report` channel (rewrote title/summary and/or appended a note), deduped. Distinct from `emitted_report_ids`: edit can target any inbox report, so these are generally not reports the run authored. Empty for runs that edited no report. */
       edited_report_ids: string[];
-      /** Scout-owned per-run context stamped at run start. Known keys today: `model`, `runtime_adapter`, and `reasoning_effort` — the triple the run was routed on when the `scouts-model-selection` gate (or a runtime pin) overrode the agent-server default. Empty object when the run rode the default model, or for runs predating the field. */
+      /** Scout-owned per-run context. Top-level keys are stamped by the runner at run start (today: `model`, `runtime_adapter`, and `reasoning_effort` — the triple the run was routed on when the `scouts-model-selection` gate or a runtime pin overrode the agent-server default). The nested `self_reported` object is the map of scalar dimensions the scout recorded about its own run mid-flight via `record-metadata` (e.g. `has_agent_feedback: true`). Empty object when neither wrote anything, or for runs predating the field. */
       metadata: SignalScoutRunSummaryMetadata;
     }
 

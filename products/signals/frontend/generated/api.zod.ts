@@ -914,6 +914,18 @@ export const SignalsScoutEmitSignalBody = /* @__PURE__ */ zod
     .describe('Request body for `emit-finding`. Run attribution is taken from the URL path.')
 
 /**
+ * Merge a flat map of scalar dimensions into the run's `self_reported` metadata — the scout's structured self-report of what kind of run this was (e.g. `has_self_improvement_report: true`, `has_agent_feedback: true`, `validation_run: true`). Merge semantics: re-recording a key overwrites its value, so refining a flag later in the run is safe. Only usable while the run is in progress. The map surfaces verbatim under `metadata.self_reported` on the run detail and list responses.
+ * @summary Record self-reported metadata on a run
+ */
+export const SignalsScoutRecordRunMetadataBody = /* @__PURE__ */ zod.object({
+    metadata: zod
+        .record(zod.string(), zod.union([zod.string(), zod.number(), zod.boolean()]))
+        .describe(
+            "Flat map of run dimensions to merge into the run's `self_reported` metadata. Keys are snake_case identifiers (lowercase letters, digits, underscores; start with a letter; max 64 chars); values are scalars — string (max 200 chars), boolean, or number. Nested objects\/lists are rejected, and the merged map is capped at 25 keys. Re-using a key overwrites its value. Use it for facts only you can observe — e.g. `has_self_improvement_report: true`, `has_agent_feedback: true`, `validation_run: true` — not for what the harness already records (emit tallies, report ids)."
+        ),
+})
+
+/**
  * Batched form of the per-run emissions endpoint: return the findings every requested `SignalScoutRun` emitted, flattened newest-first, in a single request. Each row carries its `run_id`, so the caller can regroup by run. The findings UI uses this to load the whole recent window in one round-trip instead of one request per run. Strictly team-scoped — run ids belonging to another team contribute no rows (no per-run 404; one stale id never fails the batch).
  * @summary List emitted findings for many runs at once
  */

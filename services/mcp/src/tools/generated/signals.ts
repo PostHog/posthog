@@ -35,6 +35,8 @@ import {
     SignalsScoutNotesDestroyParams,
     SignalsScoutNotesListQueryParams,
     SignalsScoutProjectProfileGetQueryParams,
+    SignalsScoutRecordRunMetadataBody,
+    SignalsScoutRecordRunMetadataParams,
     SignalsScoutRunsEmissionReportsParams,
     SignalsScoutRunsEmissionsParams,
     SignalsScoutRunsListQueryParams,
@@ -954,6 +956,31 @@ const scoutProjectProfileGet = (): ToolBase<typeof ScoutProjectProfileGetSchema,
     },
 })
 
+const ScoutRecordRunMetadataSchema = SignalsScoutRecordRunMetadataParams.omit({ project_id: true }).extend(
+    SignalsScoutRecordRunMetadataBody.shape
+)
+
+const scoutRecordRunMetadata = (): ToolBase<
+    typeof ScoutRecordRunMetadataSchema,
+    Schemas.RecordRunMetadataResponse
+> => ({
+    name: 'scout-record-run-metadata',
+    schema: ScoutRecordRunMetadataSchema,
+    handler: async (context: Context, params: z.infer<typeof ScoutRecordRunMetadataSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.metadata !== undefined) {
+            body['metadata'] = params.metadata
+        }
+        const result = await context.api.request<Schemas.RecordRunMetadataResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/record-metadata/`,
+            body,
+        })
+        return result
+    },
+})
+
 const ScoutRunNowSchema = SignalsScoutConfigRunParams.omit({ project_id: true })
 
 const scoutRunNow = (): ToolBase<typeof ScoutRunNowSchema, unknown> => ({
@@ -1674,6 +1701,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-notes-delete': scoutNotesDelete,
     'scout-notes-list': scoutNotesList,
     'scout-project-profile-get': scoutProjectProfileGet,
+    'scout-record-run-metadata': scoutRecordRunMetadata,
     'scout-run-now': scoutRunNow,
     'scout-runs-emission-reports': scoutRunsEmissionReports,
     'scout-runs-emissions-list': scoutRunsEmissionsList,

@@ -708,6 +708,75 @@ class TestScoutHarnessEmitFindingAPI(APIBaseTest):
             )
 
 
+class TestScoutHarnessRecordMetadataAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # record-metadata requires `signal_scout_internal:write` — session auth is rejected.
+        _authenticate_as_scout(self)
+
+    def _url(self, run_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/runs/{run_id}/record-metadata/"
+
+    def test_record_merges_and_preserves_runner_stamped_keys(self) -> None:
+        run = _make_run(self.team, metadata={"model": "some-model", "self_reported": {"validation_run": False}})
+        response = self.client.post(
+            self._url(str(run.id)),
+            data={"metadata": {"validation_run": True, "has_agent_feedback": True, "followups_validated": 2}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        expected = {"validation_run": True, "has_agent_feedback": True, "followups_validated": 2}
+        assert response.json() == {"run_id": str(run.id), "self_reported": expected}
+        # The runner-stamped region must survive the merge, and the nested map must round-trip
+        # through the run detail serializer as a real object (not a stringified dict).
+        detail = self.client.get(f"/api/projects/{self.team.id}/signals/scout/runs/{run.id}/")
+        assert detail.status_code == status.HTTP_200_OK
+        assert detail.json()["metadata"] == {"model": "some-model", "self_reported": expected}
+
+    @parameterized.expand(
+        [
+            ("prose_key", {"Has Agent Feedback": True}),
+            ("nested_value", {"details": {"count": 1}}),
+            ("empty_map", {}),
+        ]
+    )
+    def test_record_rejects_invalid_payload_with_400(self, _name: str, payload: dict) -> None:
+        run = _make_run(self.team, metadata={"model": "some-model"})
+        response = self.client.post(self._url(str(run.id)), data={"metadata": payload}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        run.refresh_from_db()
+        assert run.metadata == {"model": "some-model"}
+
+    def test_record_rejects_merge_past_key_cap(self) -> None:
+        existing = {f"key_{i}": True for i in range(25)}
+        run = _make_run(self.team, metadata={"self_reported": existing})
+        response = self.client.post(self._url(str(run.id)), data={"metadata": {"one_more": True}}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        run.refresh_from_db()
+        assert run.metadata == {"self_reported": existing}
+
+    def test_record_rejects_non_in_progress_run(self) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        run = _make_run(self.team, task_run_status=TaskRun.Status.COMPLETED)
+        response = self.client.post(self._url(str(run.id)), data={"metadata": {"flag": True}}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_record_other_teams_run_returns_404(self) -> None:
+        other = Team.objects.create(organization=self.organization, name="Other")
+        run = _make_run(other)
+        response = self.client.post(self._url(str(run.id)), data={"metadata": {"flag": True}}, format="json")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_record_rejects_session_auth(self) -> None:
+        # The write is sandbox-only: a user session (or user-grantable scope) must never be able
+        # to stamp self-reported metadata onto a run — same posture as emit-signal/scratchpad writes.
+        self.client.credentials()
+        self.client.force_login(self.user)
+        run = _make_run(self.team)
+        response = self.client.post(self._url(str(run.id)), data={"metadata": {"flag": True}}, format="json")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
 class TestScoutHarnessScratchpadAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()

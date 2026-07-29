@@ -38,6 +38,10 @@ from products.signals.backend.scout_harness.skill_loader import (
     is_signals_scout_skill,
     load_skill_for_run,
 )
+from products.signals.backend.scout_harness.tools.run_metadata import (
+    InvalidRunMetadataError,
+    validate_self_reported_updates,
+)
 from products.signals.backend.scout_harness.tools.runs import _build_task_url, _to_detail, _to_summary
 from products.signals.backend.temporal.agentic.scout_scheduler import RunSignalsScoutInput, run_signals_scout_activity
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile, LLMSkillOwner
@@ -288,6 +292,33 @@ class TestReportChartsSection(SimpleTestCase):
         assert sql_chart["chartSettings"]["yAxis"][0]["column"]
 
 
+class TestValidateSelfReportedUpdates(SimpleTestCase):
+    # The map ships verbatim on every run list/detail response, so the validator is what keeps
+    # scout-authored garbage (prose keys, nested blobs, unbounded strings) out of the column.
+    @parameterized.expand(
+        [
+            ("empty_payload", {}),
+            ("uppercase_key", {"Has_Report": True}),
+            ("kebab_key", {"has-report": True}),
+            ("digit_leading_key", {"1st_flag": True}),
+            ("oversized_key", {"k" * 65: True}),
+            ("nested_dict_value", {"details": {"count": 1}}),
+            ("list_value", {"tags": ["a", "b"]}),
+            ("none_value", {"flag": None}),
+            ("oversized_string_value", {"note": "x" * 201}),
+            ("too_many_keys", {f"key_{i}": True for i in range(26)}),
+        ]
+    )
+    def test_rejects_invalid_shapes(self, _name: str, updates: dict) -> None:
+        with pytest.raises(InvalidRunMetadataError):
+            validate_self_reported_updates(updates)
+
+    def test_accepts_all_scalar_value_types(self) -> None:
+        validate_self_reported_updates(
+            {"has_agent_feedback": True, "followups_validated": 3, "confidence_drift": 0.25, "run_kind": "validation"}
+        )
+
+
 class TestPromptBuilder(BaseTest):
     def test_renders_identity_bootstrap_and_universal_sections(self) -> None:
         skill = LLMSkill.objects.create(
@@ -347,6 +378,10 @@ class TestPromptBuilder(BaseTest):
         assert "Follow up on your own past work" in prompt
         assert "followup:<your-skill-name>:<entity>" in prompt
         assert "You decide when a run becomes a validation run" in prompt
+        # Structured self-reporting is shared across channels — the section and its tool
+        # reference must survive in the signal tail.
+        assert "Self-report what kind of run this was" in prompt
+        assert "scout-record-run-metadata" in prompt
         # Recency lens references the started_at anchor.
         assert "Recency lens" in prompt
         assert "2026-05-01T12:34:56+00:00" in prompt
@@ -442,6 +477,10 @@ class TestPromptBuilder(BaseTest):
         # Same for the shared self-validation follow-up discipline.
         assert "Follow up on your own past work" in prompt
         assert "followup:<your-skill-name>:<entity>" in prompt
+        # And the shared self-report section — the report tail is its own list, so it can
+        # drop the section independently of the signal tail.
+        assert "Self-report what kind of run this was" in prompt
+        assert "scout-record-run-metadata" in prompt
         # The two highest-leverage nudges the report channel adds: search the inbox
         # and edit before authoring a duplicate, and set suggested reviewers (what
         # actually routes a report).

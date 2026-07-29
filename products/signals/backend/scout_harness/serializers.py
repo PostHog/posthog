@@ -2,7 +2,7 @@
 
 These serializers shape the harness-internal tools (`search_recent_runs`,
 `get_run`, `search_scratchpad`, `remember`, `forget`, `emit_finding`,
-`list_notes`, `leave_note`) for MCP exposure. They mirror the dataclasses
+`record_run_metadata`, `list_notes`, `leave_note`) for MCP exposure. They mirror the dataclasses
 returned by the underlying functions in `scout_harness/tools/` so the wire
 shape and Python shape stay in lockstep.
 """
@@ -33,6 +33,11 @@ from products.signals.backend.scout_harness.tools.emit import (
 )
 from products.signals.backend.scout_harness.tools.notes import MAX_NOTE_CONTENT_LENGTH, MAX_NOTES_LIST_LIMIT
 from products.signals.backend.scout_harness.tools.report import MAX_REPORT_TITLE_LENGTH, MAX_SUGGESTED_REVIEWERS
+from products.signals.backend.scout_harness.tools.run_metadata import (
+    MAX_SELF_REPORTED_KEY_LENGTH,
+    MAX_SELF_REPORTED_KEYS,
+    MAX_SELF_REPORTED_VALUE_LENGTH,
+)
 from products.signals.backend.scout_harness.tools.runs import DEFAULT_FINDINGS_WINDOW_HOURS, MAX_FINDINGS_WINDOW_HOURS
 from products.signals.backend.scout_harness.tools.scratchpad import MAX_SCRATCHPAD_CONTENT_LENGTH
 from products.signals.backend.serializers import ReportChartSerializer
@@ -45,6 +50,25 @@ from products.skills.backend.api.skill_serializers import (
 from products.skills.backend.models.skills import LLMSkill
 
 # --- Run history -----------------------------------------------------------
+
+
+@extend_schema_field(
+    {
+        "type": "object",
+        "additionalProperties": {"oneOf": [{"type": "string"}, {"type": "number"}, {"type": "boolean"}]},
+    }
+)
+class SelfReportedMetadataField(serializers.DictField):
+    """Flat map of scalar run dimensions the scout self-reports (`self_reported`). Values are
+    JSON scalars — string, boolean, or number; shape and caps are enforced by
+    `run_metadata.validate_self_reported_updates` so the tool and the HTTP surface agree."""
+
+
+@extend_schema_field({"type": "object", "additionalProperties": True})
+class RunMetadataField(serializers.DictField):
+    """The run row's whole `metadata` column: flat runner-stamped string keys plus the nested
+    `self_reported` scalar map. Output-only — writes go through the runner (at creation) or the
+    record-metadata action (mid-run), never through this field."""
 
 
 class SignalScoutRunSummarySerializer(serializers.Serializer):
@@ -148,13 +172,15 @@ class SignalScoutRunSummarySerializer(serializers.Serializer):
             "edited no report."
         ),
     )
-    metadata = serializers.DictField(
-        child=serializers.CharField(),
+    metadata = RunMetadataField(
         help_text=(
-            "Scout-owned per-run context stamped at run start. Known keys today: `model`, "
-            "`runtime_adapter`, and `reasoning_effort` — the triple the run was routed on when the "
-            "`scouts-model-selection` gate (or a runtime pin) overrode the agent-server default. "
-            "Empty object when the run rode the default model, or for runs predating the field."
+            "Scout-owned per-run context. Top-level keys are stamped by the runner at run start "
+            "(today: `model`, `runtime_adapter`, and `reasoning_effort` — the triple the run was "
+            "routed on when the `scouts-model-selection` gate or a runtime pin overrode the "
+            "agent-server default). The nested `self_reported` object is the map of scalar "
+            "dimensions the scout recorded about its own run mid-flight via `record-metadata` "
+            "(e.g. `has_agent_feedback: true`). Empty object when neither wrote anything, or for "
+            "runs predating the field."
         ),
     )
 
@@ -765,6 +791,31 @@ class EmitFindingResponseSerializer(serializers.Serializer):
             "(e.g. an org admin must approve AI data processing). Null when emitted normally or the "
             "skip isn't something the scout can act on."
         ),
+    )
+
+
+# --- Run-metadata self-report ----------------------------------------------
+
+
+class RecordRunMetadataRequestSerializer(serializers.Serializer):
+    metadata = SelfReportedMetadataField(
+        help_text=(
+            "Flat map of run dimensions to merge into the run's `self_reported` metadata. Keys are "
+            "snake_case identifiers (lowercase letters, digits, underscores; start with a letter; max "
+            f"{MAX_SELF_REPORTED_KEY_LENGTH} chars); values are scalars — string (max "
+            f"{MAX_SELF_REPORTED_VALUE_LENGTH} chars), boolean, or number. Nested objects/lists are "
+            f"rejected, and the merged map is capped at {MAX_SELF_REPORTED_KEYS} keys. Re-using a key "
+            "overwrites its value. Use it for facts only you can observe — e.g. "
+            "`has_self_improvement_report: true`, `has_agent_feedback: true`, `validation_run: true` — "
+            "not for what the harness already records (emit tallies, report ids)."
+        ),
+    )
+
+
+class RecordRunMetadataResponseSerializer(serializers.Serializer):
+    run_id = serializers.CharField(help_text="UUID of the run the metadata was recorded on.")
+    self_reported = SelfReportedMetadataField(
+        help_text="The run's full `self_reported` map after the merge — prior keys plus this call's updates.",
     )
 
 

@@ -1267,12 +1267,15 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
     # report (pipeline-authored included), so an edited id is generally NOT one the run authored. Nullable
     # with a `[]` db_default so the AddField stays non-blocking on the populated table.
     edited_report_ids = models.JSONField(null=True, blank=True, default=list, db_default=[])
-    # Scout-owned per-run context stamped once at run creation — the native home for run
-    # dimensions that matter operationally but don't each warrant a dedicated column. Known keys
-    # today: `model` / `runtime_adapter` / `reasoning_effort`, the triple the run was routed on
-    # when the `scouts-model-selection` gate (or a runtime pin) overrode the agent-server default;
-    # empty for default-model runs. Write-once at creation, not a mutable grab-bag — new keys
-    # (e.g. a future config-level model) should also be stamped by the runner at run start.
+    # Scout-owned per-run context — the native home for run dimensions that matter operationally
+    # but don't each warrant a dedicated column. Two regions: top-level keys are stamped once by
+    # the runner at run creation and stay write-once (today: `model` / `runtime_adapter` /
+    # `reasoning_effort`, the triple the run was routed on when the `scouts-model-selection` gate
+    # or a runtime pin overrode the agent-server default; empty for default-model runs — new
+    # runner-stamped keys belong in `_create_run_row`). The nested `self_reported` object is the
+    # one mutable region: a flat scalar map the scout merges into mid-run via the record-metadata
+    # tool (`scout_harness/tools/run_metadata.py`), bounded there by key/value caps so the column
+    # stays cheap to ship with every run summary.
     # Nullable with a `{}` db_default so the AddField stays non-blocking on the populated table.
     metadata = models.JSONField(null=True, blank=True, default=dict, db_default={})
     created_at = models.DateTimeField(auto_now_add=True)
