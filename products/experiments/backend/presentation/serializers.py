@@ -1641,7 +1641,8 @@ class ExperimentSessionContextsResponseSerializer(serializers.Serializer):
         help_text=(
             "Per-session experiment context, in the order the session IDs were requested. Sessions whose "
             "recording metadata doesn't exist yet (still ingesting, or unknown to this project) are omitted, "
-            "as are sessions beyond the batch's recording-day budget (only the most recent days are computed). "
-            "Fetch omitted sessions individually via the single-session endpoint."
+            "as are recordings you don't have access to and sessions beyond the batch's recording-day budget "
+            "(only the most recent days are computed). Fetch omitted sessions individually via the "
+            "single-session endpoint."
         ),
     )

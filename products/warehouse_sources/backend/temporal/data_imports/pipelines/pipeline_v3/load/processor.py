@@ -365,7 +365,6 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
             source=schema.source,
             delta_table_helper=delta_table_helper,
             row_count=export_signal.total_rows or 0,
-            file_uris=delta_table.file_uris(),
             table_schema_dict=table_schema_dict,
             resource_name=export_signal.resource_name,
             logger=logger,
@@ -710,11 +709,9 @@ def process_message(
                 source=schema.source,
                 delta_table_helper=delta_table_helper,
                 row_count=export_signal.total_rows or 0,
-                file_uris=delta_table.file_uris(),
                 table_schema_dict=internal_schema.to_hogql_types(),
                 resource_name=export_signal.resource_name,
                 logger=logger,
-                cdc_table_mode=export_signal.cdc_table_mode,
                 cdc_write_mode=export_signal.cdc_write_mode,
             )
 
