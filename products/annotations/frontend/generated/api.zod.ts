@@ -74,7 +74,9 @@ export const AnnotationsCreateBody = /* @__PURE__ */ zod
                 'Tag names this annotation is scoped to. When `scope` is `tag`, the annotation is shown on every dashboard and insight carrying one of these tags. Required (non-empty) when `scope` is `tag`, and only allowed with that scope.'
             ),
     })
-    .describe('Serializer mixin that handles tags for objects.')
+    .describe(
+        'A note pinned to a date on insights, dashboards, or the whole project or organization.\nTag-scoped annotations show on every insight or dashboard carrying one of their tags.'
+    )
 
 /**
  * Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.
@@ -141,7 +143,9 @@ export const AnnotationsUpdateBody = /* @__PURE__ */ zod
                 'Tag names this annotation is scoped to. When `scope` is `tag`, the annotation is shown on every dashboard and insight carrying one of these tags. Required (non-empty) when `scope` is `tag`, and only allowed with that scope.'
             ),
     })
-    .describe('Serializer mixin that handles tags for objects.')
+    .describe(
+        'A note pinned to a date on insights, dashboards, or the whole project or organization.\nTag-scoped annotations show on every insight or dashboard carrying one of their tags.'
+    )
 
 /**
  * Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.
@@ -208,4 +212,6 @@ export const AnnotationsPartialUpdateBody = /* @__PURE__ */ zod
                 'Tag names this annotation is scoped to. When `scope` is `tag`, the annotation is shown on every dashboard and insight carrying one of these tags. Required (non-empty) when `scope` is `tag`, and only allowed with that scope.'
             ),
     })
-    .describe('Serializer mixin that handles tags for objects.')
+    .describe(
+        'A note pinned to a date on insights, dashboards, or the whole project or organization.\nTag-scoped annotations show on every insight or dashboard carrying one of their tags.'
+    )

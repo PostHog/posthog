@@ -19,6 +19,9 @@ from products.product_analytics.backend.models.insight import Insight
 
 
 class AnnotationSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
+    """A note pinned to a date on insights, dashboards, or the whole project or organization.
+    Tag-scoped annotations show on every insight or dashboard carrying one of their tags."""
+
     created_by = UserBasicSerializer(read_only=True)
     dashboard_id = serializers.IntegerField(required=False, allow_null=True)
     dashboard_item = TeamScopedPrimaryKeyRelatedField(queryset=Insight.objects.all(), required=False, allow_null=True)
@@ -123,12 +126,12 @@ class AnnotationSerializer(TaggedItemSerializerMixin, serializers.ModelSerialize
         tags = validated_data.pop("tags", None)
         effective_scope = validated_data.get("scope", instance.scope)
         if effective_scope == Annotation.Scope.TAG.value:
-            # Tag scope draws its surfaces from tags alone; a lingering insight/dashboard linkage
+            # Tag scope draws its surfaces from tags alone, so a lingering insight/dashboard linkage
             # would hide the annotation everywhere once that object is soft-deleted.
             validated_data["dashboard_item"] = None
             validated_data["dashboard_id"] = None
         else:
-            # Tags only mean something on tag scope; clear them when the scope moves away so the
+            # Tags only mean something on tag scope. Clear them when the scope moves away so the
             # stored object never violates this serializer's own scope/tags validation.
             tags = []
         with transaction.atomic():
@@ -173,7 +176,7 @@ class AnnotationSerializer(TaggedItemSerializerMixin, serializers.ModelSerialize
 
         tags = validated_data.pop("tags", None)
         if validated_data.get("scope") == Annotation.Scope.TAG.value:
-            # The modal sends the originating insight/dashboard regardless of scope; drop the
+            # The modal sends the originating insight/dashboard regardless of scope. Drop the
             # linkage for tag scope so soft-deleting that object can't hide the annotation.
             validated_data["dashboard_item"] = None
             validated_data["dashboard_id"] = None

@@ -79,7 +79,7 @@ def get_annotations_for_ai_context(
         )
         .order_by("-date_marker")
         .values("date_marker", "content", "scope")
-        # The tagged_items join fans one annotation out to one row per matching tag; distinct collapses that.
+        # The tagged_items join fans one annotation out to one row per matching tag, so distinct collapses that.
         .distinct()[:MAX_ANNOTATIONS_FOR_AI_CONTEXT]
     ]
     most_recent.reverse()

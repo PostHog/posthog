@@ -291,7 +291,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
             }),
             submit: async (data) => {
                 const { dateMarker, content, emoji, scope, dashboardItemId, dashboardId, tags } = data
-                // Tags define where a tag-scoped annotation shows; on other scopes send [] so that
+                // Tags define where a tag-scoped annotation shows. On other scopes send [] so that
                 // switching scope away from Tag clears any previously set tags.
                 const scopedTags = scope === AnnotationScope.Tag ? tags : []
                 const isNewAnnotation = !values.existingModalAnnotation

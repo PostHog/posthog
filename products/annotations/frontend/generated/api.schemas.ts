@@ -93,7 +93,8 @@ export const AnnotationScopeEnumApi = {
 } as const
 
 /**
- * Serializer mixin that handles tags for objects.
+ * A note pinned to a date on insights, dashboards, or the whole project or organization.
+ * Tag-scoped annotations show on every insight or dashboard carrying one of their tags.
  */
 export interface AnnotationApi {
     readonly id: number
@@ -169,7 +170,8 @@ export interface PaginatedAnnotationListApi {
 }
 
 /**
- * Serializer mixin that handles tags for objects.
+ * A note pinned to a date on insights, dashboards, or the whole project or organization.
+ * Tag-scoped annotations show on every insight or dashboard carrying one of their tags.
  */
 export interface PatchedAnnotationApi {
     readonly id?: number

@@ -8811,7 +8811,8 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Serializer mixin that handles tags for objects.
+     * A note pinned to a date on insights, dashboards, or the whole project or organization.
+     * Tag-scoped annotations show on every insight or dashboard carrying one of their tags.
      */
     export interface Annotation {
       readonly id: number;
@@ -47454,7 +47455,8 @@ export namespace Schemas {
     }
 
     /**
-     * Serializer mixin that handles tags for objects.
+     * A note pinned to a date on insights, dashboards, or the whole project or organization.
+     * Tag-scoped annotations show on every insight or dashboard carrying one of their tags.
      */
     export interface PatchedAnnotation {
       readonly id?: number;

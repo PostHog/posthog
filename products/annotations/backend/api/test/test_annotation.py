@@ -176,7 +176,14 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         get_response = self.client.get(f"/api/projects/{self.team.id}/annotations/{data['id']}/")
         assert sorted(get_response.json()["tags"]) == ["product-a", "release"]
 
-    @parameterized.expand([("empty_tags", []), ("no_tags_field", None)])
+    @parameterized.expand(
+        [
+            ("empty_tags", []),
+            ("no_tags_field", None),
+            ("whitespace_only_tag", ["   "]),
+            ("all_whitespace_tags", ["  ", ""]),
+        ]
+    )
     def test_tag_scoped_annotation_requires_at_least_one_tag(self, _name: str, tags: Optional[list[str]]) -> None:
         payload: dict[str, Any] = {
             "content": "Tag annotation without tags",
@@ -187,7 +194,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             payload["tags"] = tags
         response = self.client.post(f"/api/projects/{self.team.id}/annotations/", payload, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["attr"] == "tags"
+        assert response.json()["attr"].startswith("tags")
 
     def test_updating_tag_scoped_annotation_replaces_tags(self) -> None:
         created = self.client.post(
@@ -247,8 +254,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             format="json",
         ).json()
 
-        # Non-string JSON values are coerced by the CharField child; previously the raw
-        # initial_data list bypassed validation and 500'd in tagify()
+        # Non-string JSON values must be coerced by the CharField child instead of reaching tagify()
         response = self.client.patch(
             f"/api/projects/{self.team.id}/annotations/{created['id']}/", {"tags": [123]}, format="json"
         )
