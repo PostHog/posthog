@@ -442,13 +442,25 @@ ORDER BY calls DESC
 LIMIT {limit}
 """
 
+# Agents report the same client under many spellings — "claude-code", "Claude Code",
+# "CLAUDE_CODE" — so grouping on the raw property splits one client across several rows
+# and lets each land below the top-N cut. Case and separators are both normalised away
+# for grouping (matching the frontend's harness-label rules, which already treat
+# `[ ._-]` as interchangeable), and the most-seen spelling becomes the display name.
 _ACTIVITY_CLIENTS_SQL = """
 SELECT
-    properties.$mcp_client_name AS client,
-    count() AS calls
-FROM events
-WHERE event = {tool_call_event} AND timestamp >= {date_from}
-GROUP BY client
+    argMax(client_name, spelling_calls) AS client,
+    sum(spelling_calls) AS calls
+FROM (
+    SELECT
+        properties.$mcp_client_name AS client_name,
+        replaceRegexpAll(lower(properties.$mcp_client_name), '[ ._-]+', '') AS client_key,
+        count() AS spelling_calls
+    FROM events
+    WHERE event = {tool_call_event} AND timestamp >= {date_from}
+    GROUP BY client_name, client_key
+)
+GROUP BY client_key
 ORDER BY calls DESC
 LIMIT {limit}
 """

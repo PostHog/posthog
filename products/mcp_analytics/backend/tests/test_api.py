@@ -693,6 +693,24 @@ class TestActivityOverview(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
         assert overview.recent_calls[1].duration_ms == 120.0
         assert overview.recent_calls[1].intent == "check signups"
 
+    def test_merges_client_spellings_that_differ_only_by_case_or_separator(self) -> None:
+        # Agents report the same client under several spellings. Grouping on the raw property
+        # listed one client as several rows, each competing for the same top-N slots.
+        for client, count in [("claude-code", 3), ("Claude Code", 2), ("CLAUDE_CODE", 1)]:
+            for _ in range(count):
+                _create_event(
+                    team=self.team,
+                    event="$mcp_tool_call",
+                    distinct_id="agent-1",
+                    timestamp=datetime.now(tz=UTC) - timedelta(minutes=5),
+                    properties={"$session_id": str(uuid7()), "$mcp_tool_name": "query_run", "$mcp_client_name": client},
+                )
+
+        overview = api.get_activity_overview(self.team)
+
+        # The most-seen spelling represents the merged row.
+        assert overview.clients == [contracts.ActivityClientRow(client="claude-code", calls=6)]
+
 
 class TestGenerateSessionIntent(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:

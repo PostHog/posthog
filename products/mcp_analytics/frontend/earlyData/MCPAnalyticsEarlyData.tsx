@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconCheckCircle, IconClock, IconRefresh, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
+import { dataColorVars } from 'lib/colors'
 import { ExplorerHog } from 'lib/components/hedgehogs'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
@@ -202,10 +203,21 @@ function LiveActivityCard(): JSX.Element {
 // `total` is every intent analysed, so the bar reads as this theme's share of them. The backend
 // assigns each intent to at most one theme, which is what keeps the shares adding up.
 //
+// Themes are categories rather than one measure over time, so each gets its own colour from the
+// data palette — a stack of identical brand-blue bars reads as one repeated thing.
+//
 // LemonProgress needs an explicit bgColor here: its default is `var(--color-bg-primary)`, which is a
 // neutral in LemonUI but brand orange inside a quill Card, so the unfilled remainder renders as a
 // second, larger-looking value. Applies to every LemonProgress under a quill Card.
-function IntentThemeRow({ theme, total }: { theme: MCPIntentThemeApi; total: number }): JSX.Element {
+function IntentThemeRow({
+    theme,
+    total,
+    color,
+}: {
+    theme: MCPIntentThemeApi
+    total: number
+    color: string
+}): JSX.Element {
     return (
         <div className="flex flex-col gap-1">
             <div className="flex items-baseline justify-between gap-2">
@@ -215,6 +227,7 @@ function IntentThemeRow({ theme, total }: { theme: MCPIntentThemeApi; total: num
             <LemonProgress
                 percent={total > 0 ? (theme.intent_count / total) * 100 : 0}
                 bgColor="var(--color-bg-surface-tertiary)"
+                strokeColor={color}
             />
             <p className="text-muted text-sm m-0">{theme.description}</p>
             {theme.example_intent ? (
@@ -250,7 +263,12 @@ function IntentsCard(): JSX.Element {
                 <div className="flex flex-col gap-3">
                     <p className="text-base m-0">{intentDigest.digest}</p>
                     {intentDigest.themes.map((theme, index) => (
-                        <IntentThemeRow key={`${index}-${theme.name}`} theme={theme} total={intentDigest.intentCount} />
+                        <IntentThemeRow
+                            key={`${index}-${theme.name}`}
+                            theme={theme}
+                            total={intentDigest.intentCount}
+                            color={`var(--${dataColorVars[index % dataColorVars.length]})`}
+                        />
                     ))}
                     <span className="text-muted text-sm">
                         AI grouping of the last {formatNumber(intentDigest.intentCount)} agent intents
