@@ -130,20 +130,23 @@ def preserved_push_config(
     disabled, reopening the device takeover it exists to prevent. Carry the existing value forward
     unless the caller explicitly sets a new one.
     """
-    if push_identity_verification is not None:
-        if push_identity_verification not in PUSH_IDENTITY_VERIFICATION_MODES:
-            raise ValidationError(
-                f"push_identity_verification must be one of: {', '.join(PUSH_IDENTITY_VERIFICATION_MODES)}"
-            )
-        return {CONFIG_PUSH_IDENTITY_VERIFICATION: push_identity_verification}
+    if push_identity_verification is not None and push_identity_verification not in PUSH_IDENTITY_VERIFICATION_MODES:
+        raise ValidationError(
+            f"push_identity_verification must be one of: {', '.join(PUSH_IDENTITY_VERIFICATION_MODES)}"
+        )
 
     # Serialize concurrent setup of this one integration for the rest of the caller's transaction.
     # `select_for_update` alone only locks a row that already exists, so two first-time setups could
     # both read "no policy" and the later write would clobber a policy the earlier one had just set.
     # An advisory lock covers the not-yet-created case too, keyed on the integration's identity so it
-    # only serializes writers racing for the same integration.
+    # only serializes writers racing for the same integration. Every writer takes it, including one
+    # setting an explicit mode — otherwise it could slip its row in between a preserving writer's read
+    # and write, and have its policy dropped.
     with connection.cursor() as cursor:
         cursor.execute("SELECT pg_advisory_xact_lock(%s, hashtext(%s))", [team_id, f"{kind}:{integration_id}"])
+
+    if push_identity_verification is not None:
+        return {CONFIG_PUSH_IDENTITY_VERIFICATION: push_identity_verification}
 
     existing = (
         Integration.objects.select_for_update()
