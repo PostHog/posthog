@@ -50,11 +50,65 @@ function cloudSteps(
 }
 
 function progress(overrides: Partial<InstallationProgress>): InstallationProgress {
-    return { phase: 'running', steps: [], error: null, prUrl: null, prMerged: false, isCurrent: true, ...overrides }
+    return {
+        phase: 'running',
+        steps: [],
+        error: null,
+        prUrl: null,
+        prMerged: false,
+        isCurrent: true,
+        pendingInput: null,
+        ...overrides,
+    }
 }
 
 export const Connecting: Story = {
     args: { mode: 'cloud', elapsedSeconds: 3, progress: progress({ phase: 'connecting' }) },
+}
+
+// Local, the agent is blocked on a wizard_ask in the terminal: the question leads the card in the
+// warning tone. The call to go back to the terminal leads; the question sits under it.
+export const LocalWaitingForInput: Story = {
+    args: {
+        mode: 'local',
+        elapsedSeconds: 74,
+        progress: progress({
+            steps: [
+                { id: '0', label: 'Detect framework', status: 'completed', detail: null },
+                { id: '1', label: 'Install the SDK', status: 'in_progress', detail: null },
+                { id: '2', label: 'Instrument events', status: 'pending', detail: null },
+            ],
+            pendingInput: {
+                id: 'ask-1',
+                askedAt: '2026-01-01T00:01:00Z',
+                questionCount: 1,
+                sensitive: false,
+                prompts: ['Which region is your project in?'],
+            },
+        }),
+    },
+}
+
+// A secret was asked for, so no prompt text is published and the call to action stands alone.
+export const LocalWaitingForSensitiveInput: Story = {
+    args: {
+        mode: 'local',
+        elapsedSeconds: 74,
+        progress: progress({
+            steps: [
+                { id: '0', label: 'Detect framework', status: 'completed', detail: null },
+                { id: '1', label: 'Install the SDK', status: 'in_progress', detail: null },
+                { id: '2', label: 'Instrument events', status: 'pending', detail: null },
+            ],
+            pendingInput: {
+                id: 'ask-2',
+                askedAt: '2026-01-01T00:01:00Z',
+                questionCount: 1,
+                sensitive: true,
+                prompts: [],
+            },
+        }),
+    },
 }
 
 // Cloud, wizard phase: the wizard's live sub-task ("Capturing events") leads the card.

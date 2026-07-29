@@ -47137,6 +47137,34 @@ export namespace Schemas {
     }
 
     /**
+     * The in-flight `wizard_ask` question. Typed rather than a free-form dict so the shape the
+     * widget renders is enforced at the edge instead of trusted from the producer.
+     */
+    export interface PendingInput {
+      /**
+         * Identifier the wizard mints for this question. Changes when a new question is asked.
+         * @maxLength 255
+         */
+      id: string;
+      /** UTC timestamp when the wizard asked. Defaults to the session's update time when absent. */
+      asked_at?: string;
+      /**
+         * How many questions this single ask covers.
+         * @minimum 1
+         * @maximum 100
+         */
+      question_count?: number;
+      /** Whether the answer is a secret. Sensitive questions never carry prompt text. */
+      sensitive?: boolean;
+      /**
+         * The question text shown to the user. Always empty for sensitive questions.
+         * @maxItems 10
+         * @items.maxLength 2000
+         */
+      prompts?: string[];
+    }
+
+    /**
      * * `idle` - IDLE
      * * `running` - RUNNING
      * * `completed` - COMPLETED
@@ -47190,6 +47218,8 @@ export namespace Schemas {
      * Output: serialises a WizardSessionDTO returned by the facade.
      */
     export interface WizardSessionDTO {
+      /** The question the wizard is currently blocked on, or null when nothing is pending. */
+      pending_input: PendingInput | null;
       session_id: string;
       team_id: number;
       workflow_id: string;
@@ -69911,6 +69941,8 @@ export namespace Schemas {
      * Input: validates the JSON the wizard CLI posts. team_id is derived from URL.
      */
     export interface UpsertWizardSessionRequest {
+      /** Populated while the wizard is blocked on a question in the terminal. Null/absent means no input is pending; a push without it clears the previous prompt. */
+      pending_input?: PendingInput | null;
       /**
          * Stable identifier the wizard mints for this run (format: '{workflow_id}-{skill_id}-{started_at_iso}'). Reposting with the same session_id upserts the existing row.
          * @maxLength 255
