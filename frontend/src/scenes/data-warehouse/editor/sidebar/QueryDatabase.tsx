@@ -52,6 +52,7 @@ import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/l
 import { buildSelectAllQuery } from 'products/data_warehouse/frontend/utils'
 
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
+import { TableCertificationIcon } from '../../TableCertificationBadge'
 import { draftsLogic } from '../draftsLogic'
 import { renderTableCount } from '../editorSceneLogic'
 import { isJoined, queryDatabaseLogic } from './queryDatabaseLogic'
@@ -414,6 +415,12 @@ export const QueryDatabase = ({
                 const isColumn = item.record?.type === 'column'
                 const columnType = isColumn ? item.record?.field?.type : null
                 const tableKindLabel = !isColumn && item.children?.length ? getTableKindLabel(item) : null
+                const certification =
+                    item.record?.type === 'table'
+                        ? item.record?.table?.certification
+                        : item.record?.type === 'view'
+                          ? item.record?.certification
+                          : undefined
                 const itemLabel = typeof item.displayName === 'string' ? item.displayName : item.name
                 const isHighlightedFolderDropTarget =
                     item.record?.type === 'folder' &&
@@ -460,6 +467,7 @@ export const QueryDatabase = ({
                                         {item.displayName ?? item.name}
                                     </span>
                                 )}
+                                <TableCertificationIcon certification={certification} />
                                 {isColumn && columnType ? (
                                     <span className="shrink rounded px-1.5 py-0.5 text-xs text-muted-alt">
                                         {columnType === 'field_traverser' && item?.record?.field.chain

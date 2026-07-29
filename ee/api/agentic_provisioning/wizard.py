@@ -67,10 +67,6 @@ def link_github_grant_to_team(
         # response must not fail if the installation is already linked to this team.
         existing = Integration.objects.first_github_for_team_installation(team.id, str(installation_id))
         if existing is not None:
-            # Re-apply onboarding flags idempotently: the grant is consumed as the last step,
-            # so a crash between consume and the flag write would otherwise leave them unset
-            # on a retry (this branch runs only once the grant is already gone).
-            apply_provisioned_onboarding_flags(user, team)
             return existing, True
         capture_provisioning_event("github_integration", "error", partner=partner, error_code="grant_not_found")
         raise ProvisioningError("grant_not_found", "Grant not found or expired", resource_id=str(team.id), status=404)
@@ -111,7 +107,6 @@ def link_github_grant_to_team(
         )
 
     github_grants.consume_grant(grant_id)
-    apply_provisioned_onboarding_flags(user, team)
     capture_provisioning_event("github_integration", "success", partner=partner, team_id=team.id)
     return integration, False
 
