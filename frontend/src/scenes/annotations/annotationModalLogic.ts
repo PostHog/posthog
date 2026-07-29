@@ -2,6 +2,7 @@ import { MakeLogicType, actions, connect, kea, listeners, path, reducers, select
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import '@posthog/lemon-ui'
 
@@ -293,6 +294,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
                 // Tags define where a tag-scoped annotation shows; on other scopes send [] so that
                 // switching scope away from Tag clears any previously set tags.
                 const scopedTags = scope === AnnotationScope.Tag ? tags : []
+                const isNewAnnotation = !values.existingModalAnnotation
 
                 if (values.existingModalAnnotation) {
                     // annotationsModel's updateAnnotation inlined so that isAnnotationModalSubmitting works
@@ -333,6 +335,11 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
                         derivedPrompt: snippet ? `Annotate ${date}${tagScopeSuffix}: ${snippet}` : undefined,
                     })
                 }
+                posthog.capture('annotation saved', {
+                    scope,
+                    tags_count: scopedTags.length,
+                    is_new: isNewAnnotation,
+                })
                 actions.closeModal()
             },
         },
