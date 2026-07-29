@@ -412,9 +412,9 @@ export const getEnvironmentVisionQuotaRaiseLimitUrl = (projectId: string) => {
 
 /**
  * Lift the organization's Replay vision credit limit by one step, up to the self-serve ceiling.
-
-Only for organizations whose limit is the fallback cap — those are not billed for the product, so
-the cap is a runaway-spend guard admins should be able to move without a staff-issued grant.
+ *
+ * Only for organizations whose limit is the fallback cap — those are not billed for the product, so
+ * the cap is a runaway-spend guard admins should be able to move without a staff-issued grant.
  */
 export const environmentVisionQuotaRaiseLimit = async (
     projectId: string,

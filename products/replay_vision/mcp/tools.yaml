@@ -9,6 +9,9 @@ feature: replay_vision
 url_prefix: /replay-vision
 ui_apps: {}
 tools:
+    environment-vision-quota-raise-limit:
+        operation: environment_vision_quota_raise_limit
+        enabled: false
     vision-actions-create:
         operation: vision_actions_create
         enabled: false
