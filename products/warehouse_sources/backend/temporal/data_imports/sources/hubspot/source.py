@@ -53,10 +53,7 @@ class HubspotSourceOldConfig(config.Config):
 @SourceRegistry.register
 class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig, HubspotResumeConfig], OAuthMixin):
     supported_versions = (HUBSPOT_API_VERSION_V3, HUBSPOT_API_VERSION_2026_03)
-    # 2026-03 is available for opt-in, but new sources stay on v3 until the date-versioned
-    # objects/search/association-batch-read paths are confirmed against the live HubSpot API.
-    # Flip the default once a real 2026-03 sync has been verified end to end.
-    default_version = HUBSPOT_API_VERSION_V3
+    default_version = HUBSPOT_API_VERSION_2026_03
     api_docs_url = "https://developers.hubspot.com/docs/api-reference/latest/overview"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -131,6 +128,22 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
             # exists (e.g. the HubSpot connection was deleted while the source still points at it).
             # Retrying cannot recreate a deleted integration. Match the stable prefix, not the volatile id.
             "Integration not found": "The linked HubSpot integration no longer exists. Please reconnect your HubSpot account.",
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `hubspot.py`/`helpers.py` already retry these in-process via tenacity (5 attempts,
+        # exponential backoff) before re-raising `HubspotRetryableError`. A 429/5xx/malformed-body
+        # that survives all 5 attempts is a transient HubSpot/edge blip (e.g. Cloudflare 522), not
+        # a bug — Temporal's activity retry recovers once the upstream issue clears, so keep it out
+        # of error tracking as noise. Match the stable message prefix HubSpot's own status/url are
+        # appended to, not the volatile status code or URL.
+        return {
+            "Hubspot API error (retryable): status=",
+            "Hubspot API malformed JSON response (retryable)",
+            "Hubspot search error (retryable): status=",
+            "Hubspot search malformed JSON response (retryable)",
+            "Hubspot v4 associations error (retryable): status=",
+            "Hubspot v4 associations malformed JSON response (retryable)",
         }
 
     # TODO: clean up hubspot job inputs to not have two auth config options

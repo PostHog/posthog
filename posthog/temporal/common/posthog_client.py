@@ -23,6 +23,10 @@ from posthog.temporal.common.shutdown import WorkerShuttingDownError
 
 logger = get_write_only_logger()
 
+# ApplicationError types that are expected control flow (e.g. activity-retry-as-poll
+# probes), not defects — same reasoning as the EgressBudgetExhausted exemption below.
+EXPECTED_CONTROL_FLOW_ERROR_TYPES = frozenset({"trace_not_settled"})
+
 
 def _tag_team_id_on_current_span(input: ExecuteActivityInput | ExecuteWorkflowInput) -> None:
     """Tag the active span (the Temporal RunActivity/RunWorkflow span, when OTel tracing is
@@ -72,12 +76,18 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
             # Cancellations (worker drain, activity timeout, workflow cancellation), a cooperative
             # worker shutdown (raised mid-activity during a deploy, always retried on a fresh
             # worker), our own egress-budget backpressure (a deliberate "defer and retry later"
-            # signal that our rate limiter already records via record_outbound_decision), and errors
+            # signal that our rate limiter already records via record_outbound_decision), errors
             # explicitly marked non-reportable (expected customer/upstream conditions, e.g. a REST
-            # API serving a login page instead of JSON) are expected control flow, not defects —
-            # re-raise without reporting them to error tracking.
-            if temporalio.exceptions.is_cancelled_exception(e) or isinstance(
-                e, EgressBudgetExhausted | WorkerShuttingDownError | NonReportableError
+            # API serving a login page instead of JSON), and expected-control-flow ApplicationErrors
+            # (activity-retry-as-poll probes) are not defects — re-raise without reporting them to
+            # error tracking.
+            if (
+                temporalio.exceptions.is_cancelled_exception(e)
+                or isinstance(e, EgressBudgetExhausted | WorkerShuttingDownError | NonReportableError)
+                or (
+                    isinstance(e, temporalio.exceptions.ApplicationError)
+                    and e.type in EXPECTED_CONTROL_FLOW_ERROR_TYPES
+                )
             ):
                 raise
             activity_info = activity.info()

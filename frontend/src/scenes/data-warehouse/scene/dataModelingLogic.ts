@@ -11,9 +11,11 @@ import {
 import { deepEqual as equal } from 'fast-equals'
 import { MakeLogicType, actions, afterMount, beforeUnmount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { urlToAction } from 'kea-router'
 import type { RefObject } from 'react'
 
 import api from 'lib/api'
+import { urls } from 'scenes/urls'
 
 import {
     DataModelingDAG,
@@ -138,6 +140,7 @@ export interface dataModelingLogicValues {
     reactFlowWrapper: RefObject<HTMLDivElement> | null
     runningNodeIds: Set<string>
     savedViewport: Viewport | null
+    searchMatchedNodeIds: Set<string> | null
     searchTerm: string
     selectedDag: DataModelingDAG | null
     selectedDagId: string | null
@@ -369,14 +372,21 @@ export interface dataModelingLogicMeta {
                     lastRunAt: string | null
                     status: DataModelingJobStatus
                 }
-            >
+            >,
+            searchMatchedNodeIds: Set<string> | null
         ) => Node[]
-        enrichedEdges: (edges: Edge[], hoveredNodeId: string | null) => Edge[]
+        enrichedEdges: (edges: Edge[], hoveredNodeId: string | null, searchMatchedNodeIds: Set<string> | null) => Edge[]
         highlightedNodeIds: (
             nodes: Node[],
             edges: Edge[]
         ) => (baseName: string, mode: 'all' | 'downstream' | 'upstream') => Set<string>
         parsedSearch: (debouncedSearchTerm: string) => ParsedSearch
+        searchMatchedNodeIds: (
+            nodes: Node[],
+            debouncedSearchTerm: string,
+            parsedSearch: ParsedSearch,
+            highlightedNodeIds: (baseName: string, mode: 'all' | 'downstream' | 'upstream') => Set<string>
+        ) => Set<string> | null
         filteredNodes: (dataModelingNodes: DataModelingNode[], searchTerm: string) => DataModelingNode[]
         selectedDag: (dags: DataModelingDAG[], selectedDagId: string | null) => DataModelingDAG | null
         availableDagIds: (filteredNodes: DataModelingNode[]) => string[]
@@ -699,7 +709,13 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
             { resultEqualityCheck: equal },
         ],
         enrichedNodes: [
-            (s) => [s.nodes, s.runningNodeIds, s.highlightedNodeType, s.latestJobMetadataByNodeId],
+            (s) => [
+                s.nodes,
+                s.runningNodeIds,
+                s.highlightedNodeType,
+                s.latestJobMetadataByNodeId,
+                s.searchMatchedNodeIds,
+            ],
             (
                 nodes: Node[],
                 runningNodeIds: Set<string>,
@@ -710,17 +726,23 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
                         lastRunAt: string | null
                         status: DataModelingJobStatus
                     }
-                >
+                >,
+                searchMatchedNodeIds: Set<string> | null
             ): Node[] => {
-                return nodes.map((node) => {
+                const visibleNodes = searchMatchedNodeIds
+                    ? nodes.filter((node) => searchMatchedNodeIds.has(node.id))
+                    : nodes
+                return visibleNodes.map((node) => {
                     const isRunning = runningNodeIds.has(node.id)
                     const isTypeHighlighted = highlightedNodeType !== null && highlightedNodeType === node.data.type
+                    const isSearchMatch = searchMatchedNodeIds !== null
                     const metadata = latestJobMetadataByNodeId[node.id]
                     const lastJobStatus = metadata?.status ?? node.data.lastJobStatus
                     const lastRunAt = metadata?.lastRunAt ?? node.data.lastRunAt
                     if (
                         node.data.isRunning === isRunning &&
                         node.data.isTypeHighlighted === isTypeHighlighted &&
+                        node.data.isSearchMatch === isSearchMatch &&
                         node.data.lastJobStatus === lastJobStatus &&
                         node.data.lastRunAt === lastRunAt
                     ) {
@@ -732,6 +754,7 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
                             ...node.data,
                             isRunning,
                             isTypeHighlighted,
+                            isSearchMatch,
                             lastJobStatus,
                             lastRunAt,
                         },
@@ -744,12 +767,17 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
             },
         ],
         enrichedEdges: [
-            (s) => [s.edges, s.hoveredNodeId],
-            (edges: Edge[], hoveredNodeId: string | null): Edge[] => {
+            (s) => [s.edges, s.hoveredNodeId, s.searchMatchedNodeIds],
+            (edges: Edge[], hoveredNodeId: string | null, searchMatchedNodeIds: Set<string> | null): Edge[] => {
+                const visibleEdges = searchMatchedNodeIds
+                    ? edges.filter(
+                          (edge) => searchMatchedNodeIds.has(edge.source) && searchMatchedNodeIds.has(edge.target)
+                      )
+                    : edges
                 if (!hoveredNodeId) {
-                    return edges
+                    return visibleEdges
                 }
-                return edges.map((edge) => {
+                return visibleEdges.map((edge) => {
                     const isConnected = edge.source === hoveredNodeId || edge.target === hoveredNodeId
                     if (!isConnected) {
                         return edge
@@ -805,6 +833,25 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
         parsedSearch: [
             (s) => [s.debouncedSearchTerm],
             (debouncedSearchTerm: string): ParsedSearch => parseSearchTerm(debouncedSearchTerm),
+        ],
+        /** Node ids to show on the graph canvas for the active search — null means no filter (show everything) */
+        searchMatchedNodeIds: [
+            (s) => [s.nodes, s.debouncedSearchTerm, s.parsedSearch, s.highlightedNodeIds],
+            (
+                nodes: Node[],
+                debouncedSearchTerm: string,
+                parsedSearch: ParsedSearch,
+                highlightedNodeIds: (baseName: string, mode: 'upstream' | 'downstream' | 'all') => Set<string>
+            ): Set<string> | null => {
+                if (debouncedSearchTerm.length === 0) {
+                    return null
+                }
+                if (parsedSearch.mode !== 'search') {
+                    return highlightedNodeIds(parsedSearch.baseName, parsedSearch.mode)
+                }
+                const lowerBaseName = parsedSearch.baseName.toLowerCase()
+                return new Set(nodes.filter((n) => n.data.name.toLowerCase().includes(lowerBaseName)).map((n) => n.id))
+            },
         ],
         filteredNodes: [
             (s) => [s.dataModelingNodes, s.searchTerm],
@@ -1084,6 +1131,13 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
             actions.setEdges([])
             actions.loadDataModelingNodes()
             actions.loadDataModelingEdges()
+        },
+    })),
+    urlToAction(({ actions, values }) => ({
+        [urls.dataOps()]: (_, searchParams) => {
+            if (typeof searchParams.dag === 'string' && searchParams.dag !== values.selectedDagId) {
+                actions.setSelectedDagId(searchParams.dag)
+            }
         },
     })),
     afterMount(({ actions }) => {

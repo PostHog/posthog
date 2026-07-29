@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+import json
 import random
 import asyncio
 from dataclasses import replace
@@ -12,6 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.apps import apps
 from django.db import OperationalError
+from django.test import SimpleTestCase
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
@@ -24,10 +27,11 @@ from posthog.sync import database_sync_to_async
 
 from products.signals.backend.agent_runtime import AgentRuntime
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
+from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, _compute_row_hash
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.model_selection import ScoutModel
-from products.signals.backend.scout_harness.prompt import build_run_prompt
+from products.signals.backend.scout_harness.prompt import _REPORT_CHARTS, build_run_prompt
 from products.signals.backend.scout_harness.runner import RunResult, arun_signals_scout
 from products.signals.backend.scout_harness.skill_loader import (
     SkillNotFoundError,
@@ -36,7 +40,7 @@ from products.signals.backend.scout_harness.skill_loader import (
 )
 from products.signals.backend.scout_harness.tools.runs import _build_task_url, _to_detail, _to_summary
 from products.signals.backend.temporal.agentic.scout_scheduler import RunSignalsScoutInput, run_signals_scout_activity
-from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
+from products.skills.backend.models.skills import LLMSkill, LLMSkillFile, LLMSkillOwner
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
@@ -215,11 +219,73 @@ class TestSkillLoader(BaseTest):
         skill.save()
         assert load_skill_for_run(self.team, "signals-scout-general", include_authors=True).authors == []
 
+    def test_authors_prefer_explicit_owners_over_version_history(self) -> None:
+        # With an explicit owner set, ownership is authoritative and stable: a later editor never
+        # displaces the owner. Here ben owns the skill but self.user is the latest editor — the
+        # version-history reconstruction would surface self.user, the owner set must not.
+        ben = User.objects.create_and_join(self.organization, "ben@posthog.com", None, "Ben")
+        v1 = self._create_skill("signals-scout-errors")
+        v1.is_latest = False
+        v1.save()
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-errors",
+            description="A test skill",
+            body="edited body",
+            version=2,
+            is_latest=True,
+            created_by=self.user,
+        )
+        LLMSkillOwner.objects.for_team(self.team.id).create(team=self.team, skill_name="signals-scout-errors", user=ben)
+        loaded = load_skill_for_run(self.team, "signals-scout-errors", include_authors=True)
+        assert [(a.role, a.email) for a in loaded.authors] == [("owner", "ben@posthog.com")]
+
+    def test_owned_skill_with_all_owners_revoked_returns_no_authors(self) -> None:
+        # A skill with owner rows is authoritatively owned. If every owner loses access, the reviewer
+        # path must return NO authors, not silently drift back to the version-history editor — the
+        # exact misroute the owner primitive exists to prevent. self.user is a valid version author
+        # here, so a regression that falls through would surface them.
+        ben = User.objects.create_and_join(self.organization, "ben@posthog.com", None, "Ben")
+        skill = self._create_skill("signals-scout-errors")
+        skill.created_by = self.user
+        skill.save()
+        LLMSkillOwner.objects.for_team(self.team.id, canonical=True).create(
+            team=self.team, skill_name="signals-scout-errors", user=ben
+        )
+        OrganizationMembership.objects.filter(user=ben).delete()
+
+        loaded = load_skill_for_run(self.team, "signals-scout-errors", include_authors=True)
+        assert loaded.authors == []
+
     def test_signals_scout_prefix_check(self) -> None:
         match = self._create_skill("signals-scout-errors")
         non_match = self._create_skill("custom-research-helper")
         assert is_signals_scout_skill(match) is True
         assert is_signals_scout_skill(non_match) is False
+
+
+class TestReportChartsSection(SimpleTestCase):
+    def test_worked_example_is_the_json_it_claims_to_be(self) -> None:
+        # The section is an f-string, so every brace in the example is doubled. A single brace is
+        # not a syntax error: `{"kind"}` is a valid set expression, so a mistyped example renders as
+        # mangled Python repr and teaches every scout in the fleet a query shape that cannot parse.
+        block = re.search(r"```json\n(.*?)\n```", _REPORT_CHARTS, re.S)
+        assert block is not None
+        charts = json.loads(block.group(1))
+
+        assert [c["query"]["kind"] for c in charts] == ["InsightVizNode", "DataVisualizationNode"]
+        for chart in charts:
+            ReportChart.model_validate(chart)
+
+    def test_sql_example_names_its_axes(self) -> None:
+        # A graphical DataVisualizationNode renders an empty box without chartSettings, so the
+        # example is the only place a scout learns to set it.
+        block = re.search(r"```json\n(.*?)\n```", _REPORT_CHARTS, re.S)
+        assert block is not None
+        sql_chart = json.loads(block.group(1))[1]["query"]
+
+        assert sql_chart["chartSettings"]["xAxis"]["column"]
+        assert sql_chart["chartSettings"]["yAxis"][0]["column"]
 
 
 class TestPromptBuilder(BaseTest):
@@ -271,6 +337,16 @@ class TestPromptBuilder(BaseTest):
         # reference must survive in the signal tail.
         assert "Notes left for you" in prompt
         assert "scout-notes-list" in prompt
+        # The fleet-seams section is shared across both channels, but each tail is assembled by
+        # its own code path, so assert it on both to catch a drop from either list.
+        assert "Working alongside the rest of the fleet" in prompt
+        assert "scout_fleet" in prompt
+        # The self-validation follow-up discipline is shared too: every scout keeps a
+        # skill-namespaced `followup:` queue (a domain-only key would collide across scouts),
+        # and the decision to spend a run validating it belongs to the scout, not the harness.
+        assert "Follow up on your own past work" in prompt
+        assert "followup:<your-skill-name>:<entity>" in prompt
+        assert "You decide when a run becomes a validation run" in prompt
         # Recency lens references the started_at anchor.
         assert "Recency lens" in prompt
         assert "2026-05-01T12:34:56+00:00" in prompt
@@ -360,6 +436,12 @@ class TestPromptBuilder(BaseTest):
         # Steering notes are prior context on the report channel too.
         assert "Notes left for you" in prompt
         assert "scout-notes-list" in prompt
+        # Fleet seams too — the report tail is built by `_report_tail_sections`, a separate list
+        # from the signal tail, so it can lose the shared section independently.
+        assert "Working alongside the rest of the fleet" in prompt
+        # Same for the shared self-validation follow-up discipline.
+        assert "Follow up on your own past work" in prompt
+        assert "followup:<your-skill-name>:<entity>" in prompt
         # The two highest-leverage nudges the report channel adds: search the inbox
         # and edit before authoring a duplicate, and set suggested reviewers (what
         # actually routes a report).
@@ -611,6 +693,41 @@ class TestPromptBuilder(BaseTest):
         assert "include_all_statuses=true" in prompt
         assert "dismissal_note" in prompt
         assert "record the rationale in your own words" in prompt
+
+    @parameterized.expand(
+        [
+            # (label, allowed_tools, resurface_tool). The section's re-surface clause must follow
+            # the same fail-closed rule as the channel sections — steering a scout at a tool it
+            # never opted into routes the failed-validation re-surface into a PermissionDenied.
+            # The wrong-tool half of that rule is already policed by the channel tests above
+            # (they assert the unheld tool appears nowhere in the whole prompt); these rows pin
+            # that the clause names a re-surface path the scout actually holds, on every variant.
+            ("signal_channel", [], "scout-emit-signal"),
+            ("report_both", ["emit_report", "edit_report"], "scout-emit-report"),
+            ("report_emit_only", ["emit_report"], "scout-emit-report"),
+            ("report_edit_only", ["edit_report"], "scout-edit-report"),
+        ]
+    )
+    def test_followup_section_resurface_clause_channel_matched(
+        self, _name: str, allowed_tools: list[str], resurface_tool: str
+    ) -> None:
+        name = "signals-scout-fu-" + (_name.replace("_", "-"))
+        LLMSkill.objects.create(team=self.team, name=name, description="d", body="b", allowed_tools=allowed_tools)
+        prompt = build_run_prompt(
+            load_skill_for_run(self.team, name),
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=self.team.id,
+            started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+        )
+        assert "Follow up on your own past work" in prompt
+        # The validation cadence is the scout's own judgment — the section must say so rather
+        # than reference a harness trigger that no longer exists.
+        assert "You decide when a run becomes a validation run" in prompt
+        # A validation pass must defer resolved-report re-measurement to the canonical
+        # inbox-validation scout when it runs — otherwise it duplicates that scout's whole surface.
+        assert "signals-scout-inbox-validation" in prompt
+        section = prompt[prompt.index("Follow up on your own past work") :]
+        assert resurface_tool in section.split("# ")[0]
 
 
 # Orchestration tests run as plain pytest functions because the async runner uses

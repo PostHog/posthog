@@ -27,6 +27,8 @@ from products.tasks.backend.facade.contracts import (
     ChannelFeedMessageDTO,
     SandboxCustomImageDTO,
     SandboxEnvironmentDTO,
+    TaskActivityDTO,
+    TaskActivityPageDTO,
     TaskAutomationDTO,
     TaskDetailDTO,
     TaskMentionDTO,
@@ -39,6 +41,7 @@ from products.tasks.backend.facade.contracts import (
 from products.tasks.backend.facade.run_config import (
     ALL_INITIAL_PERMISSION_MODE_CHOICES,
     CODEX_INITIAL_PERMISSION_MODE_CHOICES,
+    CONTEXT_WINDOW_CHOICES,
     INITIAL_PERMISSION_MODE_CHOICES,
     PUBLIC_REASONING_EFFORTS,
     LLMProvider,
@@ -327,7 +330,7 @@ class WizardCloudRunSerializer(DataclassSerializer):
 
 
 # The relationship a client asserts between a task and a signal report when creating a task from the
-# report (e.g. PostHog Code inbox), recorded as a signals `task_run` work-log entry. This is a
+# report (e.g. PostHog Desktop inbox), recorded as a signals `task_run` work-log entry. This is a
 # free-form label — the same as the `task_run` artefact `(product, type)` values, which have never
 # been access-controlled — so no relationship is reserved here either. `implementation` additionally
 # opens the auto-start spend gate (recorded server-side via `record_report_task`). Only the routing-
@@ -605,6 +608,11 @@ class TaskWriteSerializer(serializers.Serializer):
             # would route the task's run logs into PostHog's internal Logs project
             # (run_log_mirror) and inherit scout visibility semantics.
             raise serializers.ValidationError("origin_product 'signals_scout' is reserved for signals scout runs")
+        if value == tasks_facade.TaskOriginProduct.ONBOARDING:
+            # This origin routes the run's LLM traffic to the unbilled `onboarding` gateway
+            # product, so a forged one would be free model access. Only create_wizard_cloud_run
+            # sets it, behind its own rate limits and daily cap.
+            raise serializers.ValidationError("origin_product 'onboarding' is reserved for setup wizard cloud runs")
         return value
 
     def validate_repository(self, value):
@@ -780,7 +788,7 @@ class TaskRunArtifactUploadSerializer(serializers.Serializer):
         help_text="Optional structured metadata for special artifact types, such as skill bundles.",
     )
 
-    def validate(self, attrs):
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         attrs = validate_task_run_artifact_metadata(attrs)
         content = attrs["content"]
         content_encoding = attrs.get("content_encoding", "utf-8")
@@ -1474,6 +1482,117 @@ class TaskMentionSerializer(DataclassSerializer):
         ]
 
 
+class TaskActivityQuerySerializer(serializers.Serializer):
+    """Query parameters for the task-centric activity feed."""
+
+    limit = serializers.IntegerField(
+        required=False,
+        default=100,
+        min_value=1,
+        max_value=500,
+        help_text="Maximum number of tasks to return (most recent activity first).",
+    )
+    before = serializers.DateTimeField(
+        required=False,
+        help_text="Activity timestamp from the final row of the previous page.",
+    )
+    before_id = serializers.UUIDField(
+        required=False,
+        help_text="Activity ID from the final row of the previous page.",
+    )
+
+    def validate(self, attrs):
+        if ("before" in attrs) != ("before_id" in attrs):
+            raise serializers.ValidationError("before and before_id must be provided together")
+        return attrs
+
+
+class TaskActivitySerializer(DataclassSerializer):
+    """Response shape for one task in the requester's activity feed (one row per task)."""
+
+    latest_author = TaskUserBasicInfoSerializer(
+        allow_null=True,
+        required=False,
+        help_text="Author of the thread message tied to the latest activity, when one applies.",
+    )
+    activity_kind = serializers.ChoiceField(
+        choices=["awaiting_input", "completed", "mention", "message", "created"],
+        help_text=(
+            "What the latest activity on this task was: an agent run waiting on the requester "
+            "(awaiting_input), a completed run (completed), someone @-mentioning them (mention), "
+            "a thread reply (message), or their creating the task (created)."
+        ),
+    )
+    snippet = serializers.CharField(
+        help_text="Content of the thread message tied to the latest activity; empty for task-creation rows."
+    )
+    is_unread = serializers.BooleanField(
+        help_text="Whether the requester has yet to see this activity. Activity they caused themselves is never unread."
+    )
+
+    class Meta:
+        dataclass = TaskActivityDTO
+        fields = [
+            "id",
+            "task_id",
+            "task_title",
+            "channel_id",
+            "channel_name",
+            "activity_at",
+            "activity_kind",
+            "snippet",
+            "latest_author",
+            "latest_message_id",
+            "is_unread",
+        ]
+
+
+class TaskActivityPageSerializer(DataclassSerializer):
+    """A page of the requester's activity feed, plus the unread total across the whole feed."""
+
+    results = TaskActivitySerializer(many=True, help_text="Tasks with activity, most recent first.")
+    unread_count = serializers.IntegerField(
+        help_text="Unread tasks across the requester's whole feed, not just this page. Backs the sidebar badge."
+    )
+    next_before = serializers.DateTimeField(
+        allow_null=True,
+        required=False,
+        help_text="Activity timestamp to pass as before for the next page, or null on the final page.",
+    )
+    next_before_id = serializers.UUIDField(
+        allow_null=True,
+        required=False,
+        help_text="Activity ID to pass as before_id for the next page, or null on the final page.",
+    )
+
+    class Meta:
+        dataclass = TaskActivityPageDTO
+        fields = ["results", "unread_count", "next_before", "next_before_id"]
+
+
+class TaskActivityReadMarkerSerializer(serializers.Serializer):
+    task_id = serializers.UUIDField(help_text="Task whose displayed activity should be marked read.")
+    seen_before = serializers.DateTimeField(
+        help_text="Mark activity at or before this timestamp read without clearing newer activity."
+    )
+
+
+class TaskActivityMarkReadSerializer(serializers.Serializer):
+    """Request body for clearing the unread flag on specific tasks."""
+
+    activities = serializers.ListField(
+        child=TaskActivityReadMarkerSerializer(),
+        allow_empty=False,
+        max_length=500,
+        help_text="Displayed task activities to mark read if they have not changed.",
+    )
+
+
+class TaskActivityMarkReadResponseSerializer(serializers.Serializer):
+    marked_read = serializers.IntegerField(help_text="How many feed rows changed from unread to read.")
+    unread_count = serializers.IntegerField(help_text="The requester's remaining unread total after the update.")
+
+
 class TaskRepositoriesResponseSerializer(serializers.Serializer):
     repositories = serializers.ListField(
         child=serializers.CharField(),
@@ -1611,7 +1730,7 @@ class ImportedMcpServersFieldMixin(serializers.Serializer):
         default=None,
         write_only=True,
         help_text=(
-            "Local url-based MCP servers from the creating client (PostHog Code) to make "
+            "Local url-based MCP servers from the creating client (PostHog Desktop) to make "
             "available inside the cloud sandbox. Header values are treated as credentials: "
             "stored encrypted and never returned by the API."
         ),
@@ -1651,7 +1770,7 @@ class RelayedMcpServersFieldMixin(serializers.Serializer):
         default=None,
         write_only=True,
         help_text=(
-            "Names of desktop-only MCP servers the creating client (PostHog Code) relays into the "
+            "Names of desktop-only MCP servers the creating client (PostHog Desktop) relays into the "
             "cloud sandbox over the durable event/command channel. Names only — the server "
             "configuration (command, env, URL, headers) never crosses the wire."
         ),
@@ -1777,13 +1896,25 @@ class TaskRunCreateRequestSerializer(ImportedMcpServersFieldMixin, RelayedMcpSer
         default=None,
         help_text="Reasoning effort to request for models that expose an effort control.",
     )
+    context_window = serializers.ChoiceField(
+        choices=CONTEXT_WINDOW_CHOICES,
+        required=False,
+        default=None,
+        help_text="Context window size for models that support the 1M window.",
+    )
+    fast_mode = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Enable fast mode for models that support it.",
+    )
     github_user_token = serializers.CharField(
         required=False,
         default=None,
         allow_blank=False,
         write_only=True,
         help_text=(
-            "Optional GitHub user token from PostHog Code for user-authored cloud pull requests. "
+            "Optional GitHub user token from PostHog Desktop for user-authored cloud pull requests. "
             "Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; "
             "this field remains supported for callers that still manage their own tokens."
         ),
@@ -1840,7 +1971,10 @@ class TaskRunCreateRequestSerializer(ImportedMcpServersFieldMixin, RelayedMcpSer
             attrs.pop("pending_user_message", None)
 
         runtime_fields = ("runtime_adapter", "model")
-        has_runtime_selection = any(attrs.get(field) is not None for field in (*runtime_fields, "reasoning_effort"))
+        has_runtime_selection = any(
+            attrs.get(field) is not None
+            for field in (*runtime_fields, "reasoning_effort", "context_window", "fast_mode")
+        )
 
         if not has_runtime_selection:
             if errors:
@@ -1957,12 +2091,24 @@ class TaskRunBootstrapCreateRequestSerializer(
         default=None,
         help_text="Reasoning effort to request for models that expose an effort control.",
     )
+    context_window = serializers.ChoiceField(
+        choices=CONTEXT_WINDOW_CHOICES,
+        required=False,
+        default=None,
+        help_text="Context window size for models that support the 1M window.",
+    )
+    fast_mode = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Enable fast mode for models that support it.",
+    )
     github_user_token = serializers.CharField(
         required=False,
         default=None,
         allow_blank=False,
         write_only=True,
-        help_text="Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests.",
+        help_text="Ephemeral GitHub user token from PostHog Desktop for user-authored cloud pull requests.",
     )
     initial_permission_mode = serializers.ChoiceField(
         choices=ALL_INITIAL_PERMISSION_MODE_CHOICES,
@@ -2008,7 +2154,10 @@ class TaskRunBootstrapCreateRequestSerializer(
                     )
 
         runtime_fields = ("runtime_adapter", "model")
-        has_runtime_selection = any(attrs.get(field) is not None for field in (*runtime_fields, "reasoning_effort"))
+        has_runtime_selection = any(
+            attrs.get(field) is not None
+            for field in (*runtime_fields, "reasoning_effort", "context_window", "fast_mode")
+        )
         if not has_runtime_selection:
             if errors:
                 raise serializers.ValidationError(errors)
@@ -2252,7 +2401,7 @@ class TaskRunResumeRequestSchemaSerializer(serializers.Serializer):
         allow_blank=False,
         write_only=True,
         help_text=(
-            "Optional GitHub user token from PostHog Code for user-authored cloud pull requests. "
+            "Optional GitHub user token from PostHog Desktop for user-authored cloud pull requests. "
             "Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; "
             "this field remains supported for callers that still manage their own tokens."
         ),

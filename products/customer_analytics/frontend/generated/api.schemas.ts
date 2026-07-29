@@ -709,6 +709,8 @@ export interface CustomPropertySourceApi {
     source_column?: string | null
     /** Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group. */
     column_property_map?: unknown
+    /** Person sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. Create-only. */
+    column_descriptions?: unknown
     /**
      * Column whose value identifies the target: an account's external_id for account sources, the person's distinct_id for person sources, or the group key for group sources.
      * @maxLength 400
@@ -1079,6 +1081,96 @@ export interface PatchedCustomerProfileConfigApi {
     readonly created_at?: string
     /** @nullable */
     readonly updated_at?: string | null
+}
+
+/**
+ * The caller's event stream — a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. One stream per user per project.
+ */
+export interface EventStreamApi {
+    readonly id: string
+    /** Whether the stream delivers to Slack. Delivery also requires at least one event, at least one member account with an external ID, and a Slack workspace + channel. */
+    enabled?: boolean
+    /**
+     * Names of the events to stream (matched exactly). Duplicates and blanks are dropped.
+     * @items.maxLength 400
+     */
+    event_names?: string[]
+    /**
+     * ID of the team's Slack workspace integration to deliver through.
+     * @nullable
+     */
+    slack_integration?: number | null
+    /**
+     * Slack channel ID to post to (e.g. C0123ABC).
+     * @maxLength 200
+     */
+    slack_channel_id?: string
+    /**
+     * Display name of the Slack channel (e.g. #customer-events). Informational only.
+     * @maxLength 200
+     */
+    slack_channel_name?: string
+    /** UUIDs of the member accounts whose users' events are streamed. Managed via the add_account/remove_account endpoints. */
+    readonly account_ids: readonly string[]
+    readonly created_at: string
+    /** @nullable */
+    readonly created_by: number | null
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+/**
+ * The caller's event stream — a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. One stream per user per project.
+ */
+export interface PatchedEventStreamApi {
+    readonly id?: string
+    /** Whether the stream delivers to Slack. Delivery also requires at least one event, at least one member account with an external ID, and a Slack workspace + channel. */
+    enabled?: boolean
+    /**
+     * Names of the events to stream (matched exactly). Duplicates and blanks are dropped.
+     * @items.maxLength 400
+     */
+    event_names?: string[]
+    /**
+     * ID of the team's Slack workspace integration to deliver through.
+     * @nullable
+     */
+    slack_integration?: number | null
+    /**
+     * Slack channel ID to post to (e.g. C0123ABC).
+     * @maxLength 200
+     */
+    slack_channel_id?: string
+    /**
+     * Display name of the Slack channel (e.g. #customer-events). Informational only.
+     * @maxLength 200
+     */
+    slack_channel_name?: string
+    /** UUIDs of the member accounts whose users' events are streamed. Managed via the add_account/remove_account endpoints. */
+    readonly account_ids?: readonly string[]
+    readonly created_at?: string
+    /** @nullable */
+    readonly created_by?: number | null
+    /** @nullable */
+    readonly updated_at?: string | null
+}
+
+/**
+ * Request body for adding or removing an event-stream member account.
+ */
+export interface EventStreamMemberWriteApi {
+    /** UUID of the account to add to or remove from the stream. */
+    account_id: string
+}
+
+/**
+ * Result of posting an event-stream test message to Slack.
+ */
+export interface EventStreamTestMessageApi {
+    /** Slack channel ID the test message was posted to (e.g. C0123ABC). */
+    readonly channel_id: string
 }
 
 /**

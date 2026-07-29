@@ -1606,18 +1606,35 @@ h3.MarkdownNotebook__text-block--heading {
     padding: 0.25rem;
 }
 
+// The left gutter carries the block's run state: grey for blocks that don't run or haven't
+// run yet, green when the last run succeeded, red when it failed, yellow when the result is
+// out of date. Set by the --status- modifiers below.
 .MarkdownNotebook__component-shell {
+    --markdown-notebook-component-gutter: var(--markdown-notebook-text-block-gutter);
+
     position: relative;
     margin: 0.5rem 0 0.5rem var(--markdown-notebook-content-offset);
     overflow: hidden;
     background: var(--markdown-notebook-component-background);
     border: 1px solid var(--markdown-notebook-component-border);
-    border-left: 3px solid
-        color-mix(in oklab, var(--color-text-success) 45%, var(--markdown-notebook-component-background));
+    border-left: 3px solid var(--markdown-notebook-component-gutter);
     border-radius: 0.25rem;
     border-top-left-radius: 0;
     border-bottom-left-radius: 0;
     outline: none;
+    transition: border-left-color 150ms linear;
+}
+
+.MarkdownNotebook__component-shell--status-success {
+    --markdown-notebook-component-gutter: var(--color-text-success);
+}
+
+.MarkdownNotebook__component-shell--status-error {
+    --markdown-notebook-component-gutter: var(--color-text-error);
+}
+
+.MarkdownNotebook__component-shell--status-stale {
+    --markdown-notebook-component-gutter: var(--color-text-warning);
 }
 
 .MarkdownNotebook__component-shell:focus::after,

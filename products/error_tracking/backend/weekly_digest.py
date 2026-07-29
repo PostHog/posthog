@@ -10,6 +10,7 @@ import structlog
 from posthog.schema import HogQLFilters
 
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.cloud_utils import is_cloud
 from posthog.models import Team
 from posthog.schema_enums import ProductKey
 from posthog.utils import compact_number
@@ -33,13 +34,15 @@ def get_org_ids_with_exceptions() -> list[str]:
     return org_ids
 
 
-def _query_daily_rows(team: Team) -> list:
+def query_daily_rows(team: Team) -> list:
     """Per-day counts over 14 days. Explicit LIMIT: HogQL appends LIMIT 100 to unlimited selects.
 
     Missing ``$exception_issue_id`` = ingestion failure. Query errors propagate so the task retries
     instead of mistaking a failure for "no activity".
     """
     from posthog.hogql.query import execute_hogql_query
+
+    from posthog.clickhouse.workload import Workload
 
     tag_queries(product=ProductKey.ERROR_TRACKING, team_id=team.pk, name="weekly_digest:daily_rows")
 
@@ -60,6 +63,8 @@ def _query_daily_rows(team: Team) -> list:
         """,
         team=team,
         filters=HogQLFilters(filterTestAccounts=True),
+        # Weekly batch job: Celery pinned this to the offline cluster process-wide, Temporal does not.
+        workload=Workload.OFFLINE,
     )
     return response.results or []
 
@@ -67,7 +72,7 @@ def _query_daily_rows(team: Team) -> list:
 def get_exception_summary_for_team(team: Team, daily_rows: list | None = None) -> dict:
     """Exception counts, ingestion failures, and previous-week count. This week = 1-7 days ago, previous = 8-14."""
     if daily_rows is None:
-        daily_rows = _query_daily_rows(team)
+        daily_rows = query_daily_rows(team)
     if not daily_rows:
         return {}
 
@@ -93,19 +98,28 @@ def get_exception_summary_for_team(team: Team, daily_rows: list | None = None) -
 
 ELIGIBLE_ROLES_FOR_AUTO_DIGEST = {"engineering", "data", "founder"}
 
+# Per-project opt-in map inside User.partial_notification_settings. Mirrors the entry for this
+# notification type in posthog.tasks.email._DIGEST_PROJECT_SETTING_KEYS, which is module-private.
+DIGEST_PROJECT_SETTING_KEY = "error_tracking_weekly_digest_project_enabled"
 
-def auto_select_project_for_user(user: Any, org_id: int, team_exception_counts: dict[int, dict]) -> bool:
+
+def auto_select_project_for_user(
+    user: Any, org_id: int, team_exception_counts: dict[int, dict], persist: bool = True
+) -> bool:
     """For first-time users who have no ET digest project settings, auto-select the project with the most exceptions
     and persist the selection to their notification settings.
 
     Only auto-enrolls users with engineering, data, or founder roles. Users with other roles
     (marketing, sales, leadership, product, other, None) are marked as "processed" with an empty
     project map so auto-selection doesn't run again - they can still opt in manually via settings.
+
+    ``persist=False`` keeps the decision in memory so a dry run routes recipients the same way
+    without enrolling anyone. Returns True only when settings were written to the database.
     """
     from posthog.models.user import User
     from posthog.tasks.email_utils import auto_select_digest_project
 
-    setting_key = "error_tracking_weekly_digest_project_enabled"
+    setting_key = DIGEST_PROJECT_SETTING_KEY
     current_settings = user.partial_notification_settings or {}
     if setting_key in current_settings:
         return False
@@ -116,6 +130,9 @@ def auto_select_project_for_user(user: Any, org_id: int, team_exception_counts: 
     role = (user.role_at_organization or "").lower()
     if role not in ELIGIBLE_ROLES_FOR_AUTO_DIGEST:
         current_settings[setting_key] = {}
+        if not persist:
+            user.partial_notification_settings = current_settings
+            return False
         User.objects.filter(pk=user.pk).update(partial_notification_settings=current_settings)
         return True
 
@@ -124,6 +141,7 @@ def auto_select_project_for_user(user: Any, org_id: int, team_exception_counts: 
         team_data=team_exception_counts,
         setting_key=setting_key,
         sort_key=lambda d: d["exception_count"],
+        persist=persist,
     )
 
 
@@ -164,6 +182,8 @@ def get_crash_free_sessions(team: Team) -> dict:
     """Calculate crash free sessions rate for the last 7 days with previous week comparison."""
     from posthog.hogql.query import execute_hogql_query
 
+    from posthog.clickhouse.workload import Workload
+
     # posthog.tasks.__init__ eagerly imports every task module (celery autoimport);
     # import the helper at call time so this module doesn't pull the task graph.
     from posthog.tasks.email_utils import compute_week_over_week_change  # noqa: PLC0415
@@ -187,6 +207,8 @@ def get_crash_free_sessions(team: Team) -> dict:
         """,
         team=team,
         filters=HogQLFilters(filterTestAccounts=True),
+        # Unfiltered 14-day session scan — the heaviest query here. Must stay off the online cluster.
+        workload=Workload.OFFLINE,
     )
 
     if not response.results or not response.results[0]:
@@ -221,7 +243,7 @@ def get_crash_free_sessions(team: Team) -> dict:
 def get_daily_exception_counts(team: Team, daily_rows: list | None = None) -> list[dict]:
     """Exception counts per day for the last 7 days, as sparkline-ready bars."""
     if daily_rows is None:
-        daily_rows = _query_daily_rows(team)
+        daily_rows = query_daily_rows(team)
 
     # ClickHouse returns team-timezone dates, so bucket against the team-local today, not UTC
     today = timezone.now().astimezone(team.timezone_info).date()
@@ -256,6 +278,8 @@ def _query_issue_rows(team: Team) -> list:
     """
     from posthog.hogql.query import execute_hogql_query
 
+    from posthog.clickhouse.workload import Workload
+
     tag_queries(product=ProductKey.ERROR_TRACKING, team_id=team.pk, name="weekly_digest:issue_rows")
 
     response = execute_hogql_query(
@@ -286,6 +310,8 @@ def _query_issue_rows(team: Team) -> list:
         """,
         team=team,
         filters=HogQLFilters(filterTestAccounts=True),
+        # Weekly batch job: Celery pinned this to the offline cluster process-wide, Temporal does not.
+        workload=Workload.OFFLINE,
     )
     return response.results or []
 
@@ -359,12 +385,8 @@ def _daily_counts_to_sparkline(daily_counts: list[int]) -> list[dict]:
 
 
 def _source_maps_wizard_command() -> str:
-    """Source maps upload wizard command, mirroring sourceMapsFixWizardLogic on the frontend.
-
-    Appends ``--region eu`` on EU Cloud so the wizard uploads to the right region.
-    """
-    region_flag = " --region eu" if (settings.CLOUD_DEPLOYMENT or "").upper() == "EU" else ""
-    return f"npx -y @posthog/wizard@latest upload-source-maps{region_flag}"
+    """Source maps upload wizard command, mirroring sourceMapsFixWizardLogic on the frontend."""
+    return "npx -y @posthog/wizard@latest upload-source-maps"
 
 
 def get_source_maps_recommendation_for_team(team: Team) -> dict | None:
@@ -399,14 +421,19 @@ def get_source_maps_recommendation_for_team(team: Team) -> dict | None:
     }
 
 
-def build_team_digest_data(team: Team) -> dict[str, Any] | None:
-    """Assemble all digest data for one team, or None when it had no exceptions this week."""
+def build_team_digest_data(team: Team, daily_rows: list | None = None) -> dict[str, Any] | None:
+    """Assemble all digest data for one team, or None when it had no exceptions this week.
+
+    ``daily_rows`` lets a caller that already queried the team's 14-day rows hand them in
+    instead of paying for the same query twice.
+    """
     # posthog.tasks.__init__ eagerly imports every task module (celery autoimport);
     # import the helper at call time so this module doesn't pull the task graph.
     from posthog.tasks.email_utils import compute_week_over_week_change  # noqa: PLC0415
 
     # Two bounded ClickHouse passes + crash-free: three queries per team instead of five.
-    daily_rows = _query_daily_rows(team)
+    if daily_rows is None:
+        daily_rows = query_daily_rows(team)
     counts = get_exception_summary_for_team(team, daily_rows)
     if not counts or counts["exception_count"] == 0:
         return None
@@ -466,6 +493,11 @@ def send_digest_to_workflow(digest: dict[str, Any], distinct_id: str) -> None:
 
     Raises on failure so callers (celery autoretry) can retry.
     """
+    # Single choke point where digest data leaves the instance, so the cloud-only guarantee is
+    # enforced here rather than in each of the three callers.
+    if not is_cloud():
+        raise RuntimeError("Error Tracking weekly digest cannot send from a self-hosted deployment")
+
     headers = {}
     if settings.WORKFLOWS_WEBHOOK_SECRET:
         headers["Authorization"] = settings.WORKFLOWS_WEBHOOK_SECRET
