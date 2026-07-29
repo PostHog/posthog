@@ -81,6 +81,17 @@ def test_compare_column_order_does_not_cause_false_mismatch():
     assert is_match
 
 
+def test_compare_type_mismatch_is_detected_even_when_values_cast_equal():
+    # Same column names and equal-looking values, but v is int32 vs int64. DuckDB EXCEPT ALL would
+    # implicitly cast and report a match; the explicit type check must catch the divergence.
+    real = pa.table({"id": pa.array(["a"], pa.string()), "v": pa.array([1], pa.int64())})
+    shadow = pa.table({"id": pa.array(["a"], pa.string()), "v": pa.array([1], pa.int32())})
+    is_match, diag = deltalite_shadow._compare(real, shadow, ["id"])
+    assert not is_match
+    assert diag["reason"] == "schema_type_mismatch"
+    assert diag["type_mismatches"]["v"] == ["int64", "int32"]
+
+
 # --------------------------------------------------------------------------------------
 # _affected_partition_values
 # --------------------------------------------------------------------------------------
@@ -220,3 +231,21 @@ def test_flag_passes_schema_id_as_person_property():
     assert kwargs["person_properties"]["schema_id"] == "sch-123"
     assert kwargs["person_properties"]["source_type"] == "stripe"
     assert kwargs["send_feature_flag_events"] is False
+
+
+def test_flag_resolves_source_type_from_schema_when_not_passed():
+    # When the caller omits source_type it must be resolved from the schema, otherwise a
+    # `source_type = <x>` release condition can never match (the bug: it was hardcoded to None).
+    fake_team = MagicMock(uuid="u", organization_id="o")
+    fake_schema = MagicMock()
+    fake_schema.source.source_type = "postgres"
+    with (
+        patch("posthog.models.Team") as team_cls,
+        patch("products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema") as schema_cls,
+        patch.object(deltalite_shadow.posthoganalytics, "feature_enabled", return_value=True) as fe,
+    ):
+        team_cls.objects.only.return_value.get.return_value = fake_team
+        schema_cls.objects.select_related.return_value.get.return_value = fake_schema
+        assert deltalite_shadow.is_deltalite_shadow_enabled(1, "sch-9") is True
+    _, kwargs = fe.call_args
+    assert kwargs["person_properties"]["source_type"] == "postgres"

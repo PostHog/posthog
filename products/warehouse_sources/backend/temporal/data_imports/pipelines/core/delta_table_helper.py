@@ -452,6 +452,7 @@ class DeltaTableHelper:
         primary_keys: list[str],
         partition_key: str | None,
         version_before: int,
+        version_after: int | None,
         commit_metadata: dict[str, str] | None,
     ) -> None:
         """Best-effort deltalite shadow verification for this incremental batch.
@@ -480,6 +481,7 @@ class DeltaTableHelper:
                 primary_keys=primary_keys,
                 partition_key=partition_key,
                 version_before=version_before,
+                version_after=version_after,
                 commit_metadata=commit_metadata,
                 logger=self._logger,
             )
@@ -643,11 +645,17 @@ class DeltaTableHelper:
             # never affect the sync. Master-switched off by default (cheap env check first), then
             # gated per-schema by a feature flag.
             if settings.DATA_WAREHOUSE_DELTALITE_SHADOW_ENABLED:
+                # Version the merge just produced. delta-rs advances the table in place on commit; guard
+                # against it not advancing (fall back to latest) so we never read the pre-merge state.
+                version_after_merge: int | None = existing_delta_table.version()
+                if version_after_merge is None or version_after_merge <= version_before_merge:
+                    version_after_merge = None
                 await self._maybe_run_deltalite_shadow(
                     data=data,
                     primary_keys=normalized_primary_keys,
                     partition_key=PARTITION_KEY if use_partitioning else None,
                     version_before=version_before_merge,
+                    version_after=version_after_merge,
                     commit_metadata=commit_metadata,
                 )
         elif (

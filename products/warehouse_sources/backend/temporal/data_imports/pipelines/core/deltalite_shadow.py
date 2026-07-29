@@ -89,6 +89,18 @@ def is_deltalite_shadow_enabled(team_id: int, schema_id: str, source_type: str |
     except Team.DoesNotExist:
         return False
 
+    # Resolve source_type from the schema when the caller didn't supply it, so a `source_type = <x>`
+    # release condition can actually match (mirrors is_auto_repartition_enabled). Best-effort: a lookup
+    # failure just omits the property rather than failing the whole check.
+    if source_type is None:
+        try:
+            from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+
+            schema = ExternalDataSchema.objects.select_related("source").get(id=schema_id)
+            source_type = schema.source.source_type
+        except Exception:
+            source_type = None
+
     person_properties: dict[str, str] = {"schema_id": str(schema_id), "team_id": str(team_id)}
     if source_type is not None:
         person_properties["source_type"] = source_type
@@ -200,6 +212,17 @@ def _compare(real: pa.Table, shadow: pa.Table, primary_keys: Sequence[str]) -> t
             "only_shadow_cols": sorted(shadow_cols - real_cols),
         }
 
+    # Compare field *types*, not just names. DuckDB EXCEPT ALL implicitly casts when the two sides
+    # differ, so an int32-vs-int64, timestamp-precision, or decimal-scale divergence would otherwise
+    # slip through as a false match. Catch it here before the row comparison.
+    type_mismatches = {
+        name: [str(real.schema.field(name).type), str(shadow.schema.field(name).type)]
+        for name in real.column_names
+        if not real.schema.field(name).type.equals(shadow.schema.field(name).type)
+    }
+    if type_mismatches:
+        return False, {"reason": "schema_type_mismatch", "type_mismatches": type_mismatches}
+
     # Align column order (EXCEPT ALL matches by position) to the real table's order.
     shadow = shadow.select(real.column_names)
 
@@ -255,6 +278,7 @@ async def run_shadow_comparison(
     primary_keys: Sequence[str],
     partition_key: str | None,
     version_before: int,
+    version_after: int | None = None,
     commit_metadata: dict[str, str] | None,
     logger: FilteringBoundLogger,
 ) -> None:
@@ -262,7 +286,10 @@ async def run_shadow_comparison(
 
     Args mirror the merge call site: ``data`` is the already-deduped batch, ``primary_keys`` are the
     normalized PK columns, ``partition_key`` is ``PARTITION_KEY`` when the table is partitioned else
-    ``None``, and ``version_before`` is the real table's version *before* the merge committed.
+    ``None``, ``version_before`` is the real table's version *before* the merge committed, and
+    ``version_after`` is the version the merge produced. The real side is read at ``version_after`` so a
+    commit landing between the merge and this read (e.g. a concurrent sync) can't cause a false
+    mismatch; ``None`` falls back to latest.
     """
     if not _DELTALITE_AVAILABLE:
         _record("error")
@@ -316,8 +343,9 @@ async def run_shadow_comparison(
                     return
                 raise
 
-            # 3. Compare against the real (post-merge) result of the affected partitions.
-            real = await asyncio.to_thread(_read_affected, uri, storage_options, None, affected)
+            # 3. Compare against the real (post-merge) result of the affected partitions, pinned to the
+            # version the merge produced so a commit landing in between can't fake a mismatch.
+            real = await asyncio.to_thread(_read_affected, uri, storage_options, version_after, affected)
             shadow_result = await asyncio.to_thread(_read_affected, shadow_uri, storage_options, None, None)
             is_match, diag = await asyncio.to_thread(_compare, real, shadow_result, primary_keys)
 
