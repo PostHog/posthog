@@ -193,6 +193,11 @@ export type CommonConfig = BaseServerConfig & {
     // can't run (unsupported host functions, addon not built) fall back to the Node VM.
     CDP_HOG_RUST_VM_EXECUTION_ENABLED: boolean
 
+    // With the Rust VM enabled, coalesce concurrent same-program invocations into one
+    // executeBatch FFI call per tick, executed off the JS event loop, instead of per-invocation
+    // executeSync on the JS thread.
+    CDP_HOG_RUST_VM_BATCH_EXECUTION_ENABLED: boolean
+
     // Event loop yield helper (yieldEventLoopIfNeeded)
     EVENT_LOOP_YIELD_THRESHOLD_MS: number
 }
@@ -364,6 +369,7 @@ export function getDefaultCommonConfig(): CommonConfig {
         // Shared between ingestion and CDP
         CDP_HOG_WATCHER_SAMPLE_RATE: 0,
         CDP_HOG_RUST_VM_EXECUTION_ENABLED: false,
+        CDP_HOG_RUST_VM_BATCH_EXECUTION_ENABLED: false,
 
         // Event loop yield helper
         EVENT_LOOP_YIELD_THRESHOLD_MS: 200,

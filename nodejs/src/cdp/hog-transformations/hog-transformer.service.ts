@@ -40,6 +40,7 @@ export interface HogTransformerConfig {
     siteUrl: string
     hogWatcherSampleRate: number
     hogRustVmExecutionEnabled: boolean
+    hogRustVmBatchExecutionEnabled: boolean
     mmdbFileLocation: string
 }
 
@@ -417,7 +418,9 @@ export class HogTransformerService implements HogTransformer {
 
         if (this.rustVmExecutor) {
             const sensitiveValues = this.hogExecutor.getSensitiveValues(hogFunction, globalsWithInputs.inputs)
-            const rustResult = this.rustVmExecutor.execute(invocation, sensitiveValues)
+            const rustResult = this.config.hogRustVmBatchExecutionEnabled
+                ? await this.rustVmExecutor.executeBatched(invocation, sensitiveValues)
+                : this.rustVmExecutor.execute(invocation, sensitiveValues)
             // Null means the Rust VM can't run this program (addon not built, unsupported host
             // function): fall through to the Node VM.
             if (rustResult) {
@@ -476,7 +479,13 @@ export class HogTransformerService implements HogTransformer {
  * plus the ingestion-specific sample rates from CommonConfig.
  */
 export type HogTransformerServiceConfig = CdpCoreServicesConfig &
-    Pick<CommonConfig, 'CDP_HOG_WATCHER_SAMPLE_RATE' | 'CDP_HOG_RUST_VM_EXECUTION_ENABLED' | 'MMDB_FILE_LOCATION'>
+    Pick<
+        CommonConfig,
+        | 'CDP_HOG_WATCHER_SAMPLE_RATE'
+        | 'CDP_HOG_RUST_VM_EXECUTION_ENABLED'
+        | 'CDP_HOG_RUST_VM_BATCH_EXECUTION_ENABLED'
+        | 'MMDB_FILE_LOCATION'
+    >
 
 export interface HogTransformerServiceDeps {
     geoipService: GeoIPService
@@ -600,6 +609,7 @@ export function createHogTransformerService(
             siteUrl: config.SITE_URL,
             hogWatcherSampleRate: config.CDP_HOG_WATCHER_SAMPLE_RATE,
             hogRustVmExecutionEnabled: config.CDP_HOG_RUST_VM_EXECUTION_ENABLED,
+            hogRustVmBatchExecutionEnabled: config.CDP_HOG_RUST_VM_BATCH_EXECUTION_ENABLED,
             mmdbFileLocation: config.MMDB_FILE_LOCATION,
         }
     )
