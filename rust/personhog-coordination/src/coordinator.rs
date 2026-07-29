@@ -207,10 +207,20 @@ impl Coordinator {
         let keepalive_handle = {
             let store = Arc::clone(&self.store);
             let interval = self.config.keepalive_interval;
+            let lease_ttl = self.config.leader_lease_ttl;
             let token = keepalive_cancel.clone();
             let lease_lost = lease_lost.clone();
             tokio::spawn(async move {
-                if let Err(e) = util::run_lease_keepalive(store, lease_id, interval, token).await {
+                if let Err(e) = util::run_lease_keepalive(
+                    store,
+                    lease_id,
+                    interval,
+                    lease_ttl,
+                    "coordinator",
+                    token,
+                )
+                .await
+                {
                     tracing::error!(error = %e, "election lease keepalive failed");
                     lease_lost.cancel();
                 }

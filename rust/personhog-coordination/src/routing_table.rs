@@ -452,9 +452,11 @@ impl RoutingTable {
         {
             let store = Arc::clone(&self.store);
             let interval = self.config.heartbeat_interval;
+            let lease_ttl = self.config.lease_ttl;
             let token = cancel.child_token();
             tasks.spawn(async move {
-                util::run_lease_keepalive(store, lease_id, interval, token).await
+                util::run_lease_keepalive(store, lease_id, interval, lease_ttl, "router", token)
+                    .await
             });
         }
 

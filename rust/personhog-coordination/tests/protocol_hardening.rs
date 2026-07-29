@@ -22,9 +22,9 @@ use assignment_coordination::store::parse_watch_value;
 use async_trait::async_trait;
 use common::{
     revoke_lease_of_key, start_coordinator, start_coordinator_named, start_pod, start_pod_gated,
-    start_pod_with_lease_ttl, start_router_with_lease_ttl, test_store, test_store_with_prefix,
-    wait_for_condition, CutoverEvent, HandoffEvent, MockCutoverHandler, MockHandoffHandler,
-    POLL_INTERVAL, WAIT_TIMEOUT,
+    start_pod_with_lease_ttl, start_router_with_lease_ttl, store_at, test_store,
+    test_store_with_prefix, wait_for_condition, CutoverEvent, FlakyProxy, HandoffEvent,
+    MockCutoverHandler, MockHandoffHandler, ETCD_ENDPOINT, POLL_INTERVAL, WAIT_TIMEOUT,
 };
 use personhog_coordination::error::Result;
 use personhog_coordination::routing_table::{RoutingTable, RoutingTableConfig, StashHandler};
@@ -2774,4 +2774,131 @@ async fn lease_loss_during_graceful_drain_self_fences_promptly() {
         .expect("run exits promptly after the drain-time self-fence")
         .expect("run task")
         .expect("run returns Ok on graceful shutdown");
+}
+
+// ============================================================
+// Keepalive: connection blips are not lease loss
+// ============================================================
+//
+// The lease lives in etcd's replicated keyspace and stays valid until
+// its TTL passes without renewal — a broken keepalive stream is a fact
+// about one connection, not about the lease. The keepalive therefore
+// rebuilds and retries through connection trouble while the last
+// confirmed renewal is recent, and only declares loss on etcd's
+// authoritative TTL<=0 answer or when the renewal margin (two thirds of
+// the TTL, reserving the final third for the fence) runs out. These run
+// a pod through a fault-injecting TCP proxy: a severed connection with
+// runway left must not fence; a blackholed one must fence at the
+// margin, not immediately and not never.
+
+/// A routine single-member blip: the pod's etcd connection breaks and
+/// immediately becomes reconnectable. The pod must keep its lease, its
+/// registration, and its partitions — no self-fence, no re-warm.
+#[tokio::test]
+async fn a_connection_blip_does_not_fence_the_pod() {
+    let proxy = FlakyProxy::start("127.0.0.1:2379").await;
+    let prefix = format!("/test-keepalive-blip-{}/", uuid::Uuid::new_v4());
+    let pod_store = store_at(&proxy.endpoint, &prefix).await;
+    let direct_store = store_at(ETCD_ENDPOINT, &prefix).await;
+
+    let cancel = CancellationToken::new();
+    let (handler, events) = MockHandoffHandler::new();
+    let pod = personhog_coordination::pod::PodHandle::new(
+        Arc::clone(&pod_store),
+        personhog_coordination::pod::PodConfig {
+            pod_name: "blip-pod".to_string(),
+            lease_ttl: 6,
+            heartbeat_interval: Duration::from_secs(1),
+            reconcile_interval: Duration::from_secs(86_400),
+            ..Default::default()
+        },
+        Arc::new(handler),
+        None,
+    );
+    let token = cancel.child_token();
+    tokio::spawn(async move { pod.run(token).await });
+
+    put_handoff(&direct_store, 0, None, "blip-pod", HandoffPhase::Warming).await;
+    wait_for_event(&events, HandoffEvent::Warmed(0)).await;
+
+    proxy.sever();
+
+    // Old behavior fences within a heartbeat tick of the blip. With the
+    // renewal margin, the keepalive rebuilds its stream instead.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert!(
+        !events.lock().await.contains(&HandoffEvent::Released(0)),
+        "a reconnectable blip must not self-fence"
+    );
+
+    // Well past the original TTL from the last pre-blip renewal: the
+    // registration only survives if renewals resumed through the
+    // rebuilt stream.
+    tokio::time::sleep(Duration::from_secs(6)).await;
+    assert!(
+        !events.lock().await.contains(&HandoffEvent::Released(0)),
+        "the pod must hold its partition through the blip"
+    );
+    let pods = direct_store.list_pods().await.expect("list pods");
+    assert!(
+        pods.iter().any(|p| p.pod_name == "blip-pod"),
+        "the lease must have been renewed through the rebuilt stream"
+    );
+
+    cancel.cancel();
+}
+
+/// A sustained etcd outage: the connection breaks and stays broken. The
+/// pod must keep retrying while the lease still has runway — fencing
+/// early buys no safety, the coordinator cannot have reassigned anything
+/// — and must fence when the renewal margin runs out, leaving the final
+/// third of the TTL for the fence to complete before expiry.
+#[tokio::test]
+async fn a_sustained_outage_fences_at_the_renewal_margin() {
+    let proxy = FlakyProxy::start("127.0.0.1:2379").await;
+    let prefix = format!("/test-keepalive-margin-{}/", uuid::Uuid::new_v4());
+    let pod_store = store_at(&proxy.endpoint, &prefix).await;
+    let direct_store = store_at(ETCD_ENDPOINT, &prefix).await;
+
+    let cancel = CancellationToken::new();
+    let (handler, events) = MockHandoffHandler::new();
+    let pod = personhog_coordination::pod::PodHandle::new(
+        Arc::clone(&pod_store),
+        personhog_coordination::pod::PodConfig {
+            pod_name: "margin-pod".to_string(),
+            lease_ttl: 6,
+            heartbeat_interval: Duration::from_secs(1),
+            reconcile_interval: Duration::from_secs(86_400),
+            ..Default::default()
+        },
+        Arc::new(handler),
+        None,
+    );
+    let token = cancel.child_token();
+    tokio::spawn(async move { pod.run(token).await });
+
+    put_handoff(&direct_store, 0, None, "margin-pod", HandoffPhase::Warming).await;
+    wait_for_event(&events, HandoffEvent::Warmed(0)).await;
+
+    proxy.set_blackholed(true);
+    proxy.sever();
+
+    // Inside the margin (two thirds of the 6s TTL): still retrying, not
+    // fenced — the lease is still valid and the coordinator cannot have
+    // moved anything.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert!(
+        !events.lock().await.contains(&HandoffEvent::Released(0)),
+        "fencing inside the margin trades availability for nothing"
+    );
+
+    // Margin exhausted: the self-fence must run, well before the pod
+    // could be confused with one that never notices.
+    wait_for_condition(Duration::from_secs(5), POLL_INTERVAL, || {
+        let events = Arc::clone(&events);
+        async move { events.lock().await.contains(&HandoffEvent::Released(0)) }
+    })
+    .await;
+
+    cancel.cancel();
 }

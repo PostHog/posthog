@@ -325,9 +325,11 @@ impl PodHandle {
             let mut heartbeat_handle = {
                 let store = Arc::clone(&self.store);
                 let interval = self.config.heartbeat_interval;
+                let lease_ttl = self.config.lease_ttl;
                 let token = heartbeat_cancel.child_token();
                 tokio::spawn(async move {
-                    util::run_lease_keepalive(store, lease_id, interval, token).await
+                    util::run_lease_keepalive(store, lease_id, interval, lease_ttl, "pod", token)
+                        .await
                 })
             };
 
