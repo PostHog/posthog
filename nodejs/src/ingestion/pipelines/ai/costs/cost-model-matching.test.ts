@@ -33,6 +33,15 @@ jest.mock('./providers', () => {
                 },
             },
         },
+        'anthropic/claude-sonnet-5': {
+            model: 'anthropic/claude-sonnet-5',
+            cost: {
+                'amazon-bedrock-claude-on-aws': { prompt_token: 0.000002, completion_token: 0.00001 },
+                'amazon-bedrock-global': { prompt_token: 0.000002, completion_token: 0.00001 },
+                'amazon-bedrock-us-east-1': { prompt_token: 0.0000022, completion_token: 0.000011 },
+                anthropic: { prompt_token: 0.000002, completion_token: 0.00001 },
+            },
+        },
         'google/gemini-2.5-pro-preview': {
             model: 'google/gemini-2.5-pro-preview',
             cost: {
@@ -285,6 +294,23 @@ describe('findCostFromModel()', () => {
             expect(result!.cost.model).toBe('claude-3-5-sonnet')
             expect(result!.source).toBe(CostModelSource.Manual)
             expect(result!.cost.provider).toBe('default')
+        })
+    })
+
+    describe('bedrock inference profiles', () => {
+        it('bills a us. profile at the us regional rate', () => {
+            const result = findCostFromModel('bedrock/us.anthropic.claude-sonnet-5', { $ai_provider: 'bedrock' })
+
+            expect(result).toBeDefined()
+            expect(result!.cost.provider).toBe('amazon-bedrock-us-east-1')
+            expect(result!.cost.cost.prompt_token).toBe(0.0000022)
+        })
+
+        it('bills an unprefixed bedrock model at the same rate as before', () => {
+            const result = findCostFromModel('claude-sonnet-5', { $ai_provider: 'bedrock' })
+
+            expect(result).toBeDefined()
+            expect(result!.cost.provider).toBe('amazon-bedrock-claude-on-aws')
         })
     })
 

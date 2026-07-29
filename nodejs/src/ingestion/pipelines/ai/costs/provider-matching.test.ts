@@ -1,10 +1,32 @@
 import {
     PROVIDER_ALIASES,
+    extractInferenceProfileRegion,
     normalizeProviderKey,
     resolveModelCostForProvider,
     resolveProviderAliases,
 } from './provider-matching'
 import type { ModelCostByProvider } from './providers/types'
+
+describe('extractInferenceProfileRegion()', () => {
+    it.each([
+        // The prefix sits after the `provider/` segment, so a naive startsWith('us.') misses it
+        ['bedrock/us.anthropic.claude-sonnet-5', 'us'],
+        ['bedrock/eu.anthropic.claude-sonnet-4-6', 'eu'],
+        ['bedrock/global.anthropic.claude-fable-5', 'global'],
+        ['bedrock/apac.anthropic.claude-sonnet-5', 'apac'],
+        ['us.anthropic.claude-sonnet-5', 'us'],
+        ['BEDROCK/US.anthropic.claude-sonnet-5', 'us'],
+        ['arn:aws:bedrock:us-east-1:123:inference-profile/us.anthropic.claude-sonnet-5', 'us'],
+        // Versioned and dotted model names must not read as region tokens
+        ['claude-opus-4.5', undefined],
+        ['anthropic/claude-sonnet-4.6', undefined],
+        ['openai/gpt-4.1-mini', undefined],
+        ['constructor.anthropic.claude-sonnet-5', undefined],
+        ['', undefined],
+    ])('extracts %s as region %s', (model, expected) => {
+        expect(extractInferenceProfileRegion(model)).toBe(expected)
+    })
+})
 
 describe('normalizeProviderKey()', () => {
     it('lowercases provider names', () => {
@@ -478,6 +500,69 @@ describe('resolveModelCostForProvider()', () => {
 
             expect(result).toBeDefined()
             expect(result!.provider).toBe('openai')
+        })
+    })
+
+    describe('inference-profile region matching', () => {
+        it('prefers the request region over another provider-specific key', () => {
+            const costs = createMockCosts({
+                'amazon-bedrock-claude-on-aws': { prompt_token: 0.000002, completion_token: 0.00001 },
+                'amazon-bedrock-global': { prompt_token: 0.000002, completion_token: 0.00001 },
+                'amazon-bedrock-us-east-1': { prompt_token: 0.0000022, completion_token: 0.000011 },
+            })
+
+            const result = resolveModelCostForProvider(costs, 'bedrock', 'anthropic/claude-sonnet-5', 'us')
+
+            expect(result).toBeDefined()
+            expect(result!.provider).toBe('amazon-bedrock-us-east-1')
+        })
+
+        it('prefers the request region over the un-regioned provider key', () => {
+            const costs = createMockCosts({
+                'amazon-bedrock': { prompt_token: 0.000003, completion_token: 0.000015 },
+                'amazon-bedrock-eu-west-1': { prompt_token: 0.0000033, completion_token: 0.0000165 },
+            })
+
+            const result = resolveModelCostForProvider(costs, 'bedrock', 'amazon/nova-lite-v1', 'eu')
+
+            expect(result).toBeDefined()
+            expect(result!.provider).toBe('amazon-bedrock-eu-west-1')
+        })
+
+        it('falls back to the global key rather than a different region', () => {
+            const costs = createMockCosts({
+                'amazon-bedrock-eu-west-1': { prompt_token: 0.0000033, completion_token: 0.0000165 },
+                'amazon-bedrock-global': { prompt_token: 0.000003, completion_token: 0.000015 },
+            })
+
+            const result = resolveModelCostForProvider(costs, 'bedrock', 'anthropic/claude-sonnet-4.6', 'us')
+
+            expect(result).toBeDefined()
+            expect(result!.provider).toBe('amazon-bedrock-global')
+        })
+
+        it('ignores keys whose region only shares a prefix with the request region', () => {
+            const costs = createMockCosts({
+                'amazon-bedrock-eu-west-1': { prompt_token: 0.0000033, completion_token: 0.0000165 },
+                'amazon-bedrock-usw': { prompt_token: 0.000009, completion_token: 0.000009 },
+            })
+
+            const result = resolveModelCostForProvider(costs, 'bedrock', 'anthropic/claude-sonnet-5', 'us')
+
+            expect(result).toBeDefined()
+            expect(result!.provider).toBe('amazon-bedrock-eu-west-1')
+        })
+
+        it('keeps unprefixed models on the existing exact match', () => {
+            const costs = createMockCosts({
+                'amazon-bedrock': { prompt_token: 0.000003, completion_token: 0.000015 },
+                'amazon-bedrock-eu-west-1': { prompt_token: 0.0000033, completion_token: 0.0000165 },
+            })
+
+            const result = resolveModelCostForProvider(costs, 'bedrock', 'amazon/nova-lite-v1')
+
+            expect(result).toBeDefined()
+            expect(result!.provider).toBe('amazon-bedrock')
         })
     })
 

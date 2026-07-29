@@ -1,7 +1,7 @@
 import { logger } from '~/common/utils/logger'
 import { Properties } from '~/plugin-scaffold'
 
-import { resolveModelCostForProvider } from './provider-matching'
+import { extractInferenceProfileRegion, resolveModelCostForProvider } from './provider-matching'
 import { manualCostsByModel, openRouterCostsByModel } from './providers'
 import type { ModelCostRow, ResolvedModelCost } from './providers/types'
 
@@ -43,10 +43,13 @@ export const findCostFromModel = (model: string, properties: Properties): CostMo
 
     const provider: string | undefined = providerProperty ? String(providerProperty).toLowerCase() : undefined
 
+    // Read the region before matching, since catalog lookups drop the inference-profile prefix
+    const region: string | undefined = extractInferenceProfileRegion(model)
+
     const manualMatch: ModelCostRow | undefined = findManualCost(model)
 
     const resolvedManualMatch: ResolvedModelCost | undefined = manualMatch
-        ? resolveModelCostForProvider(manualMatch.cost, provider, manualMatch.model)
+        ? resolveModelCostForProvider(manualMatch.cost, provider, manualMatch.model, region)
         : undefined
 
     if (resolvedManualMatch) {
@@ -56,7 +59,7 @@ export const findCostFromModel = (model: string, properties: Properties): CostMo
     const openRouterMatch: ModelCostRow | undefined = searchModelInCosts(model, openRouterCostsByModel)
 
     const resolvedOpenRouterMatch: ResolvedModelCost | undefined = openRouterMatch
-        ? resolveModelCostForProvider(openRouterMatch.cost, provider, openRouterMatch.model)
+        ? resolveModelCostForProvider(openRouterMatch.cost, provider, openRouterMatch.model, region)
         : undefined
 
     if (resolvedOpenRouterMatch) {
