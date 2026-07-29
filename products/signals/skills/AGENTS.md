@@ -193,21 +193,12 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   radius (cross-referenced against event volume / reach / SDK-version share), and
   prioritizes issues an agent can resolve via the MCP over credential-gated ones.
   Its discriminator is kind-concentration × severity × agent-fixability ×
-  persistence, not raw firing count.
-- `signals-scout-ingestion-warnings/` — root-cause watcher for the ingestion
-  warnings stream: events and person/group updates dropped, mangled, or partially
-  rejected at ingestion, read via the `ingestion-warnings-list` MCP tool. Watches
-  for new warning types, bursts above a type's own baseline, and error-severity
-  clusters with broad reach. Warning counts are debounced by the producers
-  (some types bypass the debounce and record every occurrence), so it weights
-  by reach — distinct affected IDs — not raw count; its discriminator is
-  severity-weighted data loss × reach ×
-  novelty against the type's own baseline (`error` = dropped, `warning` =
-  ingested-but-modified, `info` = intentional). On the **report channel**
-  (`emit_report` / `edit_report`): files one report per actionable root cause —
-  which may span several warning types — with the dated onset, reach, and the
-  fix. Triage of `ingestion_warning` _health issues_ stays with the health-checks
-  scout; this scout owns the stream depth the deterministic check can't reach.
+  persistence, not raw firing count. This includes `ingestion_warning` issues —
+  the `ingestion_warning` check files one health issue per warning type (with
+  `warning_type` / `category` / `severity` / `affected_count` in the payload), so
+  the scout owns that triage end-to-end, corroborating blast radius via
+  `execute-sql` against `system.ingestion_warnings` and pointing fixes at the
+  `resolving-ingestion-warnings` skill.
 - `signals-scout-inbox-validation/` — follow-up watcher for the inbox itself.
   Watches reports that recently transitioned to `resolved` (implementation PR
   merged), waits out a deployment soak window, then re-probes the entities the
