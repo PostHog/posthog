@@ -167,9 +167,9 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                             {groupHasNoFilters(universal.filter_group) && (
                                 <LemonBanner type="warning">
                                     <span className="text-xs">
-                                        No filters set, so this scanner watches every recording. Describing the sessions
-                                        you want in the prompt doesn't narrow what gets scanned, and recordings that
-                                        can't match still use credits. Add a filter to limit what this scanner watches.
+                                        No recording filters set. Your prompt describes what to look for, but it doesn't
+                                        limit which recordings get scanned, so this scanner spends credits scanning
+                                        recordings that aren't relevant to your prompt. Add a filter to narrow it down.
                                     </span>
                                 </LemonBanner>
                             )}
