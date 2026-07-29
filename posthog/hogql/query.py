@@ -468,7 +468,12 @@ class HogQLQueryExecutor:
         self.results = result.results
         self.types = result.types
         self.error = result.error
-        if result.print_columns and not self.print_columns:
+        # A literal `SELECT *` on a direct connection is expanded by the external server, so the
+        # driver response is the only source of truth for the columns. Detect that by the count
+        # disagreeing with HogQL's own column list (and cover the empty case) — then take the
+        # driver's names, keeping them consistent with `self.types`, which is always driver-derived
+        # above. When counts match (ordinary explicit-column queries) HogQL's names are left as-is.
+        if result.print_columns and (not self.print_columns or len(result.print_columns) != len(self.print_columns)):
             self.print_columns = result.print_columns
 
     @tracer.start_as_current_span("HogQLQueryExecutor._generate_clickhouse_sql")

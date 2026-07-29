@@ -62,6 +62,29 @@ class TestDirectClickHouseQuery(APIBaseTest):
         sql = self._from_database(source)
         self.assertIn("posthog.events", sql)
 
+    def test_select_star_stays_literal_for_direct_connection(self):
+        # A top-level SELECT * on a direct ClickHouse table must print as a literal `*` so the
+        # external server expands the star against its own live schema — not a HogQL-expanded column
+        # list, which can include stale / materialized / alias columns that break the whole query
+        # (ClickHouse error 47, UNKNOWN_IDENTIFIER).
+        source = self._create_source(database="posthog")
+        self._create_table(source)
+
+        sql = self._from_database(source)
+        self.assertIn("SELECT *", sql)
+        self.assertNotIn("events.id AS id", sql)
+        self.assertNotIn("events.team_id AS team_id", sql)
+
+    def test_explicit_columns_still_expand_for_direct_connection(self):
+        # Only the star is kept literal — explicit column selection is unaffected.
+        source = self._create_source(database="posthog")
+        self._create_table(source)
+
+        executor = HogQLQueryExecutor(query="SELECT id FROM events", team=self.team, connection_id=str(source.id))
+        sql, _context = executor.generate_clickhouse_sql()
+        self.assertIn("events.id AS id", sql.replace("`", ""))
+        self.assertNotIn("SELECT *", sql)
+
     def test_configured_database_overrides_a_stale_default_option(self):
         # Regression: a table synced before the source's database was set stored "default" in its
         # per-table options. The live config ("posthog") must win, else the query targets
