@@ -6579,13 +6579,13 @@ snapshots:
     scenes-app-notebooks-nodes-customer-journey--with-optional-steps--light:
         hash: v1.k794b7964.121bfeb17a2130a74bda0cb2ba561f6c56e11c13834033a3ef39dd40432271cc.pSCqPjfCB9aUr8yyJ1xkpyRu8z5jlnGD8kHMWg-Ynpg
     scenes-app-notebooks-nodes-support-tickets--empty--dark:
-        hash: v1.k794b7964.5a04d61784a3c9b2d3da23df09c408c6c6c3f3c7261ec4a4a2d88ace3225f09c.3IjPAy5Z34Diq97v7AUN-qvRSZ7cmf1MZ4NyHgCf9yY
+        hash: v1.k794b7964.35a44b69111b9461bb8444d68e6fcaf2ee83224967d814fdde223c1da97ddd7d.9MRhpmyd-ANfZ9Ds8YITknhenvMo0ANpv5b3rm__8oo
     scenes-app-notebooks-nodes-support-tickets--empty--light:
-        hash: v1.k794b7964.f5558720a864ec918d1edde7b332df03b933fe7b8ab85c464634f858def9dcad.tEkVKMHVabzSA-doaMKmRr5EOGSWAideSOEWp2CKHx0
+        hash: v1.k794b7964.857015668d40b06d0201d0ee5f2f8fb9aa4f54e74724a133d953f6853ed9c129.NPjoAsbJMtH-ytQ2r0wEZ99MbLfz0rPDDtPpos3v9uQ
     scenes-app-notebooks-nodes-support-tickets--with-tickets--dark:
-        hash: v1.k794b7964.2e67f3c43553b24d9d2fe98c009b3e4d713a94efed1c9213314d18d85f66a22b.3Tm02nOTsVIYJeL2GRnxd3WuExdt4RNPyfSti0wGgJ8
+        hash: v1.k794b7964.2cff37bfe4dc8ccdeb760b23776eb50a8ec90cb663a4777a1a5febbc94a1c0f6.jzbcJ4dS-zqEp19Io2b3HhltAWMYLfm4pHAMxsVuqgA
     scenes-app-notebooks-nodes-support-tickets--with-tickets--light:
-        hash: v1.k794b7964.cd2be56392c11133b3c6600bb0c25d653fec4a88988cba3b122867d4e5f493af.olUnWKNlWwle4dB5uB8eMIE886zepY6KryrB-_YAcxk
+        hash: v1.k794b7964.54556ab17d8c666747eae15995e9e5f04325f9dbaeb65372d2826d6df2b08efe.6RaepMj40ax5zOKD214rXEyn_nB69TKH_BwzjnNAWzc
     scenes-app-oauth-authorize--all-scopes-optional--dark:
         hash: v1.k794b7964.03746d2e3646b97e4af61e54557db2ccb6268512cda02721b819fa30980af155.ZPcclnqMQQh8Qi_v2Z3cnVA1_LaYFx8XXncRQ8NQAdc
     scenes-app-oauth-authorize--all-scopes-optional--light:
@@ -7758,6 +7758,10 @@ snapshots:
         hash: v1.k794b7964.8ebd0fb0b9db1f2cc68bcb63d890a44003403e27688a938e5cb04fbffb3b5d5e.aKxLz7jngQZcJL6b0nrArk3V-pDEoGNoPsYUiGbIYy4
     scenes-other-onboarding-shared-wizard-sync-card--local-running--light:
         hash: v1.k794b7964.644de0941a464befbdd1c1173307918762ec7bf580d08b6bb73e0170da71ab57.roPN1jIIWT47y5Xh3Gluqd744nCUVhJkfniX1oq__3M
+    scenes-other-onboarding-shared-wizard-sync-card--local-running-started-by-teammate--dark:
+        hash: v1.k794b7964.9238cd8306270044b6be400d8b253942a6ebc7639dac27e091afe3afb5900291.1tQS7yVR_gZ7fmjjzoegrw7GXmePG9-QafLgOaddLfo
+    scenes-other-onboarding-shared-wizard-sync-card--local-running-started-by-teammate--light:
+        hash: v1.k794b7964.311090aa83634a64027ca60d44a1ac93ecb22124f9144032439c364e0e513105.jEWKZmu_Lw9ugOlP0970x-jQom-SKcWM7N__q-UTgT8
     scenes-other-onboarding-shared-wizard-sync-card--local-waiting-for-input--dark:
         hash: v1.k794b7964.882a0f73b32a910ae1582ef69720f025078bc35867e04d6a03e4931999999ae1.udwLNxP_oZh1qhyS1Ce07RtoSfNpckSBGlOxC41rVp0
     scenes-other-onboarding-shared-wizard-sync-card--local-waiting-for-input--light:
@@ -7766,10 +7770,6 @@ snapshots:
         hash: v1.k794b7964.f074463c40fd8b34d0ca55c651b409fb35668ecc69fefb4e631208b3f5db1bde.zioGxlu5eKa64EXl2wzmAT4K-EC_0eK5uoUMxZIu98Y
     scenes-other-onboarding-shared-wizard-sync-card--local-waiting-for-sensitive-input--light:
         hash: v1.k794b7964.57524d53d6835dd9472c87a6aca291266fb8e8971d95ba311842386f94347fc8.sMjUBzJVzLkCThwa5LT8ntVK63w5tJ0lYltmn2pD70E
-    scenes-other-onboarding-shared-wizard-sync-card--local-running-started-by-teammate--dark:
-        hash: v1.k794b7964.9238cd8306270044b6be400d8b253942a6ebc7639dac27e091afe3afb5900291.1tQS7yVR_gZ7fmjjzoegrw7GXmePG9-QafLgOaddLfo
-    scenes-other-onboarding-shared-wizard-sync-card--local-running-started-by-teammate--light:
-        hash: v1.k794b7964.311090aa83634a64027ca60d44a1ac93ecb22124f9144032439c364e0e513105.jEWKZmu_Lw9ugOlP0970x-jQom-SKcWM7N__q-UTgT8
     scenes-other-onboarding-shared-wizard-sync-card--playground--dark:
         hash: v1.k794b7964.c69534afe39d0311b0ed3247beb145b94381706a25f2e6c7b5d3415c87564375.ViSw0_amXLmDYynCEuR_kgnY5Ncm4ULveglgIJoTIaU
     scenes-other-onboarding-shared-wizard-sync-card--playground--light:
