@@ -7,6 +7,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use chrono::DateTime;
+use common_ingestion_warnings::{WarningEmitter, CAPTURE_LEGACY_RATE_LIMIT};
 use common_types::{CapturedEvent, RawEvent};
 use limiters::token_dropper::TokenDropper;
 use metrics::counter;
@@ -22,6 +23,7 @@ use crate::{
     event_restrictions::{EventContext as RestrictionEventContext, EventRestrictionService},
     events::overflow_stamping::stamp_overflow_reason,
     global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter},
+    ingestion_warnings::{emit_rate_limit_warning, legacy_request_context},
     prometheus::{report_clock_skew, report_dropped_events},
     router, sinks,
     utils::uuid_v7_from_datetime,
@@ -241,6 +243,7 @@ pub async fn process_events(
     global_rate_limiter: Option<Arc<GlobalRateLimiter>>,
     overflow_limiter: Option<Arc<OverflowLimiter>>,
     ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
+    ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
     ai_routing: &AiRouting,
     events: Vec<RawEvent>,
     context: &ProcessingContext,
@@ -450,6 +453,14 @@ pub async fn process_events(
                     distinct_ids = %preview,
                     "events rate limited by distinct_id -- person processing disabled"
                 );
+
+                emit_rate_limit_warning(
+                    ingestion_warning_emitter.as_deref(),
+                    &legacy_request_context(context),
+                    CAPTURE_LEGACY_RATE_LIMIT,
+                    &limited_distinct_ids,
+                    limited_event_count,
+                );
             }
         }
     }
@@ -485,9 +496,12 @@ pub async fn process_events(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ingestion_warnings::SdkAttribution;
     use crate::utils::uuid_v7_from_datetime;
     use crate::v0_request::{OverflowReason, ProcessingContext};
     use chrono::{DateTime, TimeZone, Utc};
+    use common_ingestion_warnings::test_support::CollectingEmitter;
+    use common_ingestion_warnings::WarningType;
     use common_types::RawEvent;
     use serde_json::json;
     use std::collections::HashMap;
@@ -510,6 +524,7 @@ mod tests {
             historical_migration: false,
             chatty_debug_enabled: false,
             capture_mode: crate::config::CaptureMode::Events,
+            sdk_attribution: crate::ingestion_warnings::SdkAttribution::default(),
         }
     }
 
@@ -779,6 +794,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             &AiRouting::Primary,
             events,
             &context,
@@ -826,6 +842,7 @@ mod tests {
             dropper,
             Some(service),
             historical_cfg,
+            None,
             None,
             None,
             None,
@@ -880,6 +897,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             &AiRouting::Primary,
             events,
             &context,
@@ -928,6 +946,7 @@ mod tests {
             dropper,
             Some(service),
             historical_cfg,
+            None,
             None,
             None,
             None,
@@ -989,6 +1008,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             &AiRouting::Primary,
             events,
             &context,
@@ -1024,6 +1044,7 @@ mod tests {
             dropper,
             None,
             historical_cfg,
+            None,
             None,
             None,
             None,
@@ -1083,6 +1104,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             &AiRouting::Primary,
             events,
             &context,
@@ -1130,6 +1152,7 @@ mod tests {
             dropper,
             Some(service),
             historical_cfg,
+            None,
             None,
             None,
             None,
@@ -1197,6 +1220,7 @@ mod tests {
             dropper,
             None,
             historical_cfg,
+            None,
             None,
             None,
             None,
@@ -1281,6 +1305,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             &AiRouting::Secondary,
             events,
             &context,
@@ -1343,6 +1368,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             &AiRouting::Secondary,
             events,
             &context,
@@ -1401,6 +1427,7 @@ mod tests {
             dropper,
             Some(service),
             historical_cfg,
+            None,
             None,
             None,
             None,
@@ -1479,6 +1506,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             &AiRouting::Primary,
             events,
             &context,
@@ -1553,6 +1581,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             &AiRouting::Primary,
             events,
             &context,
@@ -1622,6 +1651,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             &AiRouting::Primary,
             events,
             &context,
@@ -1683,6 +1713,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             &AiRouting::Primary,
             events,
             &context,
@@ -1738,6 +1769,7 @@ mod tests {
             None,
             None, // no overflow limiter
             None,
+            None,
             &AiRouting::Primary,
             events,
             &context,
@@ -1775,6 +1807,7 @@ mod tests {
             historical_cfg,
             None,
             Some(limiter),
+            None,
             None,
             &AiRouting::Primary,
             events,
@@ -1828,6 +1861,7 @@ mod tests {
             None,
             None,
             ai_limiter,
+            None,
             &AiRouting::Secondary,
             events,
             &context,
@@ -1865,6 +1899,7 @@ mod tests {
             historical_cfg,
             None,
             Some(limiter),
+            None,
             None,
             &AiRouting::Primary,
             events,
@@ -1907,6 +1942,7 @@ mod tests {
             historical_cfg,
             None,
             Some(limiter),
+            None,
             None,
             &AiRouting::Primary,
             events,
@@ -1967,6 +2003,7 @@ mod tests {
             None,
             Some(limiter),
             None,
+            None,
             &AiRouting::Primary,
             events,
             &context,
@@ -2007,6 +2044,7 @@ mod tests {
             historical_cfg,
             None,
             Some(limiter),
+            None,
             None,
             &AiRouting::Primary,
             events,
@@ -2060,6 +2098,7 @@ mod tests {
             historical_cfg,
             Some(global_limiter),
             Some(overflow_limiter),
+            None,
             None,
             &AiRouting::Primary,
             events,
@@ -2126,6 +2165,7 @@ mod tests {
             Some(global_limiter),
             None, // no overflow limiter -- isolate global RL behavior
             None,
+            None,
             &AiRouting::Primary,
             events,
             &context,
@@ -2142,6 +2182,80 @@ mod tests {
             Some(OverflowReason::ForceLimited),
             "globally limited AnalyticsMain should be rerouted to overflow"
         );
+    }
+
+    // The legacy path carries the bulk of rate-limited traffic, and it's the one
+    // whose SDK attribution has to survive a snapshot taken back at batch
+    // construction — by this stage the events are serialized.
+    #[rstest::rstest]
+    #[case::sdk_reported(
+        Some(SdkAttribution {
+            lib: Some("web".to_string()),
+            lib_version: Some("1.2.3".to_string()),
+        }),
+        "web",
+        "1.2.3"
+    )]
+    #[case::sdk_absent(None, "unknown", "unknown")]
+    #[tokio::test]
+    async fn global_rate_limit_emits_a_warning_naming_the_hot_key(
+        #[case] attribution: Option<SdkAttribution>,
+        #[case] expected_lib: &str,
+        #[case] expected_lib_version: &str,
+    ) {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut context = create_test_context(now, None);
+        if let Some(attribution) = attribution {
+            context.sdk_attribution = attribution;
+        }
+        let events = vec![create_test_event(
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        )];
+
+        let sink = Arc::new(MockSink::new());
+        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
+        let global_limiter = Arc::new(GlobalRateLimiter::mock_limiting(&["test_token:test_user"]));
+        let collector = Arc::new(CollectingEmitter::new());
+
+        process_events(
+            sink.clone(),
+            dropper,
+            None,
+            historical_cfg,
+            Some(global_limiter),
+            None,
+            None,
+            Some(collector.clone()),
+            &AiRouting::Primary,
+            events,
+            &context,
+        )
+        .await
+        .unwrap();
+
+        let emitted = collector.emitted();
+        assert_eq!(emitted.len(), 1);
+        let w = &emitted[0];
+        assert_eq!(w.token, "test_token");
+        assert_eq!(w.warning, WarningType::HighVolumeDistinctId);
+        assert_eq!(w.source, CAPTURE_LEGACY_RATE_LIMIT);
+        assert_eq!(w.count, 1);
+        assert_eq!(
+            w.extra_details["distinctId"],
+            serde_json::json!("test_user")
+        );
+        assert_eq!(w.extra_details["distinctIdCount"], serde_json::json!(1));
+        assert_eq!(w.extra_details["lib"], serde_json::json!(expected_lib));
+        assert_eq!(
+            w.extra_details["libVersion"],
+            serde_json::json!(expected_lib_version)
+        );
+        assert_eq!(w.extra_details["path"], serde_json::json!("/e/"));
     }
 
     #[tokio::test]
@@ -2171,6 +2285,7 @@ mod tests {
             historical_cfg,
             Some(global_limiter),
             None, // no overflow limiter -- isolate global RL behavior
+            None,
             None,
             &AiRouting::Primary,
             events,
@@ -2221,6 +2336,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             &AiRouting::Primary,
             events,
             &context,
@@ -2259,6 +2375,7 @@ mod tests {
             dropper,
             None,
             historical_cfg,
+            None,
             None,
             None,
             None,
@@ -2306,6 +2423,7 @@ mod tests {
             None,
             historical_cfg,
             Some(global_limiter),
+            None,
             None,
             None,
             &AiRouting::Primary,
@@ -2362,6 +2480,7 @@ mod tests {
             None,
             Some(limiter),
             None,
+            None,
             &AiRouting::Primary,
             events,
             &context,
@@ -2414,6 +2533,7 @@ mod tests {
             historical_cfg,
             None,
             Some(limiter),
+            None,
             None,
             &AiRouting::Primary,
             events,
@@ -2470,6 +2590,7 @@ mod tests {
             historical_cfg,
             None,
             Some(limiter),
+            None,
             None,
             &AiRouting::Primary,
             events,
@@ -2718,6 +2839,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             &AiRouting::Primary,
             events,
             &context,
@@ -2768,6 +2890,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             &AiRouting::Primary,
             events,
             &context,
@@ -2804,6 +2927,7 @@ mod tests {
             dropper,
             None,
             historical_cfg,
+            None,
             None,
             None,
             None,
@@ -2851,6 +2975,7 @@ mod tests {
             dropper,
             None,
             historical_cfg,
+            None,
             None,
             None,
             None,

@@ -53,6 +53,7 @@ export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     missing_event_uuid: 'Rejected a batch containing an event with no UUID',
     invalid_event_uuid: 'Rejected a batch containing an event with an invalid UUID',
     duplicate_event_uuid: 'Rejected a batch containing duplicate event UUIDs',
+    high_volume_distinct_id: 'Skipped person profile processing for a high-volume distinct ID',
 }
 
 // Explicit anchor on https://posthog.com/docs/data/ingestion-warnings for each warning type.
