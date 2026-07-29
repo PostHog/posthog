@@ -298,7 +298,9 @@ class TestAuth:
             rows = _collect(session, FakeResumeManager())
 
         assert [row["id"] for row in rows] == [1]
-        refresh.assert_called_once_with(CREDENTIALS["refresh_token"], CREDENTIALS["instance_url"])
+        # capture=False keeps the refresh request body (refresh token, shared client secret) and
+        # its minted-access-token response out of HTTP sample capture.
+        refresh.assert_called_once_with(CREDENTIALS["refresh_token"], CREDENTIALS["instance_url"], capture=False)
         assert session.get.call_args_list[1].kwargs["headers"]["Authorization"] == "Bearer refreshed"
 
     def test_repeated_401_surfaces_the_error(self) -> None:

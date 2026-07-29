@@ -69,7 +69,9 @@ def _refresh_token(refresh_token: str | None, instance_url: str | None) -> str:
     """
     if not refresh_token or not instance_url:
         raise ValueError("Reconnect the Account Engagement integration: it has no refresh token")
-    return salesforce_refresh_access_token(refresh_token, instance_url)
+    # capture=False for the same reason as the source session: the refresh request carries the
+    # refresh token and shared client secret, and its response a minted access token.
+    return salesforce_refresh_access_token(refresh_token, instance_url, capture=False)
 
 
 def _format_datetime(value: Any) -> str:
