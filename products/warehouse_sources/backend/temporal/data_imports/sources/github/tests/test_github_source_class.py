@@ -196,7 +196,22 @@ class TestGithubSource:
 
         assert schemas["workflow_runs"].supports_webhooks is True
         assert schemas["workflow_jobs"].supports_webhooks is True
-        assert all(s.should_sync_default for s in schemas.values() if s.name not in ("teams", "team_members"))
+        # The originally shipped repo-scoped tables must stay selected by default. Tables added
+        # since may legitimately default off (they need grants beyond the repo scope validated at
+        # source-create, or they fan out per commit).
+        assert all(
+            schemas[endpoint].should_sync_default
+            for endpoint in (
+                "issues",
+                "pull_requests",
+                "reviews",
+                "commits",
+                "stargazers",
+                "releases",
+                "workflow_runs",
+                "workflow_jobs",
+            )
+        )
 
     def test_reviews_schema_is_webhook_only_and_default_on(self):
         # reviews does no poll backfill (zero lookback floor), so it must be offered webhook-only;
