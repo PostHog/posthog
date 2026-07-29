@@ -18,7 +18,7 @@ import {
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { dayjs } from 'lib/dayjs'
-import { LemonMarkdownWithMermaid } from 'lib/lemon-ui/LemonMarkdown'
+import { LemonMarkdownWithMermaid } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdownWithMermaid'
 import { humanizeBytes } from 'lib/utils/numbers'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
