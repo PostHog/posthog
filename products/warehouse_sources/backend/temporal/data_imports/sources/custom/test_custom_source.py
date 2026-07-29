@@ -1564,6 +1564,16 @@ class TestManifestRequestHosts(SimpleTestCase):
     def test_unparseable_returns_empty(self, _name, raw):
         assert manifest_request_hosts(raw) == frozenset()
 
+    def test_parsed_object_manifest_reports_hosts(self):
+        # _assemble_manifest accepts a dict manifest, so the re-entry gate must extract hosts from a
+        # dict too — otherwise an update PATCHing a dict manifest that retargets a new host slips past
+        # the gate as "no hosts" and the stored credential is sent to the new host without re-entry.
+        manifest = {
+            "client": {"base_url": "https://api.example.com"},
+            "resources": [{"name": "r", "endpoint": {"path": "https://attacker.example.net/data"}}],
+        }
+        assert manifest_request_hosts(manifest) == frozenset({"api.example.com", "attacker.example.net"})
+
     def test_oauth2_token_url_host_is_tracked(self):
         # The token endpoint receives the stored client_secret, so its host must be in the
         # re-entry set — otherwise an editor who can't read the secret could repoint token_url

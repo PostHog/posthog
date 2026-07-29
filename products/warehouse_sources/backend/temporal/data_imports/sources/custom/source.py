@@ -606,13 +606,18 @@ def manifest_request_hosts(manifest_json: Any) -> frozenset[str]:
     the stored secret must not be able to redirect it to a server they control.
     Returns an empty set for anything unparseable — the caller treats "no hosts"
     as "nothing new", and a malformed manifest is rejected elsewhere.
+
+    Accepts both a JSON string and an already-parsed object — the same two shapes
+    `_assemble_manifest` takes — so a dict manifest can never slip past the gate as
+    "no hosts". Read-only: the object is inspected in place, never mutated.
     """
-    if not isinstance(manifest_json, str):
-        return frozenset()
-    try:
-        manifest = json.loads(manifest_json)
-    except json.JSONDecodeError:
-        return frozenset()
+    if isinstance(manifest_json, str):
+        try:
+            manifest = json.loads(manifest_json)
+        except json.JSONDecodeError:
+            return frozenset()
+    else:
+        manifest = manifest_json
     if not isinstance(manifest, dict):
         return frozenset()
 
