@@ -89,6 +89,8 @@ function sanitizeContentType(contentType: string | undefined, fallback: string):
 // actual send target — see `canDedupeByEmail`.
 const DEFAULT_EMAIL_TO_TEMPLATE_RE = /^\s*\{\{\s*person\.properties\.email\s*\}\}\s*$/
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 function canDedupeByEmail(hogFlow: { actions?: unknown }): boolean {
     if (!Array.isArray(hogFlow.actions)) {
         return false
@@ -846,11 +848,16 @@ export class CdpApi {
             const isPlainObject = (value: unknown): value is Record<string, any> =>
                 typeof value === 'object' && value !== null && !Array.isArray(value)
 
-            // Bound caller-supplied objects that pass through into the durably-enqueued invocation.
-            // Everything else on the event is rebuilt or bounded below; these two are the only fields
-            // taken (mostly) as-is, so cap them here rather than trusting the caller to stay small.
+            // Bound caller-supplied data that passes through into the durably-enqueued invocation.
+            // properties and variables each get a per-field cap. The whole-payload cap below exists
+            // because the rebuilt event still takes caller strings (url, elements_chain, distinct_id)
+            // verbatim, so without it an oversized string could bypass the per-field checks. It
+            // leaves headroom for both capped fields at their limit, so payloads valid under the
+            // per-field caps stay valid.
             const MAX_PASSTHROUGH_BYTES = 128_000
-            const exceedsCap = (value: unknown): boolean => JSON.stringify(value ?? {}).length > MAX_PASSTHROUGH_BYTES
+            const MAX_INVOCATION_BYTES = 3 * MAX_PASSTHROUGH_BYTES
+            const exceedsCap = (value: unknown, cap: number = MAX_PASSTHROUGH_BYTES): boolean =>
+                JSON.stringify(value ?? {}).length > cap
 
             const rawGlobals = req.body.globals
             const rawEvent = rawGlobals?.event
@@ -863,30 +870,31 @@ export class CdpApi {
             if (rawEvent.properties !== undefined && exceedsCap(rawEvent.properties)) {
                 return res.status(400).json({ error: 'event.properties is too large' })
             }
+            if (rawEvent.uuid != null && (typeof rawEvent.uuid !== 'string' || !UUID_RE.test(rawEvent.uuid))) {
+                return res.status(400).json({ error: 'event.uuid must be a valid UUID' })
+            }
+            if (
+                rawEvent.timestamp != null &&
+                (typeof rawEvent.timestamp !== 'string' || !DateTime.fromISO(rawEvent.timestamp).isValid)
+            ) {
+                return res.status(400).json({ error: 'event.timestamp must be a valid ISO 8601 timestamp' })
+            }
             // Rebuild the event server-side rather than trusting the caller's shape verbatim: this
             // payload is durably enqueued, and a malformed event (e.g. null properties) would
             // poison the shared hogflow queue and crash-loop the worker for the whole partition.
             const event: HogFunctionInvocationGlobals['event'] = {
-                uuid: typeof rawEvent.uuid === 'string' ? rawEvent.uuid : new UUIDT().toString(),
+                uuid: rawEvent.uuid ?? new UUIDT().toString(),
                 event: rawEvent.event,
                 distinct_id: typeof rawEvent.distinct_id === 'string' ? rawEvent.distinct_id : `workflow-${hogFlow.id}`,
-                timestamp: typeof rawEvent.timestamp === 'string' ? rawEvent.timestamp : DateTime.now().toISO(),
+                timestamp: rawEvent.timestamp ?? DateTime.now().toISO(),
                 url: typeof rawEvent.url === 'string' ? rawEvent.url : '',
                 properties: rawEvent.properties ?? {},
                 elements_chain: typeof rawEvent.elements_chain === 'string' ? rawEvent.elements_chain : '',
             }
 
-            const person = isPlainObject(rawGlobals?.person) ? rawGlobals.person : undefined
-            // Resolve groups server-side from the event's $groups when the caller didn't supply them,
-            // so group-property conditionals branch correctly (mirrors postHogflowInvocation).
-            let groups = isPlainObject(rawGlobals?.groups) ? rawGlobals.groups : undefined
-            if (!groups || Object.keys(groups).length === 0) {
-                groups = await this.groupsManager.getGroupsForEvent(
-                    team.id,
-                    event.properties,
-                    `${this.config.SITE_URL ?? 'http://localhost:8000'}/project/${team.id}`
-                )
-            }
+            // Caller-supplied globals.person and globals.groups are accepted but ignored: only state
+            // is persisted on the enqueued invocation, so person and groups flow solely via
+            // event.distinct_id and event.properties.$groups, which the consumer re-resolves on dequeue.
 
             const resolvedVariables = variables ?? rawGlobals?.variables ?? {}
             // `variables` can arrive top-level or nested in globals; bound whichever we resolved,
@@ -896,8 +904,6 @@ export class CdpApi {
             }
             const triggerGlobals: HogFunctionInvocationGlobals = {
                 event,
-                person,
-                groups,
                 project: {
                     id: team.id,
                     name: team.name,
@@ -906,10 +912,16 @@ export class CdpApi {
                 variables: resolvedVariables,
             }
 
+            if (exceedsCap(triggerGlobals, MAX_INVOCATION_BYTES)) {
+                return res.status(400).json({
+                    error: 'Invocation payload is too large. Reduce the size of the event or variables.',
+                })
+            }
+
             const filterGlobals = convertToHogFunctionFilterGlobal({
                 event,
-                person,
-                groups,
+                person: undefined,
+                groups: {},
                 variables: resolvedVariables,
             })
 

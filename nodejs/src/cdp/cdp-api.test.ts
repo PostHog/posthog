@@ -1348,6 +1348,100 @@ describe('CDP API', () => {
             expect(mockQueueInvocations).not.toHaveBeenCalled()
         })
 
+        // The HTTP router accepts ~20MB bodies, so any field not validated or capped here would be
+        // durably enqueued into the shared hogflow queue.
+        const bigString = (length: number): string => 'x'.repeat(length)
+
+        it.each([
+            [
+                'an oversized event',
+                { globals: { event: { event: 'x', elements_chain: bigString(700_000) } } },
+                'Invocation payload is too large. Reduce the size of the event or variables.',
+            ],
+            [
+                'oversized variables',
+                { globals: { event: { event: 'x' } }, variables: { blob: bigString(200_000) } },
+                'variables must be an object within the size limit',
+            ],
+            [
+                'an invalid event uuid',
+                { globals: { event: { event: 'x', uuid: 'not-a-uuid' } } },
+                'event.uuid must be a valid UUID',
+            ],
+            [
+                'an invalid event timestamp',
+                { globals: { event: { event: 'x', timestamp: 'not-a-timestamp' } } },
+                'event.timestamp must be a valid ISO 8601 timestamp',
+            ],
+        ])('rejects %s instead of enqueueing it', async (_desc, body, expectedError) => {
+            const hogFlow = await insertHogFlow(activeEventHogFlow())
+            const res = await supertest(app)
+                .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/manual_invocations`)
+                .set(authFor(hogFlow.team_id, hogFlow.id))
+                .send(body)
+
+            expect(res.status).toEqual(400)
+            expect(res.body.error).toEqual(expectedError)
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
+        })
+
+        it('accepts properties and variables each just under their per-field cap', async () => {
+            // Guards the cap boundary: the whole-payload check must leave headroom so payloads
+            // within the per-field limits keep working.
+            const hogFlow = await insertHogFlow(activeEventHogFlow())
+            const res = await supertest(app)
+                .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/manual_invocations`)
+                .set(authFor(hogFlow.team_id, hogFlow.id))
+                .send({
+                    globals: { event: { event: 'x', properties: { blob: bigString(127_000) } } },
+                    variables: { blob: bigString(127_000) },
+                })
+
+            expect(res.status).toEqual(200)
+            expect(res.body.status).toEqual('queued')
+            expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+        })
+
+        it('ignores caller-supplied person and groups', async () => {
+            // Only state is persisted on the enqueued invocation and the consumer re-resolves person
+            // and groups from state.event, so spoofed values must not reach the invocation.
+            const hogFlow = await insertHogFlow(activeEventHogFlow())
+            const res = await supertest(app)
+                .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/manual_invocations`)
+                .set(authFor(hogFlow.team_id, hogFlow.id))
+                .send({
+                    globals: {
+                        event: { event: 'x', distinct_id: 'user-1', properties: { $groups: { org: 'org-1' } } },
+                        person: { id: 'spoofed-person', properties: { email: 'spoofed@example.com' } },
+                        groups: { org: { id: 'spoofed-org' } },
+                    },
+                })
+
+            expect(res.status).toEqual(200)
+            const enqueued = mockQueueInvocations.mock.calls[0][0][0]
+            expect(enqueued.person).toBeUndefined()
+            expect(enqueued.groups).toBeUndefined()
+            expect(enqueued.state.event.distinct_id).toEqual('user-1')
+            expect(enqueued.state.event.properties).toEqual({ $groups: { org: 'org-1' } })
+        })
+
+        it('fails closed when the manual invocation JWT key is not provisioned', async () => {
+            const hogFlow = await insertHogFlow(activeEventHogFlow())
+            const savedJwt = api['manualInvocationJwt']
+            api['manualInvocationJwt'] = null
+            try {
+                const res = await supertest(app)
+                    .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/manual_invocations`)
+                    .set(authFor(hogFlow.team_id, hogFlow.id))
+                    .send({ globals })
+
+                expect(res.status).toEqual(503)
+                expect(mockQueueInvocations).not.toHaveBeenCalled()
+            } finally {
+                api['manualInvocationJwt'] = savedJwt
+            }
+        })
+
         it('rejects a run when the per-workflow rate limit is exhausted', async () => {
             // Manual runs must draw from the same token bucket as event-driven invocations, or the
             // route becomes a rate-limit bypass that can monopolize shared worker capacity.
