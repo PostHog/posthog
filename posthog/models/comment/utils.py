@@ -1,3 +1,4 @@
+import re
 from typing import TYPE_CHECKING, Any, Optional
 
 from django.conf import settings
@@ -40,14 +41,24 @@ SCOPE_TO_PATH_MAPPING: dict[str, str] = {
 }
 
 
-def build_comment_item_url(scope: str, item_id: Optional[str], slug: Optional[str] = None) -> str:
+# Mirrors `projectIdentifierInUrlRegex` in frontend/src/lib/utils/kea-router.ts.
+_PROJECT_PREFIXED_PATH = re.compile(r"^/project/(\d+|phc_)")
+
+
+def build_comment_item_url(scope: str, item_id: Optional[str], team_id: int, slug: Optional[str] = None) -> str:
+    path = ""
     if slug:
-        url = f"{settings.SITE_URL}{slug}"
+        path = slug
     elif scope in SCOPE_TO_PATH_MAPPING and item_id:
         path = SCOPE_TO_PATH_MAPPING[scope].format(item_id=item_id)
-        url = f"{settings.SITE_URL}{path}"
-    else:
-        url = settings.SITE_URL
+
+    # These links are followed from outside the app, where the router can't fill in the project the
+    # way it does for in-app navigation. Without the project in the path, the scene resolves the item
+    # against whichever project the recipient last had open, which is usually the wrong one.
+    if path.startswith("/") and not _PROJECT_PREFIXED_PATH.match(path):
+        path = f"/project/{team_id}{path}"
+
+    url = f"{settings.SITE_URL}{path}"
 
     if "#panel=discussion" not in url:
         url = f"{url}#panel=discussion"
@@ -99,7 +110,7 @@ def produce_discussion_mention_events(
         if not mentioned_users.exists():
             return
 
-        item_url = build_comment_item_url(comment.scope, comment.item_id, slug)
+        item_url = build_comment_item_url(comment.scope, comment.item_id, comment.team_id, slug)
         comment_content = extract_plain_text_from_rich_content(comment.rich_content) or comment.content
 
         commenter_data = {

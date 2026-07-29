@@ -4,6 +4,7 @@ from posthog.test.base import APIBaseTest, QueryMatchingTest
 from unittest import mock
 
 from django.conf import settings
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
@@ -885,27 +886,47 @@ class TestDiscussionMentionInternalEvents(APIBaseTest, QueryMatchingTest):
         assert person.id == str(self.user.id)
 
 
-class TestCommentHelperFunctions(APIBaseTest):
+class TestCommentHelperFunctions(SimpleTestCase):
     @parameterized.expand(
         [
-            ("with_slug", "Notebook", "123", "/notebook/abc", "/notebook/abc#panel=discussion"),
             (
-                "with_slug_already_has_panel",
+                "ticket_without_slug",
+                "conversations_ticket",
+                "ticket-uuid",
+                "",
+                "/project/42/support/tickets/ticket-uuid#panel=discussion",
+            ),
+            ("without_slug_notebook", "Notebook", "123", "", "/project/42/notebooks/123#panel=discussion"),
+            ("without_slug_insight", "Insight", "456", "", "/project/42/insights/456#panel=discussion"),
+            ("without_slug_dashboard", "Dashboard", "789", "", "/project/42/dashboard/789#panel=discussion"),
+            ("without_slug_replay", "Replay", "rec_123", "", "/project/42/replay/rec_123#panel=discussion"),
+            ("without_slug_feature_flag", "FeatureFlag", "10", "", "/project/42/feature_flags/10#panel=discussion"),
+            (
+                "projectless_slug",
                 "Notebook",
                 "123",
-                "/notebook/abc#panel=discussion",
-                "/notebook/abc#panel=discussion",
+                "/notebook/abc",
+                "/project/42/notebook/abc#panel=discussion",
             ),
-            ("without_slug_notebook", "Notebook", "123", "", "/notebooks/123#panel=discussion"),
-            ("without_slug_insight", "Insight", "456", "", "/insights/456#panel=discussion"),
-            ("without_slug_dashboard", "Dashboard", "789", "", "/dashboard/789#panel=discussion"),
-            ("without_slug_replay", "Replay", "rec_123", "", "/replay/rec_123#panel=discussion"),
-            ("without_slug_feature_flag", "FeatureFlag", "10", "", "/feature_flags/10#panel=discussion"),
+            (
+                "project_prefixed_slug_is_not_doubled",
+                "Notebook",
+                "123",
+                "/project/42/notebook/abc#panel=discussion",
+                "/project/42/notebook/abc#panel=discussion",
+            ),
+            (
+                "token_prefixed_slug_is_not_doubled",
+                "Insight",
+                "456",
+                "/project/phc_abc/insights/456",
+                "/project/phc_abc/insights/456#panel=discussion",
+            ),
             ("unknown_scope_fallback", "UnknownScope", "123", "", "#panel=discussion"),
         ]
     )
     def test_build_comment_item_url(self, name: str, scope: str, item_id: str, slug: str, expected_suffix: str) -> None:
-        result = build_comment_item_url(scope, item_id, slug if slug else None)
+        result = build_comment_item_url(scope, item_id, 42, slug if slug else None)
         assert result == f"{settings.SITE_URL}{expected_suffix}"
 
     @parameterized.expand(

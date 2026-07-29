@@ -1371,7 +1371,7 @@ def send_discussions_mentioned(comment_id: str, mentioned_user_ids: list[int], s
             logger.warning("Skipping discussions mentioned email: no valid recipients after filtering")
             return
 
-        href = build_comment_item_url(comment.scope, comment.item_id, slug)
+        href = build_comment_item_url(comment.scope, comment.item_id, comment.team_id, slug)
 
         campaign_key: str = f"discussions_user_mentioned_{comment.id}_updated_at_{comment.created_at.timestamp()}"
         message = EmailMessage(
