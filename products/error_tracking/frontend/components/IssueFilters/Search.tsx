@@ -4,15 +4,22 @@ import type { ChangeEvent } from 'react'
 import { IconSearch } from '@posthog/icons'
 
 import { InputGroup, InputGroupAddon, InputGroupInput } from 'lib/ui/quill'
+import { cn } from 'lib/utils/css-classes'
 
 import { issueFiltersLogic } from './issueFiltersLogic'
 
-export function IssueSearchInput({ placeholder = 'Search issues' }: { placeholder?: string }): JSX.Element {
+export function IssueSearchInput({
+    className,
+    placeholder = 'Search issues',
+}: {
+    className?: string
+    placeholder?: string
+}): JSX.Element {
     const { searchInput } = useValues(issueFiltersLogic)
     const { setSearchInput } = useActions(issueFiltersLogic)
 
     return (
-        <div className="w-64 max-w-full shrink-0">
+        <div className={cn('w-64 max-w-full shrink-0', className)}>
             <InputGroup className="h-7">
                 <InputGroupAddon>
                     <IconSearch />

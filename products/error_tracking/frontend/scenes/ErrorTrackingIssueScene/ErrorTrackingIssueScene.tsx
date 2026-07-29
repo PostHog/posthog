@@ -396,12 +396,19 @@ const ExceptionsTab = (): JSX.Element => {
         <div className="flex flex-col h-full min-h-0">
             <div className="shrink-0 px-2 py-2">
                 <ErrorFilters.Root>
-                    <div className="flex w-full flex-wrap items-center gap-1">
-                        <ErrorFilters.DateRange />
-                        <ErrorFilters.Search placeholder="Search exceptions" />
-                        <ErrorFilters.FilterGroup />
-                        <div className="ml-auto shrink-0">
-                            <ErrorFilters.InternalAccounts />
+                    <div className="flex w-full flex-col gap-1">
+                        <div className="flex w-full flex-wrap items-center gap-1">
+                            <ErrorFilters.DateRange />
+                            <div className="ml-auto shrink-0">
+                                <ErrorFilters.InternalAccounts />
+                            </div>
+                        </div>
+                        <div className="flex w-full flex-wrap items-center gap-1">
+                            <ErrorFilters.Search
+                                className="ErrorTrackingIssue__search w-auto min-w-40 flex-1 shrink"
+                                placeholder="Search exceptions"
+                            />
+                            <ErrorFilters.FilterGroup />
                         </div>
                     </div>
                 </ErrorFilters.Root>
