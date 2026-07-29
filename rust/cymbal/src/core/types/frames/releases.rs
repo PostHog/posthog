@@ -78,6 +78,26 @@ impl ReleaseRecord {
         Ok(row)
     }
 
+    pub async fn for_id<'c, E>(e: E, id: Uuid, team_id: i32) -> Result<Option<Self>, sqlx::Error>
+    where
+        E: Executor<'c, Database = sqlx::Postgres>,
+    {
+        let row = sqlx::query_as!(
+            Self,
+            r#"
+            SELECT id, team_id, hash_id, created_at, version, project, metadata
+            FROM posthog_errortrackingrelease
+            WHERE id = $1 AND team_id = $2
+            "#,
+            id,
+            team_id
+        )
+        .fetch_optional(e)
+        .await?;
+
+        Ok(row)
+    }
+
     pub fn collect_to_map<'a, I>(iter: I) -> HashMap<String, ReleaseInfo>
     where
         I: Iterator<Item = &'a Self>,

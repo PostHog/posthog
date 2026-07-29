@@ -81,6 +81,7 @@ fn remote_stage_with_resolver(
     ResolutionStage {
         symbol_resolver: resolver,
         symbol_resolution_limiter: Arc::new(Semaphore::new(4)),
+        posthog_pool: None,
         remote: Some(ctx),
     }
 }

@@ -451,6 +451,7 @@ pub fn remote_stage(ctx: RemoteResolutionContext) -> ResolutionStage {
     ResolutionStage {
         symbol_resolver: Arc::new(NoopResolver),
         symbol_resolution_limiter: Arc::new(Semaphore::new(4)),
+        posthog_pool: None,
         remote: Some(ctx),
     }
 }
@@ -459,6 +460,7 @@ pub fn local_stage() -> ResolutionStage {
     ResolutionStage {
         symbol_resolver: Arc::new(NoopResolver),
         symbol_resolution_limiter: Arc::new(Semaphore::new(4)),
+        posthog_pool: None,
         remote: None,
     }
 }

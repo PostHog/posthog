@@ -112,6 +112,7 @@ fn local_stage(resolver: Arc<dyn SymbolResolver>) -> ResolutionStage {
     ResolutionStage {
         symbol_resolver: resolver,
         symbol_resolution_limiter: Arc::new(Semaphore::new(4)),
+        posthog_pool: None,
         remote: None,
     }
 }
@@ -126,6 +127,7 @@ fn remote_stage(
         // local fallback would still produce parity-matching output.
         symbol_resolver: resolver,
         symbol_resolution_limiter: Arc::new(Semaphore::new(4)),
+        posthog_pool: None,
         remote: Some(remote),
     }
 }

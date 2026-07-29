@@ -65,6 +65,9 @@ impl CymbalResolutionService {
         ResolutionStage {
             symbol_resolver: self.symbol_resolver.clone(),
             symbol_resolution_limiter: self.symbol_resolution_limiter.clone(),
+            // The resolution server only symbolicates frames; event-level release resolution runs
+            // on the processing side, so no release pool is needed here.
+            posthog_pool: None,
             // The cymbal-resolution server never enables remote mode itself;
             // it is the server side that cymbal talks to. Local resolution is
             // the only valid path here.

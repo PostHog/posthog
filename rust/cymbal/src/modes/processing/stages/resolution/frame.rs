@@ -348,6 +348,7 @@ mod test {
                 db.clone(),
             )),
             symbol_resolution_limiter: Arc::new(Semaphore::new(4)),
+            posthog_pool: Some(db.clone()),
             remote: None,
         }
     }

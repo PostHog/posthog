@@ -160,6 +160,15 @@ struct ProcessedExceptionPropertiesWire {
         default
     )]
     releases: HashMap<String, ReleaseInfo>,
+    // The single release an event resolves to via `$release_id`. Emitted alongside the plural
+    // `$exception_releases` map when there is exactly one release, so consumers that expect one
+    // release per event can read it directly instead of unwrapping a one-entry map.
+    #[serde(
+        rename = "$exception_release",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    release: Option<ReleaseInfo>,
     #[serde(rename = "$exception_types")]
     types: Vec<String>,
     #[serde(rename = "$exception_values")]

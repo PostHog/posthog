@@ -7,7 +7,7 @@ use uuid::Uuid;
 use crate::{
     error::EventError,
     fingerprinting::{Fingerprint, FingerprintRecordPart, FingerprintVersion},
-    frames::releases::ReleaseInfo,
+    frames::releases::{ReleaseInfo, ReleaseRecord},
     issue_resolution::Issue,
     langs::native::DebugImage,
     modes::processing::normalization::normalize_wire_order,
@@ -21,11 +21,23 @@ pub const MAX_EXCEPTION_VALUE_LENGTH: usize = 10_000;
 
 pub type PipelineItem<S> = Result<ExceptionEvent<S>, EventError>;
 
+/// The one release an event resolves to, or `None` when the event has zero releases or more than
+/// one (legacy multi-frame events). Backs the singular `$exception_release` property.
+fn single_release(releases: &HashMap<String, ReleaseInfo>) -> Option<&ReleaseInfo> {
+    match releases.len() {
+        1 => releases.values().next(),
+        _ => None,
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Parsed {
     pub(crate) client_fingerprint: Option<String>,
     pub(crate) legacy_order_exception_list: Option<ExceptionList>,
     pub(crate) legacy_order_resolved: Option<ExceptionList>,
+    /// The release resolved from the event's `$release_id`, if any. Set by `EventReleaseResolver`
+    /// and folded into the `$exception_releases` map at `into_resolved`.
+    pub(crate) event_release: Option<ReleaseRecord>,
 }
 
 #[derive(Debug, Clone)]
@@ -39,14 +51,24 @@ pub struct ResolvedMetadata {
 }
 
 impl ResolvedMetadata {
-    fn from_exception_list(exception_list: &ExceptionList) -> Self {
+    fn from_exception_list(
+        exception_list: &ExceptionList,
+        event_release: Option<&ReleaseRecord>,
+    ) -> Self {
+        // The event-level release (from `$release_id`) is authoritative when present, since the
+        // experimental mechanism leaves symbol sets release-independent. Otherwise fall back to the
+        // per-frame symbol-set join that legacy uploads rely on.
+        let releases = match event_release {
+            Some(record) => ReleaseRecord::collect_to_map(std::iter::once(record)),
+            None => exception_list.get_release_map(),
+        };
         Self {
             sources: exception_list.get_unique_sources(),
             types: exception_list.get_unique_types(),
             messages: exception_list.get_unique_messages(),
             functions: exception_list.get_unique_functions(),
             handled: exception_list.get_is_handled(),
-            releases: exception_list.get_release_map(),
+            releases,
         }
     }
 }
@@ -205,8 +227,15 @@ impl ExceptionEvent<Parsed> {
         self.state.legacy_order_resolved = Some(exception_list);
     }
 
+    pub(crate) fn set_event_release(&mut self, release: Option<ReleaseRecord>) {
+        self.state.event_release = release;
+    }
+
     pub(crate) fn into_resolved(self) -> ExceptionEvent<Resolved> {
-        let metadata = ResolvedMetadata::from_exception_list(&self.exception_list);
+        let metadata = ResolvedMetadata::from_exception_list(
+            &self.exception_list,
+            self.state.event_release.as_ref(),
+        );
         self.map_state(|state| Resolved {
             metadata,
             client_fingerprint: state.client_fingerprint,
@@ -357,6 +386,12 @@ impl ExceptionEvent<Finalized> {
         );
         map.insert("$exception_handled".into(), Value::Bool(metadata.handled));
         if !metadata.releases.is_empty() {
+            if let Some(release) = single_release(&metadata.releases) {
+                map.insert(
+                    "$exception_release".into(),
+                    serde_json::to_value(release).expect("exception release is serializable"),
+                );
+            }
             map.insert(
                 "$exception_releases".into(),
                 serde_json::to_value(metadata.releases)
@@ -424,6 +459,12 @@ impl<S> ExceptionEvent<S> {
         );
         map.insert("$exception_handled".into(), Value::Bool(metadata.handled));
         if !metadata.releases.is_empty() {
+            if let Some(release) = single_release(&metadata.releases) {
+                map.insert(
+                    "$exception_release".into(),
+                    serde_json::to_value(release).expect("exception release is serializable"),
+                );
+            }
             map.insert(
                 "$exception_releases".into(),
                 serde_json::to_value(&metadata.releases)
@@ -491,6 +532,7 @@ impl<S> ExceptionEvent<S> {
             issue_id,
             other: self.props.clone(),
             handled: metadata.handled,
+            release: single_release(&metadata.releases).cloned(),
             releases: metadata.releases.clone(),
             types: metadata.types.clone(),
             values: metadata.messages.clone(),
@@ -543,6 +585,7 @@ impl TryFrom<AnyEvent> for ExceptionEvent<Parsed> {
             "$exception_values",
             "$exception_functions",
             "$exception_releases",
+            "$exception_release",
             "$exception_fingerprint_version",
             "$exception_proposed_fingerprint",
             "$exception_fingerprint_record",
@@ -569,6 +612,7 @@ impl TryFrom<AnyEvent> for ExceptionEvent<Parsed> {
                 client_fingerprint: raw.fingerprint,
                 legacy_order_exception_list,
                 legacy_order_resolved: None,
+                event_release: None,
             },
         })
     }
@@ -696,5 +740,76 @@ mod tests {
         let rate_limit = linked.rate_limit_rule_properties();
         assert_eq!(rate_limit["$exception_issue_id"], issue.id.to_string());
         assert_eq!(rate_limit["passthrough"], true);
+    }
+
+    fn release_record(hash_id: &str) -> ReleaseRecord {
+        ReleaseRecord {
+            id: Uuid::now_v7(),
+            team_id: 42,
+            hash_id: hash_id.to_string(),
+            created_at: chrono::DateTime::from_timestamp(0, 0).unwrap(),
+            version: "1.2.3".to_string(),
+            project: "my-app".to_string(),
+            metadata: None,
+        }
+    }
+
+    #[test]
+    fn event_release_is_the_release_map_source_independent_of_frames() {
+        // With the experimental mechanism symbol sets are release-independent, so the event-level
+        // release resolved from `$release_id` is the only source of `$exception_releases`, even
+        // when no frame carries a release.
+        let metadata = ResolvedMetadata::from_exception_list(
+            &ExceptionList::default(),
+            Some(&release_record("hash-abc")),
+        );
+        assert_eq!(metadata.releases.len(), 1);
+        assert!(metadata.releases.contains_key("hash-abc"));
+    }
+
+    #[test]
+    fn missing_event_release_falls_back_to_frame_release_map() {
+        // Legacy events without `$release_id` keep sourcing releases from the per-frame symbol-set
+        // join, which is empty here.
+        let metadata = ResolvedMetadata::from_exception_list(&ExceptionList::default(), None);
+        assert!(metadata.releases.is_empty());
+    }
+
+    #[test]
+    fn singular_release_emitted_only_when_exactly_one_release() {
+        let issue = Issue {
+            id: Uuid::now_v7(),
+            team_id: 42,
+            status: crate::issue_resolution::IssueStatus::Active,
+            name: None,
+            description: None,
+            created_at: chrono::Utc::now(),
+        };
+
+        // Exactly one release: the singular `$exception_release` mirrors the sole map entry, on both
+        // the manual-map projection (grouping rule props) and the derived wire form (processed props).
+        let mut resolved = resolved_event();
+        resolved.state.metadata.releases =
+            ReleaseRecord::collect_to_map(std::iter::once(&release_record("hash-abc")));
+        let grouping = resolved.grouping_rule_properties();
+        assert_eq!(
+            grouping["$exception_release"],
+            grouping["$exception_releases"]["hash-abc"]
+        );
+        let fingerprinted =
+            resolved.into_fingerprinted(SelectedFingerprint::manual("fp".to_string()));
+        let wire = serde_json::to_value(fingerprinted.processed_properties(&issue)).unwrap();
+        assert_eq!(
+            wire["$exception_release"],
+            wire["$exception_releases"]["hash-abc"]
+        );
+
+        // More than one release: "the release" is ambiguous, so the singular is omitted.
+        let mut resolved = resolved_event();
+        resolved.state.metadata.releases = ReleaseRecord::collect_to_map(
+            [release_record("hash-abc"), release_record("hash-def")].iter(),
+        );
+        let grouping = resolved.grouping_rule_properties();
+        assert!(grouping.get("$exception_release").is_none());
     }
 }
