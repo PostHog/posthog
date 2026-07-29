@@ -199,7 +199,8 @@ def _handle_log2(args: list[str]) -> str:
 #
 # NOTE: toStartOf* and dateTrunc/date_trunc are NOT here — they are handled by
 # PostgresPrinter._visit_to_start_of_call(), _visit_date_trunc_call() and inline
-# sub-hour code in visit_call(), which intercept before this dict is consulted.
+# sub-hour code in visit_call(), which intercept before this dict is consulted
+# (they need the unit constant before visit_constant parameterizes it).
 POSTGRES_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     # Type conversions
     "toDate": _make_cast_handler("DATE"),
@@ -390,6 +391,9 @@ POSTGRES_PASSTHROUGH_FUNCTIONS: frozenset[str] = frozenset(
         # Null
         "coalesce",
         "nullif",
+        # Date/time — only reached for units _render_start_of() can't expand (see
+        # PostgresPrinter._visit_date_trunc_call), e.g. Postgres's decade/century.
+        "date_trunc",
         # Other
         "md5",
     }

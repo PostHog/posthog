@@ -7178,16 +7178,28 @@ class TestPostgresPrinter(BaseTest):
 
     @parameterized.expand(
         [
-            ("unsupported_unit", "dateTrunc('fortnight', timestamp)", "Unsupported dateTrunc unit 'fortnight'"),
-            ("non_literal_unit", "dateTrunc(event, timestamp)", "only supports a literal unit"),
-            ("timezone_override", "dateTrunc('day', timestamp, 'UTC')", "timezone override"),
+            # Units Postgres has but _render_start_of() can't express keep reaching Postgres's
+            # own date_trunc, under either spelling.
+            (
+                "native_only_unit",
+                "date_trunc('milliseconds', timestamp)",
+                "date_trunc(%(hogql_val_0)s, events.timestamp)",
+            ),
+            (
+                "native_only_unit_camel_case",
+                "dateTrunc('decade', timestamp)",
+                "date_trunc(%(hogql_val_0)s, events.timestamp)",
+            ),
+            (
+                "timezone_override",
+                "dateTrunc('day', timestamp, 'UTC')",
+                "date_trunc(%(hogql_val_0)s, events.timestamp, %(hogql_val_1)s)",
+            ),
+            ("non_literal_unit", "dateTrunc(event, timestamp)", "date_trunc(events.event, events.timestamp)"),
         ]
     )
-    def test_date_trunc_rejects_unrenderable_arguments_in_postgres(self, _name: str, expr: str, message: str):
-        with self.assertRaises(QueryError) as error:
-            self._expr(expr)
-
-        self.assertIn(message, str(error.exception))
+    def test_date_trunc_falls_back_to_the_native_function_in_postgres(self, _name: str, expr: str, expected: str):
+        self.assertEqual(self._expr(expr), expected)
 
     @parameterized.expand(
         [
@@ -8106,6 +8118,12 @@ class TestMySQLPrinter(BaseTest):
         with self.assertRaisesMessage(QueryError, "is not supported in the MySQL dialect"):
             self._expr("arrayJoin([1])")
 
+    def test_mysql_date_trunc_unit_it_cannot_expand_raises(self):
+        # The other dialects fall back to their own date_trunc here; MySQL has none, so a
+        # fallback would emit SQL the server rejects at runtime instead of failing here.
+        with self.assertRaisesMessage(QueryError, "requires a literal unit"):
+            self._expr("dateTrunc('milliseconds', timestamp)")
+
     def test_mysql_percentile_raises(self):
         with self.assertRaisesMessage(QueryError, "not supported in the MySQL dialect"):
             self._expr("percentile_cont(0.5) WITHIN GROUP (ORDER BY timestamp)")
@@ -8171,6 +8189,13 @@ SNOWFLAKE_EMIT_CASES: list[tuple[str, str, str]] = [
         "toStartOfFifteenMinutes",
         "toStartOfFifteenMinutes(now())",
         "TIME_SLICE(CURRENT_TIMESTAMP(), 15, 'MINUTE')",
+    ),
+    # dateTrunc has to take the same DAYOFWEEKISO path, not Snowflake's own
+    # DATE_TRUNC('week', ...) — that one shifts with the session's WEEK_START.
+    (
+        "dateTrunc_week",
+        "dateTrunc('week', now())",
+        "DATE_TRUNC('day', DATEADD('day', 1 - DAYOFWEEKISO(CURRENT_TIMESTAMP()), CURRENT_TIMESTAMP()))",
     ),
     # Intervals / arithmetic (DATEADD; no INTERVAL multiplication)
     ("toIntervalDay", "toIntervalDay(7)", "INTERVAL '7 day'"),

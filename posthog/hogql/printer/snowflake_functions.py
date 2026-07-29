@@ -348,6 +348,9 @@ SNOWFLAKE_PASSTHROUGH_FUNCTIONS: frozenset[str] = frozenset(
         # Null
         "coalesce",
         "nullif",
+        # Date / time — only reached for units _render_start_of() can't expand (see
+        # PostgresPrinter._visit_date_trunc_call).
+        "date_trunc",
         # Other
         "md5",
     },

@@ -13,7 +13,7 @@ from posthog.hogql.printer.mysql_functions import (
     MYSQL_FUNCTION_RENAMES_LOWER,
     MYSQL_PASSTHROUGH_FUNCTIONS,
 )
-from posthog.hogql.printer.postgres import PostgresPrinter
+from posthog.hogql.printer.postgres import DATE_TRUNC_UNITS, PostgresPrinter
 
 _TIMESTAMPDIFF_UNITS = {
     "second": "SECOND",
@@ -232,6 +232,17 @@ class MySQLPrinter(PostgresPrinter):
         return f"TIMESTAMPDIFF({ts_unit}, {start}, {end})"
 
     # --- date truncation ---------------------------------------------------------------
+
+    def _visit_date_trunc_call(self, node: ast.Call) -> str | None:
+        rendered = super()._visit_date_trunc_call(node)
+        if rendered is None:
+            # The Postgres-family dialects fall back to their own date_trunc here. MySQL has
+            # none, so anything _render_start_of can't expand has nowhere left to go.
+            raise QueryError(
+                f"{node.name} requires a literal unit ({', '.join(sorted(DATE_TRUNC_UNITS))}) "
+                f"and no timezone argument in the MySQL dialect"
+            )
+        return rendered
 
     def _render_start_of(self, unit: str, arg: str, week_mode: int = 3) -> str:
         # MySQL has no date_trunc; expand each unit into native date functions.

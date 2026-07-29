@@ -1,5 +1,6 @@
 import re
 import hashlib
+import dataclasses
 from collections.abc import Callable
 from datetime import date, datetime
 from typing import ClassVar
@@ -29,9 +30,10 @@ _SAFE_FUNCTION_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 # HogQL registers dateTrunc under both spellings; visit_call matches on the lowercased name.
 _DATE_TRUNC_NAMES = frozenset({"datetrunc", "date_trunc"})
 
-# dateTrunc units that map onto a _render_start_of() unit. ClickHouse also accepts sub-second
-# units, which none of these dialects can express through the same rendering path.
-_DATE_TRUNC_UNITS = frozenset({"second", "minute", "hour", "day", "week", "month", "quarter", "year"})
+# dateTrunc units that map onto a _render_start_of() unit. Anything else (ClickHouse's
+# sub-second units, Postgres's decade/century/millennium) falls back to the dialect's own
+# date_trunc via the passthrough path.
+DATE_TRUNC_UNITS = frozenset({"second", "minute", "hour", "day", "week", "month", "quarter", "year"})
 
 
 class PostgresPrinter(BasePrinter):
@@ -150,7 +152,12 @@ class PostgresPrinter(BasePrinter):
             return self._render_minute_bucket(self.visit(node.args[0]), minute_bucket_sizes[node.name])
 
         if node.name.lower() in _DATE_TRUNC_NAMES:
-            return self._visit_date_trunc_call(node)
+            rendered = self._visit_date_trunc_call(node)
+            if rendered is not None:
+                return rendered
+            # Hand the rest to the generic path under the snake_case spelling, which is the one
+            # every Postgres-family passthrough set carries.
+            node = dataclasses.replace(node, name="date_trunc")
 
         function_renames = self._get_function_renames()
         function_handlers = self._get_function_handlers()
@@ -331,22 +338,24 @@ class PostgresPrinter(BasePrinter):
 
         return self._render_start_of("day", truncated_arg)
 
-    def _visit_date_trunc_call(self, node: ast.Call) -> str:
-        # The unit has to reach the SQL as a literal: visit_constant parameterizes string
-        # constants, and none of these dialects can infer a type for date_trunc(<param>, ...).
-        # So read it off the AST here, while it's still a Constant, and inline it validated.
-        if len(node.args) == 3:
-            raise QueryError(f"{node.name} with a timezone override is not supported {self._dialect_error_suffix()}.")
+    def _visit_date_trunc_call(self, node: ast.Call) -> str | None:
+        """Render date truncation through _render_start_of, or None if the caller should fall back.
+
+        The unit has to be a compile-time literal to go down this path, because _render_start_of
+        expands it per dialect — MySQL has no date_trunc at all, and Snowflake needs a week
+        expansion that doesn't depend on the session's WEEK_START. So read it off the AST here,
+        while it's still a Constant, rather than after visit_constant has parameterized it.
+        """
         if len(node.args) != 2:
-            raise QueryError(f"{node.name} expects exactly 2 arguments {self._dialect_error_suffix()}.")
+            return None
 
         unit_node = node.args[0]
         if not (isinstance(unit_node, ast.Constant) and isinstance(unit_node.value, str)):
-            raise QueryError(f"{node.name} only supports a literal unit {self._dialect_error_suffix()}.")
+            return None
 
         unit = unit_node.value.lower()
-        if unit not in _DATE_TRUNC_UNITS:
-            raise QueryError(f"Unsupported {node.name} unit '{unit}' {self._dialect_error_suffix()}.")
+        if unit not in DATE_TRUNC_UNITS:
+            return None
 
         return self._render_start_of(unit, self.visit(node.args[1]))
 
