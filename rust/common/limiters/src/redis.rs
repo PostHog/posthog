@@ -46,9 +46,16 @@ pub enum QuotaResource {
     FeatureFlags,
     Surveys,
     LLMEvents,
+    Logs,
+    Metrics,
+    Traces,
 }
 
 impl QuotaResource {
+    /// The resource segment of the Redis key. These strings are the wire contract with
+    /// `ee/billing/quota_limiting.py`, which writes the sorted sets this limiter reads: a
+    /// mismatch is invisible at runtime because the key simply never matches a token, so the
+    /// limiter silently stops enforcing instead of failing.
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Events => "events",
@@ -58,6 +65,11 @@ impl QuotaResource {
             Self::FeatureFlags => "feature_flag_requests",
             Self::Surveys => "survey_responses",
             Self::LLMEvents => "llm_events",
+            // OTLP signals are metered by ingested volume rather than event count, hence the
+            // `_mb_ingested` suffix rather than a bare resource name.
+            Self::Logs => "logs_mb_ingested",
+            Self::Metrics => "metrics_mb_ingested",
+            Self::Traces => "traces_mb_ingested",
         }
     }
 }
@@ -67,6 +79,7 @@ pub enum ServiceName {
     SessionReplay,
     FeatureFlags,
     Capture,
+    CaptureLogs,
     Cymbal,
 }
 
@@ -76,6 +89,7 @@ impl ServiceName {
             ServiceName::SessionReplay => "session_replay".to_string(),
             ServiceName::FeatureFlags => "feature_flags".to_string(),
             ServiceName::Capture => "capture".to_string(),
+            ServiceName::CaptureLogs => "capture_logs".to_string(),
             ServiceName::Cymbal => "cymbal".to_string(),
         }
     }

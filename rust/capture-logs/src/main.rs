@@ -3,15 +3,18 @@ use std::time::Duration;
 
 use axum::{extract::DefaultBodyLimit, http::Method, routing::get, routing::post, Router};
 use capture::metrics_middleware::track_metrics;
+use capture_logs::authorizer::Authorizer;
 use capture_logs::config::Config;
 use capture_logs::endpoints::datadog;
 use capture_logs::kafka::KafkaSink;
 use capture_logs::middleware::translate_compression_query_param;
+use capture_logs::quota::QuotaLimiter;
 use capture_logs::service::Service;
 use capture_logs::service::{
     export_logs_http, export_metrics_http, export_traces_http, options_handler,
 };
 use common_metrics::setup_metrics_routes;
+use common_redis::RedisClient;
 use std::future::ready;
 use std::net::SocketAddr;
 
@@ -65,6 +68,58 @@ pub async fn index() -> &'static str {
 "
 }
 
+/// Build the quota limiter, or `None` to leave quota enforcement to the ingestion consumer.
+///
+/// A Redis that cannot be reached at startup is not fatal. Refusing to boot would take logs
+/// ingestion down over a dependency that only decides whether over-quota traffic is rejected
+/// here or dropped later, so the service starts without enforcement and says so in the log.
+async fn build_quota_limiter(config: &Config) -> Option<Arc<QuotaLimiter>> {
+    if !config.quota_limiting_enabled {
+        info!("quota limiting disabled by config, over-quota data will be dropped downstream");
+        return None;
+    }
+
+    let Some(redis_url) = config.quota_redis_url() else {
+        info!("no quota limiting Redis configured, over-quota data will be dropped downstream");
+        return None;
+    };
+
+    let redis_client = match RedisClient::with_config(
+        redis_url.to_string(),
+        common_redis::CompressionConfig::disabled(),
+        common_redis::RedisValueFormat::default(),
+        Some(Duration::from_millis(config.redis_response_timeout_ms)),
+        Some(Duration::from_millis(config.redis_connection_timeout_ms)),
+    )
+    .await
+    {
+        Ok(client) => Arc::new(client),
+        Err(e) => {
+            error!("failed to connect to quota limiting Redis, quota will not be enforced: {e}");
+            return None;
+        }
+    };
+
+    match QuotaLimiter::new(
+        redis_client,
+        Duration::from_secs(config.quota_limiting_refresh_interval_seconds),
+        config.redis_key_prefix.clone(),
+        config.quota_limiting_retry_after_seconds,
+    ) {
+        Ok(limiter) => {
+            info!(
+                "quota limiting enabled, over-quota requests get 429 with Retry-After: {}",
+                config.quota_limiting_retry_after_seconds
+            );
+            Some(Arc::new(limiter))
+        }
+        Err(e) => {
+            error!("failed to build quota limiter, quota will not be enforced: {e}");
+            None
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() {
     setup_tracing();
@@ -116,21 +171,18 @@ async fn main() {
         .await
         .expect("could not bind management port");
 
-    let token_dropper = TokenDropper::new(&config.drop_events_by_token.unwrap_or_default());
-    let token_dropper_arc = Arc::new(token_dropper);
-    let logs_service = match Service::new(
-        kafka_sink,
-        token_dropper_arc,
-        config.max_request_body_size_bytes,
-    )
-    .await
-    {
-        Ok(service) => service,
-        Err(e) => {
-            error!("Failed to initialize log service: {}", e);
-            panic!("Could not start log capture service: {e}");
-        }
-    };
+    let token_dropper = TokenDropper::new(&config.drop_events_by_token.clone().unwrap_or_default());
+    let quota_limiter = build_quota_limiter(&config).await;
+    let authorizer = Authorizer::new(Arc::new(token_dropper), quota_limiter);
+
+    let logs_service =
+        match Service::new(kafka_sink, authorizer, config.max_request_body_size_bytes).await {
+            Ok(service) => service,
+            Err(e) => {
+                error!("Failed to initialize log service: {}", e);
+                panic!("Could not start log capture service: {e}");
+            }
+        };
     let http_bind = format!("{}:{}", config.host, config.port);
     info!("Listening on {}", http_bind);
     let http_listener = tokio::net::TcpListener::bind(http_bind)

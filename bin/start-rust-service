@@ -118,6 +118,10 @@ case "$RS_SVC" in
     export KAFKA_HOSTS=localhost:9092
     export KAFKA_TOPIC=logs_ingestion
     export KAFKA_METRICS_TOPIC=metrics_ingestion
+    # Reads the same @posthog/quota-limits/* sorted sets billing writes, so an over-quota project
+    # can be reproduced locally by adding its token to one of them.
+    export REDIS_URL="$DEFAULT_REDIS"
+    export QUOTA_LIMITING_REFRESH_INTERVAL_SECONDS=5
     ;;
 
   cymbal)

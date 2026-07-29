@@ -16,6 +16,7 @@ common-alloc = { path = "../common/alloc" }
 common-continuous-profiling = { path = "../common/continuous_profiling" }
 common-compression = { path = "../common/compression" }
 limiters = { path = "../common/limiters" }
+common-redis = { path = "../common/redis" }
 capture = { path = "../capture" }
 opentelemetry-proto = { workspace = true }
 tonic = { workspace = true }

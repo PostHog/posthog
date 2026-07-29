@@ -1,15 +1,12 @@
+use crate::authorizer::Authorizer;
+use crate::errors::ApiError;
 use crate::log_record::KafkaLogRow;
 use crate::metric_record::{flatten_metric, KafkaMetricRow};
+use crate::quota::Signal;
 use crate::trace_record::KafkaTraceRow;
-use axum::{
-    extract::Query,
-    extract::State,
-    http::{HeaderMap, StatusCode},
-    response::Json,
-};
+use axum::{extract::Query, extract::State, http::HeaderMap, response::Json};
 use bytes::Bytes;
 use common_compression::{decompress_gzip_capped, has_gzip_magic_header, CompressionError};
-use limiters::token_dropper::TokenDropper;
 use opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceRequest;
 use opentelemetry_proto::tonic::collector::metrics::v1::ExportMetricsServiceRequest;
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
@@ -18,7 +15,6 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::fs::File;
 use std::io::Write;
-use std::sync::Arc;
 
 use crate::kafka::KafkaSink;
 
@@ -303,7 +299,7 @@ pub fn parse_otel_message(json_bytes: &Bytes) -> Result<ExportLogsServiceRequest
 #[derive(Clone)]
 pub struct Service {
     pub(crate) sink: KafkaSink,
-    pub(crate) token_dropper: Arc<TokenDropper>,
+    pub(crate) authorizer: Authorizer,
     pub(crate) max_request_body_size_bytes: usize,
 }
 
@@ -315,12 +311,12 @@ pub struct QueryParams {
 impl Service {
     pub async fn new(
         kafka_sink: KafkaSink,
-        token_dropper: Arc<TokenDropper>,
+        authorizer: Authorizer,
         max_request_body_size_bytes: usize,
     ) -> Result<Self, anyhow::Error> {
         Ok(Self {
             sink: kafka_sink,
-            token_dropper,
+            authorizer,
             max_request_body_size_bytes,
         })
     }
@@ -329,7 +325,7 @@ impl Service {
 pub(crate) fn decode_body_if_gzip_magic(
     body: Bytes,
     max_request_body_size_bytes: usize,
-) -> Result<Bytes, (StatusCode, Json<serde_json::Value>)> {
+) -> Result<Bytes, ApiError> {
     if !has_gzip_magic_header(&body) {
         return Ok(body);
     }
@@ -339,16 +335,12 @@ pub(crate) fn decode_body_if_gzip_magic(
         Err(CompressionError::OutputTooLarge {
             decompressed,
             limit,
-        }) => Err((
-            StatusCode::PAYLOAD_TOO_LARGE,
-            Json(json!({
-                "error": format!("Decompressed request body exceeds limit ({decompressed} > {limit} bytes)")
-            })),
-        )),
-        Err(e) => Err((
-            StatusCode::BAD_REQUEST,
-            Json(json!({"error": format!("Failed to decompress gzip request body: {e}")})),
-        )),
+        }) => Err(ApiError::payload_too_large(format!(
+            "Decompressed request body exceeds limit ({decompressed} > {limit} bytes)"
+        ))),
+        Err(e) => Err(ApiError::bad_request(format!(
+            "Failed to decompress gzip request body: {e}"
+        ))),
     }
 }
 
@@ -372,50 +364,11 @@ pub async fn export_logs_http(
     Query(query_params): Query<QueryParams>,
     headers: HeaderMap,
     body: Bytes,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    // The project token must be passed in as a Bearer token in the Authorization header
-    if !headers.contains_key("Authorization") && query_params.token.is_none() {
-        error!("No token provided");
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"error": format!("No token provided")})),
-        ));
-    }
-
-    let token = if headers.contains_key("Authorization") {
-        match headers["Authorization"]
-            .to_str()
-            .unwrap_or("")
-            .split("Bearer ")
-            .last()
-        {
-            Some(token) if !token.is_empty() => token,
-            _ => {
-                error!("No token provided");
-                return Err((
-                    StatusCode::UNAUTHORIZED,
-                    Json(json!({"error": format!("No token provided")})),
-                ));
-            }
-        }
-    } else {
-        match query_params.token {
-            Some(ref token) if !token.is_empty() => token,
-            _ => {
-                error!("No token provided");
-                return Err((
-                    StatusCode::UNAUTHORIZED,
-                    Json(json!({"error": format!("No token provided")})),
-                ));
-            }
-        }
-    };
-    if service.token_dropper.should_drop(token, "") {
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"error": format!("Invalid token")})),
-        ));
-    }
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let token = service
+        .authorizer
+        .authorize(&headers, query_params.token.as_deref(), Signal::Logs)
+        .await?;
 
     tracing::Span::current().record("token", token);
 
@@ -441,12 +394,9 @@ pub async fn export_logs_http(
                     "Failed to decode JSON: {} or Protobuf: {}",
                     json_err, proto_err
                 );
-                return Err((
-                    StatusCode::BAD_REQUEST,
-                    Json(
-                        json!({"error": format!("Failed to decode JSON: {} or Protobuf: {}", json_err, proto_err)}),
-                    ),
-                ));
+                return Err(ApiError::bad_request(format!(
+                    "Failed to decode JSON: {json_err} or Protobuf: {proto_err}"
+                )));
             }
         },
     };
@@ -464,10 +414,7 @@ pub async fn export_logs_http(
                     Ok(result) => result,
                     Err(e) => {
                         error!("Failed to create LogRow: {e}");
-                        return Err((
-                            StatusCode::BAD_REQUEST,
-                            Json(json!({"error": format!("Bad input format provided")})),
-                        ));
+                        return Err(ApiError::bad_request("Bad input format provided"));
                     }
                 };
                 if was_overridden {
@@ -485,10 +432,7 @@ pub async fn export_logs_http(
         .await
     {
         error!("Failed to send logs to Kafka: {}", e);
-        return Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": format!("Internal server error")})),
-        ));
+        return Err(ApiError::internal("Internal server error"));
     } else {
         debug!("Successfully sent {} logs to Kafka", row_count);
     }
@@ -503,8 +447,7 @@ pub async fn export_logs_http(
 /// The actual CORS headers are handled by the CorsLayer middleware in main.rs,
 /// which provides a very permissive policy allowing all origins, methods, and headers
 /// to support various SDK versions and reverse proxy configurations.
-pub async fn options_handler(
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+pub async fn options_handler() -> Result<Json<serde_json::Value>, ApiError> {
     Ok(Json(json!({})))
 }
 
@@ -562,50 +505,11 @@ pub async fn export_traces_http(
     Query(query_params): Query<QueryParams>,
     headers: HeaderMap,
     body: Bytes,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    if !headers.contains_key("Authorization") && query_params.token.is_none() {
-        error!("No token provided");
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "No token provided"})),
-        ));
-    }
-
-    let token = if headers.contains_key("Authorization") {
-        match headers["Authorization"]
-            .to_str()
-            .unwrap_or("")
-            .split("Bearer ")
-            .last()
-        {
-            Some(token) if !token.is_empty() => token,
-            _ => {
-                error!("No token provided");
-                return Err((
-                    StatusCode::UNAUTHORIZED,
-                    Json(json!({"error": "No token provided"})),
-                ));
-            }
-        }
-    } else {
-        match query_params.token {
-            Some(ref token) if !token.is_empty() => token,
-            _ => {
-                error!("No token provided");
-                return Err((
-                    StatusCode::UNAUTHORIZED,
-                    Json(json!({"error": "No token provided"})),
-                ));
-            }
-        }
-    };
-
-    if service.token_dropper.should_drop(token, "") {
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "Invalid token"})),
-        ));
-    }
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let token = service
+        .authorizer
+        .authorize(&headers, query_params.token.as_deref(), Signal::Traces)
+        .await?;
 
     tracing::Span::current().record("token", token);
 
@@ -628,12 +532,9 @@ pub async fn export_traces_http(
                     "Failed to decode JSON: {} or Protobuf: {}",
                     json_err, proto_err
                 );
-                return Err((
-                    StatusCode::BAD_REQUEST,
-                    Json(
-                        json!({"error": format!("Failed to decode JSON: {} or Protobuf: {}", json_err, proto_err)}),
-                    ),
-                ));
+                return Err(ApiError::bad_request(format!(
+                    "Failed to decode JSON: {json_err} or Protobuf: {proto_err}"
+                )));
             }
         },
     };
@@ -651,10 +552,7 @@ pub async fn export_traces_http(
                     Ok(result) => result,
                     Err(e) => {
                         error!("Failed to create TraceRow: {e}");
-                        return Err((
-                            StatusCode::BAD_REQUEST,
-                            Json(json!({"error": "Bad input format provided"})),
-                        ));
+                        return Err(ApiError::bad_request("Bad input format provided"));
                     }
                 };
                 if was_overridden {
@@ -672,10 +570,7 @@ pub async fn export_traces_http(
         .await
     {
         error!("Failed to send traces to Kafka: {}", e);
-        return Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Internal server error"})),
-        ));
+        return Err(ApiError::internal("Internal server error"));
     } else {
         debug!("Successfully sent {} traces to Kafka", row_count);
     }
@@ -739,50 +634,11 @@ pub async fn export_metrics_http(
     Query(query_params): Query<QueryParams>,
     headers: HeaderMap,
     body: Bytes,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    if !headers.contains_key("Authorization") && query_params.token.is_none() {
-        error!("No token provided");
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "No token provided"})),
-        ));
-    }
-
-    let token = if headers.contains_key("Authorization") {
-        match headers["Authorization"]
-            .to_str()
-            .unwrap_or("")
-            .split("Bearer ")
-            .last()
-        {
-            Some(token) if !token.is_empty() => token,
-            _ => {
-                error!("No token provided");
-                return Err((
-                    StatusCode::UNAUTHORIZED,
-                    Json(json!({"error": "No token provided"})),
-                ));
-            }
-        }
-    } else {
-        match query_params.token {
-            Some(ref token) if !token.is_empty() => token,
-            _ => {
-                error!("No token provided");
-                return Err((
-                    StatusCode::UNAUTHORIZED,
-                    Json(json!({"error": "No token provided"})),
-                ));
-            }
-        }
-    };
-
-    if service.token_dropper.should_drop(token, "") {
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "Invalid token"})),
-        ));
-    }
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let token = service
+        .authorizer
+        .authorize(&headers, query_params.token.as_deref(), Signal::Metrics)
+        .await?;
 
     tracing::Span::current().record("token", token);
 
@@ -805,12 +661,9 @@ pub async fn export_metrics_http(
                     "Failed to decode JSON: {} or Protobuf: {}",
                     json_err, proto_err
                 );
-                return Err((
-                    StatusCode::BAD_REQUEST,
-                    Json(
-                        json!({"error": format!("Failed to decode JSON: {} or Protobuf: {}", json_err, proto_err)}),
-                    ),
-                ));
+                return Err(ApiError::bad_request(format!(
+                    "Failed to decode JSON: {json_err} or Protobuf: {proto_err}"
+                )));
             }
         },
     };
@@ -829,10 +682,7 @@ pub async fn export_metrics_http(
                     Ok(result) => result,
                     Err(e) => {
                         error!("Failed to flatten metric: {e}");
-                        return Err((
-                            StatusCode::BAD_REQUEST,
-                            Json(json!({"error": "Bad input format provided"})),
-                        ));
+                        return Err(ApiError::bad_request("Bad input format provided"));
                     }
                 };
                 timestamps_overridden += overridden;
@@ -848,10 +698,7 @@ pub async fn export_metrics_http(
         .await
     {
         error!("Failed to send metrics to Kafka: {}", e);
-        return Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Internal server error"})),
-        ));
+        return Err(ApiError::internal("Internal server error"));
     } else {
         debug!(
             "Successfully sent {} metric data points to Kafka",
@@ -865,6 +712,7 @@ pub async fn export_metrics_http(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::http::StatusCode;
     use flate2::{write::GzEncoder, Compression};
 
     fn gzip(data: &[u8]) -> Bytes {
@@ -897,6 +745,6 @@ mod tests {
 
         let err = decode_body_if_gzip_magic(body, 1024).unwrap_err();
 
-        assert_eq!(err.0, StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(err.status(), StatusCode::PAYLOAD_TOO_LARGE);
     }
 }

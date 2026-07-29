@@ -2248,6 +2248,7 @@ dependencies = [
  "common-compression",
  "common-continuous-profiling",
  "common-metrics",
+ "common-redis",
  "envconfig",
  "flate2",
  "health",

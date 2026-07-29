@@ -1,9 +1,11 @@
+use crate::errors::ApiError;
 use crate::log_record::{override_timestamp, KafkaLogRow};
+use crate::quota::Signal;
 use crate::service::{decode_body_if_gzip_magic, Service};
 use axum::{
     extract::State,
     extract::{Path, Query},
-    http::{HeaderMap, StatusCode},
+    http::HeaderMap,
     response::Json,
 };
 use base64::{engine::general_purpose::STANDARD as base64_standard, Engine};
@@ -296,7 +298,7 @@ pub async fn export_datadog_logs_http(
     Query(query_params): Query<DatadogQueryParams>,
     headers: HeaderMap,
     body: Bytes,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+) -> Result<Json<serde_json::Value>, ApiError> {
     // Try to get token from: path, Authorization header, or query param
     let token = match path_token {
         Some(Path(t)) if !t.is_empty() => t,
@@ -306,21 +308,17 @@ pub async fn export_datadog_logs_http(
                 Some(t) if !t.is_empty() => t.to_string(),
                 _ => {
                     error!("No token provided");
-                    return Err((
-                        StatusCode::UNAUTHORIZED,
-                        Json(json!({"error": "No token provided"})),
-                    ));
+                    return Err(ApiError::unauthorized("No token provided"));
                 }
             },
         },
     };
 
-    if service.token_dropper.should_drop(&token, "") {
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "Invalid token"})),
-        ));
-    }
+    // Datadog agents ship logs, so this shares the logs quota bucket.
+    service
+        .authorizer
+        .authorize_token(&token, Signal::Logs)
+        .await?;
 
     tracing::Span::current().record("token", &token);
 
@@ -332,10 +330,9 @@ pub async fn export_datadog_logs_http(
             Ok(log) => vec![log],
             Err(e) => {
                 error!("Failed to parse Datadog logs: {}", e);
-                return Err((
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({"error": format!("Failed to parse Datadog logs: {}", e)})),
-                ));
+                return Err(ApiError::bad_request(format!(
+                    "Failed to parse Datadog logs: {e}"
+                )));
             }
         },
     };
@@ -354,10 +351,7 @@ pub async fn export_datadog_logs_http(
         .await
     {
         error!("Failed to send logs to Kafka: {}", e);
-        return Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Internal server error"})),
-        ));
+        return Err(ApiError::internal("Internal server error"));
     } else {
         debug!("Successfully sent {} Datadog logs to Kafka", row_count);
     }

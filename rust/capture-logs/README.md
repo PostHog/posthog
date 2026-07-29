@@ -18,9 +18,14 @@ The service is configured using environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| HOST | 0.0.0.0 | Host to bind the HTTP server |
-| PORT | 8000 | Port for the HTTP server |
-| JWT_SECRET | posthog_default_jwt_secret | Secret key for JWT validation |
+| BIND_HOST | :: | Host to bind the HTTP server |
+| BIND_PORT | 4318 | Port for the HTTP server |
+| MAX_REQUEST_BODY_SIZE_BYTES | 2097152 | Rejects larger request bodies, before and after gzip decompression |
+| QUOTA_LIMITING_REDIS_URL | (falls back to `REDIS_URL`) | Redis holding the billing quota-limit sorted sets. Unset on both means quota is not enforced here |
+| QUOTA_LIMITING_ENABLED | true | Killswitch for the capture-side quota rejection |
+| QUOTA_LIMITING_REFRESH_INTERVAL_SECONDS | 30 | How often the quota-limited token snapshot is refreshed from Redis |
+| QUOTA_LIMITING_RETRY_AFTER_SECONDS | 900 | Value advertised in `Retry-After` on a 429 |
+| REDIS_KEY_PREFIX | (none) | Prefix for the quota-limit Redis keys |
 
 ## Authentication
 
@@ -39,6 +44,27 @@ POST /v1/logs?token=your-project-token
 ```
 
 The token is your PostHog project token.
+
+## Response codes
+
+The status codes are chosen so that an OTLP client's built-in retry logic does the right thing without any PostHog-specific handling.
+Per the [OTLP spec](https://opentelemetry.io/docs/specs/otlp/#failures-1), only 429, 502, 503 and 504 are retryable, and a client honours `Retry-After` on a retryable response.
+
+| Status | Meaning | Client behavior |
+|--------|---------|-----------------|
+| 200 | Accepted | — |
+| 401 | No token, or a token that cannot be a project API key (for example a `phx_` personal API key) | Permanent, so the client stops and surfaces the misconfiguration |
+| 400 | Body could not be decoded as OTLP protobuf or JSON | Permanent |
+| 413 | Body over `MAX_REQUEST_BODY_SIZE_BYTES` | Permanent |
+| 429 | The project is over its billing quota for this signal, sent with `Retry-After` | Retryable, so the client backs off and resends later |
+
+Logs, metrics and traces have separate quotas, so a project over its logs quota keeps ingesting metrics and traces.
+
+`Retry-After` is a bounded poll interval rather than the moment the quota actually resets.
+A billing limit runs to the end of the billing period, which can be weeks away, but it is also lifted as soon as a customer raises their limit, so advertising the true expiry would keep a recovered project dark for the rest of the period.
+
+One misconfiguration is still answered 200: a well-formed token that belongs to no project.
+Resolving a token to a team needs Postgres, which this service does not have, so those records are still dropped by the ingestion consumer.
 
 ## Running the Service
 
