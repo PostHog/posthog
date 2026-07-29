@@ -9,7 +9,7 @@ import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 import { promiseRetry } from '~/common/utils/retries'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
-import { Properties } from '~/plugin-scaffold'
+import { PluginEvent, Properties } from '~/plugin-scaffold'
 import { InternalPerson } from '~/types'
 
 import { PersonContext } from './person-context'
@@ -457,6 +457,13 @@ export class PersonMergeService {
         return total
     }
 
+    /** One folded event's $set/$set_once applied to the accumulating merge properties. */
+    private applyEventProperties(event: PluginEvent, target: InternalPerson, properties: Properties): Properties {
+        const propertyUpdates = computeEventPropertyUpdates(event, properties, this.context.updateAllProperties)
+        const [updated] = applyEventPropertyUpdates(propertyUpdates, { ...target, properties })
+        return updated.properties
+    }
+
     private async executeFoldedMerge(plan: MergeFoldPlan, currentAnonDistinctId: string): Promise<PersonMergeResult> {
         const teamId = this.context.team.id
         this.context.updateIsIdentified = true
@@ -553,26 +560,24 @@ export class PersonMergeService {
         // properties but not their event's — those events apply their own
         // updates when they short-circuit against the executed plan, so this
         // event's snapshot never carries a later event's $set.
+        const foldTarget = target
+        // -1 when the bootstrap above consumed the current event's pair. Its
+        // event still has to settle before the remaining sources union in: the
+        // bootstrap's one-person-exists branch only attaches the distinct id and
+        // leaves the properties to the update that follows the merge.
         const currentPairIndex = pairsToFold.findIndex((pair) => pair.anonDistinctId === currentAnonDistinctId)
-        let mergedProperties: Properties = target.properties
+        let mergedProperties: Properties = foldTarget.properties
+        if (currentPairIndex === -1) {
+            mergedProperties = this.applyEventProperties(this.context.event, foldTarget, mergedProperties)
+        }
         pairsToFold.forEach((pair, index) => {
             const source = mergeSourceByAnonDistinctId.get(pair.anonDistinctId)
             if (source) {
                 mergedProperties = { ...source.properties, ...mergedProperties }
             }
-            if (index > currentPairIndex) {
-                return
+            if (index <= currentPairIndex) {
+                mergedProperties = this.applyEventProperties(pair.event, foldTarget, mergedProperties)
             }
-            const propertyUpdates = computeEventPropertyUpdates(
-                pair.event,
-                mergedProperties,
-                this.context.updateAllProperties
-            )
-            const [withEventProperties] = applyEventPropertyUpdates(propertyUpdates, {
-                ...target,
-                properties: mergedProperties,
-            })
-            mergedProperties = withEventProperties.properties
         })
 
         const createdAt = DateTime.min(target.created_at, ...mergeSources.map((source) => source.created_at))
