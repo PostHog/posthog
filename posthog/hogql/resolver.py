@@ -940,11 +940,19 @@ class Resolver(CloningVisitor):
                 # materialized/alias columns that a HogQL-expanded list would break on (CH error 47).
                 # Restricted to the root select (is_direct_query is only set in the direct render
                 # pass) so nested/CTE stars still expand and remain readable by enclosing queries.
+                # Gated on has_complete_columns: a column-picker restriction makes the table's fields
+                # a subset, so the star must expand from them — letting the server expand against the
+                # unrestricted physical table would leak the columns the restriction hides.
+                asterisk_direct_table = (
+                    new_expr.type.table_type.resolve_database_table(self.context)
+                    if isinstance(new_expr.type.table_type, ast.BaseTableType)
+                    else None
+                )
                 if (
                     self.context.is_direct_query
                     and is_root_select
-                    and isinstance(new_expr.type.table_type, ast.BaseTableType)
-                    and isinstance(new_expr.type.table_type.resolve_database_table(self.context), DirectClickHouseTable)
+                    and isinstance(asterisk_direct_table, DirectClickHouseTable)
+                    and asterisk_direct_table.has_complete_columns
                 ):
                     select_nodes.append(new_expr)
                     continue

@@ -4,7 +4,7 @@ from posthog.test.base import APIBaseTest
 
 from posthog.hogql.query import HogQLQueryExecutor
 
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 
 # Storage keys / URL pattern for direct-ClickHouse tables, duplicated as literals to respect the
 # products.data_warehouse module boundary (the canonical constants live in
@@ -33,8 +33,14 @@ class TestDirectClickHouseQuery(APIBaseTest):
             },
         )
 
-    def _create_table(self, source: ExternalDataSource, *, options: dict | None = None) -> DataWarehouseTable:
-        return DataWarehouseTable.objects.create(
+    def _create_table(
+        self,
+        source: ExternalDataSource,
+        *,
+        options: dict | None = None,
+        enabled_columns: list[str] | None = None,
+    ) -> DataWarehouseTable:
+        table = DataWarehouseTable.objects.create(
             name="events",
             format="Parquet",
             team=self.team,
@@ -48,6 +54,12 @@ class TestDirectClickHouseQuery(APIBaseTest):
             },
             options=options or {},
         )
+        # The schema carries the column-picker restriction (enabled_columns); None means "all
+        # columns", which is what gates the literal-star passthrough.
+        ExternalDataSchema.objects.create(
+            name="events", team=self.team, source=source, table=table, enabled_columns=enabled_columns
+        )
+        return table
 
     def _from_database(self, source: ExternalDataSource) -> str:
         executor = HogQLQueryExecutor(query="SELECT * FROM events", team=self.team, connection_id=str(source.id))
@@ -74,6 +86,17 @@ class TestDirectClickHouseQuery(APIBaseTest):
         self.assertIn("SELECT *", sql)
         self.assertNotIn("events.id AS id", sql)
         self.assertNotIn("events.team_id AS team_id", sql)
+
+    def test_select_star_expands_when_columns_are_restricted(self):
+        # Security: with a column-picker restriction (enabled_columns) the table's fields are a
+        # subset, so SELECT * must expand from them — a literal star would let the server expand
+        # against the unrestricted physical table and leak the hidden columns.
+        source = self._create_source(database="posthog")
+        self._create_table(source, enabled_columns=["id"])
+
+        sql = self._from_database(source)
+        self.assertNotIn("SELECT *", sql)
+        self.assertIn("events.id AS id", sql)
 
     def test_explicit_columns_still_expand_for_direct_connection(self):
         # Only the star is kept literal — explicit column selection is unaffected.

@@ -916,7 +916,12 @@ class Database(BaseModel):
             .order_by("external_data_source__prefix", "external_data_source__source_type", "name", "created_at")
         )
         if self._is_direct_query():
-            warehouse_tables_query = warehouse_tables_query.filter(external_data_source_id=self._connection_id)
+            # Prefetch the schema rows so a direct table can tell whether its columns are complete
+            # (no column-picker restriction) without a per-table query — this gates the direct
+            # `SELECT *` literal-star passthrough. Direct-query only, to keep it off the hot path.
+            warehouse_tables_query = warehouse_tables_query.filter(
+                external_data_source_id=self._connection_id
+            ).prefetch_related("externaldataschema_set")
         elif warehouse_table_names:
             warehouse_tables_query = warehouse_tables_query.filter(name__in=warehouse_table_names)
         else:
