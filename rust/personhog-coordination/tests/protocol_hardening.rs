@@ -1913,6 +1913,167 @@ async fn the_reconcile_pass_reasserts_freeze_acks() {
     cancel.cancel();
 }
 
+/// A handoff handler whose `warm_partition` fails while the flag is
+/// set — the injection point for pod attempt failures that do not
+/// involve the lease.
+struct FlakyHandoffHandler {
+    events: Arc<Mutex<Vec<HandoffEvent>>>,
+    fail_warm: Arc<std::sync::atomic::AtomicBool>,
+}
+
+#[async_trait]
+impl personhog_coordination::pod::HandoffHandler for FlakyHandoffHandler {
+    async fn drain_partition_inflight(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Drained(partition));
+        Ok(())
+    }
+
+    async fn warm_partition(&self, partition: u32) -> Result<()> {
+        if self.fail_warm.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(personhog_coordination::error::Error::invalid_state(
+                "injected warm failure".to_string(),
+            ));
+        }
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Warmed(partition));
+        Ok(())
+    }
+
+    async fn release_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Released(partition));
+        Ok(())
+    }
+
+    async fn resume_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Resumed(partition));
+        Ok(())
+    }
+}
+
+/// A pod attempt failure that does not involve the lease must retry with
+/// the registration preserved and the held partitions untouched: the
+/// coordinator keeps seeing a live pod (no dead-owner reassignment can
+/// start against a process that is still serving), no partition is
+/// released, and — the cache-preservation proof — nothing is re-warmed
+/// on recovery. This pins the deregistered-but-serving hole closed: an
+/// earlier design revoked the lease on every failed attempt, handing
+/// the coordinator a dead owner while the process kept accepting
+/// writes.
+#[tokio::test]
+async fn a_pod_attempt_failure_preserves_registration_and_partitions() {
+    let store = test_store("pod-attempt-preserves").await;
+    let cancel = CancellationToken::new();
+
+    let events: Arc<Mutex<Vec<HandoffEvent>>> = Arc::new(Mutex::new(Vec::new()));
+    let fail_warm = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let handler = FlakyHandoffHandler {
+        events: Arc::clone(&events),
+        fail_warm: Arc::clone(&fail_warm),
+    };
+    let pod = personhog_coordination::pod::PodHandle::new(
+        Arc::clone(&store),
+        personhog_coordination::pod::PodConfig {
+            pod_name: "flaky-pod-0".to_string(),
+            lease_ttl: 10,
+            heartbeat_interval: Duration::from_secs(3),
+            reconcile_interval: Duration::from_secs(86_400),
+            run_retry_backoff: Duration::from_millis(100),
+            ..Default::default()
+        },
+        Arc::new(handler),
+        None,
+    );
+    let token = cancel.child_token();
+    tokio::spawn(async move { pod.run(token).await });
+
+    let registered = |store: Arc<PersonhogStore>| async move {
+        store
+            .list_pods()
+            .await
+            .map(|pods| pods.iter().any(|p| p.pod_name == "flaky-pod-0"))
+            .unwrap_or(false)
+    };
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        registered(Arc::clone(&store))
+    })
+    .await;
+
+    // The pod acquires partition 0 healthily.
+    put_handoff(&store, 0, None, "flaky-pod-0", HandoffPhase::Warming).await;
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let events = Arc::clone(&events);
+        async move {
+            events
+                .lock()
+                .await
+                .iter()
+                .any(|e| matches!(e, HandoffEvent::Warmed(0)))
+        }
+    })
+    .await;
+
+    // Break warming, then hand the pod a second partition: the event
+    // kills the attempt, and re-attempts keep failing at convergence
+    // while the flag holds.
+    fail_warm.store(true, std::sync::atomic::Ordering::SeqCst);
+    put_handoff(&store, 1, None, "flaky-pod-0", HandoffPhase::Warming).await;
+
+    // Let several failed attempts elapse (100ms backoff base), then
+    // assert the invariants of the failure window: still registered
+    // (the session was never given up), partition 0 never released.
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    assert!(
+        registered(Arc::clone(&store)).await,
+        "attempt failures must not cost the pod its registration"
+    );
+    assert!(
+        !events
+            .lock()
+            .await
+            .iter()
+            .any(|e| matches!(e, HandoffEvent::Released(_))),
+        "attempt failures must not release held partitions"
+    );
+
+    // Recovery: partition 1 warms; partition 0 was never re-warmed —
+    // its cache and warm state survived every failed attempt.
+    fail_warm.store(false, std::sync::atomic::Ordering::SeqCst);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let events = Arc::clone(&events);
+        async move {
+            events
+                .lock()
+                .await
+                .iter()
+                .any(|e| matches!(e, HandoffEvent::Warmed(1)))
+        }
+    })
+    .await;
+    let warmed_zero = events
+        .lock()
+        .await
+        .iter()
+        .filter(|e| matches!(e, HandoffEvent::Warmed(0)))
+        .count();
+    assert_eq!(
+        warmed_zero, 1,
+        "the held partition must never re-warm across failed attempts"
+    );
+
+    cancel.cancel();
+}
+
 /// A cutover handler whose `begin_stash` fails while the flag is set —
 /// the injection point for reconcile-pass failures, since the pass calls
 /// it for every non-terminal handoff before writing the freeze ack.

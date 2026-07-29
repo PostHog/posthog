@@ -263,202 +263,255 @@ impl PodHandle {
         }
     }
 
-    /// Run the pod's coordination, supervising attempts across etcd
-    /// failures. A failed attempt no longer kills the process — the
-    /// data plane keeps serving (and keeps its cache) while coordination
-    /// rebuilds in place through the same startup convergence that
-    /// recovers a restarted pod. Serving while disconnected is safe for
-    /// the same reason as on the router: ownership cannot move while
-    /// etcd is unreachable, and this pod's own admission checks reject
-    /// partitions it does not hold.
+    /// Run the pod's coordination, supervised at two levels so a
+    /// failure costs exactly the authority it invalidates and nothing
+    /// more. The **session** level owns the lease: grant, register,
+    /// heartbeat. The **attempt** level (`run_once`) owns only
+    /// convergence and the handoff watch.
     ///
-    /// The one hard rule survives intact: **lease loss still
-    /// self-fences** — every held partition is released locally before
-    /// any retry, because the coordinator already treats an expired
-    /// lease as death and may be reassigning. The retry then rejoins as
-    /// a fresh participant and re-acquires ownership through the normal
-    /// warm path. If that local fence itself fails, in-place retry is
-    /// refused and the error propagates so the process restart clears
-    /// everything.
+    /// An attempt failure — a broken watch stream, a failed etcd write,
+    /// a phase-handler error — retries in place with the lease and
+    /// registration intact: the coordinator keeps seeing a live pod, so
+    /// it never runs the dead-owner path against a process that is
+    /// still serving, and the data plane keeps its cache. That is the
+    /// invariant this split enforces: serving authority is held exactly
+    /// as long as the lease-backed registration the coordinator's view
+    /// derives from. A handoff that tries to move a partition away
+    /// while the watch is down stalls awaiting this pod's ack and
+    /// resolves through the phase-deadline replacement machinery.
+    ///
+    /// Only lease loss ends a session, and it still self-fences — now
+    /// locally: every held partition is released before a new session
+    /// registers afresh, because the coordinator treats the expired
+    /// lease as death and may already be reassigning. Re-acquisition
+    /// always re-warms. A failed local fence poisons recovery and the
+    /// error propagates so a process restart clears everything.
+    ///
+    /// The registration asymmetry with the router is deliberate: a pod
+    /// holds data authority, so its registration must survive attempt
+    /// failures; a router holds freeze-quorum membership, so it sheds
+    /// its registration fast — a registered but non-acking router would
+    /// stall every freeze quorum until the phase deadline.
     pub async fn run(&self, cancel: CancellationToken) -> Result<()> {
-        const HEALTHY_ATTEMPT: Duration = Duration::from_secs(60);
-        const BACKOFF_CAP: Duration = Duration::from_secs(15);
-
         let mut consecutive_failures: u32 = 0;
         loop {
-            let attempt_started = Instant::now();
-            let result = self.run_once(cancel.clone()).await;
-            if cancel.is_cancelled() {
-                return result;
-            }
-            let err = match result {
-                Ok(()) => return Ok(()),
-                Err(e) => e,
+            let session_started = Instant::now();
+            let lease_id = match self.begin_session().await {
+                Ok(lease_id) => lease_id,
+                Err(e) => {
+                    if cancel.is_cancelled() {
+                        return Ok(());
+                    }
+                    if !self.note_run_failure(&mut consecutive_failures, session_started, &e) {
+                        return Err(e);
+                    }
+                    if self.run_backoff(&cancel, consecutive_failures).await {
+                        return Ok(());
+                    }
+                    continue;
+                }
             };
-            if self
-                .fence_poisoned
-                .load(std::sync::atomic::Ordering::SeqCst)
-            {
-                // The local self-fence failed: serving state may not
-                // reflect lost ownership, so an in-place retry is not
-                // safe. Only a full process restart clears it.
-                return Err(err);
+
+            // The heartbeat is session-scoped and outlives attempts: were
+            // it attempt-scoped, a failed attempt would let the lease
+            // lapse and reopen the deregistered-but-serving hole the
+            // session split exists to close. It keeps running through the
+            // drain phase too, so the coordinator sees a Draining pod
+            // rather than a crashed one.
+            let heartbeat_cancel = CancellationToken::new();
+            let mut heartbeat_handle = {
+                let store = Arc::clone(&self.store);
+                let interval = self.config.heartbeat_interval;
+                let token = heartbeat_cancel.child_token();
+                tokio::spawn(async move {
+                    util::run_lease_keepalive(store, lease_id, interval, token).await
+                })
+            };
+
+            let mut lease_err: Option<Error> = None;
+            let mut fatal: Option<Error> = None;
+            // Attempts under this lease. The outer `select!` is what
+            // guarantees prompt exit even when the watch loop is parked
+            // inside a phase handler: the loop's own cancel check only
+            // runs between iterations, so racing the token here drops the
+            // in-flight future via cancel-by-drop, unwinding a stuck
+            // handler. The heartbeat is raced for the same reason — a pod
+            // that outlives its lease is a zombie, and lease loss must
+            // end the session immediately.
+            loop {
+                let attempt_started = Instant::now();
+                let result = tokio::select! {
+                    r = self.run_once(cancel.clone()) => r,
+                    r = &mut heartbeat_handle => {
+                        let err = match r {
+                            Ok(Ok(())) => Error::invalid_state(
+                                "lease keepalive exited unexpectedly".to_string(),
+                            ),
+                            Ok(Err(e)) => e,
+                            Err(join_err) => Error::invalid_state(format!(
+                                "keepalive task panicked: {join_err}"
+                            )),
+                        };
+                        tracing::error!(
+                            pod = %self.config.pod_name,
+                            error = %err,
+                            "lease keepalive failed; self-fencing"
+                        );
+                        lease_err = Some(err);
+                        break;
+                    }
+                    _ = cancel.cancelled() => Ok(()),
+                };
+                if cancel.is_cancelled() {
+                    break;
+                }
+                let err = match result {
+                    Ok(()) => break,
+                    Err(e) => e,
+                };
+                if !self.note_run_failure(&mut consecutive_failures, attempt_started, &err) {
+                    fatal = Some(err);
+                    break;
+                }
+                if self.run_backoff(&cancel, consecutive_failures).await {
+                    break;
+                }
+                // Next attempt runs under the same lease: the
+                // registration was never given up, so the coordinator's
+                // view of this pod is unbroken.
+            }
+            let lease_lost = lease_err.is_some();
+
+            // Graceful drain only on external shutdown with a live
+            // lease. Skipped on lease loss: the coordinator already
+            // considers this pod dead and is reassigning via the
+            // dead-owner path — a graceful drain would only race it, and
+            // every status write would fail against the expired lease.
+            if cancel.is_cancelled() && !lease_lost {
+                if let Err(e) = self.drain(lease_id).await {
+                    tracing::warn!(pod = %self.config.pod_name, error = %e, "drain failed");
+                }
             }
 
-            if attempt_started.elapsed() >= HEALTHY_ATTEMPT {
-                consecutive_failures = 1;
+            if !lease_lost {
+                // The heartbeat is still running; on lease loss it has
+                // already exited and its handle was consumed by the race.
+                heartbeat_cancel.cancel();
+                drop(heartbeat_handle.await);
+                drop(self.store.revoke_lease(lease_id).await);
             } else {
-                consecutive_failures += 1;
-            }
-            counter!(
-                "personhog_coordination_run_restarts_total",
-                "component" => "pod"
-            )
-            .increment(1);
-            tracing::warn!(
-                pod = %self.config.pod_name,
-                error = %err,
-                consecutive = consecutive_failures,
-                budget = self.config.run_retry_budget,
-                "pod coordination failed; rebuilding in place while the data \
-                 plane keeps serving"
-            );
-            if consecutive_failures >= self.config.run_retry_budget {
-                return Err(err);
+                // Self-fence locally before any new session: every held
+                // partition is released, dropping its cache and serving
+                // authority. Re-acquisition always re-warms, so nothing
+                // is lost but memory. A failed release poisons recovery.
+                if let Err(e) = self.self_fence_locally().await {
+                    self.fence_poisoned
+                        .store(true, std::sync::atomic::Ordering::SeqCst);
+                    tracing::error!(
+                        pod = %self.config.pod_name,
+                        error = %e,
+                        "local self-fence failed; refusing in-place recovery"
+                    );
+                }
             }
 
-            let backoff = self
-                .config
-                .run_retry_backoff
-                .saturating_mul(2u32.saturating_pow(consecutive_failures.saturating_sub(1)))
-                .min(BACKOFF_CAP);
-            tokio::select! {
-                _ = cancel.cancelled() => return Ok(()),
-                _ = tokio::time::sleep(backoff) => {}
+            if let Some(e) = fatal {
+                return Err(e);
+            }
+            if cancel.is_cancelled() {
+                return Ok(());
+            }
+            match lease_err {
+                Some(e) => {
+                    if self
+                        .fence_poisoned
+                        .load(std::sync::atomic::Ordering::SeqCst)
+                    {
+                        // Serving state may not reflect the lost
+                        // ownership; only a process restart clears it.
+                        return Err(e);
+                    }
+                    if !self.note_run_failure(&mut consecutive_failures, session_started, &e) {
+                        return Err(e);
+                    }
+                    if self.run_backoff(&cancel, consecutive_failures).await {
+                        return Ok(());
+                    }
+                    // New session: fresh lease, fresh registration,
+                    // ownership re-acquired through the warm path.
+                }
+                None => return Ok(()),
             }
         }
     }
 
-    /// One coordination attempt: register, converge, watch, and tear
-    /// down on every exit path. On lease loss the attempt self-fences
-    /// locally (releasing every held partition) before returning, so the
-    /// supervisor can rejoin as a fresh participant.
-    async fn run_once(&self, cancel: CancellationToken) -> Result<()> {
+    /// Grant a fresh lease and register under it — the start of a
+    /// coordination session.
+    async fn begin_session(&self) -> Result<i64> {
         let lease_id = self.store.grant_lease(self.config.lease_ttl).await?;
         self.register(lease_id).await?;
-
         tracing::info!(pod = %self.config.pod_name, "registered with etcd");
+        Ok(lease_id)
+    }
 
-        // Heartbeat runs for the entire pod lifetime, including drain phase.
-        // This keeps the lease alive so the coordinator sees a Draining pod
-        // (not a crashed one with an expired lease).
-        let heartbeat_cancel = CancellationToken::new();
-        let mut heartbeat_handle = {
-            let store = Arc::clone(&self.store);
-            let interval = self.config.heartbeat_interval;
-            let token = heartbeat_cancel.child_token();
-            tokio::spawn(async move {
-                util::run_lease_keepalive(store, lease_id, interval, token).await
-            })
-        };
-
-        // Phase 1: Normal operation. The unified handoff protocol makes the
-        // handoff watch the sole source of ownership transitions — assignment
-        // changes only ever happen atomically with a handoff Complete event,
-        // so there's no need to watch assignments separately.
-        //
-        // The outer `select!` against the cancel token is what guarantees a
-        // prompt exit: dropping the loop future also drops every in-flight
-        // convergence it is driving, so even a phase handler (e.g.
-        // `warm_partition`) that blocks indefinitely cannot hold the pod
-        // back from proceeding to drain + lease revoke.
-        //
-        // The heartbeat task is raced here too: the coordinator treats
-        // lease expiry as pod death and hands this pod's partitions to
-        // new owners, so a pod that outlives its lease is a zombie — it
-        // would keep accepting writes for partitions the protocol has
-        // already moved. Losing the lease therefore terminates the run
-        // loop (self-fence) and the process restarts through the normal
-        // lifecycle.
-        let mut lease_lost = false;
-        let result = tokio::select! {
-            r = async {
-                // Seed the loop with every partition this pod is involved
-                // in before watching for new events. A pod that
-                // crash-restarts within its lease TTL keeps its
-                // registration and assignments but loses all in-memory
-                // state (cache, fences) — and because nothing about etcd
-                // changed, no event will ever arrive to repair the
-                // divergence. Re-deriving local state from the durable
-                // state at startup closes that structurally: cold assigned
-                // partitions re-warm, in-flight handoffs get their
-                // drain/warm/ack, completed ones release. The watch is
-                // anchored to the snapshot's revision, so an event landing
-                // between the snapshot and the watch attaching is replayed
-                // rather than lost.
-                let (initial, snapshot_revision) = self.involved_partitions().await?;
-                let stream = self.store.watch_handoffs_from(snapshot_revision + 1).await?;
-                self.watch_handoff_loop(stream, cancel.clone(), initial).await
-            } => r,
-            r = &mut heartbeat_handle => {
-                lease_lost = true;
-                let err = match r {
-                    Ok(Ok(())) => {
-                        Error::invalid_state("lease keepalive exited unexpectedly".to_string())
-                    }
-                    Ok(Err(e)) => e,
-                    Err(join_err) => {
-                        Error::invalid_state(format!("keepalive task panicked: {join_err}"))
-                    }
-                };
-                tracing::error!(
-                    pod = %self.config.pod_name,
-                    error = %err,
-                    "lease keepalive failed; self-fencing"
-                );
-                Err(err)
-            }
-            _ = cancel.cancelled() => Ok(()),
-        };
-
-        // Phase 2: If cancelled externally (SIGTERM), drain gracefully.
-        // Skipped on lease loss: the coordinator already considers this
-        // pod dead and is reassigning its partitions via the dead-owner
-        // path — a graceful drain would race it, and every status write
-        // would fail against the expired lease anyway.
-        if cancel.is_cancelled() && !lease_lost {
-            if let Err(e) = self.drain(lease_id).await {
-                tracing::warn!(pod = %self.config.pod_name, error = %e, "drain failed");
-            }
-        }
-
-        // Cleanup: stop heartbeat and revoke lease. On lease loss the
-        // heartbeat task has already exited (its handle must not be
-        // awaited twice) and there is no lease left to revoke.
-        if !lease_lost {
-            heartbeat_cancel.cancel();
-            drop(heartbeat_handle.await);
-            drop(self.store.revoke_lease(lease_id).await);
+    /// Record one supervisor-level failure (a bootstrap, an attempt, or
+    /// a lost lease). Returns `false` when the consecutive budget is
+    /// exhausted; a run that was healthy for a while resets the count
+    /// first, so the budget bounds crash loops rather than lifetime
+    /// failures.
+    fn note_run_failure(&self, consecutive: &mut u32, started: Instant, err: &Error) -> bool {
+        const HEALTHY_ATTEMPT: Duration = Duration::from_secs(60);
+        if started.elapsed() >= HEALTHY_ATTEMPT {
+            *consecutive = 1;
         } else {
-            // Self-fence locally before the supervisor may retry: the
-            // coordinator treats the expired lease as death and may be
-            // reassigning these partitions right now. Every held
-            // partition is released (dropping its cache and serving
-            // authority); re-acquisition always re-warms, so nothing is
-            // lost but memory. A failed release poisons the fence and
-            // forbids in-place retry.
-            if let Err(e) = self.self_fence_locally().await {
-                self.fence_poisoned
-                    .store(true, std::sync::atomic::Ordering::SeqCst);
-                tracing::error!(
-                    pod = %self.config.pod_name,
-                    error = %e,
-                    "local self-fence failed; refusing in-place retry"
-                );
-            }
+            *consecutive += 1;
         }
+        counter!(
+            "personhog_coordination_run_restarts_total",
+            "component" => "pod"
+        )
+        .increment(1);
+        tracing::warn!(
+            pod = %self.config.pod_name,
+            error = %err,
+            consecutive = *consecutive,
+            budget = self.config.run_retry_budget,
+            "pod coordination failed; recovering in place"
+        );
+        *consecutive < self.config.run_retry_budget
+    }
 
-        result
+    /// Exponential backoff between recovery steps. Returns `true` when
+    /// cancelled during the wait.
+    async fn run_backoff(&self, cancel: &CancellationToken, consecutive: u32) -> bool {
+        const BACKOFF_CAP: Duration = Duration::from_secs(15);
+        let backoff = self
+            .config
+            .run_retry_backoff
+            .saturating_mul(2u32.saturating_pow(consecutive.saturating_sub(1)))
+            .min(BACKOFF_CAP);
+        tokio::select! {
+            _ = cancel.cancelled() => true,
+            _ = tokio::time::sleep(backoff) => false,
+        }
+    }
+
+    /// One coordination attempt under a live session: converge every
+    /// involved partition from a fresh snapshot, then watch. Holds no
+    /// lease state — the session and its heartbeat outlive any number of
+    /// failed attempts. Convergence-before-watching is what makes each
+    /// attempt (and a crash-restart within the lease TTL) safe: local
+    /// state is re-derived from durable state, cold assigned partitions
+    /// re-warm, in-flight handoffs get their drain/warm/ack, completed
+    /// ones release, and the watch anchors to the snapshot revision so
+    /// nothing between snapshot and attach is lost.
+    async fn run_once(&self, cancel: CancellationToken) -> Result<()> {
+        let (initial, snapshot_revision) = self.involved_partitions().await?;
+        let stream = self
+            .store
+            .watch_handoffs_from(snapshot_revision + 1)
+            .await?;
+        self.watch_handoff_loop(stream, cancel, initial).await
     }
 
     /// Release every locally held partition — warmed or fenced — through
