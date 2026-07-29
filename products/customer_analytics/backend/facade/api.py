@@ -52,6 +52,7 @@ from products.customer_analytics.backend.facade.contracts import (
 )
 from products.customer_analytics.backend.logic import (
     announcements as _announcements_logic,
+    channel_summaries as _channel_summaries_logic,
     custom_property_values as _custom_property_values_logic,
     relationships as _relationships_logic,
 )
@@ -74,6 +75,7 @@ from products.customer_analytics.backend.logic.usage_spike_notifications import 
 )
 from products.customer_analytics.backend.models import (
     Account,
+    AccountChannelSummary,
     AccountRelationship,
     AccountRelationshipDefinition,
     Announcement,
@@ -107,10 +109,10 @@ from . import contracts
 # sets keyed by definition id under its ``properties`` input — the link we resolve into references.
 logger = structlog.get_logger(__name__)
 
+logger = structlog.get_logger(__name__)
+
 _ACCOUNT_PROPERTY_TEMPLATE_ID = "template-posthog-update-account-property"
 _ACCOUNT_PROPERTY_INPUT_KEY = "properties"
-
-logger = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -1904,6 +1906,7 @@ def _to_account_view(account: Account) -> contracts.AccountView:
         # Unsorted, matching the old ``TaggedItemSerializerMixin.to_representation`` output.
         tags=_account_view_tags(account),
         notebooks=_account_view_notebooks(account),
+        slack_summary_cadence=account.slack_summary_cadence,
         created_at=account.created_at,
         created_by=account.created_by_id,
         updated_at=account.updated_at,
@@ -2009,6 +2012,7 @@ def update_account(
     name: str | _Unset = _UNSET,
     external_id: str | None | _Unset = _UNSET,
     properties: "dict | _ModelAccountProperties | _Unset" = _UNSET,
+    slack_summary_cadence: "str | None | _Unset" = _UNSET,
 ) -> Account:
     """Field-write primitive shared by every account update path. Only the fields passed are
     written; ``properties`` replaces the stored JSON wholesale. Product-internal — takes and
@@ -2023,6 +2027,9 @@ def update_account(
     if not isinstance(properties, _Unset):
         account._properties = _ModelAccountProperties.from_input(properties).model_dump(mode="json", exclude_unset=True)
         update_fields.append("_properties")
+    if not isinstance(slack_summary_cadence, _Unset):
+        account.slack_summary_cadence = slack_summary_cadence
+        update_fields.append("slack_summary_cadence")
     if update_fields:
         account.save(update_fields=update_fields)
     return account
@@ -2036,6 +2043,7 @@ def create_account(
     external_id: str | None = None,
     properties: "dict | _ModelAccountProperties | None" = None,
     tags: list[str] | None = None,
+    slack_summary_cadence: str | None = None,
     was_impersonated: bool = False,
 ) -> Account:
     """The single account-creation write path: validates properties, sets tags, shadows role
@@ -2051,6 +2059,7 @@ def create_account(
                 name=_cap_to_field_length("name", name),
                 external_id=_cap_to_field_length("external_id", external_id) if external_id is not None else None,
                 _properties=validated.model_dump(mode="json", exclude_unset=True),
+                slack_summary_cadence=slack_summary_cadence,
             )
             _set_tags(tags, account, actor=created_by)
             if any(field in (account._properties or {}) for field in ACCOUNT_ASSIGNMENT_ROLE_FIELDS):
@@ -2086,6 +2095,7 @@ def create_account_for_view(
         external_id=input.external_id,
         properties=input.properties,
         tags=input.tags,
+        slack_summary_cadence=input.slack_summary_cadence,
         was_impersonated=was_impersonated,
     )
     return _to_account_view(account)
@@ -2113,6 +2123,8 @@ def update_account_for_view(
         update_kwargs["external_id"] = input.external_id
     if input.properties_provided:
         update_kwargs["properties"] = input.properties if input.properties is not None else {}
+    if input.slack_summary_cadence_provided:
+        update_kwargs["slack_summary_cadence"] = input.slack_summary_cadence
 
     try:
         with transaction.atomic():
@@ -2255,6 +2267,149 @@ def get_accessible_account_id(team_id: int, account_id: str, user_access_control
     except (ValidationError, ValueError):
         return None
     return str(account.id) if account is not None else None
+
+
+def list_account_channel_summaries(
+    team_id: int,
+    account_id: str,
+    user_access_control: "UserAccessControl",
+    *,
+    offset: int,
+    limit: int,
+) -> tuple[list[contracts.AccountChannelSummaryView], int] | None:
+    """Stored Slack channel summaries for an accessible account, newest period first.
+
+    Returns ``(page, total_count)``, or None when the parent account isn't accessible (→ 404)."""
+    if get_accessible_account_id(team_id, account_id, user_access_control) is None:
+        return None
+    queryset = (
+        AccountChannelSummary.objects.for_team(team_id)
+        .filter(account_id=account_id)
+        .order_by("-period_start", "-generated_at")
+    )
+    total_count = queryset.count()
+    return [_to_channel_summary_view(s) for s in queryset[offset : offset + limit]], total_count
+
+
+def _to_channel_summary_view(summary: AccountChannelSummary) -> contracts.AccountChannelSummaryView:
+    return contracts.AccountChannelSummaryView(
+        id=summary.id,
+        slack_channel_id=summary.slack_channel_id,
+        cadence=summary.cadence,
+        period_start=summary.period_start,
+        period_end=summary.period_end,
+        content=summary.content,
+        message_count=summary.message_count,
+        generated_at=summary.generated_at,
+    )
+
+
+def list_accounts_due_for_slack_summary(now: datetime | None = None) -> list[contracts.AccountDueForSlackSummary]:
+    """Accounts opted into periodic Slack channel summaries whose last closed period has no
+    stored summary yet. Cross-team — backs the conversations summary coordinator.
+
+    Due means: a cadence is set, a Slack channel is bound, and no summary row exists for
+    ``(account, cadence, period_start)`` where the period is the last closed calendar window
+    in the account team's timezone. A cadence change mid-period only ever looks at the
+    current cadence's own last closed window — no retro-generation.
+    """
+    now = now or timezone.now()
+    candidates: list[contracts.AccountDueForSlackSummary] = []
+    for account in (
+        Account.objects.unscoped().filter(slack_summary_cadence__isnull=False).select_related("team").iterator()
+    ):
+        # Raw dict read: one account with stored properties that no longer validate must not
+        # take the whole coordinator scan down.
+        slack_channel_id = (account._properties or {}).get("slack_channel_id")
+        cadence = account.slack_summary_cadence
+        if not slack_channel_id or not cadence:
+            continue
+        period_start, period_end = _channel_summaries_logic.get_last_closed_period(
+            cadence, now, account.team.timezone_info
+        )
+        candidates.append(
+            contracts.AccountDueForSlackSummary(
+                team_id=account.team_id,
+                account_id=str(account.id),
+                account_name=account.name,
+                slack_channel_id=slack_channel_id,
+                cadence=cadence,
+                period_start=period_start,
+                period_end=period_end,
+            )
+        )
+    if not candidates:
+        return []
+    existing = set(
+        AccountChannelSummary.objects.unscoped()
+        .filter(
+            account_id__in=[c.account_id for c in candidates],
+            period_start__in={c.period_start for c in candidates},
+        )
+        .values_list("account_id", "cadence", "period_start")
+    )
+    return [c for c in candidates if (UUID(c.account_id), c.cadence, c.period_start) not in existing]
+
+
+def get_account_slack_summary_binding(team_id: int, account_id: str) -> contracts.AccountSlackSummaryBinding | None:
+    """The account's current summary cadence and channel binding, or None when the
+    account is gone or no longer opted in. Backs the summary activity's recheck just
+    before messages are fetched and sent to the LLM: consent or binding changes after
+    coordinator dispatch must cancel the queued summary."""
+    account = Account.objects.for_team(team_id).filter(id=account_id).first()
+    if account is None or not account.slack_summary_cadence:
+        return None
+    slack_channel_id = (account._properties or {}).get("slack_channel_id")
+    if not slack_channel_id:
+        return None
+    return contracts.AccountSlackSummaryBinding(
+        cadence=account.slack_summary_cadence, slack_channel_id=slack_channel_id
+    )
+
+
+def record_channel_summary(
+    *,
+    team_id: int,
+    account_id: str,
+    slack_channel_id: str,
+    cadence: str,
+    period_start: datetime,
+    period_end: datetime,
+    content: str,
+    message_count: int,
+    model_name: str = "",
+) -> str | None:
+    """Store a finished channel summary pushed in by the conversations pipeline.
+
+    Idempotent on ``(team, account, cadence, period_start)``: a retry or overlapping run
+    resolves to the existing row's id instead of double-writing. Returns None when the
+    account no longer exists (deleted mid-flight) — the period's summary is simply dropped.
+    """
+    if not Account.objects.for_team(team_id).filter(id=account_id).exists():
+        return None
+    try:
+        # atomic() so the duplicate-key error rolls back to a savepoint and the
+        # existing-row lookup below still has a usable connection.
+        with transaction.atomic():
+            summary = AccountChannelSummary.objects.for_team(team_id).create(
+                team_id=team_id,
+                account_id=account_id,
+                slack_channel_id=slack_channel_id,
+                cadence=cadence,
+                period_start=period_start,
+                period_end=period_end,
+                content=content,
+                message_count=message_count,
+                model_name=model_name,
+            )
+    except IntegrityError:
+        existing = (
+            AccountChannelSummary.objects.for_team(team_id)
+            .filter(account_id=account_id, cadence=cadence, period_start=period_start)
+            .first()
+        )
+        return str(existing.id) if existing is not None else None
+    return str(summary.id)
 
 
 def get_account_support_tickets(
