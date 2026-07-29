@@ -123,7 +123,10 @@ def _fix_loop_instructions(summary: str) -> str:
 # sweeps averaged ~1,000 words of prose per PR, accurate and unreadable. These rules target form
 # rather than length, because a word budget truncates prose instead of restructuring it.
 _PR_DESCRIPTION_FORM_RULES = (
-    "Write the PR description to be scanned, not read. Within the repository's template sections:\n"
+    "If the target repository has a pull request template, follow it: its sections, their order and the "
+    "instructions inside it win over everything below. The rules here are about how you write within "
+    "those sections, and stand on their own when the repo has no template.\n"
+    "Write the PR description to be scanned, not read:\n"
     "- Bullets by default, one idea each. A paragraph only where it genuinely reads better.\n"
     "- Why before how: the first bullet under Problem says who is hurt and what it costs, the first "
     "under Changes names the mechanism rather than the files.\n"
