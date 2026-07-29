@@ -19,6 +19,12 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
+
+import graphSchemaReference from '../../skills/building-workflows/references/graph-schema.md?raw'
+import lifecycleReference from '../../skills/building-workflows/references/lifecycle-and-debugging.md?raw'
+import buildingWorkflowsSkill from '../../skills/building-workflows/SKILL.md?raw'
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { Workflow } from './Workflow'
 import { WorkflowAssets } from './WorkflowAssets'
@@ -27,6 +33,25 @@ import { workflowLogic } from './workflowLogic'
 import { WorkflowMetrics } from './WorkflowMetrics'
 import { WorkflowSceneHeader } from './WorkflowSceneHeader'
 import { WorkflowSceneLogicProps, WorkflowTab, workflowSceneLogic } from './workflowSceneLogic'
+
+// Injected into the agent's trusted context while the editor is open (once per task chain), so an
+// edit request goes straight to the tool calls instead of re-deriving how to work on workflows
+// (loading the building skill and its references from disk). Inlines the real skill files at build
+// time so the content can never drift from what an agent without this context would read.
+function buildWorkflowEditorAgentContext(workflowId: string): AttachedContextItem {
+    return {
+        type: 'instructions',
+        key: `workflow-editor-guide:${workflowId}`,
+        hidden: true,
+        value:
+            `The user has workflow ${workflowId} open in PostHog's visual workflow editor; the open canvas live-reloads your saved edits, ` +
+            'and test-running a step highlights its path on the canvas. ' +
+            'The building-workflows skill and its references are preloaded below - use them directly rather than loading the skill.\n\n' +
+            `<skill name="building-workflows">\n${buildingWorkflowsSkill}\n</skill>\n\n` +
+            `<reference name="references/graph-schema.md">\n${graphSchemaReference}\n</reference>\n\n` +
+            `<reference name="references/lifecycle-and-debugging.md">\n${lifecycleReference}\n</reference>`,
+    }
+}
 
 export const scene: SceneExport<WorkflowSceneLogicProps> = {
     component: WorkflowScene,
@@ -60,6 +85,15 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     // Attach child logics to the scene logic so they persist across tab switches
     useAttachedLogic(batchJobsLogic, sceneLogic)
     useAttachedLogic(logic, sceneLogic)
+
+    useAttachedContext(
+        props.id && props.id !== 'new'
+            ? [
+                  { type: 'workflow', key: props.id, label: originalWorkflow?.name || undefined },
+                  buildWorkflowEditorAgentContext(props.id),
+              ]
+            : null
+    )
 
     if (!originalWorkflow && workflowLoading) {
         return <SpinnerOverlay sceneLevel />
