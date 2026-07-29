@@ -23,6 +23,7 @@ from products.signals.backend.scout_harness.tools.report import (
     REPORT_KIND_SELF_IMPROVEMENT,
     EditReportResult,
     InvalidScoutReportError,
+    ReportChartInput,
     ReviewerInput,
     _build_suggested_reviewers,
     _capture_report_edited,
@@ -639,7 +640,7 @@ class TestScoutReportAPI(APIBaseTest):
 
         def forward(reviewers: list[ReviewerInput]) -> str:
             with patch(CAPTURE_PATH):
-                return _capture_report_edited(
+                captured = _capture_report_edited(
                     team=self.team,
                     run=run,
                     result=result,
@@ -647,12 +648,101 @@ class TestScoutReportAPI(APIBaseTest):
                     summary=None,
                     note=None,
                     suggested_reviewers=reviewers,
-                ).event_uuid
+                )
+            assert captured is not None
+            return captured.event_uuid
 
         alice = forward([ReviewerInput(github_login="alice")])
         bob = forward([ReviewerInput(github_login="bob")])
         assert alice != bob
         assert alice == forward([ReviewerInput(github_login="alice")])
+
+    def test_chart_edit_event_uuid_keys_on_charts(self) -> None:
+        # Same collision class as the reviewer case above: charts are a valid sole input to an edit, so
+        # two chart-only edits to one report in a run carry no `updated_fields` and no title/summary/note.
+        # Without keying on the chart ids they hash to one `event_uuid` and ingestion drops the second —
+        # the team never sees that chart land. An identical retried chart edit must still stay one event.
+        run = _make_run(self.team)
+        result = EditReportResult(report_id=str(uuid4()), updated_fields=[], note_appended=False, charts_set=1)
+
+        def forward(charts: list[ReportChartInput]) -> str:
+            with patch(CAPTURE_PATH):
+                captured = _capture_report_edited(
+                    team=self.team,
+                    run=run,
+                    result=result,
+                    title=None,
+                    summary=None,
+                    note=None,
+                    charts=charts,
+                )
+            assert captured is not None
+            return captured.event_uuid
+
+        def chart(chart_id: str) -> ReportChartInput:
+            return ReportChartInput(chart_id=chart_id, title="Daily signups", query={"kind": "InsightVizNode"})
+
+        signups = forward([chart("signups-drop")])
+        churn = forward([chart("churn-spike")])
+        assert signups != churn
+        assert signups == forward([chart("signups-drop")])
+        # Re-supplying an id is how a scout refreshes a chart to a newer window, so the key has to cover
+        # content too — on ids alone the refresh collapses into the original and the team never hears it.
+        refreshed = ReportChartInput(
+            chart_id="signups-drop", title="Daily signups", query={"kind": "InsightVizNode", "full": True}
+        )
+        assert forward([refreshed]) != signups
+        # Title and caption are scout-authored free text, so a key that joins them on a separator lets
+        # a colon move across the boundary and hash the same — a real refresh silently deduped away.
+        node = {"kind": "InsightVizNode"}
+        title_carries_it = ReportChartInput(chart_id="signups-drop", title="Signups: daily", caption="EU", query=node)
+        caption_carries_it = ReportChartInput(chart_id="signups-drop", title="Signups", caption="daily: EU", query=node)
+        assert forward([title_carries_it]) != forward([caption_carries_it])
+        # Charts render in the order they were sent, so an edit that only reorders them changes what a
+        # reader sees. Sorting the keys hashes that edit the same as the one before it and ingestion
+        # drops it — unlike reviewers, where order carries nothing and sorting is what makes a retry key.
+        signups_chart, churn_chart = chart("signups-drop"), chart("churn-spike")
+        assert forward([signups_chart, churn_chart]) != forward([churn_chart, signups_chart])
+
+    def test_chart_counts_ride_the_lifecycle_events(self) -> None:
+        # `charts_set` / `chart_count` are what a dashboard or CDP destination reads to tell a
+        # chart-bearing report from a plain one; without them both event streams look identical.
+        run = _make_run(self.team)
+        charts = [{"chart_id": "signups-drop", "title": "Daily signups", "query": {"kind": "InsightVizNode"}}]
+        # The edit refreshes the chart rather than re-sending it verbatim: an edit that restates what
+        # the report already holds changes nothing, and the lifecycle events stay quiet for those.
+        refreshed = [{**charts[0], "title": "Daily signups (rerun)"}]
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()), patch(CAPTURE_PATH) as capture:
+            created = self.client.post(
+                self._emit_url(str(run.id)), data={**self._payload(), "charts": charts}, format="json"
+            ).json()
+            self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": created["report_id"], "charts": refreshed},
+                format="json",
+            )
+        emitted = next(c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_report_emitted")
+        edited = next(c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_report_edited")
+        assert emitted.kwargs["properties"]["chart_count"] == 1
+        assert edited.kwargs["properties"]["charts_set"] == 1
+
+    def test_an_edit_that_changes_nothing_fires_no_lifecycle_event(self) -> None:
+        # `edit_report` is non-idempotent, so a retry re-sends the charts the report already holds.
+        # Nothing moved, and there is no earlier edit event for ingestion to collapse this into, so
+        # firing one hands a CDP destination an edit that never happened.
+        run = _make_run(self.team)
+        charts = [{"chart_id": "signups-drop", "title": "Daily signups", "query": {"kind": "InsightVizNode"}}]
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()), patch(CAPTURE_PATH) as capture:
+            created = self.client.post(
+                self._emit_url(str(run.id)), data={**self._payload(), "charts": charts}, format="json"
+            ).json()
+            self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": created["report_id"], "charts": charts},
+                format="json",
+            )
+
+        assert not [c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_report_edited"]
 
     @parameterized.expand(
         [

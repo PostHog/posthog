@@ -13819,6 +13819,10 @@
         "ChartSettings": {
             "additionalProperties": false,
             "properties": {
+                "chartStyle": {
+                    "$ref": "#/definitions/ChartStyle",
+                    "description": "Chart rendering style overrides (line shape). Only applies to line and area charts."
+                },
                 "goalLines": {
                     "items": {
                         "$ref": "#/definitions/GoalLine"
@@ -34943,6 +34947,7 @@
                 "comments",
                 "conversations",
                 "customer_analytics",
+                "data_catalog",
                 "data_warehouse",
                 "data_warehouse_saved_queries",
                 "early_access_features",

@@ -64,8 +64,9 @@ export function createPostTeamPreprocessingSubpipeline<
     TInput extends PostTeamPreprocessingSubpipelineInput,
     TContext,
     R extends string = never,
+    D = unknown,
 >(
-    builder: ChunkPipelineBuilder<TStart, TInput, TContext, TContext, R>,
+    builder: ChunkPipelineBuilder<TStart, TInput, TContext, TContext, R, D>,
     config: PostTeamPreprocessingSubpipelineConfig
 ) {
     const {

@@ -9,6 +9,7 @@ from rest_framework import status
 from posthog.models import Team
 
 from products.workflows.backend.models import EmailReputationSnapshot, HogFlow
+from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 
 RUN_2 = timezone.now().replace(microsecond=0) - timedelta(days=1)
 RUN_1 = RUN_2 - timedelta(days=1)
@@ -41,7 +42,30 @@ class TestEmailReputationAPI(APIBaseTest):
     def test_reputation_endpoint_returns_empty_shape_before_first_evaluation(self):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/reputation")
         assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {"reputation": None, "workflows": []}
+        assert response.json() == {
+            "reputation": None,
+            "workflows": [],
+            "email_sending_suspended": False,
+            "email_sending_suspended_at": None,
+            "email_sending_suspension_reason": "",
+        }
+
+    def test_reputation_endpoint_reports_email_sending_suspension(self):
+        suspended_at = timezone.now().replace(microsecond=0)
+        TeamWorkflowsConfig.objects.update_or_create(
+            team=self.team,
+            defaults={
+                "email_sending_suspended_at": suspended_at,
+                "email_sending_suspension_reason": "critical bounce rate",
+            },
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/reputation")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["email_sending_suspended"] is True
+        assert data["email_sending_suspended_at"] == suspended_at.isoformat().replace("+00:00", "Z")
+        assert data["email_sending_suspension_reason"] == "critical bounce rate"
 
     def test_reputation_endpoint_search_filters_before_the_cap(self):
         # A healthy workflow pushed past the worst-50 cap must still be findable by name
@@ -123,4 +147,10 @@ class TestEmailReputationAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/reputation")
         assert response.status_code == status.HTTP_200_OK
         # Nothing from the other team leaks: no aggregate, no workflow rows
-        assert response.json() == {"reputation": None, "workflows": []}
+        assert response.json() == {
+            "reputation": None,
+            "workflows": [],
+            "email_sending_suspended": False,
+            "email_sending_suspended_at": None,
+            "email_sending_suspension_reason": "",
+        }
