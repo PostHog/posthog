@@ -1,9 +1,8 @@
-"""Backend selection for GLM (`@cf/...`) traffic during the Cloudflare -> Modal migration.
+"""Backend selection for GLM (`@cf/...`) traffic across Cloudflare, Modal, and Baseten.
 
-Modal takes traffic opted in by the server-side `tasks-glm-modal-inference` flag or by the
-env-configured fraction (caller-forwarded flag headers are deliberately ignored — they must not
-force a backend operators turned off). No cross-backend retries — rollback is turning the
-flag/fraction back down.
+Modal takes traffic opted in by its server-side flag or the environment-configured fraction.
+Baseten takes traffic opted in by its server-side flag. Caller-forwarded flag headers cannot
+select a backend. There are no cross-backend retries.
 """
 
 from __future__ import annotations
@@ -15,6 +14,9 @@ from fastapi.responses import StreamingResponse
 
 from llm_gateway.anthropic_request import drop_orphaned_clear_thinking
 from llm_gateway.api.handler import (
+    BASETEN_ANTHROPIC_CONFIG,
+    BASETEN_OPENAI_CONFIG,
+    BASETEN_OPENAI_RESPONSES_CONFIG,
     CLOUDFLARE_ANTHROPIC_CONFIG,
     CLOUDFLARE_OPENAI_CONFIG,
     CLOUDFLARE_OPENAI_RESPONSES_CONFIG,
@@ -25,6 +27,14 @@ from llm_gateway.api.handler import (
     handle_llm_request,
 )
 from llm_gateway.auth.models import AuthenticatedUser
+from llm_gateway.baseten import (
+    BASETEN_PUBLIC_MODEL,
+    ensure_baseten_configured,
+    is_baseten_configured,
+    make_baseten_anthropic_call,
+    make_baseten_completion_call,
+    make_baseten_responses_call,
+)
 from llm_gateway.cloudflare import (
     ensure_cloudflare_configured,
     ensure_cloudflare_model_allowed,
@@ -34,7 +44,7 @@ from llm_gateway.cloudflare import (
     make_cloudflare_responses_call,
 )
 from llm_gateway.config import Settings, get_settings
-from llm_gateway.flags import GLM_MODAL_FLAG, evaluate_flag
+from llm_gateway.flags import GLM_BASETEN_FLAG, GLM_MODAL_FLAG, evaluate_flag
 from llm_gateway.modal import (
     is_modal_configured,
     is_modal_served_model,
@@ -70,9 +80,32 @@ async def _route_to_modal(model: str, user: AuthenticatedUser, product: str, set
         return True
     if should_route_glm_to_modal(model, product=product, user_key=str(user.user_id), settings=settings):
         return True
-    # Server-side flag evaluation only — a caller-forwarded flag header must not be able to force a
-    # backend the operators turned off. Evaluated last, since it can cost a remote roundtrip.
     return await evaluate_flag(GLM_MODAL_FLAG, user.distinct_id) or False
+
+
+async def _route_to_baseten(model: str, user: AuthenticatedUser, settings: Settings) -> bool:
+    if model != BASETEN_PUBLIC_MODEL or not is_baseten_configured(settings):
+        return False
+    return await evaluate_flag(GLM_BASETEN_FLAG, user.distinct_id) or False
+
+
+async def _send_provider_request(
+    request_data: dict[str, Any],
+    user: AuthenticatedUser,
+    is_streaming: bool,
+    product: str,
+    provider_config: ProviderConfig,
+    llm_call: LlmCall,
+) -> dict[str, Any] | StreamingResponse:
+    return await handle_llm_request(
+        request_data=dict(request_data),
+        user=user,
+        model=request_data["model"],
+        is_streaming=is_streaming,
+        provider_config=provider_config,
+        llm_call=llm_call,
+        product=product,
+    )
 
 
 async def _send_via_cloudflare(
@@ -87,14 +120,8 @@ async def _send_via_cloudflare(
     model = request_data["model"]
     ensure_cloudflare_model_allowed(model)
     api_base, api_key = ensure_cloudflare_configured(settings)
-    return await handle_llm_request(
-        request_data=dict(request_data),
-        user=user,
-        model=model,
-        is_streaming=is_streaming,
-        provider_config=provider_config,
-        llm_call=make_call(api_base, api_key),
-        product=product,
+    return await _send_provider_request(
+        request_data, user, is_streaming, product, provider_config, make_call(api_base, api_key)
     )
 
 
@@ -105,12 +132,20 @@ async def _send_glm_request(
     product: str,
     *,
     modal_config: ProviderConfig,
+    baseten_config: ProviderConfig,
     cloudflare_config: ProviderConfig,
     make_modal_call: Callable[[str, str, str], LlmCall],
+    make_baseten_call: Callable[[str, str], LlmCall],
     make_cloudflare_call: Callable[[str, str], LlmCall],
 ) -> dict[str, Any] | StreamingResponse:
     model = request_data["model"]
     settings = get_settings()
+
+    if await _route_to_baseten(model, user, settings):
+        api_base, api_key = ensure_baseten_configured(settings)
+        return await _send_provider_request(
+            request_data, user, is_streaming, product, baseten_config, make_baseten_call(api_base, api_key)
+        )
 
     if await _route_to_modal(model, user, product, settings):
         return await send_modal_request(
@@ -138,8 +173,10 @@ async def send_glm_anthropic_messages(
         is_streaming,
         product,
         modal_config=MODAL_ANTHROPIC_CONFIG,
+        baseten_config=BASETEN_ANTHROPIC_CONFIG,
         cloudflare_config=CLOUDFLARE_ANTHROPIC_CONFIG,
         make_modal_call=make_modal_anthropic_call,
+        make_baseten_call=make_baseten_anthropic_call,
         make_cloudflare_call=make_cloudflare_anthropic_call,
     )
 
@@ -156,8 +193,10 @@ async def send_glm_chat_completions(
         is_streaming,
         product,
         modal_config=MODAL_OPENAI_CONFIG,
+        baseten_config=BASETEN_OPENAI_CONFIG,
         cloudflare_config=CLOUDFLARE_OPENAI_CONFIG,
         make_modal_call=make_modal_completion_call,
+        make_baseten_call=make_baseten_completion_call,
         make_cloudflare_call=make_cloudflare_completion_call,
     )
 
@@ -174,7 +213,9 @@ async def send_glm_responses(
         is_streaming,
         product,
         modal_config=MODAL_OPENAI_RESPONSES_CONFIG,
+        baseten_config=BASETEN_OPENAI_RESPONSES_CONFIG,
         cloudflare_config=CLOUDFLARE_OPENAI_RESPONSES_CONFIG,
         make_modal_call=make_modal_responses_call,
+        make_baseten_call=make_baseten_responses_call,
         make_cloudflare_call=make_cloudflare_responses_call,
     )
