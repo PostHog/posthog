@@ -134,7 +134,7 @@ const accountRelationshipDefinitionsList = (): ToolBase<
                 offset: params.offset,
             },
         })
-        return await withPostHogUrl(context, result, '/customer-analytics')
+        return await withPostHogUrl(context, result, '/customer_analytics')
     },
 })
 
@@ -216,6 +216,9 @@ const accountsCreate = (): ToolBase<typeof AccountsCreateSchema, Schemas.Account
         if (params.tags !== undefined) {
             body['tags'] = params.tags
         }
+        if (params.slack_summary_cadence !== undefined) {
+            body['slack_summary_cadence'] = params.slack_summary_cadence
+        }
         const result = await context.api.request<Schemas.Account>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/`,
@@ -267,7 +270,7 @@ const accountsCustomPropertyValuesList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/custom_property_values/`,
         })
-        return await withPostHogUrl(context, result, '/customer-analytics')
+        return await withPostHogUrl(context, result, '/customer_analytics')
     },
 })
 
@@ -312,7 +315,7 @@ const accountsList = (): ToolBase<typeof AccountsListSchema, WithPostHogUrl<Sche
                 tags: params.tags,
             },
         })
-        return await withPostHogUrl(context, result, '/customer-analytics')
+        return await withPostHogUrl(context, result, '/customer_analytics')
     },
 })
 
@@ -381,7 +384,7 @@ const accountsNotebooksList = (): ToolBase<
                 search: params.search,
             },
         })
-        return await withPostHogUrl(context, result, '/customer-analytics')
+        return await withPostHogUrl(context, result, '/customer_analytics')
     },
 })
 
@@ -428,6 +431,9 @@ const accountsPartialUpdate = (): ToolBase<typeof AccountsPartialUpdateSchema, S
         }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
+        }
+        if (params.slack_summary_cadence !== undefined) {
+            body['slack_summary_cadence'] = params.slack_summary_cadence
         }
         const result = await context.api.request<Schemas.Account>({
             method: 'PATCH',
@@ -503,7 +509,7 @@ const accountsRelationshipsList = (): ToolBase<
                 include_history: params.include_history,
             },
         })
-        return await withPostHogUrl(context, result, '/customer-analytics')
+        return await withPostHogUrl(context, result, '/customer_analytics')
     },
 })
 
@@ -596,7 +602,7 @@ const customPropertyDefinitionsList = (): ToolBase<
                 offset: params.offset,
             },
         })
-        return await withPostHogUrl(context, result, '/customer-analytics')
+        return await withPostHogUrl(context, result, '/customer_analytics')
     },
 })
 
@@ -753,7 +759,7 @@ const customPropertySourcesList = (): ToolBase<
                 offset: params.offset,
             },
         })
-        return await withPostHogUrl(context, result, '/customer-analytics')
+        return await withPostHogUrl(context, result, '/customer_analytics')
     },
 })
 
@@ -826,7 +832,7 @@ const customPropertySourcesRunsList = (): ToolBase<
                 offset: params.offset,
             },
         })
-        return await withPostHogUrl(context, result, '/customer-analytics')
+        return await withPostHogUrl(context, result, '/customer_analytics')
     },
 })
 
@@ -1095,7 +1101,7 @@ const usageMetricsList = (): ToolBase<
                 offset: params.offset,
             },
         })
-        return await withPostHogUrl(context, result, '/customer-analytics')
+        return await withPostHogUrl(context, result, '/customer_analytics')
     },
 })
 

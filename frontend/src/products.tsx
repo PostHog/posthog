@@ -110,6 +110,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/customer_analytics/journeys/:id/edit': ['CustomerJourneyBuilder', 'customerJourneyEdit'],
     '/customer_analytics/journeys': ['CustomerAnalytics', 'customerAnalyticsJourneys'],
     '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
+    '/data-catalog': ['DataCatalog', 'dataCatalog'],
+    '/data-catalog/metrics/:name': ['DataCatalogMetric', 'dataCatalogMetric'],
     '/data-ops': ['DataOps', 'dataOps'],
     '/models': ['Models', 'models'],
     '/models/dags': ['Models', 'models'],
@@ -179,6 +181,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/mcp-analytics/tool-quality': ['MCPAnalytics', 'mcpAnalyticsToolQuality'],
     '/mcp-analytics/tool-quality/:toolName': ['MCPAnalyticsToolDetail', 'mcpAnalyticsTool'],
     '/mcp-analytics/intent-clustering': ['MCPAnalytics', 'mcpAnalyticsIntentClustering'],
+    '/mcp-analytics/notifications': ['MCPAnalytics', 'mcpAnalyticsNotifications'],
     '/metrics': ['Metrics', 'metrics'],
     '/tasks': ['TaskTracker', 'taskTracker'],
     '/tasks/:taskId': ['TaskTracker', 'taskDetail'],
@@ -194,7 +197,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/replay-vision/:id/triggers': ['ReplayVisionScannerEditor', 'replayVisionScannerTriggers'],
     '/replay-vision/:id/self-driving': ['ReplayVisionScannerEditor', 'replayVisionScannerSelfDriving'],
     '/replay-vision/:id': ['ReplayVisionScanner', 'replayVision'],
-    '/code_review': ['CodeReview', 'codeReview'],
+    '/code-review': ['CodeReview', 'codeReview'],
     '/session-summaries': ['SessionGroupSummariesTable', 'sessionGroupSummariesTable'],
     '/session-summaries/:sessionGroupId': ['SessionGroupSummary', 'sessionGroupSummary'],
     '/skills': ['Skills', 'skills'],
@@ -361,6 +364,7 @@ export const productRedirects: Record<
             : '/customer_analytics/dashboard'
         return combineUrl(defaultTab, searchParams, hashParams).url
     },
+    '/data-warehouse': () => urls.sources(),
     '/data-warehouse/sources': () => urls.sources(),
     '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
     '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),
@@ -542,6 +546,14 @@ export const productConfiguration: Record<string, any> = {
     CustomerAnalyticsConfiguration: { projectBased: true, name: 'Customer analytics configuration' },
     CustomerJourneyBuilder: { projectBased: true, name: 'New journey' },
     CustomerJourneyTemplates: { projectBased: true, name: 'New journey' },
+    DataCatalog: {
+        projectBased: true,
+        name: 'Data catalog',
+        layout: 'app-container',
+        iconType: 'data_warehouse',
+        description: 'Review and manage governed metrics, certifications, and relationships for your data.',
+    },
+    DataCatalogMetric: { projectBased: true, name: 'Metric' },
     DataOps: {
         name: 'Data ops',
         projectBased: true,
@@ -996,6 +1008,8 @@ export const productUrls = {
     dashboardSubscription: (id: string | number, subscriptionId: string): string =>
         `/dashboard/${id}/subscriptions/${subscriptionId}`,
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
+    dataCatalog: (tab?: string): string => `/data-catalog${tab ? `?tab=${tab}` : ''}`,
+    dataCatalogMetric: (name: string): string => `/data-catalog/metrics/${name}`,
     dataOps: (tab?: string, dagId?: string): string => {
         const params = new URLSearchParams()
         if (tab) {
@@ -1203,6 +1217,7 @@ export const productUrls = {
     mcpAnalyticsToolQuality: (): string => '/mcp-analytics/tool-quality',
     mcpAnalyticsTool: (toolName: string): string => `/mcp-analytics/tool-quality/${encodeURIComponent(toolName)}`,
     mcpAnalyticsIntentClustering: (): string => '/mcp-analytics/intent-clustering',
+    mcpAnalyticsNotifications: (): string => '/mcp-analytics/notifications',
     metrics: (): string => '/metrics',
     notebooks: (): string => '/notebooks',
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
@@ -1318,7 +1333,7 @@ export const productUrls = {
     replayVisionActionNew: (scannerId: string, mode?: 'group_summary' | 'alert'): string =>
         `/replay-vision/${scannerId}/actions/new${mode === 'alert' ? '?mode=alert' : ''}`,
     replayVisionActionEdit: (actionId: string): string => `/replay-vision/actions/${actionId}/edit`,
-    codeReview: (): string => '/code_review',
+    codeReview: (): string => '/code-review',
     sessionSummaries: (): string => '/session-summaries',
     sessionSummary: (sessionGroupId: string): string => `/session-summaries/${sessionGroupId}`,
     skills: (): string => '/skills',
@@ -1803,6 +1818,17 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.dashboards(),
         sceneKey: 'Dashboards',
         sceneKeys: ['Dashboard', 'Dashboards'],
+    },
+    {
+        path: 'Data catalog',
+        intents: [ProductKey.DATA_CATALOG],
+        category: ProductItemCategory.ANALYTICS,
+        iconType: 'data_warehouse',
+        href: urls.dataCatalog(),
+        flag: FEATURE_FLAGS.PRODUCT_DATA_CATALOG,
+        tags: ['alpha'],
+        sceneKey: 'DataCatalog',
+        sceneKeys: ['DataCatalog', 'DataCatalogMetric'],
     },
     {
         path: 'Data warehouse',

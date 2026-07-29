@@ -47,7 +47,7 @@ from posthog.constants import PropertyOperatorType
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models import Filter, Property, Team
+from posthog.models import Filter, Property, Team, User
 from posthog.models.property import OperatorInterval, PropertyGroup
 from posthog.ph_client import feature_enabled_or_false
 from posthog.types import AnyPropertyFilter
@@ -81,6 +81,14 @@ def parse_and_validate_positive_integer(value: Optional[Union[str, int]], value_
     if parsed_value <= 0:
         raise ValueError(f"{value_name} must be greater than 0, got {value}")
     return parsed_value
+
+
+def _require_select_query(query: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery:
+    # A constant `select=["id"]` actors query never yields a set query. Fail loudly rather than
+    # via a strippable assert if that invariant ever breaks.
+    if not isinstance(query, ast.SelectQuery):
+        raise ValueError("Expected a single SELECT query from the actors query, got a set query")
+    return query
 
 
 def _apply_in_order_aggregation(query: ast.SelectQuery) -> ast.SelectQuery:
@@ -267,7 +275,9 @@ class HogQLCohortQuery:
         else:
             raise ValueError("HogQLCohortQuery requires either a cohort or a filter")
 
-    def get_query_executor(self) -> HogQLQueryExecutor:
+    def get_query_executor(
+        self, *, user: Optional[User] = None, bypass_warehouse_access_control: bool = False
+    ) -> HogQLQueryExecutor:
         return HogQLQueryExecutor(
             query_type="HogQLCohortQuery",
             query=self.get_query(),
@@ -275,6 +285,8 @@ class HogQLCohortQuery:
             team=self.team,
             limit_context=LimitContext.COHORT_CALCULATION,
             settings=HogQLGlobalSettings(),
+            user=user,
+            bypass_warehouse_access_control=bypass_warehouse_access_control,
         )
 
     def get_query(self) -> SelectQuery | SelectSetQuery:
@@ -298,7 +310,7 @@ class HogQLCohortQuery:
             source=source,
             select=["id"],
         )
-        return ActorsQueryRunner(team=self.team, query=actors_query).to_query()
+        return _require_select_query(ActorsQueryRunner(team=self.team, query=actors_query).to_query())
 
     def get_performed_event_condition(self, prop: Property, first_time: bool = False) -> ast.SelectQuery:
         math = None
@@ -543,7 +555,7 @@ class HogQLCohortQuery:
             select=["id"],
         )
         query_runner = ActorsQueryRunner(team=self.team, query=actors_query)
-        return query_runner.to_query()
+        return _require_select_query(query_runner.to_query())
 
     def get_person_metadata_condition(self, prop: Property) -> ast.SelectQuery:
         # type = "person_metadata"
@@ -557,7 +569,7 @@ class HogQLCohortQuery:
             select=["id"],
         )
         query_runner = ActorsQueryRunner(team=self.team, query=actors_query)
-        return query_runner.to_query()
+        return _require_select_query(query_runner.to_query())
 
     def get_static_cohort_condition(self, prop: Property) -> ast.SelectQuery:
         # Convert the cohort id to an int (not the no-op typing.cast) and bind it as a parameter.
@@ -709,7 +721,7 @@ class HogQLCohortQuery:
                 select=["id"],
             )
             query_runner = ActorsQueryRunner(team=self.team, query=actors_query)
-            return query_runner.to_query()
+            return _require_select_query(query_runner.to_query())
 
         def build_conditions(
             prop: Optional[Union[PropertyGroup, Property]],

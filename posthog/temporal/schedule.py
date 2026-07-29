@@ -86,6 +86,7 @@ from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
 from products.autoresearch.backend.temporal.schedule import create_autoresearch_daily_schedule
 from products.business_knowledge.backend.temporal.schedule import create_business_knowledge_refresh_coordinator_schedule
+from products.conversations.backend.temporal.channel_summary.schedule import create_channel_summary_coordinator_schedule
 from products.conversations.backend.temporal.schedule import create_support_reply_coordinator_schedule
 from products.engineering_analytics.backend.facade.temporal import (
     create_ci_signals_coordinator_schedule,
@@ -837,6 +838,7 @@ schedules = [
     create_autoresearch_daily_schedule,
     create_signals_scout_coordinator_schedule,
     create_support_reply_coordinator_schedule,
+    create_channel_summary_coordinator_schedule,
     create_replay_vision_reconciler_schedule,
     create_replay_vision_estimates_schedule,
     create_github_job_logs_coordinator_schedule,

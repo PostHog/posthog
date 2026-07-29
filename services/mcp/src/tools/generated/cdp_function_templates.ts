@@ -46,7 +46,7 @@ const cdpFunctionTemplatesList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/pipeline/templates')
+        return await withPostHogUrl(context, filtered, '/pipeline/new')
     },
 })
 

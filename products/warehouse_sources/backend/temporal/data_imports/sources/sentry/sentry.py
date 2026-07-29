@@ -1,7 +1,7 @@
 import re
 import dataclasses
 from collections.abc import Callable, Iterable, Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
 from urllib.parse import quote, urljoin
 
@@ -11,7 +11,6 @@ from requests import Request, Response
 from requests.exceptions import HTTPError, JSONDecodeError, RequestException
 from tenacity import RetryCallState, retry, retry_if_exception_type, retry_if_result, stop_after_attempt
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import (
     coerce_datetime_to_utc,
 )
@@ -31,11 +30,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     IncrementalConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.settings import (
     ALLOWED_SENTRY_API_BASE_URLS,
     DEFAULT_SENTRY_API_BASE_URL,
+    PROJECT_STAT_NAMES,
     REQUIRED_SENTRY_SCOPES,
     SENTRY_ENDPOINTS,
+    SENTRY_RETENTION_DAYS,
+    TRACE_ITEM_DATASETS,
+    TRACE_ITEM_STATS_TYPES,
     SentryEndpointConfig,
 )
 
@@ -121,6 +125,41 @@ def _sentry_incremental_window(cursor_path: str) -> IncrementalConfig:
         "end_value": _start_param_for_sentry(datetime.now(UTC)),
         "convert": _start_param_for_sentry,
     }
+
+
+def _retention_floor(now: datetime) -> datetime:
+    return now - timedelta(days=SENTRY_RETENTION_DAYS)
+
+
+def _retention_bounded_start_param(value: Any) -> str:
+    """Format a datetime-like value clamped to Sentry's retention window.
+
+    Sessions, stats, replays and Discover all reject a range that reaches further
+    back than retention, so the 1970 sentinel used for issues would fail the first
+    sync outright.
+    """
+    now = datetime.now(UTC)
+    floor = _retention_floor(now)
+    parsed = _parse_datetime_value(value)
+    bounded = floor if parsed is None else min(max(parsed, floor), now)
+    return bounded.strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def _sentry_retention_incremental_window(cursor_path: str) -> IncrementalConfig:
+    now = datetime.now(UTC)
+    return {
+        "cursor_path": cursor_path,
+        "start_param": "start",
+        "end_param": "end",
+        "initial_value": _retention_bounded_start_param(_retention_floor(now)),
+        "end_value": _start_param_for_sentry(now),
+        "convert": _retention_bounded_start_param,
+    }
+
+
+def _retention_window(incremental_value: Any = None) -> tuple[str, str]:
+    now = datetime.now(UTC)
+    return _retention_bounded_start_param(incremental_value), _start_param_for_sentry(now)
 
 
 def _parse_next_link(link_header: str) -> str | None:
@@ -489,6 +528,355 @@ def _iter_issue_tag_values_rows(
 
 
 # ---------------------------------------------------------------------------
+# Endpoints whose payload needs reshaping before it can be a table
+# ---------------------------------------------------------------------------
+
+# Sentry answers a request for a product surface the organization doesn't have with a
+# 400, so an unavailable trace item dataset is indistinguishable from a rejected param.
+_UNAVAILABLE_DATASET_STATUSES = (400, 403, 404)
+# Per-project surfaces only ever go missing through permissions or an absent config.
+_MISSING_PROJECT_RESOURCE_STATUSES = (403, 404)
+
+
+def _iter_rows_tolerating_unavailable(
+    rows: Iterator[dict[str, Any]],
+    endpoint: str,
+    skippable_statuses: tuple[int, ...],
+    **log_context: Any,
+) -> Iterator[dict[str, Any]]:
+    """Yield rows, treating the given statuses as "this slice isn't available here".
+
+    Several of the newer product surfaces are gated per organization or per project, so
+    one unavailable slice must not fail the whole table.
+    """
+    try:
+        yield from rows
+    except HTTPError as exc:
+        response = exc.response
+        if response is not None and response.status_code in skippable_statuses:
+            logger.warning(
+                "sentry_source.endpoint_slice_unavailable_skipped",
+                endpoint=endpoint,
+                status_code=response.status_code,
+                **log_context,
+            )
+            return
+        raise
+
+
+def _series_value(series: Any, index: int) -> Any:
+    if not isinstance(series, list) or index >= len(series):
+        return None
+    return series[index]
+
+
+def _group_key(by: dict[str, Any], key: str) -> str:
+    value = by.get(key)
+    # Grouped dimensions land in the primary key, and Delta merges never match on a
+    # null, so an absent dimension becomes an empty string rather than None.
+    return "" if value is None else str(value)
+
+
+def _endpoint_path(endpoint: str, **values: str) -> str:
+    """Resolve an endpoint's configured path so `settings.py` stays the only place paths live."""
+    return SENTRY_ENDPOINTS[endpoint].path.format(**values)
+
+
+def _fetch_json(base_api_url: str, path: str, headers: dict[str, str], params: dict[str, Any]) -> Any:
+    url = urljoin(f"{base_api_url}/", path.lstrip("/"))
+    response = _request_with_retry(url=url, headers=headers, params=params)
+    response.raise_for_status()
+    return response.json()
+
+
+def _iter_sessions_rows(
+    base_api_url: str,
+    headers: dict[str, str],
+    organization_slug: str,
+    incremental_value: Any = None,
+) -> Iterator[dict[str, Any]]:
+    """Release health sessions, flattened to one row per interval per group."""
+    start, end = _retention_window(incremental_value)
+    payload = _fetch_json(
+        base_api_url,
+        _endpoint_path("sessions", organization_slug=organization_slug),
+        headers,
+        {
+            "field": ["sum(session)", "count_unique(user)"],
+            "groupBy": ["project", "release", "environment", "session.status"],
+            "interval": "1d",
+            "start": start,
+            "end": end,
+        },
+    )
+
+    intervals = payload.get("intervals") or []
+    for group in payload.get("groups") or []:
+        by = group.get("by") or {}
+        series = group.get("series") or {}
+        for index, interval_start in enumerate(intervals):
+            yield {
+                "interval_start": interval_start,
+                "project": _group_key(by, "project"),
+                "release": _group_key(by, "release"),
+                "environment": _group_key(by, "environment"),
+                "session_status": _group_key(by, "session.status"),
+                "sum_session": _series_value(series.get("sum(session)"), index),
+                "count_unique_user": _series_value(series.get("count_unique(user)"), index),
+            }
+
+
+def _iter_organization_stats_rows(
+    base_api_url: str,
+    headers: dict[str, str],
+    organization_slug: str,
+    incremental_value: Any = None,
+) -> Iterator[dict[str, Any]]:
+    """Org-wide accepted/dropped event volume, flattened to one row per interval per group.
+
+    ``project`` is deliberately not in ``groupBy``: Sentry collapses the series into a
+    single period total when it is, which would make the interval column meaningless.
+    Per-project volume lives in ``organization_stats_summary``.
+    """
+    start, end = _retention_window(incremental_value)
+    payload = _fetch_json(
+        base_api_url,
+        _endpoint_path("organization_stats", organization_slug=organization_slug),
+        headers,
+        {
+            "field": "sum(quantity)",
+            "groupBy": ["outcome", "category", "reason"],
+            "interval": "1d",
+            "start": start,
+            "end": end,
+        },
+    )
+
+    intervals = payload.get("intervals") or []
+    for group in payload.get("groups") or []:
+        by = group.get("by") or {}
+        series = group.get("series") or {}
+        for index, interval_start in enumerate(intervals):
+            yield {
+                "interval_start": interval_start,
+                "outcome": _group_key(by, "outcome"),
+                "category": _group_key(by, "category"),
+                "reason": _group_key(by, "reason"),
+                "quantity": _series_value(series.get("sum(quantity)"), index),
+            }
+
+
+def _iter_organization_stats_summary_rows(
+    base_api_url: str,
+    headers: dict[str, str],
+    organization_slug: str,
+) -> Iterator[dict[str, Any]]:
+    """Per-project event volume for the retention window, one row per project per category."""
+    payload = _fetch_json(
+        base_api_url,
+        _endpoint_path("organization_stats_summary", organization_slug=organization_slug),
+        headers,
+        {"field": "sum(quantity)", "statsPeriod": f"{SENTRY_RETENTION_DAYS}d"},
+    )
+
+    period_start = payload.get("start")
+    period_end = payload.get("end")
+    for project in payload.get("projects") or []:
+        for stats in project.get("stats") or []:
+            totals = stats.get("totals") or {}
+            yield {
+                "project_id": project.get("id"),
+                "project_slug": project.get("slug"),
+                "category": stats.get("category"),
+                "outcomes": stats.get("outcomes"),
+                # Lifted out of `totals` so the column names survive normalization —
+                # `sum(quantity)` would otherwise land as an unreadable nested key.
+                "quantity": totals.get("sum(quantity)"),
+                "dropped": totals.get("dropped"),
+                "period_start": period_start,
+                "period_end": period_end,
+            }
+
+
+def _iter_trace_item_attributes_rows(
+    base_api_url: str,
+    headers: dict[str, str],
+    organization_slug: str,
+) -> Iterator[dict[str, Any]]:
+    """Attribute keys available on each trace item dataset (spans, logs, ...)."""
+    for dataset in TRACE_ITEM_DATASETS:
+        rows = _iter_endpoint_rows(
+            base_api_url=base_api_url,
+            path=_endpoint_path("trace_item_attributes", organization_slug=organization_slug),
+            headers=headers,
+            params={"dataset": dataset},
+            max_pages=_MAX_PAGES_PER_PARENT,
+        )
+        for row in _iter_rows_tolerating_unavailable(
+            rows, "trace_item_attributes", _UNAVAILABLE_DATASET_STATUSES, dataset=dataset
+        ):
+            row["dataset"] = dataset
+            yield row
+
+
+def _iter_trace_item_stats_rows(
+    base_api_url: str,
+    headers: dict[str, str],
+    organization_slug: str,
+) -> Iterator[dict[str, Any]]:
+    """Attribute value distributions over trace items, flattened to one row per label."""
+
+    def _distributions(item_type: str) -> Iterator[dict[str, Any]]:
+        payload = _fetch_json(
+            base_api_url,
+            _endpoint_path("trace_item_stats", organization_slug=organization_slug),
+            headers,
+            {"statsType": "attributeDistributions", "itemType": item_type},
+        )
+        for entry in payload.get("data") or []:
+            distributions = (entry.get("attributeDistributions") or {}).get("data") or {}
+            for attribute, buckets in distributions.items():
+                for bucket in buckets or []:
+                    yield {
+                        "item_type": item_type,
+                        "attribute": attribute,
+                        "label": bucket.get("label"),
+                        "value": bucket.get("value"),
+                    }
+
+    for item_type in TRACE_ITEM_STATS_TYPES:
+        yield from _iter_rows_tolerating_unavailable(
+            _distributions(item_type), "trace_item_stats", _UNAVAILABLE_DATASET_STATUSES, item_type=item_type
+        )
+
+
+def _iter_projects(base_api_url: str, headers: dict[str, str], organization_slug: str) -> Iterator[dict[str, Any]]:
+    return _iter_endpoint_rows(
+        base_api_url=base_api_url,
+        path=_endpoint_path("projects", organization_slug=organization_slug),
+        headers=headers,
+        params={"limit": 100},
+    )
+
+
+def _iter_project_ownership_rows(
+    base_api_url: str,
+    headers: dict[str, str],
+    organization_slug: str,
+) -> Iterator[dict[str, Any]]:
+    """Issue-owner rules, one row per project (the endpoint returns a single object)."""
+
+    def _ownership(project_slug: str) -> Iterator[dict[str, Any]]:
+        payload = _fetch_json(
+            base_api_url,
+            _endpoint_path(
+                "project_ownership",
+                organization_slug=organization_slug,
+                project_slug=quote(project_slug, safe=""),
+            ),
+            headers,
+            {},
+        )
+        if isinstance(payload, dict):
+            yield payload
+
+    for project in _iter_projects(base_api_url, headers, organization_slug):
+        project_slug = project.get("slug")
+        if not isinstance(project_slug, str) or not project_slug:
+            continue
+        for row in _iter_rows_tolerating_unavailable(
+            _ownership(project_slug),
+            "project_ownership",
+            _MISSING_PROJECT_RESOURCE_STATUSES,
+            project_slug=project_slug,
+        ):
+            row["project_id"] = project.get("id")
+            row["project_slug"] = project_slug
+            yield row
+
+
+def _epoch_seconds(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int | float):
+        return int(value)
+    parsed = _parse_datetime_value(value)
+    if parsed is not None:
+        return int(parsed.timestamp())
+    return None
+
+
+def _iter_project_stats_rows(
+    base_api_url: str,
+    headers: dict[str, str],
+    organization_slug: str,
+    incremental_value: Any = None,
+) -> Iterator[dict[str, Any]]:
+    """Per-project event counts, flattened from Sentry's [timestamp, value] point pairs."""
+    now = datetime.now(UTC)
+    floor = int(_retention_floor(now).timestamp())
+    requested_since = _epoch_seconds(incremental_value)
+    since = floor if requested_since is None else min(max(requested_since, floor), int(now.timestamp()))
+    until = int(now.timestamp())
+
+    def _points(project_slug: str, stat: str) -> Iterator[dict[str, Any]]:
+        payload = _fetch_json(
+            base_api_url,
+            _endpoint_path(
+                "project_stats",
+                organization_slug=organization_slug,
+                project_slug=quote(project_slug, safe=""),
+            ),
+            headers,
+            {"stat": stat, "resolution": "1d", "since": since, "until": until},
+        )
+        for point in payload or []:
+            if not isinstance(point, list) or len(point) < 2:
+                continue
+            yield {"stat": stat, "timestamp": point[0], "value": point[1]}
+
+    for project in _iter_projects(base_api_url, headers, organization_slug):
+        project_slug = project.get("slug")
+        if not isinstance(project_slug, str) or not project_slug:
+            continue
+        for stat in PROJECT_STAT_NAMES:
+            for row in _iter_rows_tolerating_unavailable(
+                _points(project_slug, stat),
+                "project_stats",
+                _MISSING_PROJECT_RESOURCE_STATUSES,
+                project_slug=project_slug,
+                stat=stat,
+            ):
+                row["project_id"] = project.get("id")
+                row["project_slug"] = project_slug
+                yield row
+
+
+def _custom_endpoint_rows(
+    endpoint: str,
+    base_api_url: str,
+    headers: dict[str, str],
+    organization_slug: str,
+    incremental_value: Any = None,
+) -> Iterator[dict[str, Any]]:
+    if endpoint == "sessions":
+        return _iter_sessions_rows(base_api_url, headers, organization_slug, incremental_value)
+    if endpoint == "organization_stats":
+        return _iter_organization_stats_rows(base_api_url, headers, organization_slug, incremental_value)
+    if endpoint == "organization_stats_summary":
+        return _iter_organization_stats_summary_rows(base_api_url, headers, organization_slug)
+    if endpoint == "trace_item_attributes":
+        return _iter_trace_item_attributes_rows(base_api_url, headers, organization_slug)
+    if endpoint == "trace_item_stats":
+        return _iter_trace_item_stats_rows(base_api_url, headers, organization_slug)
+    if endpoint == "project_ownership":
+        return _iter_project_ownership_rows(base_api_url, headers, organization_slug)
+    if endpoint == "project_stats":
+        return _iter_project_stats_rows(base_api_url, headers, organization_slug, incremental_value)
+    raise ValueError(f"No custom iterator registered for endpoint '{endpoint}'")
+
+
+# ---------------------------------------------------------------------------
 # Credential validation
 # ---------------------------------------------------------------------------
 
@@ -542,15 +930,20 @@ def get_resource(
     incremental_field: str | None = None,
 ) -> EndpointResource:
     config = SENTRY_ENDPOINTS[endpoint]
-    if config.fanout or endpoint == "issue_tag_values":
+    if config.fanout or config.custom_iterator:
         raise ValueError(f"Fan-out endpoint '{endpoint}' must use the fan-out path")
 
-    params: dict[str, Any] = {"limit": config.page_size}
+    params: dict[str, Any] = {}
+    if config.page_size_param:
+        params[config.page_size_param] = config.page_size
+    params.update(config.params)
 
     endpoint_config: Endpoint = {
         "path": config.path.format(organization_slug=organization_slug),
         "params": params,
     }
+    if config.data_selector:
+        endpoint_config["data_selector"] = config.data_selector
 
     if endpoint == "issues":
         params["query"] = ""
@@ -559,6 +952,13 @@ def get_resource(
             endpoint_config["incremental"] = _sentry_incremental_window(
                 incremental_field or config.default_incremental_field or "lastSeen"
             )
+    elif should_use_incremental_field and config.incremental_fields:
+        window_factory = (
+            _sentry_retention_incremental_window if config.retention_bounded else _sentry_incremental_window
+        )
+        endpoint_config["incremental"] = window_factory(
+            incremental_field or config.default_incremental_field or "dateCreated"
+        )
 
     return {
         "name": config.name,
@@ -658,6 +1058,21 @@ def sentry_source(
             ),
         )
 
+    # Endpoints whose payload isn't a paginated row list (time series, per-project
+    # singletons) are reshaped by a bespoke iterator instead.
+    if endpoint_config.custom_iterator:
+        headers = _auth_headers(auth_token)
+        return _make_source_response(
+            endpoint_config,
+            lambda: _custom_endpoint_rows(
+                endpoint=endpoint,
+                base_api_url=base_api_url,
+                headers=headers,
+                organization_slug=organization_slug,
+                incremental_value=db_incremental_field_last_value if should_use_incremental_field else None,
+            ),
+        )
+
     # --- Generic parent->child fan-out ---
     # Dependent resources don't currently support resume in the rest_source
     # framework; the manager is intentionally not threaded into this path.
@@ -676,6 +1091,7 @@ def sentry_source(
                 should_use_incremental_field=should_use_incremental_field,
                 incremental_field=incremental_field,
                 incremental_config_factory=_sentry_incremental_window,
+                page_size_param=endpoint_config.page_size_param,
             ),
         )
         # Sentry gates the service hooks API at the org level, so it 403s even
@@ -692,7 +1108,9 @@ def sentry_source(
         "client": _rest_api_client_config(base_api_url, auth_token),
         "resource_defaults": {
             "write_disposition": "replace",
-            "endpoint": {"params": {"limit": endpoint_config.page_size}},
+            "endpoint": {"params": {endpoint_config.page_size_param: endpoint_config.page_size}}
+            if endpoint_config.page_size_param
+            else {},
         },
         "resources": [
             get_resource(

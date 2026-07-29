@@ -53,8 +53,8 @@ pub async fn load_person_from_pg(
     .fetch_optional(pool)
     .await?;
 
-    histogram!("personhog_leader_pg_fallback_duration_seconds")
-        .record(start.elapsed().as_secs_f64());
+    histogram!("personhog_leader_pg_fallback_duration_ms")
+        .record(start.elapsed().as_secs_f64() * 1000.0);
 
     let Some(row) = row else {
         counter!("personhog_leader_pg_fallback_total", "outcome" => "not_found").increment(1);

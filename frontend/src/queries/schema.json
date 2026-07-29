@@ -1555,6 +1555,10 @@
                     "description": "Replace null aggregation results with zero.",
                     "type": "boolean"
                 },
+                "showTotalRow": {
+                    "description": "Show a total summing all Y series. Applies to line, bar, and area charts.",
+                    "type": "boolean"
+                },
                 "showValuesOnSeries": {
                     "description": "Render each data point's value as a label directly on the series.",
                     "type": "boolean"
@@ -1654,10 +1658,6 @@
                         "type": "string"
                     },
                     "type": "array"
-                },
-                "showTotalRow": {
-                    "description": "Show a total row at the bottom of the table.",
-                    "type": "boolean"
                 },
                 "transpose": {
                     "description": "Transpose rows and columns.",
@@ -13819,6 +13819,10 @@
         "ChartSettings": {
             "additionalProperties": false,
             "properties": {
+                "chartStyle": {
+                    "$ref": "#/definitions/ChartStyle",
+                    "description": "Chart rendering style overrides (line shape). Only applies to line and area charts."
+                },
                 "goalLines": {
                     "items": {
                         "$ref": "#/definitions/GoalLine"
@@ -17267,6 +17271,10 @@
         "DatabaseSchemaBatchExportTable": {
             "additionalProperties": false,
             "properties": {
+                "certification": {
+                    "$ref": "#/definitions/DatabaseSchemaTableCertification",
+                    "description": "Present only when the table or view carries a settled data catalog certification."
+                },
                 "fields": {
                     "additionalProperties": {
                         "$ref": "#/definitions/DatabaseSchemaField"
@@ -17293,6 +17301,10 @@
         "DatabaseSchemaDataWarehouseTable": {
             "additionalProperties": false,
             "properties": {
+                "certification": {
+                    "$ref": "#/definitions/DatabaseSchemaTableCertification",
+                    "description": "Present only when the table or view carries a settled data catalog certification."
+                },
                 "fields": {
                     "additionalProperties": {
                         "$ref": "#/definitions/DatabaseSchemaField"
@@ -17340,6 +17352,10 @@
         "DatabaseSchemaEndpointTable": {
             "additionalProperties": false,
             "properties": {
+                "certification": {
+                    "$ref": "#/definitions/DatabaseSchemaTableCertification",
+                    "description": "Present only when the table or view carries a settled data catalog certification."
+                },
                 "fields": {
                     "additionalProperties": {
                         "$ref": "#/definitions/DatabaseSchemaField"
@@ -17416,6 +17432,10 @@
         "DatabaseSchemaManagedViewTable": {
             "additionalProperties": false,
             "properties": {
+                "certification": {
+                    "$ref": "#/definitions/DatabaseSchemaTableCertification",
+                    "description": "Present only when the table or view carries a settled data catalog certification."
+                },
                 "fields": {
                     "additionalProperties": {
                         "$ref": "#/definitions/DatabaseSchemaField"
@@ -17462,6 +17482,10 @@
         "DatabaseSchemaMaterializedViewTable": {
             "additionalProperties": false,
             "properties": {
+                "certification": {
+                    "$ref": "#/definitions/DatabaseSchemaTableCertification",
+                    "description": "Present only when the table or view carries a settled data catalog certification."
+                },
                 "fields": {
                     "additionalProperties": {
                         "$ref": "#/definitions/DatabaseSchemaField"
@@ -17497,6 +17521,10 @@
         "DatabaseSchemaPostHogTable": {
             "additionalProperties": false,
             "properties": {
+                "certification": {
+                    "$ref": "#/definitions/DatabaseSchemaTableCertification",
+                    "description": "Present only when the table or view carries a settled data catalog certification."
+                },
                 "fields": {
                     "additionalProperties": {
                         "$ref": "#/definitions/DatabaseSchemaField"
@@ -17621,6 +17649,10 @@
         "DatabaseSchemaSystemTable": {
             "additionalProperties": false,
             "properties": {
+                "certification": {
+                    "$ref": "#/definitions/DatabaseSchemaTableCertification",
+                    "description": "Present only when the table or view carries a settled data catalog certification."
+                },
                 "fields": {
                     "additionalProperties": {
                         "$ref": "#/definitions/DatabaseSchemaField"
@@ -17672,9 +17704,37 @@
                 }
             ]
         },
+        "DatabaseSchemaTableCertification": {
+            "additionalProperties": false,
+            "properties": {
+                "certified_at": {
+                    "type": "string"
+                },
+                "certified_by": {
+                    "type": "string"
+                },
+                "notes": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/DatabaseSchemaTableCertificationStatus",
+                    "description": "Settled data catalog trust mark: 'certified' (prefer this source) or 'deprecated' (avoid it)."
+                }
+            },
+            "required": ["status"],
+            "type": "object"
+        },
+        "DatabaseSchemaTableCertificationStatus": {
+            "enum": ["certified", "deprecated"],
+            "type": "string"
+        },
         "DatabaseSchemaTableCommon": {
             "additionalProperties": false,
             "properties": {
+                "certification": {
+                    "$ref": "#/definitions/DatabaseSchemaTableCertification",
+                    "description": "Present only when the table or view carries a settled data catalog certification."
+                },
                 "fields": {
                     "additionalProperties": {
                         "$ref": "#/definitions/DatabaseSchemaField"
@@ -17713,6 +17773,10 @@
         "DatabaseSchemaViewTable": {
             "additionalProperties": false,
             "properties": {
+                "certification": {
+                    "$ref": "#/definitions/DatabaseSchemaTableCertification",
+                    "description": "Present only when the table or view carries a settled data catalog certification."
+                },
                 "fields": {
                     "additionalProperties": {
                         "$ref": "#/definitions/DatabaseSchemaField"
@@ -23915,7 +23979,12 @@
                 "Vturb",
                 "Meltwater",
                 "UserCom",
-                "Latitude"
+                "Latitude",
+                "Workato",
+                "SideShift",
+                "DuckLake",
+                "Starburst",
+                "Easybill"
             ],
             "type": "string"
         },
@@ -27537,6 +27606,7 @@
                 "firebase",
                 "jira",
                 "pinterest-ads",
+                "pardot",
                 "customerio-app",
                 "customerio-webhook",
                 "customerio-track",
@@ -28704,6 +28774,10 @@
                 },
                 "orderBy": {
                     "$ref": "#/definitions/LogsOrderBy"
+                },
+                "personId": {
+                    "description": "Show logs for a given person",
+                    "type": "string"
                 },
                 "resourceFingerprint": {
                     "type": "string"
@@ -34935,6 +35009,7 @@
                 "comments",
                 "conversations",
                 "customer_analytics",
+                "data_catalog",
                 "data_warehouse",
                 "data_warehouse_saved_queries",
                 "early_access_features",

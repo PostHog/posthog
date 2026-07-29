@@ -316,7 +316,11 @@ def format_person_query(cohort: Cohort, index: int) -> tuple[str, dict[str, Any]
         return "SELECT generateUUIDv4() as id WHERE 0 = 19", {}
 
     # Compile the cohort criteria via HogQLCohortQuery and embed the result as a person-id subquery.
-    cohort_query, cohort_context = hogql_cohort_subquery_sql(cohort, team=cohort.team)
+    # SECURITY-SENSITIVE: executes a saved, team-owned cohort definition with no acting user in
+    # scope - warehouse access is enforced when the definition is saved (CohortSerializer).
+    cohort_query, cohort_context = hogql_cohort_subquery_sql(
+        cohort, team=cohort.team, bypass_warehouse_access_control=True
+    )
     return _prefix_cohort_hogql_params(cohort_query, cohort_context.values, cohort=cohort, index=index)
 
 
@@ -636,6 +640,9 @@ def _cohort_distinct_ids_sql(cohort: Cohort, index: int, *, team: Team) -> tuple
         modifiers=_cohort_calculation_modifiers(),
         team=team,
         limit_context=LimitContext.COHORT_CALCULATION,
+        # SECURITY-SENSITIVE: executes a saved, team-owned cohort definition with no acting user
+        # in scope - warehouse access is enforced when the definition is saved (CohortSerializer).
+        bypass_warehouse_access_control=True,
         settings=HogQLGlobalSettings(),
     ).generate_clickhouse_sql()
     sql = _trim_trailing_settings(sql)
@@ -788,10 +795,18 @@ def _recalculate_cohortpeople_for_team(cohort: Cohort, pending_version: int, tea
         raise
 
 
-def hogql_cohort_subquery_sql(cohort: Cohort, *, team: Team) -> tuple[str, HogQLContext]:
+def hogql_cohort_subquery_sql(
+    cohort: Cohort,
+    *,
+    team: Team,
+    bypass_warehouse_access_control: bool = False,
+) -> tuple[str, HogQLContext]:
     from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
 
-    sql, hogql_context = HogQLCohortQuery(cohort=cohort, team=team).get_query_executor().generate_clickhouse_sql()
+    executor = HogQLCohortQuery(cohort=cohort, team=team).get_query_executor(
+        bypass_warehouse_access_control=bypass_warehouse_access_control
+    )
+    sql, hogql_context = executor.generate_clickhouse_sql()
 
     return _trim_trailing_settings(sql), hogql_context
 
@@ -810,7 +825,11 @@ def _recalculate_cohortpeople_for_team_hogql(
         history.save(update_fields=["finished_at", "count", "error", "error_code"])
         return 0
     else:
-        cohort_query, hogql_context = hogql_cohort_subquery_sql(cohort, team=team)
+        # SECURITY-SENSITIVE: recalculation always executes without warehouse access control.
+        # It is internal maintenance of a team-owned definition with no acting user - access is
+        # enforced when the filters are saved (CohortSerializer), and failing here would only
+        # silently freeze the cohort's membership.
+        cohort_query, hogql_context = hogql_cohort_subquery_sql(cohort, team=team, bypass_warehouse_access_control=True)
         cohort_params = hogql_context.values
 
     recalculate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_query)
@@ -1167,7 +1186,9 @@ def insert_actors_into_cohort_by_query(
 
 
 def insert_cohort_query_actors_into_ch(cohort: Cohort, *, team: Team):
-    context = HogQLContext(enable_select_queries=True, team_id=team.id)
+    # SECURITY-SENSITIVE: background population from the cohort's saved source query, with no
+    # acting user - the query was run by its author when they created the cohort from it.
+    context = HogQLContext(enable_select_queries=True, team_id=team.id, bypass_warehouse_access_control=True)
     query = print_cohort_hogql_query(cohort, context, team=team)
     insert_actors_into_cohort_by_query(cohort, query, {}, context, team_id=team.id)
 
@@ -1176,7 +1197,9 @@ def build_static_cohort_filters_query(cohort: Cohort, *, team: Team) -> tuple[st
     # Compile the cohort's criteria (cohort.properties) to ClickHouse SQL. The cohort is static, but
     # it's being populated for the first time, so we evaluate the criteria rather than reading the
     # (still-empty) static cohort table — HogQLCohortQuery builds from cohort.properties regardless of is_static.
-    cohort_query, hogql_context = hogql_cohort_subquery_sql(cohort, team=team)
+    # SECURITY-SENSITIVE: background population of a saved, team-owned definition with no acting
+    # user - warehouse access is enforced when the definition is saved (CohortSerializer).
+    cohort_query, hogql_context = hogql_cohort_subquery_sql(cohort, team=team, bypass_warehouse_access_control=True)
 
     # Params live on hogql_context.values, which the consumer already spreads — pass {} to avoid spreading twice.
     return f"SELECT id AS actor_id FROM ({cohort_query})", {}, hogql_context

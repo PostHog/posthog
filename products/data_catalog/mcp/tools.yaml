@@ -6,7 +6,7 @@
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
 category: Data catalog
 feature: data_catalog
-url_prefix: /data-catalog
+url_prefix: /
 ui_apps: {}
 tools:
     data-catalog-certification-certify:

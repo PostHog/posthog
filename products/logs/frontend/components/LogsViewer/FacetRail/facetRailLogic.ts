@@ -2,10 +2,11 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, redu
 
 import { LogSeverityLevel } from '~/queries/schema/schema-general'
 
+import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
 import type { UniversalFiltersGroup } from '../../../../../../frontend/src/types'
-import { FacetSource, toggleResourceAttributeFilter } from './facets'
+import { FacetSource, cycleResourceAttributeFilter, logFilterExclusions, setLogFilterExclusions } from './facets'
 
 export interface FacetRailLogicProps {
     id: string
@@ -30,6 +31,13 @@ export interface facetRailLogicActions {
     ) => {
         filterGroup: UniversalFiltersGroup
         openFilterOnInsert: boolean
+    } // logsViewerFiltersLogic
+    setFilters: (
+        filters: Partial<LogsViewerFilters>,
+        pushToHistory?: boolean | undefined
+    ) => {
+        filters: Partial<LogsViewerFilters>
+        pushToHistory: boolean
     } // logsViewerFiltersLogic
     setServiceNames: (serviceNames: string[]) => {
         serviceNames: string[]
@@ -72,7 +80,10 @@ export const facetRailLogic = kea<facetRailLogicType>([
     key((props) => props.id),
 
     connect((props: FacetRailLogicProps) => ({
-        actions: [logsViewerFiltersLogic({ id: props.id }), ['setSeverityLevels', 'setServiceNames', 'setFilterGroup']],
+        actions: [
+            logsViewerFiltersLogic({ id: props.id }),
+            ['setSeverityLevels', 'setServiceNames', 'setFilterGroup', 'setFilters'],
+        ],
     })),
 
     actions({
@@ -106,10 +117,48 @@ export const facetRailLogic = kea<facetRailLogicType>([
         toggleFacetValue: ({ source, value }) => {
             const { severityLevels, serviceNames, filterGroup } = logsViewerFiltersLogic({ id: props.id }).values
             if (source.type === 'resourceAttribute') {
-                // Selection lives as a log_resource_attribute filter inside the group.
-                actions.setFilterGroup(toggleResourceAttributeFilter(filterGroup, source.key, value), false)
+                // Selection lives as log_resource_attribute filters inside the group; a click
+                // cycles the value included → excluded → cleared.
+                actions.setFilterGroup(cycleResourceAttributeFilter(filterGroup, source.key, value), false)
             } else if (source.filterKey === 'severityLevels') {
-                actions.setSeverityLevels(toggleMembership(severityLevels, value as LogSeverityLevel))
+                // Split representation: includes live in the dedicated severityLevels field,
+                // exclusions in an is_not log filter inside the group. A click cycles
+                // included → excluded → cleared across the two stores.
+                const { exclusionKey } = source
+                if (!exclusionKey) {
+                    actions.setSeverityLevels(toggleMembership(severityLevels, value as LogSeverityLevel))
+                    return
+                }
+                const included = severityLevels ?? []
+                const excluded = logFilterExclusions(filterGroup, exclusionKey)
+                if (included.includes(value as LogSeverityLevel)) {
+                    // included → excluded moves the value across both stores at once (out of the
+                    // dedicated severityLevels field, into an is_not log filter). Write them in a
+                    // single setFilters so the query, URL sync, and filter history all see the
+                    // final state, instead of two setters each firing against a half-applied cycle.
+                    actions.setFilters(
+                        {
+                            severityLevels: included.filter((v) => v !== value),
+                            filterGroup: setLogFilterExclusions(
+                                filterGroup,
+                                exclusionKey,
+                                excluded.includes(value) ? excluded : [...excluded, value]
+                            ),
+                        },
+                        false
+                    )
+                } else if (excluded.includes(value)) {
+                    actions.setFilterGroup(
+                        setLogFilterExclusions(
+                            filterGroup,
+                            exclusionKey,
+                            excluded.filter((v) => v !== value)
+                        ),
+                        false
+                    )
+                } else {
+                    actions.setSeverityLevels([...included, value as LogSeverityLevel])
+                }
             } else if (source.filterKey === 'serviceNames') {
                 actions.setServiceNames(toggleMembership(serviceNames, value))
             } else {

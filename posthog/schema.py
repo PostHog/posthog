@@ -67,6 +67,7 @@ from posthog.schema_enums import (
     CustomChannelField as CustomChannelField,
     CustomChannelOperator as CustomChannelOperator,
     DatabaseSchemaManagedViewTableKind as DatabaseSchemaManagedViewTableKind,
+    DatabaseSchemaTableCertificationStatus as DatabaseSchemaTableCertificationStatus,
     DatabaseSchemaTableType as DatabaseSchemaTableType,
     DatabaseSerializedFieldType as DatabaseSerializedFieldType,
     DataColorToken as DataColorToken,
@@ -3032,6 +3033,10 @@ class AssistantDataVisualizationChartSettings(BaseModel):
     )
     showLegend: bool | None = Field(default=None, description="Show the chart legend.")
     showNullsAsZero: bool | None = Field(default=None, description="Replace null aggregation results with zero.")
+    showTotalRow: bool | None = Field(
+        default=None,
+        description=("Show a total summing all Y series. Applies to line, bar, and area charts."),
+    )
     showValuesOnSeries: bool | None = Field(
         default=None,
         description="Render each data point's value as a label directly on the series.",
@@ -3059,7 +3064,6 @@ class AssistantDataVisualizationTableSettings(BaseModel):
         description=("Columns to display and their order. Omit to show every column returned by the query."),
     )
     pinnedColumns: list[str] | None = Field(default=None, description="Column names to pin to the left of the table.")
-    showTotalRow: bool | None = Field(default=None, description="Show a total row at the bottom of the table.")
     transpose: bool | None = Field(default=None, description="Transpose rows and columns.")
 
 
@@ -4394,31 +4398,26 @@ class DatabaseSchemaField(BaseModel):
     type: DatabaseSerializedFieldType
 
 
-class DatabaseSchemaPostHogTable(BaseModel):
+class DatabaseSchemaTableCertification(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    fields: dict[str, DatabaseSchemaField]
-    id: str
-    name: str
-    row_count: float | None = None
-    type: Literal["posthog"] = "posthog"
-
-
-class DatabaseSchemaSystemTable(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
+    certified_at: str | None = None
+    certified_by: str | None = None
+    notes: str | None = None
+    status: DatabaseSchemaTableCertificationStatus = Field(
+        ...,
+        description=("Settled data catalog trust mark: 'certified' (prefer this source) or 'deprecated' (avoid it)."),
     )
-    fields: dict[str, DatabaseSchemaField]
-    id: str
-    name: str
-    row_count: float | None = None
-    type: Literal["system"] = "system"
 
 
 class DatabaseSchemaTableCommon(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    certification: DatabaseSchemaTableCertification | None = Field(
+        default=None,
+        description=("Present only when the table or view carries a settled data catalog certification."),
     )
     fields: dict[str, DatabaseSchemaField]
     id: str
@@ -13583,6 +13582,10 @@ class ChartSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    chartStyle: ChartStyle | None = Field(
+        default=None,
+        description=("Chart rendering style overrides (line shape). Only applies to line and area charts."),
+    )
     goalLines: list[GoalLine] | None = None
     heatmap: HeatmapSettings | None = None
     leftYAxisSettings: YAxisSettings | None = None
@@ -14724,6 +14727,10 @@ class DatabaseSchemaBatchExportTable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    certification: DatabaseSchemaTableCertification | None = Field(
+        default=None,
+        description=("Present only when the table or view carries a settled data catalog certification."),
+    )
     fields: dict[str, DatabaseSchemaField]
     id: str
     name: str
@@ -14734,6 +14741,10 @@ class DatabaseSchemaBatchExportTable(BaseModel):
 class DatabaseSchemaDataWarehouseTable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    certification: DatabaseSchemaTableCertification | None = Field(
+        default=None,
+        description=("Present only when the table or view carries a settled data catalog certification."),
     )
     fields: dict[str, DatabaseSchemaField]
     format: str | None = Field(
@@ -14756,6 +14767,36 @@ class DatabaseSchemaDataWarehouseTable(BaseModel):
         default=None,
         description=("Absent for a dual-mode source's virtual tables, which have no synced S3 backing."),
     )
+
+
+class DatabaseSchemaPostHogTable(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    certification: DatabaseSchemaTableCertification | None = Field(
+        default=None,
+        description=("Present only when the table or view carries a settled data catalog certification."),
+    )
+    fields: dict[str, DatabaseSchemaField]
+    id: str
+    name: str
+    row_count: float | None = None
+    type: Literal["posthog"] = "posthog"
+
+
+class DatabaseSchemaSystemTable(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    certification: DatabaseSchemaTableCertification | None = Field(
+        default=None,
+        description=("Present only when the table or view carries a settled data catalog certification."),
+    )
+    fields: dict[str, DatabaseSchemaField]
+    id: str
+    name: str
+    row_count: float | None = None
+    type: Literal["system"] = "system"
 
 
 class DocumentSimilarityQueryResponse(BaseModel):
@@ -24420,6 +24461,10 @@ class DatabaseSchemaEndpointTable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    certification: DatabaseSchemaTableCertification | None = Field(
+        default=None,
+        description=("Present only when the table or view carries a settled data catalog certification."),
+    )
     fields: dict[str, DatabaseSchemaField]
     id: str
     name: str
@@ -24432,6 +24477,10 @@ class DatabaseSchemaEndpointTable(BaseModel):
 class DatabaseSchemaManagedViewTable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    certification: DatabaseSchemaTableCertification | None = Field(
+        default=None,
+        description=("Present only when the table or view carries a settled data catalog certification."),
     )
     fields: dict[str, DatabaseSchemaField]
     id: str
@@ -24447,6 +24496,10 @@ class DatabaseSchemaMaterializedViewTable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    certification: DatabaseSchemaTableCertification | None = Field(
+        default=None,
+        description=("Present only when the table or view carries a settled data catalog certification."),
+    )
     fields: dict[str, DatabaseSchemaField]
     id: str
     last_run_at: str | None = None
@@ -24460,6 +24513,10 @@ class DatabaseSchemaMaterializedViewTable(BaseModel):
 class DatabaseSchemaViewTable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    certification: DatabaseSchemaTableCertification | None = Field(
+        default=None,
+        description=("Present only when the table or view carries a settled data catalog certification."),
     )
     fields: dict[str, DatabaseSchemaField]
     id: str
@@ -24916,6 +24973,7 @@ class LogsQuery(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     orderBy: LogsOrderBy | None = None
+    personId: str | None = Field(default=None, description="Show logs for a given person")
     resourceFingerprint: str | None = None
     response: LogsQueryResponse | None = None
     searchTerm: str | None = None
