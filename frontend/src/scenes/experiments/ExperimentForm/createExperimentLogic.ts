@@ -287,7 +287,7 @@ export interface createExperimentLogicMeta {
                 feature_flag_filters?: FeatureFlagFilters
             }
         ) => 'create' | 'link'
-        replayVisionEnabled: (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet) => boolean
+        replayVisionEnabled: (featureFlags: FeatureFlagsSet) => boolean
     }
 }
 
