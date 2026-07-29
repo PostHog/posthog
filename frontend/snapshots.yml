@@ -7747,9 +7747,13 @@ snapshots:
     scenes-other-onboarding-shared-wizard-sync-card--local-running--light:
         hash: v1.k794b7964.644de0941a464befbdd1c1173307918762ec7bf580d08b6bb73e0170da71ab57.roPN1jIIWT47y5Xh3Gluqd744nCUVhJkfniX1oq__3M
     scenes-other-onboarding-shared-wizard-sync-card--local-waiting-for-input--dark:
-        hash: v1.k794b7964.a869a7db1cef69d62dcab3587b818b010092de15f5f1d8946192525f5385ba49.XXiD4m8UHJIJR7EW51xd2WGSY4PVUGmkvLCqi9XVbds
+        hash: v1.k794b7964.882a0f73b32a910ae1582ef69720f025078bc35867e04d6a03e4931999999ae1.udwLNxP_oZh1qhyS1Ce07RtoSfNpckSBGlOxC41rVp0
     scenes-other-onboarding-shared-wizard-sync-card--local-waiting-for-input--light:
-        hash: v1.k794b7964.5a2460cdb0c5aa2c9d8b3cf15b2fb6d620c642d7ebecc195f631a8f3ad11d6e2.djzXkWSsGV5ycQhefNm0U22G9oNI_6x_6NiTKf2RooU
+        hash: v1.k794b7964.9369015b4d74aebf27366e91a570c6d59f1cf2424f3b4c8de7bab1bf2a6cee16.Xu1mzkKb3bbUjVa7FC-lADj0seNneKJtEBvNaPcZwvI
+    scenes-other-onboarding-shared-wizard-sync-card--local-waiting-for-sensitive-input--dark:
+        hash: v1.k794b7964.f074463c40fd8b34d0ca55c651b409fb35668ecc69fefb4e631208b3f5db1bde.zioGxlu5eKa64EXl2wzmAT4K-EC_0eK5uoUMxZIu98Y
+    scenes-other-onboarding-shared-wizard-sync-card--local-waiting-for-sensitive-input--light:
+        hash: v1.k794b7964.57524d53d6835dd9472c87a6aca291266fb8e8971d95ba311842386f94347fc8.sMjUBzJVzLkCThwa5LT8ntVK63w5tJ0lYltmn2pD70E
     scenes-other-onboarding-shared-wizard-sync-card--playground--dark:
         hash: v1.k794b7964.c69534afe39d0311b0ed3247beb145b94381706a25f2e6c7b5d3415c87564375.ViSw0_amXLmDYynCEuR_kgnY5Ncm4ULveglgIJoTIaU
     scenes-other-onboarding-shared-wizard-sync-card--playground--light:
