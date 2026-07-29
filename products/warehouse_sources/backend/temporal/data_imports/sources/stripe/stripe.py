@@ -410,6 +410,28 @@ class StripeResumeConfig:
     starting_after: str
 
 
+def _scrub_client_secrets(obj: Any) -> Any:
+    """Recursively strip Stripe ``client_secret`` values before an object is persisted to a warehouse table.
+
+    PaymentIntent, SetupIntent, and embedded/custom Checkout Session objects carry a ``client_secret``
+    that authorizes Stripe's client-side API to retrieve or confirm that specific payment or setup flow.
+    Stripe requires it never be stored, logged, or exposed to anyone but the customer it belongs to, so
+    persisting it into a queryable table would let anyone with warehouse access act on another customer's
+    flow. Event objects embed full copies of these resources under ``data.object`` and
+    ``data.previous_attributes``, so the walk descends into every nested mapping and list rather than only
+    checking the top level.
+
+    Returns scrubbed plain ``dict``/``list`` structures (scalars pass through unchanged). ``StripeObject``
+    is a ``dict`` subclass, so nested SDK objects flatten into plain dicts, which the batcher already
+    serializes the same way it handles the nested-resource dicts.
+    """
+    if isinstance(obj, Mapping):
+        return {key: _scrub_client_secrets(value) for key, value in obj.items() if key != "client_secret"}
+    if isinstance(obj, list):
+        return [_scrub_client_secrets(value) for value in obj]
+    return obj
+
+
 def _batch_and_yield(
     objects: Any,
     batcher: Batcher,
@@ -423,7 +445,7 @@ def _batch_and_yield(
         if stop_at_or_before is not None and incremental_field_name is not None:
             if obj[incremental_field_name] <= stop_at_or_before:
                 break
-        batcher.batch(obj)
+        batcher.batch(_scrub_client_secrets(obj))
         while batcher.should_yield():
             yield batcher.get_table()
 
@@ -636,10 +658,12 @@ def get_rows(
                     )
                     for nested_obj in stripe_nested_objects.auto_paging_iter():
                         batcher.batch(
-                            {
-                                **nested_obj,
-                                **{resource.nested_parent_param: parent_obj_id},
-                            }
+                            _scrub_client_secrets(
+                                {
+                                    **nested_obj,
+                                    **{resource.nested_parent_param: parent_obj_id},
+                                }
+                            )
                         )
 
                         # A single batch can split into several ready chunks, so drain them all
@@ -667,7 +691,7 @@ def get_rows(
                 resource.method, params={**default_params, **resource.params, **resume_params}
             )
             for obj in stripe_objects.auto_paging_iter():
-                batcher.batch(obj)
+                batcher.batch(_scrub_client_secrets(obj))
 
                 while batcher.should_yield():
                     py_table = batcher.get_table()
@@ -746,7 +770,7 @@ def _webhook_table_transformer(table: pa.Table) -> pa.Table:
         if existing is None or ts > existing[0]:
             best_by_id[obj_id] = (ts, obj)
 
-    rows = [obj for _, obj in best_by_id.values()]
+    rows = [_scrub_client_secrets(obj) for _, obj in best_by_id.values()]
     return table_from_py_list(rows)
 
 

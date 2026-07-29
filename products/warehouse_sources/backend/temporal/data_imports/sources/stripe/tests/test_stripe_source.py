@@ -70,6 +70,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.str
     _is_non_list_stripe_response,
     _is_truncated_stripe_list_response,
     _RateLimitRetryingRequestsClient,
+    _scrub_client_secrets,
     get_rows,
 )
 
@@ -465,6 +466,80 @@ class TestInvoiceListWithAllLines:
 
         with pytest.raises(stripe_lib.InvalidRequestError):
             list(InvoiceListWithAllLines(client, params={}, logger=MagicMock()).auto_paging_iter())
+
+
+class TestScrubClientSecrets:
+    @parameterized.expand(
+        [
+            # PaymentIntent / SetupIntent expose client_secret at the top level.
+            (
+                {"id": "pi_1", "client_secret": "pi_1_secret_abc", "amount": 500},
+                {"id": "pi_1", "amount": 500},
+            ),
+            # A Checkout Session nests the flow's client_secret alongside other fields.
+            (
+                {"id": "cs_1", "client_secret": "cs_1_secret", "url": "https://checkout"},
+                {"id": "cs_1", "url": "https://checkout"},
+            ),
+            # Event objects embed a full copy of the resource under data.object AND the pre-change
+            # values under data.previous_attributes — both must be scrubbed.
+            (
+                {
+                    "id": "evt_1",
+                    "type": "payment_intent.succeeded",
+                    "data": {
+                        "object": {"id": "pi_2", "client_secret": "pi_2_secret", "status": "succeeded"},
+                        "previous_attributes": {"client_secret": "pi_2_secret", "status": "processing"},
+                    },
+                },
+                {
+                    "id": "evt_1",
+                    "type": "payment_intent.succeeded",
+                    "data": {
+                        "object": {"id": "pi_2", "status": "succeeded"},
+                        "previous_attributes": {"status": "processing"},
+                    },
+                },
+            ),
+            # Secrets buried inside a list are reached too.
+            (
+                {"id": "obj_1", "items": [{"client_secret": "leak", "keep": 1}]},
+                {"id": "obj_1", "items": [{"keep": 1}]},
+            ),
+            # Nothing to scrub — the object passes through unchanged.
+            (
+                {"id": "cus_1", "email": "a@b.com"},
+                {"id": "cus_1", "email": "a@b.com"},
+            ),
+        ]
+    )
+    def test_removes_client_secret_everywhere(self, obj, expected):
+        assert _scrub_client_secrets(obj) == expected
+
+    def test_get_rows_scrubs_client_secret_from_flat_resource(self):
+        # Wiring guard: PaymentIntent/SetupIntent/CheckoutSession rows flow through the flat get_rows
+        # path, so a dropped scrub there would persist the secret to the warehouse table.
+        objects = [{"id": "pi_1", "created": 1700000000, "client_secret": "pi_1_secret_abc", "amount": 500}]
+        resource = StripeResource(method=lambda params: cast(ListObject[Any], _FakeStripeList(objects)))
+        resumable_source_manager = MagicMock()
+        resumable_source_manager.can_resume.return_value = False
+
+        with patch.object(stripe_module, "_build_resources", return_value={PAYMENT_INTENT_RESOURCE_NAME: resource}):
+            tables = list(
+                get_rows(
+                    api_key="sk_test_123",
+                    endpoint=PAYMENT_INTENT_RESOURCE_NAME,
+                    account_id=None,
+                    db_incremental_field_last_value=None,
+                    db_incremental_field_earliest_value=None,
+                    logger=MagicMock(),
+                    resumable_source_manager=resumable_source_manager,
+                    api_version=STRIPE_API_VERSION_ACACIA,
+                )
+            )
+
+        rows = [row for table in tables for row in table.to_pylist()]
+        assert rows == [{"id": "pi_1", "created": 1700000000, "amount": 500}]
 
 
 class TestSubscriptionPageSize:
