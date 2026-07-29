@@ -99,7 +99,7 @@ class VisionQuotaViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         request=None,
         responses={200: VisionQuotaSerializer},
     )
-    @action(detail=False, methods=["post"], url_path="raise_limit", pagination_class=None)
+    @action(detail=False, methods=["post"], url_path="raise_limit")
     def raise_limit(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Lift the organization's Replay vision credit limit by one step, up to the self-serve ceiling.
 

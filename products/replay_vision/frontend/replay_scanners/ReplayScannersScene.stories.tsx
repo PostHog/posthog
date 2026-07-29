@@ -100,6 +100,9 @@ const quota: VisionQuotaApi = {
     projected_monthly_credits: 5200,
     period_start: '2026-05-01T00:00:00Z',
     period_end: '2026-06-01T00:00:00Z',
+    billing_managed: false,
+    self_serve_credit_ceiling: 150000,
+    can_raise_credit_limit: true,
 }
 
 const meta: Meta = {
