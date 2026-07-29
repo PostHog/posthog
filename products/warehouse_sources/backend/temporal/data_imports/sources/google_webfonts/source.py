@@ -1,7 +1,5 @@
 from typing import Optional, cast
 
-import requests
-
 from posthog.schema import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -21,7 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlewebfonts import (
     GoogleWebfontsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_webfonts.google_webfonts import (
@@ -35,6 +33,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class GoogleWebfontsSource(SimpleSource[GoogleWebfontsSourceConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://developers.google.com/fonts/docs/developer_api"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -47,7 +46,6 @@ class GoogleWebfontsSource(SimpleSource[GoogleWebfontsSourceConfig]):
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Google Webfonts",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter a Google API key to pull the Google Fonts catalog into the PostHog Data warehouse.
 
 Create an API key in the [Google Cloud Console](https://console.cloud.google.com/apis/credentials) and enable the **Web Fonts Developer API** for the project. No OAuth or scopes are required — the API is a public, read-only metadata catalog.
@@ -92,6 +90,7 @@ Create an API key in the [Google Cloud Console](https://console.cloud.google.com
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # The catalog has no server-side timestamp filter, so it's full refresh only.
         schemas = [
@@ -111,19 +110,18 @@ Create an API key in the [Google Cloud Console](https://console.cloud.google.com
         return schemas
 
     def validate_credentials(
-        self, config: GoogleWebfontsSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: GoogleWebfontsSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        try:
-            if validate_google_webfonts_credentials(config.api_key):
-                return True, None
-        except requests.RequestException:
-            return False, "Could not reach the Google Fonts API. Check your network connection and try again."
-
-        return False, "Invalid Google API key"
+        return validate_google_webfonts_credentials(config.api_key)
 
     def source_for_pipeline(self, config: GoogleWebfontsSourceConfig, inputs: SourceInputs) -> SourceResponse:
         return google_webfonts_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
         )

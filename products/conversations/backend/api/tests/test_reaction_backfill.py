@@ -271,6 +271,7 @@ class TestBackfillThreadReplies(BaseTest):
             "slack_author_email": "b@x.com",
             "slack_author_avatar": "http://av",
             "slack_images": None,
+            "slack_files": None,
         }
 
 

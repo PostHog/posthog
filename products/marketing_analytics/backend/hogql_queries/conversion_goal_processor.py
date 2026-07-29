@@ -1,7 +1,11 @@
 import math
 import uuid
+import threading
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import (
+    dataclass,
+    field as dataclass_field,
+)
 from datetime import datetime, timedelta
 from typing import ClassVar, Optional, Union
 
@@ -19,21 +23,25 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.database.schema.channel_type import ChannelTypeExprs, create_channel_type_expr
+from posthog.hogql.database.schema.exchange_rate import convert_currency_call
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.property import action_to_expr, property_to_expr
+from posthog.hogql.timings import HogQLTimings
 
 from posthog.models import PropertyDefinition, Team, User
 
 from products.access_control.backend.property_access_control import get_restricted_property_names
 from products.actions.backend.models.action import Action
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+    LazyComputationResult,
     LazyComputationTable,
-    ensure_precomputed,
 )
 
 from .adapters.factory import MarketingSourceFactory
 from .marketing_analytics_config import MarketingAnalyticsConfig
+from .marketing_lazy_precompute import marketing_ensure_precomputed
 from .metrics import CONVERSION_GOAL_PRECOMPUTE_FALLBACK_COUNTER
+from .utils import build_source_normalization_expr
 
 DAY_IN_SECONDS = 86400
 LN2 = math.log(2)  # ≈ 0.693, used in half-life formula: weight = exp(-ln(2) * t / half_life)
@@ -151,6 +159,50 @@ def build_touchpoints_precompute_query() -> ast.SelectQuery:
     )
 
 
+class SharedTouchpointsPrecompute:
+    """One touchpoints materialization shared by every conversion goal in a request.
+
+    `build_touchpoints_precompute_query()` takes no goal input and the range depends only on the
+    team's attribution window, so the call every goal makes is byte-identical. Each goal was driving
+    its own `ensure_precomputed` for the same window: redundant ClickHouse work, and concurrent
+    materializations of the same window risk landing under separate job_ids.
+
+    The first goal to ask does the work; the rest reuse its result. Goals run in a thread pool, hence
+    the lock.
+    """
+
+    def __init__(self, team: Team, config: MarketingAnalyticsConfig) -> None:
+        self._team = team
+        self._config = config
+        self._lock = threading.Lock()
+        self._result: Optional[LazyComputationResult] = None
+        self._range: Optional[tuple[datetime, datetime]] = None
+
+    def get(self, date_from: datetime, date_to: datetime) -> LazyComputationResult:
+        with self._lock:
+            if self._result is None:
+                window = timedelta(days=self._config.attribution_window_days)
+                self._range = (date_from, date_to)
+                self._result = marketing_ensure_precomputed(
+                    team=self._team,
+                    insert_query=build_touchpoints_precompute_query(),
+                    time_range_start=date_from - window,
+                    time_range_end=date_to,
+                    ttl_seconds=PRECOMPUTE_TTL_SECONDS,
+                    table=LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED,
+                )
+            elif self._range != (date_from, date_to):
+                # One handle is scoped to one read, whose goals all share its date range. Handing back
+                # the first caller's window for a different range would attribute one window's
+                # touchpoints to another — silently, and in the shape of the double-counting bug this
+                # class exists to prevent.
+                raise ValueError(
+                    f"SharedTouchpointsPrecompute is scoped to one date range per read: "
+                    f"materialized {self._range}, asked for {(date_from, date_to)}"
+                )
+            return self._result
+
+
 @dataclass
 class ConversionGoalProcessor:
     """
@@ -167,6 +219,13 @@ class ConversionGoalProcessor:
     config: MarketingAnalyticsConfig
     # Requesting user, threaded through to enforce per-user property access on the precompute path.
     user: Optional[User] = None
+    # Per-goal timings. HogQLTimings is not thread safe and goals are built in parallel, so each
+    # processor owns a clone (see HogQLTimings.clone_for_subquery); the runner merges them back once
+    # the pool has joined. Defaults to a standalone instance for callers outside the read path.
+    timings: HogQLTimings = dataclass_field(default_factory=HogQLTimings)
+    # Set when this goal's precompute was served from expired-within-grace rows instead of rebuilt. Read
+    # by the runner after the goal pool joins, to schedule one background revalidation for the read.
+    precompute_stale: bool = False
 
     _UTM_LEVEL_FIELD_MAP: ClassVar[dict[MarketingAnalyticsDrillDownLevel, str]] = {
         MarketingAnalyticsDrillDownLevel.MEDIUM: "medium",
@@ -238,16 +297,61 @@ class ConversionGoalProcessor:
 
         if self.goal.kind == "DataWarehouseNode":
             property_field = ast.Field(chain=[math_property])
+            timestamp_field = self.goal.schema_map.get("timestamp_field", "timestamp")
+            timestamp_expr: ast.Expr = ast.Field(chain=[timestamp_field])
         else:
             property_field = ast.Field(chain=["events", "properties", math_property])
+            timestamp_expr = ast.Field(chain=["events", "timestamp"])
+
+        value_per_row = self._to_base_currency(property_field, timestamp_expr)
 
         return ast.Call(
             name="round",
             args=[
-                ast.Call(name="sum", args=[ast.Call(name="toFloat", args=[property_field])]),
+                ast.Call(name="sum", args=[value_per_row]),
                 ast.Constant(value=self.config.decimal_precision),
             ],
         )
+
+    def _to_base_currency(self, property_field: ast.Expr, timestamp_expr: ast.Expr) -> ast.Expr:
+        """Turn a raw revenue property into a float in the team's base currency.
+
+        When the goal declares a math_property_revenue_currency, convert each value at the exchange
+        rate of its own event day. Without it, the value is assumed to already be in the base currency
+        and is only cast to float, which keeps goals that never set a currency behaving as before.
+        """
+        amount = ast.Call(name="toFloat", args=[property_field])
+        currency = self.goal.math_property_revenue_currency
+        if currency is None:
+            return amount
+
+        base_currency = ast.Constant(value=self.team.base_currency)
+        date = ast.Call(name="_toDate", args=[timestamp_expr])
+
+        if currency.property:
+            if self.goal.kind == "DataWarehouseNode":
+                currency_from: ast.Expr = ast.Field(chain=[currency.property])
+            else:
+                currency_from = ast.Field(chain=["events", "properties", currency.property])
+            currency_from = ast.Call(
+                name="nullIf", args=[ast.Call(name="upper", args=[currency_from]), ast.Constant(value="")]
+            )
+            # A row can be missing the currency property or carry an empty string; treat those as already
+            # in the base currency rather than letting convertCurrency null the whole amount out.
+            return ast.Call(
+                name="if",
+                args=[
+                    ast.Call(name="isNull", args=[currency_from]),
+                    amount,
+                    ast.Call(name="toFloat", args=[convert_currency_call(amount, currency_from, base_currency, date)]),
+                ],
+            )
+
+        if currency.static:
+            currency_from = ast.Constant(value=currency.static.value)
+            return ast.Call(name="toFloat", args=[convert_currency_call(amount, currency_from, base_currency, date)])
+
+        return amount
 
     def get_base_where_conditions(self) -> list[ast.Expr]:
         """Build base WHERE conditions for conversion goal filtering"""
@@ -283,10 +387,15 @@ class ConversionGoalProcessor:
         additional_conditions: Sequence[ast.Expr],
         date_from: Optional[datetime] = None,
         date_to: Optional[datetime] = None,
+        touchpoints: Optional[SharedTouchpointsPrecompute] = None,
     ) -> ast.SelectQuery:
-        """Generate main CTE query for conversion goal."""
+        """Generate main CTE query for conversion goal.
+
+        `touchpoints` lets callers running several goals share one touchpoints materialization. When
+        omitted the goal materializes its own, so standalone callers keep working unchanged.
+        """
         if self.goal.kind in ["EventsNode", "ActionsNode"]:
-            return self._generate_array_based_query(additional_conditions, date_from, date_to)
+            return self._generate_array_based_query(additional_conditions, date_from, date_to, touchpoints)
         return self._generate_direct_query(additional_conditions)
 
     def build_array_collection_query(self, additional_conditions: Sequence[ast.Expr]) -> ast.SelectQuery:
@@ -321,10 +430,11 @@ class ConversionGoalProcessor:
         additional_conditions: Sequence[ast.Expr],
         date_from: Optional[datetime] = None,
         date_to: Optional[datetime] = None,
+        touchpoints: Optional[SharedTouchpointsPrecompute] = None,
     ) -> ast.SelectQuery:
         """Generate array-based query with attribution logic for Events/Actions"""
         if self.config.attribution_window_days > 0:
-            return self._generate_funnel_query(additional_conditions, date_from, date_to)
+            return self._generate_funnel_query(additional_conditions, date_from, date_to, touchpoints)
         return self._generate_direct_query(additional_conditions)
 
     def _generate_funnel_query(
@@ -332,6 +442,7 @@ class ConversionGoalProcessor:
         additional_conditions: Sequence[ast.Expr],
         date_from: Optional[datetime] = None,
         date_to: Optional[datetime] = None,
+        touchpoints: Optional[SharedTouchpointsPrecompute] = None,
     ) -> ast.SelectQuery:
         """Generate multi-step funnel query with attribution window.
 
@@ -341,7 +452,7 @@ class ConversionGoalProcessor:
             # `_should_use_precompute` returns False unless both dates are set; narrow for mypy.
             assert date_from is not None and date_to is not None
             try:
-                precomputed = self._build_attribution_from_precomputes(date_from, date_to)
+                precomputed = self._build_attribution_from_precomputes(date_from, date_to, touchpoints)
                 if precomputed is not None:
                     return precomputed
             except Exception:
@@ -352,8 +463,10 @@ class ConversionGoalProcessor:
                     team_id=self.team.pk,
                 )
 
-        array_collection = self.build_array_collection_query(additional_conditions)
-        return self.build_attribution_pipeline(array_collection)
+        # Live events scan. Reaching here means the precompute did not serve this goal.
+        with self.timings.measure("ma_goal_events_fallback"):
+            array_collection = self.build_array_collection_query(additional_conditions)
+            return self.build_attribution_pipeline(array_collection)
 
     def is_goal_precomputable(self) -> bool:
         """Goal-level precompute eligibility, independent of the requesting user, date range, or flag.
@@ -406,6 +519,11 @@ class ConversionGoalProcessor:
         math_property = getattr(self.goal, "math_property", None)
         if math_property:
             props.add(math_property)
+        # A property-sourced currency is folded into conversion_math_value by _to_base_currency, so the
+        # converted amount leaks it just as directly as math_property itself.
+        currency = getattr(self.goal, "math_property_revenue_currency", None)
+        if currency is not None and currency.property:
+            props.add(currency.property)
         return props
 
     def _precompute_properties_restricted_for_user(self) -> bool:
@@ -478,7 +596,12 @@ class ConversionGoalProcessor:
             where=ast.And(exprs=where_exprs),
         )
 
-    def _build_attribution_from_precomputes(self, date_from: datetime, date_to: datetime) -> Optional[ast.SelectQuery]:
+    def _build_attribution_from_precomputes(
+        self,
+        date_from: datetime,
+        date_to: datetime,
+        touchpoints: Optional[SharedTouchpointsPrecompute] = None,
+    ) -> Optional[ast.SelectQuery]:
         """Reusable-precompute read path: ensure both the config-agnostic touchpoints and the per-goal
         conversions are materialized, then attribute at read time by feeding a precompute-sourced array
         collection through the existing pipeline (all modes). Neither precompute depends on attribution
@@ -487,32 +610,40 @@ class ConversionGoalProcessor:
         window = timedelta(days=self.config.attribution_window_days)
 
         # Touchpoints extend back by the attribution window; conversions only span the query range.
-        touchpoints_result = ensure_precomputed(
-            team=self.team,
-            insert_query=build_touchpoints_precompute_query(),
-            time_range_start=date_from - window,
-            time_range_end=date_to,
-            ttl_seconds=PRECOMPUTE_TTL_SECONDS,
-            table=LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED,
-        )
+        # Both ensure_precomputed calls can materialize inline (PG + Redis + ClickHouse) when a slice
+        # is stale, so they are timed separately from the AST work that follows.
+        #
+        # Touchpoints are config-agnostic, so a multi-goal read shares one materialization. Without a
+        # shared handle each goal materializes the same window itself, which is what a standalone
+        # caller gets.
+        shared_touchpoints = touchpoints or SharedTouchpointsPrecompute(self.team, self.config)
+        with self.timings.measure("ma_ensure_touchpoints"):
+            touchpoints_result = shared_touchpoints.get(date_from, date_to)
         if not touchpoints_result.ready:
             return None
 
-        conversions_result = ensure_precomputed(
-            team=self.team,
-            insert_query=self.build_conversions_precompute_query(),
-            time_range_start=date_from,
-            time_range_end=date_to,
-            ttl_seconds=PRECOMPUTE_TTL_SECONDS,
-            table=LazyComputationTable.MARKETING_CONVERSIONS_PREAGGREGATED,
-        )
+        with self.timings.measure("ma_ensure_conversions"):
+            conversions_result = marketing_ensure_precomputed(
+                team=self.team,
+                insert_query=self.build_conversions_precompute_query(),
+                time_range_start=date_from,
+                time_range_end=date_to,
+                ttl_seconds=PRECOMPUTE_TTL_SECONDS,
+                table=LazyComputationTable.MARKETING_CONVERSIONS_PREAGGREGATED,
+            )
         if not conversions_result.ready:
             return None
 
-        array_collection = self._build_array_collection_from_precomputes(
-            touchpoints_result.job_ids, conversions_result.job_ids, date_from, date_to, window
-        )
-        return self.build_attribution_pipeline(array_collection)
+        # Either ensure may have been served from expired-within-grace rows rather than rebuilt. The
+        # runner collects this once the goal pool has joined and schedules the revalidation.
+        if touchpoints_result.stale or conversions_result.stale:
+            self.precompute_stale = True
+
+        with self.timings.measure("ma_attribution_pipeline_precomputed"):
+            array_collection = self._build_array_collection_from_precomputes(
+                touchpoints_result.job_ids, conversions_result.job_ids, date_from, date_to, window
+            )
+            return self.build_attribution_pipeline(array_collection)
 
     def _build_array_collection_from_precomputes(
         self,
@@ -1143,8 +1274,8 @@ class ConversionGoalProcessor:
             math_property = self.goal.math_property
             if math_property:
                 property_field = ast.Field(chain=["events", "properties", math_property])
-                to_float_expr = ast.Call(name="toFloat", args=[property_field])
-                return ast.Call(name="coalesce", args=[to_float_expr, ast.Constant(value=0.0)])
+                value = self._to_base_currency(property_field, ast.Field(chain=["events", "timestamp"]))
+                return ast.Call(name="coalesce", args=[value, ast.Constant(value=0.0)])
 
         return ast.Call(name="toFloat", args=[ast.Constant(value=1)])
 
@@ -1918,38 +2049,10 @@ class ConversionGoalProcessor:
         Case-insensitive matching - 'YouTube', 'youtube', 'YOUTUBE' all map to 'google'.
         Includes both adapter-defined sources and team-configured custom sources.
         """
-        # Convert source to lowercase for case-insensitive matching
-        lowercase_source = ast.Call(name="lower", args=[source_expr])
-
-        # Build nested if expressions for each mapping
-        normalized_expr = source_expr
-
-        # Get combined source mappings (adapter defaults + team custom sources)
         source_mappings = MarketingSourceFactory.get_all_source_identifier_mappings(
             team_config=self.team.marketing_analytics_config
         )
-        for primary_source, alternative_sources in source_mappings.items():
-            # Skip the primary source itself in the alternatives list
-            alternatives_only = [s.lower() for s in alternative_sources if s != primary_source]
-
-            if alternatives_only:
-                # If lowercase source is in alternatives, return primary; otherwise continue
-                normalized_expr = ast.Call(
-                    name="if",
-                    args=[
-                        ast.Call(
-                            name="in",
-                            args=[
-                                lowercase_source,
-                                ast.Array(exprs=[ast.Constant(value=alt) for alt in alternatives_only]),
-                            ],
-                        ),
-                        ast.Constant(value=primary_source),
-                        normalized_expr,
-                    ],
-                )
-
-        return normalized_expr
+        return build_source_normalization_expr(source_expr, source_mappings)
 
     def _build_final_aggregation_query(self, attribution_query: ast.SelectQuery) -> ast.SelectQuery:
         """Build final aggregation query with organic defaults"""
@@ -1985,6 +2088,19 @@ class ConversionGoalProcessor:
                 ),
             ]
             group_by: list[ast.Expr] = [channel_type_expr]
+        elif level == MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE:
+            channel_type_expr = self._build_channel_type_expr(field_exprs=field_exprs)
+            select_columns = [
+                ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
+                ast.Alias(alias=self.config.campaign_field, expr=channel_type_expr),
+                ast.Alias(alias=self.config.id_field, expr=ast.Constant(value="")),
+                ast.Alias(alias=self.config.source_field, expr=source_expr),
+                ast.Alias(
+                    alias=self.config.get_conversion_goal_column_name(self.index),
+                    expr=self._get_aggregation_expr(),
+                ),
+            ]
+            group_by = [channel_type_expr, source_expr]
         elif level == MarketingAnalyticsDrillDownLevel.SOURCE:
             # At source level, group by source_name only
             select_columns = [
@@ -2045,6 +2161,21 @@ class ConversionGoalProcessor:
             args=[
                 ast.Call(name="notEmpty", args=[ast.Field(chain=[field_name])]),
                 ast.Field(chain=[field_name]),
+                ast.Constant(value=default_value),
+            ],
+        )
+
+    def _apply_organic_default(self, expr: ast.Expr, default_value: str) -> ast.Call:
+        """Fall back to the organic default when the value is NULL or empty, matching the
+        events attribution path so all goal kinds classify unattributed conversions alike."""
+        return ast.Call(
+            name="if",
+            args=[
+                ast.Call(
+                    name="notEmpty",
+                    args=[ast.Call(name="coalesce", args=[expr, ast.Constant(value="")])],
+                ),
+                expr,
                 ast.Constant(value=default_value),
             ],
         )
@@ -2135,11 +2266,9 @@ class ConversionGoalProcessor:
         where_conditions.extend(additional_conditions)
 
         # Campaign expression with organic default
-        campaign_expr = ast.Call(
-            name="coalesce", args=[utm_campaign_expr, ast.Constant(value=self.config.organic_campaign)]
-        )
+        campaign_expr = self._apply_organic_default(utm_campaign_expr, self.config.organic_campaign)
         source_expr = self._normalize_source_field(
-            ast.Call(name="coalesce", args=[utm_source_expr, ast.Constant(value=self.config.organic_source)])
+            self._apply_organic_default(utm_source_expr, self.config.organic_source)
         )
 
         # Build field expressions for all tracked fields
@@ -2163,6 +2292,16 @@ class ConversionGoalProcessor:
                 ast.Alias(alias=self.config.get_conversion_goal_column_name(self.index), expr=select_field),
             ]
             group_by: list[ast.Expr] = [channel_type_expr]
+        elif level == MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE:
+            channel_type_expr = self._build_channel_type_expr(field_exprs=field_exprs)
+            select_columns = [
+                ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
+                ast.Alias(alias=self.config.campaign_field, expr=channel_type_expr),
+                ast.Alias(alias=self.config.id_field, expr=ast.Constant(value="")),
+                ast.Alias(alias=self.config.source_field, expr=source_expr),
+                ast.Alias(alias=self.config.get_conversion_goal_column_name(self.index), expr=select_field),
+            ]
+            group_by = [channel_type_expr, source_expr]
         elif level == MarketingAnalyticsDrillDownLevel.SOURCE:
             select_columns = [
                 ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),

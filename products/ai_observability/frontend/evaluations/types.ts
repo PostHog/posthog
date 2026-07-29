@@ -1,15 +1,21 @@
-import { AnyPropertyFilter } from '~/types'
+import { AnyPropertyFilter, UserBasicType } from '~/types'
 
+import type {
+    EvaluationReportCitationApi,
+    EvaluationReportMetricsApi,
+    EvaluationReportRunApi,
+    EvaluationReportRunContentApi,
+    EvaluationReportSectionApi,
+} from '../generated/api.schemas'
 import { LLMProvider } from '../settings/llmProviderKeysLogic'
 
 export type EvaluationType = 'llm_judge' | 'hog' | 'sentiment'
 export type EvaluationTarget = 'generation' | 'trace'
+export type EvaluationSettleStrategy = 'fixed_window' | 'inactivity'
 export type EvaluationOutputType = 'boolean' | 'sentiment'
 export type EvaluationStatus = 'active' | 'paused' | 'error'
 export type EvaluationStatusReason =
     | 'provider_key_required'
-    | 'trial_limit_reached'
-    | 'model_not_allowed'
     | 'provider_key_deleted'
     | 'no_default_model'
     | 'provider_key_invalid'
@@ -30,9 +36,16 @@ export interface EvaluationOutputConfig {
     allows_na?: boolean
 }
 
+/** Settle config for aggregate targets. Rows saved before strategies existed have no
+ * `strategy` key and mean 'fixed_window'. */
 export interface EvaluationTargetConfig {
-    /** For 'trace' target: seconds to wait after the first matching generation before evaluating the trace. */
+    strategy?: EvaluationSettleStrategy
+    /** fixed_window: seconds to wait after the first matching generation before evaluating. */
     window_seconds?: number
+    /** inactivity: seconds without new trace activity before the trace counts as settled. */
+    quiet_period_seconds?: number
+    /** inactivity: hard cap in seconds on the total wait from the first matching generation. */
+    max_age_seconds?: number
 }
 
 export interface LLMJudgeEvaluationConfig {
@@ -61,13 +74,14 @@ export interface BaseEvaluationConfig {
     conditions: EvaluationConditionSet[]
     /** What the evaluation runs on: each matching generation event, or the whole trace once. */
     target: EvaluationTarget
-    /** Target-specific settings. For 'trace': {window_seconds}. Empty for 'generation'. */
+    /** Target-specific settings — see EvaluationTargetConfig. Empty for 'generation'. */
     target_config: EvaluationTargetConfig
     model_configuration: ModelConfiguration | null
     total_runs: number
     last_run_at?: string
     created_at: string
     updated_at: string
+    created_by?: UserBasicType | null
     deleted?: boolean
 }
 
@@ -119,16 +133,6 @@ export interface EvaluationRun {
     status: 'completed' | 'failed' | 'running'
 }
 
-export interface HogTestResult {
-    event_uuid: string
-    trace_id?: string | null
-    input_preview: string
-    output_preview: string
-    result: boolean | null
-    reasoning: string
-    error: string | null
-}
-
 export type EvaluationReportFrequency = 'scheduled' | 'every_n'
 
 export interface EvaluationReportDeliveryTarget {
@@ -166,52 +170,12 @@ export interface EvaluationReport {
     created_at: string
 }
 
-/** A titled markdown section of the report (v2: agent-chosen title). */
-export interface EvaluationReportSection {
-    title: string
-    content: string
-}
-
-/** A trace reference cited by the agent to ground a specific finding. */
-export interface EvaluationReportCitation {
-    generation_id: string
-    trace_id: string
-    reason: string
-}
-
-/** Structured metrics computed mechanically from ClickHouse (agent cannot fabricate). */
-export interface EvaluationReportMetrics {
-    total_runs: number
-    pass_count: number
-    fail_count: number
-    na_count: number
-    pass_rate: number
-    period_start: string
-    period_end: string
-    previous_total_runs: number | null
-    previous_pass_rate: number | null
-}
-
-/** Top-level report content stored in EvaluationReportRun.content. */
-export interface EvaluationReportRunContent {
-    title: string
-    sections: EvaluationReportSection[]
-    citations: EvaluationReportCitation[]
-    metrics: EvaluationReportMetrics
-}
-
-export interface EvaluationReportRun {
-    id: string
-    report: string
-    content: EvaluationReportRunContent
-    /** Legacy mirror of content.metrics — populated by the store activity for backwards compat. */
-    metadata: EvaluationReportMetrics
-    period_start: string
-    period_end: string
-    delivery_status: 'pending' | 'delivered' | 'partial_failure' | 'failed'
-    delivery_errors: string[]
-    created_at: string
-}
+export type EvaluationReportSection = EvaluationReportSectionApi
+export type EvaluationReportCitation = EvaluationReportCitationApi
+export type EvaluationReportMetrics = EvaluationReportMetricsApi
+export type EvaluationReportStoredMetrics = EvaluationReportMetricsApi
+export type EvaluationReportRunContent = EvaluationReportRunContentApi
+export type EvaluationReportRun = EvaluationReportRunApi
 
 export type SentimentEvaluationRunsFilter = 'negative' | 'positive' | 'neutral' | 'all'
 export type EvaluationSummaryFilter = 'pass' | 'fail' | 'na' | SentimentEvaluationRunsFilter

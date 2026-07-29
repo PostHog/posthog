@@ -40,7 +40,7 @@ export class RustVmExecutor {
      * null for the caller to pass through.
      */
     private fallback(
-        outcome: 'fallback_unsupported' | 'fallback_exception' | 'fallback_empty_result',
+        outcome: 'fallback_unsupported' | 'fallback_exception',
         invocation: CyclotronJobInvocationHogFunction,
         sensitiveValues: string[],
         error: unknown
@@ -61,16 +61,15 @@ export class RustVmExecutor {
      * Execute one transformation invocation on the Rust VM. Returns null when the Node VM must
      * run it instead.
      *
-     * Runs through `executeBatch` (a napi AsyncTask on the libuv worker pool), NOT `executeSync`:
-     * the step budget bounds total work, but a costly program running synchronously would
-     * monopolize the ingestion worker's JS thread, bypassing the wall-clock limiting and
-     * event-loop yielding the Node path has. Concurrent events therefore execute in parallel on
-     * worker threads; batching many events into one call (rayon fan-out) is a possible follow-up.
+     * Runs through `executeSync` on the JS thread — the same threading model as the Node VM's
+     * exec, minus the work. Executions are sub-millisecond and bounded by the step budget, so a
+     * libuv thread-hop per invocation would cost more than the execution it offloads; batching
+     * many events into one async call is the follow-up if that changes.
      */
-    public async execute(
+    public execute(
         invocation: CyclotronJobInvocationHogFunction,
         sensitiveValues: string[]
-    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> | null> {
+    ): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> | null {
         const module_ = this.getModule()
         if (!module_) {
             // No per-invocation log: a missing addon affects every invocation and the loader
@@ -81,7 +80,7 @@ export class RustVmExecutor {
 
         let rust
         try {
-            ;[rust] = await module_.executeBatch(invocation.hogFunction.bytecode, [invocation.state.globals], {
+            rust = module_.executeSync(invocation.hogFunction.bytecode, invocation.state.globals, {
                 maxSteps: RUST_MAX_STEPS,
             })
         } catch (error) {
@@ -92,9 +91,6 @@ export class RustVmExecutor {
             // and the fallback_exception outcome carry the error so native faults stay visible
             // rather than being silently healed.
             return this.fallback('fallback_exception', invocation, sensitiveValues, error)
-        }
-        if (!rust) {
-            return this.fallback('fallback_empty_result', invocation, sensitiveValues, undefined)
         }
 
         if (rust.error && isUnsupportedByRustVm(rust.error)) {

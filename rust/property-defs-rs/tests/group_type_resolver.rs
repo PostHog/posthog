@@ -6,12 +6,15 @@ use personhog_proto::personhog::{
     service::v1::person_hog_service_server::{PersonHogService, PersonHogServiceServer},
     types::v1::*,
 };
+use sqlx::PgPool;
 use tokio::net::TcpListener;
 use tonic::{Code, Request, Response, Status};
 
 use property_defs_rs::{
+    batch_ingestion::process_batch,
     group_type_resolver::GroupTypeResolver,
     types::{GroupType, PropertyParentType, Update},
+    update_cache::Cache,
 };
 
 // -- mock server --------------------------------------------------------
@@ -21,6 +24,9 @@ struct MockPersonHogService {
     /// Number of calls that should fail before succeeding. usize::MAX = always fail.
     fail_remaining: AtomicUsize,
     fail_code: Code,
+    /// The first N successful calls return no mappings, simulating a GroupTypeMapping that
+    /// hasn't yet reached the eventual read replica; later calls return `mappings_by_team`.
+    empty_first_calls: usize,
     call_count: Arc<AtomicUsize>,
 }
 
@@ -30,6 +36,7 @@ impl MockPersonHogService {
             mappings_by_team,
             fail_remaining: AtomicUsize::new(0),
             fail_code: Code::Internal,
+            empty_first_calls: 0,
             call_count: Arc::new(AtomicUsize::new(0)),
         }
     }
@@ -42,6 +49,7 @@ impl MockPersonHogService {
             mappings_by_team,
             fail_remaining: AtomicUsize::new(0),
             fail_code: Code::Internal,
+            empty_first_calls: 0,
             call_count,
         }
     }
@@ -51,6 +59,7 @@ impl MockPersonHogService {
             mappings_by_team: vec![],
             fail_remaining: AtomicUsize::new(usize::MAX),
             fail_code: Code::InvalidArgument,
+            empty_first_calls: 0,
             call_count: Arc::new(AtomicUsize::new(0)),
         }
     }
@@ -65,6 +74,7 @@ impl MockPersonHogService {
             mappings_by_team,
             fail_remaining: AtomicUsize::new(fail_count),
             fail_code,
+            empty_first_calls: 0,
             call_count,
         }
     }
@@ -74,6 +84,24 @@ impl MockPersonHogService {
             mappings_by_team: vec![],
             fail_remaining: AtomicUsize::new(usize::MAX),
             fail_code,
+            empty_first_calls: 0,
+            call_count,
+        }
+    }
+
+    /// The first `empty_first_calls` lookups resolve to nothing (a miss); later lookups return
+    /// `mappings_by_team`. Models a newly created group type only becoming visible after an
+    /// initial window, which is exactly the transient miss that used to poison the cache.
+    fn resolves_after_empty_calls(
+        mappings_by_team: Vec<GroupTypeMappingsByKey>,
+        empty_first_calls: usize,
+        call_count: Arc<AtomicUsize>,
+    ) -> Self {
+        Self {
+            mappings_by_team,
+            fail_remaining: AtomicUsize::new(0),
+            fail_code: Code::Internal,
+            empty_first_calls,
             call_count,
         }
     }
@@ -85,7 +113,7 @@ impl PersonHogService for MockPersonHogService {
         &self,
         _req: Request<GetGroupTypeMappingsByTeamIdsRequest>,
     ) -> Result<Response<GroupTypeMappingsBatchResponse>, Status> {
-        self.call_count.fetch_add(1, Ordering::SeqCst);
+        let this_call = self.call_count.fetch_add(1, Ordering::SeqCst) + 1;
 
         // Decrement fail_remaining; if it was > 0 before the decrement, fail this call.
         // Uses saturating to avoid wrapping usize::MAX (always-fail case).
@@ -99,9 +127,14 @@ impl PersonHogService for MockPersonHogService {
             return Err(Status::new(self.fail_code, "mock failure"));
         }
 
-        Ok(Response::new(GroupTypeMappingsBatchResponse {
-            results: self.mappings_by_team.clone(),
-        }))
+        // Simulate the mapping only becoming visible after `empty_first_calls` lookups.
+        let results = if this_call <= self.empty_first_calls {
+            vec![]
+        } else {
+            self.mappings_by_team.clone()
+        };
+
+        Ok(Response::new(GroupTypeMappingsBatchResponse { results }))
     }
 
     // -- stubs for the rest of the trait (never called) ------------------
@@ -508,7 +541,11 @@ async fn test_personhog_resolves_multiple_teams() {
 }
 
 #[tokio::test]
-async fn test_personhog_unresolved_group_type_cleared() {
+async fn test_personhog_unresolved_group_type_preserved_not_cleared() {
+    // On a resolution miss we must keep the Unresolved(name) form rather than clearing to
+    // None: batch_ingestion drops it either way, but preserving the name keeps the shared
+    // dedup-cache key recoverable so the dropped entry can be evicted and retried, instead
+    // of the entry poisoning the cache and permanently blocking the def.
     let mock = MockPersonHogService::with_mappings(vec![GroupTypeMappingsByKey {
         key: 1,
         mappings: vec![],
@@ -523,9 +560,74 @@ async fn test_personhog_unresolved_group_type_cleared() {
     resolver.resolve(&mut updates).await.unwrap();
 
     match &updates[0] {
-        Update::Property(p) => assert!(p.group_type_index.is_none()),
+        Update::Property(p) => assert_eq!(
+            p.group_type_index,
+            Some(GroupType::Unresolved("nonexistent".to_string()))
+        ),
         _ => panic!("expected Property update"),
     }
+}
+
+#[tokio::test]
+async fn test_negative_cache_skips_personhog_within_ttl() {
+    // A miss is cached for the TTL window so repeated unresolvable keys don't re-hit personhog.
+    let call_count = Arc::new(AtomicUsize::new(0));
+    let mock = MockPersonHogService::with_mappings_counted(
+        vec![GroupTypeMappingsByKey {
+            key: 1,
+            mappings: vec![],
+        }],
+        call_count.clone(),
+    );
+
+    let addr = start_mock_server(mock).await;
+    let config = make_config(&format!("http://{addr}")); // default TTL is 30s
+    let resolver = GroupTypeResolver::new(&config);
+
+    let mut updates = vec![make_group_update(1, "nonexistent")];
+    resolver.resolve(&mut updates).await.unwrap();
+    assert_eq!(call_count.load(Ordering::SeqCst), 1);
+
+    // Second resolve of the same key is served from the negative cache: no personhog call,
+    // and the update is still left Unresolved so it gets dropped + evicted downstream.
+    let mut updates2 = vec![make_group_update(1, "nonexistent")];
+    resolver.resolve(&mut updates2).await.unwrap();
+    assert_eq!(call_count.load(Ordering::SeqCst), 1);
+    match &updates2[0] {
+        Update::Property(p) => assert_eq!(
+            p.group_type_index,
+            Some(GroupType::Unresolved("nonexistent".to_string()))
+        ),
+        _ => panic!("expected Property update"),
+    }
+}
+
+#[tokio::test]
+async fn test_negative_cache_reattempts_after_ttl_expiry() {
+    // With TTL=0 the negative entry is immediately expired, so a subsequent event re-attempts
+    // resolution via personhog (this is what lets a legitimate new group resolve once its
+    // mapping lands).
+    let call_count = Arc::new(AtomicUsize::new(0));
+    let mock = MockPersonHogService::with_mappings_counted(
+        vec![GroupTypeMappingsByKey {
+            key: 1,
+            mappings: vec![],
+        }],
+        call_count.clone(),
+    );
+
+    let addr = start_mock_server(mock).await;
+    let mut config = make_config(&format!("http://{addr}"));
+    config.group_type_negative_ttl_secs = 0;
+    let resolver = GroupTypeResolver::new(&config);
+
+    let mut updates = vec![make_group_update(1, "nonexistent")];
+    resolver.resolve(&mut updates).await.unwrap();
+    assert_eq!(call_count.load(Ordering::SeqCst), 1);
+
+    let mut updates2 = vec![make_group_update(1, "nonexistent")];
+    resolver.resolve(&mut updates2).await.unwrap();
+    assert_eq!(call_count.load(Ordering::SeqCst), 2);
 }
 
 #[tokio::test]
@@ -704,4 +806,136 @@ async fn test_no_retries_when_max_retries_is_zero() {
 
     assert!(result.is_err());
     assert_eq!(call_count.load(Ordering::SeqCst), 1);
+}
+
+// -- end-to-end test ----------------------------------------------------
+
+fn group_type_of(update: &Update) -> Option<GroupType> {
+    match update {
+        Update::Property(p) => p.group_type_index.clone(),
+        _ => None,
+    }
+}
+
+async fn group_prop_def_count(db: &PgPool) -> i64 {
+    // type = 3 is PropertyParentType::Group. Query text matches the existing cached entry.
+    sqlx::query_scalar!(r#"SELECT count(*) from posthog_propertydefinition WHERE type = 3"#)
+        .fetch_one(db)
+        .await
+        .unwrap()
+        .unwrap_or(0)
+}
+
+// Walks the full production loop end to end for a $groupidentify group property whose group type
+// isn't yet resolvable (its GroupTypeMapping hasn't reached the eventual read replica):
+//
+//   round 1 (poison + evict): producer caches the Unresolved key, resolver misses, the batch
+//     drops the def AND evicts the poisoned cache key so a retry is possible.
+//   round 2 (recover + persist): the mapping has "landed", the producer re-forwards the def (it's
+//     no longer filtered by the cache), the resolver resolves it, and the batch persists it.
+//
+// This is the regression guard the isolated resolver/batch unit tests don't provide: it ties the
+// resolver miss, the shared-cache eviction, the negative cache, and the Postgres write together,
+// so a future refactor that quietly reintroduces the cache-poisoning bug fails here.
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn test_end_to_end_poisoned_group_def_recovers_and_persists(db: PgPool) {
+    const TEAM: i32 = 111;
+
+    let call_count = Arc::new(AtomicUsize::new(0));
+    // First personhog lookup returns no mapping (the miss that poisons); the second returns the
+    // now-visible mapping at index 5.
+    let mock = MockPersonHogService::resolves_after_empty_calls(
+        vec![GroupTypeMappingsByKey {
+            key: TEAM as i64,
+            mappings: vec![GroupTypeMapping {
+                id: 1,
+                team_id: TEAM as i64,
+                project_id: TEAM as i64,
+                group_type: "Organization".to_string(),
+                group_type_index: 5,
+                name_singular: None,
+                name_plural: None,
+                default_columns: None,
+                detail_dashboard_id: None,
+                created_at: None,
+            }],
+        }],
+        1,
+        call_count.clone(),
+    );
+
+    let addr = start_mock_server(mock).await;
+    let mut config = make_config(&format!("http://{addr}"));
+    config.skip_writes = false;
+    // TTL 0 makes round 1's negative-cache entry immediately stale, so round 2 re-drives personhog.
+    // This is the deterministic stand-in for "the TTL lapsed" between the two sparse events.
+    config.group_type_negative_ttl_secs = 0;
+
+    let resolver = GroupTypeResolver::new(&config);
+    let cache: Arc<Cache> = Arc::new(Cache::new(
+        config.eventdefs_cache_capacity,
+        config.eventprops_cache_capacity,
+        config.propdefs_cache_capacity,
+    ));
+
+    // The producer inserts the Unresolved form into the shared dedup cache before resolution runs.
+    let unresolved_key = make_group_update(TEAM, "Organization");
+
+    // ---- round 1: poison, then evict ----
+    let mut round1 = vec![make_group_update(TEAM, "Organization")];
+    assert!(!cache.contains_key(&unresolved_key), "cache starts empty");
+    cache.insert(unresolved_key.clone());
+
+    resolver.resolve(&mut round1).await.unwrap();
+    // Miss: the group type is preserved as Unresolved (not cleared to None).
+    assert_eq!(
+        group_type_of(&round1[0]),
+        Some(GroupType::Unresolved("Organization".to_string()))
+    );
+
+    process_batch(&config, cache.clone(), &db, round1).await;
+
+    assert_eq!(
+        group_prop_def_count(&db).await,
+        0,
+        "an unresolved group def must not be written"
+    );
+    assert!(
+        !cache.contains_key(&unresolved_key),
+        "the poisoned key must be evicted so a later event can retry"
+    );
+    assert_eq!(call_count.load(Ordering::SeqCst), 1);
+
+    // ---- round 2: mapping landed -> retry resolves and persists ----
+    let mut round2 = vec![make_group_update(TEAM, "Organization")];
+    // The producer no longer filters it (the key was evicted), so it re-forwards.
+    assert!(!cache.contains_key(&round2[0]));
+    cache.insert(round2[0].clone());
+
+    resolver.resolve(&mut round2).await.unwrap();
+    // The negative entry has expired (TTL 0), so personhog is re-driven and now resolves to 5.
+    assert_eq!(get_resolved_index(&round2[0]), Some(5));
+
+    process_batch(&config, cache.clone(), &db, round2).await;
+
+    assert_eq!(
+        group_prop_def_count(&db).await,
+        1,
+        "the def must persist once its group type resolves"
+    );
+    let persisted_index: Option<i16> = sqlx::query_scalar!(
+        r#"SELECT group_type_index FROM posthog_propertydefinition WHERE type = 3"#
+    )
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    assert_eq!(persisted_index, Some(5));
+    assert_eq!(
+        call_count.load(Ordering::SeqCst),
+        2,
+        "round 2 must re-drive personhog after the TTL lapse"
+    );
+    // The (Unresolved) dedup key remains cached from round 2, so an identical later event is
+    // deduped rather than reprocessed.
+    assert!(cache.contains_key(&unresolved_key));
 }

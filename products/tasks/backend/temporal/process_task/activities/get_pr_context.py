@@ -27,6 +27,23 @@ class GetPrContextOutput:
     pr_url: str
     pr_state: str
     fingerprint: str
+    # Defaults keep replay of pre-rollout activity results deserializable.
+    ci_status: str = "none"
+    changes_requested: bool = False
+    unresolved_threads: int = 0
+
+
+def is_pr_actionable(pr: GetPrContextOutput) -> bool:
+    """Whether a changed PR snapshot warrants waking the agent.
+
+    Only failing CI or a changes-requested review gives the agent real work to
+    do. Waking it for a green, pending, or check-less PR produces a "nothing to
+    report" turn that spams the originating Slack thread and burns one of the
+    limited CI follow-up repetitions. Pending needs no special handling: the
+    head SHA and CI status are both in the fingerprint, so the settled state
+    (which may be failing) registers as its own change on a later tick.
+    """
+    return pr.changes_requested or pr.ci_status == "failing"
 
 
 def compute_pr_fingerprint(pr: dict[str, Any]) -> str:
@@ -41,12 +58,17 @@ def compute_pr_fingerprint(pr: dict[str, Any]) -> str:
     For the review signal we key on the boolean ``review_decision == "changes_requested"``
     rather than the raw decision: ``changes_requested`` is the only value that means
     the agent has code to fix, so an ``approved`` or ``review_required`` transition no
-    longer re-pokes it for nothing. Net effect: the follow-up re-fires only when CI
-    changes or a reviewer requests changes.
+    longer re-pokes it for nothing.
+
+    The head SHA is included so that a new commit failing with the same coarse
+    ``ci_status`` as its predecessor still reads as a change — without it, an
+    agent push that fails again would hash identically to the previous failure
+    and the follow-up would never re-fire. The fingerprint only detects change;
+    whether a change is worth firing on is decided by ``is_pr_actionable``.
     """
     changes_requested = pr.get("review_decision") == "changes_requested"
     fingerprint_source = "|".join(
-        [str(pr.get(key, "")) for key in ("url", "state", "ci_status")] + [str(changes_requested)]
+        [str(pr.get(key, "")) for key in ("url", "state", "ci_status", "head_sha")] + [str(changes_requested)]
     )
     return hashlib.sha256(fingerprint_source.encode()).hexdigest()
 
@@ -129,4 +151,7 @@ def get_pr_context(input: GetPrContextInput) -> GetPrContextOutput | None:
             pr_url=pr_url,
             pr_state=pull_request.get("state", "unknown"),
             fingerprint=fingerprint,
+            ci_status=pull_request.get("ci_status", "none"),
+            changes_requested=pull_request.get("review_decision") == "changes_requested",
+            unresolved_threads=pull_request.get("unresolved_threads", 0),
         )

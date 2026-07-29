@@ -1,6 +1,6 @@
 import asyncio
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 import structlog
 
@@ -18,8 +18,23 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.load import (
     process_batch,
 )
+from products.warehouse_sources_queue.backend.models import SourceBatch
 
 logger = structlog.get_logger(__name__)
+
+
+def parse_sync_types(raw: str | None, flag: str) -> list[str] | None:
+    """Parse a comma-separated sync-type list, validated against SourceBatch.SyncType."""
+    if raw is None:
+        return None
+    values = [value.strip() for value in raw.split(",") if value.strip()]
+    if not values:
+        return None
+    valid = set(SourceBatch.SyncType.values)
+    invalid = [value for value in values if value not in valid]
+    if invalid:
+        raise CommandError(f"{flag}: unknown sync type(s) {invalid}; valid: {sorted(valid)}")
+    return values
 
 
 def build_consumer_config(options: dict) -> ConsumerConfig:
@@ -52,7 +67,12 @@ def build_consumer_config(options: dict) -> ConsumerConfig:
     return ConsumerConfig(**kwargs)
 
 
-async def _run_consumer(config: ConsumerConfig, health_reporter) -> None:
+async def _run_consumer(
+    config: ConsumerConfig,
+    health_reporter,
+    claim_sync_types: list[str] | None,
+    claim_exclude_sync_types: list[str] | None,
+) -> None:
     """Configure the Temporal-style produce path then run the consumer.
 
     `configure_logger` plumbs structlog into a Kafka producer that feeds ClickHouse `log_entries`.
@@ -62,7 +82,13 @@ async def _run_consumer(config: ConsumerConfig, health_reporter) -> None:
     `workflow_id`, `workflow_run_id`, `team_id`, plus the event-level `log_source_id` override).
     """
     configure_logger(loop=asyncio.get_running_loop())
-    consumer = BatchConsumer(config=config, process_batch=process_batch, health_reporter=health_reporter)
+    consumer = BatchConsumer(
+        config=config,
+        process_batch=process_batch,
+        health_reporter=health_reporter,
+        claim_sync_types=claim_sync_types,
+        claim_exclude_sync_types=claim_exclude_sync_types,
+    )
     await consumer.run()
 
 
@@ -166,6 +192,24 @@ class Command(BaseCommand):
             default=None,
             help="Deprecated, ignored: readers always use the denormalized state columns",
         )
+        # Fleet partitioning: which sourcebatch.sync_type classes this deployment claims
+        # and sweeps. Paired deployments must cover every class between them — a class no
+        # fleet claims sits in the queue until partition pruning.
+        parser.add_argument(
+            "--claim-sync-types",
+            type=str,
+            default=None,
+            help="Comma-separated sync types this consumer claims (e.g. 'cdc'). Default: all",
+        )
+        parser.add_argument(
+            "--claim-exclude-sync-types",
+            type=str,
+            default=None,
+            help=(
+                "Comma-separated sync types this consumer does NOT claim (e.g. 'cdc'). "
+                "Mutually exclusive with --claim-sync-types"
+            ),
+        )
 
     def handle(self, *args, **options):
         health_port = options["health_port"]
@@ -177,6 +221,13 @@ class Command(BaseCommand):
             logger.warning(
                 "claim_path_legacy_removed", note="--claim-path is ignored; the legacy claim path no longer exists"
             )
+
+        claim_sync_types = parse_sync_types(options.get("claim_sync_types"), "--claim-sync-types")
+        claim_exclude_sync_types = parse_sync_types(
+            options.get("claim_exclude_sync_types"), "--claim-exclude-sync-types"
+        )
+        if claim_sync_types and claim_exclude_sync_types:
+            raise CommandError("--claim-sync-types and --claim-exclude-sync-types are mutually exclusive")
 
         logger.info(
             "warehouse_sources_load_starting",
@@ -192,9 +243,11 @@ class Command(BaseCommand):
             lease_ttl=config.lease_ttl_seconds,
             recovery_grace=config.recovery_grace_seconds,
             poll_failure_liveness_threshold=config.poll_failure_liveness_threshold,
+            claim_sync_types=claim_sync_types,
+            claim_exclude_sync_types=claim_exclude_sync_types,
         )
 
         health_state = HealthState(timeout_seconds=health_timeout)
         start_health_server(port=health_port, health_state=health_state)
 
-        asyncio.run(_run_consumer(config, health_state.report_healthy))
+        asyncio.run(_run_consumer(config, health_state.report_healthy, claim_sync_types, claim_exclude_sync_types))

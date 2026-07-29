@@ -1,4 +1,5 @@
 import os
+import shlex
 import subprocess
 from typing import Any
 
@@ -70,6 +71,16 @@ class TestSandboxProviderGuard:
                 get_sandbox_class()
         else:
             assert get_sandbox_class() is DockerSandbox
+
+    @patch("products.tasks.backend.logic.services.sandbox.settings")
+    def test_modal_evals_provider_uses_dedicated_app(self, mock_settings):
+        mock_settings.SANDBOX_PROVIDER = "MODAL_EVALS"
+        mock_settings.DEBUG = False
+        mock_settings.TEST = True
+
+        sandbox_class = get_sandbox_class()
+
+        assert getattr(sandbox_class, "DEFAULT_APP_NAME", None) == "posthog-sandbox-evals"
 
 
 @pytest.mark.skipif(is_ci() or not docker_available(), reason="Docker sandbox tests only run locally, not in CI")
@@ -272,8 +283,6 @@ class TestDockerSandboxUnit:
         ],
     )
     def test_clone_repository_command_escaping(self, repository):
-        import shlex
-
         sandbox = DockerSandbox.__new__(DockerSandbox)
         sandbox._container_id = "abc123"
         sandbox.id = "abc123"
@@ -313,6 +322,20 @@ class TestDockerSandboxUnit:
                 assert expected_in_command in command
                 if not_expected_in_command:
                     assert not_expected_in_command not in command
+
+    def test_clone_repository_branch_flag(self):
+        sandbox = DockerSandbox.__new__(DockerSandbox)
+        sandbox._container_id = "abc123"
+        sandbox.id = "abc123"
+        sandbox.config = SandboxConfig(name="test")
+        branch = "feature/branch; echo hacked"
+
+        with patch.object(sandbox, "is_running", return_value=True):
+            with patch.object(sandbox, "execute") as mock_execute:
+                sandbox.clone_repository("PostHog/posthog", github_token="test-token", branch=branch)
+                command = mock_execute.call_args[0][0]
+
+                assert f"--branch {shlex.quote(branch)}" in command
 
     @pytest.mark.parametrize(
         "repository,task_id,run_id,mode",
@@ -567,6 +590,8 @@ class TestDockerSandboxUnit:
                     provider="openai",
                     model="gpt-5.3-codex",
                     reasoning_effort="medium",
+                    context_window="1m",
+                    fast_mode=True,
                     initial_permission_mode="plan",
                     event_ingest_token="ingest-token",
                     event_ingest_url="http://localhost:8003",
@@ -577,10 +602,43 @@ class TestDockerSandboxUnit:
         assert "POSTHOG_CODE_PROVIDER=openai" in command
         assert "POSTHOG_CODE_MODEL=gpt-5.3-codex" in command
         assert "POSTHOG_CODE_REASONING_EFFORT=medium" in command
+        assert "POSTHOG_CODE_CONTEXT_WINDOW=1m" in command
+        assert "POSTHOG_CODE_FAST_MODE=true" in command
         assert "POSTHOG_CODE_INITIAL_PERMISSION_MODE=plan" in command
         assert "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN=ingest-token" in command
         # The host proxy URL is rewritten so it resolves from inside the container.
         assert "POSTHOG_TASK_RUN_EVENT_INGEST_URL=http://host.docker.internal:8003" in command
+
+    @pytest.mark.parametrize(
+        "fast_mode, expected_env",
+        [
+            (False, "POSTHOG_CODE_FAST_MODE=false"),
+            (None, None),
+        ],
+    )
+    def test_start_agent_server_fast_mode_env(self, fast_mode, expected_env):
+        sandbox = DockerSandbox.__new__(DockerSandbox)
+        sandbox._container_id = "abc123"
+        sandbox.id = "abc123"
+        sandbox.config = SandboxConfig(name="test")
+        sandbox._host_port = 12345
+
+        with patch.object(sandbox, "is_running", return_value=True):
+            with patch.object(sandbox, "execute") as mock_execute:
+                mock_execute.return_value = ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None)
+                sandbox.start_agent_server(
+                    "posthog/posthog",
+                    "task-123",
+                    "run-456",
+                    "background",
+                    fast_mode=fast_mode,
+                )
+
+        command = _agent_server_launch_command(mock_execute)
+        if expected_env is not None:
+            assert expected_env in command
+        else:
+            assert "POSTHOG_CODE_FAST_MODE" not in command
 
     @pytest.mark.parametrize(
         "keep_stream_open, expected_env_present",

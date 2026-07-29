@@ -120,6 +120,8 @@ async def test_generate_digest_data_workflow():
         "filter": 0,
         "recording": 0,
         "product_suggestion": 0,
+        "error_issue": 0,
+        "usage_trends": 0,
         "org_digest": 0,
     }
 
@@ -177,6 +179,14 @@ async def test_generate_digest_data_workflow():
     async def generate_product_suggestion_lookup_mocked(input) -> None:
         activity_calls["product_suggestion"] += 1
 
+    @activity.defn(name="generate-error-issue-lookup")
+    async def generate_error_issue_lookup_mocked(input) -> None:
+        activity_calls["error_issue"] += 1
+
+    @activity.defn(name="generate-usage-trends-lookup")
+    async def generate_usage_trends_lookup_mocked(input) -> None:
+        activity_calls["usage_trends"] += 1
+
     @activity.defn(name="generate-organization-digest-batch")
     async def generate_organization_digest_batch_mocked(input) -> None:
         activity_calls["org_digest"] += 1
@@ -201,6 +211,8 @@ async def test_generate_digest_data_workflow():
                 generate_filter_lookup_mocked,
                 generate_recording_lookup_mocked,
                 generate_product_suggestion_lookup_mocked,
+                generate_error_issue_lookup_mocked,
+                generate_usage_trends_lookup_mocked,
                 generate_organization_digest_batch_mocked,
             ],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
@@ -237,6 +249,8 @@ async def test_generate_digest_data_workflow():
     assert activity_calls["filter"] == expected_team_batches
     assert activity_calls["recording"] == expected_team_batches
     assert activity_calls["product_suggestion"] == expected_team_batches
+    assert activity_calls["error_issue"] == expected_team_batches
+    assert activity_calls["usage_trends"] == expected_team_batches
 
     # Calculate expected batches for organizations
     expected_org_batches = (TEST_ORG_COUNT + TEST_BATCH_SIZE - 1) // TEST_BATCH_SIZE

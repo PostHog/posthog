@@ -6,12 +6,12 @@ This reference is the vocabulary for everything `exploring-scouts` returns.
 ## SignalScoutConfig — the scout's settings
 
 One row per `(team, skill_name)`.
-Returned by `signals-scout-config-list`.
+Returned by `scout-config-list`.
 This is the scout's control surface, separate from its instruction body (the `LLMSkill`).
 
 | Field                  | Meaning                                                                                       |
 | ---------------------- | --------------------------------------------------------------------------------------------- |
-| `id`                   | Config id — the handle `signals-scout-config-update` takes to tune it.                        |
+| `id`                   | Config id — the handle `scout-config-update` takes to tune it.                                |
 | `skill_name`           | The `signals-scout-*` skill this config controls. Fixed; one config per skill per team.       |
 | `enabled`              | `false` = paused. The coordinator skips disabled scouts entirely.                             |
 | `emit`                 | `false` = **dry-run**: the scout runs and reasons every tick but writes nothing to the inbox. |
@@ -23,7 +23,7 @@ This is the intended posture for a new or freshly-edited scout, and the most com
 
 ## SignalScoutRun — one execution
 
-Returned by `signals-scout-runs-list` (summary) and `signals-scout-runs-retrieve` (detail; same shape).
+Returned by `scout-runs-list` (summary) and `scout-runs-retrieve` (detail; same shape).
 Each run is one sandboxed agent execution of one scout.
 The run is a thin bridge to a `tasks.TaskRun` — status, timing, and the full transcript live on the Task side.
 
@@ -75,12 +75,12 @@ Each authored report's backing evidence persists as signal rows tagged `source_p
 Runs from scouts still on the legacy signal channel (no `allowed_tools` opt-in — old custom scouts, or a canonical scout not yet ported) emit weak findings instead: `emitted_count` is that tally and `emitted_finding_ids` lists the `finding_id`s behind it.
 Each finding went through `emit_signal()` with `source_product="signals_scout"` / `source_type="cross_source_issue"` and a deterministic `source_id = run:<run_id>:finding:<finding_id>` (stored at the **top level** of the signal's `metadata`, not inside `metadata.extra`).
 Grouping generated its own `document_id` and deduped on that — never on `source_id` — so a re-emitted `finding_id` produced a second signal.
-For these runs only, `signals-scout-runs-emission-reports` maps each emitted finding to the inbox report its signal grouped into (or `null`).
+For these runs only, `scout-runs-emission-reports` maps each emitted finding to the inbox report its signal grouped into (or `null`).
 On report-channel scouts both fields are always `0` / empty.
 
 ## SignalScratchpad — durable fleet memory
 
-Returned by `signals-scout-scratchpad-search`.
+Returned by `scout-scratchpad-search`.
 One row per `(team, key)`; re-using a key upserts.
 This is the fleet's cross-run memory — prose entries scouts write so future runs are smarter and quieter.
 
@@ -98,7 +98,7 @@ The canonical prefix set and the four-state dedupe classifier the fleet reasons 
 
 ## SignalProjectProfile — orientation snapshot
 
-Returned by `signals-scout-project-profile-get`.
+Returned by `scout-project-profile-get`.
 A deterministic, cached snapshot of "what's true about this project" — products in use, product intents, integrations, warehouse sources, signal source configs (split enabled/disabled), inbox report counts, and top events with reach/burst metrics.
 This is the ground truth every scout cold-starts from.
 

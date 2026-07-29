@@ -2,7 +2,7 @@ import { decode } from 'he'
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
 import { LemonButton, LemonDialog, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'

@@ -68,6 +68,18 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["property_type"] == "DateTime"
 
+    def test_warehouse_origin_provenance_is_exposed(self):
+        origin = {"source_id": "s1", "table_name": "github.issues", "column": "plan_tier"}
+        property = PropertyDefinition.objects.create(
+            team=self.team,
+            name="plan_tier",
+            type=PropertyDefinition.Type.PERSON,
+            warehouse_origin=origin,
+        )
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/{property.id}")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["warehouse_origin"] == origin
+
     def test_retrieve_with_non_uuid_id_returns_404(self):
         # Links built without a saved definition id (e.g. pinned defaults) request
         # `.../property_definitions/undefined` — that must 404, not 500 with a UUID ValueError.

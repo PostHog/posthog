@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from typing import Any, Literal
 
-from django.db import close_old_connections
+from django.db import close_old_connections, transaction
 
 import s3fs
 import pyarrow as pa
@@ -18,6 +18,13 @@ from products.data_warehouse.backend.facade.api import update_external_job_statu
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
+    CDC_OP_COLUMN,
+    SCD2_VALID_TO_COLUMN,
+    TOAST_OMITTED_COLUMN,
+    enrich_delete_rows,
+    enrich_toast_omitted_rows,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import (
     run_post_load_operations,
     supports_partial_data_loading,
@@ -34,6 +41,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
     validate_schema_and_update_table,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
+    OwnershipLostError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.kafka.common import (
     ExportSignalMessage,
@@ -66,6 +76,117 @@ def _get_write_type(sync_type: SyncTypeLiteral) -> Literal["incremental", "full_
     elif sync_type == "append":
         return "append"
     return "full_refresh"
+
+
+def _read_existing_rows_by_first_pk(
+    existing_delta_table: deltalake.DeltaTable,
+    first_pk: str,
+    first_components: list[Any],
+) -> pa.Table:
+    """Read the existing rows whose `first_pk` value is in `first_components`.
+
+    Prefers Delta filter pushdown (prunes files, cheap). pyarrow >= 21 materializes
+    string columns as `string_view`, whose `equal`/`greater_equal` compute kernels are
+    unimplemented, so pushing an `in` predicate down onto a string primary key raises
+    `ArrowNotImplementedError`. When that happens, read the table and filter in PyArrow
+    after casting the key to `string`, which has working kernels.
+    """
+    try:
+        return existing_delta_table.to_pyarrow_table(filters=[(first_pk, "in", first_components)])
+    except pa.lib.ArrowNotImplementedError:
+        logger.warning("cdc_delete_enrichment_pushdown_fallback", primary_key=first_pk)
+        existing = existing_delta_table.to_pyarrow_table()
+        key = existing.column(first_pk).cast(pa.string())
+        wanted = pa.array(first_components, pa.string())
+        return existing.filter(pc.is_in(key, value_set=wanted))
+
+
+def _enrich_cdc_rows(
+    pa_table: pa.Table,
+    *,
+    primary_keys: list[str] | None,
+    cdc_write_mode: str | None,
+    existing_delta_table: deltalake.DeltaTable | None,
+    batch_index: int,
+) -> pa.Table:
+    """Cross-batch CDC enrichment against the existing DeltaLake state.
+
+    Batch-internal enrichment was already applied in the extraction activity; this
+    fills what only the target table knows:
+    - DELETE rows with no preceding INSERT/UPDATE for the same PK in the batch.
+    - Unchanged-TOAST (omitted) UPDATE columns whose last value is not in the batch.
+
+    Always strips TOAST_OMITTED_COLUMN before returning — it is transport metadata
+    for this enrichment and must never reach DeltaLake.
+    """
+    if cdc_write_mode is None:
+        return pa_table
+
+    if primary_keys and existing_delta_table is not None and CDC_OP_COLUMN in pa_table.column_names:
+        present_pks = [col for col in primary_keys if col in pa_table.column_names]
+        if present_pks:
+            ops = pa_table.column(CDC_OP_COLUMN).to_pylist()
+            pk_arrays = [pa_table.column(col).to_pylist() for col in present_pks]
+            delete_key_set: set[tuple[Any, ...]] = set()
+            for i, op in enumerate(ops):
+                if op == "D":
+                    delete_key_set.add(tuple(arr[i] for arr in pk_arrays))
+
+            toast_key_set: set[tuple[Any, ...]] = set()
+            if TOAST_OMITTED_COLUMN in pa_table.column_names:
+                omitted_lists = pa_table.column(TOAST_OMITTED_COLUMN).to_pylist()
+                for i, omitted in enumerate(omitted_lists):
+                    if omitted:
+                        toast_key_set.add(tuple(arr[i] for arr in pk_arrays))
+
+            enrich_key_set = delete_key_set | toast_key_set
+            if enrich_key_set:
+                logger.debug(
+                    "cdc_delete_enrichment",
+                    delete_row_count=len(delete_key_set),
+                    toast_omitted_row_count=len(toast_key_set),
+                    primary_key_count=len(present_pks),
+                    cdc_write_mode=cdc_write_mode,
+                    batch_index=batch_index,
+                )
+                # Delta-rs: single-column IN avoids tuple filters (weak NULL semantics).
+                # For composite PKs that IN is a superset — narrow in PyArrow below.
+                first_pk = present_pks[0]
+                first_components = list({t[0] for t in enrich_key_set})
+                existing_rows = _read_existing_rows_by_first_pk(existing_delta_table, first_pk, first_components)
+
+                # For composite PKs the IN filter is a superset — narrow to exact matches.
+                if len(present_pks) > 1 and existing_rows.num_rows > 0:
+                    if all(col in existing_rows.column_names for col in present_pks):
+                        ex_pk_arrays = [existing_rows.column(col).to_pylist() for col in present_pks]
+                        match_indices = [
+                            j
+                            for j in range(existing_rows.num_rows)
+                            if tuple(arr[j] for arr in ex_pk_arrays) in enrich_key_set
+                        ]
+                        # Explicit int64 so an empty result doesn't infer a null-typed index array.
+                        existing_rows = existing_rows.take(pa.array(match_indices, type=pa.int64()))
+                    else:
+                        existing_rows = existing_rows.take(pa.array([], type=pa.int64()))
+
+                # For SCD2 tables, keep only "current" rows (valid_to IS NULL) so we
+                # enrich with the most recent state rather than a historical one.
+                if (
+                    cdc_write_mode == "scd2_append"
+                    and existing_rows.num_rows > 0
+                    and SCD2_VALID_TO_COLUMN in existing_rows.column_names
+                ):
+                    existing_rows = existing_rows.filter(pc.is_null(existing_rows.column(SCD2_VALID_TO_COLUMN)))
+
+                # TOAST fill first so DELETE enrichment copies resolved values,
+                # not the nulls standing in for omitted columns.
+                pa_table = enrich_toast_omitted_rows(pa_table, primary_keys, existing_rows)
+                pa_table = enrich_delete_rows(pa_table, primary_keys, existing_rows)
+
+    if TOAST_OMITTED_COLUMN in pa_table.column_names:
+        pa_table = pa_table.drop_columns([TOAST_OMITTED_COLUMN])
+
+    return pa_table
 
 
 def _apply_partitioning(
@@ -277,46 +398,60 @@ def _release_pipeline_lock_for_job(export_signal: ExportSignalMessage) -> None:
 
 
 def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
-    _promote_staged_cursor(export_signal)
+    # Reconnect stale connections before the transaction; close_old_connections must never
+    # run inside an atomic block since it can drop the connection mid-transaction.
+    close_old_connections()
 
-    update_external_job_status(
-        job_id=export_signal.job_id,
-        team_id=export_signal.team_id,
-        status=ExternalDataJob.Status.COMPLETED,
-        logger=logger,
-        latest_error=None,
-    )
+    # The Completed write and cursor promotion share one transaction so they commit together:
+    # if promotion raises, the completion rolls back and the batch retries, never stranding a
+    # terminal job with a stale cursor that a later append sync would re-extract past.
+    with transaction.atomic():
+        model = update_external_job_status(
+            job_id=export_signal.job_id,
+            team_id=export_signal.team_id,
+            status=ExternalDataJob.Status.COMPLETED,
+            logger=logger,
+            latest_error=None,
+        )
 
-    async_to_sync(finish_row_tracking)(export_signal.team_id, export_signal.schema_id)
+        job_completed = model.status == ExternalDataJob.Status.COMPLETED
+        if job_completed:
+            # Promote only when the Completed write landed: if the job was cancelled (absorbing
+            # Failed) after the final batch passed should_process_batch, the staged incremental
+            # cursor must not advance past data that was never fully loaded.
+            _promote_staged_cursor(export_signal)
 
-    logger.info(
-        "job_marked_completed",
-        external_data_job_id=export_signal.job_id,
-        team_id=export_signal.team_id,
-        external_data_schema_id=export_signal.schema_id,
-    )
+    if job_completed:
+        async_to_sync(finish_row_tracking)(export_signal.team_id, export_signal.schema_id)
+
+        logger.info(
+            "job_marked_completed",
+            external_data_job_id=export_signal.job_id,
+            team_id=export_signal.team_id,
+            external_data_schema_id=export_signal.schema_id,
+        )
+    else:
+        logger.info(
+            "job_completion_suppressed_terminal_status",
+            external_data_job_id=export_signal.job_id,
+            team_id=export_signal.team_id,
+            external_data_schema_id=export_signal.schema_id,
+            status=model.status,
+        )
 
     _release_pipeline_lock_for_job(export_signal)
 
 
 def _promote_staged_cursor(export_signal: ExportSignalMessage) -> None:
-    close_old_connections()
-    try:
-        schema = ExternalDataSchema.objects.get(id=export_signal.schema_id, team_id=export_signal.team_id)
-        promoted = schema.promote_staged_incremental_values(export_signal.run_uuid)
-        if promoted:
-            logger.info(
-                "staged_cursor_promoted",
-                run_uuid=export_signal.run_uuid,
-                external_data_schema_id=export_signal.schema_id,
-            )
-    except Exception as e:
-        logger.exception(
-            "staged_cursor_promotion_failed",
+    # Runs inside the completion transaction; failures roll it back so the batch retries.
+    schema = ExternalDataSchema.objects.get(id=export_signal.schema_id, team_id=export_signal.team_id)
+    promoted = schema.promote_staged_incremental_values(export_signal.run_uuid)
+    if promoted:
+        logger.info(
+            "staged_cursor_promoted",
             run_uuid=export_signal.run_uuid,
             external_data_schema_id=export_signal.schema_id,
         )
-        capture_exception(e)
 
 
 def _mark_job_failed(export_signal: ExportSignalMessage, error: Exception) -> None:
@@ -422,6 +557,10 @@ def process_message(
             if verify_ownership is not None:
                 verify_ownership()
             _run_post_load_for_already_processed_batch(export_signal)
+            # Post-load can run minutes (compaction, S3 prep) — re-check before
+            # completion promotes the cursor and releases the lock under a new owner.
+            if verify_ownership is not None:
+                verify_ownership()
             _mark_job_completed(export_signal)
             return
 
@@ -467,66 +606,13 @@ def process_message(
             "batch_index": str(export_signal.batch_index),
         }
 
-        # Cross-batch DELETE enrichment: fill data columns on DELETE rows from the
-        # existing DeltaLake state. Batch-internal enrichment was already applied
-        # in the extraction activity; this handles standalone DELETEs that arrive
-        # in a batch with no preceding INSERT/UPDATE for the same PK.
-        if cdc_write_mode is not None and primary_keys and existing_delta_table is not None:
-            from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
-                CDC_OP_COLUMN,
-                SCD2_VALID_TO_COLUMN,
-                enrich_delete_rows,
-            )
-
-            if CDC_OP_COLUMN in pa_table.column_names:
-                present_pks = [col for col in primary_keys if col in pa_table.column_names]
-                if present_pks:
-                    ops = pa_table.column(CDC_OP_COLUMN).to_pylist()
-                    pk_arrays = [pa_table.column(col).to_pylist() for col in present_pks]
-                    delete_key_set: set[tuple[Any, ...]] = set()
-                    for i, op in enumerate(ops):
-                        if op == "D":
-                            delete_key_set.add(tuple(arr[i] for arr in pk_arrays))
-
-                    if delete_key_set:
-                        logger.debug(
-                            "cdc_delete_enrichment",
-                            delete_row_count=len(delete_key_set),
-                            primary_key_count=len(present_pks),
-                            cdc_write_mode=cdc_write_mode,
-                            batch_index=export_signal.batch_index,
-                        )
-                        # Delta-rs: single-column IN avoids tuple filters (weak NULL semantics).
-                        # For composite PKs that IN is a superset — narrow in PyArrow below.
-                        first_pk = present_pks[0]
-                        first_components = list({t[0] for t in delete_key_set})
-                        existing_rows = existing_delta_table.to_pyarrow_table(
-                            filters=[(first_pk, "in", first_components)]
-                        )
-
-                        # For composite PKs the IN filter is a superset — narrow to exact matches.
-                        if len(present_pks) > 1 and existing_rows.num_rows > 0:
-                            if all(col in existing_rows.column_names for col in present_pks):
-                                ex_pk_arrays = [existing_rows.column(col).to_pylist() for col in present_pks]
-                                match_indices = [
-                                    j
-                                    for j in range(existing_rows.num_rows)
-                                    if tuple(arr[j] for arr in ex_pk_arrays) in delete_key_set
-                                ]
-                                existing_rows = existing_rows.take(match_indices)
-                            else:
-                                existing_rows = existing_rows.take([])
-
-                        # For SCD2 tables, keep only "current" rows (valid_to IS NULL) so we
-                        # enrich the DELETE with the most recent state rather than a historical one.
-                        if (
-                            cdc_write_mode == "scd2_append"
-                            and existing_rows.num_rows > 0
-                            and SCD2_VALID_TO_COLUMN in existing_rows.column_names
-                        ):
-                            existing_rows = existing_rows.filter(pc.is_null(existing_rows.column(SCD2_VALID_TO_COLUMN)))
-
-                        pa_table = enrich_delete_rows(pa_table, primary_keys, existing_rows)
+        pa_table = _enrich_cdc_rows(
+            pa_table,
+            primary_keys=primary_keys,
+            cdc_write_mode=cdc_write_mode,
+            existing_delta_table=existing_delta_table,
+            batch_index=export_signal.batch_index,
+        )
 
         if existing_delta_table is not None:
             pa_table = evolve_pyarrow_schema(pa_table, existing_delta_table.schema())
@@ -632,6 +718,11 @@ def process_message(
                 cdc_write_mode=export_signal.cdc_write_mode,
             )
 
+            # Post-load can run minutes (compaction, S3 prep) — re-check before
+            # completion promotes the cursor and releases the lock under a new owner.
+            if verify_ownership is not None:
+                verify_ownership()
+
             _mark_job_completed(export_signal)
 
             logger.debug("post_load_operations_complete")
@@ -654,6 +745,10 @@ def process_message(
                     "total_rows": export_signal.total_rows,
                 },
             )
+    except OwnershipLostError:
+        # Benign fencing abandon: the engine re-raises this without writing a
+        # failure status, so it must not count as a load failure in analytics either.
+        raise
     except Exception as e:
         posthoganalytics.capture(
             distinct_id=get_machine_id(),

@@ -1,28 +1,25 @@
 import re
 import dataclasses
-from collections.abc import Iterator
-from typing import Any
+from typing import Any, Optional
 from urllib.parse import urlencode, urljoin, urlparse
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BaseNextUrlPaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.kustomer.settings import KUSTOMER_ENDPOINTS
 
 # Kustomer list pages cap at 100 items.
 PAGE_SIZE = 100
-REQUEST_TIMEOUT_SECONDS = 60
-# Default rate limit is 300 calls/min; 429s carry x-ratelimit headers but
-# exponential backoff is sufficient.
-MAX_RETRY_ATTEMPTS = 5
-
-
-class KustomerRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
@@ -30,10 +27,6 @@ class KustomerResumeConfig:
     # Kustomer paginates via a JSON:API `links.next` URL (absolutized against
     # the org host), so the URL is all we persist.
     next_url: str
-
-
-def _get_session(api_key: str) -> requests.Session:
-    return make_tracked_session(headers={"Authorization": f"Bearer {api_key}"}, redact_values=(api_key,))
 
 
 def _clean_org_name(org_name: str) -> str:
@@ -63,102 +56,128 @@ def _ensure_same_origin(url: str, base_url: str) -> str:
     return url
 
 
-def validate_credentials(org_name: str, api_key: str) -> bool:
-    """Confirm the API key and org are valid with a cheap one-customer probe.
+class KustomerLinksNextPaginator(BaseNextUrlPaginator):
+    """Follows Kustomer's JSON:API `links.next` cursor.
 
-    Role-scoped keys may lack individual read grants (403); only 401 means the
-    key itself is bad."""
-    try:
-        response = _get_session(api_key).get(
-            f"{_base_url(org_name)}/v1/customers?{urlencode({'page[size]': 1})}",
-            timeout=10,
-        )
-        return response.status_code != 401
-    except Exception:
-        return False
+    The next link is typically a relative path; absolutize it against the org
+    host and pin it to that origin so a tampered/absolute off-host link can't
+    redirect our authenticated request and leak the Bearer key. An empty page
+    stops pagination even when a `links.next` is present (parity with the
+    hand-rolled loop, which broke on the first empty page)."""
 
+    def __init__(self, base_url: str) -> None:
+        super().__init__()
+        self._base_url = base_url
 
-def get_rows(
-    org_name: str,
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[KustomerResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
-    config = KUSTOMER_ENDPOINTS[endpoint]
-    session = _get_session(api_key)
-    base_url = _base_url(org_name)
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        # Stop on an empty page even if a next link is present.
+        if not data:
+            self._has_next_page = False
+            return
 
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume_config is not None:
-        # Re-validate the persisted URL so a tampered Redis state can't redirect
-        # our authenticated request off-host.
-        url: str = _ensure_same_origin(resume_config.next_url, base_url)
-        logger.debug(f"Kustomer: resuming {endpoint} from URL: {url}")
-    else:
-        url = f"{base_url}{config.path}?{urlencode({'page[size]': PAGE_SIZE})}"
+        try:
+            body = response.json()
+        except Exception:
+            body = {}
+        next_link = (body.get("links") or {}).get("next") if isinstance(body, dict) else None
 
-    @retry(
-        retry=retry_if_exception_type((KustomerRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
-        wait=wait_exponential_jitter(initial=1, max=60),
-        reraise=True,
-    )
-    def fetch_page(page_url: str) -> dict[str, Any]:
-        response = session.get(page_url, timeout=REQUEST_TIMEOUT_SECONDS)
+        if not next_link:
+            self._has_next_page = False
+            return
 
-        if response.status_code == 429 or response.status_code >= 500:
-            raise KustomerRetryableError(
-                f"Kustomer API error (retryable): status={response.status_code}, url={page_url}"
-            )
+        # Absolutize against the org host and pin to that origin so an absolute
+        # off-host URL can't leak the API key. Save state AFTER yielding (the
+        # framework calls resume_hook post-yield) so a crash re-yields the last
+        # page rather than skipping it (merge dedupes on primary key).
+        self._next_url = _ensure_same_origin(urljoin(self._base_url, next_link), self._base_url)
+        self._has_next_page = True
 
-        if not response.ok:
-            logger.error(f"Kustomer API error: status={response.status_code}, body={response.text}, url={page_url}")
-            response.raise_for_status()
-
-        return response.json()
-
-    while True:
-        data = fetch_page(url)
-        items = data.get("data", []) or []
-
-        if items:
-            yield items
-
-        next_link = (data.get("links") or {}).get("next")
-        if not next_link or not items:
-            break
-
-        # links.next is typically a relative path; absolutize against the org
-        # host and pin to that origin so an absolute off-host URL can't leak the
-        # API key.
-        next_url = _ensure_same_origin(urljoin(base_url, next_link), base_url)
-        # Save state AFTER yielding the page so a crash re-yields the last page
-        # (merge dedupes on primary key) rather than skipping it.
-        resumable_source_manager.save_state(KustomerResumeConfig(next_url=next_url))
-        url = next_url
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        next_url = state.get("next_url")
+        if next_url is not None:
+            # Re-validate the persisted URL so a tampered Redis state can't
+            # redirect our authenticated request off-host.
+            self._next_url = _ensure_same_origin(next_url, self._base_url)
+            self._has_next_page = True
 
 
 def kustomer_source(
     org_name: str,
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[KustomerResumeConfig],
+    db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = KUSTOMER_ENDPOINTS[endpoint]
+    base_url = _base_url(org_name)
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": base_url,
+            "auth": {"type": "bearer", "token": api_key},
+            "paginator": KustomerLinksNextPaginator(base_url),
+        },
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": {"page[size]": PAGE_SIZE},
+                    # JSON:API rows live under `data`. A missing key is a legit
+                    # zero-row page (the hand-rolled loop used `.get("data", [])`),
+                    # so this is NOT required — it stops rather than failing loud.
+                    "data_selector": "data",
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = {"next_url": resume.next_url}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state and state.get("next_url"):
+            resumable_source_manager.save_state(KustomerResumeConfig(next_url=str(state["next_url"])))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            org_name=org_name,
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-        ),
+        items=lambda: resource,
         primary_keys=[config.primary_key],
         partition_count=1,
         partition_size=1,
         sort_mode="asc",
     )
+
+
+def validate_credentials(org_name: str, api_key: str) -> bool:
+    """Confirm the API key and org are valid with a cheap one-customer probe.
+
+    Role-scoped keys may lack individual read grants (403); only 401 means the
+    key itself is bad. A malformed org or an unreachable API (no status) is also
+    treated as invalid."""
+    try:
+        base_url = _base_url(org_name)
+    except ValueError:
+        return False
+
+    _ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        f"{base_url}/v1/customers?{urlencode({'page[size]': 1})}",
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    return status is not None and status != 401

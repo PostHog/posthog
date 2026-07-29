@@ -105,6 +105,7 @@ IntervieweeContext
 KernelRuntime
 LLMModelConfiguration
 LLMPrompt
+LLMPromptLabel
 LLMProviderKey
 LLMSkill
 LLMTraceSummary
@@ -112,6 +113,7 @@ Link
 LiveDebuggerBreakpoint
 LogsAlertConfiguration
 LogsExclusionRule
+LogsRetentionRule
 LogsView
 MCPAnalyticsSubmission
 MCPServerInstallation

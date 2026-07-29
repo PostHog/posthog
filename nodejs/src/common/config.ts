@@ -25,6 +25,7 @@ export enum PluginServerMode {
     recordings_blob_ingestion_v2_ml_mirror = 'recordings-blob-ingestion-v2-ml-mirror',
     recordings_blob_ingestion_v2_ml_parquet_sink = 'recordings-blob-ingestion-v2-ml-parquet-sink',
     recordings_blob_ingestion_v2_ml_image_scrub = 'recordings-blob-ingestion-v2-ml-image-scrub',
+    recordings_blob_ingestion_v2_ml_image_scrub_dlq_replay = 'recordings-blob-ingestion-v2-ml-image-scrub-dlq-replay',
     cdp_processed_events = 'cdp-processed-events',
     cdp_person_updates = 'cdp-person-updates',
     cdp_data_warehouse_events = 'cdp-data-warehouse-events',
@@ -50,6 +51,7 @@ export enum PluginServerMode {
     ingestion_v2_combined = 'ingestion-v2-combined',
     ingestion_traces = 'ingestion-traces',
     cdp_hogflow_scheduler = 'cdp-hogflow-scheduler',
+    email_reputation_evaluator = 'email-reputation-evaluator',
     ingestion_api = 'ingestion-api',
 }
 
@@ -186,10 +188,6 @@ export type CommonConfig = BaseServerConfig & {
 
     // Shared between ingestion and CDP (used by hog transformer in both)
     CDP_HOG_WATCHER_SAMPLE_RATE: number
-
-    // Fraction (0-1) of transformation executions shadow-executed on the Rust HogVM for
-    // latency/correctness comparison; the Node VM result stays authoritative
-    CDP_HOG_RUST_VM_SHADOW_SAMPLE_RATE: number
 
     // Execute transformations on the Rust HogVM instead of the Node VM. Invocations the Rust VM
     // can't run (unsupported host functions, addon not built) fall back to the Node VM.
@@ -365,7 +363,6 @@ export function getDefaultCommonConfig(): CommonConfig {
 
         // Shared between ingestion and CDP
         CDP_HOG_WATCHER_SAMPLE_RATE: 0,
-        CDP_HOG_RUST_VM_SHADOW_SAMPLE_RATE: 0,
         CDP_HOG_RUST_VM_EXECUTION_ENABLED: false,
 
         // Event loop yield helper

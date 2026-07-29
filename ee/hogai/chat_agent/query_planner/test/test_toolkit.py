@@ -370,7 +370,8 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
                 "9, 8, 7, 6, 5, 4, 3, 2, 1, 0",
             )
             self.assertEqual(
-                toolkit.retrieve_event_or_action_property_values(item, "date"), f'"{datetime(2024, 1, 1).isoformat()}"'
+                toolkit.retrieve_event_or_action_property_values(item, "date"),
+                f'"{datetime(2024, 1, 1).isoformat()}"',
             )
 
     @patch.object(DummyToolkit, "_retrieve_event_or_action_taxonomy")
@@ -418,6 +419,26 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(prop, "$geoip_city_name")
         self.assertEqual(type, "String")
         self.assertIsNotNone(description)
+
+    def test_retrieve_entity_properties_surfaces_stored_descriptions(self):
+        # Regression guard for the read_taxonomy path: a user-authored description on a custom
+        # property must reach the LLM. The shared helper was wired for stored descriptions in
+        # #73360, but this (query_planner) toolkit — the one read_taxonomy actually constructs —
+        # was left calling it without them, so descriptions never surfaced in production.
+        from ee.models.property_definition import EnterprisePropertyDefinition
+
+        EnterprisePropertyDefinition.objects.create(
+            team=self.team,
+            type=PropertyDefinition.Type.PERSON,
+            name="plan_tier",
+            property_type="String",
+            description="Subscription tier\nof the account",
+        )
+        toolkit = DummyToolkit(self.team, self.user)
+        result = toolkit.retrieve_entity_properties("person")
+
+        # Sanitization collapses the newline so a description can't break out of its line.
+        self.assertIn("- plan_tier – Subscription tier of the account", result)
 
     def test_generate_properties_output_replaces_newlines_in_descriptions(self):
         toolkit = DummyToolkit(self.team, self.user)

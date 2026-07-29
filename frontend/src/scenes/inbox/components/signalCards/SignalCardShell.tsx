@@ -1,4 +1,5 @@
-import { signalCardSourceLine } from 'lib/signals/signalCardSourceLine'
+import { ScoutLink } from 'lib/signals/ScoutLink'
+import { scoutDisplayName, signalCardSourceLine } from 'lib/signals/signalCardSourceLine'
 import type { SignalNode } from 'scenes/debug/signals/types'
 
 import { getSourceProductMeta } from '../badges/sourceProductIcons'
@@ -21,6 +22,13 @@ export function SignalCardHeader({
     const meta = getSourceProductMeta(signal.source_product)
     const Icon = meta?.Icon
 
+    // Scout-authored findings link the scout's name to its detail page; everything else stays plain text.
+    const scoutSkillName =
+        signal.source_product === 'signals_scout'
+            ? (signal.extra as { skill_name?: unknown } | undefined)?.skill_name
+            : undefined
+    const scoutName = typeof scoutSkillName === 'string' ? scoutDisplayName(scoutSkillName) : null
+
     return (
         <div className="flex items-center gap-2 mb-2">
             {Icon ? (
@@ -35,7 +43,15 @@ export function SignalCardHeader({
             ) : (
                 <span className="size-2.5 rounded-full shrink-0 bg-border" />
             )}
-            <span className="text-xs font-medium text-tertiary">{signalCardSourceLine(signal)}</span>
+            <span className="text-xs font-medium text-tertiary">
+                {scoutName && typeof scoutSkillName === 'string' ? (
+                    <>
+                        Scout · <ScoutLink skillName={scoutSkillName} className="text-tertiary" />
+                    </>
+                ) : (
+                    signalCardSourceLine(signal)
+                )}
+            </span>
             {label && <span className="text-xs font-medium text-primary flex-1 truncate">{label}</span>}
             <span className="flex-1" />
             {rightSlot}

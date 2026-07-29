@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 import pytest
 from posthog.test.base import BaseTest
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
@@ -15,7 +15,7 @@ from posthog.models import Person, Team
 from posthog.models.person.util import get_person_by_id
 from posthog.test.persons import add_cohort_members, create_person
 
-from products.cohorts.backend.models.cohort import Cohort, CohortType
+from products.cohorts.backend.models.cohort import Cohort, CohortConditionFlags, CohortType
 from products.cohorts.backend.models.sql import GET_COHORTPEOPLE_BY_COHORT_ID
 from products.cohorts.backend.models.util import count_cohort_members, list_cohort_member_ids
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
@@ -328,6 +328,58 @@ class TestCohort(BaseTest):
                 ],
             },
         )
+
+    @parameterized.expand(
+        [
+            (
+                # Regression: the realtime-cohort builder stores value="performed_event_multiple_times",
+                # not BehavioralPropertyType.PERFORMED_EVENT_MULTIPLE's "performed_event_multiple".
+                # Property(**leaf) used to raise KeyError for this, silently dropping the leaf.
+                "multiple_times_suffixed_value",
+                {
+                    "key": "$pageview",
+                    "type": "behavioral",
+                    "value": "performed_event_multiple_times",
+                    "negation": False,
+                    "operator": "gte",
+                    "event_type": "events",
+                    "time_value": 3650,
+                    "time_interval": "day",
+                    "operator_value": 1,
+                },
+                "performed_event_multiple",
+            ),
+            (
+                # Regression: an unbounded realtime-compiled condition ("did this person ever do X")
+                # carries bytecode/conditionHash/event_filters but no time_value/time_interval/
+                # explicit_datetime. Property(**leaf) used to raise ValueError ("Missing required
+                # parameters"), silently dropping the leaf.
+                "bytecode_only_unbounded_condition",
+                {
+                    "key": "$pageview",
+                    "type": "behavioral",
+                    "value": "performed_event",
+                    "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11],
+                    "negation": False,
+                    "event_type": "events",
+                    "conditionHash": "f9c616030a87e68f",
+                    "event_filters": [
+                        {"key": "$current_url", "type": "event", "value": "some-path", "operator": "icontains"}
+                    ],
+                },
+                "performed_event",
+            ),
+        ]
+    )
+    def test_properties_flat_includes_realtime_style_behavioral_leaf(self, _name, behavioral_leaf, expected_value):
+        cohort = Cohort(
+            team=self.team,
+            filters={"properties": {"type": "AND", "values": [behavioral_leaf]}},
+        )
+
+        behavioral_props = [p for p in cohort.properties.flat if p.type == "behavioral"]
+        self.assertEqual(len(behavioral_props), 1)
+        self.assertEqual(behavioral_props[0].value, expected_value)
 
     def test_insert_users_list_by_uuid(self):
         # These are some fine uuids.
@@ -666,6 +718,61 @@ _COHORT_REF_FILTERS = {
     }
 }
 
+_PERSON_METADATA_FILTERS = {
+    "properties": {
+        "type": "AND",
+        "values": [
+            {"type": "AND", "values": [{"key": "created_at", "value": "2024-01-01", "type": "person_metadata"}]}
+        ],
+    }
+}
+
+_PERSON_METADATA_AND_BEHAVIORAL_FILTERS = {
+    "properties": {
+        "type": "AND",
+        "values": [
+            {"type": "AND", "values": [{"key": "created_at", "value": "2024-01-01", "type": "person_metadata"}]},
+            {
+                "type": "AND",
+                "values": [
+                    {"type": "behavioral", "value": "performed_event", "event_type": "events", "key": "$pageview"}
+                ],
+            },
+        ],
+    }
+}
+
+_LIFECYCLE_FILTERS = {
+    "properties": {
+        "type": "AND",
+        "values": [
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "behavioral",
+                        "value": "performed_event_first_time",
+                        "event_type": "events",
+                        "key": "$pageview",
+                    }
+                ],
+            }
+        ],
+    }
+}
+
+
+def _condition_flags(
+    *, person_properties: bool = False, behavioral: bool = False, lifecycle: bool = False, cohorts: bool = False
+) -> CohortConditionFlags:
+    return {
+        "person_properties": person_properties,
+        "behavioral": behavioral,
+        "lifecycle": lifecycle,
+        "cohorts": cohorts,
+    }
+
+
 _FIXED_TS = datetime(2026, 1, 1, tzinfo=UTC)
 
 
@@ -705,6 +812,32 @@ class TestCohortIsFlagCompatible(BaseTest):
             ("realtime_empty_filters_no_ts", CohortType.REALTIME, {}, None, None, False),
             ("realtime_empty_filters_with_ts", CohortType.REALTIME, {}, _FIXED_TS, _FIXED_TS, False),
             ("realtime_cohort_ref_with_ts", CohortType.REALTIME, _COHORT_REF_FILTERS, _FIXED_TS, _FIXED_TS, False),
+            # Realtime + person_metadata filters: gate on person timestamp, same as plain person filters
+            ("realtime_person_metadata_no_ts", CohortType.REALTIME, _PERSON_METADATA_FILTERS, None, None, False),
+            (
+                "realtime_person_metadata_only_person_ts",
+                CohortType.REALTIME,
+                _PERSON_METADATA_FILTERS,
+                _FIXED_TS,
+                None,
+                True,
+            ),
+            (
+                "realtime_person_metadata_and_behavioral_only_events_ts",
+                CohortType.REALTIME,
+                _PERSON_METADATA_AND_BEHAVIORAL_FILTERS,
+                None,
+                _FIXED_TS,
+                False,
+            ),
+            (
+                "realtime_person_metadata_and_behavioral_both_ts",
+                CohortType.REALTIME,
+                _PERSON_METADATA_AND_BEHAVIORAL_FILTERS,
+                _FIXED_TS,
+                _FIXED_TS,
+                True,
+            ),
         ]
     )
     def test_is_flag_compatible(self, _label, cohort_type, filters, person_ts, events_ts, expected):
@@ -716,3 +849,69 @@ class TestCohortIsFlagCompatible(BaseTest):
             last_backfill_events_at=events_ts,
         )
         self.assertEqual(cohort.is_flag_compatible, expected)
+
+
+class TestCohortComputeConditionType(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("person_only", _PERSON_FILTERS, _condition_flags(person_properties=True)),
+            ("behavioral_only", _BEHAVIORAL_FILTERS, _condition_flags(behavioral=True)),
+            ("mixed", _MIXED_FILTERS, _condition_flags(person_properties=True, behavioral=True)),
+            ("cohort_reference_only", _COHORT_REF_FILTERS, _condition_flags(cohorts=True)),
+            ("empty_filters", {}, None),
+            ("none_filters", None, None),
+            # person_metadata reads a top-level persons-table column rather than the
+            # properties JSON blob, but it's still a property-style (non-behavioral) condition.
+            ("person_metadata_only", _PERSON_METADATA_FILTERS, _condition_flags(person_properties=True)),
+            (
+                "person_metadata_and_behavioral",
+                _PERSON_METADATA_AND_BEHAVIORAL_FILTERS,
+                _condition_flags(person_properties=True, behavioral=True),
+            ),
+            # Lifecycle-style behavioral values (first-seen/regularly/stopped/restarted) are
+            # distinct from plain event-count behavioral filters.
+            ("lifecycle_only", _LIFECYCLE_FILTERS, _condition_flags(lifecycle=True)),
+        ]
+    )
+    def test_compute_condition_type(self, _label, filters, expected):
+        self.assertEqual(Cohort.compute_condition_type(filters), expected)
+
+
+class TestCohortConditionTypeDerivedOnSave(BaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    # A cohort created without going through the API serializer (e.g. a management
+    # command or get_or_create_internal_test_users_cohort) must still get classified.
+    def test_direct_orm_create_derives_condition_type(self):
+        cohort = Cohort.objects.create(team=self.team, filters=_PERSON_FILTERS)
+        self.assertEqual(cohort.condition_type, _condition_flags(person_properties=True))
+
+    # Static cohorts skip cohort_type/realtime computation, but condition_type
+    # classifies filter shape independent of that, so it must still be set.
+    def test_static_cohort_with_filters_derives_condition_type(self):
+        cohort = Cohort.objects.create(team=self.team, is_static=True, filters=_BEHAVIORAL_FILTERS)
+        self.assertEqual(cohort.condition_type, _condition_flags(behavioral=True))
+
+    # Saves that don't touch filters (e.g. toggling is_calculating) must not
+    # recompute or drop condition_type.
+    def test_narrow_update_fields_save_does_not_touch_condition_type(self):
+        cohort = Cohort.objects.create(team=self.team, filters=_PERSON_FILTERS)
+        self.assertEqual(cohort.condition_type, _condition_flags(person_properties=True))
+
+        cohort.is_calculating = True
+        cohort.save(update_fields=["is_calculating"])
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.condition_type, _condition_flags(person_properties=True))
+
+    # A save that updates filters must recompute condition_type even when the caller also
+    # (redundantly) lists "condition_type" in update_fields with a stale value — the presence
+    # of "condition_type" in update_fields must not short-circuit recomputation.
+    def test_update_fields_with_both_filters_and_stale_condition_type_still_recomputes(self):
+        cohort = Cohort.objects.create(team=self.team, filters=_PERSON_FILTERS)
+        self.assertEqual(cohort.condition_type, _condition_flags(person_properties=True))
+
+        cohort.filters = _BEHAVIORAL_FILTERS
+        cohort.condition_type = _condition_flags(person_properties=True)  # stale value
+        cohort.save(update_fields=["filters", "condition_type"])
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.condition_type, _condition_flags(behavioral=True))

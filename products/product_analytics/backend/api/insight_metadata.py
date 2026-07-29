@@ -1,7 +1,9 @@
 import json
 from typing import Any
 
+import openai
 import structlog
+from openai.types.chat import ChatCompletionMessageParam
 from pydantic import BaseModel
 
 from posthog.schema import (
@@ -14,9 +16,8 @@ from posthog.schema import (
     StickinessActorsQuery,
 )
 
-from posthog.hogql.ai import hit_openai
-
 from posthog.event_usage import groups
+from posthog.llm.completions import hit_openai
 from posthog.models import Team
 
 from products.product_analytics.backend.api.ai_billing import billable_ai_properties
@@ -27,7 +28,23 @@ class InsightMetadata(BaseModel):
     description: str
 
 
+class InsightMetadataGenerationError(Exception):
+    """Base error for AI insight metadata generation failures."""
+
+
+class InsightMetadataTimeoutError(InsightMetadataGenerationError):
+    """The LLM call did not return within the allotted time."""
+
+
+class InsightMetadataParseError(InsightMetadataGenerationError):
+    """The LLM returned a response we could not parse into a name and description."""
+
+
 logger = structlog.get_logger(__name__)
+
+# Keep the LLM call bounded so a slow OpenAI response fails fast instead of hanging the request.
+_LLM_TIMEOUT_SECONDS = 20.0
+_MAX_PARSE_ATTEMPTS = 2
 
 
 _MATH_LABELS: dict[str, str] = {
@@ -462,57 +479,90 @@ def _generate_insight_viz_metadata(query: InsightVizNode, team: Team) -> Insight
     return _request_metadata_from_llm(query_summary, type_guidance, team)
 
 
-def _request_metadata_from_llm(query_summary: str, type_guidance: str, team: Team) -> InsightMetadata:
+def _parse_metadata(content: str) -> InsightMetadata:
+    """Parse the LLM response into a name and description, tolerating minor sloppiness.
+
+    Raises InsightMetadataParseError if the response is not usable JSON with a name.
+    """
     try:
-        prompt = (
-            "Name and describe this product analytics insight for a dashboard. "
-            "Optimize for clarity and scanability — a teammate should instantly understand "
-            "what this insight tracks at a glance.\n\n"
-            f"{type_guidance}\n\n"
-            "Rules for the NAME:\n"
-            "- Title case (e.g. 'Pageviews, Pageleaves')\n"
-            "- 3-12 words — use as many as needed to capture all series and breakdowns\n"
-            "- Humanize event names: '$pageview' → 'Pageviews', 'user_signed_up' → 'Signups'\n"
-            "- Include 'by <dimension>' only when a breakdown is present. Multiple breakdowns - join with 'and': 'by Browser and OS'\n"
-            "- Drop filler words: 'count', 'total', 'events', 'data', 'trend'\n"
-            "- If math is just total count, omit it — it's the default\n\n"
-            "Rules for the DESCRIPTION:\n"
-            "- One short sentence — what this insight measures\n"
-            "- Plain language, no jargon\n\n"
-            "Query:\n"
-            f"{query_summary}\n\n"
-            'Return ONLY a JSON object: {"name": "...", "description": "..."}'
-        )
-
-        messages = [
-            {
-                "role": "system",
-                "content": (
-                    "You are a helpful assistant that generates insight names and descriptions. "
-                    "Return only a JSON object with 'name' and 'description' keys, nothing else."
-                ),
-            },
-            {"role": "user", "content": prompt},
-        ]
-
-        content, _, _ = hit_openai(
-            messages,
-            f"team/{team.id}/generate-insight-metadata",
-            posthog_properties=billable_ai_properties(team.id, "insight-ai-metadata-generation"),
-            posthog_groups=groups(),
-        )
-
         parsed = json.loads(content.strip())
-        name = parsed["name"].strip().strip('"').strip("'")
-        description = parsed["description"].strip()
+    except (json.JSONDecodeError, TypeError) as e:
+        raise InsightMetadataParseError("LLM response was not valid JSON") from e
 
-        if len(name) > 100:
-            name = name[:97] + "..."
-        if len(description) > 200:
-            description = description[:197] + "..."
+    if not isinstance(parsed, dict):
+        raise InsightMetadataParseError("LLM response was not a JSON object")
 
-        return InsightMetadata(name=name, description=description)
+    name = str(parsed.get("name") or "").strip().strip('"').strip("'")
+    description = str(parsed.get("description") or "").strip()
 
-    except Exception:
-        logger.exception("ai_metadata_generation_failed")
-        raise
+    if not name:
+        raise InsightMetadataParseError("LLM response was missing a name")
+
+    if len(name) > 100:
+        name = name[:97] + "..."
+    if len(description) > 200:
+        description = description[:197] + "..."
+
+    return InsightMetadata(name=name, description=description)
+
+
+def _request_metadata_from_llm(query_summary: str, type_guidance: str, team: Team) -> InsightMetadata:
+    prompt = (
+        "Name and describe this product analytics insight for a dashboard. "
+        "Optimize for clarity and scanability — a teammate should instantly understand "
+        "what this insight tracks at a glance.\n\n"
+        f"{type_guidance}\n\n"
+        "Rules for the NAME:\n"
+        "- Title case (e.g. 'Pageviews, Pageleaves')\n"
+        "- 3-12 words — use as many as needed to capture all series and breakdowns\n"
+        "- Humanize event names: '$pageview' → 'Pageviews', 'user_signed_up' → 'Signups'\n"
+        "- Include 'by <dimension>' only when a breakdown is present. Multiple breakdowns - join with 'and': 'by Browser and OS'\n"
+        "- Drop filler words: 'count', 'total', 'events', 'data', 'trend'\n"
+        "- If math is just total count, omit it — it's the default\n\n"
+        "Rules for the DESCRIPTION:\n"
+        "- One short sentence — what this insight measures\n"
+        "- Plain language, no jargon\n\n"
+        "Query:\n"
+        f"{query_summary}\n\n"
+        'Return ONLY a JSON object: {"name": "...", "description": "..."}'
+    )
+
+    messages: list[ChatCompletionMessageParam] = [
+        {
+            "role": "system",
+            "content": (
+                "You are a helpful assistant that generates insight names and descriptions. "
+                "Return only a JSON object with 'name' and 'description' keys, nothing else."
+            ),
+        },
+        {"role": "user", "content": prompt},
+    ]
+
+    # JSON mode makes the output reliably parseable; the timeout stops a slow OpenAI call from
+    # hanging the request. On a parse failure we retry once before giving up.
+    last_parse_error: InsightMetadataParseError | None = None
+    for attempt in range(_MAX_PARSE_ATTEMPTS):
+        try:
+            content, _, _ = hit_openai(
+                messages,
+                f"team/{team.id}/generate-insight-metadata",
+                posthog_properties=billable_ai_properties(team.id, "insight-ai-metadata-generation"),
+                posthog_groups=groups(),
+                timeout=_LLM_TIMEOUT_SECONDS,
+                response_format={"type": "json_object"},
+            )
+        except openai.APITimeoutError as e:
+            logger.warning("ai_metadata_generation_timeout", team_id=team.id)
+            raise InsightMetadataTimeoutError("The AI service took too long to respond") from e
+        except Exception as e:
+            logger.exception("ai_metadata_generation_llm_error", team_id=team.id)
+            raise InsightMetadataGenerationError("The AI service failed to respond") from e
+
+        try:
+            return _parse_metadata(content)
+        except InsightMetadataParseError as e:
+            last_parse_error = e
+            logger.warning("ai_metadata_generation_parse_failed", team_id=team.id, attempt=attempt)
+
+    logger.error("ai_metadata_generation_parse_exhausted", team_id=team.id)
+    raise last_parse_error or InsightMetadataParseError("Could not parse the AI response")

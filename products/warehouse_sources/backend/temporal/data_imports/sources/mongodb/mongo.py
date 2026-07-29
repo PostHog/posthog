@@ -34,7 +34,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     _is_host_safe,
     log_connection_open,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MongoDBSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mongodb import (
+    MongoDBSourceConfig,
+)
 from products.warehouse_sources.backend.types import IncrementalFieldType, PartitionSettings
 
 # Schema inference settings

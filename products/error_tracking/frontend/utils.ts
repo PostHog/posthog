@@ -1,14 +1,21 @@
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 import { LogicWrapper } from 'kea'
 import { routerType } from 'kea-router/lib/routerType'
 import { MouseEvent } from 'react'
 
 import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { componentsToDayJs, dateStringToComponents, dateStringToDayJs, isStringDateRegex } from 'lib/utils/dateFilters'
 import { Params } from 'scenes/sceneTypes'
 
 import { DateRange, ErrorTrackingIssue } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
+/** Reason error tracking write actions are disabled, or null when the user has editor access. */
+export function errorTrackingEditAccessDisabledReason(): string | null {
+    return getAccessControlDisabledReason(AccessControlResourceType.ErrorTracking, AccessControlLevel.Editor)
+}
 
 export const ERROR_TRACKING_LOGIC_KEY = 'errorTracking'
 export const ERROR_TRACKING_LISTING_RESOLUTION = 20

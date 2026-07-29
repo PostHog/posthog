@@ -263,6 +263,7 @@ export function setupInsightMocks({
     ]
     const responses: MockResponse[] = mockResponses ?? [...(additionalMockResponses ?? []), ...defaults]
 
+    // eslint-disable-next-line react-hooks/rules-of-hooks -- useMocks is an MSW test helper, not a React hook
     useMocks({
         get: {
             '/api/projects/:team/event_definitions': ({ request }) => {

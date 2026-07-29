@@ -71,7 +71,7 @@ const NOTABLE_SESSIONS: NotableSession[] = [
     },
     {
         rule: 'all_fail',
-        label: 'Every call failed — likely auth scope',
+        label: 'Every call failed, likely an auth scope issue',
         session: {
             session_id: '0193f2a1aaaabbbbcccc000000000002',
             tool_calls: 6,
@@ -84,7 +84,7 @@ const NOTABLE_SESSIONS: NotableSession[] = [
     },
     {
         rule: 'exemplar',
-        label: 'Exemplar — concise success',
+        label: 'Concise success',
         session: {
             session_id: '0193f2a1aaaabbbbcccc000000000003',
             tool_calls: 31,
@@ -103,6 +103,7 @@ function metric(value: number, previousValue: number, sparkline: number[], goodD
         previousValue,
         deltaPct: previousValue ? ((value - previousValue) / previousValue) * 100 : null,
         sparkline,
+        sparklineLabels: sparkline.map((_, i) => `2026-06-${String(10 + i).padStart(2, '0')} 00:00:00`),
         goodDirection,
     }
 }

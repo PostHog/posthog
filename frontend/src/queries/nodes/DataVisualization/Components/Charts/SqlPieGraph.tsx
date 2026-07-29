@@ -9,8 +9,8 @@ import { useChartTheme } from 'lib/charts/hooks'
 
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
-import { formatDataWithSettings } from '../../dataVisualizationLogic'
 import { LineGraphProps } from './LineGraph'
+import { formatSqlSeriesValue } from './sqlLineGraphAdapter'
 import { buildPieSeries, buildPieSlices, formatPieSliceCount } from './sqlPieGraphAdapter'
 
 const handleChartError = makeChartErrorHandler('sql-pie-chart')
@@ -44,7 +44,7 @@ export const SqlPieGraph = ({
     const asPercent = (chartSettings.pie?.valueDisplay ?? 'absolute') === 'percentage'
 
     const absoluteFormatter = useCallback(
-        (value: number) => String(formatDataWithSettings(value, formattingSettings) ?? value),
+        (value: number) => formatSqlSeriesValue(value, formattingSettings),
         [formattingSettings]
     )
 

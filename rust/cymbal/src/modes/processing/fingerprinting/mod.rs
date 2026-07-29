@@ -2,7 +2,6 @@ use std::borrow::Cow;
 use std::sync::OnceLock;
 
 use crate::frames::Frame;
-use crate::modes::processing::rules::grouping::GroupingRule;
 use crate::types::{Exception, ExceptionList, Stacktrace};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -60,14 +59,6 @@ impl FingerprintBuilder {
 }
 
 impl Fingerprint {
-    pub fn from_rule(rule: GroupingRule) -> Self {
-        let content = format!("custom-rule:{}", rule.id);
-        Fingerprint {
-            value: content,
-            record: vec![FingerprintRecordPart::Custom { rule_id: rule.id }],
-        }
-    }
-
     pub fn from_exception_list(exception_list: &ExceptionList) -> Fingerprint {
         FingerprintVersion::V1
             .strategy()

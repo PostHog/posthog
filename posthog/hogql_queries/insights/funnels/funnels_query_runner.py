@@ -596,6 +596,8 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
                     date_from=prev_date_from.isoformat() if prev_date_from else None,
                     date_to=prev_date_to.isoformat() if prev_date_to else None,
                     explicitDate=True,
+                    # a day-of-week filter applies to the shifted range too
+                    daysOfWeek=self.query.dateRange.daysOfWeek if self.query.dateRange else None,
                 ),
                 "compareFilter": None,
             }
