@@ -216,7 +216,9 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             null as AccessDetailSubject | null,
             {
                 openAccessDetailPanel: (_, { scopeType, subjectId }) => ({ scopeType, subjectId }),
-                setActiveTab: () => null,
+                // Deliberately not cleared on setActiveTab: urlToAction re-dispatches it on every location
+                // change, including the hash changing as side panel tabs are switched, which would wipe the
+                // selection. The row highlight already ignores a subject from the other scope.
             },
         ],
     }),
