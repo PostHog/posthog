@@ -26,6 +26,27 @@ def skill_uses_report_channel(allowed_tools: list[str] | None) -> bool:
     return bool(REPORT_CHANNEL_TOOLS & set(allowed_tools or []))
 
 
+def resolve_report_channel_variant(allowed_tools: list[str] | None) -> str:
+    """Which report tools a run held: `none`, `emit`, `edit`, or `both`.
+
+    Finer-grained than `skill_uses_report_channel` because the prompt builder branches on the two
+    capabilities separately (the follow-up re-surface clause, the self-improvement escalation path,
+    and the channel sections all differ between emit-only and edit-only), so a single boolean would
+    pool runs that were given materially different instructions. Stamped on the run row, where
+    `allowed_tools` being editable means the variant cannot be recovered afterwards.
+    """
+    tools = set(allowed_tools or [])
+    can_emit = "emit_report" in tools
+    can_edit = "edit_report" in tools
+    if can_emit and can_edit:
+        return "both"
+    if can_emit:
+        return "emit"
+    if can_edit:
+        return "edit"
+    return "none"
+
+
 class SkillNotFoundError(LookupError):
     """The team has no skill matching the requested name."""
 

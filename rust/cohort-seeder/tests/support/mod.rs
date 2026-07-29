@@ -6,6 +6,10 @@
 //! surface the body's result *after* the schema drop. The `insert_*`/`*_pinned`/`*_condition`/
 //! `behavioral_filter` builders and the `ensure_lease_lost`/`planned_count` helpers are the shared
 //! fixtures each scenario composes the minimal state it needs from.
+//!
+//! Each integration test file is its own crate and pulls this in via `mod support;`, so a helper
+//! used by only some of them looks "dead" to the others — hence the crate-wide allow below.
+#![allow(dead_code)]
 
 use std::future::Future;
 use std::str::FromStr;
@@ -13,14 +17,16 @@ use std::str::FromStr;
 use anyhow::{bail, Context, Result};
 use cohort_seeder::domain::RunId;
 use cohort_seeder::store::chunks::{ChunkStoreError, PlanOutcome};
+use cohort_seeder::store::completion::CompletionStoreError;
 use serde_json::{json, Value};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::types::Json;
 use sqlx::{Connection, PgConnection, PgPool};
 use uuid::Uuid;
 
-/// The `cohort_backfill_*` DDL, pinned to the Django migration, applied fresh into each test schema.
-pub const DDL: &str = include_str!("../fixtures/cohort_backfill_0004.sql");
+/// The `cohort_backfill_*` DDL (plus a schema-local `posthog_cohort` projection), pinned to Django
+/// migration 0007, applied fresh into each test schema.
+pub const DDL: &str = include_str!("../fixtures/cohort_backfill_0007.sql");
 /// A live cohort condition hash used by the superseded-load fixtures.
 pub const ACTIVE_HASH: &str = "active0000000000";
 /// A superseded cohort condition hash used by the superseded-load fixtures.
@@ -94,6 +100,77 @@ pub fn ensure_lease_lost(result: std::result::Result<(), ChunkStoreError>) -> Re
         return Ok(());
     }
     bail!("expected LeaseLost, got {result:?}")
+}
+
+/// Assert an epoch-fenced completion op reported [`CompletionStoreError::CompletionFenceLost`].
+pub fn ensure_fence_lost(result: std::result::Result<(), CompletionStoreError>) -> Result<()> {
+    if matches!(
+        result,
+        Err(CompletionStoreError::CompletionFenceLost { .. })
+    ) {
+        return Ok(());
+    }
+    bail!("expected CompletionFenceLost, got {result:?}")
+}
+
+/// Insert a run already in `reconciling` with its planning proof stamped — the state a dispatch
+/// operates against.
+pub async fn insert_reconciling_run(pool: &PgPool, team_id: i32) -> Result<RunId> {
+    let run_id = insert_run(
+        pool,
+        team_id,
+        "team_enablement",
+        "reconciling",
+        true,
+        empty_pinned(),
+    )
+    .await?;
+    sqlx::query("UPDATE cohort_backfill_runs SET chunks_planned_at = now() WHERE id = $1")
+        .bind(run_id)
+        .execute(pool)
+        .await?;
+    Ok(run_id)
+}
+
+/// Directly set one participation's observed marker bitmap (the raw BIGINT), bypassing the fenced
+/// merge, so a scenario can assert a downstream read or reset.
+pub async fn set_marker_bits(
+    pool: &PgPool,
+    run_id: RunId,
+    cohort_id: i32,
+    bits: i64,
+) -> Result<()> {
+    sqlx::query(
+        "UPDATE cohort_backfill_run_cohorts SET reconcile_marker_bits = $3 \
+         WHERE run_id = $1 AND cohort_id = $2",
+    )
+    .bind(run_id)
+    .bind(cohort_id)
+    .bind(bits)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Insert a row into the schema-local `posthog_cohort` projection for `load_current_behavioral_hashes`.
+pub async fn insert_cohort(
+    pool: &PgPool,
+    id: i32,
+    team_id: i32,
+    behavioral_hash: Option<&str>,
+    deleted: bool,
+) -> Result<()> {
+    sqlx::query(
+        "INSERT INTO posthog_cohort (id, team_id, behavioral_filters_shape_hash, deleted) \
+         VALUES ($1, $2, $3, $4)",
+    )
+    .bind(id)
+    .bind(team_id)
+    .bind(behavioral_hash)
+    .bind(deleted)
+    .execute(pool)
+    .await?;
+    Ok(())
 }
 
 /// Unwrap the inserted-chunk count, failing if the run was unexpectedly not seeding.

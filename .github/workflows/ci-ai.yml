@@ -150,7 +150,10 @@ jobs:
         name: AI evals / summary
         runs-on: ubuntu-latest
         needs: eval
-        if: always() && needs.eval.result != 'skipped'
+        # A status function is required to summarize even when some eval groups errored.
+        # !cancelled() rather than always() so a superseded run does not post an eval
+        # summary comment for a commit that is no longer HEAD.
+        if: ${{ !cancelled() && needs.eval.result != 'skipped' }}
 
         permissions:
             contents: read

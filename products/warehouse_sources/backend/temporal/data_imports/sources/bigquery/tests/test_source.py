@@ -16,7 +16,6 @@ from google.api_core.exceptions import (
 )
 from google.auth.exceptions import RefreshError
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery import bigquery as bq_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import (
     BIGQUERY_CREDENTIALS_REJECTED_ERROR,
@@ -59,6 +58,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ColumnTypeCategory,
     ValidatedRowFilter,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bigquery import (
     BigQueryDatasetProjectConfig,
     BigQueryKeyFileConfig,
@@ -1362,6 +1362,27 @@ def test_has_duplicate_primary_keys_skips_resource_exceeded_quietly(exception):
     """A `resourcesExceeded` BigQuery error during the best-effort duplicate-key probe must NOT
     be captured to error tracking — it's a non-actionable data-volume limit that otherwise fires
     on every sync of a large table."""
+    result, mock_capture = _run_has_duplicate_primary_keys(exception)
+
+    assert result is False
+    mock_capture.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "exception",
+    [
+        BadRequest(
+            "Name is_qualified not found inside visit; failed to parse view 'my_dataset.my_view' at [5:19]; "
+            "reason: invalidQuery, location: query, message: Name is_qualified not found inside visit; "
+            "failed to parse view 'my_dataset.my_view' at [5:19]"
+        ),
+        BadRequest("Invalid table-valued function EXTERNAL_QUERY; failed to parse view 'my_dataset.my_view' at [1:1]"),
+    ],
+)
+def test_has_duplicate_primary_keys_skips_view_parse_failure_quietly(exception):
+    """A `failed to parse view` BigQuery error during the best-effort duplicate-key probe must NOT
+    be captured to error tracking — the probed table is itself a broken view, a customer-side
+    problem that otherwise fires on every sync of that table."""
     result, mock_capture = _run_has_duplicate_primary_keys(exception)
 
     assert result is False

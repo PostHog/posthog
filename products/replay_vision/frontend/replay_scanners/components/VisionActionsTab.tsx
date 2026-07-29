@@ -16,6 +16,7 @@ import { urls } from 'scenes/urls'
 
 import { AccessControlLevel } from '~/types'
 
+import { DeliveryTargetTypeEnumApi } from '../../generated/api.schemas'
 import type { VisionActionApi } from '../../generated/api.schemas'
 import { getReplayVisionDeleteDisabledReason, getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { humanizeCadence, parseRruleToCadence } from '../cadence'
@@ -67,16 +68,19 @@ function EditorGate({
     })
 }
 
-function deliverySummary(action: VisionActionApi): string {
+export function deliverySummary(action: VisionActionApi): string {
     const targets = action.delivery_config ?? []
     if (!targets.length) {
         return '—'
     }
     return targets
         .map((t) => {
+            if (t.type === DeliveryTargetTypeEnumApi.Webhook) {
+                return 'Webhook'
+            }
             // channel is the `${id}|#${name}` picker composite for actions saved with a friendly name;
             // fall back to "Slack" rather than exposing a bare channel id (older rows, id-only input).
-            const name = slackChannelDisplayName(t.channel)
+            const name = slackChannelDisplayName(t.channel ?? '')
             return name.startsWith('#') ? name : 'Slack'
         })
         .join(', ')

@@ -5,7 +5,7 @@ import hashlib
 from urllib.parse import urlencode
 
 from django import forms
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.contrib.admin import helpers
 from django.template.response import TemplateResponse
 from django.utils.html import format_html
@@ -35,11 +35,6 @@ class OAuthApplicationForm(forms.ModelForm):
             self.fields["authorization_grant_type"].initial = AbstractApplication.GRANT_AUTHORIZATION_CODE
             self.fields["authorization_grant_type"].disabled = True
             self.fields["authorization_grant_type"].help_text = "Only authorization code grant type is supported"
-
-        if "provisioning_signing_secret" in self.fields:
-            self.fields[
-                "provisioning_signing_secret"
-            ].help_text = "Only used for HMAC provisioning partners. Leave blank for PKCE or bearer clients."
 
         # For new applications, set defaults
         if not self.instance.pk:
@@ -81,13 +76,42 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
         "is_first_party",
         "auth_brand",
         "provisioning_active",
-        "provisioning_auth_method",
+        "is_provisioning_partner",
         "provisioning_partner_type",
     )
     search_fields = ("name", "client_id", "cimd_metadata_url", "user__email", "organization__name")
     autocomplete_fields = ("user", "organization")
     ordering = ("name",)
-    actions = ("revoke_all_sessions",)
+    actions = ("revoke_all_sessions", "regenerate_client_secret")
+
+    @admin.action(description="Generate a new client secret")
+    def regenerate_client_secret(self, request, queryset):
+        # client_secret is only editable on the add form (it is hashed on save and can never be
+        # read back), so this is the only way to give an existing app a secret or rotate one.
+        for application in queryset:
+            # Gated on the auth method rather than the client type: a private_key_jwt client is
+            # confidential too, but authenticates by signed assertion, so a secret minted for it
+            # would never be checked and would look like working credentials to an operator.
+            if not application.uses_client_secret_auth:
+                self.message_user(
+                    request,
+                    f"{application.name}: skipped, its token_endpoint_auth_method is "
+                    f"'{application.token_endpoint_auth_method.value}', which uses no client secret.",
+                    level=messages.ERROR,
+                )
+                continue
+
+            plaintext_secret = generate_client_secret()
+            application.client_secret = plaintext_secret
+            # ClientSecretField.pre_save hashes it, so plaintext_secret is the only copy that
+            # will ever exist.
+            application.save(update_fields=["client_secret"])
+            self.message_user(
+                request,
+                f"{application.name} ({application.client_id}) new client secret, save it now, "
+                f"it cannot be shown again: {plaintext_secret}",
+                level=messages.WARNING,
+            )
 
     @admin.action(description="Revoke all sessions (force re-auth under current scopes)")
     def revoke_all_sessions(self, request, queryset):
@@ -138,6 +162,8 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
                 # Model validation also rejects optional_scopes on CIMD apps: a split would
                 # let the partner grow the locked required set via metadata refresh.
                 readonly.append("optional_scopes")
+                # Also re-derived from the metadata document on each refresh.
+                readonly.append("jwks_uri")
             return tuple(readonly)
         else:
             return ("id", "is_dcr_client", "is_cimd_client")
@@ -145,7 +171,7 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
     def get_fieldsets(self, request, obj=None):
         if obj:
             provisioning_fields = [
-                "provisioning_auth_method",
+                "is_provisioning_partner",
                 "provisioning_partner_type",
                 "provisioning_active",
                 "provisioning_skip_existing_user_consent",
@@ -157,21 +183,35 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
                 "provisioning_rate_limit_token_exchanges",
                 "provisioning_rate_limit_resource_creates",
             ]
-            if obj.provisioning_auth_method == "hmac":
-                provisioning_fields.append("provisioning_signing_secret")
 
             return (
                 (None, {"fields": ("id", "name", "client_id", "client_type", "auth_brand", "logo_uri")}),
                 (
                     "Authorization",
-                    {"fields": ("authorization_grant_type", "redirect_uris", "algorithm", "scopes", "optional_scopes")},
+                    {
+                        "fields": (
+                            "authorization_grant_type",
+                            "jwks_uri",
+                            "redirect_uris",
+                            "algorithm",
+                            "scopes",
+                            "optional_scopes",
+                        )
+                    },
                 ),
                 ("Ownership", {"fields": ("user", "organization")}),
                 ("Status", {"fields": ("is_verified", "is_first_party", "is_dcr_client", "is_cimd_client")}),
                 (
                     "Provisioning",
                     {
-                        "description": "Provisioning settings for agentic partners. HMAC signing secret is only used for HMAC clients.",
+                        "description": (
+                            "Provisioning settings for agentic partners. How a partner authenticates follows "
+                            "from the fields above: a confidential client with a jwks_uri signs an assertion "
+                            "with its own key (preferred), a confidential client without one presents a client "
+                            "secret, and a public client is identified by client_id and relies on PKCE. Only "
+                            "confidential partners may use the GitHub grant endpoints. Use the 'Generate a new "
+                            "client secret' action to issue a secret."
+                        ),
                         "fields": tuple(provisioning_fields),
                     },
                 ),
@@ -188,7 +228,16 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
                 (None, {"fields": ("name", "client_id", "client_secret", "client_type", "auth_brand", "logo_uri")}),
                 (
                     "Authorization",
-                    {"fields": ("authorization_grant_type", "redirect_uris", "algorithm", "scopes", "optional_scopes")},
+                    {
+                        "fields": (
+                            "authorization_grant_type",
+                            "jwks_uri",
+                            "redirect_uris",
+                            "algorithm",
+                            "scopes",
+                            "optional_scopes",
+                        )
+                    },
                 ),
                 ("Ownership", {"fields": ("user", "organization")}),
                 ("Status", {"fields": ("is_verified", "is_first_party")}),

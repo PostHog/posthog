@@ -8,10 +8,14 @@ from unittest import mock
 from parameterized import parameterized
 from requests import Request
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sunshine.settings import (
     DEFAULT_QUERY_WINDOW_START,
     ZENDESK_SUNSHINE_ENDPOINTS,
+    ZENDESK_SUNSHINE_V1,
+    ZENDESK_SUNSHINE_V2,
+    ZENDESK_SUNSHINE_V2_ENDPOINTS,
+    endpoints_for_version,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sunshine.zendesk_sunshine import (
     SunshineLinksPaginator,
@@ -28,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_su
 )
 
 BASE_URL = "https://nibbles.zendesk.com/api/sunshine/"
+V2_BASE_URL = "https://nibbles.zendesk.com/api/v2/"
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sunshine.zendesk_sunshine"
 
 
@@ -86,9 +91,27 @@ class TestZendeskSunshineTransport:
     def test_normalize_subdomain(self, _name: str, raw: str, expected: str) -> None:
         assert normalize_subdomain(raw) == expected
 
-    def test_get_base_url(self) -> None:
-        assert get_base_url("nibbles") == BASE_URL
-        assert get_base_url("https://nibbles.zendesk.com") == BASE_URL
+    @parameterized.expand(
+        [
+            ("v1", ZENDESK_SUNSHINE_V1, BASE_URL),
+            ("v2", ZENDESK_SUNSHINE_V2, V2_BASE_URL),
+        ]
+    )
+    def test_get_base_url(self, _name: str, api_version: str, expected: str) -> None:
+        assert get_base_url("nibbles", api_version) == expected
+        assert get_base_url("https://nibbles.zendesk.com", api_version) == expected
+
+    def test_get_base_url_rejects_unknown_version(self) -> None:
+        with pytest.raises(ValueError, match="Unsupported Zendesk Sunshine API version"):
+            get_base_url("nibbles", "v9")
+
+    def test_endpoints_for_version_selects_catalog_and_rejects_unknown(self) -> None:
+        assert endpoints_for_version(ZENDESK_SUNSHINE_V1) is ZENDESK_SUNSHINE_ENDPOINTS
+        assert endpoints_for_version(ZENDESK_SUNSHINE_V2) is ZENDESK_SUNSHINE_V2_ENDPOINTS
+        # The message is matched verbatim by `get_non_retryable_errors`; a bad sync-time pin must
+        # fail non-retryably rather than loop the discovery retry.
+        with pytest.raises(ValueError, match="Unsupported Zendesk Sunshine API version"):
+            endpoints_for_version("v9")
 
     @parameterized.expand(
         [
@@ -294,7 +317,7 @@ class TestZendeskSunshineTransport:
         session.get.return_value = mock.Mock(status_code=status_code)
 
         with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
-            is_valid, message = validate_credentials("nibbles", "token", "agent@example.com")
+            is_valid, message = validate_credentials("nibbles", "token", "agent@example.com", ZENDESK_SUNSHINE_V1)
 
         assert is_valid is expected_valid
         if message_fragment is None:
@@ -302,6 +325,23 @@ class TestZendeskSunshineTransport:
         else:
             assert message is not None and message_fragment in message
         assert session.get.call_args.kwargs["auth"] == ("agent@example.com/token", "token")
+
+    @parameterized.expand(
+        [
+            ("v1", ZENDESK_SUNSHINE_V1, f"{BASE_URL}objects/types"),
+            ("v2", ZENDESK_SUNSHINE_V2, f"{V2_BASE_URL}custom_objects"),
+        ]
+    )
+    def test_validate_credentials_probes_version_specific_endpoint(
+        self, _name: str, api_version: str, expected_url: str
+    ) -> None:
+        session = mock.MagicMock()
+        session.get.return_value = mock.Mock(status_code=200)
+
+        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+            validate_credentials("nibbles", "token", "agent@example.com", api_version)
+
+        assert session.get.call_args.args[0] == expected_url
 
     def test_list_object_type_keys_follows_pagination(self) -> None:
         session = mock.MagicMock()
@@ -315,7 +355,7 @@ class TestZendeskSunshineTransport:
         session.get.side_effect = [page1, page2]
 
         with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
-            keys = list_object_type_keys("nibbles", "token", "agent@example.com")
+            keys = list_object_type_keys("nibbles", "token", "agent@example.com", ZENDESK_SUNSHINE_V1)
 
         assert keys == ["product", "order", "shipment"]
         second_call = session.get.call_args_list[1]
@@ -355,6 +395,7 @@ class TestZendeskSunshineSourceResponses:
                 team_id=1,
                 job_id="job-1",
                 resumable_source_manager=_FakeResumeManager(),  # type: ignore[arg-type]
+                api_version=ZENDESK_SUNSHINE_V1,
             )
 
         assert response.name == endpoint
@@ -374,6 +415,7 @@ class TestZendeskSunshineSourceResponses:
                 team_id=1,
                 job_id="job-1",
                 resumable_source_manager=_FakeResumeManager(),  # type: ignore[arg-type]
+                api_version=ZENDESK_SUNSHINE_V1,
             )
 
         resource = response.items()
@@ -409,6 +451,7 @@ class TestZendeskSunshineIncrementalObjectRecords:
                 team_id=1,
                 job_id="job-1",
                 resumable_source_manager=manager,  # type: ignore[arg-type]
+                api_version=ZENDESK_SUNSHINE_V1,
                 should_use_incremental_field=True,
                 db_incremental_field_last_value=db_incremental_field_last_value,
             )
@@ -474,6 +517,7 @@ class TestZendeskSunshineFrameworkIntegration:
     """
 
     def _source_response(self, endpoint: str, manager: _FakeResumeManager, **kwargs: Any) -> Any:
+        kwargs.setdefault("api_version", ZENDESK_SUNSHINE_V1)
         return zendesk_sunshine_source(
             subdomain="nibbles",
             api_key="token",
@@ -547,3 +591,27 @@ class TestZendeskSunshineFrameworkIntegration:
         assert query_request.qs["per_page"] == ["1000"]
         # The completed type is checkpointed so a retry skips it.
         assert manager.saved[-1]["completed"] == ["product"]
+
+    def test_v2_custom_object_records_fanout_uses_v2_paths_and_envelope(self, requests_mock: Any) -> None:
+        # v2 fans out over the custom objects list (envelope `custom_objects`) into each object's
+        # records under `/api/v2/custom_objects/{key}/records` (envelope `custom_object_records`),
+        # sorted by updated_at since v2 has no server-side updated_at filter.
+        requests_mock.get(
+            f"{V2_BASE_URL}custom_objects",
+            json={"custom_objects": [{"key": "product"}], "links": {"next": None}},
+        )
+        requests_mock.get(
+            f"{V2_BASE_URL}custom_objects/product/records",
+            json={
+                "custom_object_records": [{"id": "1", "updated_at": "2026-01-05T00:00:00.000Z"}],
+                "links": {"next": None},
+            },
+        )
+
+        response = self._source_response("custom_object_records", _FakeResumeManager(), api_version=ZENDESK_SUNSHINE_V2)
+        rows = [row for page in _collect_pages(response) for row in page]
+
+        assert rows == [{"id": "1", "updated_at": "2026-01-05T00:00:00.000Z"}]
+        records_request = next(r for r in requests_mock.request_history if "custom_objects/product/records" in r.path)
+        assert records_request.qs["sort"] == ["updated_at"]
+        assert records_request.qs["per_page"] == ["100"]

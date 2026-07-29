@@ -14,10 +14,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     UNVERSIONED_API_VERSION,
     FieldType,
@@ -25,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlesheets import (
     GoogleSheetsSourceConfig,
 )

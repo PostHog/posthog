@@ -17,7 +17,7 @@ from rest_framework import status
 from posthog.schema import DateRange, EventPropertyFilter, EventsNode, PropertyOperator, TrendsQuery
 
 from posthog.api.test.dashboards import DashboardAPI
-from posthog.caching.fetch_from_cache import InsightResult
+from posthog.caching.insight_result import InsightResult
 from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
 from posthog.models import Filter, Team, User

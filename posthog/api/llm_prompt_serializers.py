@@ -83,6 +83,27 @@ def validate_prompt_label_name_value(value: str) -> str:
     return value
 
 
+# Maps accepted order_by values to queryset ordering fields. Lives here so the list
+# query serializer can declare the choices; the viewset imports it for the lookup.
+ALLOWED_LIST_ORDERINGS = {
+    "name": "name",
+    "-name": "-name",
+    "created_at": "created_at",
+    "-created_at": "-created_at",
+    "updated_at": "updated_at",
+    "-updated_at": "-updated_at",
+    "version": "version",
+    "-version": "-version",
+    "latest_version": "latest_version",
+    "-latest_version": "-latest_version",
+    "version_count": "version_count",
+    "-version_count": "-version_count",
+    "first_version_created_at": "first_version_created_at",
+    "-first_version_created_at": "-first_version_created_at",
+    "prompt_size_bytes": "prompt_size_bytes",
+    "-prompt_size_bytes": "-prompt_size_bytes",
+}
+
 CONTENT_MODE_CHOICES = ["full", "preview", "none"]
 CONTENT_MODE_HELP = (
     "Controls how much prompt content is included in the response. "
@@ -136,6 +157,12 @@ class LLMPromptListQuerySerializer(serializers.Serializer):
     created_by_id = serializers.IntegerField(
         required=False,
         help_text="Filter prompts by the ID of the user who created them.",
+    )
+    order_by = serializers.ChoiceField(
+        choices=list(ALLOWED_LIST_ORDERINGS),
+        required=False,
+        default="-created_at",
+        help_text="Field to sort the prompt list by. Prefix with '-' for descending order.",
     )
     content = serializers.ChoiceField(
         choices=CONTENT_MODE_CHOICES,

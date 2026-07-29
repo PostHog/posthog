@@ -16,6 +16,7 @@ from posthog.api.llm_prompt import LLMPromptViewSet
 from posthog.api.llm_prompt_serializers import (
     MAX_PROMPT_PAYLOAD_BYTES,
     LLMPromptDuplicateSerializer,
+    LLMPromptListQuerySerializer,
     validate_prompt_label_name_value,
 )
 from posthog.api.services.llm_prompt import MAX_PROMPT_VERSION
@@ -1034,6 +1035,15 @@ class TestLLMPromptDuplicateSerializerValidationNoDB(SimpleTestCase):
     def test_accepts_valid_new_name(self) -> None:
         serializer = LLMPromptDuplicateSerializer(data={"new_name": "a-valid_name1"})
         assert serializer.is_valid(), serializer.errors
+
+
+class TestLLMPromptListQuerySerializerValidationNoDB(SimpleTestCase):
+    def test_rejects_unknown_order_by(self) -> None:
+        # order_by used to be read from raw query params with a silent fallback; the serializer
+        # now owns the contract, so an unknown value must fail validation (and 400 at the endpoint).
+        serializer = LLMPromptListQuerySerializer(data={"order_by": "prompt"})
+        assert not serializer.is_valid()
+        assert "order_by" in serializer.errors
 
 
 class TestLLMPromptLabelsAPI(APIBaseTest):
