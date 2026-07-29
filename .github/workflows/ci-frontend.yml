@@ -581,7 +581,8 @@ jobs:
         name: Frontend typechecking
         needs: [changes]
         if: needs.changes.outputs.frontend_code == 'true'
-        runs-on: ubuntu-latest
+        # tsgo peaks around 10 GB checking the whole frontend, so 16 GB runners OOM mid-check.
+        runs-on: depot-ubuntu-24.04-8
         # Kea typegen invalidates on changes to any logic plus everything that depends on it.
         # For changes to shared core (TaxonomicFilter, Insight, etc.) the dependent set is large
         # and the cache miss costs ~5min on top of the master baseline (~10min). 15 is too tight.
