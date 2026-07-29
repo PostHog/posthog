@@ -46,6 +46,7 @@ describe('newScanner', () => {
                 description: template.scanner_description,
                 scanner_type: template.scanner_type,
                 scanner_config: template.scanner_config,
+                query: template.query ?? { kind: 'RecordingsQuery' },
             })
         }
     )

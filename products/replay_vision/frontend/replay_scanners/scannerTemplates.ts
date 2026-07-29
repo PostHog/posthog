@@ -20,6 +20,7 @@ interface BaseTemplate {
     icon: ScannerTemplateIcon
     scanner_name: string
     scanner_description: string
+    query?: ReplayScanner['query']
 }
 
 interface MonitorTemplate extends BaseTemplate {
@@ -111,6 +112,22 @@ export const defaultScannerTemplates: readonly ScannerTemplate[] = [
             multi_label: false,
         },
     },
+    {
+        key: 'post_experiment_behavior',
+        name: 'Post-experiment behavior',
+        description: 'Watch what users do after an experiment exposure and flag a behavior you define.',
+        icon: 'target',
+        scanner_type: 'monitor',
+        scanner_name: 'Post-experiment behavior',
+        scanner_description: 'Flag sessions where a specific behavior occurs after experiment exposure.',
+        scanner_config: {
+            prompt: 'Answer yes if the user shows the behavior you want to monitor after the experiment exposure event. Ignore behavior that happened before exposure. Otherwise answer no.',
+        },
+        query: {
+            kind: NodeKind.RecordingsQuery,
+            events: [{ id: '$feature_flag_called', type: 'events' }],
+        },
+    },
 ] as const
 
 export function findScannerTemplate(key: string | undefined): ScannerTemplate | undefined {
@@ -154,6 +171,7 @@ export function newScanner(templateKey?: string | null): ReplayScanner {
             name: template.scanner_name,
             description: template.scanner_description,
             scanner_type: template.scanner_type,
+            query: structuredClone(template.query ?? base.query),
             // Cloned so an in-place form mutation can never corrupt the module-level template.
             scanner_config: structuredClone(template.scanner_config),
         } as ReplayScanner
