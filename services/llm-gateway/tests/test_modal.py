@@ -1,5 +1,5 @@
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -14,6 +14,7 @@ from llm_gateway.modal import (
     make_modal_responses_call,
     should_route_glm_to_modal,
 )
+from llm_gateway.modal_routing import send_modal_anthropic_messages
 from llm_gateway.rate_limiting.cost_refresh import ALIAS_METRIC_LABELS, COST_ALIASES
 from llm_gateway.rate_limiting.model_cost_overrides import MODEL_COST_OVERRIDES
 
@@ -87,6 +88,22 @@ def test_kimi_uses_its_endpoint_with_shared_credentials() -> None:
         "wk-test",
         "ws-test",
     )
+
+
+async def test_modal_anthropic_drops_clear_thinking_when_thinking_is_disabled() -> None:
+    request = {
+        "model": KIMI_MODEL,
+        "messages": [{"role": "user", "content": "Hello"}],
+        "thinking": {"type": "disabled"},
+        "context_management": {"edits": [{"type": "clear_thinking_20251015", "keep": "all"}]},
+    }
+
+    with patch("llm_gateway.modal_routing.send_modal_request", new=AsyncMock(return_value={})) as send_request:
+        await send_modal_anthropic_messages(request, MagicMock(), False, "posthog_code")
+
+    forwarded_request = send_request.call_args.args[0]
+    assert "context_management" not in forwarded_request
+    assert request["context_management"] == {"edits": [{"type": "clear_thinking_20251015", "keep": "all"}]}
 
 
 @pytest.mark.parametrize("model", ["@cf/moonshotai/kimi-k2.6", "@cf/unknown/model", "zai-org/GLM-5.2-FP8"])
