@@ -462,7 +462,8 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             self._posthog_mcp_scopes = input.posthog_mcp_scopes
 
             await self._update_task_run_status("in_progress")
-            await self._emit_progress("sandbox", "in_progress", "Setting up sandbox", "setup")
+            sandbox_label = "Restoring sandbox" if self.context.is_snapshot_resume else "Setting up sandbox"
+            await self._emit_progress("sandbox", "in_progress", sandbox_label, "setup")
             await self._track_workflow_event(
                 "task_run_started",
                 {
