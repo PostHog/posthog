@@ -543,6 +543,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: false,
     },
+    [NodeKind.MCPToolCallsAndErrorsQuery]: {
+        name: 'MCP tool calls and errors',
+        description: 'MCP tool-call volume over time, split into successful and failed calls.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
     [NodeKind.MCPHarnessBreakdownQuery]: {
         name: 'MCP harness breakdown',
         description: 'MCP tool-call activity grouped by client harness.',

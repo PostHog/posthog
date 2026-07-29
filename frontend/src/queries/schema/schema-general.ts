@@ -186,6 +186,7 @@ export enum NodeKind {
     EndpointsUsageTrendsQuery = 'EndpointsUsageTrendsQuery',
 
     // MCP analytics
+    MCPToolCallsAndErrorsQuery = 'MCPToolCallsAndErrorsQuery',
     MCPHarnessBreakdownQuery = 'MCPHarnessBreakdownQuery',
     MCPToolTopUsersQuery = 'MCPToolTopUsersQuery',
     MCPToolFailuresQuery = 'MCPToolFailuresQuery',
@@ -261,6 +262,7 @@ export type AnyDataNode =
     | EndpointsUsageOverviewQuery
     | EndpointsUsageTableQuery
     | EndpointsUsageTrendsQuery
+    | MCPToolCallsAndErrorsQuery
     | MCPHarnessBreakdownQuery
     | MCPToolTopUsersQuery
     | MCPToolFailuresQuery
@@ -382,6 +384,7 @@ export type QuerySchema =
     | EndpointsUsageTrendsQuery
 
     // MCP analytics
+    | MCPToolCallsAndErrorsQuery
     | MCPHarnessBreakdownQuery
     | MCPToolTopUsersQuery
     | MCPToolFailuresQuery
@@ -2659,6 +2662,31 @@ export interface WebOverviewQueryResponse extends AnalyticsQueryResponseBase {
 }
 
 export type CachedWebOverviewQueryResponse = CachedQueryResponse<WebOverviewQueryResponse>
+
+/** One interval bucket of MCP tool-call activity, split into successful and failed calls. */
+export interface MCPToolCallsAndErrorsItem {
+    /** Bucket start as a project-timezone wall clock ("YYYY-MM-DD HH:mm:ss"), never zone-stamped, so
+     * the client can join it against generated axis keys without reinterpreting it as an instant. */
+    bucket: string
+    successes: integer
+    errors: integer
+}
+
+export interface MCPToolCallsAndErrorsQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPToolCallsAndErrorsItem[]
+}
+
+/** Interval-bucketed success/error split powering the dashboard's "Tool calls and errors" chart. */
+export interface MCPToolCallsAndErrorsQuery extends DataNode<MCPToolCallsAndErrorsQueryResponse> {
+    kind: NodeKind.MCPToolCallsAndErrorsQuery
+    dateRange?: DateRange
+    properties?: AnyPropertyFilter[]
+    filterTestAccounts?: boolean
+    /** Bucket granularity; the frontend passes getDefaultInterval. Defaults to day. */
+    interval?: IntervalType
+}
+
+export type CachedMCPToolCallsAndErrorsQueryResponse = CachedQueryResponse<MCPToolCallsAndErrorsQueryResponse>
 
 /** One row of the MCP harness (client) breakdown: a resolved customer label and its activity. */
 export interface MCPHarnessBreakdownItem {

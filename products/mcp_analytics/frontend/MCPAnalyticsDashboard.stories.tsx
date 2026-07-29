@@ -518,6 +518,18 @@ const meta: Meta = {
                             },
                         ]
                     }
+                    if (body?.query?.kind === 'MCPToolCallsAndErrorsQuery') {
+                        return [
+                            200,
+                            {
+                                results: ACTIVITY_RESULTS.map(([bucket, successes, errors]) => ({
+                                    bucket,
+                                    successes,
+                                    errors,
+                                })),
+                            },
+                        ]
+                    }
                     if (body?.query?.kind === 'MCPToolCategoriesQuery') {
                         return [200, { results: CATEGORY_LIST.map((r) => ({ category: r[0] })) }]
                     }
@@ -531,9 +543,6 @@ const meta: Meta = {
                     }
                     if (query.includes('AS session_id')) {
                         return [200, { results: SESSION_RESULTS }]
-                    }
-                    if (query.includes('AS successes')) {
-                        return [200, { results: ACTIVITY_RESULTS }]
                     }
                     if (query.includes('GROUP BY day, tool')) {
                         return [200, { results: TOOL_DAILY_RESULTS }]
