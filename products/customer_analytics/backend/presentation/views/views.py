@@ -13,6 +13,7 @@ pydantic-error formatting, and activity logging live behind the facade.
 from __future__ import annotations
 
 import json
+import builtins
 from dataclasses import asdict
 from typing import Any, cast
 from uuid import UUID
@@ -985,7 +986,7 @@ class AccountViewSet(
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(SupportTicketSerializer(instance=tickets, many=True).data)
 
-    def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
+    def dangerously_get_required_scopes(self, request: Request, view) -> builtins.list[str] | None:
         super_method = getattr(super(), "dangerously_get_required_scopes", None)
         if callable(super_method):
             mixin_result = super_method(request, view)
