@@ -628,6 +628,9 @@ class TestValidateCredentials:
         valid, message = validate_credentials("https://store.example.com", None, TOKEN_CREDENTIALS, team_id=1)
         assert valid is False
         assert message is not None and "boom" in message
+        # A transport failure means the host is unreachable, so the probe loop must stop rather than
+        # pay a full timeout on each remaining endpoint and tie up the worker for minutes.
+        assert len(session.gets) == 1
 
     def test_scoped_probe_targets_only_that_schema(self, monkeypatch: pytest.MonkeyPatch) -> None:
         session = _FakeSession(self._routes_all(lambda: _make_response(200, {"items": [], "total_count": 0})))

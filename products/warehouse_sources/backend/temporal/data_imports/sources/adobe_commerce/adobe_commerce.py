@@ -12,7 +12,6 @@ import requests
 from structlog.types import FilteringBoundLogger
 from urllib3.util.retry import Retry
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_commerce.settings import (
     ADOBE_COMMERCE_ENDPOINTS,
     VALIDATION_PROBE_ENDPOINTS,
@@ -21,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_comm
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 REQUEST_TIMEOUT_SECONDS = 120
 VALIDATE_TIMEOUT_SECONDS = 20
@@ -579,6 +579,7 @@ def _probe(
     token_manager: AdobeCommerceTokenManager,
     base_url: str,
     endpoint: str,
+    timeout: float,
 ) -> tuple[int, str | None]:
     """Request one row from an endpoint. Returns `(status, error_message)`; status 0 on transport failure."""
     config = ADOBE_COMMERCE_ENDPOINTS[endpoint]
@@ -589,9 +590,7 @@ def _probe(
 
     try:
         headers = {"Authorization": f"Bearer {token_manager.get_token()}", "Accept": "application/json"}
-        response = session.get(
-            url, headers=headers, timeout=VALIDATE_TIMEOUT_SECONDS, allow_redirects=False, stream=True
-        )
+        response = session.get(url, headers=headers, timeout=timeout, allow_redirects=False, stream=True)
     except requests.exceptions.RequestException as e:
         return 0, str(e)
 
@@ -650,11 +649,22 @@ def validate_credentials(
     probes = (schema_name,) if schema_name is not None else VALIDATION_PROBE_ENDPOINTS
     last_status: int | None = None
     last_error: str | None = None
+    # Bound the whole probe sequence to a single wall-clock budget so a host that stalls on every
+    # endpoint can't tie up an API worker for `len(probes) * VALIDATE_TIMEOUT_SECONDS`.
+    deadline = time.monotonic() + VALIDATE_TIMEOUT_SECONDS
     for endpoint in probes:
-        status, error = _probe(session, token_manager, base_url, endpoint)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            last_status, last_error = 0, "Adobe Commerce did not respond in time."
+            break
+        status, error = _probe(session, token_manager, base_url, endpoint, min(VALIDATE_TIMEOUT_SECONDS, remaining))
         if status == 200:
             return True, None
         last_status, last_error = status, error
+        # A transport failure means the host is unreachable or stalling; the remaining endpoints live
+        # on the same host, so stop rather than pay another timeout for each of them.
+        if status == 0:
+            break
 
     if last_status in (401, 403):
         return False, (
