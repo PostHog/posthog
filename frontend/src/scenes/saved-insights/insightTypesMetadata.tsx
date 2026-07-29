@@ -1,5 +1,6 @@
 import {
     IconAI,
+    IconApps,
     IconBrackets,
     IconCorrelationAnalysis,
     IconCursor,
@@ -11,7 +12,6 @@ import {
     IconLlmAnalytics,
     IconPerson,
     IconPieChart,
-    IconPiggyBank,
     IconTrends,
     IconVideoCamera,
     IconWarning,
@@ -257,36 +257,6 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconBracketsChart,
         inMenu: true,
     },
-    [NodeKind.RevenueAnalyticsMetricsQuery]: {
-        name: 'Revenue Analytics Metrics',
-        description: 'View revenue analytics customer, subscription count, ARPU, and LTV.',
-        icon: IconPiggyBank,
-        inMenu: true,
-    },
-    [NodeKind.RevenueAnalyticsOverviewQuery]: {
-        name: 'Revenue Analytics Overview',
-        description: 'View revenue analytics overview.',
-        icon: IconPiggyBank,
-        inMenu: true,
-    },
-    [NodeKind.RevenueAnalyticsGrossRevenueQuery]: {
-        name: 'Revenue Analytics Gross Revenue',
-        description: 'View gross revenue analytics.',
-        icon: IconPiggyBank,
-        inMenu: true,
-    },
-    [NodeKind.RevenueAnalyticsMRRQuery]: {
-        name: 'Revenue Analytics MRR',
-        description: 'View MRR revenue analytics.',
-        icon: IconPiggyBank,
-        inMenu: true,
-    },
-    [NodeKind.RevenueAnalyticsTopCustomersQuery]: {
-        name: 'Revenue Analytics Top Customers',
-        description: 'View revenue analytics top customers.',
-        icon: IconPiggyBank,
-        inMenu: true,
-    },
     [NodeKind.WebOverviewQuery]: {
         name: 'Overview Stats',
         description: 'View overview stats for a website.',
@@ -346,18 +316,6 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         description: 'List and explore sessions.',
         icon: IconTableChart,
         inMenu: false,
-    },
-    [NodeKind.RevenueExampleEventsQuery]: {
-        name: 'Revenue Example Events',
-        description: 'Revenue Example Events Query.',
-        icon: IconTableChart,
-        inMenu: true,
-    },
-    [NodeKind.RevenueExampleDataWarehouseTablesQuery]: {
-        name: 'Revenue Example Data Warehouse Tables',
-        description: 'Revenue Example Data Warehouse Tables Query.',
-        icon: IconTableChart,
-        inMenu: true,
     },
     [NodeKind.ErrorTrackingQuery]: {
         name: 'Error Tracking',
@@ -700,7 +658,7 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
 }
 
 export const INSIGHT_TYPE_OPTIONS: LemonSelectOptions<string> = [
-    { value: 'All types', label: 'All types' },
+    { value: 'All types', label: 'All types', icon: <IconApps /> },
     ...Object.entries(INSIGHT_TYPES_METADATA)
         .filter(([, meta]) => meta.inMenu !== false)
         .map(([value, meta]) => ({

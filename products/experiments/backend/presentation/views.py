@@ -29,11 +29,21 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.models.activity_logging.activity_log import ActivityLog, get_activity_page
+from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.permissions import is_service_auth
+from posthog.rate_limit import (
+    ClickHouseBurstRateThrottle,
+    ClickHouseSustainedRateThrottle,
+    SessionContextsBurstRateThrottle,
+    SessionContextsSustainedRateThrottle,
+)
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControl
+from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.experiments.models import ExperimentTimeseriesRecalculationWorkflowInputs
 from posthog.user_permissions import UserPermissions
@@ -56,11 +66,14 @@ from products.experiments.backend.presentation.serializers import (
     CopyExperimentToProjectSerializer,
     CreateFromPromptInputSerializer,
     EndExperimentSerializer,
+    ExperimentActivityQuerySerializer,
     ExperimentBasicSerializer,
     ExperimentFlagCleanupTaskSerializer,
     ExperimentMetricsRecalculationSerializer,
     ExperimentSerializer,
     ExperimentSessionContextResponseSerializer,
+    ExperimentSessionContextsRequestSerializer,
+    ExperimentSessionContextsResponseSerializer,
     ExperimentWriteSerializer,
     RecalculateMetricsRequestSerializer,
     RunningTimeCalculationInputSerializer,
@@ -84,7 +97,7 @@ from products.experiments.backend.running_time_calculator import (
     calculate_variance,
     calculate_variance_from_stats,
 )
-from products.experiments.backend.session_context import get_session_experiment_context
+from products.experiments.backend.session_context import get_session_experiment_context, get_session_experiment_contexts
 from products.experiments.backend.temporal.models import (
     ExperimentMetricsRecalculationWorkflowInputs as MetricsRecalcInputs,
 )
@@ -183,6 +196,35 @@ def _slugify_feature_flag_key(name: str, *, team_id: int) -> str:
         candidate = f"{base}-{suffix}"
         suffix += 1
     return candidate
+
+
+def _accessible_session_ids(
+    request: Request, user_access_control: UserAccessControl, team: Team, session_ids: list[str]
+) -> list[str]:
+    """Drop session ids whose recording the viewer is denied at the object level.
+
+    The resource-level `session_recording` check the session-context actions run first grants
+    access to the replay product, not to every recording in it: a recording can carry its own
+    access controls, which the replay retrieve endpoint enforces via `check_object_permissions`.
+    Without this filter a viewer denied one recording could still read which experiments it saw.
+
+    Object-level controls can only target a recording that has a Postgres row, so an id without
+    one is returned as accessible. That matches replay, which serves those ids from an unsaved
+    `SessionRecording` no access control row can point at.
+    """
+    if is_service_auth(request):
+        # Mirrors AccessControlPermission.has_object_permission: service credentials authenticate
+        # as synthetic users that UserAccessControl cannot evaluate, so they are gated by API
+        # scope and project membership instead of object-level RBAC.
+        return session_ids
+
+    recordings = SessionRecording.objects.filter(team=team, session_id__in=session_ids)
+    denied_ids = {
+        recording.session_id
+        for recording in recordings
+        if not user_access_control.check_access_level_for_object(recording, required_level="viewer")
+    }
+    return [session_id for session_id in session_ids if session_id not in denied_ids]
 
 
 @extend_schema_view(
@@ -368,7 +410,7 @@ class EnterpriseExperimentsViewSet(
             if request.data.get("disable_feature_flag", False) in serializers.BooleanField.TRUE_VALUES:
                 scopes.append("feature_flag:write")
             return scopes
-        # Ending or shipping with open_cleanup_pr=true starts a Code task that opens a pull
+        # Ending or shipping with open_cleanup_pr=true starts a Desktop task that opens a pull
         # request. Starting a task is a task write, so require task:write on the token, not
         # just experiment:write.
         if self.action in ("end", "ship_variant"):
@@ -379,11 +421,11 @@ class EnterpriseExperimentsViewSet(
         return None
 
     def _check_cleanup_pr_access(self, request: Request) -> None:
-        """Opening a cleanup PR starts a Code task on the user's behalf. The task:write
+        """Opening a cleanup PR starts a Desktop task on the user's behalf. The task:write
         scope only gates token auth (see dangerously_get_required_scopes); session auth
-        has no scopes, so gate every caller on PostHog Code product access instead."""
+        has no scopes, so gate every caller on PostHog Desktop product access instead."""
         if not has_tasks_access(cast(User, request.user)):
-            raise PermissionDenied("Opening a flag cleanup PR requires access to PostHog Code.")
+            raise PermissionDenied("Opening a flag cleanup PR requires access to PostHog Desktop.")
 
     def _token_can_write_feature_flag(self, request: Request) -> bool:
         """Whether the request's token carries feature_flag:write.
@@ -574,9 +616,9 @@ class EnterpriseExperimentsViewSet(
     @action(methods=["GET"], detail=True, required_scopes=["experiment:read"])
     def flag_cleanup_task(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
-        Status of the flag-cleanup Code task opened for this experiment.
+        Status of the flag-cleanup Desktop task opened for this experiment.
 
-        When an experiment was ended or shipped with open_cleanup_pr=true, a Code task
+        When an experiment was ended or shipped with open_cleanup_pr=true, a Desktop task
         removes the experiment's feature-flag code and opens a draft pull request. This
         returns that task's latest run status and the PR URL once one is opened. Poll
         until is_terminal is true. Returns 404 when no cleanup task was opened.
@@ -613,6 +655,46 @@ class EnterpriseExperimentsViewSet(
             }
         )
         return Response(response_serializer.data)
+
+    @validated_request(
+        query_serializer=ExperimentActivityQuerySerializer,
+        responses={
+            200: OpenApiResponse(response=ActivityLogPaginatedResponseSerializer),
+            404: OpenApiResponse(response=None),
+        },
+    )
+    @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
+    def activity(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        """
+        Change history for this experiment.
+
+        Returns a paginated audit trail of changes to the experiment and its holdouts
+        and shared metrics: who made each change, what changed (field-level before/after
+        values), and when. Ordered newest first.
+        """
+        limit = request.validated_query_data["limit"]
+        page = request.validated_query_data["page"]
+
+        experiment: Experiment = self.get_object()
+
+        # Holdout and shared-metric changes log under the Experiment scope with the child
+        # object's own id, so they need their own type-matched clauses. The experiment's own
+        # clause must exclude those detail types in turn: an unrelated holdout or shared
+        # metric whose pk collides with this experiment's id would otherwise leak in.
+        activity_filter = Q(item_id=str(experiment.id)) & ~Q(detail__type__in=["holdout", "shared_metric"])
+        if experiment.holdout_id is not None:
+            activity_filter |= Q(item_id=str(experiment.holdout_id), detail__type="holdout")
+        saved_metric_ids = [str(pk) for pk in experiment.saved_metrics.values_list("id", flat=True)]
+        if saved_metric_ids:
+            activity_filter |= Q(item_id__in=saved_metric_ids, detail__type="shared_metric")
+
+        activity_query = (
+            ActivityLog.objects.select_related("user")
+            .filter(activity_filter, team_id=self.team_id, scope="Experiment")
+            .order_by("-created_at")
+        )
+        activity_page = get_activity_page(activity_query, limit, page)
+        return activity_page_response(activity_page, limit, page, request)
 
     @extend_schema(
         request=None,
@@ -1023,7 +1105,13 @@ class EnterpriseExperimentsViewSet(
         experiment: Experiment = self.get_object()
         request_serializer = RecalculateMetricsRequestSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
-        trigger = request_serializer.validated_data["trigger"]
+
+        is_mcp_client = request.headers.get("x-posthog-client") == "mcp"
+        trigger = (
+            ExperimentMetricsRecalculation.Trigger.AGENT_MCP
+            if is_mcp_client
+            else request_serializer.validated_data["trigger"]
+        )
 
         # request.user is User | AnonymousUser at the DRF level; the viewset enforces auth so it's a User here.
         result = request_recalculation(experiment, cast(User, request.user), trigger)
@@ -1091,7 +1179,23 @@ class EnterpriseExperimentsViewSet(
 
         return Response({"detail": "No completed recalculation found"}, status=404)
 
-    @extend_schema(responses={200: ExperimentMetricsRecalculationSerializer, 404: None})
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="recalculation_id",
+                location=OpenApiParameter.PATH,
+                # Keep the URL's UUID pattern in the schema; declaring a bare UUID type drops it.
+                type={
+                    "type": "string",
+                    "pattern": r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                },
+                description=(
+                    "UUID of the recalculation run to fetch. This is the run's own id, not the experiment id."
+                ),
+            )
+        ],
+        responses={200: ExperimentMetricsRecalculationSerializer, 404: None},
+    )
     @action(
         methods=["GET"],
         detail=True,
@@ -1207,6 +1311,9 @@ class EnterpriseExperimentsViewSet(
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Reading session experiment context requires session replay access.")
 
+        if not _accessible_session_ids(request, self.user_access_control, self.team, [session_id]):
+            raise PermissionDenied("You don't have access to this recording.")
+
         # detail=False actions skip the automatic list-action ACL filtering, so filter here —
         # private experiments must not leak into another user's session context.
         experiments = self.user_access_control.filter_queryset_by_access_level(
@@ -1221,6 +1328,55 @@ class EnterpriseExperimentsViewSet(
             raise NotFound("Recording not found")
 
         serializer = ExperimentSessionContextResponseSerializer({"session_id": session_id, "results": items})
+        return Response(serializer.data)
+
+    @validated_request(
+        request_serializer=ExperimentSessionContextsRequestSerializer,
+        responses={200: OpenApiResponse(response=ExperimentSessionContextsResponseSerializer)},
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="session_contexts",
+        required_scopes=["experiment:read", "session_recording:read"],
+        # Not the ClickHouse* pair the single-session action uses: that pair only limits
+        # personal-API-key traffic, and this endpoint's primary caller is the
+        # session-authenticated web app.
+        throttle_classes=[SessionContextsBurstRateThrottle, SessionContextsSustainedRateThrottle],
+    )
+    def session_contexts(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        """Resolve experiment context for a batch of session recordings.
+
+        Batch variant of `session_context`, used to prefetch the replay player's experiments
+        box for a whole recordings list in one request. POST because the id list doesn't fit a
+        query string; the endpoint only reads. Already-computed sessions are served from (and
+        cold ones written to) the same short-lived per-viewer cache the single-session endpoint
+        uses, so opening any prefetched recording renders its context instantly. Sessions whose
+        recording metadata doesn't exist yet are omitted from the response, as are recordings
+        the caller can't access and sessions beyond the batch's recording-day budget (each
+        distinct recording day costs its own set of ClickHouse scans, so only the most recent
+        days are computed per request).
+        """
+        session_ids: list[str] = request.validated_data["session_ids"]
+
+        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
+            raise PermissionDenied("Reading session experiment context requires session replay access.")
+
+        # Denied recordings are omitted rather than rejecting the batch, matching how the response
+        # already treats a session whose recording metadata doesn't exist.
+        session_ids = _accessible_session_ids(request, self.user_access_control, self.team, session_ids)
+
+        # detail=False actions skip the automatic list-action ACL filtering, so filter here —
+        # private experiments must not leak into another user's session context.
+        experiments = self.user_access_control.filter_queryset_by_access_level(
+            Experiment.objects.filter(team_id=self.team.pk)
+        )
+        contexts = get_session_experiment_contexts(
+            team=self.team, session_ids=session_ids, experiments=experiments, user=cast(User, request.user)
+        )
+        serializer = ExperimentSessionContextsResponseSerializer(
+            {"results": [{"session_id": session_id, "results": items} for session_id, items in contexts.items()]}
+        )
         return Response(serializer.data)
 
 

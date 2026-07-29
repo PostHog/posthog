@@ -190,6 +190,11 @@ def _invalidate_team_behavioral_cohort_cache(team_id: int) -> None:
     )
 
 
+# Public alias for callers outside the signal path (e.g. the backfill finalizer) that must
+# explicitly invalidate the behavioral-cohort cache after bypassing signals.
+invalidate_team_behavioral_cohort_cache = _invalidate_team_behavioral_cohort_cache
+
+
 def extract_cohort_dependencies(cohort: Cohort) -> set[int]:
     """
     Extract cohort dependencies from the given cohort.

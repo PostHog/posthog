@@ -843,7 +843,7 @@ class TestUserAPI(APIBaseTest):
         mock_send_email_change_emails.assert_not_called()
 
     @patch("posthog.api.user.is_email_available", return_value=True)
-    @patch("posthog.api.user.EmailVerifier.create_token_and_send_email_verification")
+    @patch("posthog.api.user.EmailVerifier.send_verification_email")
     def test_email_change_allowed_between_two_sso_enforced_domains_of_same_org(
         self,
         mock_send_email_verification,

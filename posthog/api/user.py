@@ -43,7 +43,7 @@ from social_django.models import UserSocialAuth
 from two_factor.forms import TOTPDeviceForm
 from two_factor.utils import default_device
 
-from posthog.api.email_verification import EmailVerifier
+from posthog.api.email_verification import EmailVerifier, email_verification_token_generator
 from posthog.api.oauth.toolbar_service import (
     ToolbarOAuthError,
     ToolbarOAuthState,
@@ -724,9 +724,19 @@ class UserSerializer(serializers.ModelSerializer):
                     "You can't change your email to a domain where SSO is enforced.",
                     code="sso_enforced_new_email",
                 )
-            instance.pending_email = validated_data.pop("email", None)
-            instance.save()
-            EmailVerifier.create_token_and_send_email_verification(instance)
+            validated_data.pop("email", None)  # staged as pending_email below, not written to `email` directly
+            # Serialize concurrent email changes for this user under a row lock so the token is
+            # minted against one consistent pending_email. Without it, interleaved requests can
+            # bind a token to one address but deliver its verification email to another.
+            with transaction.atomic():
+                User.objects.select_for_update().get(pk=instance.pk)
+                instance.pending_email = new_email
+                instance.save(update_fields=["pending_email"])
+                token = email_verification_token_generator.make_token(instance)
+            # Send after the transaction commits (never inside the atomic block), pinning the
+            # recipient to the captured address so a later pending_email change can't redirect
+            # this token's verification email.
+            EmailVerifier.send_verification_email(instance, token, target_email=new_email)
 
         if validated_data.get("notification_settings"):
             validated_data["partial_notification_settings"] = validated_data.pop("notification_settings")

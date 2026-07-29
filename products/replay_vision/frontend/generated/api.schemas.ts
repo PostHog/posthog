@@ -168,25 +168,30 @@ export interface AlertConfigApi {
 
 /**
  * * `slack` - Slack
+ * * `webhook` - Webhook
  */
 export type DeliveryTargetTypeEnumApi = (typeof DeliveryTargetTypeEnumApi)[keyof typeof DeliveryTargetTypeEnumApi]
 
 export const DeliveryTargetTypeEnumApi = {
     Slack: 'slack',
+    Webhook: 'webhook',
 } as const
 
 /**
- * A single delivery destination. MVP supports Slack only.
+ * A single delivery destination: a Slack channel or an HTTP webhook URL.
  */
 export interface DeliveryTargetApi {
-    /** Destination channel type. MVP supports 'slack' only.
+    /** Destination type: 'slack' posts to a Slack channel; 'webhook' POSTs a JSON payload to a URL.
      *
-     * * `slack` - Slack */
+     * * `slack` - Slack
+     * * `webhook` - Webhook */
     type: DeliveryTargetTypeEnumApi
-    /** ID of the Slack Integration on this team used to deliver the summary. */
-    integration_id: number
-    /** Slack channel ID or name the summary is posted to. */
-    channel: string
+    /** ID of the Slack Integration on this team used to deliver. Required when type is 'slack'. */
+    integration_id?: number
+    /** Slack channel ID or name the summary is posted to. Required when type is 'slack'. */
+    channel?: string
+    /** HTTPS endpoint the summary is POSTed to as JSON. Required when type is 'webhook'. Redacted to scheme+host in responses for users without editor access to the scanner. */
+    url?: string
 }
 
 /**
@@ -367,6 +372,16 @@ export interface PatchedVisionActionApi {
     /** User who created the action. */
     readonly created_by?: UserBasicApi | null
     readonly updated_at?: string
+}
+
+/**
+ * Async-accepted response for POST /vision/actions/{id}/run/.
+ */
+export interface RunActionResponseApi {
+    /** Temporal workflow id for the run; the resulting run appears under the action's run history. */
+    workflow_id: string
+    /** True when a run for this action was already in progress (scheduled or manual), so this request coalesced onto it rather than starting a second run. */
+    already_running: boolean
 }
 
 /**
@@ -815,6 +830,8 @@ export interface ReplayScannerApi {
     readonly estimated_monthly_credits: number | null
     /** Credits this scanner's succeeded observations consumed in the current billing period (1 credit = $0.01). Matches the window of the org-wide quota meter. */
     readonly credits_this_month: number
+    /** Succeeded observations this scanner produced in the current billing period. */
+    readonly observations_this_month: number
     /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
     readonly last_swept_at: string
     readonly created_at: string
@@ -907,6 +924,8 @@ export interface PatchedReplayScannerApi {
     readonly estimated_monthly_credits?: number | null
     /** Credits this scanner's succeeded observations consumed in the current billing period (1 credit = $0.01). Matches the window of the org-wide quota meter. */
     readonly credits_this_month?: number
+    /** Succeeded observations this scanner produced in the current billing period. */
+    readonly observations_this_month?: number
     /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
     readonly last_swept_at?: string
     readonly created_at?: string

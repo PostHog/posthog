@@ -448,15 +448,22 @@ export function quarantineCountsOf(rows: QuarantineEntryRow[]): QuarantineCounts
 export type FlakyTestWindow = '-7d' | '-14d' | '-30d'
 export const DEFAULT_FLAKY_TEST_WINDOW: FlakyTestWindow = '-7d'
 export type FlakyTestClassification = FlakyTestItemClassificationEnumApi
+export type TestRunner = NonNullable<QuarantineRequestApi['runner']>
+export const TEST_RUNNERS: readonly TestRunner[] = ['pytest', 'jest', 'playwright']
+
+export function isTestRunner(runner: string): runner is TestRunner {
+    return TEST_RUNNERS.some((candidate) => candidate === runner)
+}
 
 export interface FlakyTestRow {
-    /** Reconstructed pytest nodeid (the CI span name): a stable grouping/display key. */
+    runner: TestRunner
+    /** Runner-specific test identity (the CI span name): a stable grouping/display key. */
     nodeid: string
-    /** Runnable pytest selector for the quarantine action; exact when the CI reporter emitted it. */
+    /** Runnable selector for the quarantine action; exact when the CI reporter emitted it. */
     selector: string
     classification: FlakyTestClassification
-    /** Runs where an in-job retry recovered the test after failing: the only proof of flakiness here. */
-    rerunPassedRunCount: number
+    /** Runs where one commit both failed and passed the test (re-run attempt or in-job retry): the flake proof. */
+    sameCommitRecoveryRunCount: number
     failedRunCount: number
     failedPrCount: number
     masterFailedRunCount: number
@@ -533,6 +540,7 @@ export type QuarantineRequestAction = 'quarantine' | 'extend' | 'remove'
 export interface QuarantineSubmitInput {
     action: QuarantineRequestAction
     selector: string
+    runner?: TestRunner
     reason: string
     owner: string
     /** Existing tracking issue, carried forward on extend/remove. */
@@ -546,6 +554,7 @@ export interface QuarantineSubmitInput {
 export interface QuarantineModalState {
     action: 'quarantine' | 'extend'
     selector: string
+    runner: TestRunner
     reason: string
     owner: string
     issue: string
@@ -559,8 +568,8 @@ export interface QuarantineModalState {
 export function flakyEvidenceReason(row: FlakyTestRow, window: FlakyTestWindow): string {
     const windowLabel = { '-7d': '7 days', '-14d': '14 days', '-30d': '30 days' }[window]
     const parts: string[] = []
-    if (row.rerunPassedRunCount > 0) {
-        parts.push(`recovered on retry in ${pluralize(row.rerunPassedRunCount, 'run')}`)
+    if (row.sameCommitRecoveryRunCount > 0) {
+        parts.push(`recovered on the same commit in ${pluralize(row.sameCommitRecoveryRunCount, 'run')}`)
     }
     if (row.failedRunCount > 0) {
         parts.push(`failed in ${pluralize(row.failedRunCount, 'run')}`)
@@ -588,6 +597,7 @@ function toRequestBody(input: QuarantineSubmitInput, repo: string | null): Quara
         // Wire field is 'operation' (a bare 'action' enum collides in the OpenAPI spec).
         operation: input.action,
         selector: input.selector,
+        ...(input.runner ? { runner: input.runner } : {}),
         // The repo being viewed, so the PR lands there. Null in local dev.
         repo,
         reason: input.reason,
@@ -1180,10 +1190,11 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                         return {
                             rows: data.items.map(
                                 (it): FlakyTestRow => ({
+                                    runner: it.runner,
                                     nodeid: it.nodeid,
                                     selector: it.selector,
                                     classification: it.classification,
-                                    rerunPassedRunCount: it.rerun_passed_run_count,
+                                    sameCommitRecoveryRunCount: it.same_commit_recovery_run_count,
                                     failedRunCount: it.failed_run_count,
                                     failedPrCount: it.failed_pr_count,
                                     masterFailedRunCount: it.master_failed_run_count,

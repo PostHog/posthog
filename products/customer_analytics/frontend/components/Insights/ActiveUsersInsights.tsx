@@ -10,8 +10,6 @@ import { Query } from '~/queries/Query/Query'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType, InsightLogicProps } from '~/types'
 
-import { revenueAnalyticsLogic } from 'products/revenue_analytics/frontend/revenueAnalyticsLogic'
-
 import { CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID, CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from '../../constants'
 import { InsightDefinition, customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
 import { buildDashboardItemId, isPageviewWithoutFilters } from '../../utils'
@@ -54,8 +52,7 @@ export function ActiveUsersInsights(): JSX.Element {
 function PowerUsersTable(): JSX.Element {
     const { businessType, customerLabel, dauSeries, selectedGroupType, filterTestAccounts } =
         useValues(customerAnalyticsSceneLogic)
-    const { isRevenueAnalyticsEnabled, baseCurrency } = useValues(revenueAnalyticsLogic)
-    const { currentTeam } = useValues(teamLogic)
+    const { baseCurrency, currentTeam } = useValues(teamLogic)
     const lastSeenEnabled = currentTeam?.extra_settings?.person_last_seen_at_enabled === true
     const revenueFieldsEnabled = useFeatureFlag('REVENUE_FIELDS_IN_POWER_USERS_TABLE')
     const uniqueKey = 'power-users'
@@ -67,7 +64,7 @@ function PowerUsersTable(): JSX.Element {
     const isB2c = businessType === 'b2c'
     const buttonTo = isB2c ? urls.persons() : urls.groups(selectedGroupType)
     const tooltip = isB2c ? 'Open people list' : `Open ${customerLabel.plural} list`
-    const revenueFields = isRevenueAnalyticsEnabled && revenueFieldsEnabled ? ['$virt_mrr', '$virt_revenue'] : []
+    const revenueFields = revenueFieldsEnabled ? ['$virt_mrr', '$virt_revenue'] : []
 
     const query = {
         kind: NodeKind.DataTableNode,

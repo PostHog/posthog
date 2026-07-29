@@ -16,7 +16,6 @@ import { getRequiredFeatureFlags, getScopeGatedTools, type ScopeGatedTool } from
 import type { Context, Tool, Env, State, ZodObjectAny } from '@/tools/types'
 
 import type { RedisLike } from './cache/RedisCache'
-import { MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
 import {
     buildMCPRequestContext,
     getEffectiveMCPClientContext,
@@ -132,9 +131,7 @@ export class RequestStateResolver {
 
         // PRODUCT_DATA_CATALOG_FLAG gates instructions content (the metric-discovery prompt
         // section), not a tool, so the tool-definition scan can't discover it.
-        const allFlagKeys = [
-            ...new Set([...getRequiredFeatureFlags(), PRODUCT_DATA_CATALOG_FLAG, MCP_EXEC_SKILLS_FEATURE_FLAG]),
-        ]
+        const allFlagKeys = [...new Set([...getRequiredFeatureFlags(), PRODUCT_DATA_CATALOG_FLAG])]
 
         const flagAnalyticsContext = await reqCtx.safelyGetAnalyticsContext(context)
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
@@ -272,9 +269,8 @@ export class RequestStateResolver {
             return {}
         }
         // Local dev runs against the locally-running project, where the dev-only
-        // surfaces these flags gate (e.g. the agent-platform product DB) exist.
-        // The flags only hide those surfaces on prod until GA, so enable them all
-        // locally — the analytics flag-eval client is disabled in dev anyway.
+        // surfaces these flags gate exist. The flags only hide those surfaces on
+        // prod until GA, so enable them all locally — the analytics flag-eval client is disabled in dev anyway.
         if (isLocalApi()) {
             return Object.fromEntries(flagKeys.map((key) => [key, true]))
         }

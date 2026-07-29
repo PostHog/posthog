@@ -44,9 +44,9 @@ services:
     webhook-tester:
         profiles: [dev_tools]
 
-    # Session-recording storage (replay) + agent bundle/memory storage (agents).
+    # Session-recording storage (replay).
     seaweedfs:
-        profiles: [replay, agents]
+        profiles: [replay]
 
     # Cloud provider emulators
     localstack:

@@ -19,6 +19,7 @@ class NotificationType(str, Enum):
     WEB_ANALYTICS_DIGEST = "web_analytics_digest"
     ACHIEVEMENT_UNLOCKED = "achievement_unlocked"
     SUBSCRIPTION_NUDGE = "subscription_nudge"
+    EMAIL_REPUTATION = "email_reputation"
 
 
 class Priority(str, Enum):
@@ -49,6 +50,7 @@ class SourceType(str, Enum):
     EXPERIMENT = "experiment"
     ERROR_TRACKING = "error_tracking"
     CUSTOMER_ANALYTICS = "customer_analytics"
+    TICKET = "ticket"
 
 
 class NotificationOnlyResourceType(str, Enum):

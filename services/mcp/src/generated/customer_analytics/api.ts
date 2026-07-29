@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 37 enabled ops
+ * PostHog API - MCP 44 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -12,7 +12,7 @@ export const AccountRelationshipDefinitionsListParams = /* @__PURE__ */ zod.obje
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -25,7 +25,7 @@ export const AccountRelationshipDefinitionsCreateParams = /* @__PURE__ */ zod.ob
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -59,7 +59,7 @@ export const AccountRelationshipDefinitionsRetrieveParams = /* @__PURE__ */ zod.
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -68,7 +68,7 @@ export const AccountRelationshipDefinitionsPartialUpdateParams = /* @__PURE__ */
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -101,7 +101,7 @@ export const AccountRelationshipDefinitionsDestroyParams = /* @__PURE__ */ zod.o
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -109,7 +109,7 @@ export const AccountsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -135,7 +135,7 @@ export const AccountsListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            'JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts that have any of the listed tags. Malformed values (not a JSON-encoded list of strings) return a 400.'
+            'JSON-encoded array of tag names to filter by, e.g. `[\"enterprise\",\"priority\"]`. Returns accounts that have any of the listed tags. Malformed values (not a JSON-encoded list of strings) return a 400.'
         ),
 })
 
@@ -143,7 +143,7 @@ export const AccountsCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -205,7 +205,7 @@ export const AccountsCustomPropertyValuesListParams = /* @__PURE__ */ zod.object
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -214,7 +214,7 @@ export const AccountsCustomPropertyValuesCreateParams = /* @__PURE__ */ zod.obje
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -223,7 +223,7 @@ export const AccountsCustomPropertyValuesCreateBody = /* @__PURE__ */ zod.object
     value: zod
         .union([zod.string(), zod.number(), zod.boolean()])
         .describe(
-            "Value to store, matching the definition's type: a number for number/currency/percent, a boolean for boolean, an ISO-8601 string for date/datetime, or text for text properties."
+            "Value to store, matching the definition's type: a number for number\/currency\/percent, a boolean for boolean, an ISO-8601 string for date\/datetime, or text for text properties."
         ),
 })
 
@@ -232,7 +232,7 @@ export const AccountsNotebooksListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -248,7 +248,7 @@ export const AccountsNotebooksCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -269,7 +269,7 @@ export const AccountsNotebooksRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
     short_id: zod.string(),
 })
@@ -279,7 +279,7 @@ export const AccountsNotebooksDestroyParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
     short_id: zod.string(),
 })
@@ -289,7 +289,7 @@ export const AccountsRelationshipsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -305,7 +305,7 @@ export const AccountsRelationshipsCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -322,7 +322,7 @@ export const AccountsRelationshipsEndCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -331,7 +331,7 @@ export const AccountsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -340,7 +340,7 @@ export const AccountsPartialUpdateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -406,7 +406,7 @@ export const AccountsDestroyParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -414,7 +414,7 @@ export const CustomPropertyDefinitionsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -427,7 +427,7 @@ export const CustomPropertyDefinitionsCreateParams = /* @__PURE__ */ zod.object(
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -450,17 +450,17 @@ export const CustomPropertyDefinitionsCreateBody = /* @__PURE__ */ zod
         display_type: zod
             .enum(['text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', 'select'])
             .describe(
-                '* `text` - text\n* `number` - number\n* `currency` - currency\n* `percent` - percent\n* `date` - date\n* `datetime` - datetime\n* `boolean` - boolean\n* `select` - select'
+                '\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select'
             )
             .describe(
-                "How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.\n\n* `text` - text\n* `number` - number\n* `currency` - currency\n* `percent` - percent\n* `date` - date\n* `datetime` - datetime\n* `boolean` - boolean\n* `select` - select"
+                "How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.\n\n\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select"
             ),
         target_type: zod
             .enum(['account', 'person', 'group'])
-            .describe('* `account` - account\n* `person` - person\n* `group` - group')
+            .describe('\* `account` - account\n\* `person` - person\n\* `group` - group')
             .default(customPropertyDefinitionsCreateBodyTargetTypeDefault)
             .describe(
-                "What entity this property is attached to: 'account' (default), 'person', or 'group'. Person and group properties are populated from a warehouse schema and become usable like any other person/group property (feature flags, cohorts, insights).\n\n* `account` - account\n* `person` - person\n* `group` - group"
+                "What entity this property is attached to: 'account' (default), 'person', or 'group'. Person and group properties are populated from a warehouse schema and become usable like any other person\/group property (feature flags, cohorts, insights).\n\n\* `account` - account\n\* `person` - person\n\* `group` - group"
             ),
         group_type_index: zod
             .number()
@@ -502,10 +502,10 @@ export const CustomPropertyDefinitionsCreateBody = /* @__PURE__ */ zod
                                 'preset-10',
                             ])
                             .describe(
-                                '* `preset-1` - preset-1\n* `preset-2` - preset-2\n* `preset-3` - preset-3\n* `preset-4` - preset-4\n* `preset-5` - preset-5\n* `preset-6` - preset-6\n* `preset-7` - preset-7\n* `preset-8` - preset-8\n* `preset-9` - preset-9\n* `preset-10` - preset-10'
+                                '\* `preset-1` - preset-1\n\* `preset-2` - preset-2\n\* `preset-3` - preset-3\n\* `preset-4` - preset-4\n\* `preset-5` - preset-5\n\* `preset-6` - preset-6\n\* `preset-7` - preset-7\n\* `preset-8` - preset-8\n\* `preset-9` - preset-9\n\* `preset-10` - preset-10'
                             )
                             .describe(
-                                "Preset color token used to render the option ('preset-1' through 'preset-10').\n\n* `preset-1` - preset-1\n* `preset-2` - preset-2\n* `preset-3` - preset-3\n* `preset-4` - preset-4\n* `preset-5` - preset-5\n* `preset-6` - preset-6\n* `preset-7` - preset-7\n* `preset-8` - preset-8\n* `preset-9` - preset-9\n* `preset-10` - preset-10"
+                                "Preset color token used to render the option ('preset-1' through 'preset-10').\n\n\* `preset-1` - preset-1\n\* `preset-2` - preset-2\n\* `preset-3` - preset-3\n\* `preset-4` - preset-4\n\* `preset-5` - preset-5\n\* `preset-6` - preset-6\n\* `preset-7` - preset-7\n\* `preset-8` - preset-8\n\* `preset-9` - preset-9\n\* `preset-10` - preset-10"
                             ),
                     })
                     .describe('An allowed value of a select custom property.')
@@ -524,7 +524,7 @@ export const CustomPropertyDefinitionsRetrieveParams = /* @__PURE__ */ zod.objec
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -533,7 +533,7 @@ export const CustomPropertyDefinitionsPartialUpdateParams = /* @__PURE__ */ zod.
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -555,18 +555,18 @@ export const CustomPropertyDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
         display_type: zod
             .enum(['text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', 'select'])
             .describe(
-                '* `text` - text\n* `number` - number\n* `currency` - currency\n* `percent` - percent\n* `date` - date\n* `datetime` - datetime\n* `boolean` - boolean\n* `select` - select'
+                '\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select'
             )
             .optional()
             .describe(
-                "How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.\n\n* `text` - text\n* `number` - number\n* `currency` - currency\n* `percent` - percent\n* `date` - date\n* `datetime` - datetime\n* `boolean` - boolean\n* `select` - select"
+                "How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.\n\n\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select"
             ),
         target_type: zod
             .enum(['account', 'person', 'group'])
-            .describe('* `account` - account\n* `person` - person\n* `group` - group')
+            .describe('\* `account` - account\n\* `person` - person\n\* `group` - group')
             .optional()
             .describe(
-                "What entity this property is attached to: 'account' (default), 'person', or 'group'. Person and group properties are populated from a warehouse schema and become usable like any other person/group property (feature flags, cohorts, insights).\n\n* `account` - account\n* `person` - person\n* `group` - group"
+                "What entity this property is attached to: 'account' (default), 'person', or 'group'. Person and group properties are populated from a warehouse schema and become usable like any other person\/group property (feature flags, cohorts, insights).\n\n\* `account` - account\n\* `person` - person\n\* `group` - group"
             ),
         group_type_index: zod
             .number()
@@ -608,10 +608,10 @@ export const CustomPropertyDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
                                 'preset-10',
                             ])
                             .describe(
-                                '* `preset-1` - preset-1\n* `preset-2` - preset-2\n* `preset-3` - preset-3\n* `preset-4` - preset-4\n* `preset-5` - preset-5\n* `preset-6` - preset-6\n* `preset-7` - preset-7\n* `preset-8` - preset-8\n* `preset-9` - preset-9\n* `preset-10` - preset-10'
+                                '\* `preset-1` - preset-1\n\* `preset-2` - preset-2\n\* `preset-3` - preset-3\n\* `preset-4` - preset-4\n\* `preset-5` - preset-5\n\* `preset-6` - preset-6\n\* `preset-7` - preset-7\n\* `preset-8` - preset-8\n\* `preset-9` - preset-9\n\* `preset-10` - preset-10'
                             )
                             .describe(
-                                "Preset color token used to render the option ('preset-1' through 'preset-10').\n\n* `preset-1` - preset-1\n* `preset-2` - preset-2\n* `preset-3` - preset-3\n* `preset-4` - preset-4\n* `preset-5` - preset-5\n* `preset-6` - preset-6\n* `preset-7` - preset-7\n* `preset-8` - preset-8\n* `preset-9` - preset-9\n* `preset-10` - preset-10"
+                                "Preset color token used to render the option ('preset-1' through 'preset-10').\n\n\* `preset-1` - preset-1\n\* `preset-2` - preset-2\n\* `preset-3` - preset-3\n\* `preset-4` - preset-4\n\* `preset-5` - preset-5\n\* `preset-6` - preset-6\n\* `preset-7` - preset-7\n\* `preset-8` - preset-8\n\* `preset-9` - preset-9\n\* `preset-10` - preset-10"
                             ),
                     })
                     .describe('An allowed value of a select custom property.')
@@ -630,7 +630,7 @@ export const CustomPropertyDefinitionsDestroyParams = /* @__PURE__ */ zod.object
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -638,7 +638,7 @@ export const CustomPropertySourcesListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -651,7 +651,7 @@ export const CustomPropertySourcesCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -676,7 +676,7 @@ export const CustomPropertySourcesCreateBody = /* @__PURE__ */ zod
             .string()
             .nullish()
             .describe(
-                'Person sources only: UUID of the warehouse schema (raw incremental table) to read from. Mutually exclusive with saved_query.'
+                'Person and group sources only: UUID of the warehouse schema (raw incremental table) to read from. Mutually exclusive with saved_query.'
             ),
         source_column: zod
             .string()
@@ -687,13 +687,19 @@ export const CustomPropertySourcesCreateBody = /* @__PURE__ */ zod
             .unknown()
             .optional()
             .describe(
-                'Person sources only: {warehouse_column: person_property_name} mapping the columns this source writes onto the person.'
+                'Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group.'
+            ),
+        column_descriptions: zod
+            .unknown()
+            .optional()
+            .describe(
+                "Person sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. Create-only."
             ),
         key_column: zod
             .string()
             .max(customPropertySourcesCreateBodyKeyColumnMax)
             .describe(
-                "Column whose value identifies the target: an account's external_id for account sources, or the person's distinct_id for person sources."
+                "Column whose value identifies the target: an account's external_id for account sources, the person's distinct_id for person sources, or the group key for group sources."
             ),
         is_enabled: zod
             .boolean()
@@ -703,7 +709,7 @@ export const CustomPropertySourcesCreateBody = /* @__PURE__ */ zod
             ),
     })
     .describe(
-        "Binds a materialized data-warehouse view column to a custom property definition; the view's\nvalues are synced onto matching accounts on each materialization."
+        'Binds a data-warehouse source to a custom property definition. Account sources read a\nmaterialized view column and sync onto matching accounts; person and group sources read a\nwarehouse schema and sync onto matching persons or groups on each warehouse sync.'
     )
 
 export const CustomPropertySourcesRetrieveParams = /* @__PURE__ */ zod.object({
@@ -711,7 +717,7 @@ export const CustomPropertySourcesRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -720,7 +726,7 @@ export const CustomPropertySourcesPartialUpdateParams = /* @__PURE__ */ zod.obje
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -754,33 +760,35 @@ export const CustomPropertySourcesDestroyParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 /**
- * Person sources only: start a backfill that reads the whole warehouse table and populates
- * person properties for historical rows. Coalesces if one is already running for the table.
+ * Person and group sources only: start a backfill that reads the whole warehouse table and
+ * populates person or group properties for historical rows. Coalesces if one is already running
+ * for the table.
  */
 export const CustomPropertySourcesBackfillParams = /* @__PURE__ */ zod.object({
     id: zod.string(),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 /**
- * Person sources only: the source's sync/backfill run history, newest first. Gated on the
- * caller's warehouse-source viewer access, since the runs expose its row counts and sync errors.
+ * Person and group sources only: the source's sync/backfill run history, newest first. Gated
+ * on the caller's warehouse-source viewer access, since the runs expose its row counts and sync
+ * errors.
  */
 export const CustomPropertySourcesRunsListParams = /* @__PURE__ */ zod.object({
     id: zod.string(),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -790,15 +798,215 @@ export const CustomPropertySourcesRunsListQueryParams = /* @__PURE__ */ zod.obje
 })
 
 /**
- * Person sources only: trigger the underlying warehouse schema's sync now. This re-runs a
- * real (billable) warehouse sync; the incremental person-property update runs off it.
+ * Person and group sources only: trigger the underlying warehouse schema's sync now. This
+ * re-runs a real (billable) warehouse sync; the incremental person/group-property update runs
+ * off it.
  */
 export const CustomPropertySourcesSyncParams = /* @__PURE__ */ zod.object({
     id: zod.string(),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * The caller's event stream: a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. Per-user — each team member owns at most one stream, and
+ * every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
+ * destination that is re-provisioned inside the same transaction as every write, so
+ * config and delivery can't drift apart.
+ */
+export const EventStreamsListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * The caller's event stream: a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. Per-user — each team member owns at most one stream, and
+ * every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
+ * destination that is re-provisioned inside the same transaction as every write, so
+ * config and delivery can't drift apart.
+ */
+export const EventStreamsCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const eventStreamsCreateBodyEnabledDefault = false
+export const eventStreamsCreateBodyEventNamesItemMax = 400
+
+export const eventStreamsCreateBodySlackChannelIdDefault = ``
+export const eventStreamsCreateBodySlackChannelIdMax = 200
+
+export const eventStreamsCreateBodySlackChannelNameDefault = ``
+export const eventStreamsCreateBodySlackChannelNameMax = 200
+
+export const EventStreamsCreateBody = /* @__PURE__ */ zod
+    .object({
+        enabled: zod
+            .boolean()
+            .default(eventStreamsCreateBodyEnabledDefault)
+            .describe(
+                'Whether the stream delivers to Slack. Delivery also requires at least one event, at least one member account with an external ID, and a Slack workspace + channel.'
+            ),
+        event_names: zod
+            .array(zod.string().max(eventStreamsCreateBodyEventNamesItemMax))
+            .optional()
+            .describe('Names of the events to stream (matched exactly). Duplicates and blanks are dropped.'),
+        slack_integration: zod
+            .number()
+            .nullish()
+            .describe("ID of the team's Slack workspace integration to deliver through."),
+        slack_channel_id: zod
+            .string()
+            .max(eventStreamsCreateBodySlackChannelIdMax)
+            .default(eventStreamsCreateBodySlackChannelIdDefault)
+            .describe('Slack channel ID to post to (e.g. C0123ABC).'),
+        slack_channel_name: zod
+            .string()
+            .max(eventStreamsCreateBodySlackChannelNameMax)
+            .default(eventStreamsCreateBodySlackChannelNameDefault)
+            .describe('Display name of the Slack channel (e.g. #customer-events). Informational only.'),
+    })
+    .describe(
+        "The caller's event stream — a live feed of selected accounts' events posted to a\nSlack channel of their choice. One stream per user per project."
+    )
+
+/**
+ * The caller's event stream: a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. Per-user — each team member owns at most one stream, and
+ * every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
+ * destination that is re-provisioned inside the same transaction as every write, so
+ * config and delivery can't drift apart.
+ */
+export const EventStreamsPartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this event stream.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const eventStreamsPartialUpdateBodyEventNamesItemMax = 400
+
+export const eventStreamsPartialUpdateBodySlackChannelIdMax = 200
+
+export const eventStreamsPartialUpdateBodySlackChannelNameMax = 200
+
+export const EventStreamsPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        enabled: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether the stream delivers to Slack. Delivery also requires at least one event, at least one member account with an external ID, and a Slack workspace + channel.'
+            ),
+        event_names: zod
+            .array(zod.string().max(eventStreamsPartialUpdateBodyEventNamesItemMax))
+            .optional()
+            .describe('Names of the events to stream (matched exactly). Duplicates and blanks are dropped.'),
+        slack_integration: zod
+            .number()
+            .nullish()
+            .describe("ID of the team's Slack workspace integration to deliver through."),
+        slack_channel_id: zod
+            .string()
+            .max(eventStreamsPartialUpdateBodySlackChannelIdMax)
+            .optional()
+            .describe('Slack channel ID to post to (e.g. C0123ABC).'),
+        slack_channel_name: zod
+            .string()
+            .max(eventStreamsPartialUpdateBodySlackChannelNameMax)
+            .optional()
+            .describe('Display name of the Slack channel (e.g. #customer-events). Informational only.'),
+    })
+    .describe(
+        "The caller's event stream — a live feed of selected accounts' events posted to a\nSlack channel of their choice. One stream per user per project."
+    )
+
+/**
+ * The caller's event stream: a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. Per-user — each team member owns at most one stream, and
+ * every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
+ * destination that is re-provisioned inside the same transaction as every write, so
+ * config and delivery can't drift apart.
+ */
+export const EventStreamsDestroyParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this event stream.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * The caller's event stream: a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. Per-user — each team member owns at most one stream, and
+ * every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
+ * destination that is re-provisioned inside the same transaction as every write, so
+ * config and delivery can't drift apart.
+ */
+export const EventStreamsAddAccountCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this event stream.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const EventStreamsAddAccountCreateBody = /* @__PURE__ */ zod
+    .object({
+        account_id: zod.string().describe('UUID of the account to add to or remove from the stream.'),
+    })
+    .describe('Request body for adding or removing an event-stream member account.')
+
+/**
+ * The caller's event stream: a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. Per-user — each team member owns at most one stream, and
+ * every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
+ * destination that is re-provisioned inside the same transaction as every write, so
+ * config and delivery can't drift apart.
+ */
+export const EventStreamsRemoveAccountCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this event stream.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const EventStreamsRemoveAccountCreateBody = /* @__PURE__ */ zod
+    .object({
+        account_id: zod.string().describe('UUID of the account to add to or remove from the stream.'),
+    })
+    .describe('Request body for adding or removing an event-stream member account.')
+
+/**
+ * The caller's event stream: a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. Per-user — each team member owns at most one stream, and
+ * every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
+ * destination that is re-provisioned inside the same transaction as every write, so
+ * config and delivery can't drift apart.
+ */
+export const EventStreamsSendTestMessageCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this event stream.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -813,7 +1021,7 @@ export const GroupsTypesMetricsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -833,7 +1041,7 @@ export const GroupsTypesMetricsCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -852,10 +1060,10 @@ export const GroupsTypesMetricsCreateBody = /* @__PURE__ */ zod.object({
         .describe('Name of the usage metric. Must be unique per group type within the project.'),
     format: zod
         .enum(['numeric', 'currency'])
-        .describe('* `numeric` - numeric\n* `currency` - currency')
+        .describe('\* `numeric` - numeric\n\* `currency` - currency')
         .default(groupsTypesMetricsCreateBodyFormatDefault)
         .describe(
-            'How the metric value is formatted in the UI. One of `numeric` or `currency`.\n\n* `numeric` - numeric\n* `currency` - currency'
+            'How the metric value is formatted in the UI. One of `numeric` or `currency`.\n\n\* `numeric` - numeric\n\* `currency` - currency'
         ),
     interval: zod
         .number()
@@ -863,22 +1071,22 @@ export const GroupsTypesMetricsCreateBody = /* @__PURE__ */ zod.object({
         .describe('Rolling time window in days used to compute the metric. Defaults to 7.'),
     display: zod
         .enum(['number', 'sparkline'])
-        .describe('* `number` - number\n* `sparkline` - sparkline')
+        .describe('\* `number` - number\n\* `sparkline` - sparkline')
         .default(groupsTypesMetricsCreateBodyDisplayDefault)
         .describe(
-            'Visual representation in the UI. One of `number` or `sparkline`.\n\n* `number` - number\n* `sparkline` - sparkline'
+            'Visual representation in the UI. One of `number` or `sparkline`.\n\n\* `number` - number\n\* `sparkline` - sparkline'
         ),
     filters: zod
         .record(zod.string(), zod.unknown())
         .describe(
-            'Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.\n\n*\*Events*\* (default, when `source` is missing or `"events"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.\n\n*\*Data warehouse*\* (`source: "data_warehouse"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported.'
+            'Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.\n\n\*\*Events\*\* (default, when `source` is missing or `\"events\"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.\n\n\*\*Data warehouse\*\* (`source: \"data_warehouse\"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported.'
         ),
     math: zod
         .enum(['count', 'sum'])
-        .describe('* `count` - count\n* `sum` - sum')
+        .describe('\* `count` - count\n\* `sum` - sum')
         .default(groupsTypesMetricsCreateBodyMathDefault)
         .describe(
-            'Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` on matching events.\n\n* `count` - count\n* `sum` - sum'
+            'Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` on matching events.\n\n\* `count` - count\n\* `sum` - sum'
         ),
     math_property: zod
         .string()
@@ -901,7 +1109,7 @@ export const GroupsTypesMetricsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -917,7 +1125,7 @@ export const GroupsTypesMetricsPartialUpdateParams = /* @__PURE__ */ zod.object(
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -933,10 +1141,10 @@ export const GroupsTypesMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Name of the usage metric. Must be unique per group type within the project.'),
     format: zod
         .enum(['numeric', 'currency'])
-        .describe('* `numeric` - numeric\n* `currency` - currency')
+        .describe('\* `numeric` - numeric\n\* `currency` - currency')
         .optional()
         .describe(
-            'How the metric value is formatted in the UI. One of `numeric` or `currency`.\n\n* `numeric` - numeric\n* `currency` - currency'
+            'How the metric value is formatted in the UI. One of `numeric` or `currency`.\n\n\* `numeric` - numeric\n\* `currency` - currency'
         ),
     interval: zod
         .number()
@@ -944,23 +1152,23 @@ export const GroupsTypesMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Rolling time window in days used to compute the metric. Defaults to 7.'),
     display: zod
         .enum(['number', 'sparkline'])
-        .describe('* `number` - number\n* `sparkline` - sparkline')
+        .describe('\* `number` - number\n\* `sparkline` - sparkline')
         .optional()
         .describe(
-            'Visual representation in the UI. One of `number` or `sparkline`.\n\n* `number` - number\n* `sparkline` - sparkline'
+            'Visual representation in the UI. One of `number` or `sparkline`.\n\n\* `number` - number\n\* `sparkline` - sparkline'
         ),
     filters: zod
         .record(zod.string(), zod.unknown())
         .optional()
         .describe(
-            'Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.\n\n*\*Events*\* (default, when `source` is missing or `"events"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.\n\n*\*Data warehouse*\* (`source: "data_warehouse"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported.'
+            'Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.\n\n\*\*Events\*\* (default, when `source` is missing or `\"events\"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.\n\n\*\*Data warehouse\*\* (`source: \"data_warehouse\"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported.'
         ),
     math: zod
         .enum(['count', 'sum'])
-        .describe('* `count` - count\n* `sum` - sum')
+        .describe('\* `count` - count\n\* `sum` - sum')
         .optional()
         .describe(
-            'Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` on matching events.\n\n* `count` - count\n* `sum` - sum'
+            'Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` on matching events.\n\n\* `count` - count\n\* `sum` - sum'
         ),
     math_property: zod
         .string()
@@ -983,6 +1191,6 @@ export const GroupsTypesMetricsDestroyParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })

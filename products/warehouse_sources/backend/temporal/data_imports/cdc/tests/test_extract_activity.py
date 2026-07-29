@@ -6,6 +6,8 @@ from typing import Literal
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.db.utils import OperationalError
+
 import pyarrow as pa
 import psycopg.errors
 from parameterized import parameterized
@@ -966,6 +968,63 @@ class TestCDCExtractActivity:
         MockJob.objects.create.assert_called_once()
 
         # Slot should NOT have been advanced
+        mock_reader.confirm_position.assert_not_called()
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_dropped_connection_during_flush_still_records_failure(
+        self,
+        mock_close_conns,
+        MockJob,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        MockS3Writer,
+        MockProducer,
+        mock_activity,
+    ):
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        events = [_make_event(op="I", table="users", position="0/100")]
+
+        mock_reader, mock_s3, mock_producer, mock_job = _setup_mocks(
+            mock_activity,
+            MockProducer,
+            MockS3Writer,
+            mock_get_adapter,
+            mock_get_schemas,
+            MockSourceModel,
+            MockJob,
+            mock_close_conns,
+            source,
+            [schema],
+            events,
+        )
+
+        # The source DB (or the warehouse-sources DB) drops the connection mid-flush — the same
+        # OperationalError seen when Postgres kills a connection out from under a long-running
+        # activity thread.
+        mock_s3.write_batch.side_effect = OperationalError("the connection is closed")
+
+        inputs = CDCExtractInput(team_id=1, source_id=source.id)
+
+        with pytest.raises(OperationalError, match="the connection is closed"):
+            cdc_extract_activity(inputs)
+
+        # The stale connection left by the drop must be evicted again before the failure handler
+        # writes the job/schema failure state, otherwise that write immediately re-raises the same
+        # "connection is closed" error and the friendly message never gets recorded. One call from
+        # run()'s own startup eviction, one from the failure handler.
+        assert mock_close_conns.call_count == 2
+
+        assert schema.status == "Failed"
+        assert schema.latest_error == cdc_error_info(CDCErrorCategory.UNKNOWN).friendly_message
         mock_reader.confirm_position.assert_not_called()
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")

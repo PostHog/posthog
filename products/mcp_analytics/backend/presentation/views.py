@@ -159,11 +159,13 @@ class MCPFeedbackViewSet(BaseMCPAnalyticsSubmissionViewSet):
 class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = MCPSessionSerializer
     scope_object = "mcp_analytics"
-    # tool_calls and activity_overview are GETs (read); generate_intent is a POST that computes +
-    # persists the intent summary, so it maps to the write scope. The default read/write action
-    # lists don't cover custom @action names, so APIScopePermission would otherwise reject token access.
-    scope_object_read_actions = ["list", "retrieve", "tool_calls", "activity_overview"]
-    scope_object_write_actions = ["generate_intent", "intent_digest"]
+    # tool_calls, activity_overview, and intent_digest are GETs in spirit (they just read/compute
+    # cached data, not persist a mutation the caller controls) even though intent_digest is wired
+    # as a POST; generate_intent actually persists a per-session summary, so it maps to the write
+    # scope. The default read/write action lists don't cover custom @action names, so
+    # APIScopePermission/AccessControlPermission would otherwise reject viewer-level access.
+    scope_object_read_actions = ["list", "retrieve", "tool_calls", "activity_overview", "intent_digest"]
+    scope_object_write_actions = ["generate_intent"]
     posthog_feature_flag = "mcp-analytics"
     permission_classes = [PostHogFeatureFlagPermission]
     pagination_class = MCPSessionPagination

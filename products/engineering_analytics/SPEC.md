@@ -9,7 +9,7 @@ The product surfaces PR + CI data through **named, typed endpoints** that run cu
 
 Reads are the product. The one write is the test-health sidecar (quarantine: issue plus PR through the team's GitHub App), carved out here because this UI is the fastest surface to iterate on it.
 
-The goal is Signals for PostHog Code (README → "The goal"): Signal detection is defined once in `logic/` over the read layer, shared by the surfaces and the Signal emitter. Emission rides the curated builders; it does not wait on lifecycle events.
+The goal is Signals for PostHog Desktop (README → "The goal"): Signal detection is defined once in `logic/` over the read layer, shared by the surfaces and the Signal emitter. Emission rides the curated builders; it does not wait on lifecycle events.
 
 ## 2. Non-goals
 
@@ -30,7 +30,7 @@ graph TB
     subgraph Consumers
         MCP["MCP clients: Claude Code / Cursor / PostHog AI"]
         UI["in-app UI: React + kea"]
-        Other["PostHog Code & other agent-driven callers"]
+        Other["PostHog Desktop & other agent-driven callers"]
         SQL["insights / subscriptions / execute-sql"]
     end
 
@@ -46,7 +46,7 @@ graph TB
     subgraph Storage
         WH[("warehouse: GitHub source<br/>pull_requests / workflow_runs<br/>workflow_jobs / team_members")]
         LOGS[("Logs: github-ci-logs<br/>thinned CI failure lines")]
-        TRACES[("Traces: per-test CI spans<br/>from Backend CI")]
+        TRACES[("Traces: per-test CI spans<br/>from Backend and Frontend CI")]
     end
 
     JL["Temporal job-logs pipeline"] --> LOGS
@@ -89,7 +89,7 @@ The endpoint catalog is `presentation/views.py`; the agent-facing descriptions l
 - Time windows are `date_from` / `date_to`, relative (`-30d`) or ISO8601.
 - Capped list contracts that include a sibling aggregate return `{items, truncated, limit}` so they never silently undercount against it.
 - Span-derived reads (flaky tests, team CI health) report absolute counts, never rates: sub-threshold runs aren't emitted, so denominators are biased.
-- Test evidence is counted per CI run, never per span (one run fans a test across matrix legs), and both span-derived reads group the same `run_evidence()` so the grain and the meaning of flaky cannot drift. A test is `confirmed_flake` only on in-run recovery proof; unproven failures rank as `suspected_regression` by blast radius.
+- Test evidence is counted per CI run, never per span or run attempt (one run fans a test across matrix legs, and every attempt re-tests the same commit), and both span-derived reads group the same `run_evidence()` so the grain and the meaning of flaky cannot drift. A test is `confirmed_flake` only on same-commit recovery proof: a re-run attempt going green, or an in-job retry. Unproven failures rank as `suspected_regression` by blast radius.
 - Reads over optional data (e.g. `team_members`) degrade honestly (`has_membership_data: false`), never 500.
 
 ### Exposed warehouse views
@@ -150,7 +150,7 @@ Warehouse tables (GitHub source):
 Other products read as sources:
 
 - Logs: the thinned CI failure lines this product's job-logs pipeline emits (`service.name = github-ci-logs`), keyed by `run_id`.
-- Traces: per-test CI spans emitted by Backend CI (`trace_spans`), behind flaky tests and team CI health.
+- Traces: per-test CI spans emitted by the main Backend pytest and Frontend Jest suites (`trace_spans`), behind flaky tests and team CI health. Jest covers both legacy `frontend/` tests and isolated product frontends through the shared root config; its quarantine adapter records tolerated failures beside JUnit so the trusted reporter can retain that evidence. Package-specific Jest and Vitest jobs are outside this signal.
 
 **Freshness caveat:** a run's `conclusion` settles via the `workflow_run` webhook, which can lag or miss deliveries; the read layer surfaces `status` honestly rather than implying a settled conclusion.
 

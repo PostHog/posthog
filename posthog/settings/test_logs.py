@@ -1,6 +1,12 @@
 import logging
 import logging.config
 
+from opentelemetry import (
+    context as otel_context,
+    trace,
+)
+from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags
+
 from posthog.settings import logs
 
 
@@ -13,6 +19,28 @@ def test_level_filters_split_info_from_warnings() -> None:
 
     assert max_info.filter(_record(logging.INFO))
     assert not max_info.filter(_record(logging.WARNING))
+
+
+def test_add_otel_trace_context_binds_ids_from_active_span() -> None:
+    span_context = SpanContext(
+        trace_id=0x4BF92F3577B34DA6A3CE929D0E0E4736,
+        span_id=0x00F067AA0BA902B7,
+        is_remote=True,
+        trace_flags=TraceFlags(TraceFlags.SAMPLED),
+    )
+    token = otel_context.attach(trace.set_span_in_context(NonRecordingSpan(span_context)))
+    try:
+        event_dict = logs.add_otel_trace_context(logging.getLogger("test"), "info", {"event": "x"})
+    finally:
+        otel_context.detach(token)
+    assert event_dict["trace_id"] == "4bf92f3577b34da6a3ce929d0e0e4736"
+    assert event_dict["span_id"] == "00f067aa0ba902b7"
+
+
+def test_add_otel_trace_context_is_noop_without_active_span() -> None:
+    event_dict = logs.add_otel_trace_context(logging.getLogger("test"), "info", {"event": "x"})
+    assert "trace_id" not in event_dict
+    assert "span_id" not in event_dict
 
 
 def test_logging_config_can_be_applied() -> None:

@@ -64,6 +64,30 @@ from products.workflows.backend.providers import SESProvider, TwilioProvider
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
+# Fernet tokens always start with this marker (version byte 0x80 + timestamp, base64-encoded).
+_ENCRYPTED_VALUE_PREFIX = "gAAAAA"
+
+
+class UndecryptedIntegrationSecretError(ValueError):
+    """Raised when a value read off `Integration.sensitive_config` still looks like Fernet
+    ciphertext instead of the decrypted secret.
+
+    `sensitive_config` sets `ignore_decrypt_errors=True` so integrations written before
+    encryption existed keep loading, but that same leniency means a value that fails to
+    decrypt under every configured key (a lost/rotated key, a corrupted row) comes back as
+    raw ciphertext rather than raising. Left unchecked, that ciphertext gets sent to the
+    third-party API as if it were the real credential, which rejects it as invalid — hiding
+    the actual cause behind what looks like a bad customer-supplied key.
+    """
+
+
+def _decrypted_sensitive_value(value: str | None, field_name: str) -> str | None:
+    if value is not None and value.startswith(_ENCRYPTED_VALUE_PREFIX):
+        raise UndecryptedIntegrationSecretError(
+            f"Integration.sensitive_config['{field_name}'] is still encrypted; the stored credentials could not be decrypted"
+        )
+    return value
+
 
 def _decode_jwt_payload(token: str) -> dict | None:
     """
@@ -106,6 +130,9 @@ oauth_refresh_terminal_counter = Counter(
 REFRESH_BACKOFF_BASE_SECONDS = 120
 REFRESH_BACKOFF_MAX_SECONDS = 3600
 REFRESH_TERMINAL_FAILURE_COUNT = 5
+
+# `config` key flagging a grant that only the legacy fallback credentials can refresh.
+CONFIG_LEGACY_OAUTH_CLIENT = "oauth_uses_legacy_client"
 
 # Values for the counter's `reason` label, bucketed from the OAuth error response.
 REFRESH_FAILURE_REASON_INVALID_GRANT = "invalid_grant"
@@ -179,6 +206,49 @@ def record_refresh_failure(integration: "Integration", *, reason: str = REFRESH_
 def record_refresh_success(integration: "Integration") -> None:
     for key in ("refresh_failure_count", "refresh_invalid_grant_count", "refresh_next_attempt_at", "refresh_terminal"):
         integration.config.pop(key, None)
+
+
+def record_oauth_client_used(integration: "Integration", *, used_fallback: bool) -> None:
+    """Track whether the grant still depends on the legacy (fallback) OAuth credentials.
+
+    A refresh token minted by a since-migrated app can only be refreshed by that app's
+    credentials, so a successful fallback refresh identifies exactly the connections that break
+    when the legacy app is retired. The flag rides on `config`, which the API exposes, so the
+    product can tell those teams to reconnect. Reconnecting mints a grant on the primary
+    credentials and replaces `config` wholesale, which clears the flag.
+    """
+    if used_fallback:
+        integration.config[CONFIG_LEGACY_OAUTH_CLIENT] = True
+    else:
+        integration.config.pop(CONFIG_LEGACY_OAUTH_CLIENT, None)
+
+
+def issuing_oauth_client_ids(integration: "Integration") -> list[str]:
+    """The OAuth client ids the connection was established with. Empty when that can't be read.
+
+    OIDC puts the client id in the id_token's `aud` claim, and we keep the id_token from the
+    authorization exchange - refreshes only overwrite the access and refresh tokens. So this reads
+    the app the customer actually connected through, which is knowable for connections that already
+    exist, without waiting for a refresh to reveal it.
+
+    `aud` is a string or a list of strings per RFC 7519, so both shapes are normalized here.
+    Callers should test membership rather than assume a single value: treating a list-shaped
+    audience as unreadable would silently drop those connections from the reconnect campaign.
+    """
+    id_token = integration.sensitive_config.get("id_token")
+    if not id_token:
+        return []
+    try:
+        claims = _decode_jwt_payload(id_token) or {}
+    except Exception:
+        logger.warning("Failed to decode id_token", integration_id=integration.id, kind=integration.kind)
+        return []
+    audience = claims.get("aud")
+    if isinstance(audience, str):
+        return [audience]
+    if isinstance(audience, list):
+        return [entry for entry in audience if isinstance(entry, str)]
+    return []
 
 
 def refresh_backoff_active(integration: "Integration") -> bool:
@@ -347,6 +417,7 @@ class Integration(models.Model):
         PINTEREST_ADS = "pinterest-ads"
         POSTGRESQL = "postgresql"
         REDDIT_ADS = "reddit-ads"
+        RESEND = "resend"
         S3_COMPATIBLE = "s3-compatible"
         SALESFORCE = "salesforce"
         SLACK = "slack"
@@ -446,11 +517,11 @@ class Integration(models.Model):
 
     @property
     def access_token(self) -> str | None:
-        return self.sensitive_config.get("access_token")
+        return _decrypted_sensitive_value(self.sensitive_config.get("access_token"), "access_token")
 
     @property
     def refresh_token(self) -> str | None:
-        return self.sensitive_config.get("refresh_token")
+        return _decrypted_sensitive_value(self.sensitive_config.get("refresh_token"), "refresh_token")
 
 
 def defer_repository_cache_fields(queryset: models.QuerySet[Integration]) -> models.QuerySet[Integration]:
@@ -550,6 +621,7 @@ class OauthIntegration:
         "jira",
         "pinterest-ads",
         "stripe",
+        "resend",
     ]
     integration: Integration
 
@@ -635,8 +707,10 @@ class OauthIntegration:
                 client_secret=settings.HUBSPOT_APP_CLIENT_SECRET,
                 scope="tickets crm.objects.contacts.write sales-email-read crm.objects.companies.read crm.objects.deals.read crm.objects.contacts.read crm.objects.quotes.read crm.objects.companies.write",
                 additional_authorize_params={
-                    # NOTE: these scopes are only available on certain hubspot plans and as such are optional
-                    "optional_scope": "analytics.behavioral_events.send behavioral_events.event_definitions.read_write"
+                    # NOTE: these scopes are only available on certain hubspot plans and as such are optional.
+                    # crm.objects.leads.read is Sales Hub Pro+/Enterprise only — requesting it as a
+                    # mandatory scope would fail the whole authorization for portals that lack it.
+                    "optional_scope": "analytics.behavioral_events.send behavioral_events.event_definitions.read_write crm.objects.leads.read"
                 },
                 id_path="hub_id",
                 name_path="hub_domain",
@@ -900,6 +974,28 @@ class OauthIntegration:
                 id_path="stripe_user_id",
                 name_path="account_name",
             )
+        elif kind == "resend":
+            if not settings.RESEND_APP_CLIENT_ID or not settings.RESEND_APP_CLIENT_SECRET:
+                raise NotImplementedError("Resend app not configured")
+
+            # Resend implements OAuth 2.1: PKCE is required, and access tokens are short-lived
+            # (~15m) JWTs while refresh tokens rotate on every use. We register as a confidential
+            # client (token_endpoint_auth_method=client_secret_post), so the standard client_secret
+            # token-exchange/refresh path applies on top of PKCE. `full_access` is the scope needed
+            # to read the warehouse resources (emails/audiences/contacts/domains/broadcasts).
+            # The token response carries no account identifier, so id/name are derived from the
+            # access-token JWT below (see the resend branch in integration_from_oauth_response).
+            return OauthConfig(
+                authorize_url="https://resend.com/oauth/authorize",
+                token_url="https://api.resend.com/oauth/token",
+                token_revoke_url="https://api.resend.com/oauth/revoke",
+                client_id=settings.RESEND_APP_CLIENT_ID,
+                client_secret=settings.RESEND_APP_CLIENT_SECRET,
+                scope="full_access",
+                pkce=True,
+                id_path="resend_account_id",
+                name_path="resend_account_name",
+            )
 
         raise NotImplementedError(f"Oauth config for kind {kind} not implemented")
 
@@ -1027,6 +1123,9 @@ class OauthIntegration:
                     **({"code_verifier": code_verifier} if code_verifier else {}),
                 },
                 timeout=10,
+                # allow_redirects=False so a misconfigured/compromised token endpoint can't 30x us
+                # into resending client_secret + authorization code to another origin.
+                allow_redirects=False,
             )
 
         try:
@@ -1165,6 +1264,29 @@ class OauthIntegration:
             except Exception as e:
                 logger.exception("Failed to decode Reddit JWT", error=str(e))
 
+        # Resend's token response carries no account identifier, but the access token is a JWT.
+        # Derive the integration id/name from its claims (`sub` is the account subject; email/name
+        # are used for a human-readable label when present). Assumes the standard `sub` claim — if
+        # Resend uses a different claim, the missing-id guard below raises and the user sees a clear
+        # reconnect error rather than a silently mislabeled integration.
+        if kind == "resend" and not integration_id:
+            try:
+                access_token = config.get("access_token")
+                if access_token:
+                    jwt_data = _decode_jwt_payload(access_token)
+                    if jwt_data:
+                        resend_account_id = jwt_data.get("sub")
+                        if resend_account_id:
+                            config["resend_account_id"] = resend_account_id
+                            config["resend_account_name"] = (
+                                jwt_data.get("email") or jwt_data.get("name") or f"Resend account {resend_account_id}"
+                            )
+                            integration_id = resend_account_id
+                else:
+                    logger.error("Resend OAuth response missing access_token", config_keys=list(config.keys()))
+            except Exception:
+                logger.exception("Failed to decode Resend JWT")
+
         # LinkedIn id_token is a JWT, extract user ID and email from it
         # This avoids calling /v2/userinfo which has intermittent REVOKED_ACCESS_TOKEN errors
         if kind == "linkedin-ads" and not integration_id:
@@ -1301,9 +1423,10 @@ class OauthIntegration:
         if not oauth_config.token_revoke_url:
             return
 
-        token = self.integration.sensitive_config.get("refresh_token") or self.integration.sensitive_config.get(
-            "access_token"
-        )
+        # Prefer the refresh token: revoking it invalidates the whole grant (and its access
+        # tokens), so an attacker holding it can't keep minting access tokens after disconnect.
+        refresh_token = self.integration.sensitive_config.get("refresh_token")
+        token = refresh_token or self.integration.sensitive_config.get("access_token")
         if not token:
             return
 
@@ -1317,12 +1440,22 @@ class OauthIntegration:
             if allowed_host:
                 revoke_url = f"{allowed_host}/services/oauth2/revoke"
 
+        data = {"token": token}
+        if self.integration.kind == "resend":
+            # Resend registers PostHog as a confidential client (token_endpoint_auth_method=
+            # client_secret_post) and requires client authentication on revocation. Without it
+            # the endpoint rejects the request and the grant survives the disconnect. The hint
+            # tells the provider which token type it received (RFC 7009).
+            data["client_id"] = oauth_config.client_id
+            data["client_secret"] = oauth_config.client_secret
+            data["token_type_hint"] = "refresh_token" if refresh_token else "access_token"
+
         # allow_redirects=False so a misconfigured/compromised provider can't 30x us into
         # resending the token to another host. raise_for_status surfaces a provider rejection
         # to the caller's capture_exception instead of it passing silently as a revoke.
         response = requests.post(
             revoke_url,
-            data={"token": token},
+            data=data,
             timeout=10,
             allow_redirects=False,
         )
@@ -1498,6 +1631,7 @@ class OauthIntegration:
         else:
             logger.info(f"Refreshed access token for {self}")
             record_refresh_success(self.integration)
+            record_oauth_client_used(self.integration, used_fallback=used_fallback)
             self.integration.sensitive_config["access_token"] = config["access_token"]
 
             # Some providers (e.g. Atlassian/Jira) rotate refresh tokens — each
@@ -1727,7 +1861,7 @@ class GoogleAdsIntegration:
     def list_google_ads_conversion_actions(self, customer_id, parent_id=None) -> list[dict]:
         response = requests.request(
             "POST",
-            f"https://googleads.googleapis.com/v21/customers/{customer_id}/googleAds:searchStream",
+            f"https://googleads.googleapis.com/v24/customers/{customer_id}/googleAds:searchStream",
             json={
                 "query": "SELECT conversion_action.id, conversion_action.name FROM conversion_action WHERE conversion_action.status != 'REMOVED'"
             },
@@ -1772,7 +1906,7 @@ class GoogleAdsIntegration:
     def list_google_ads_accessible_accounts(self) -> list[dict[str, Any]]:
         response = requests.request(
             "GET",
-            "https://googleads.googleapis.com/v21/customers:listAccessibleCustomers",
+            "https://googleads.googleapis.com/v24/customers:listAccessibleCustomers",
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
@@ -1812,7 +1946,7 @@ class GoogleAdsIntegration:
                 accounts = []
             response = requests.request(
                 "POST",
-                f"https://googleads.googleapis.com/v21/customers/{account_id}/googleAds:searchStream",
+                f"https://googleads.googleapis.com/v24/customers/{account_id}/googleAds:searchStream",
                 json={
                     "query": "SELECT customer_client.descriptive_name, customer_client.client_customer, customer_client.level, customer_client.manager, customer_client.status FROM customer_client WHERE customer_client.level <= 5"
                 },
@@ -2928,7 +3062,12 @@ class GitHubIntegration(GitHubIntegrationBase):
 
     @classmethod
     def first_for_team_repository(
-        cls, team_id: int, repository: str, *, source: str | None = None
+        cls,
+        team_id: int,
+        repository: str,
+        *,
+        source: str | None = None,
+        priority: Priority | None = None,
     ) -> "GitHubIntegration | None":
         """First GitHub integration for the team whose installation can access ``repository`` (``owner/name``).
 
@@ -2940,7 +3079,7 @@ class GitHubIntegration(GitHubIntegrationBase):
         if not _is_safe_github_repo_path(repository):
             return None
         for integration in Integration.objects.filter(team_id=team_id, kind="github").order_by("id"):
-            github = cls(integration, source=source)
+            github = cls(integration, source=source, priority=priority)
             if github.installation_can_access_repository(repository):
                 return github
         return None

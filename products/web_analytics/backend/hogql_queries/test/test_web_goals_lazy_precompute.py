@@ -8,7 +8,6 @@ from django.test import override_settings
 from posthog.schema import (
     CompareFilter,
     DateRange,
-    EventPropertyFilter,
     HogQLQueryModifiers,
     PropertyOperator,
     SessionPropertyFilter,
@@ -147,22 +146,6 @@ class TestWebGoalsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         with self._enable_lazy():
             assert (
                 can_use_lazy_precompute(self._runner(self._build_query(sampling=WebAnalyticsSampling(enabled=True))))
-                is False
-            )
-
-    def test_rejected_for_unsupported_filter_key(self):
-        self._create_action("Pageview")
-        with self._enable_lazy():
-            assert (
-                can_use_lazy_precompute(
-                    self._runner(
-                        self._build_query(
-                            properties=[
-                                EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Chrome")
-                            ]
-                        )
-                    )
-                )
                 is False
             )
 

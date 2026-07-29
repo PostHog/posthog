@@ -11,6 +11,7 @@ from posthog.models import Team
 from posthog.temporal.common.utils import asyncify, close_db_connections
 
 from products.tasks.backend.constants import (
+    AGENT_OTEL_TELEMETRY_STATE_KEY,
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
     CONTINUE_AS_NEW_FEATURE_FLAG,
     MODAL_DIRECTORY_RESUME_SNAPSHOTS_FEATURE_FLAG,
@@ -23,6 +24,8 @@ from products.tasks.backend.constants import (
     vm_sandbox_default_base_origin_products,
 )
 from products.tasks.backend.exceptions import TaskInvalidStateError, TaskRunNotReadyError
+from products.tasks.backend.facade.api import ensure_task_run_session
+from products.tasks.backend.feature_flags import is_agent_otel_telemetry_enabled
 from products.tasks.backend.logic.services.sandbox_config import (
     MAX_SANDBOX_CPU_CORES,
     MAX_SANDBOX_MEMORY_GB,
@@ -63,6 +66,7 @@ class TaskProcessingContext:
     repository: str | None
     distinct_id: str
     origin_product: str | None = None
+    task_runtime: str = Task.Runtime.ACP
     environment: str | None = None
     github_user_integration_id: str | None = None
     task_created_by_id: int | None = None
@@ -82,6 +86,9 @@ class TaskProcessingContext:
     # Captured at workflow start so the sandbox event transport branch is
     # deterministic for the full run.
     sandbox_event_ingest_enabled: bool = False
+    # Captured at workflow start so telemetry env injection (and the run-log mirror,
+    # which reads the same state stamp) is deterministic for the full run.
+    agent_otel_telemetry_enabled: bool = False
     use_modal_vm_sandbox: bool = False
     use_modal_network_allowlist: bool = False
     # Burstable by default; the per-run state can opt out to pin a fixed-size box
@@ -102,7 +109,6 @@ class TaskProcessingContext:
 
     @property
     def mode(self) -> str:
-        """Get the execution mode from state. Defaults to 'background'."""
         return (self.state or {}).get("mode", "background")
 
     @property
@@ -128,9 +134,21 @@ class TaskProcessingContext:
         return (self.state or {}).get("sandbox_environment_id")
 
     @property
+    def is_snapshot_resume(self) -> bool:
+        state = self.state or {}
+        has_resume_source = isinstance(state.get("resume_from_run_id"), str) or state.get("handoff_resumed") is True
+        return has_resume_source and isinstance(state.get("snapshot_external_id"), str)
+
+    @property
     def loop_id(self) -> str | None:
         """Set when this run was spawned by a loop firing (see products/tasks/backend/facade/loops.py)."""
         value = (self.state or {}).get("loop_id")
+        return value if isinstance(value, str) else None
+
+    @property
+    def loop_trigger_id(self) -> str | None:
+        """Set alongside loop_id when a loop trigger fired this run."""
+        value = (self.state or {}).get("loop_trigger_id")
         return value if isinstance(value, str) else None
 
     @property
@@ -152,6 +170,16 @@ class TaskProcessingContext:
     def reasoning_effort(self) -> str | None:
         value = (self.state or {}).get("reasoning_effort")
         return value if isinstance(value, str) else None
+
+    @property
+    def context_window(self) -> str | None:
+        value = (self.state or {}).get("context_window")
+        return value if isinstance(value, str) else None
+
+    @property
+    def fast_mode(self) -> bool | None:
+        value = (self.state or {}).get("fast_mode")
+        return value if isinstance(value, bool) else None
 
     @property
     def initial_permission_mode(self) -> str | None:
@@ -281,7 +309,7 @@ def _is_rtk_enabled(
 ) -> bool:
     """rtk compression is on by default. The kill-switch flag wins over everything —
     a fleet-wide disable must not be pinned back on by a per-run override — and
-    otherwise the per-run state override (the user's toggle in PostHog Code settings)
+    otherwise the per-run state override (the user's toggle in PostHog Desktop settings)
     applies. Fails open (enabled, override honored) on flag-service errors so the
     default posture is preserved."""
     try:
@@ -358,6 +386,33 @@ def _is_sandbox_event_ingest_enabled(
         "sandbox_event_ingest_flag_checked",
         run_id=run_id,
         sandbox_event_ingest_enabled=enabled,
+    )
+    return enabled
+
+
+def _is_agent_otel_telemetry_enabled(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+    state: dict | None = None,
+) -> bool:
+    # DEBUG first: local dev disables the analytics SDK, so the dispatch capture always
+    # stamps False there - honoring the stamp would disable telemetry locally even with
+    # the SANDBOX_AGENT_OTEL_* settings (the local opt-in, which gate emission themselves)
+    # set. Matches agent_otel_telemetry_enabled_for_state, which the mirror reads.
+    if settings.DEBUG:
+        return True
+
+    state_override = (state or {}).get(AGENT_OTEL_TELEMETRY_STATE_KEY)
+    if isinstance(state_override, bool):
+        return state_override
+
+    enabled = is_agent_otel_telemetry_enabled(distinct_id=distinct_id, organization_id=organization_id)
+    log_with_activity_context(
+        "agent_otel_telemetry_flag_checked",
+        run_id=run_id,
+        agent_otel_telemetry_enabled=enabled,
     )
     return enabled
 
@@ -631,6 +686,9 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     emit_agent_log(run_id, "debug", "Fetching task details")
 
     task: Task = task_run.task
+    if task.runtime == Task.Runtime.PI:
+        ensure_task_run_session(task_run.id)
+
     team: Team = task.team
     organization_id = str(team.organization_id)
     if not task.created_by:
@@ -749,16 +807,27 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         or False
     )  # Ensure we get a boolean value even if the flag is missing
     emit_agent_log(run_id, "debug", f"pr_loop_enabled: {pr_loop_enabled} for this task run")
-    sandbox_event_ingest_enabled = _is_sandbox_event_ingest_enabled(
-        distinct_id=distinct_id,
-        organization_id=organization_id,
-        run_id=run_id,
-        state=state,
-    )
+    pi_persistent_streaming = task.runtime == Task.Runtime.PI and not is_slack_interaction_state(state)
+    sandbox_event_ingest_override = state.get("sandbox_event_ingest_enabled")
+    if pi_persistent_streaming and not isinstance(sandbox_event_ingest_override, bool):
+        sandbox_event_ingest_enabled = True
+    else:
+        sandbox_event_ingest_enabled = _is_sandbox_event_ingest_enabled(
+            distinct_id=distinct_id,
+            organization_id=organization_id,
+            run_id=run_id,
+            state=state,
+        )
     emit_agent_log(
         run_id,
         "debug",
         f"sandbox_event_ingest_enabled: {sandbox_event_ingest_enabled} for this task run",
+    )
+    agent_otel_telemetry_enabled = _is_agent_otel_telemetry_enabled(
+        distinct_id=distinct_id,
+        organization_id=organization_id,
+        run_id=run_id,
+        state=state,
     )
     use_modal_vm_sandbox = _is_modal_vm_sandbox_enabled(
         distinct_id=distinct_id,
@@ -873,6 +942,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         repository=task.repository,
         distinct_id=distinct_id,
         origin_product=task.origin_product,
+        task_runtime=task.runtime,
         environment=task_run.environment,
         task_created_by_id=task.created_by_id,
         create_pr=input.create_pr,
@@ -886,6 +956,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         use_modal_resume_snapshots=settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS or use_modal_directory_resume_snapshots,
         use_modal_directory_resume_snapshots=use_modal_directory_resume_snapshots,
         sandbox_event_ingest_enabled=sandbox_event_ingest_enabled,
+        agent_otel_telemetry_enabled=agent_otel_telemetry_enabled,
         use_modal_vm_sandbox=use_modal_vm_sandbox,
         use_modal_network_allowlist=use_modal_network_allowlist,
         burstable_sandbox_resources_enabled=burstable_sandbox_resources_enabled,

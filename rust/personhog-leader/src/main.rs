@@ -27,6 +27,7 @@ use personhog_leader::cache::{DirtyIndex, PartitionedCache};
 use personhog_leader::config::Config;
 use personhog_leader::coordination::LeaderHandoffHandler;
 use personhog_leader::inflight::InflightTracker;
+use personhog_leader::pg::{validate_table_name, PgFallback};
 use personhog_leader::recovery::{ChangelogRecovery, RecoveryConfig};
 use personhog_leader::service::{sweep_idle_locks, PersonHogLeaderService, PropertySizeLimits};
 use personhog_leader::warming::{
@@ -39,6 +40,7 @@ common_alloc::used!();
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::init_from_env().expect("Invalid configuration");
+    validate_table_name(&config.fallback_table).expect("Invalid FALLBACK_TABLE");
 
     // Initialize tracing
     let log_layer = fmt::layer()
@@ -143,7 +145,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // PG fallback pool for cache misses (optional, disabled if URL is empty)
-    let fallback_pool = if config.fallback_database_url.is_empty() {
+    let fallback = if config.fallback_database_url.is_empty() {
         tracing::info!("PG fallback disabled (no FALLBACK_DATABASE_URL)");
         None
     } else {
@@ -155,10 +157,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             statement_timeout_ms: Some(5_000),
             ..Default::default()
         };
-        Some(common_database::get_pool_with_config(
-            &config.fallback_database_url,
-            pool_config,
-        )?)
+        Some(PgFallback {
+            pool: common_database::get_pool_with_config(
+                &config.fallback_database_url,
+                pool_config,
+            )?,
+            table: config.fallback_table.clone(),
+        })
     };
 
     // Connect to etcd for coordination and the partition count
@@ -201,7 +206,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::clone(&cache),
         kafka_producer.clone(),
         config.kafka_person_state_topic.clone(),
-        fallback_pool,
+        fallback,
         Arc::clone(&locks),
         Arc::clone(&inflight),
         num_partitions,
@@ -238,12 +243,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             },
         },
     );
+    let advertise_address =
+        personhog_leader::config::derive_advertise_address(&config.grpc_address, &config.pod_ip)
+            .expect("Invalid advertise address configuration");
+    tracing::info!(%advertise_address, "advertising gRPC address for routing");
+
     let pod = PodHandle::new(
         store,
         PodConfig {
             pod_name: config.pod_name.clone(),
             lease_ttl: config.lease_ttl,
             heartbeat_interval: config.heartbeat_interval(),
+            advertise_address: Some(advertise_address),
             ..Default::default()
         },
         Arc::new(handler),

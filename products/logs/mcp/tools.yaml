@@ -429,6 +429,27 @@ tools:
                 - entries.*.pattern.sparkline
                 - entries.*.pattern.count
                 - entries.*.pattern.error_count
+    logs-retention-rules-create:
+        operation: logs_retention_rules_create
+        enabled: false
+    logs-retention-rules-destroy:
+        operation: logs_retention_rules_destroy
+        enabled: false
+    logs-retention-rules-list:
+        operation: logs_retention_rules_list
+        enabled: false
+    logs-retention-rules-partial-update:
+        operation: logs_retention_rules_partial_update
+        enabled: false
+    logs-retention-rules-reorder-create:
+        operation: logs_retention_rules_reorder_create
+        enabled: false
+    logs-retention-rules-retrieve:
+        operation: logs_retention_rules_retrieve
+        enabled: false
+    logs-retention-rules-update:
+        operation: logs_retention_rules_update
+        enabled: false
     logs-sampling-rules-create:
         operation: logs_sampling_rules_create
         enabled: false
