@@ -14,8 +14,10 @@ import { playerPersonRecordingsLogic } from './playerPersonRecordingsLogic'
 
 export function PlayerSidebarPersonRecordingsTab(): JSX.Element {
     const { logicProps, sessionRecordingId } = useValues(sessionRecordingPlayerLogic)
-    const { recordings, recordingsResponseLoading, hasMore } = useValues(playerPersonRecordingsLogic(logicProps))
-    const { loadMoreRecordings } = useActions(playerPersonRecordingsLogic(logicProps))
+    const { recordings, recordingsResponseLoading, hasMore, hasLoaded, loadError } = useValues(
+        playerPersonRecordingsLogic(logicProps)
+    )
+    const { loadRecordings, loadMoreRecordings } = useActions(playerPersonRecordingsLogic(logicProps))
 
     if (recordingsResponseLoading && recordings.length === 0) {
         return (
@@ -27,7 +29,18 @@ export function PlayerSidebarPersonRecordingsTab(): JSX.Element {
         )
     }
 
-    if (recordings.length <= 1) {
+    if (loadError) {
+        return (
+            <div className="p-4 deprecated-space-y-2">
+                <p className="text-muted text-sm">Could not load this person's recordings.</p>
+                <LemonButton size="small" type="secondary" onClick={() => loadRecordings({})}>
+                    Try again
+                </LemonButton>
+            </div>
+        )
+    }
+
+    if (hasLoaded && recordings.length <= 1) {
         return <p className="p-4 text-muted text-sm">This is the only recording for this person.</p>
     }
 

@@ -1,4 +1,4 @@
-import { MakeLogicType, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { MakeLogicType, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -15,6 +15,25 @@ import { SessionRecordingPlayerLogicProps, sessionRecordingPlayerLogic } from '.
 // "Load older" control walks the cursor for people with long histories.
 const PAGE_SIZE = 50
 
+// Recordings query defaults to the last 3 days server-side, which would hide older
+// sessions and the current recording if it's older than that. Match the person page.
+const DATE_FROM = '-30d'
+
+function personRecordingsQuery(personUuid: string, distinctIds: string[] | undefined, after?: string): RecordingsQuery {
+    return {
+        kind: NodeKind.RecordingsQuery,
+        person_uuid: personUuid,
+        // person_uuid resolves the person server-side; skip distinct_ids for heavily merged
+        // persons to avoid an unwieldy query string. Matches sessionRecordingsPlaylistLogic.
+        distinct_ids: (distinctIds?.length ?? 0) < 100 ? distinctIds : undefined,
+        date_from: DATE_FROM,
+        order: 'start_time',
+        order_direction: 'DESC',
+        limit: PAGE_SIZE,
+        after,
+    }
+}
+
 // Append the next page onto the accumulated results so "Load older" grows the list
 // rather than replacing it. Keeps the newer response's has_next / next_cursor.
 export function mergeRecordingPage(
@@ -28,7 +47,9 @@ export function mergeRecordingPage(
 export interface playerPersonRecordingsLogicValues {
     sessionPerson: PersonType | null // playerMetaLogic
     sessionRecordingId: string // sessionRecordingPlayerLogic
+    hasLoaded: boolean
     hasMore: boolean
+    loadError: boolean
     recordings: SessionRecordingType[]
     recordingsResponse: RecordingsQueryResponse | null
     recordingsResponseLoading: boolean
@@ -100,8 +121,8 @@ export type playerPersonRecordingsLogicType = MakeLogicType<
 export const playerPersonRecordingsLogic = kea<playerPersonRecordingsLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'sidebar', 'playerPersonRecordingsLogic', key]),
     props({} as SessionRecordingPlayerLogicProps),
-    // Key on the person, not the recording, so hopping between a person's
-    // recordings reuses the cached list instead of refetching on every jump.
+    // Keyed per recording: sessionPerson isn't available synchronously when the key is
+    // computed, so we can't key on the person. Each jump remounts and refetches one page.
     key((props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
     connect((props: SessionRecordingPlayerLogicProps) => ({
         values: [playerMetaLogic(props), ['sessionPerson'], sessionRecordingPlayerLogic(props), ['sessionRecordingId']],
@@ -116,15 +137,7 @@ export const playerPersonRecordingsLogic = kea<playerPersonRecordingsLogicType>(
                     if (!person?.uuid) {
                         return null
                     }
-                    const query: RecordingsQuery = {
-                        kind: NodeKind.RecordingsQuery,
-                        person_uuid: person.uuid,
-                        distinct_ids: person.distinct_ids,
-                        order: 'start_time',
-                        order_direction: 'DESC',
-                        limit: PAGE_SIZE,
-                    }
-                    const response = await api.recordings.list(query)
+                    const response = await api.recordings.list(personRecordingsQuery(person.uuid, person.distinct_ids))
                     breakpoint()
                     return response
                 },
@@ -134,19 +147,30 @@ export const playerPersonRecordingsLogic = kea<playerPersonRecordingsLogicType>(
                     if (!person?.uuid || !cursor) {
                         return values.recordingsResponse
                     }
-                    const query: RecordingsQuery = {
-                        kind: NodeKind.RecordingsQuery,
-                        person_uuid: person.uuid,
-                        distinct_ids: person.distinct_ids,
-                        order: 'start_time',
-                        order_direction: 'DESC',
-                        limit: PAGE_SIZE,
-                        after: cursor,
-                    }
-                    const response = await api.recordings.list(query)
+                    const response = await api.recordings.list(
+                        personRecordingsQuery(person.uuid, person.distinct_ids, cursor)
+                    )
                     breakpoint()
                     return mergeRecordingPage(values.recordingsResponse, response)
                 },
+            },
+        ],
+    })),
+    reducers(() => ({
+        // Distinguishes "loaded, genuinely few recordings" from "still loading or errored",
+        // so the empty state only renders once a successful response has come back.
+        hasLoaded: [
+            false,
+            {
+                loadRecordingsSuccess: () => true,
+            },
+        ],
+        loadError: [
+            false,
+            {
+                loadRecordings: () => false,
+                loadRecordingsSuccess: () => false,
+                loadRecordingsFailure: () => true,
             },
         ],
     })),
