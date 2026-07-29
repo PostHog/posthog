@@ -1031,6 +1031,18 @@ class TaskActivity(TeamScopedRootMixin):
             )
 
 
+class TaskPin(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="+")
+    pinned_at = models.DateTimeField(default=django_timezone.now)
+
+    class Meta:
+        db_table = "posthog_task_pin"
+        constraints = [models.UniqueConstraint(fields=["user", "task"], name="task_pin_user_task_unique")]
+        indexes = [models.Index(fields=["user", "-pinned_at"], name="task_pin_user_pinned_idx")]
+
+
 @receiver(post_save, sender=Task)
 def project_task_created_activity(sender, instance: Task, created: bool, **kwargs) -> None:
     """Seed the creator's activity row. A signal rather than a facade call because tasks are

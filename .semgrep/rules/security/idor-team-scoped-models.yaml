@@ -900,6 +900,7 @@ rules:
                               |PersonalAPIKey
                               |ScoreDefinitionVersion
                               |SignalUserAutonomyConfig
+                              |TaskPin
                               |UserPushToken
                               |WebauthnCredential
                           )$
@@ -954,6 +955,7 @@ rules:
                         |PersonalAPIKey
                         |ScoreDefinitionVersion
                         |SignalUserAutonomyConfig
+                        |TaskPin
                         |UserPushToken
                         |WebauthnCredential
                     )$
