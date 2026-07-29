@@ -6,14 +6,10 @@ from unittest.mock import ANY, Mock, patch
 
 from posthog.schema import CachedTeamTaxonomyQueryResponse, MaxEventContext, TeamTaxonomyItem, TeamTaxonomyQuery
 
+from posthog.hogql_queries.ai.team_taxonomy_query_runner import DEFAULT_DAYS
 from posthog.hogql_queries.query_runner import ExecutionMode
 
-from ee.hogai.utils.helpers import (
-    DEFAULT_TAXONOMY_DAYS,
-    MAX_EVENT_DESCRIPTION_LENGTH,
-    format_events_xml,
-    format_events_yaml,
-)
+from ee.hogai.utils.helpers import MAX_EVENT_DESCRIPTION_LENGTH, format_events_xml, format_events_yaml
 from ee.models.event_definition import EnterpriseEventDefinition
 
 # Mock CORE_FILTER_DEFINITIONS_BY_GROUP for consistent testing
@@ -482,7 +478,7 @@ class TestFormatEventsPrompt(BaseTest):
 
         result = format_events_yaml([], self.team, self.user)
 
-        self.assertIn(f"last {DEFAULT_TAXONOMY_DAYS} days", result)
+        self.assertIn(f"last {DEFAULT_DAYS} days", result)
         self.assertIn("`custom_event`", result)
 
     @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")

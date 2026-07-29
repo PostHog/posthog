@@ -29,6 +29,11 @@ DEFAULT_DAYS = 30
 MAX_DAYS = 365
 
 
+def resolve_days(days: int | None) -> int:
+    """The lookback window the query will actually use, so callers can disclose it without guessing."""
+    return min(days or DEFAULT_DAYS, MAX_DAYS)
+
+
 class TeamTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[TeamTaxonomyQueryResponse]):
     """
     Calculates the top events for a team sorted by count. The EventDefinition model doesn't store the count of events,
@@ -49,7 +54,7 @@ class TeamTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[TeamTaxon
 
     @property
     def days(self) -> int:
-        return min(self.query.days or DEFAULT_DAYS, MAX_DAYS)
+        return resolve_days(self.query.days)
 
     def _calculate(self):
         query = self.to_query()

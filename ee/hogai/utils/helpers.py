@@ -38,11 +38,7 @@ from posthog.schema import (
 )
 
 from posthog.event_usage import EventSource
-from posthog.hogql_queries.ai.team_taxonomy_query_runner import (
-    DEFAULT_DAYS as DEFAULT_TAXONOMY_DAYS,
-    MAX_DAYS as MAX_TAXONOMY_DAYS,
-    TeamTaxonomyQueryRunner,
-)
+from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner, resolve_days
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, User
 from posthog.settings import EE_AVAILABLE
@@ -348,7 +344,7 @@ def format_events_yaml(
     processed_events, _, has_more = _process_events_data(
         events_in_context, team, user, limit=limit, offset=offset, days=days
     )
-    window_days = min(days or DEFAULT_TAXONOMY_DAYS, MAX_TAXONOMY_DAYS)
+    window_days = resolve_days(days)
 
     formatted_events = [
         f"# Only events that have data in the last {window_days} days are listed. An event can be defined in the "
