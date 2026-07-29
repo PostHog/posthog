@@ -50,9 +50,15 @@ BROKEN_DEFAULT_BRANCH_WINDOW_HOURS = 24
 BROKEN_DEFAULT_BRANCH_MIN_RUNS = 3
 BROKEN_DEFAULT_BRANCH_MAX_SUCCESS_RATE = 0.5
 # Duration regression: needs a relative AND absolute p95 jump so a 2s→4s blip doesn't fire.
+# The relative gate is calibrated against real week-over-week p95 movement on PostHog/posthog:
+# stable high-volume workflows drift under ~10% week over week, while the regressions worth a
+# signal landed at +27-35% on 15-25 minute workflows. At 0.5 those were unreachable (a 16-minute
+# p95 had to nearly double before firing, and the detector had never fired at all), so 0.2 sits
+# with 2x margin above the observed noise floor while keeping long workflows in range. The
+# absolute floor still suppresses sub-minute jumps that clear 20% of a small baseline.
 DURATION_WINDOW_DAYS = 7
 DURATION_MIN_RUNS = 20
-DURATION_MIN_PCT_INCREASE = 0.5
+DURATION_MIN_PCT_INCREASE = 0.2
 DURATION_MIN_ABS_INCREASE_SECONDS = 60.0
 
 
