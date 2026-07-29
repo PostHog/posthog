@@ -32,11 +32,6 @@ export function parseRefreshTeams(raw: string): RefreshTeamGate {
  * CommonConfig and arrive via the base `defaultConfig` spread in the server.
  */
 export type IntegrationGatewayConfig = {
-    // Legacy decrypt-only key material (values written before the ENCRYPTION_SALT_KEYS rework).
-    SECRET_KEY: string
-    SECRET_KEY_FALLBACKS: string
-    SALT_KEY: string
-
     // Scoped-JWT verification secret(s) for callers (newest first). Empty in prod => reject all.
     INTEGRATION_GATEWAY_JWT_SECRET: string
     INTEGRATION_GATEWAY_JWT_SECRET_FALLBACKS: string
@@ -72,10 +67,6 @@ export type IntegrationGatewayConfig = {
 export function getDefaultIntegrationGatewayConfig(): IntegrationGatewayConfig {
     const devOrTest = isDevEnv() || isTestEnv()
     return {
-        SECRET_KEY: '',
-        SECRET_KEY_FALLBACKS: '',
-        SALT_KEY: '0123456789abcdefghijklmnopqrstuvwxyz',
-
         INTEGRATION_GATEWAY_JWT_SECRET: devOrTest ? LOCAL_DEV_INTEGRATION_GATEWAY_JWT_SECRET : '',
         INTEGRATION_GATEWAY_JWT_SECRET_FALLBACKS: '',
 
