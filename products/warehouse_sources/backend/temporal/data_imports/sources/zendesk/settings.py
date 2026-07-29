@@ -4,11 +4,11 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SortMode
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 DEFAULT_START_DATE = datetime(year=2000, month=1, day=1, tzinfo=UTC)
