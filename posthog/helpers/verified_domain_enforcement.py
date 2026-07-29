@@ -3,6 +3,7 @@ from loginas.utils import is_impersonated_session
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 
+from posthog.helpers.two_factor_session import is_path_whitelisted
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.user import User
 
@@ -12,29 +13,6 @@ VERIFIED_DOMAIN_REQUIRED_ERROR = (
     "Your organization only allows members with a verified email domain. Contact your organization's admin for access."
 )
 
-# Paths a blocked member must still reach, so they can be told what happened, log out, and pick
-# another organization instead of facing a dead app.
-WHITELISTED_PATHS = [
-    "/logout/",
-    "/api/logout/",
-    "/api/login/",
-    "/api/users/@me/",
-    "/_health/",
-]
-
-WHITELISTED_PREFIXES = [
-    "/static/",
-    "/uploaded_media/",
-    "/api/signup",
-    "/api/social_signup",
-    "/login/",
-    "/complete/",
-]
-
-
-def _is_path_whitelisted(path: str) -> bool:
-    return path in WHITELISTED_PATHS or any(path.startswith(prefix) for prefix in WHITELISTED_PREFIXES)
-
 
 def enforce_verified_domain(request: Request, user: User) -> None:
     """
@@ -42,10 +20,18 @@ def enforce_verified_domain(request: Request, user: User) -> None:
 
     Re-checked per request, like 2FA enforcement, so enabling the setting takes effect on sessions
     that are already live and switching current organization can't walk around the login-time check.
-    Costs nothing for the vast majority of organizations: the predicate short-circuits on the
-    organization's own flag before touching the domains table.
+
+    Adds no query while the setting is off: `enforce_verified_domains` comes down the same SELECT as
+    `enforce_2fa` (Django fetches the whole row), `user.organization` is a cached property that any
+    request touching a team or organization resolves anyway, and the domains table is only read once
+    the flag is on. Sharing the 2FA whitelist rather than keeping a second one keeps this check from
+    becoming the one that resolves the organization on paths 2FA skips, and keeps the paths a
+    half-authenticated user needs (login completion, logout, `@me`) identical between the two gates.
+
+    Unlike 2FA this does not exempt SSO sessions — the IdP can handle a second factor, but it has no
+    say in which organizations may admit an email domain.
     """
-    if _is_path_whitelisted(request.path):
+    if is_path_whitelisted(request.path):
         return
 
     if is_impersonated_session(request._request):
