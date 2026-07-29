@@ -390,7 +390,9 @@ def post_reply_to_slack(
         )
         return
 
-    slack_text, slack_blocks = rich_content_to_slack_payload(rich_content, content, include_images=False)
+    slack_text, slack_blocks = rich_content_to_slack_payload(
+        rich_content, content, include_images=False, organization_id=team.organization_id
+    )
     rich_images = extract_images_from_rich_content(rich_content)
     logger.info(
         "🧵 slack_reply_payload_prepared",

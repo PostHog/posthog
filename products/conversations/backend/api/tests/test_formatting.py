@@ -1,3 +1,5 @@
+from posthog.test.base import BaseTest
+
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -13,6 +15,7 @@ from posthog.comment.formatting import (
     rich_content_to_slack_payload,
     slack_to_content_and_rich_content,
 )
+from posthog.models import Organization, User
 
 
 def _paragraph(text: str) -> dict:
@@ -475,6 +478,10 @@ class TestSlackFormatting(SimpleTestCase):
         assert "<@UXYZ999>" in content
         assert rich_content is not None
 
+    def test_mention_without_an_organization_stays_generic(self) -> None:
+        # No organization means no scope to resolve within, so don't touch the database at all.
+        assert content_to_slack_mrkdwn("hi @member:00000000-0000-0000-0000-000000000001") == "hi @teammate"
+
 
 class TestRichContentBlockNodes(SimpleTestCase):
     @parameterized.expand(
@@ -755,3 +762,21 @@ class TestRichContentBlockNodes(SimpleTestCase):
         }
         html = rich_content_to_html(doc)
         assert "<blockquote>see<br><ul><li>one</li></ul></blockquote>" in html
+
+
+class TestSlackMentionScoping(BaseTest):
+    def test_mention_resolves_only_within_the_organization(self) -> None:
+        # The @member marker is author-controlled and the rendered name lands in a Slack workspace,
+        # so a UUID from another organization must not pull that person's name or email across.
+        other_org = Organization.objects.create(name="other org")
+        outsider = User.objects.create_and_join(other_org, "outsider@example.com", "password")
+        self.user.first_name = "Insider"
+        self.user.last_name = ""
+        self.user.save()
+
+        rendered = content_to_slack_mrkdwn(
+            f"@member:{self.user.uuid} and @member:{outsider.uuid}", self.organization.id
+        )
+
+        assert rendered == "@Insider and @teammate"
+        assert outsider.email not in rendered

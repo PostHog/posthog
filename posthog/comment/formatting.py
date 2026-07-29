@@ -5,6 +5,7 @@ import html as html_mod
 import unicodedata
 from collections.abc import Iterable
 from typing import Any
+from uuid import UUID
 
 JSON = dict[str, Any]
 
@@ -173,13 +174,18 @@ def strip_slack_user_mentions(text: str) -> str:
     return _RE_SLACK_USER_MENTION.sub("", text)
 
 
-def content_to_slack_mrkdwn(content: str) -> str:
+def content_to_slack_mrkdwn(content: str, organization_id: str | UUID | None = None) -> str:
     """Convert markdown comment content to Slack mrkdwn text.
 
     Backslash-escaped characters are unescaped: mrkdwn has no escape syntax, so a
     markdown ``\\.`` would otherwise reach Slack as a literal backslash. They are
     masked before the syntax conversions below so an escaped ``*`` is not mistaken
     for emphasis.
+
+    ``organization_id`` scopes ``@member:<uuid>`` resolution. The marker is author-controlled and
+    the rendered text lands in someone's Slack workspace, so an unscoped lookup would let a comment
+    pull a name or email out of another organization. Without an organization every marker falls
+    back to the generic "@teammate".
     """
     if not content:
         return ""
@@ -228,10 +234,12 @@ def content_to_slack_mrkdwn(content: str) -> str:
 
     def resolve_mention(match: re.Match) -> str:
         uuid_str = match.group(1)
+        if organization_id is None:
+            return "@teammate"
         try:
             from posthog.models import User
 
-            user = User.objects.filter(uuid=uuid_str).first()
+            user = User.objects.filter(uuid=uuid_str, organization_membership__organization_id=organization_id).first()
             if user:
                 name = f"{user.first_name} {user.last_name}".strip() or user.email
                 return f"@{name}"
@@ -916,10 +924,15 @@ def rich_content_to_html(rich_content: JSON | None) -> str:
 
 
 def rich_content_to_slack_payload(
-    rich_content: JSON | None, fallback_content: str, include_images: bool = True
+    rich_content: JSON | None,
+    fallback_content: str,
+    include_images: bool = True,
+    organization_id: str | UUID | None = None,
 ) -> tuple[str, list[JSON] | None]:
     """
     Convert outbound app message to Slack payload fields.
+
+    ``organization_id`` scopes mention resolution — see content_to_slack_mrkdwn.
 
     Returns:
     - text (always present, used as fallback for notifications/older clients)
@@ -929,6 +942,6 @@ def rich_content_to_slack_payload(
         blocks = rich_content_to_slack_blocks(rich_content, include_images=include_images)
         markdown_text = rich_content_to_markdown(rich_content, include_images=include_images)
         source_content = markdown_text or fallback_content
-        return content_to_slack_mrkdwn(source_content), blocks
+        return content_to_slack_mrkdwn(source_content, organization_id), blocks
 
-    return content_to_slack_mrkdwn(fallback_content), None
+    return content_to_slack_mrkdwn(fallback_content, organization_id), None
