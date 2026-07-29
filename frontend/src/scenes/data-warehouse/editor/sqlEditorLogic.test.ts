@@ -24,7 +24,12 @@ import { ChartDisplayType, InsightShortId, QueryBasedInsightModel } from '~/type
 
 import { editorSceneLogic } from './editorSceneLogic'
 import { OutputTab } from './outputPaneLogic'
-import { activeTabMatchesUrlTarget, getDisplayTypeToSaveInsight, sqlEditorLogic, MANAGED_WAREHOUSE_SOURCE_PREFIX } from './sqlEditorLogic'
+import {
+    activeTabMatchesUrlTarget,
+    getDisplayTypeToSaveInsight,
+    sqlEditorLogic,
+    MANAGED_WAREHOUSE_SOURCE_PREFIX,
+} from './sqlEditorLogic'
 import { SQLEditorMode } from './sqlEditorModes'
 
 // endpointLogic uses permanentlyMount() with a keyed logic, which crashes in
