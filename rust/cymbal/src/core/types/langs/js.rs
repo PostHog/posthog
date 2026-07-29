@@ -60,7 +60,7 @@ impl RawJSFrame {
                 Ok(self.handle_resolution_error(JsResolveErr::NoSourcemapUploaded(chunk_id)))
             }
             Err(ResolveError::ResolutionError(e)) => {
-                warn!("Unexpected JS symbol resolution error: {:?}", e);
+                warn!(team_id, "Unexpected JS symbol resolution error: {:?}", e);
                 Ok(self.handle_resolution_error(JsResolveErr::InvalidSourceMap(e.to_string())))
             }
             Err(ResolveError::UnhandledError(e)) => Err(e),

@@ -141,6 +141,14 @@ ORDER BY day
 LIMIT 10000
 `
 
+// The `__BUCKET__` expression every bucketed query above is built with. toString() is load-bearing:
+// a bare dateTrunc returns a typed DateTime that the query API serializes with the project's UTC
+// offset attached (2026-07-21T00:00:00-07:00), which the client then reads back as an instant and
+// converts, shifting every bucket away from the wall-clock keys it joins and compares against.
+// Rendering it server-side leaves a plain string with nothing left to reinterpret, matching the
+// backend runners (tool_quality_tables.py, tool_tables.py).
+const bucketExpr = (interval: IntervalType): string => `toString(dateTrunc('${interval}', timestamp))`
+
 export interface BucketRow {
     bucket: string
     sessions: number
@@ -690,7 +698,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                     const kpiWindow = buildKpiWindow(values.dateFilter, values.timezone, interval)
                     const response = (await api.query({
                         kind: NodeKind.HogQLQuery,
-                        query: KPI_QUERY.replace('__BUCKET__', `dateTrunc('${interval}', timestamp)`),
+                        query: KPI_QUERY.replace('__BUCKET__', bucketExpr(interval)),
                         filters: kpiWindowFilters(values.queryFilters, kpiWindow),
                     })) as HogQLQueryResponse
                     breakpoint()
@@ -806,7 +814,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                 loadActivityRows: async (_: void, breakpoint): Promise<ActivityRow[]> => {
                     const response = (await api.query({
                         kind: NodeKind.HogQLQuery,
-                        query: ACTIVITY_QUERY.replace('__BUCKET__', `dateTrunc('${values.interval}', timestamp)`),
+                        query: ACTIVITY_QUERY.replace('__BUCKET__', bucketExpr(values.interval)),
                         filters: values.queryFilters,
                     })) as HogQLQueryResponse
                     breakpoint()
@@ -825,7 +833,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                 loadToolDailyRows: async (_: void, breakpoint): Promise<ToolDailyRow[]> => {
                     const response = (await api.query({
                         kind: NodeKind.HogQLQuery,
-                        query: TOOL_DAILY_QUERY.replace('__BUCKET__', `dateTrunc('${values.interval}', timestamp)`),
+                        query: TOOL_DAILY_QUERY.replace('__BUCKET__', bucketExpr(values.interval)),
                         filters: values.queryFilters,
                     })) as HogQLQueryResponse
                     breakpoint()

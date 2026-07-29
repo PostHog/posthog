@@ -19,21 +19,21 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import normalize_column_name
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
     sync_engineering_analytics_views,
     sync_revenue_analytics_views,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import normalize_column_name
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import set_initial_sync_complete
 from products.warehouse_sources.backend.temporal.data_imports.util import prepare_s3_files_for_querying
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
         DeltaTableHelper,
     )
-    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 LOGGER = get_logger(__name__)
 
@@ -164,10 +164,10 @@ async def _seed_cdc_companion_from_snapshot(
         SCD2_VALID_FROM_COLUMN,
         SCD2_VALID_TO_COLUMN,
     )
-    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
         DeltaTableHelper,
     )
-    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
 
     snapshot_dt = await snapshot_delta_table_helper.get_delta_table()
     if snapshot_dt is None:
@@ -484,7 +484,7 @@ async def run_post_load_operations(
     # past the memory-safe budget. CDC tables are excluded for now (their companion-table semantics
     # need separate validation). Detection never raises — it must not break post-load.
     if not is_cdc_companion and schema.sync_type != ExternalDataSchema.SyncType.CDC:
-        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.repartition_controller import (
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
             maybe_flag_for_repartition,
         )
 

@@ -31,7 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 )
 
 DELTA_HELPER_PATH = (
-    "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper.DeltaTableHelper"
+    "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper.DeltaTableHelper"
 )
 
 

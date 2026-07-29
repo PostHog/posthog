@@ -245,8 +245,6 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_REFERRER_URL_DRILLDOWN: 'web-analytics-referrer-url-drilldown', // owner: @jabahamondes #team-web-analytics
 
     // Temporary feature flags, still WIP, should be removed eventually
-    AA_TEST_BAYESIAN_LEGACY: 'aa-test-bayesian-legacy', // owner: #team-experiments
-    AA_TEST_BAYESIAN_NEW: 'aa-test-bayesian-new', // owner: #team-experiments
     ACTION_REFERENCE_COUNT: 'action-reference-count', // owner: @andyzzhao #team-product-analytics, gates bulk action reference counting on actions list
     ADVANCE_MARKETING_ANALYTICS_SETTINGS: 'advance-marketing-analytics-settings', // owner: @jabahamondes  #team-web-analytics
     AI_GATEWAY: 'ai-gateway', // owner: #team-ai-gateway, gates the AI gateway UI and llm_gateway:read on project secret API keys
@@ -431,7 +429,6 @@ export const FEATURE_FLAGS = {
     PRODUCT_ANALYTICS_PATHS_V2: 'paths-v2', // owner: @thmsobrmlr #team-product-analytics
     PRODUCT_ANALYTICS_QUARTER_YEAR_INTERVALS: 'product-analytics-quarter-year-intervals', // owner: @sampennington #team-product-analytics, gates quarter/year interval selection on insights
     PRODUCT_ANALYTICS_QUILL_DATE_FILTER: 'product-analytics-quill-date-filter', // owner: @sampennington #team-product-analytics, swaps the insight date filter for the chip-based quill date filter (lemon-skinned)
-    PRODUCT_ANALYTICS_QUILL_SQL_CHARTS: 'product-analytics-quill-sql-charts', // owner: #team-data-tools, gates rendering DataVisualization line/area charts via @posthog/quill-charts
     PRODUCT_ANALYTICS_RETENTION_AGGREGATION: 'retention-aggregation', // owner: @anirudhpillai #team-product-analytics
     PRODUCT_ANALYTICS_RETENTION_DWH: 'retention-dwh', // owner: @thmsobrmlr #team-product-analytics
     PRODUCT_AUTONOMY: 'product-autonomy', // owner: #team-self-driving
