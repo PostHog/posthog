@@ -1,5 +1,8 @@
+use std::time::Duration;
+
 use etcd_client::{
-    Client, DeleteOptions, GetOptions, PutOptions, Txn, TxnResponse, WatchOptions, WatchStream,
+    Client, ConnectOptions, DeleteOptions, GetOptions, PutOptions, Txn, TxnResponse, WatchOptions,
+    WatchStream,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -28,7 +31,19 @@ pub struct EtcdStore {
 
 impl EtcdStore {
     pub async fn connect(config: StoreConfig) -> Result<Self> {
-        let client = Client::connect(&config.endpoints, None).await?;
+        // Transport-level liveness so a silent network partition fails
+        // fast instead of hanging until TCP retransmission gives up
+        // (minutes — far past any lease TTL): HTTP/2 pings ride every
+        // connection, including idle ones and long-lived watch streams,
+        // and error all in-flight requests within roughly one ping
+        // interval plus its timeout of the peer going dark. Deliberately
+        // no per-request timeout — it would apply to the whole lifetime
+        // of a watch stream and kill healthy watches.
+        let options = ConnectOptions::new()
+            .with_connect_timeout(Duration::from_secs(5))
+            .with_keep_alive(Duration::from_secs(5), Duration::from_secs(5))
+            .with_keep_alive_while_idle(true);
+        let client = Client::connect(&config.endpoints, Some(options)).await?;
         Ok(Self { client, config })
     }
 

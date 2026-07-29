@@ -33,15 +33,34 @@ pub async fn run_lease_keepalive(
         tokio::select! {
             _ = cancel.cancelled() => return Ok(()),
             _ = tokio::time::sleep(interval) => {
-                keeper.keep_alive().await?;
-                match stream.message().await? {
-                    None => return Err(Error::leadership_lost()),
-                    // etcd answers keepalives for a revoked or expired
-                    // lease with a normal response carrying TTL 0 — the
-                    // stream stays open, so stream-end alone never
-                    // detects lease loss.
-                    Some(resp) if resp.ttl() <= 0 => return Err(Error::leadership_lost()),
-                    Some(_) => {}
+                // Each round is deadline-bounded: a silent network
+                // partition black-holes packets without erroring the
+                // stream, so an unbounded await here would leave the
+                // component serving while its lease expires server-side.
+                // A round that cannot confirm renewal within one interval
+                // is therefore treated as lease loss — with the interval
+                // at a third of the TTL, detection lands at worst two
+                // thirds of the way in, leaving the final third for the
+                // self-fence.
+                let round = async {
+                    keeper.keep_alive().await?;
+                    match stream.message().await? {
+                        None => Err(Error::leadership_lost()),
+                        // etcd answers keepalives for a revoked or expired
+                        // lease with a normal response carrying TTL 0 — the
+                        // stream stays open, so stream-end alone never
+                        // detects lease loss.
+                        Some(resp) if resp.ttl() <= 0 => Err(Error::leadership_lost()),
+                        Some(_) => Ok(()),
+                    }
+                };
+                match tokio::time::timeout(interval, round).await {
+                    Ok(result) => result?,
+                    Err(_) => {
+                        return Err(Error::invalid_state(format!(
+                            "lease keepalive round unanswered within {interval:?}; treating as lease loss"
+                        )));
+                    }
                 }
             }
         }
