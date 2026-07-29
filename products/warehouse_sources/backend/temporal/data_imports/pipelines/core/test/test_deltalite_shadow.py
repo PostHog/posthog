@@ -50,8 +50,11 @@ def test_compare_content_mismatch_is_detected_with_pk_diagnostics():
     assert not is_match
     assert diag["reason"] == "content_mismatch"
     assert diag["only_in_real"] == 1 and diag["only_in_shadow"] == 1
-    # PK values of diverging rows are reported; row payloads are not.
-    assert diag["sample_only_in_real_pks"] == [["c"]]
+    # A HASH of the diverging PK is reported (one diverging row), never the raw value or payload.
+    import hashlib
+
+    expected_hash = hashlib.sha256(b"c").hexdigest()[:12]
+    assert diag["diverging_pk_hashes"] == [expected_hash]
 
 
 def test_compare_row_count_mismatch_is_detected():
@@ -133,7 +136,6 @@ async def test_sampled_out_records_skipped_and_does_no_work():
     with (
         override_settings(DATA_WAREHOUSE_DELTALITE_SHADOW_SAMPLE_RATE=0.0),
         patch.object(deltalite_shadow, "_DELTALITE_AVAILABLE", True),
-        patch.object(deltalite_shadow, "_DUCKDB_AVAILABLE", True),
         patch.object(deltalite_shadow, "DELTALITE_SHADOW_TOTAL", metric),
         patch.object(deltalite_shadow, "_read_affected") as read,
     ):
@@ -148,7 +150,6 @@ async def test_empty_batch_is_skipped():
     empty = _table([], [], parts=[])
     with (
         patch.object(deltalite_shadow, "_DELTALITE_AVAILABLE", True),
-        patch.object(deltalite_shadow, "_DUCKDB_AVAILABLE", True),
         patch.object(deltalite_shadow, "DELTALITE_SHADOW_TOTAL", metric),
     ):
         await deltalite_shadow.run_shadow_comparison(**_kwargs(data=empty))
@@ -174,7 +175,6 @@ async def test_never_raises_and_cleans_up_on_internal_error():
             DATA_WAREHOUSE_DELTALITE_SHADOW_MAX_AFFECTED_BYTES=0,
         ),
         patch.object(deltalite_shadow, "_DELTALITE_AVAILABLE", True),
-        patch.object(deltalite_shadow, "_DUCKDB_AVAILABLE", True),
         patch.object(deltalite_shadow, "DELTALITE_SHADOW_TOTAL", metric),
         patch.object(deltalite_shadow, "_read_affected", side_effect=RuntimeError("boom")),
         patch.object(deltalite_shadow, "aget_s3_client", return_value=_FakeS3()),

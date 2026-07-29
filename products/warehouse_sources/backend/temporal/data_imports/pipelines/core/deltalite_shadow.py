@@ -20,21 +20,24 @@ Flow (see the rollout plan):
      the throwaway prefix.
 
 Everything here is best-effort. A shadow failure MUST NOT affect the real sync — the caller wraps the
-invocation in a broad ``try/except`` and treats any exception as an ignored shadow error. ``deltalite``
-and ``duckdb`` are import-guarded so the module is inert if the deltalite wheel is not installed
-(which is the case until the ``build-deltalite`` publish workflow has run and pinned the version).
+invocation in a broad ``try/except`` and treats any exception as an ignored shadow error. The
+``deltalite`` import is guarded so the module is inert (records nothing but an ``error`` metric) until
+the wheel is published + pinned by the ``build-deltalite`` workflow at rollout time.
 """
 
 from __future__ import annotations
 
 import random
 import asyncio
+import hashlib
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from django.conf import settings
 
+import duckdb
 import pyarrow as pa
+import deltalake
 import pyarrow.compute as pc
 import posthoganalytics
 from structlog.types import FilteringBoundLogger
@@ -49,13 +52,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     DELTALITE_SHADOW_TOTAL,
 )
 
-if TYPE_CHECKING:
-    import deltalake
-
-# deltalite is not a dependency yet (the wheel is published + pinned by the `build-deltalite`
-# workflow at rollout time). Guard the import so this whole module — and therefore the sync — is
-# unaffected when it's absent. duckdb is a dependency, but guard it too so a comparison-engine issue
-# can never break the sync.
+# `deltalake` and `duckdb` are hard dependencies (the merge path and the comparison engine),
+# imported normally. deltalite is NOT a dependency yet — the wheel is published + pinned by the
+# `build-deltalite` workflow at rollout time — so its import is guarded: this module, and therefore
+# the sync, is unaffected when the wheel isn't installed.
 try:
     import deltalite  # type: ignore[no-redef]
 
@@ -63,14 +63,6 @@ try:
 except ImportError:  # pragma: no cover - exercised only where the wheel isn't installed
     deltalite = None  # type: ignore[assignment]
     _DELTALITE_AVAILABLE = False
-
-try:
-    import duckdb
-
-    _DUCKDB_AVAILABLE = True
-except ImportError:  # pragma: no cover
-    duckdb = None  # type: ignore[assignment]
-    _DUCKDB_AVAILABLE = False
 
 
 WAREHOUSE_DELTALITE_SHADOW_FLAG = "data-warehouse-deltalite-shadow"
@@ -192,8 +184,9 @@ def _run_deltalite_upsert(
 def _compare(real: pa.Table, shadow: pa.Table, primary_keys: Sequence[str]) -> tuple[bool, dict[str, Any]]:
     """Order-independent logical comparison of two Arrow tables.
 
-    Returns ``(is_match, diagnostics)``. Diagnostics contain only row counts, column sets, and a few
-    *primary-key values* of diverging rows — never row payloads — so nothing sensitive is logged.
+    Returns ``(is_match, diagnostics)``. Diagnostics contain only row counts, column sets, and
+    *hashes* of diverging primary keys — never row payloads and never raw key values — so nothing
+    sensitive is logged.
     """
     real_cols = set(real.column_names)
     shadow_cols = set(shadow.column_names)
@@ -225,9 +218,9 @@ def _compare(real: pa.Table, shadow: pa.Table, primary_keys: Sequence[str]) -> t
             return True, {"rows": real_n}
 
         pk_cols = ", ".join(f'"{c}"' for c in primary_keys)
-        sample_only_real = (
+        diverging = (
             con.execute(
-                f"SELECT {pk_cols} FROM (SELECT * FROM real_t EXCEPT ALL SELECT * FROM shadow_t) LIMIT 5"
+                f"SELECT {pk_cols} FROM (SELECT * FROM real_t EXCEPT ALL SELECT * FROM shadow_t) LIMIT 20"
             ).fetchall()
             if pk_cols
             else []
@@ -238,7 +231,12 @@ def _compare(real: pa.Table, shadow: pa.Table, primary_keys: Sequence[str]) -> t
             "shadow_rows": shadow_n,
             "only_in_real": only_real,
             "only_in_shadow": only_shadow,
-            "sample_only_in_real_pks": [list(map(str, row)) for row in sample_only_real],
+            # Hashes of the diverging rows' primary keys — never the raw values. A warehouse PK can
+            # itself be sensitive (e.g. a table keyed by email), so nothing that could be a PK value
+            # is logged; the hash is enough to count distinct diverging keys and correlate runs.
+            "diverging_pk_hashes": [
+                hashlib.sha256("\x1f".join(map(str, row)).encode()).hexdigest()[:12] for row in diverging
+            ],
         }
     finally:
         con.close()
@@ -261,9 +259,9 @@ async def run_shadow_comparison(
     normalized PK columns, ``partition_key`` is ``PARTITION_KEY`` when the table is partitioned else
     ``None``, and ``version_before`` is the real table's version *before* the merge committed.
     """
-    if not _DELTALITE_AVAILABLE or not _DUCKDB_AVAILABLE:
+    if not _DELTALITE_AVAILABLE:
         _record("error")
-        await logger.adebug("deltalite shadow: deltalite/duckdb not installed; skipping")
+        await logger.adebug("deltalite shadow: deltalite wheel not installed; skipping")
         return
 
     if random.random() >= settings.DATA_WAREHOUSE_DELTALITE_SHADOW_SAMPLE_RATE:
@@ -323,7 +321,7 @@ async def run_shadow_comparison(
             await logger.adebug(f"deltalite shadow: MATCH ({diag.get('rows')} rows)")
         else:
             _record("mismatch")
-            # A genuine deltalite correctness bug. Loud, but PII-safe (counts + PKs only).
+            # A genuine deltalite correctness bug. Loud, but PII-safe (counts + PK hashes only).
             await logger.aerror(f"deltalite shadow: MISMATCH — {diag}")
     except Exception as e:  # noqa: BLE001 - shadow must never affect the sync
         _record("error")
