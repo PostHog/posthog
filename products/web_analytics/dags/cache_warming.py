@@ -952,7 +952,10 @@ def report_warming_plan_op(context: dagster.OpExecutionContext, queries: list[di
 )
 def web_analytics_cache_warming_job():
     queries = get_warmable_queries_op()
-    split_warmable_queries_op(queries).map(warm_queries_shard_op)
+    # Aliased so the config path stays ops.warm_queries_op.config — the split op
+    # takes the same WarmQueriesConfig, so saved Launchpad configs written for
+    # the pre-sharding single op keep binding unchanged.
+    split_warmable_queries_op.alias("warm_queries_op")(queries).map(warm_queries_shard_op)
 
 
 @dagster.job(
