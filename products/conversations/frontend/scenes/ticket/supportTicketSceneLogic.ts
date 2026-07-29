@@ -40,6 +40,8 @@ import {
     businessKnowledgeGapSuggestionsDismissCreate,
     businessKnowledgeGapSuggestionsList,
 } from 'products/business_knowledge/frontend/generated/api'
+import { signalsReportsList } from 'products/signals/frontend/generated/api'
+import type { SignalReportApi } from 'products/signals/frontend/generated/api.schemas'
 
 import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types'
 import type { UserType } from '../../../../../frontend/src/types'
@@ -198,6 +200,8 @@ export interface supportTicketSceneLogicValues {
     knowledgeGaps: KnowledgeGapSuggestion[]
     knowledgeGapsLoading: boolean
     latestAiMessage: ChatMessage | null
+    linkedReports: SignalReportApi[]
+    linkedReportsLoading: boolean
     messageSending: boolean
     messages: CommentType[]
     messagesLoading: boolean
@@ -249,6 +253,27 @@ export interface supportTicketSceneLogicActions {
         }
     ) => {
         knowledgeGaps: KnowledgeGapSuggestion[]
+        payload?: {
+            value: true
+        }
+    }
+    loadLinkedReports: () => {
+        value: true
+    }
+    loadLinkedReportsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadLinkedReportsSuccess: (
+        linkedReports: SignalReportApi[],
+        payload?: {
+            value: true
+        }
+    ) => {
+        linkedReports: SignalReportApi[]
         payload?: {
             value: true
         }
@@ -500,6 +525,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         // Session context actions
         loadPerson: true,
         loadPreviousTickets: true,
+        loadLinkedReports: true,
 
         // Knowledge gap suggestions
         loadKnowledgeGaps: true,
@@ -543,6 +569,29 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     } catch (error) {
                         console.error('Failed to load person:', error)
                         return null
+                    }
+                },
+            },
+        ],
+        linkedReports: [
+            [] as SignalReportApi[],
+            {
+                loadLinkedReports: async (): Promise<SignalReportApi[]> => {
+                    const ticketUuid = values.ticket?.id
+                    if (!ticketUuid) {
+                        return []
+                    }
+                    try {
+                        const response = await signalsReportsList(getCurrentTeamId().toString(), {
+                            source_id: ticketUuid,
+                            source_product: 'conversations',
+                            include_all_statuses: true,
+                        })
+                        return response.results || []
+                    } catch (error) {
+                        // Supplementary context: a signals or ClickHouse hiccup must not break the ticket.
+                        console.error('Failed to load linked reports:', error)
+                        return []
                     }
                 },
             },
@@ -1066,6 +1115,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 // Load session context data
                 actions.loadPerson()
                 actions.loadKnowledgeGaps()
+                actions.loadLinkedReports()
 
                 // Refresh the unread count since viewing a ticket marks it as read
                 supportTicketCounterLogic.findMounted()?.actions.refreshCount()

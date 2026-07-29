@@ -15,7 +15,7 @@ function quickAction(overrides: Partial<QuickActionApi>): QuickActionApi {
     }
 }
 
-/** Minimal chainable editor stub — records whether insert methods were called. */
+/** Minimal chainable editor stub that records whether insert methods were called. */
 function fakeEditor(): { editor: Editor; state: { insertedContent: boolean } } {
     const state = { insertedContent: false }
     const chain: any = {
@@ -57,7 +57,7 @@ describe('applyQuickAction', () => {
             })
         })
 
-        // The canonical empty TipTap doc has a one-paragraph content array; it must not be treated as
+        // The canonical empty TipTap doc has a one-paragraph content array. It must not be treated as
         // real rich content, or it would render blank and mask the plain-text fallback.
         it('treats an empty rich_content doc as blank and falls back to content', () => {
             const emptyDoc = { type: 'doc', content: [{ type: 'paragraph', content: [] }] }
@@ -76,8 +76,8 @@ describe('applyQuickAction', () => {
         })
     })
 
-    // Regression: a quick action applies whatever it has. Workflow-only runs without inserting;
-    // reply-only inserts without running; a quick action with both does both.
+    // Regression: a quick action applies whatever it has. Workflow-only runs without inserting,
+    // reply-only inserts without running, and a quick action with both does both.
     describe('applyQuickAction', () => {
         it('runs a workflow-only quick action without inserting text', () => {
             const { editor, state } = fakeEditor()

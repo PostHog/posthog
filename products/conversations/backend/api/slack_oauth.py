@@ -25,19 +25,24 @@ from products.conversations.backend.support_slack import clear_supporthog_slack_
 
 STATE_SALT = "conversations.supporthog.slack.oauth"
 STATE_MAX_AGE_SECONDS = 10 * 60
-SUPPORTHOG_SLACK_SCOPE = ",".join(
-    [
-        "channels:history",
-        "channels:read",
-        "chat:write",
-        "chat:write.customize",
-        "groups:history",
-        "groups:read",
-        "reactions:read",
-        "users:read",
-        "users:read.email",
-    ]
-)
+SUPPORTHOG_SLACK_SCOPES = [
+    "channels:history",
+    "channels:read",
+    "chat:write",
+    "chat:write.customize",
+    # files:read to download inbound attachments, files:write to upload our replies' images.
+    # Slack only grants scopes at install time, so installs authorized before these were
+    # requested keep working without attachment sync until an admin reconnects. See
+    # SUPPORT_SLACK_FILE_SCOPES for how the settings page detects those installs.
+    "files:read",
+    "files:write",
+    "groups:history",
+    "groups:read",
+    "reactions:read",
+    "users:read",
+    "users:read.email",
+]
+SUPPORTHOG_SLACK_SCOPE = ",".join(SUPPORTHOG_SLACK_SCOPES)
 
 
 def _append_query(url: str, params: dict[str, str]) -> str:
@@ -184,6 +189,7 @@ def support_slack_oauth_callback(request: HttpRequest) -> HttpResponse:
 
     bot_token = payload.get("access_token")
     slack_team_id = payload.get("team", {}).get("id")
+    granted_scopes = [scope.strip() for scope in str(payload.get("scope") or "").split(",") if scope.strip()]
     user_id = state_data.get("user_id")
     team_id = state_data.get("team_id")
     if not isinstance(bot_token, str) or not bot_token:
@@ -221,6 +227,7 @@ def support_slack_oauth_callback(request: HttpRequest) -> HttpResponse:
                 is_impersonated_session=is_impersonated(request),
                 bot_token=bot_token,
                 slack_team_id=slack_team_id,
+                granted_scopes=granted_scopes,
             )
     except IntegrityError:
         return _error_response(next_path, "slack_workspace_already_connected", 409)

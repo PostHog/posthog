@@ -367,16 +367,21 @@ class ConversationRedisStream:
     async def mark_complete(self) -> None:
         await self._write_status(StatusPayload(status="complete"))
 
+    async def _xadd(self, message: dict[str, bytes]) -> None:
+        # XADD then EXPIRE in a single round-trip so the stream always carries a TTL. A bare
+        # EXPIRE before the first XADD is a no-op (the key doesn't exist yet), which left streams
+        # with no TTL and no self-expiry. Refreshing on each write also keeps an actively
+        # streaming conversation alive rather than expiring a fixed window after the first write.
+        pipe = self._redis_client.pipeline(transaction=False)
+        pipe.xadd(self._stream_key, message, maxlen=self._max_length, approximate=True)
+        pipe.expire(self._stream_key, self._timeout)
+        await pipe.execute()
+
     async def _write_status(self, status: StatusPayload) -> None:
         message = self._serializer.dumps(status)
         if message is None:
             return
-        await self._redis_client.xadd(
-            self._stream_key,
-            message,
-            maxlen=self._max_length,
-            approximate=True,
-        )
+        await self._xadd(message)
 
     async def write_to_stream(
         self,
@@ -392,8 +397,6 @@ class ConversationRedisStream:
             emit_completion: Whether to mark the stream as complete
         """
         try:
-            await self._redis_client.expire(self._stream_key, self._timeout)
-
             last_iteration_time = None
             async for chunk in generator:
                 current_time = time.time()
@@ -404,12 +407,7 @@ class ConversationRedisStream:
 
                 message = self._serializer.dumps(chunk)
                 if message is not None:
-                    await self._redis_client.xadd(
-                        self._stream_key,
-                        message,
-                        maxlen=self._max_length,
-                        approximate=True,
-                    )
+                    await self._xadd(message)
                 if callback:
                     callback()
 
