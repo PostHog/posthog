@@ -88,7 +88,14 @@ class TestLoginPrecheckAPI(APIBaseTest):
         response = self.client.post("/api/login/precheck", {"email": "any_user_name_here@witw.app"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
-            response.json(), {"sso_enforcement": None, "saml_available": False, "webauthn_credentials": []}
+            response.json(),
+            {
+                "sso_enforcement": None,
+                "saml_available": False,
+                "webauthn_credentials": [],
+                "password_login_available": True,
+                "social_providers": [],
+            },
         )
 
     def test_login_precheck_with_sso_enforced_with_invalid_license(self):
@@ -104,7 +111,14 @@ class TestLoginPrecheckAPI(APIBaseTest):
         response = self.client.post("/api/login/precheck", {"email": "spain@witw.app"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
-            response.json(), {"sso_enforcement": None, "saml_available": False, "webauthn_credentials": []}
+            response.json(),
+            {
+                "sso_enforcement": None,
+                "saml_available": False,
+                "webauthn_credentials": [],
+                "password_login_available": True,
+                "social_providers": [],
+            },
         )
 
     def test_login_precheck_returns_webauthn_credentials_for_user_with_verified_passkey(self):
@@ -190,6 +204,90 @@ class TestLoginPrecheckAPI(APIBaseTest):
         response_data = response.json()
 
         self.assertEqual(len(response_data["webauthn_credentials"]), 2)
+
+    def test_login_precheck_reports_password_login_available_for_user_with_password(self):
+        User.objects.create_and_join(self.organization, "with_password@posthog.com", self.CONFIG_PASSWORD)
+
+        response = self.client.post("/api/login/precheck", {"email": "with_password@posthog.com"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["password_login_available"], True)
+
+    def test_login_precheck_reports_password_login_unavailable_for_passwordless_user(self):
+        User.objects.create_and_join(self.organization, "no_password@posthog.com", None)
+
+        response = self.client.post("/api/login/precheck", {"email": "no_password@posthog.com"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json(),
+            {
+                "sso_enforcement": None,
+                "saml_available": False,
+                "webauthn_credentials": [],
+                "password_login_available": False,
+                "social_providers": [],
+            },
+        )
+
+    def test_login_precheck_reports_password_login_unavailable_for_blank_password(self):
+        # `has_usable_password()` is True for an empty password, so this exercises the `bool(...)` half
+        # of the check — a blank password is not something anyone can log in with.
+        user = User.objects.create_and_join(self.organization, "blank_password@posthog.com", None)
+        User.objects.filter(pk=user.pk).update(password="")
+
+        response = self.client.post("/api/login/precheck", {"email": "blank_password@posthog.com"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["password_login_available"], False)
+
+    def test_login_precheck_returns_linked_social_provider_configured_on_instance(self):
+        user = User.objects.create_and_join(self.organization, "github_user@posthog.com", None)
+        UserSocialAuth.objects.create(user=user, provider="github", uid="12345")
+
+        with self.settings(SOCIAL_AUTH_GITHUB_KEY="key", SOCIAL_AUTH_GITHUB_SECRET="secret"):
+            response = self.client.post("/api/login/precheck", {"email": "github_user@posthog.com"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["password_login_available"], False)
+        self.assertEqual(response.json()["social_providers"], ["github"])
+
+    def test_login_precheck_omits_linked_social_provider_not_configured_on_instance(self):
+        # Offering this provider would render a button that can't work.
+        user = User.objects.create_and_join(self.organization, "github_user@posthog.com", None)
+        UserSocialAuth.objects.create(user=user, provider="github", uid="12345")
+
+        with self.settings(SOCIAL_AUTH_GITHUB_KEY=None, SOCIAL_AUTH_GITHUB_SECRET=None):
+            response = self.client.post("/api/login/precheck", {"email": "github_user@posthog.com"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["social_providers"], [])
+
+    def test_login_precheck_treats_unknown_email_as_password_login_available(self):
+        # An unknown email must be indistinguishable from a user who has a password, so a typo is
+        # never a dead end and we don't leak which addresses have accounts.
+        response = self.client.post("/api/login/precheck", {"email": "nobody@posthog.com"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["password_login_available"], True)
+        self.assertEqual(response.json()["social_providers"], [])
+
+    def test_login_precheck_treats_inactive_passwordless_user_as_unknown(self):
+        user = User.objects.create_and_join(self.organization, "deactivated@posthog.com", None)
+        user.is_active = False
+        user.save()
+
+        response = self.client.post("/api/login/precheck", {"email": "deactivated@posthog.com"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["password_login_available"], True)
+
+    def test_login_precheck_is_rate_limited_by_ip(self):
+        cache.clear()
+        # Don't leave 30 throttle entries behind for whatever test runs next.
+        self.addCleanup(cache.clear)
+        with self.settings(E2E_TESTING=False):
+            for i in range(30):
+                response = self.client.post("/api/login/precheck", {"email": f"enumerate-{i}@posthog.com"})
+                self.assertEqual(response.status_code, status.HTTP_200_OK, f"request {i} was throttled early")
+
+            response = self.client.post("/api/login/precheck", {"email": "enumerate-30@posthog.com"})
+            self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
 
 class TestLoginAPI(APIBaseTest):

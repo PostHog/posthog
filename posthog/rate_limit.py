@@ -355,6 +355,27 @@ class SignupEmailPrecheckThrottle(IPThrottle):
     rate = "30/minute"
 
 
+class LoginPrecheckThrottle(IPThrottle):
+    """
+    Rate limit login precheck requests by IP.
+
+    The response reveals which sign-in methods a passwordless account has, so cap it per-IP to make
+    bulk enumeration expensive. Per-email throttling would be useless here — enumeration uses a
+    different email on every request.
+    """
+
+    scope = "login_precheck"
+    rate = "30/minute"
+
+    def allow_request(self, request, view):
+        # The time-sensitive re-auth modal prechecks for already-logged-in users. They learn nothing
+        # they don't already have, and exempting them keeps shared corporate egress IPs (where every
+        # logged-in user shares one bucket) from locking anyone out of the login form.
+        if request.user.is_authenticated:
+            return True
+        return super().allow_request(request, view)
+
+
 class SignupResendInviteThrottle(UserOrEmailRateThrottle):
     """
     Rate limit signup invite-resend requests per email address.
