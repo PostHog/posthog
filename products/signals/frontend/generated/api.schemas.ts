@@ -516,6 +516,7 @@ export interface SignalReportRefundResponseApi {
  * * `intercom` - intercom
  * * `hubspot` - hubspot
  * * `engineering_analytics` - engineering_analytics
+ * * `google_search_console` - google_search_console
  */
 export type SignalSourceProductApi = (typeof SignalSourceProductApi)[keyof typeof SignalSourceProductApi]
 
@@ -568,6 +569,7 @@ export const SignalSourceProductApi = {
     Intercom: 'intercom',
     Hubspot: 'hubspot',
     EngineeringAnalytics: 'engineering_analytics',
+    GoogleSearchConsole: 'google_search_console',
 } as const
 
 /**
@@ -592,6 +594,7 @@ export const SignalSourceProductApi = {
  * * `ci_flaky_check` - ci_flaky_check
  * * `ci_broken_default_branch` - ci_broken_default_branch
  * * `ci_duration_regression` - ci_duration_regression
+ * * `search_opportunity` - search_opportunity
  */
 export type SignalSourceTypeApi = (typeof SignalSourceTypeApi)[keyof typeof SignalSourceTypeApi]
 
@@ -617,6 +620,7 @@ export const SignalSourceTypeApi = {
     CiFlakyCheck: 'ci_flaky_check',
     CiBrokenDefaultBranch: 'ci_broken_default_branch',
     CiDurationRegression: 'ci_duration_regression',
+    SearchOpportunity: 'search_opportunity',
 } as const
 
 export type ProblemTypeEnumApi = (typeof ProblemTypeEnumApi)[keyof typeof ProblemTypeEnumApi]
@@ -1184,6 +1188,16 @@ export interface HubspotTicketSignalExtraApi {
     createdate: string | null
 }
 
+export interface GoogleSearchConsoleSearchOpportunitySignalExtraApi {
+    page: string
+    query: string
+    date: string
+    clicks: number
+    impressions: number
+    ctr: number
+    position: number
+}
+
 export type SignalExtraApi =
     | SessionProblemSignalExtraApi
     | LlmEvalSignalExtraApi
@@ -1237,6 +1251,7 @@ export type SignalExtraApi =
     | JudgemeReviewsReviewSignalExtraApi
     | IntercomTicketSignalExtraApi
     | HubspotTicketSignalExtraApi
+    | GoogleSearchConsoleSearchOpportunitySignalExtraApi
 
 export interface SpecificityMetadataApi {
     /** Title of the PR the specificity gate evaluated. */
@@ -1323,7 +1338,8 @@ export interface SignalNodeApi {
      * * `judgeme_reviews` - judgeme_reviews
      * * `intercom` - intercom
      * * `hubspot` - hubspot
-     * * `engineering_analytics` - engineering_analytics */
+     * * `engineering_analytics` - engineering_analytics
+     * * `google_search_console` - google_search_console */
     source_product: SignalSourceProductApi
     /** Signal type within the source product.
      *
@@ -1347,7 +1363,8 @@ export interface SignalNodeApi {
      * * `review` - review
      * * `ci_flaky_check` - ci_flaky_check
      * * `ci_broken_default_branch` - ci_broken_default_branch
-     * * `ci_duration_regression` - ci_duration_regression */
+     * * `ci_duration_regression` - ci_duration_regression
+     * * `search_opportunity` - search_opportunity */
     source_type: SignalSourceTypeApi
     /** Emitter-scoped id of the underlying object (issue, ticket, ...). */
     source_id: string
@@ -3354,6 +3371,7 @@ export interface ForgetResponseApi {
  * * `intercom` - Intercom
  * * `hubspot` - HubSpot
  * * `engineering_analytics` - Engineering analytics
+ * * `google_search_console` - Google Search Console
  */
 export type SignalSourceConfigSourceProductEnumApi =
     (typeof SignalSourceConfigSourceProductEnumApi)[keyof typeof SignalSourceConfigSourceProductEnumApi]
@@ -3407,6 +3425,7 @@ export const SignalSourceConfigSourceProductEnumApi = {
     Intercom: 'intercom',
     Hubspot: 'hubspot',
     EngineeringAnalytics: 'engineering_analytics',
+    GoogleSearchConsole: 'google_search_console',
 } as const
 
 /**
