@@ -13,6 +13,7 @@ import type {
     AppMetricsTotalsResponseApi,
     BlastRadiusApi,
     BlastRadiusRequestApi,
+    EmailSendingSuspensionStatusApi,
     HogFlowApi,
     HogFlowBatchJobApi,
     HogFlowInvocationApi,
@@ -32,6 +33,7 @@ import type {
     HogFlowsMetricsGlobalRetrieveParams,
     HogFlowsMetricsRetrieveParams,
     HogFlowsMetricsTotalsRetrieveParams,
+    HogFlowsReputationRetrieveParams,
     HogFlowsRevisionsListParams,
     HogInvocationRerunRequestApi,
     HogInvocationRerunResponseApi,
@@ -810,6 +812,25 @@ export const hogFlowsBulkDeleteCreate = async (
     })
 }
 
+export const getHogFlowsEmailSendingSuspensionRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/hog_flows/email_sending_suspension/`
+}
+
+/**
+ * Cheap read for the scene-wide suspension banner: single-row `TeamWorkflowsConfig` lookup
+ * with no reputation computation. Every project member sees this — a suspension stops
+ * everyone's email, so hiding it would leave silent send failures unexplained.
+ */
+export const hogFlowsEmailSendingSuspensionRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<EmailSendingSuspensionStatusApi> => {
+    return apiMutator<EmailSendingSuspensionStatusApi>(getHogFlowsEmailSendingSuspensionRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getHogFlowsMetricsGlobalRetrieveUrl = (
     projectId: string,
     params?: HogFlowsMetricsGlobalRetrieveParams
@@ -840,8 +861,20 @@ export const hogFlowsMetricsGlobalRetrieve = async (
     })
 }
 
-export const getHogFlowsReputationRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/hog_flows/reputation/`
+export const getHogFlowsReputationRetrieveUrl = (projectId: string, params?: HogFlowsReputationRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flows/reputation/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flows/reputation/`
 }
 
 /**
@@ -851,9 +884,10 @@ export const getHogFlowsReputationRetrieveUrl = (projectId: string) => {
  */
 export const hogFlowsReputationRetrieve = async (
     projectId: string,
+    params?: HogFlowsReputationRetrieveParams,
     options?: RequestInit
 ): Promise<TeamEmailReputationResponseApi> => {
-    return apiMutator<TeamEmailReputationResponseApi>(getHogFlowsReputationRetrieveUrl(projectId), {
+    return apiMutator<TeamEmailReputationResponseApi>(getHogFlowsReputationRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

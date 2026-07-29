@@ -71,6 +71,20 @@ describe('useAnimatedPresence', () => {
         expect(result.current).toEqual({ rendered: true, shown: true })
     })
 
+    it('flips shown synchronously via a reflow when given a ref, without waiting for a frame', () => {
+        const ref = { current: document.createElement('div') }
+        const { result, rerender } = renderHook(({ isIn }) => useAnimatedPresence(isIn, 200, ref), {
+            initialProps: { isIn: false },
+        })
+        expect(result.current).toEqual({ rendered: false, shown: false })
+
+        // The layout effect forces a reflow and flips shown in the same commit —
+        // no RAF is scheduled, so the enter can't be lost to paint coalescing.
+        rerender({ isIn: true })
+        expect(result.current).toEqual({ rendered: true, shown: true })
+        expect(rafCallbacks).toHaveLength(0)
+    })
+
     it('flips shown immediately on exit and unrenders after the duration', () => {
         const { result, rerender } = renderHook(({ isIn }) => useAnimatedPresence(isIn, 200), {
             initialProps: { isIn: true },

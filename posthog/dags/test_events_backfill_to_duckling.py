@@ -1676,11 +1676,14 @@ class TestExportFanOut:
         # A handful of rows collapses to one bucket → one file.
         assert "PARTITION BY toString(cityHash64(distinct_id) % 1)" in insert_sql
 
-    def test_huge_events_day_clamps_to_max_fanout(self, target):
-        insert_sql, _count_sql, _glob, _ = self._run_export(
+    def test_huge_events_day_clamps_to_default_writer_buffer_budget(self, target):
+        insert_sql, _count_sql, _glob, client = self._run_export(
             export_events_to_duckling_s3, target, row_count=10_000_000_000, team_id=2, date=datetime(2026, 6, 17)
         )
-        assert f"PARTITION BY toString(cityHash64(distinct_id) % {MAX_S3_FILE_FANOUT})" in insert_sql
+        assert "PARTITION BY toString(cityHash64(distinct_id) % 64)" in insert_sql
+
+        export_call = next(call for call in client.execute.call_args_list if "INSERT INTO FUNCTION" in call.args[0])
+        assert export_call.kwargs["settings"]["output_format_parquet_row_group_size_bytes"] == 512 * 1024 * 1024
 
     def test_config_can_tune_target_and_max(self, target):
         config = DucklingBackfillConfig(
@@ -1698,7 +1701,7 @@ class TestExportFanOut:
         assert "PARTITION BY toString(cityHash64(distinct_id) % 5)" in insert_sql
 
     def test_events_export_applies_configured_row_group_size(self, target):
-        row_group_size_bytes = 512 * 1024 * 1024
+        row_group_size_bytes = 256 * 1024 * 1024
         config = DucklingBackfillConfig(
             dry_run=False,
             skip_ducklake_registration=True,
@@ -1753,7 +1756,7 @@ class TestExportFanOut:
 
     def test_persons_daily_export_sizes_fanout_and_returns_glob(self, target):
         # 15M rows at the 5M-row default target → 3 files.
-        insert_sql, count_sql, s3_glob, _ = self._run_export(
+        insert_sql, count_sql, s3_glob, client = self._run_export(
             export_persons_to_duckling_s3, target, row_count=15_000_000, team_id=2, date=datetime(2026, 6, 17)
         )
         assert "PARTITION BY toString(cityHash64(distinct_id) % 3)" in insert_sql
@@ -1761,14 +1764,20 @@ class TestExportFanOut:
         assert "FROM person WHERE team_id = 2 AND toDate(_timestamp) = '2026-06-17' AND is_deleted = 0" in count_sql
         assert s3_glob == "s3://bkt/backfill/persons/2/year=2026/month=06/run1_*.parquet"
 
+        export_call = next(call for call in client.execute.call_args_list if "INSERT INTO FUNCTION" in call.args[0])
+        assert export_call.kwargs["settings"]["output_format_parquet_row_group_size_bytes"] == 128 * 1024 * 1024
+
     def test_persons_full_export_sizes_fanout_and_returns_glob(self, target):
         # 25M rows at the 5M-row default target → 5 files.
-        insert_sql, count_sql, s3_glob, _ = self._run_export(
+        insert_sql, count_sql, s3_glob, client = self._run_export(
             export_persons_full_to_duckling_s3, target, row_count=25_000_000, team_id=2
         )
         assert "PARTITION BY toString(cityHash64(distinct_id) % 5)" in insert_sql
         assert "FROM person_distinct_id2 WHERE team_id = 2 AND is_deleted = 0" in count_sql
         assert s3_glob == "s3://bkt/backfill/persons/2/year=0/month=0/run1_*.parquet"
+
+        export_call = next(call for call in client.execute.call_args_list if "INSERT INTO FUNCTION" in call.args[0])
+        assert export_call.kwargs["settings"]["output_format_parquet_row_group_size_bytes"] == 128 * 1024 * 1024
 
     @parameterized.expand(
         [

@@ -2207,6 +2207,7 @@ class TestExternalDataSource(APIBaseTest):
             source_type="Postgres",
             created_by=self.user,
             prefix="Primary database",
+            description="Prod Postgres replica",
             access_method=ExternalDataSource.AccessMethod.DIRECT,
             job_inputs={"host": "localhost", "password": "secret"},
             connection_metadata={"engine": "duckdb", "database": "ducklake", "available_functions": ["date_bin"]},
@@ -2250,6 +2251,7 @@ class TestExternalDataSource(APIBaseTest):
                     "source_type": "Snowflake",
                     "access_method": "direct",
                     "supports_hogql": True,
+                    "description": None,
                 },
                 {
                     "id": str(postgres_source.pk),
@@ -2258,6 +2260,7 @@ class TestExternalDataSource(APIBaseTest):
                     "source_type": "Postgres",
                     "access_method": "direct",
                     "supports_hogql": True,
+                    "description": "Prod Postgres replica",
                 },
                 {
                     "id": str(mysql_source.pk),
@@ -2266,6 +2269,7 @@ class TestExternalDataSource(APIBaseTest):
                     "source_type": "MySQL",
                     "access_method": "direct",
                     "supports_hogql": True,
+                    "description": None,
                 },
             ],
         )
@@ -2317,6 +2321,29 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(payload[0]["access_method"], "warehouse")
         self.assertEqual(payload[0]["source_type"], "Postgres")
         self.assertEqual(payload[0]["supports_hogql"], True)
+
+    def test_direct_connection_options_lists_every_direct_capable_source_type(self):
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/direct_connection_options/")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        source_types = {option["source_type"] for option in payload}
+
+        # Guards the drift the picker hit: a direct-capable engine must surface as an addable option.
+        self.assertTrue({"Postgres", "MySQL", "Snowflake", "Redshift", "ClickHouse"}.issubset(source_types))
+        self.assertNotIn("Stripe", source_types)
+
+        clickhouse = next(option for option in payload if option["source_type"] == "ClickHouse")
+        self.assertEqual(clickhouse["label"], "ClickHouse")
+        self.assertIsNotNone(clickhouse["icon_path"])
+        self.assertTrue(clickhouse["icon_path"].endswith("clickhouse.png"))
+
+        for option in payload:
+            self.assertTrue(option["label"])
+            self.assertIn("icon_path", option)
+
+        labels = [option["label"] for option in payload]
+        self.assertEqual(labels, sorted(labels, key=str.lower))
 
     def test_dont_expose_job_inputs(self):
         self._create_external_data_source()
