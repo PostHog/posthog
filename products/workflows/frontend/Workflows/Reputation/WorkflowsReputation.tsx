@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
@@ -156,6 +156,10 @@ export function WorkflowsReputation(): JSX.Element {
 
     return (
         <div className="space-y-4" data-attr="workflows-reputation">
+            <LemonBanner type="info" data-attr="workflows-reputation-beta-banner">
+                Reputation scores are surfaced here for transparency only. We don't take any enforcement action based on
+                them right now. We're still actively developing the scoring calculation, so these values may change.
+            </LemonBanner>
             {teamReputation ? (
                 <TeamReputationCard reputation={teamReputation} />
             ) : (

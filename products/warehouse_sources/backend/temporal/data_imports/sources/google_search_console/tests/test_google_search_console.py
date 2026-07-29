@@ -103,6 +103,19 @@ def test_row_to_dict_handles_missing_metrics():
     assert out["position"] == 0.0
 
 
+def test_row_to_dict_coerces_integer_serialized_rates_to_float():
+    # Google serializes an exact-zero rate as JSON `0`, which json.loads decodes to a Python int.
+    # Left as-is, an all-zero-clicks day would store `ctr`/`position` as int64 and reject a later
+    # day's fractional rate. The rates must always be floats; the counts always ints.
+    row = {"keys": ["2026-04-15"], "clicks": 3, "impressions": 20, "ctr": 0, "position": 0}
+    out = _row_to_dict(row, ["date"])
+
+    assert isinstance(out["ctr"], float)
+    assert isinstance(out["position"], float)
+    assert isinstance(out["clicks"], int)
+    assert isinstance(out["impressions"], int)
+
+
 def test_row_to_dict_injects_iter_date_when_date_not_in_dimensions():
     # `searchAppearance` schema can't include date in its API request, so the iterator
     # supplies the date externally to keep the per-day partition.

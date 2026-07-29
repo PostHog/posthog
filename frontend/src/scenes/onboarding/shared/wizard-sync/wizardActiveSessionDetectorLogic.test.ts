@@ -26,6 +26,7 @@ function makeSession(overrides: Partial<WizardSessionDTOApi> = {}): WizardSessio
         tasks: [],
         event_plan: null,
         error: null,
+        pending_input: null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         is_stale: false,
