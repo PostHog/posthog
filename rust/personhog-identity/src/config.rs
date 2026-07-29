@@ -165,3 +165,37 @@ impl Config {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    // An unset replica URL must resolve to the primary, not to the empty
+    // string: main.rs feeds this straight into pool creation, and it decides
+    // whether a second pool is built at all.
+    #[test]
+    fn replica_url_falls_back_to_the_primary_when_unset() {
+        let primary = "postgres://primary/persons";
+        let replica = "postgres://replica/persons";
+        for (configured, expected, shares_primary_pool) in [
+            (None, primary, true),
+            (Some(""), primary, true),
+            (Some(replica), replica, false),
+        ] {
+            let mut env =
+                HashMap::from([("PRIMARY_DATABASE_URL".to_string(), primary.to_string())]);
+            if let Some(configured) = configured {
+                env.insert("REPLICA_DATABASE_URL".to_string(), configured.to_string());
+            }
+
+            let config: Config = Envconfig::init_from_hashmap(&env).unwrap();
+            assert_eq!(config.replica_database_url(), expected, "{configured:?}");
+            assert_eq!(
+                config.replica_database_url() == config.primary_database_url,
+                shares_primary_pool,
+                "{configured:?}"
+            );
+        }
+    }
+}

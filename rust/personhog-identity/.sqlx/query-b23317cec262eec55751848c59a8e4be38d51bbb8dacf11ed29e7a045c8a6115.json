@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT k.team_id as \"key_team_id!\", k.distinct_id as \"key_distinct_id!\",\n                   p.id as \"id!\", p.uuid as \"uuid!\", p.created_at as \"created_at!\"\n            FROM unnest($1::int[], $2::text[]) AS k(team_id, distinct_id)\n            JOIN posthog_persondistinctid pdi\n              ON pdi.team_id = k.team_id AND pdi.distinct_id = k.distinct_id\n            JOIN posthog_person p\n              ON p.team_id = pdi.team_id AND p.id = pdi.person_id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "key_team_id!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "key_distinct_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "uuid!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_at!",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4Array",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "b23317cec262eec55751848c59a8e4be38d51bbb8dacf11ed29e7a045c8a6115"
+}

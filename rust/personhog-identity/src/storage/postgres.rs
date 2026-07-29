@@ -109,13 +109,13 @@ impl IdentityStorage for PostgresIdentityStorage {
         let team_ids: Vec<i32> = keys.iter().map(|(t, _)| *t as i32).collect();
         let distinct_ids: Vec<String> = keys.iter().map(|(_, d)| d.clone()).collect();
 
-        // Sync-owned identity columns only: properties and version are the
-        // writer's lagging projections, so this read never exposes them.
+        // Identity columns the checking path consumes, and no more: properties
+        // and version are the writer's lagging projections, so this read never
+        // exposes them.
         let rows = sqlx::query!(
             r#"
             SELECT k.team_id as "key_team_id!", k.distinct_id as "key_distinct_id!",
-                   p.id as "id!", p.uuid as "uuid!", p.created_at as "created_at!",
-                   p.is_identified as "is_identified!"
+                   p.id as "id!", p.uuid as "uuid!", p.created_at as "created_at!"
             FROM unnest($1::int[], $2::text[]) AS k(team_id, distinct_id)
             JOIN posthog_persondistinctid pdi
               ON pdi.team_id = k.team_id AND pdi.distinct_id = k.distinct_id
@@ -136,7 +136,6 @@ impl IdentityStorage for PostgresIdentityStorage {
                     person_id: row.id,
                     uuid: row.uuid,
                     created_at: row.created_at,
-                    is_identified: row.is_identified,
                 },
             );
         }

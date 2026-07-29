@@ -69,17 +69,18 @@ message GetOrCreatePersonsByDistinctIdsResponse {
   repeated GetOrCreatePersonResult results = 1;
 }
 
-// PersonIdentity is the identity-plane view of a person: the sync-owned
-// identity columns only. Properties and version are deliberately absent —
-// their single author is the owning leader, and the Postgres copies this RPC
-// reads are the writer's lagging projections. A caller that needs the current
-// version or properties needs the leader, which is the strong read.
+// PersonIdentity is the identity-plane view of a person: what the hot
+// per-event checking path actually consumes. person_id and uuid are fixed at
+// birth, so created_at is the only field here read from the writer's lagging
+// projection — and it only ever moves earlier, under a merge fold's
+// min-stamp, so a stale read is safe. Properties and version are absent:
+// their single author is the owning leader, and a caller that needs either
+// needs the leader, which is the strong read.
 message PersonIdentity {
   int64 person_id = 1;
   string uuid = 2;
   // Epoch millis.
   int64 created_at = 3;
-  bool is_identified = 4;
 }
 
 message ResolveDistinctIdsRequest {

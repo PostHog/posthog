@@ -482,8 +482,11 @@ async fn resolve_returns_only_existing_keys() {
 async fn resolve_identities_scopes_keys_by_team_and_omits_unknown_keys() {
     let ctx_a = TestContext::new().await;
     let ctx_b = TestContext::new().await;
-    let person_a = ctx_a.insert_person_with_distinct_id("shared-did").await;
-    let person_b = ctx_b.insert_person_with_distinct_id("shared-did").await;
+    // Both teams use the same distinct id, so a query that dropped the team
+    // predicate — or read the wrong person's identity columns — resolves to
+    // the other tenant's row and fails on the id/uuid assertions below.
+    let (person_a, uuid_a) = ctx_a.insert_person_returning_uuid("shared-did").await;
+    let (person_b, uuid_b) = ctx_b.insert_person_returning_uuid("shared-did").await;
 
     let resolved = ctx_a
         .storage
@@ -496,11 +499,14 @@ async fn resolve_identities_scopes_keys_by_team_and_omits_unknown_keys() {
         .expect("resolve should succeed");
 
     assert_eq!(resolved.len(), 2);
-    let identity_a = &resolved[&(ctx_a.team_id, "shared-did".to_string())];
-    assert_eq!(identity_a.person_id, person_a);
-    assert!(!identity_a.is_identified);
-    let identity_b = &resolved[&(ctx_b.team_id, "shared-did".to_string())];
-    assert_eq!(identity_b.person_id, person_b);
+    for (team_id, expected_id, expected_uuid) in [
+        (ctx_a.team_id, person_a, uuid_a),
+        (ctx_b.team_id, person_b, uuid_b),
+    ] {
+        let identity = &resolved[&(team_id, "shared-did".to_string())];
+        assert_eq!(identity.person_id, expected_id, "team {team_id}");
+        assert_eq!(identity.uuid, expected_uuid, "team {team_id}");
+    }
 
     ctx_a.cleanup().await.ok();
     ctx_b.cleanup().await.ok();

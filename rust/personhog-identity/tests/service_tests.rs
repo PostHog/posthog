@@ -4,6 +4,7 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
+use chrono::{TimeZone, Utc};
 use common::TestContext;
 use tonic::{Code, Request, Status};
 
@@ -303,7 +304,7 @@ fn resolve_key(team_id: i64, distinct_id: &str) -> TeamDistinctId {
 #[tokio::test]
 async fn resolve_returns_per_key_results_in_request_order() {
     let t = ServiceTestContext::new().await;
-    let person_id = t.ctx.insert_person_with_distinct_id("res-known").await;
+    let (person_id, person_uuid) = t.ctx.insert_person_returning_uuid("res-known").await;
 
     let response = t
         .service
@@ -333,8 +334,18 @@ async fn resolve_returns_per_key_results_in_request_order() {
         .as_ref()
         .expect("known key should resolve");
     assert_eq!(known.person_id, person_id);
-    assert!(!known.is_identified);
-    assert!(known.created_at > 0);
+    assert_eq!(known.uuid, person_uuid.to_string());
+    // Epoch millis, per the proto: a seconds-valued timestamp lands roughly
+    // 3 orders of magnitude short of this floor.
+    assert!(
+        known.created_at
+            > Utc
+                .with_ymd_and_hms(2020, 1, 1, 0, 0, 0)
+                .unwrap()
+                .timestamp_millis(),
+        "created_at {} is not epoch millis",
+        known.created_at
+    );
     assert!(response.results[1].identity.is_none());
     // Duplicate keys resolve identically, including after the first.
     assert_eq!(response.results[2].identity.as_ref(), Some(known));
@@ -354,10 +365,17 @@ async fn resolve_rejects_malformed_keys_and_oversized_batches() {
     // One malformed key rejects the whole request, valid keys included: an
     // out-of-range team_id would wrap under the storage layer's i32 narrowing
     // and probe another tenant's rows.
-    for bad in [
-        resolve_key(0, "user"),
-        resolve_key(i32::MAX as i64 + 1, "user"),
-        resolve_key(t.ctx.team_id, ""),
+    for (case, bad) in [
+        ("non-positive team_id", resolve_key(0, "user")),
+        (
+            "team_id past int4",
+            resolve_key(i32::MAX as i64 + 1, "user"),
+        ),
+        (
+            "wraps to team 1 under `as i32`",
+            resolve_key((1 << 32) + 1, "user"),
+        ),
+        ("empty distinct_id", resolve_key(t.ctx.team_id, "")),
     ] {
         let status = t
             .service
@@ -365,8 +383,8 @@ async fn resolve_rejects_malformed_keys_and_oversized_batches() {
                 keys: vec![resolve_key(t.ctx.team_id, "user"), bad],
             }))
             .await
-            .expect_err("malformed key should reject the request");
-        assert_eq!(status.code(), Code::InvalidArgument);
+            .unwrap_err();
+        assert_eq!(status.code(), Code::InvalidArgument, "{case}");
     }
 
     let status = t

@@ -33,13 +33,19 @@ impl TestContext {
     /// Inserts a person with a random (non-deterministic) uuid plus a distinct
     /// id row pointing at it. Returns the person id.
     pub async fn insert_person_with_distinct_id(&self, distinct_id: &str) -> i64 {
-        let person_id: i64 = sqlx::query_scalar(
+        self.insert_person_returning_uuid(distinct_id).await.0
+    }
+
+    /// As `insert_person_with_distinct_id`, but also returns the generated
+    /// uuid, for tests that assert the resolved identity carries it.
+    pub async fn insert_person_returning_uuid(&self, distinct_id: &str) -> (i64, uuid::Uuid) {
+        let (person_id, uuid): (i64, uuid::Uuid) = sqlx::query_as(
             r#"
             INSERT INTO posthog_person
                 (created_at, properties, properties_last_updated_at, properties_last_operation,
                  team_id, is_identified, uuid, version)
             VALUES (now(), '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, $1, false, gen_random_uuid(), 0)
-            RETURNING id
+            RETURNING id, uuid
             "#,
         )
         .bind(self.team_id as i32)
@@ -60,7 +66,7 @@ impl TestContext {
         .await
         .expect("Failed to insert distinct id");
 
-        person_id
+        (person_id, uuid)
     }
 
     pub async fn cleanup(&self) -> Result<(), sqlx::Error> {
