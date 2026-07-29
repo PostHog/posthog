@@ -77,6 +77,7 @@ RECENTS_SEARCH_SCAN_LIMIT = 200
 
 class FileSystemSerializer(FileSystemAccessLevelSerializerMixin, serializers.ModelSerializer):
     last_viewed_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    created_by = UserBasicSerializer(read_only=True, allow_null=True)
 
     class Meta:
         model = FileSystem
@@ -90,6 +91,7 @@ class FileSystemSerializer(FileSystemAccessLevelSerializerMixin, serializers.Mod
             "meta",
             "shortcut",
             "created_at",
+            "created_by",
             "last_viewed_at",
             "user_access_level",
         ]

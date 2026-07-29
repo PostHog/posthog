@@ -101,7 +101,8 @@ class TestStreamElementsSource:
         mock_validate.return_value = mock_return
 
         assert self.source.validate_credentials(self.config, self.team_id) == mock_return
-        mock_validate.assert_called_once_with(self.config.api_token)
+        # No pin passed -> resolves to default_version (what new rows are stamped with).
+        mock_validate.assert_called_once_with(self.config.api_token, "v3")
 
     def test_get_resumable_source_manager_binds_resume_config(self) -> None:
         manager = self.source.get_resumable_source_manager(mock.MagicMock())
@@ -116,6 +117,7 @@ class TestStreamElementsSource:
         inputs.schema_name = "tips"
         inputs.should_use_incremental_field = True
         inputs.db_incremental_field_last_value = 1567780450202
+        inputs.api_version = "v2"
         manager = mock.MagicMock()
 
         self.source.source_for_pipeline(self.config, manager, inputs)
@@ -127,6 +129,28 @@ class TestStreamElementsSource:
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == 1567780450202
+
+    @pytest.mark.parametrize(
+        "pin, expected",
+        [
+            (None, "v3"),  # unpinned rows follow the default
+            ("v2", "v2"),  # existing v2 pins keep hitting kappa/v2
+            ("v3", "v3"),
+        ],
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.streamelements.source.streamelements_source"
+    )
+    def test_source_for_pipeline_resolves_api_version(
+        self, mock_source: mock.MagicMock, pin: str | None, expected: str
+    ) -> None:
+        inputs = mock.MagicMock()
+        inputs.schema_name = "tips"
+        inputs.api_version = pin
+
+        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+
+        assert mock_source.call_args.kwargs["api_version"] == expected
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.streamelements.source.streamelements_source"

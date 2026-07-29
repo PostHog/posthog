@@ -755,7 +755,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # Secrets — never diff these, even masked.
         "client_secret",
         "hash_client_secret",
-        "provisioning_signing_secret",
         # Reverse token relations can hold tens of thousands of rows; reading
         # through them in `changes_between` would scan the token tables.
         "oauthaccesstoken",

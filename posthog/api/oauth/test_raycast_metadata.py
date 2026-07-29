@@ -1,4 +1,5 @@
 import json
+from ipaddress import ip_address
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
@@ -67,8 +68,8 @@ class TestRaycastClientMetadataView(SimpleTestCase):
 
 @override_settings(SITE_URL="https://us.posthog.com")
 class TestRaycastClientMetadataRegistration(APIBaseTest):
-    @patch("posthog.api.oauth.cimd.is_url_allowed", return_value=(True, None))
-    @patch("posthog.api.oauth.cimd.requests.get")
+    @patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("93.184.216.34")})
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_document_registers_through_cimd(self, mock_get, _url_mock):
         # Serve the live document back through the CIMD fetch path (the HTTP fetch
         # is patched since CIMD client_ids must be HTTPS), then assert it registers

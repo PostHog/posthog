@@ -32,6 +32,7 @@ jobs:
         if: >-
             github.event_name != 'pull_request'
             || github.event.pull_request.draft != true
+            || startsWith(github.head_ref, 'trunk-merge/')
             || !contains(github.event.pull_request.labels.*.name, 'no-ci')
         name: Determine need to run MCP checks
         outputs:
@@ -253,7 +254,7 @@ jobs:
         # Python change, so they're the expensive half of this workflow. Build and
         # unit tests still run on drafts; the `MCP Tests Pass` aggregator treats
         # skipped as success, and the ready-for-review run is the merge gate.
-        if: needs.changes.outputs.mcp == 'true' && github.event.pull_request.draft != true
+        if: needs.changes.outputs.mcp == 'true' && (github.event.pull_request.draft != true || startsWith(github.head_ref, 'trunk-merge/'))
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}

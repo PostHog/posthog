@@ -86,6 +86,32 @@ describe('connectionSelectorLogic', () => {
         )
     })
 
+    // Pins the label the ManagedWarehouseConnection story relies on — it's long enough to need
+    // truncating in the sidebar, which is the regression that story guards (support ticket 65030).
+    it('labels a managed warehouse with its prefix and engine', async () => {
+        mockConnectionsList.mockResolvedValue([
+            {
+                id: 'conn-duck',
+                prefix: 'managed_warehouse',
+                engine: 'duckdb',
+                source_type: 'ManagedWarehouse',
+                access_method: 'direct',
+                supports_hogql: true,
+            },
+        ])
+        logic = connectionSelectorLogic()
+        logic.mount()
+        logic.actions.maybeLoadConnectionOptions()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.connectionSelectOptions[0].options).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ value: 'conn-duck', label: 'managed_warehouse (DuckDB)' }),
+            ])
+        )
+    })
+
     it('derives the selected connection value from sql editor state', async () => {
         expect(getConnectionSelectorValue(null, true, undefined)).toEqual(LOADING_CONNECTIONS)
         expect(
