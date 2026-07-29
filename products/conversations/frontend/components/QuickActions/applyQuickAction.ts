@@ -1,5 +1,6 @@
 import { JSONContent } from '@tiptap/core'
 import { Editor } from '@tiptap/react'
+import posthog from 'posthog-js'
 
 import { EditorRange, RichContentNodeType } from 'lib/components/RichContentEditor/types'
 
@@ -23,7 +24,7 @@ export function hasVisibleText(node: JSONContent): boolean {
 /**
  * Build the TipTap document for a response quick action. Prefers the stored `rich_content`, falling
  * back to the plain-text `content` (one paragraph per line) so quick actions created without rich
- * content — e.g. via the API — still render in the editor instead of appearing blank.
+ * content (e.g. via the API) still render in the editor instead of appearing blank.
  */
 export function quickActionToDoc(quickAction: QuickActionApi): JSONContent {
     const richContent = quickAction.rich_content as JSONContent | undefined
@@ -87,6 +88,15 @@ export function quickActionHasReply(quickAction: QuickActionApi): boolean {
  * action with only ticket actions (no reply) still applies them and clears the "/query" text.
  */
 export function applyQuickAction(editor: Editor, quickAction: QuickActionApi, options: ApplyQuickActionOptions): void {
+    posthog.capture('conversations quick action applied', {
+        quick_action_id: quickAction.short_id,
+        visibility: quickAction.visibility,
+        has_reply: quickActionHasReply(quickAction),
+        sets_status: !!quickAction.actions?.status,
+        sets_priority: !!quickAction.actions?.priority,
+        adds_tags: !!quickAction.actions?.tags?.length,
+        sets_assignee: quickAction.actions?.assignee !== undefined,
+    })
     if (quickActionHasReply(quickAction)) {
         applyQuickActionToEditor(editor, quickAction, options)
     } else {
