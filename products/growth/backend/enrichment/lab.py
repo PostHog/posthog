@@ -1,17 +1,15 @@
 """Runner pieces behind the staff score lab API (products/growth/backend/api/score_lab.py):
-the gateway model list, the per-item classify functions, and the concurrent stream that drives
-them.
+the gateway model list, classify_fetch_for_run, and the concurrent stream that drives it.
 
-Org-agnostic on purpose: everything here takes (config, payload/row, client) in and a verdict
-out. Callers build the input rows (which orgs, which fetches) themselves - see
-products.growth.backend.enrichment.labels for recent_latest_fetches_qs /
-signup_domain_for_organization, the internal row source.
+Org-agnostic on purpose: everything here takes (config, fetch, client) in and a verdict out.
+Callers build the input fetches themselves - see products.growth.backend.enrichment.labels for
+recent_latest_fetches_qs / signup_domain_for_organization, the internal fetch source.
 """
 
 import re
 import time
 import asyncio
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -21,7 +19,7 @@ from openai import OpenAI
 from posthog.exceptions_capture import capture_exception
 from posthog.llm.gateway_client import get_llm_client
 
-from products.growth.backend.enrichment.labels import classify_payload, classify_row
+from products.growth.backend.enrichment.labels import classify_payload
 from products.growth.backend.models import EnrichmentPromptConfig, OrganizationEnrichmentFetch
 
 logger = structlog.get_logger(__name__)
@@ -93,10 +91,8 @@ def list_gateway_models() -> list[str]:
 
 
 # (company, domain, output-or-None, error-or-None) for one classified item - the staff API's
-# /run/ stream shape (api/score_lab.py), decoupled from any one input source so run() can drive
-# it from either the archived-fetch path or the HogQL input_query path.
+# /run/ stream shape (api/score_lab.py).
 RunClassifyResult = tuple[str, str | None, dict[str, Any] | None, str | None]
-RunClassifyFn = Callable[[EnrichmentPromptConfig, Any, OpenAI], RunClassifyResult]
 
 
 def _run_error(config: EnrichmentPromptConfig, e: Exception, path: str) -> str:
@@ -109,7 +105,6 @@ def _run_error(config: EnrichmentPromptConfig, e: Exception, path: str) -> str:
 def classify_fetch_for_run(
     config: EnrichmentPromptConfig, pair: tuple[OrganizationEnrichmentFetch, str | None], client: OpenAI
 ) -> RunClassifyResult:
-    """RunClassifyFn for the archived-fetch input source."""
     fetch, signup_domain = pair
     company = fetch.payload.get("name") or fetch.organization.name
     try:
@@ -119,34 +114,20 @@ def classify_fetch_for_run(
     return company, signup_domain, output, None
 
 
-def classify_row_for_run(config: EnrichmentPromptConfig, row: dict[str, Any], client: OpenAI) -> RunClassifyResult:
-    """RunClassifyFn for the HogQL input_query source (see enrichment/input_query.py)."""
-    company = row.get("company") or "Unknown"
-    domain = row.get("domain")
-    try:
-        output = classify_row(config, row, client)
-    except Exception as e:
-        return company, domain, None, _run_error(config, e, "classify_row_for_run")
-    return company, domain, output, None
-
-
 async def stream_run_classifications(
     config: EnrichmentPromptConfig,
-    items: list[Any],
-    classify_one: RunClassifyFn,
+    items: list[tuple[OrganizationEnrichmentFetch, str | None]],
     client: OpenAI,
     workers: int = DEFAULT_WORKERS,
 ) -> AsyncIterator[RunClassifyResult]:
-    """Classify each item concurrently, yielding one result as each completes. `classify_one` is
-    classify_fetch_for_run or classify_row_for_run depending on whether the run uses the
-    archived-fetch or the input_query source.
+    """Classify each archived fetch concurrently, yielding one result as each completes.
 
     Async generator on purpose: under ASGI, Django fully buffers a sync iterator before sending
     anything, which silently defeats streaming."""
     loop = asyncio.get_running_loop()
     pool = ThreadPoolExecutor(max_workers=workers)
     try:
-        tasks = [loop.run_in_executor(pool, classify_one, config, item, client) for item in items]
+        tasks = [loop.run_in_executor(pool, classify_fetch_for_run, config, item, client) for item in items]
         for task in asyncio.as_completed(tasks):
             yield await task
     finally:

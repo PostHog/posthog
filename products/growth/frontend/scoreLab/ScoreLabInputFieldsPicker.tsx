@@ -23,15 +23,9 @@ import { scoreLabLogic } from './scoreLabLogic'
 interface ScoreLabInputFieldsPickerProps {
     value: InputFieldsEnumApi[]
     onChange: (next: InputFieldsEnumApi[]) => void
-    /** True while a different input source (the HogQL query) is the one actually sent to the backend. */
-    disabled?: boolean
 }
 
-export function ScoreLabInputFieldsPicker({
-    value,
-    onChange,
-    disabled = false,
-}: ScoreLabInputFieldsPickerProps): JSX.Element {
+export function ScoreLabInputFieldsPicker({ value, onChange }: ScoreLabInputFieldsPickerProps): JSX.Element {
     // Served by the API, which is also what enforces the allow-list on save - a mirrored copy here
     // would offer paths the backend rejects.
     const { inputFieldOptions } = useValues(scoreLabLogic)
@@ -42,7 +36,6 @@ export function ScoreLabInputFieldsPicker({
         <Combobox
             multiple
             autoHighlight
-            disabled={disabled}
             items={inputFieldOptions}
             itemToStringValue={(option: InputFieldApi) => option.label}
             value={selected}
@@ -50,23 +43,16 @@ export function ScoreLabInputFieldsPicker({
                 onChange(next.map((option) => option.value as InputFieldsEnumApi))
             }
         >
-            <ScoreLabInputFieldsPickerBody disabled={disabled} />
+            <ScoreLabInputFieldsPickerBody />
         </Combobox>
     )
 }
 
-function ScoreLabInputFieldsPickerBody({ disabled }: { disabled: boolean }): JSX.Element {
+function ScoreLabInputFieldsPickerBody(): JSX.Element {
     const anchor = useComboboxAnchor()
     return (
         <>
-            {/* The fill carries the disabled affordance, not opacity alone. Quill's own border on this
-                container is stripped by a build-wide packaging bug (border-width computes to 0), so
-                dimming an unfilled, borderless box was invisible. A filled surface still reads as an
-                inactive control once that border comes back. */}
-            <ComboboxChips
-                ref={anchor}
-                className={disabled ? 'pointer-events-none bg-surface-secondary opacity-80' : undefined}
-            >
+            <ComboboxChips ref={anchor}>
                 <ComboboxValue>
                     {(values: InputFieldApi[]) => (
                         <>
@@ -75,7 +61,7 @@ function ScoreLabInputFieldsPickerBody({ disabled }: { disabled: boolean }): JSX
                                     {option.label}
                                 </ComboboxChip>
                             ))}
-                            <ComboboxChipsInput placeholder="Search payload fields..." disabled={disabled} />
+                            <ComboboxChipsInput placeholder="Search payload fields..." />
                         </>
                     )}
                 </ComboboxValue>

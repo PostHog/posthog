@@ -52,13 +52,8 @@ export interface ConfigVersionApi {
     prompt_text: string
     /** Gateway model id this version was authored against. */
     model: string
-    /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Restricted to the allow-list served by GET /input_fields/, because every selected value reaches the LLM and is then stored on the result indefinitely. Ignored when input_query is set. */
+    /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Restricted to the allow-list served by GET /input_fields/, because every selected value reaches the LLM and is then stored on the result indefinitely. */
     input_fields: string[]
-    /**
-     * HogQL SELECT defining classifier input rows, an alternative to input_fields. Null when input_fields is used instead. Each result row becomes one classification input; a 'company' or 'domain' column (if present) is used for display, and every column is passed to the prompt as the Company data JSON keyed by column name.
-     * @nullable
-     */
-    input_query: string | null
     /** Output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. This is the classifier's entire output contract - the label is a human name and is never an output key, so renaming a label changes nothing about what a version computes. Keys must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs'. */
     output_fields: OutputFieldApi[]
     /** Whether the batch runner currently computes this version. */
@@ -70,7 +65,7 @@ export interface ConfigVersionApi {
     readonly created_by_email: string | null
     /** When this version was created. */
     created_at: string
-    /** Whether any EnrichmentLabelResult rows reference this version. Once true the version is frozen - prompt_text, model, input_fields, input_query, and output_fields can never change (FROZEN_FIELDS immutability). The label name is not frozen and can always be renamed. */
+    /** Whether any EnrichmentLabelResult rows reference this version. Informational only: the API never edits a version's content in place, it only creates a new one, so this doesn't gate anything. The label name is not part of a version's content and can always be renamed. */
     readonly has_results: boolean
 }
 
@@ -179,22 +174,17 @@ export interface RunRequestApi {
      * @maxLength 128
      */
     model: string
-    /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Restricted to the allow-list served by GET /input_fields/, because every selected value reaches the LLM and is then stored on the result indefinitely. Ignored when input_query is set. */
+    /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Restricted to the allow-list served by GET /input_fields/, because every selected value reaches the LLM and is then stored on the result indefinitely. */
     input_fields?: InputFieldsEnumApi[]
-    /**
-     * HogQL SELECT defining classifier input rows, an alternative to input_fields. When set, rows are built from this query (capped at `sample` rows) instead of recently archived orgs; 'contains' is ignored. Parsed and validated on submit but never executed until /run/ actually runs.
-     * @nullable
-     */
-    input_query?: string | null
     /** Output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. This is the classifier's entire output contract - the label is a human name and is never an output key, so renaming a label changes nothing about what a version computes. Keys must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs'. */
     output_fields: OutputFieldApi[]
     /**
-     * Number of rows to classify (1-100): recent archived orgs, or HogQL query rows when input_query is set. Each sampled row costs one LLM call, so keep this bounded during iteration.
+     * Number of rows to classify (1-100) from recent archived orgs. Each sampled row costs one LLM call, so keep this bounded during iteration.
      * @minimum 1
      * @maximum 100
      */
     sample?: number
-    /** Optional case-insensitive substring filter on the archived company or organization name. Ignored when input_query is set. */
+    /** Optional case-insensitive substring filter on the archived company or organization name. */
     contains?: string
 }
 
@@ -211,13 +201,8 @@ export interface SaveRequestApi {
      * @maxLength 128
      */
     model: string
-    /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Restricted to the allow-list served by GET /input_fields/, because every selected value reaches the LLM and is then stored on the result indefinitely. Ignored when input_query is set. */
+    /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Restricted to the allow-list served by GET /input_fields/, because every selected value reaches the LLM and is then stored on the result indefinitely. */
     input_fields?: InputFieldsEnumApi[]
-    /**
-     * HogQL SELECT defining classifier input rows, an alternative to input_fields. Parsed and validated on save but never executed - execution only happens on /run/.
-     * @nullable
-     */
-    input_query?: string | null
     /** Output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. This is the classifier's entire output contract - the label is a human name and is never an output key, so renaming a label changes nothing about what a version computes. Keys must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs'. */
     output_fields: OutputFieldApi[]
 }

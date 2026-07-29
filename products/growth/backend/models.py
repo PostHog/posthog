@@ -149,7 +149,7 @@ class EnrichmentPromptConfig(UUIDModel):
     """A versioned LLM classifier definition for one enrichment label (the "score lab" brains).
 
     Rails are code; brains are rows: the label owner iterates prompt/model/input selection by
-    creating new rows through Django admin, without a deploy. A behavior change is always a new
+    creating new rows through the score lab scene, without a deploy. A behavior change is always a new
     row (new version), never an in-place edit - see score_lab.py's save action. `name` is a
     human label for this classifier and nothing reads it as data; the output contract is
     output_fields (see enrichment/labels.py), so renaming a label changes nothing about what the
@@ -164,10 +164,6 @@ class EnrichmentPromptConfig(UUIDModel):
     model = models.CharField(max_length=128)
     # Dotted paths into the archived Harmonic payload fed to the prompt, e.g. ["name", "funding.fundingStage"].
     input_fields = models.JSONField(default=list)
-    # A HogQL SELECT defining the classifier's input rows, an alternative to input_fields. When
-    # set, each result row becomes one classification input (see enrichment/input_query.py);
-    # when null, the input_fields path against the archived Harmonic payload applies as before.
-    input_query = models.TextField(null=True, blank=True)
     # The classifier's entire output contract: list of {"key", "type"
     # ("boolean"|"number"|"string"), "description"}. These are the keys the prompt asks for and
     # the only keys a stored verdict carries — see enrichment/labels.py's build_messages /
@@ -195,6 +191,11 @@ class EnrichmentPromptConfig(UUIDModel):
     def __str__(self) -> str:
         return f"{self.name} {self.version}"
 
+    # Bumped whenever the set of fields below changes. Stored results keep the prefix they were
+    # stamped with, so adding a sixth behavior-defining field stays a readable migration rather
+    # than silently making every historical prompt_hash unrecomputable.
+    CONTENT_HASH_VERSION = "v1"
+
     @property
     def content_hash(self) -> str:
         """Hash of the behavior-defining fields, stamped onto every result so results stay
@@ -204,12 +205,11 @@ class EnrichmentPromptConfig(UUIDModel):
                 "prompt_text": self.prompt_text,
                 "model": self.model,
                 "input_fields": self.input_fields,
-                "input_query": self.input_query,
                 "output_fields": self.output_fields,
             },
             sort_keys=True,
         )
-        return hashlib.sha256(content.encode()).hexdigest()
+        return f"{self.CONTENT_HASH_VERSION}:{hashlib.sha256(content.encode()).hexdigest()}"
 
 
 class EnrichmentLabelResult(UUIDModel):
@@ -238,7 +238,7 @@ class EnrichmentLabelResult(UUIDModel):
     prompt_version = models.CharField(max_length=128)
     # EnrichmentPromptConfig.content_hash at compute time, so the result is self-describing
     # even if the config row is deleted.
-    prompt_hash = models.CharField(max_length=64)
+    prompt_hash = models.CharField(max_length=72)
     model = models.CharField(max_length=128)
     # The config's output_fields keys and their values, e.g. {"ai_pilled": true|false|"unknown",
     # "confidence": float, "reasoning": str}, plus a "meta" provenance key.

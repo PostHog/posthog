@@ -2,7 +2,7 @@ import json
 import datetime as dt
 from io import StringIO
 
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, NonAtomicBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.management import call_command
@@ -11,15 +11,13 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 
-from products.growth.backend.enrichment.input_query import InputQueryError, parse_input_query, rows_from_query_result
 from products.growth.backend.enrichment.labels import (
     UNKNOWN,
     OutputParseError,
     build_messages,
     classify_payload,
-    classify_row,
     signup_domain_for_organization,
 )
 from products.growth.backend.management.commands import enrichment_label_batch as batch_command_module
@@ -102,72 +100,38 @@ class TestClassifyPayloadMissingInput(SimpleTestCase):
         client.chat.completions.create.assert_not_called()
 
 
-class TestClassifyRow(SimpleTestCase):
-    def _config(self, **overrides) -> EnrichmentPromptConfig:
-        defaults = {
-            "name": "test_label",
-            "version": "test-v1",
-            "prompt_text": "judge it. Email: {email}",
-            "model": "gpt-5-mini",
-            "output_fields": _OUTPUT_FIELDS,
-        }
-        defaults.update(overrides)
-        return EnrichmentPromptConfig(**defaults)
-
-    def test_uses_domain_column_and_passes_every_column_as_inputs(self):
-        config = self._config()
-        client = _mock_llm_client()
-        row = {"company": "RowCo", "domain": "rowco.com", "headcount": 50}
-
-        result = classify_row(config, row, client)
-
-        assert result["is_ai"] is True
-        assert result["inputs"] == {"signup_domain": "rowco.com", "fields": row}
-        sent_system = client.chat.completions.create.call_args.kwargs["messages"][0]["content"]
-        assert "rowco.com" in sent_system
-
-    def test_missing_domain_column_falls_back_to_unknown_domain_in_prompt(self):
-        config = self._config()
-        client = _mock_llm_client()
-
-        classify_row(config, {"company": "RowCo"}, client)
-
-        sent_system = client.chat.completions.create.call_args.kwargs["messages"][0]["content"]
-        assert "unknown" in sent_system
+class TestClassifyPayloadEmailReduction(SimpleTestCase):
+    def _config(self) -> EnrichmentPromptConfig:
+        return EnrichmentPromptConfig(
+            name="test_label",
+            version="test-v1",
+            prompt_text="judge it. Email: {email}",
+            model="gpt-5-mini",
+            input_fields=["contact"],
+            output_fields=_OUTPUT_FIELDS,
+        )
 
     @parameterized.expand(
         [
-            ("nested_in_a_list", {"investors": ["alice.secret@rowco.com", "plain"]}),
-            ("nested_in_a_dict", {"contact": {"primary": "alice.secret@rowco.com"}}),
-            ("nested_two_deep", {"team": [{"email": "alice.secret@rowco.com"}]}),
+            ("top_level", "Alice.Secret@RowCo.com"),
+            ("nested_in_a_list", ["alice.secret@rowco.com", "plain"]),
+            ("nested_in_a_dict", {"primary": "alice.secret@rowco.com"}),
+            ("nested_two_deep", [{"email": "alice.secret@rowco.com"}]),
         ]
     )
-    def test_emails_are_reduced_at_any_depth(self, _name, column):
-        # tagsV2 and funding.investors are lists, and a HogQL column can be any JSON shape, so a
-        # top-level-only check leaves the address in the prompt and in the stored snapshot.
+    def test_configured_input_field_emails_are_reduced_to_a_domain_at_any_depth(self, _name, value):
+        # extract_input_fields is the only remaining input path now that query mode (which passed
+        # every selected column through unreduced) is gone - a regression here leaks PII into the
+        # prompt and into EnrichmentLabelResult.inputs indefinitely.
         config = self._config()
         client = _mock_llm_client()
 
-        result = classify_row(config, {"company": "RowCo", **column}, client)
+        result = classify_payload(config, {"contact": value}, "example.com", client)
 
         sent = client.chat.completions.create.call_args.kwargs["messages"]
         rendered = json.dumps(sent) + json.dumps(result["inputs"])
-        assert "alice.secret" not in rendered
-        assert "rowco.com" in rendered
-
-    def test_email_columns_are_reduced_to_a_domain_before_the_prompt_and_the_snapshot(self):
-        # A query can select any column, and whatever it selects is both sent to the LLM and
-        # stored on the result indefinitely - the local part carries no classification signal.
-        config = self._config()
-        client = _mock_llm_client()
-
-        result = classify_row(config, {"company": "RowCo", "domain": "Alice.Secret@RowCo.com"}, client)
-
-        sent = client.chat.completions.create.call_args.kwargs["messages"]
-        rendered = sent[0]["content"] + sent[1]["content"]
         assert "alice.secret" not in rendered.lower()
         assert "rowco.com" in rendered
-        assert result["inputs"] == {"signup_domain": "rowco.com", "fields": {"company": "RowCo", "domain": "rowco.com"}}
 
 
 class TestConfigurableOutputFields(SimpleTestCase):
@@ -177,6 +141,7 @@ class TestConfigurableOutputFields(SimpleTestCase):
             version="test-v1",
             prompt_text="judge it.",
             model="gpt-5-mini",
+            input_fields=["company"],
             output_fields=output_fields,
         )
 
@@ -212,7 +177,7 @@ class TestConfigurableOutputFields(SimpleTestCase):
         )
         client.chat.completions.create.return_value = response
 
-        output = classify_row(config, {"company": "Acme"}, client)
+        output = classify_payload(config, {"company": "Acme"}, None, client)
 
         assert output["is_enterprise"] is True
         assert output["employee_estimate"] == 500.0
@@ -229,7 +194,7 @@ class TestConfigurableOutputFields(SimpleTestCase):
         client.chat.completions.create.return_value = response
 
         with self.assertRaises(ValueError):
-            classify_row(config, {"company": "Acme"}, client)
+            classify_payload(config, {"company": "Acme"}, None, client)
 
     @parameterized.expand(
         [
@@ -249,7 +214,7 @@ class TestConfigurableOutputFields(SimpleTestCase):
         client.chat.completions.create.return_value = response
 
         with self.assertRaises(OutputParseError):
-            classify_row(config, {"company": "Acme"}, client)
+            classify_payload(config, {"company": "Acme"}, None, client)
 
     def test_parses_a_reply_wrapped_in_a_code_fence_or_prose(self):
         config = self._config([{"key": "flag", "type": "boolean", "description": ""}])
@@ -258,37 +223,7 @@ class TestConfigurableOutputFields(SimpleTestCase):
         response.choices[0].message.content = 'Sure!\n```json\n{"flag": "yes"}\n```'
         client.chat.completions.create.return_value = response
 
-        assert classify_row(config, {"company": "Acme"}, client)["flag"] is True
-
-
-class TestInputQueryParsing(SimpleTestCase):
-    def test_valid_select_parses(self):
-        node = parse_input_query("SELECT event, timestamp FROM events LIMIT 10")
-        assert node is not None
-
-    def test_syntax_error_raises_input_query_error(self):
-        with self.assertRaises(InputQueryError):
-            parse_input_query("SELEC nonsense !!! FRM")
-
-    def test_non_select_statement_raises_input_query_error(self):
-        with self.assertRaises(InputQueryError):
-            parse_input_query("INSERT INTO events (event) VALUES ('x')")
-
-
-class TestRowsFromQueryResult(SimpleTestCase):
-    def test_maps_columns_to_row_dicts(self):
-        rows = rows_from_query_result(["company", "domain"], [["Acme", "acme.com"], ["Widgets", None]])
-        assert rows == [{"company": "Acme", "domain": "acme.com"}, {"company": "Widgets", "domain": None}]
-
-    @parameterized.expand(
-        [
-            ("no_columns", None, [["a"]]),
-            ("no_results", ["a"], None),
-            ("empty_results", ["a"], []),
-        ]
-    )
-    def test_empty_input_returns_no_rows(self, _name, columns, results):
-        assert rows_from_query_result(columns, results) == []
+        assert classify_payload(config, {"company": "Acme"}, None, client)["flag"] is True
 
 
 class TestEnrichmentLabelBatch(BaseTest):
@@ -436,28 +371,6 @@ class TestEnrichmentLabelBatch(BaseTest):
 
         assert EnrichmentLabelResult.objects.filter(label_name="renamed_label").count() == 1
         assert EnrichmentLabelResult.objects.filter(label_name="test_label").count() == 0
-
-    def test_refuses_an_input_query_config_before_spending_anything(self):
-        # classify_payload reads input_fields, so running a query-mode config would bill one LLM
-        # call per org against an empty input dict and persist the answers under a real version.
-        EnrichmentPromptConfig.objects.create(
-            name="test_label",
-            version="v1",
-            prompt_text="... Email: {email}",
-            model="gpt-5-mini",
-            input_query="SELECT 1 as x",
-            output_fields=_OUTPUT_FIELDS,
-            is_active=True,
-        )
-        self._fetch()
-        client = _mock_llm_client()
-
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
-            with self.assertRaises(CommandError):
-                call_command("enrichment_label_batch", label="test_label", workers=1)
-
-        client.chat.completions.create.assert_not_called()
-        assert EnrichmentLabelResult.objects.count() == 0
 
     def test_rejects_invalid_worker_and_sample_counts(self):
         self._config()
@@ -639,3 +552,45 @@ class TestEnrichmentLabelDryRun(BaseTest):
         # doesn't invent a value for a key it never asked for.
         assert "true" in printed and "0.85" in printed
         assert current.output_fields == [{"key": "is_ai", "type": "boolean", "description": ""}]
+
+
+class TestEnrichmentLabelBatchConcurrency(NonAtomicBaseTest):
+    """Non-atomic on purpose: worker threads get their own DB connections, so under the usual
+    transactional base they would never see rows the test created and the run would classify
+    nothing while still passing a naive assertion."""
+
+    def _config(self) -> EnrichmentPromptConfig:
+        return EnrichmentPromptConfig.objects.create(
+            name="test_label",
+            version="v1",
+            prompt_text="... Email: {email}",
+            model="gpt-5-mini",
+            input_fields=["name"],
+            output_fields=_OUTPUT_FIELDS,
+            is_active=True,
+        )
+
+    def test_concurrent_workers_pay_for_each_fetch_exactly_once(self):
+        # The pre-spend existence re-check inside the worker is the only thing stopping two
+        # threads paying for the same fetch, and prod runs with workers > 1 while every other
+        # command test runs serially. A regression here is billed twice, not just wrong.
+        self._config()
+        for index in range(4):
+            OrganizationEnrichmentFetch.objects.create(
+                organization=Organization.objects.create(name=f"org-{index}"),
+                provider="harmonic",
+                payload={"name": f"Acme {index}"},
+            )
+        client = _mock_llm_client()
+
+        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+            call_command("enrichment_label_batch", label="test_label", workers=2)
+
+        assert client.chat.completions.create.call_count == 4
+        assert EnrichmentLabelResult.objects.count() == 4
+
+        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+            call_command("enrichment_label_batch", label="test_label", workers=2)
+
+        assert client.chat.completions.create.call_count == 4
+        assert EnrichmentLabelResult.objects.count() == 4

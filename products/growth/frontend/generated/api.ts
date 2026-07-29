@@ -201,8 +201,8 @@ export const getGrowthScoreLabRunCreateUrl = (params?: GrowthScoreLabRunCreatePa
 }
 
 /**
- * One JSON object per line: a {company, domain, outputs: {<key>: value, ...}} row as each LLM call completes, keyed by the submitted output_fields, then a final {summary: {classified, unknown, errors}} line. A run that fails partway ends with {error, aborted: true} instead of a summary. When input_query is set, rows are built from that HogQL query (capped at `sample`) instead of recently archived orgs. Persists nothing - spends real LLM money, so sample is capped at 100 and the endpoint is rate limited.
- * @summary Stream classifier verdicts for an unsaved draft config against recent archived orgs or a HogQL input query.
+ * One JSON object per line: a {company, domain, outputs: {<key>: value, ...}} row as each LLM call completes, keyed by the submitted output_fields, then a final {summary: {classified, unknown, errors}} line. A run that fails partway ends with {error, aborted: true} instead of a summary. Persists nothing - spends real LLM money, so sample is capped at 100 and the endpoint is rate limited.
+ * @summary Stream classifier verdicts for an unsaved draft config against recent archived orgs.
  */
 export const growthScoreLabRunCreate = async (
     runRequestApi: RunRequestApi,

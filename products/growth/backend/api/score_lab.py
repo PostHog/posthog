@@ -22,7 +22,7 @@ from django.http.response import HttpResponseBase
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiResponse, extend_schema
-from rest_framework import renderers, request, response, serializers, status, viewsets
+from rest_framework import renderers, request, response, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
@@ -51,13 +51,9 @@ from products.growth.backend.api.score_lab_serializers import (
     RunRequestSerializer,
     SaveRequestSerializer,
 )
-from products.growth.backend.enrichment.input_query import InputQueryError, run_input_query
 from products.growth.backend.enrichment.lab import (
     HARMONIC_INPUT_FIELDS,
     MAX_SAMPLE_SIZE,
-    RunClassifyFn,
-    classify_fetch_for_run,
-    classify_row_for_run,
     format_run_row,
     list_gateway_models,
     stream_run_classifications,
@@ -68,13 +64,9 @@ from products.growth.backend.enrichment.labels import (
     signup_domain_for_organization,
     verdict_field_key,
 )
-from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig
+from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, OrganizationEnrichmentFetch
 
 logger = structlog.get_logger(__name__)
-
-# (items, how to classify one of them, source name for logging). The archived-fetch source
-# yields (fetch, signup_domain) pairs, the HogQL source yields plain result rows.
-RunInputs = tuple[list[Any], RunClassifyFn, str]
 
 # Server-assigned version identity. Legacy hand-written versions (ai-pilled-clay-v1) don't match
 # and are simply skipped when picking the next one.
@@ -96,19 +88,15 @@ def _next_version(label: str) -> str:
     return f"v{highest + 1}"
 
 
-def _build_run_inputs(data: dict[str, Any]) -> RunInputs:
-    """All the ORM/ClickHouse work a run needs, done up front on the request thread: workers
-    only make LLM calls (see stream_run_classifications), so no query runs mid-stream."""
-    if data["input_query"]:
-        return run_input_query(data["input_query"], data["sample"]), classify_row_for_run, "query"
-
+def _build_run_inputs(data: dict[str, Any]) -> list[tuple[OrganizationEnrichmentFetch, str | None]]:
+    """All the ORM work a run needs, done up front on the request thread: workers only make LLM
+    calls (see stream_run_classifications), so no query runs mid-stream."""
     candidates = recent_latest_fetches_qs()
     contains = data["contains"].strip()
     if contains:
         candidates = candidates.filter(Q(payload__name__icontains=contains) | Q(organization__name__icontains=contains))
     fetches = list(candidates.select_related("organization")[: data["sample"]])
-    items = [(fetch, signup_domain_for_organization(fetch.organization)) for fetch in fetches]
-    return items, classify_fetch_for_run, "archived_fetch"
+    return [(fetch, signup_domain_for_organization(fetch.organization)) for fetch in fetches]
 
 
 class NDJSONRenderer(renderers.BaseRenderer):
@@ -208,14 +196,12 @@ class ScoreLabViewSet(viewsets.ViewSet):
     @extend_schema(
         request=RunRequestSerializer,
         responses={(200, "application/x-ndjson"): OpenApiTypes.STR},
-        summary="Stream classifier verdicts for an unsaved draft config against recent archived orgs or a "
-        "HogQL input query.",
+        summary="Stream classifier verdicts for an unsaved draft config against recent archived orgs.",
         description="One JSON object per line: a {company, domain, outputs: {<key>: value, ...}} row as each "
         "LLM call completes, keyed by the submitted output_fields, then a final "
         "{summary: {classified, unknown, errors}} line. A run that fails partway ends with "
-        "{error, aborted: true} instead of a summary. When input_query is set, rows are built from that "
-        "HogQL query (capped at `sample`) instead of recently archived orgs. Persists nothing - spends real "
-        f"LLM money, so sample is capped at {MAX_SAMPLE_SIZE} and the endpoint is rate limited.",
+        "{error, aborted: true} instead of a summary. Persists nothing - spends real LLM money, so sample is "
+        f"capped at {MAX_SAMPLE_SIZE} and the endpoint is rate limited.",
     )
     @action(
         methods=["POST"],
@@ -236,16 +222,10 @@ class ScoreLabViewSet(viewsets.ViewSet):
             prompt_text=data["prompt_text"],
             model=data["model"],
             input_fields=data["input_fields"],
-            input_query=data["input_query"],
             output_fields=data["output_fields"],
         )
 
-        try:
-            items, classify_one, input_source = _build_run_inputs(data)
-        except InputQueryError as e:
-            # A query can parse at save time and still fail to execute (unresolved placeholder,
-            # unknown column). That's bad input from the query box, not a server fault.
-            raise serializers.ValidationError({"input_query": str(e)})
+        items = _build_run_inputs(data)
         client = get_llm_client(product="growth")
 
         logger.info(
@@ -254,7 +234,6 @@ class ScoreLabViewSet(viewsets.ViewSet):
             was_impersonated=is_impersonated(request),
             label=data["label"],
             model=data["model"],
-            input_source=input_source,
             sample_requested=data["sample"],
             sample_matched=len(items),
         )
@@ -267,9 +246,7 @@ class ScoreLabViewSet(viewsets.ViewSet):
         async def _stream() -> AsyncIterator[bytes]:
             classified = unknown = errors = 0
             try:
-                async for company, domain, output, error in stream_run_classifications(
-                    draft_config, items, classify_one, client
-                ):
+                async for company, domain, output, error in stream_run_classifications(draft_config, items, client):
                     if error is not None:
                         errors += 1
                     elif verdict_key is not None and output is not None and output.get(verdict_key) == UNKNOWN:
@@ -318,7 +295,6 @@ class ScoreLabViewSet(viewsets.ViewSet):
                     prompt_text=data["prompt_text"],
                     model=data["model"],
                     input_fields=data["input_fields"],
-                    input_query=data["input_query"],
                     output_fields=data["output_fields"],
                     is_active=False,
                     created_by=cast(User, request.user),

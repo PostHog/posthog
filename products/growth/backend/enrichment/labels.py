@@ -29,15 +29,16 @@ UNKNOWN: Literal["unknown"] = "unknown"
 # below - single source of truth so the two can never drift.
 OUTPUT_FIELD_KEY_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 OUTPUT_FIELD_TYPES = ("boolean", "number", "string")
-# Keys the stored output dict uses for provenance (see classify_payload/classify_row below) -
+# Keys the stored output dict uses for provenance (see classify_payload below) -
 # a configured output field can never shadow them.
 RESERVED_OUTPUT_FIELD_KEYS = frozenset({"meta", "inputs"})
 
 _TRUE_STRINGS = frozenset({"true", "yes", "y", "1"})
 _FALSE_STRINGS = frozenset({"false", "no", "n", "0"})
 
-# Per-call token bounds, both directions. An input_query column is whatever the query selected, so
-# without these a single fat row sets the bill for the whole run.
+# Per-call token bounds, both directions. A configured input_fields value can be an arbitrarily
+# large payload field (e.g. tagsV2, funding.investors), so without these a single company's
+# payload sets the bill for the whole run.
 MAX_INPUT_COLUMNS = 40
 MAX_INPUT_VALUE_CHARS = 4000
 MAX_INPUT_LIST_ITEMS = 50
@@ -64,12 +65,12 @@ def to_domain(value: Any) -> Any:
     """Reduce anything that looks like an email address to its domain, at any depth.
 
     Applied to every value on its way to the prompt, because the values also land in
-    EnrichmentLabelResult.inputs and stay there: a provider field or a query column that happens
-    to hold a personal address would otherwise be stored indefinitely. The local part carries no
-    classification signal anyway - only the company domain does.
+    EnrichmentLabelResult.inputs and stay there: a provider field that happens to hold a personal
+    address would otherwise be stored indefinitely. The local part carries no classification
+    signal anyway - only the company domain does.
 
-    Recurses because the values are not all scalars: tagsV2 and funding.investors are lists, and
-    a HogQL column can be any JSON shape, so a top-level-only check leaves nested addresses through.
+    Recurses because the values are not all scalars: tagsV2 and funding.investors are lists, so a
+    top-level-only check leaves nested addresses through.
     """
     if isinstance(value, str):
         return value.rsplit("@", 1)[1].lower() if "@" in value else value
@@ -111,9 +112,9 @@ def _output_instruction(config: EnrichmentPromptConfig) -> str:
 
 
 def _bounded(value: Any) -> Any:
-    """Cap a single value's contribution to the prompt. A HogQL column can be an arbitrarily long
-    string or list, and one row with a 200 KB description would otherwise set the bill for the
-    whole run."""
+    """Cap a single value's contribution to the prompt. An input_fields value can be an
+    arbitrarily long string or list (e.g. description, tagsV2), and one company payload with a
+    200 KB description would otherwise set the bill for the whole run."""
     if isinstance(value, str) and len(value) > MAX_INPUT_VALUE_CHARS:
         return value[:MAX_INPUT_VALUE_CHARS] + "…"
     if isinstance(value, list) and len(value) > MAX_INPUT_LIST_ITEMS:
@@ -272,22 +273,6 @@ def classify_payload(
     messages = build_messages(config, inputs, signup_domain)
     output, meta = _call_and_parse(config, messages, client)
     output["inputs"] = {"signup_domain": signup_domain, "fields": inputs}
-    if meta:
-        output["meta"] = meta
-    return output
-
-
-def classify_row(config: EnrichmentPromptConfig, row: dict[str, Any], client: OpenAI) -> dict[str, Any]:
-    """Classify one HogQL input_query result row (see enrichment/input_query.py). Every column is
-    passed to the prompt, reduced to a domain if it looks like an email address (see to_domain);
-    a "domain" column, if present, replaces {email} the same way signup_domain does for the
-    archived-payload path (classify_payload)."""
-    fields = {column: to_domain(value) for column, value in row.items()}
-    domain = fields.get("domain")
-    signup_domain = domain if isinstance(domain, str) else None
-    messages = build_messages(config, fields, signup_domain)
-    output, meta = _call_and_parse(config, messages, client)
-    output["inputs"] = {"signup_domain": signup_domain, "fields": fields}
     if meta:
         output["meta"] = meta
     return output

@@ -25,12 +25,12 @@ export const manifest: ProductManifest = {
     },
     routes: {
         '/identity-matching': ['IdentityMatching', 'identityMatching'],
-        '/score_lab': ['ScoreLab', 'scoreLab'],
-        '/score_lab/:label': ['ScoreLab', 'scoreLab'],
+        '/score-lab': ['ScoreLab', 'scoreLab'],
+        '/score-lab/:label': ['ScoreLab', 'scoreLab'],
     },
     urls: {
         identityMatching: (): string => '/identity-matching',
-        scoreLab: (label?: string): string => `/score_lab${label ? `/${label}` : ''}`,
+        scoreLab: (label?: string): string => `/score-lab${label ? `/${label}` : ''}`,
     },
     treeItemsProducts: [
         {

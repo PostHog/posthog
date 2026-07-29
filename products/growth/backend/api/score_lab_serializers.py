@@ -9,7 +9,6 @@ from typing import Any
 from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 
-from products.growth.backend.enrichment.input_query import InputQueryError, parse_input_query
 from products.growth.backend.enrichment.lab import (
     DEFAULT_SAMPLE_SIZE,
     HARMONIC_INPUT_FIELD_PATHS,
@@ -37,7 +36,7 @@ _PROMPT_TEXT_HELP = "System prompt; {email} is replaced with the signup email do
 _INPUT_FIELDS_HELP = (
     "Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Restricted to "
     "the allow-list served by GET /input_fields/, because every selected value reaches the LLM and is then stored "
-    "on the result indefinitely. Ignored when input_query is set."
+    "on the result indefinitely."
 )
 
 
@@ -69,16 +68,6 @@ def _validate_output_field_keys_are_unique(value: list[dict[str, str]]) -> list[
     duplicates = {key for key in keys if keys.count(key) > 1}
     if duplicates:
         raise serializers.ValidationError(f"Duplicate output field key {sorted(duplicates)[0]!r}.")
-    return value
-
-
-def _validate_input_query(value: str | None) -> str | None:
-    if not value:
-        return None
-    try:
-        parse_input_query(value)
-    except InputQueryError as e:
-        raise serializers.ValidationError(str(e))
     return value
 
 
@@ -130,13 +119,6 @@ class ConfigVersionSerializer(serializers.Serializer):
     prompt_text = serializers.CharField(help_text=_PROMPT_TEXT_HELP)
     model = serializers.CharField(help_text="Gateway model id this version was authored against.")
     input_fields = serializers.ListField(child=serializers.CharField(), help_text=_INPUT_FIELDS_HELP)
-    input_query = serializers.CharField(
-        allow_null=True,
-        help_text="HogQL SELECT defining classifier input rows, an alternative to input_fields. Null when "
-        "input_fields is used instead. Each result row becomes one classification input; a 'company' or "
-        "'domain' column (if present) is used for display, and every column is passed to the prompt as the "
-        "Company data JSON keyed by column name.",
-    )
     output_fields = OutputFieldSerializer(many=True, help_text=_OUTPUT_FIELDS_HELP)
     is_active = serializers.BooleanField(help_text="Whether the batch runner currently computes this version.")
     created_by_email = serializers.SerializerMethodField(
@@ -181,34 +163,21 @@ class RunRequestSerializer(serializers.Serializer):
         default=list,
         help_text=_INPUT_FIELDS_HELP,
     )
-    input_query = serializers.CharField(
-        required=False,
-        allow_null=True,
-        allow_blank=True,
-        default=None,
-        help_text="HogQL SELECT defining classifier input rows, an alternative to input_fields. When set, rows "
-        "are built from this query (capped at `sample` rows) instead of recently archived orgs; 'contains' is "
-        "ignored. Parsed and validated on submit but never executed until /run/ actually runs.",
-    )
     output_fields = OutputFieldSerializer(many=True, allow_empty=False, help_text=_OUTPUT_FIELDS_HELP)
     sample = serializers.IntegerField(
         required=False,
         default=DEFAULT_SAMPLE_SIZE,
         min_value=1,
         max_value=MAX_SAMPLE_SIZE,
-        help_text=f"Number of rows to classify (1-{MAX_SAMPLE_SIZE}): recent archived orgs, or HogQL query rows "
-        "when input_query is set. Each sampled row costs one LLM call, so keep this bounded during iteration.",
+        help_text=f"Number of rows to classify (1-{MAX_SAMPLE_SIZE}) from recent archived orgs. Each sampled row "
+        "costs one LLM call, so keep this bounded during iteration.",
     )
     contains = serializers.CharField(
         required=False,
         default="",
         allow_blank=True,
-        help_text="Optional case-insensitive substring filter on the archived company or organization name. "
-        "Ignored when input_query is set.",
+        help_text="Optional case-insensitive substring filter on the archived company or organization name.",
     )
-
-    def validate_input_query(self, value: str | None) -> str | None:
-        return _validate_input_query(value)
 
     def validate_output_fields(self, value: list[dict[str, str]]) -> list[dict[str, str]]:
         return _validate_output_field_keys_are_unique(value)
@@ -246,18 +215,7 @@ class SaveRequestSerializer(serializers.Serializer):
         default=list,
         help_text=_INPUT_FIELDS_HELP,
     )
-    input_query = serializers.CharField(
-        required=False,
-        allow_null=True,
-        allow_blank=True,
-        default=None,
-        help_text="HogQL SELECT defining classifier input rows, an alternative to input_fields. Parsed and "
-        "validated on save but never executed - execution only happens on /run/.",
-    )
     output_fields = OutputFieldSerializer(many=True, allow_empty=False, help_text=_OUTPUT_FIELDS_HELP)
-
-    def validate_input_query(self, value: str | None) -> str | None:
-        return _validate_input_query(value)
 
     def validate_output_fields(self, value: list[dict[str, str]]) -> list[dict[str, str]]:
         return _validate_output_field_keys_are_unique(value)

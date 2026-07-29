@@ -51,13 +51,6 @@ class Command(BaseCommand):
         config = get_active_config(label)
         if config is None:
             raise CommandError(f"No active EnrichmentPromptConfig for label {label!r}")
-        # classify_payload below reads config.input_fields, so a query-mode config would bill one
-        # LLM call per org against an empty input dict and persist the answers under a real version.
-        if config.input_query:
-            raise CommandError(
-                f"Config {label} {config.version} uses a HogQL input_query, which the batch runner does not "
-                "support yet. Only the archived-payload path is wired through."
-            )
         # A custom output schema's pass/fail key differs from `label` - see
         # verdict_field_key's docstring. Resolved once since config doesn't change mid-run.
         verdict_key = verdict_field_key(config)

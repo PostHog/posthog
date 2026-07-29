@@ -4,11 +4,9 @@ import { IconPlus, IconTrash } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
-    LemonCollapse,
     LemonDialog,
     LemonInput,
     LemonSelect,
-    LemonSwitch,
     LemonTable,
     LemonTableColumns,
     LemonTag,
@@ -26,17 +24,20 @@ import { userLogic } from 'scenes/userLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { type ConfigVersionApi, type LabelSummaryApi, OutputFieldTypeEnumApi } from '../generated/api.schemas'
+import {
+    type ConfigVersionApi,
+    type InputFieldsEnumApi,
+    type LabelSummaryApi,
+    OutputFieldTypeEnumApi,
+} from '../generated/api.schemas'
 import { growthScoreLabRunCreateBodySampleMax } from '../generated/api.zod'
 import { ScoreLabInputFieldsPicker } from './ScoreLabInputFieldsPicker'
-import { inputDisabledReason } from './scoreLabInputPayload'
 import { scoreLabLogic } from './scoreLabLogic'
 import {
     outputFieldsDisabledReason,
     type ScoreLabOutputField,
     type ScoreLabOutputFieldType,
 } from './scoreLabOutputFields'
-import { SCORE_LAB_QUERY_EXAMPLES, SCORE_LAB_REFERENCE_TABLES } from './scoreLabQueryExamples'
 import { ScoreLabResultsTable } from './ScoreLabResultsTable'
 
 export const scene: SceneExport = {
@@ -246,79 +247,17 @@ function ScoreLabOutputFieldsEditor(): JSX.Element {
     )
 }
 
-function ScoreLabQueryEditor({
-    active,
-    onActiveChange,
-    value,
-    onChange,
-}: {
-    active: boolean
-    onActiveChange: (active: boolean) => void
-    value: string
-    onChange: (value: string) => void
-}): JSX.Element {
-    return (
-        <div className="space-y-2">
-            <LemonSwitch checked={active} onChange={onActiveChange} label="Use this query as the input" bordered />
-            <CodeEditor
-                className="border"
-                language="hogQL"
-                value={value}
-                onChange={(v) => onChange(v ?? '')}
-                height={160}
-                options={{ minimap: { enabled: false }, wordWrap: 'on', readOnly: !active }}
-            />
-            <div className="flex flex-wrap gap-1.5">
-                {SCORE_LAB_QUERY_EXAMPLES.map((example) => (
-                    <LemonButton
-                        key={example.label}
-                        type="secondary"
-                        size="xsmall"
-                        onClick={() => onChange(example.query)}
-                    >
-                        {example.label}
-                    </LemonButton>
-                ))}
-            </div>
-            <div className="bg-bg-light border rounded p-3 space-y-2 text-xs text-secondary">
-                <p className="m-0">
-                    Runs as a HogQL <code>SELECT</code> against this project. Select from <code>events</code>,{' '}
-                    <code>persons</code>, <code>groups</code>, or a synced data warehouse table. Each result row becomes
-                    one classification input, and every column in that row is passed to the prompt.
-                </p>
-                {SCORE_LAB_REFERENCE_TABLES.map((table) => (
-                    <div key={table.table}>
-                        <div className="font-semibold text-default">
-                            <code>{table.table}</code>: {table.description}
-                        </div>
-                        <div className="flex flex-wrap gap-x-3 gap-y-0.5">
-                            {table.columns.map((column) => (
-                                <span key={column.name}>
-                                    <code>{column.name}</code> <span>{column.type}</span>
-                                </span>
-                            ))}
-                        </div>
-                    </div>
-                ))}
-            </div>
-        </div>
-    )
-}
-
 function ScoreLabEditorPanel(): JSX.Element {
     const {
         editorPromptText,
         editorModel,
         editorInputFields,
-        editorInputMode,
-        editorInputQuery,
         isEditorDirty,
         modelOptions,
         selectedVersion,
         selectedVersionId,
     } = useValues(scoreLabLogic)
-    const { setEditorPromptText, setEditorModel, setEditorInputFields, setEditorInputMode, setEditorInputQuery } =
-        useActions(scoreLabLogic)
+    const { setEditorPromptText, setEditorModel, setEditorInputFields } = useActions(scoreLabLogic)
 
     return (
         <div className="space-y-2">
@@ -352,52 +291,11 @@ function ScoreLabEditorPanel(): JSX.Element {
                 options={{ minimap: { enabled: false }, wordWrap: 'on' }}
             />
             <div className="space-y-1">
-                <span className="font-semibold">Input</span>
-                <div className="space-y-1">
-                    <span className="text-secondary text-xs">
-                        {editorInputMode === 'fields'
-                            ? "Fields from the org's archived company-data snapshot, passed to the prompt for each sampled org."
-                            : 'Not used while the query below is active.'}
-                    </span>
-                    <ScoreLabInputFieldsPicker
-                        value={editorInputFields}
-                        onChange={setEditorInputFields}
-                        disabled={editorInputMode === 'query'}
-                    />
-                </div>
-                {/* Expanding this only reveals the query editor; it never changes editorInputMode by
-                    itself, so reading the reference doesn't silently swap what gets sent on save/run.
-                    Keyed by version so loading a query-mode config opens it without coupling later
-                    manual expand/collapse to the mode. */}
-                <LemonCollapse
-                    key={selectedVersionId ?? 'unloaded'}
-                    defaultActiveKey={editorInputMode === 'query' ? 'query' : undefined}
-                    panels={[
-                        {
-                            key: 'query',
-                            // The switch lives inside the panel, so a collapsed header is the only
-                            // thing on screen when query mode is on. It has to say so itself.
-                            header: (
-                                <span className="flex min-w-0 items-center gap-2">
-                                    <span className="truncate">Advanced: write a HogQL query</span>
-                                    {editorInputMode === 'query' && (
-                                        <LemonTag type="primary" size="small" className="shrink-0">
-                                            Active
-                                        </LemonTag>
-                                    )}
-                                </span>
-                            ),
-                            content: (
-                                <ScoreLabQueryEditor
-                                    active={editorInputMode === 'query'}
-                                    onActiveChange={(active) => setEditorInputMode(active ? 'query' : 'fields')}
-                                    value={editorInputQuery}
-                                    onChange={setEditorInputQuery}
-                                />
-                            ),
-                        },
-                    ]}
-                />
+                <span className="font-semibold">Input fields</span>
+                <span className="text-secondary text-xs">
+                    Fields from the org's archived company-data snapshot, passed to the prompt for each sampled org.
+                </span>
+                <ScoreLabInputFieldsPicker value={editorInputFields} onChange={setEditorInputFields} />
             </div>
             <div className="space-y-1">
                 <span className="font-semibold">Output fields</span>
@@ -405,6 +303,10 @@ function ScoreLabEditorPanel(): JSX.Element {
             </div>
         </div>
     )
+}
+
+function inputFieldsDisabledReason(fields: InputFieldsEnumApi[]): string | undefined {
+    return fields.length > 0 ? undefined : 'Select at least one payload field'
 }
 
 function runDisabledReason(
@@ -436,13 +338,11 @@ function ScoreLabRunControls(): JSX.Element {
         isRunning,
         saveResultLoading,
         editorPromptText,
-        editorInputMode,
         editorInputFields,
-        editorInputQuery,
         editorOutputFields,
     } = useValues(scoreLabLogic)
     const { setSampleSize, setContainsFilter, runClassification } = useActions(scoreLabLogic)
-    const inputReason = inputDisabledReason(editorInputMode, editorInputFields, editorInputQuery)
+    const inputReason = inputFieldsDisabledReason(editorInputFields)
     const outputReason = outputFieldsDisabledReason(editorOutputFields)
 
     return (
@@ -469,7 +369,6 @@ function ScoreLabRunControls(): JSX.Element {
                     placeholder="Filter by company or org name"
                     value={containsFilter}
                     onChange={setContainsFilter}
-                    disabled={editorInputMode === 'query'}
                 />
             </div>
             <LemonButton
@@ -490,17 +389,10 @@ function ScoreLabRunControls(): JSX.Element {
 }
 
 function ScoreLabSaveControls(): JSX.Element {
-    const {
-        saveResultLoading,
-        selectedLabel,
-        isRunning,
-        editorInputMode,
-        editorInputFields,
-        editorInputQuery,
-        editorOutputFields,
-    } = useValues(scoreLabLogic)
+    const { saveResultLoading, selectedLabel, isRunning, editorInputFields, editorOutputFields } =
+        useValues(scoreLabLogic)
     const { saveVersion } = useActions(scoreLabLogic)
-    const inputReason = inputDisabledReason(editorInputMode, editorInputFields, editorInputQuery)
+    const inputReason = inputFieldsDisabledReason(editorInputFields)
     const outputReason = outputFieldsDisabledReason(editorOutputFields)
 
     return (

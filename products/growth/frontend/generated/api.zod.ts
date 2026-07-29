@@ -42,8 +42,8 @@ export const GrowthScoreLabRenameCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * One JSON object per line: a {company, domain, outputs: {<key>: value, ...}} row as each LLM call completes, keyed by the submitted output_fields, then a final {summary: {classified, unknown, errors}} line. A run that fails partway ends with {error, aborted: true} instead of a summary. When input_query is set, rows are built from that HogQL query (capped at `sample`) instead of recently archived orgs. Persists nothing - spends real LLM money, so sample is capped at 100 and the endpoint is rate limited.
- * @summary Stream classifier verdicts for an unsaved draft config against recent archived orgs or a HogQL input query.
+ * One JSON object per line: a {company, domain, outputs: {<key>: value, ...}} row as each LLM call completes, keyed by the submitted output_fields, then a final {summary: {classified, unknown, errors}} line. A run that fails partway ends with {error, aborted: true} instead of a summary. Persists nothing - spends real LLM money, so sample is capped at 100 and the endpoint is rate limited.
+ * @summary Stream classifier verdicts for an unsaved draft config against recent archived orgs.
  */
 export const growthScoreLabRunCreateBodyLabelMax = 128
 
@@ -93,13 +93,7 @@ export const GrowthScoreLabRunCreateBody = /* @__PURE__ */ zod.object({
         )
         .optional()
         .describe(
-            'Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Restricted to the allow-list served by GET \/input_fields\/, because every selected value reaches the LLM and is then stored on the result indefinitely. Ignored when input_query is set.'
-        ),
-    input_query: zod
-        .string()
-        .nullish()
-        .describe(
-            "HogQL SELECT defining classifier input rows, an alternative to input_fields. When set, rows are built from this query (capped at `sample` rows) instead of recently archived orgs; 'contains' is ignored. Parsed and validated on submit but never executed until \/run\/ actually runs."
+            'Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Restricted to the allow-list served by GET \/input_fields\/, because every selected value reaches the LLM and is then stored on the result indefinitely.'
         ),
     output_fields: zod
         .array(
@@ -131,14 +125,12 @@ export const GrowthScoreLabRunCreateBody = /* @__PURE__ */ zod.object({
         .max(growthScoreLabRunCreateBodySampleMax)
         .default(growthScoreLabRunCreateBodySampleDefault)
         .describe(
-            'Number of rows to classify (1-100): recent archived orgs, or HogQL query rows when input_query is set. Each sampled row costs one LLM call, so keep this bounded during iteration.'
+            'Number of rows to classify (1-100) from recent archived orgs. Each sampled row costs one LLM call, so keep this bounded during iteration.'
         ),
     contains: zod
         .string()
         .default(growthScoreLabRunCreateBodyContainsDefault)
-        .describe(
-            'Optional case-insensitive substring filter on the archived company or organization name. Ignored when input_query is set.'
-        ),
+        .describe('Optional case-insensitive substring filter on the archived company or organization name.'),
 })
 
 /**
@@ -195,13 +187,7 @@ export const GrowthScoreLabSaveCreateBody = /* @__PURE__ */ zod.object({
         )
         .optional()
         .describe(
-            'Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Restricted to the allow-list served by GET \/input_fields\/, because every selected value reaches the LLM and is then stored on the result indefinitely. Ignored when input_query is set.'
-        ),
-    input_query: zod
-        .string()
-        .nullish()
-        .describe(
-            'HogQL SELECT defining classifier input rows, an alternative to input_fields. Parsed and validated on save but never executed - execution only happens on \/run\/.'
+            'Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Restricted to the allow-list served by GET \/input_fields\/, because every selected value reaches the LLM and is then stored on the result indefinitely.'
         ),
     output_fields: zod
         .array(
