@@ -112,6 +112,14 @@ class AccountDueForSlackSummary:
 
 
 @dataclass(frozen=True)
+class AccountSlackSummaryBinding:
+    """An account's current summary opt-in: its cadence and bound Slack channel."""
+
+    cadence: str
+    slack_channel_id: str
+
+
+@dataclass(frozen=True)
 class AccountChannelSummaryView:
     """A stored channel summary as returned by the account summaries endpoint."""
 

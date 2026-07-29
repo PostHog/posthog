@@ -14,6 +14,7 @@ from products.conversations.backend.temporal.channel_summary.summarize import (
     _resolve_mentions,
     _slack_permalink,
 )
+from products.customer_analytics.backend.facade import api as customer_analytics
 from products.customer_analytics.backend.test.factories import create_account
 
 COORD_MODULE = "products.conversations.backend.temporal.channel_summary.coordinator"
@@ -50,6 +51,40 @@ class TestCollectDueChannels(BaseTest):
             assert due[0].slack_channel_id == "C123"
             # Periods cross the activity boundary as parseable ISO strings.
             assert datetime.fromisoformat(due[0].period_start) < datetime.fromisoformat(due[0].period_end)
+
+    def test_one_team_cannot_monopolize_the_per_run_cap(self):
+        for i in range(3):
+            create_account(
+                team_id=self.team.id,
+                slack_summary_cadence="daily",
+                _properties={"slack_channel_id": f"C{i}"},
+            )
+
+        with (
+            patch(f"{COORD_MODULE}.get_support_slack_bot_token", return_value="xoxb-token"),
+            patch(f"{COORD_MODULE}.MAX_SUMMARIES_PER_TEAM_PER_RUN", 2),
+        ):
+            due = _collect_due_channels()
+
+        assert len(due) == 2
+
+    @parameterized.expand(
+        [
+            ("opted_in", "daily", {"slack_channel_id": "C123"}, ("daily", "C123")),
+            ("cadence_off", None, {"slack_channel_id": "C123"}, None),
+            ("channel_unbound", "daily", {}, None),
+        ]
+    )
+    def test_get_account_slack_summary_binding(self, _name, cadence, properties, expected):
+        account = create_account(team_id=self.team.id, slack_summary_cadence=cadence, _properties=properties)
+
+        binding = customer_analytics.get_account_slack_summary_binding(self.team.id, str(account.id))
+
+        if expected is None:
+            assert binding is None
+        else:
+            assert binding is not None
+            assert (binding.cadence, binding.slack_channel_id) == expected
 
 
 class TestSummarizeHelpers:
@@ -130,7 +165,7 @@ class TestSummarizeHelpers:
                 "response_metadata": {},
             }
 
-        def replies(channel, ts, limit):
+        def replies(channel, ts, limit, cursor):
             if ts == "10.0":
                 return {"messages": [stale_parent, before_window_reply, in_window_reply]}
             return {"messages": [phantom_parent, {"text": "late", "ts": "999.0", "thread_ts": "15.0", "user": "U2"}]}
@@ -142,6 +177,22 @@ class TestSummarizeHelpers:
         threads = _fetch_period_messages(client, "C1", oldest=50.0, latest=200.0)
 
         assert [(p["ts"], [r["ts"] for r in replies]) for p, replies in threads] == [("10.0", ["150.0"])]
+
+    def test_thread_replies_paginate_past_the_first_page(self):
+        parent = {"text": "question", "ts": "100.0", "thread_ts": "100.0", "user": "U1", "reply_count": 2}
+        page_one_reply = {"text": "first", "ts": "110.0", "thread_ts": "100.0", "user": "U2"}
+        page_two_reply = {"text": "second", "ts": "120.0", "thread_ts": "100.0", "user": "U2"}
+        client = MagicMock()
+        client.conversations_history.return_value = {"messages": [parent], "response_metadata": {}}
+        client.conversations_replies.side_effect = [
+            {"messages": [parent, page_one_reply], "response_metadata": {"next_cursor": "cur1"}},
+            {"messages": [page_two_reply], "response_metadata": {}},
+        ]
+
+        threads = _fetch_period_messages(client, "C1", oldest=50.0, latest=200.0)
+
+        assert [r["ts"] for r in threads[0][1]] == ["110.0", "120.0"]
+        assert client.conversations_replies.call_args_list[1].kwargs["cursor"] == "cur1"
 
     def test_mentions_in_text_resolve_to_display_names(self):
         client = MagicMock()

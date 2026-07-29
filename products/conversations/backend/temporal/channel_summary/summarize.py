@@ -110,21 +110,37 @@ def _fetch_period_messages(
 
     parents.sort(key=lambda m: float(m["ts"]))
     threads: list[tuple[dict, list[dict]]] = []
+    # One shared budget across parents and replies so a reply-heavy channel can't blow
+    # the fetch up into thousands of Slack calls; _build_transcript trims by chars later.
+    budget = MAX_TRANSCRIPT_MESSAGES - len(parents)
     for parent in parents:
         replies: list[dict] = []
-        if parent.get("reply_count") and parent.get("thread_ts") == parent.get("ts"):
-            result = client.conversations_replies(channel=channel_id, ts=parent["ts"], limit=200)
-            thread_messages: list[dict] = result.get("messages", [])
-            replies = [
-                r
-                for r in thread_messages
-                if r.get("ts") != parent["ts"] and oldest <= float(r.get("ts", 0)) < latest and _include_message(r)
-            ]
+        if parent.get("reply_count") and parent.get("thread_ts") == parent.get("ts") and budget > 0:
+            replies = _fetch_thread_replies(client, channel_id, parent["ts"], oldest, latest, budget)
+            budget -= len(replies)
         # latest_reply can point at a reply our filters drop (a bot post, or one after the
         # window) — an old parent with no surviving replies isn't period activity.
         if float(parent["ts"]) >= oldest or replies:
             threads.append((parent, replies))
     return threads
+
+
+def _fetch_thread_replies(
+    client: WebClient, channel_id: str, parent_ts: str, oldest: float, latest: float, budget: int
+) -> list[dict]:
+    replies: list[dict] = []
+    cursor: str | None = None
+    while True:
+        result = client.conversations_replies(channel=channel_id, ts=parent_ts, limit=200, cursor=cursor)
+        thread_messages: list[dict] = result.get("messages", [])
+        replies.extend(
+            r
+            for r in thread_messages
+            if r.get("ts") != parent_ts and oldest <= float(r.get("ts", 0)) < latest and _include_message(r)
+        )
+        cursor = ((result.get("response_metadata") or {}).get("next_cursor")) or None
+        if not cursor or len(replies) >= budget:
+            return replies[:budget]
 
 
 def _history_page(client: WebClient, channel_id: str, oldest: float, latest: float, keep) -> list[dict]:
@@ -211,14 +227,29 @@ async def _summarize(input: ChannelSummaryInput) -> ChannelSummaryOutput:
     period_start = datetime.fromisoformat(input.period_start)
     period_end = datetime.fromisoformat(input.period_end)
 
-    # Org AI-processing approval and bot configuration were gated by the coordinator;
-    # this activity only re-derives what it needs to do the work. The client build reads
-    # the team's Slack config through the ORM, so it must stay inside the sync wrapper.
-    def load_team_and_client() -> tuple[Team, WebClient]:
+    # The coordinator gated eligibility at dispatch, but children run detached and can
+    # retry much later — approval revoked, summaries turned off, or the channel rebound
+    # in the meantime must cancel the queued summary, so recheck everything here, just
+    # before messages are fetched. The ORM reads must stay inside the sync wrapper.
+    def load_if_still_eligible() -> tuple[Team, WebClient] | None:
         team = Team.objects.select_related("organization").get(id=input.team_id)
+        if not team.organization.is_ai_data_processing_approved:
+            return None
+        binding = customer_analytics.get_account_slack_summary_binding(input.team_id, input.account_id)
+        if binding is None or binding.cadence != input.cadence or binding.slack_channel_id != input.slack_channel_id:
+            return None
         return team, get_slack_client(team)
 
-    team, client = await database_sync_to_async(load_team_and_client, thread_sensitive=False)()
+    loaded = await database_sync_to_async(load_if_still_eligible, thread_sensitive=False)()
+    if loaded is None:
+        logger.info(
+            "channel_summary: no longer eligible, skipping",
+            team_id=input.team_id,
+            account_id=input.account_id,
+            cadence=input.cadence,
+        )
+        return ChannelSummaryOutput(summary_id=None, message_count=0)
+    team, client = loaded
 
     def fetch() -> list[tuple[dict, list[dict]]]:
         try:

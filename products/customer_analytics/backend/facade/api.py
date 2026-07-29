@@ -2277,6 +2277,22 @@ def list_accounts_due_for_slack_summary(now: datetime | None = None) -> list[con
     return [c for c in candidates if (UUID(c.account_id), c.cadence, c.period_start) not in existing]
 
 
+def get_account_slack_summary_binding(team_id: int, account_id: str) -> contracts.AccountSlackSummaryBinding | None:
+    """The account's current summary cadence and channel binding, or None when the
+    account is gone or no longer opted in. Backs the summary activity's recheck just
+    before messages are fetched and sent to the LLM: consent or binding changes after
+    coordinator dispatch must cancel the queued summary."""
+    account = Account.objects.for_team(team_id).filter(id=account_id).first()
+    if account is None or not account.slack_summary_cadence:
+        return None
+    slack_channel_id = (account._properties or {}).get("slack_channel_id")
+    if not slack_channel_id:
+        return None
+    return contracts.AccountSlackSummaryBinding(
+        cadence=account.slack_summary_cadence, slack_channel_id=slack_channel_id
+    )
+
+
 def record_channel_summary(
     *,
     team_id: int,

@@ -119,6 +119,15 @@ Cutover checklist — when done, the sync and this section are deleted:
 
 ## Account channel summaries
 
+- **The channel binding is trusted as written.** `slack_channel_id` is an account property any
+  account editor can set, and the summary pipeline reads whatever channel it names with the team's
+  own SupportHog bot token. An editor can therefore point an account at any channel that team's bot
+  is in — including a private channel the editor isn't a member of — and read its summary. Accepted
+  for now: editors are internal team members, the token is team-scoped (no cross-team reach), and
+  the announcements feature already posts through the same binding. The activity re-resolves the
+  binding, cadence, and org AI-processing approval from the DB just before fetching, so stale or
+  forged workflow inputs can't widen this. If summaries ever cover channels whose membership matters,
+  validate the binding at write time against a server-side channel policy instead.
 - **Slack permalinks assume PostHog's workspace.** Summary citations are built as
   `SLACK_ARCHIVES_ORIGIN/<channel_id>/p<ts>` (`constants.py`) instead of fetched with
   `chat.getPermalink`, and the origin hardcodes `posthog.slack.com`. One constructed URL per cited

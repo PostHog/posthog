@@ -4,6 +4,9 @@ COORDINATOR_INTERVAL_MINUTES = 60
 
 # Fan-out cap per tick: overflow stays due and rolls to the next hourly tick.
 MAX_SUMMARIES_PER_RUN = 50
+# One tenant's channels (e.g. a batch of always-failing bindings that stay due) must
+# not monopolize the global cap and starve other teams.
+MAX_SUMMARIES_PER_TEAM_PER_RUN = 10
 
 # Must be in the LLM gateway `conversations` product allowlist
 # (`services/llm-gateway/src/llm_gateway/products/config.py`).

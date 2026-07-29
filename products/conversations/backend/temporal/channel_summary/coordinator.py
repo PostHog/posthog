@@ -16,7 +16,10 @@ with workflow.unsafe.imports_passed_through():
     from posthog.temporal.common.heartbeat import Heartbeater
 
     from products.conversations.backend.support_slack import get_support_slack_bot_token
-    from products.conversations.backend.temporal.channel_summary.constants import MAX_SUMMARIES_PER_RUN
+    from products.conversations.backend.temporal.channel_summary.constants import (
+        MAX_SUMMARIES_PER_RUN,
+        MAX_SUMMARIES_PER_TEAM_PER_RUN,
+    )
     from products.conversations.backend.temporal.channel_summary.schemas import (
         ChannelSummaryInput,
         CollectDueChannelsOutput,
@@ -38,14 +41,18 @@ def _collect_due_channels() -> list[ChannelSummaryInput]:
         return []
     teams = Team.objects.select_related("organization").in_bulk({item.team_id for item in due})
     eligible: list[ChannelSummaryInput] = []
+    per_team: dict[int, int] = {}
     for item in due:
         if len(eligible) >= MAX_SUMMARIES_PER_RUN:
             break
+        if per_team.get(item.team_id, 0) >= MAX_SUMMARIES_PER_TEAM_PER_RUN:
+            continue
         team = teams.get(item.team_id)
         if team is None or not team.organization.is_ai_data_processing_approved:
             continue
         if not get_support_slack_bot_token(team):
             continue
+        per_team[item.team_id] = per_team.get(item.team_id, 0) + 1
         eligible.append(
             ChannelSummaryInput(
                 team_id=item.team_id,
