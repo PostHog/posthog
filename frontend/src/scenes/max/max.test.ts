@@ -7,7 +7,7 @@ import { useMocks } from '~/mocks/jest'
 import { AssistantMessageType } from '~/queries/schema/schema-assistant-messages'
 import { initKeaTests } from '~/test/init'
 
-import { toolStreamEventsLogic } from 'products/posthog_ai/frontend/api/logics'
+import { runStreamLogic, toolStreamEventsLogic } from 'products/posthog_ai/frontend/api/logics'
 
 import { SIDE_PANEL_CONVERSATION_KEY } from './max-storage-keys'
 import { maxGlobalLogic } from './maxGlobalLogic'
@@ -169,5 +169,50 @@ describe('Max Logics Integration Tests', () => {
                 shouldRoute ? '/workflows/wf-created-1/workflow' : '/workflows/library'
             )
         ).toBe(true)
+    })
+
+    it.each([
+        ['template only routes to the template at turn end', false, '/workflows/library/templates/tpl-created-1'],
+        ['template plus workflow routes to the workflow only', true, '/workflows/wf-created-1/workflow'],
+    ])('creation auto-route: %s', async (_label, alsoCreatesWorkflow, expectedPathTail) => {
+        logic = maxLogic({ panelId: 'test' })
+        logic.mount()
+        threadLogic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, panelId: 'test' })
+        threadLogic.mount()
+        const streamLogic = runStreamLogic({ streamKey: MOCK_CONVERSATION_ID })
+        streamLogic.mount()
+        router.actions.push('/workflows/library')
+
+        const emitCreation = (toolName: string, id: string): void =>
+            toolStreamEventsLogic.actions.emitToolEvent({
+                streamKey: MOCK_CONVERSATION_ID,
+                toolCallId: `tc-${id}`,
+                toolName,
+                rawToolName: 'exec',
+                phase: 'completed',
+                source: 'live',
+                invocation: {
+                    toolCallId: `tc-${id}`,
+                    rawServerName: 'posthog',
+                    rawToolName: 'exec',
+                    input: {},
+                    output: { id },
+                    status: 'completed',
+                },
+            })
+
+        emitCreation('workflows-create-email-template', 'tpl-created-1')
+        await expectLogic(threadLogic).toFinishAllListeners()
+        // No mid-turn routing for templates: a workflow later in the turn must win.
+        expect(router.values.location.pathname.endsWith('/workflows/library')).toBe(true)
+
+        if (alsoCreatesWorkflow) {
+            emitCreation('workflows-create', 'wf-created-1')
+        }
+        streamLogic.actions.markTurnComplete()
+        await expectLogic(threadLogic).toFinishAllListeners()
+
+        expect(router.values.location.pathname.endsWith(expectedPathTail)).toBe(true)
+        streamLogic.unmount()
     })
 })

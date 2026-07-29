@@ -1628,10 +1628,21 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
     // per-instance (the key is in the path), so they're resolved from props at build time.
     listeners(({ props, cache, actions, values }) => {
         const sandboxStreamActionTypes = runStreamLogic({ streamKey: props.conversationId }).actionTypes
+        // A template created this turn only routes at turn end, and only if the turn didn't also
+        // create a workflow — the workflow page is where the user works with the pair.
+        const flushPendingTemplateRoute = (): void => {
+            const templateId = cache.pendingTemplateRouteId
+            cache.pendingTemplateRouteId = undefined
+            cache.autoRoutedToWorkflow = undefined
+            if (templateId && !router.values.location.pathname.includes(`/workflows/library/templates/${templateId}`)) {
+                router.actions.push(urls.workflowsLibraryTemplate(templateId))
+            }
+        }
         // Normal turn completion: full turn-end, including the sandbox queue-drain that starts the
         // next queued message (completeThreadGeneration's intended next-turn behavior).
         const completeSandboxTurn = (): void => {
             cache.sandboxStreamRelease?.()
+            flushPendingTemplateRoute()
             if (values.streamingActive) {
                 actions.completeThreadGeneration()
             }
@@ -1642,6 +1653,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         // dispatched during bootstrapRun with no live turn) from firing teardown.
         const endSandboxStream = (): void => {
             cache.sandboxStreamRelease?.()
+            flushPendingTemplateRoute()
             if (values.streamingActive) {
                 actions.endStreaming()
             }
@@ -1661,22 +1673,35 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
     }),
     listeners(({ actions, values, cache, props }) => ({
         emitToolEvent: ({ event }) => {
-            // When this conversation creates a workflow, follow it: the user's next step is
-            // always the editor, and the (persisted) chat travels with them.
+            // When this conversation creates a workflow or email template, follow it: the user's
+            // next step is always the editor, and the (persisted) chat travels with them.
             if (
                 event.phase !== 'completed' ||
                 event.source !== 'live' ||
-                event.toolName !== 'workflows-create' ||
                 event.streamKey !== values.sandboxConversationKey
             ) {
                 return
             }
-            const record = parseInvocationOutputRecord(event.invocation)
-            const workflowId = typeof record?.id === 'string' ? record.id : null
-            if (!workflowId || router.values.location.pathname.startsWith(`/workflows/${workflowId}`)) {
-                return
+            if (event.toolName === 'workflows-create') {
+                const record = parseInvocationOutputRecord(event.invocation)
+                const workflowId = typeof record?.id === 'string' ? record.id : null
+                if (!workflowId) {
+                    return
+                }
+                // The workflow page wins over any template created in the same turn.
+                cache.autoRoutedToWorkflow = true
+                cache.pendingTemplateRouteId = undefined
+                if (!router.values.location.pathname.includes(`/workflows/${workflowId}`)) {
+                    router.actions.push(urls.workflow(workflowId, 'workflow'))
+                }
+            } else if (event.toolName === 'workflows-create-email-template' && !cache.autoRoutedToWorkflow) {
+                const record = parseInvocationOutputRecord(event.invocation)
+                const templateId = typeof record?.id === 'string' ? record.id : null
+                if (templateId) {
+                    // Deferred to turn end so a workflow created later in the turn takes precedence.
+                    cache.pendingTemplateRouteId = templateId
+                }
             }
-            router.actions.push(urls.workflow(workflowId, 'workflow'))
         },
 
         setConversation: ({ conversation }) => {
