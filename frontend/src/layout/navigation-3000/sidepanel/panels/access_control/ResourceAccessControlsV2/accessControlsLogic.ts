@@ -556,6 +556,9 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                     actions.loadMembers()
                 }
                 actions.openMemberDetail(searchParams.access_member)
+            } else if (values.selectedMemberId) {
+                // Navigated away from the detail (e.g. back button) — close it
+                actions.closeMemberDetail()
             }
             if (searchParams.access_role_detail) {
                 // Deep link / back-button restore of a role's detail page
@@ -564,6 +567,8 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                     actions.loadRoles()
                 }
                 actions.openRoleDetail(searchParams.access_role_detail)
+            } else if (values.selectedRoleId) {
+                actions.closeRoleDetail()
             }
         },
     })),

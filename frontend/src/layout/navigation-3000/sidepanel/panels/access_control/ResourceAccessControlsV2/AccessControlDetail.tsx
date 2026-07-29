@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ReactNode, useContext, useEffect, useState } from 'react'
 
-import { IconArrowLeft, IconHome, IconInfo, IconOpenSidebar, IconPeople, IconPlus, IconTrash } from '@posthog/icons'
+import { IconHome, IconInfo, IconOpenSidebar, IconPeople, IconPlus, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
     LemonDropdown,
@@ -27,6 +27,7 @@ import { SettingsChromeContext } from 'scenes/settings/Settings'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { APIScopeObject, AccessControlLevel, SidePanelTab } from '~/types'
 
 import { AccessLevelEnumApi } from 'products/access_control/frontend/generated/api.schemas'
@@ -51,13 +52,12 @@ export function AccessControlDetail({
     const { selectedMember, selectedRole, membersDataLoading, rolesDataLoading } = useValues(
         accessControlsLogic({ projectId })
     )
-    const { closeMemberDetail, closeRoleDetail } = useActions(accessControlsLogic({ projectId }))
+    const { location } = useValues(router)
     const { setChromeHidden } = useContext(SettingsChromeContext)
 
     const isRole = scopeType === 'role'
     const entry: AccessControlSettingsEntry | null = isRole ? selectedRole : selectedMember
     const loading = isRole ? rolesDataLoading : membersDataLoading
-    const close = isRole ? closeRoleDetail : closeMemberDetail
 
     // This detail is a full page — hide the scene title + section heading above it so it reads as its own page.
     useEffect(() => {
@@ -67,9 +67,13 @@ export function AccessControlDetail({
 
     return (
         <div className="space-y-6">
-            <LemonButton icon={<IconArrowLeft />} size="small" onClick={close} className="-ml-2 w-fit">
-                Access control · {isRole ? 'Roles' : 'Members'}
-            </LemonButton>
+            {/* Back to the access control list — dropping the `access_*` query param closes the detail (see urlToAction). */}
+            <div className="flex items-center gap-1.5">
+                <SceneBreadcrumbBackButton
+                    forceBackTo={{ key: 'access-control', name: 'Access control', path: location.pathname }}
+                />
+                <span className="text-secondary text-sm">Access control / {isRole ? 'Roles' : 'Members'}</span>
+            </div>
 
             {!entry ? (
                 loading ? (
@@ -481,12 +485,8 @@ function ObjectOverridesSection({ projectId, scopeType, subjectId, subjectNoun }
 
     return (
         <Section
-            title="Object overrides"
-            description={
-                scopeType === 'role'
-                    ? 'Individual dashboards, insights, notebooks, warehouse tables & views with access rules configured for this role.'
-                    : "Individual dashboards, insights, notebooks, warehouse tables & views where this member's access differs from the resource-level access above."
-            }
+            title="One-off access overrides"
+            description={`Specific dashboards, insights, notebooks and warehouse tables this ${subjectNoun} is given access to, or blocked from, regardless of the tools above.`}
         >
             <AddObjectOverrideModal projectId={projectId} scopeType={scopeType} subjectId={subjectId} />
             <LemonTable
@@ -575,7 +575,7 @@ function ObjectOverridesSection({ projectId, scopeType, subjectId, subjectNoun }
                 ]}
                 dataSource={objects}
                 pagination={{ pageSize: 20, hideOnSinglePage: true }}
-                emptyState={`No object-level overrides for this ${subjectNoun}.`}
+                emptyState={`No one-off access overrides for this ${subjectNoun}.`}
             />
             <div>
                 <LemonButton type="secondary" size="small" icon={<IconPlus />} onClick={openModal}>
