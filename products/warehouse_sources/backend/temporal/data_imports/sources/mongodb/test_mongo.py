@@ -1,6 +1,9 @@
 import uuid
 import base64
 import datetime
+import contextlib
+from collections.abc import Iterable
+from typing import Any, cast
 
 from unittest.mock import MagicMock, patch
 
@@ -9,7 +12,7 @@ from django.test import SimpleTestCase, override_settings
 from bson import Binary, DatetimeMS, ObjectId
 from bson.binary import UUID_SUBTYPE
 from parameterized import parameterized
-from pymongo.errors import ServerSelectionTimeoutError
+from pymongo.errors import CursorNotFound, ServerSelectionTimeoutError
 from pymongo.server_description import ServerDescription
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_CHUNK_SIZE
@@ -24,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mo
     _process_doc_with_field_logging,
     _process_nested_value,
     get_leading_index_keys,
+    mongo_source,
 )
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
@@ -545,3 +549,95 @@ class TestAdaptiveChunkSize(SimpleTestCase):
     )
     def test_adaptive_chunk_size(self, _name, avg_obj_size, expected):
         assert _adaptive_chunk_size(avg_obj_size) == expected
+
+
+class _FakeCursor:
+    def __init__(self, docs: list[dict[str, Any]], error: Exception | None = None) -> None:
+        self._iter = iter(docs)
+        self._error = error
+        self.closed = False
+
+    def __iter__(self) -> "_FakeCursor":
+        return self
+
+    def __next__(self) -> dict[str, Any]:
+        if self._error is not None:
+            raise self._error
+        return next(self._iter)
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _FakeCollection:
+    def __init__(self, docs: list[dict[str, Any]], error: Exception | None = None) -> None:
+        self._docs = docs
+        self._error = error
+        self.find_kwargs: dict[str, Any] | None = None
+        self.last_cursor: _FakeCursor | None = None
+        self.database = MagicMock()
+        self.database.command.return_value = {"avgObjSize": None}
+
+    def find(self, query: dict[str, Any], **kwargs: Any) -> _FakeCursor:
+        self.find_kwargs = kwargs
+        self.last_cursor = _FakeCursor(self._docs, self._error)
+        return self.last_cursor
+
+    def count_documents(self, query: dict[str, Any]) -> int:
+        return len(self._docs)
+
+
+class TestMongoSourceCursorLifecycle(SimpleTestCase):
+    """CursorNotFound (MongoDB error tracking issue) fires when the server expires an idle
+    cursor between chunk writes; no_cursor_timeout prevents that expiry, and closing the
+    cursor explicitly stops it leaking server-side once no_cursor_timeout is set."""
+
+    def _run_get_rows(self, collection: _FakeCollection) -> list[dict[str, Any]]:
+        @contextlib.contextmanager
+        def fake_mongo_client(connection_string: str, team_id: int) -> Any:
+            client = MagicMock()
+            client.__getitem__.return_value.__getitem__.return_value = collection
+            yield client
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo.mongo_client",
+            fake_mongo_client,
+        ):
+            response = mongo_source(
+                # nosemgrep: trailofbits.generic.mongodb-insecure-transport.mongodb-insecure-transport
+                connection_string="mongodb://host/testdb",
+                collection_name="things",
+                logger=MagicMock(),
+                team_id=1,
+                should_use_incremental_field=False,
+                db_incremental_field_last_value=None,
+            )
+            return list(cast(Iterable[dict[str, Any]], response.items()))
+
+    def test_cursor_created_with_no_cursor_timeout(self):
+        collection = _FakeCollection([{"_id": "1"}, {"_id": "2"}])
+
+        rows = self._run_get_rows(collection)
+
+        assert len(rows) == 2
+        assert collection.find_kwargs is not None
+        assert collection.find_kwargs["no_cursor_timeout"] is True
+
+    def test_cursor_closed_after_exhausting_all_rows(self):
+        collection = _FakeCollection([{"_id": "1"}])
+
+        self._run_get_rows(collection)
+
+        assert collection.last_cursor is not None
+        assert collection.last_cursor.closed is True
+
+    def test_cursor_closed_when_iteration_fails(self):
+        # A no_cursor_timeout cursor never expires on its own, so a mid-read failure (like the
+        # CursorNotFound this guards against) must still close it or it leaks server-side.
+        collection = _FakeCollection([], error=CursorNotFound("cursor id 123 not found"))
+
+        with self.assertRaises(CursorNotFound):
+            self._run_get_rows(collection)
+
+        assert collection.last_cursor is not None
+        assert collection.last_cursor.closed is True
