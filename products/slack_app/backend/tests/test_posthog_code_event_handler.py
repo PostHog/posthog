@@ -141,23 +141,15 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
             refreshed_at=timezone.now(),
         )
 
-    @parameterized.expand(
-        [
-            ("plain_mention", {}),
-            # Slack stamps app_id on a message an app posted for a human with a user
-            # token. The author is still a person, so the mention must be answered.
-            ("posted_via_an_app_on_a_humans_behalf", {"app_id": "A0CLIENT"}),
-        ]
-    )
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
-    def test_local_match_starts_temporal_workflow(self, _name, extra_event_fields, mock_sync_connect, mock_asyncio_run):
+    def test_local_match_starts_temporal_workflow(self, mock_sync_connect, mock_asyncio_run):
         request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
 
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
 
-        result = route_posthog_code_event_to_relevant_region(request, {**self.event, **extra_event_fields}, "T12345")
+        result = route_posthog_code_event_to_relevant_region(request, self.event, "T12345")
 
         assert result == ROUTE_HANDLED_LOCALLY
         mock_sync_connect.assert_called_once()
@@ -282,7 +274,9 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
             ("message_changed_subtype", {"subtype": "message_changed"}, "ignored:edit"),
             ("bot_id", {"bot_id": "B0ALERT"}, "ignored:bot_author"),
             ("bot_profile", {"bot_profile": {"name": "Mendral", "id": "B0ALERT"}}, "ignored:bot_author"),
-            ("app_id_without_human_author", {"app_id": "A0ALERT", "user": ""}, "ignored:bot_author"),
+            # Still dropped, but under its own reason so the volume of app-posted-as-a-human
+            # mentions is measurable rather than hidden inside the bot bucket.
+            ("app_id", {"app_id": "A0ALERT"}, "ignored:app_authored"),
             ("bot_message_subtype", {"subtype": "bot_message"}, "ignored:bot_author"),
             ("slackbot_user", {"user": "USLACKBOT"}, "ignored:bot_author"),
         ]
@@ -337,6 +331,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         # No workflow starts.
         SlackUserProfileCache.objects.filter(slack_user_id="U123").delete()
         self._seed_slack_user_cache("U123", "stranger@example.com")
+        mock_post_feedback.return_value = True
 
         from products.slack_app.backend.api import (
             ROUTE_HANDLED_LOCALLY,
@@ -381,6 +376,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         # mentioner still gets the reason as an ephemeral instead of silence.
         SlackUserProfileCache.objects.filter(slack_user_id="U123").delete()
         self._seed_slack_user_cache("U123", "stranger@example.com")
+        mock_post_ephemeral.return_value = True
 
         from products.slack_app.backend.api import (
             ROUTE_HANDLED_LOCALLY,
@@ -398,10 +394,14 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         # of this path entirely.
         mock_post_feedback.assert_not_called()
         mock_post_ephemeral.assert_called_once()
+        # ``self.event`` is a top-level mention, so the ephemeral must not be anchored to
+        # a thread: Slack wouldn't render it on the channel view the mentioner is on.
+        assert mock_post_ephemeral.call_args.args[3] is None
         assert "stranger@example.com" in mock_post_ephemeral.call_args.args[4]
 
         captured = {call.kwargs["event"]: call.kwargs["properties"] for call in mock_capture.call_args_list}
         assert captured[SLACK_MENTION_DROPPED_EVENT]["drop_reason"] == "user_unresolved:user_not_found"
+        assert captured[SLACK_MENTION_DROPPED_EVENT]["replied"] is True
 
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
