@@ -429,6 +429,9 @@ services:
             JWT_SECRET: '<randomly generated secret key>'
             KAFKA_TOPIC: logs_ingestion
             KAFKA_METRICS_TOPIC: metrics_ingestion
+            # Reads the @posthog/quota-limits/* sorted sets so an over-quota project gets a 429
+            # rather than a 200 followed by a silent drop further down the pipeline.
+            REDIS_URL: 'redis://redis7:6379/'
         networks:
             - otel_network
             - default

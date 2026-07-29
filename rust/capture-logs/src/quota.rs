@@ -9,6 +9,12 @@ use std::time::Duration;
 use common_redis::Client;
 use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, QUOTA_LIMITER_CACHE_KEY};
 
+/// `tokio::time::interval` panics on a zero period, and it is constructed inside the limiter's
+/// spawned refresh task. A panic there kills only that task, so the process keeps serving with a
+/// snapshot that is never populated, which disables enforcement without any visible failure.
+/// Clamping means a misconfigured interval costs a warning instead of silent non-enforcement.
+const MIN_REFRESH_INTERVAL: Duration = Duration::from_secs(1);
+
 /// The OTLP signal a request carries. Billing meters and limits each one separately, so they
 /// each get their own quota bucket and an over-quota project keeps ingesting the other two.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -50,6 +56,15 @@ impl QuotaLimiter {
         redis_key_prefix: Option<String>,
         retry_after_seconds: u64,
     ) -> anyhow::Result<Self> {
+        let refresh_interval = if refresh_interval < MIN_REFRESH_INTERVAL {
+            tracing::warn!(
+                "quota refresh interval {refresh_interval:?} is below the {MIN_REFRESH_INTERVAL:?} minimum, using the minimum"
+            );
+            MIN_REFRESH_INTERVAL
+        } else {
+            refresh_interval
+        };
+
         let limiter_for = |signal: Signal| {
             RedisLimiter::new(
                 refresh_interval,
@@ -99,7 +114,11 @@ mod tests {
     const RETRY_AFTER: u64 = 900;
 
     fn limiter(redis: MockRedisClient) -> QuotaLimiter {
-        QuotaLimiter::new(Arc::new(redis), Duration::from_millis(5), None, RETRY_AFTER)
+        limiter_with_interval(redis, Duration::from_secs(1))
+    }
+
+    fn limiter_with_interval(redis: MockRedisClient, refresh: Duration) -> QuotaLimiter {
+        QuotaLimiter::new(Arc::new(redis), refresh, None, RETRY_AFTER)
             .expect("failed to build quota limiter")
     }
 
@@ -168,6 +187,24 @@ mod tests {
                 .retry_after_if_limited(Signal::Logs, "phc_over_on_traces")
                 .await,
             None
+        );
+    }
+
+    #[tokio::test]
+    async fn a_zero_refresh_interval_still_enforces() {
+        // A zero interval used to panic the spawned refresh task, which left the snapshot empty
+        // and quietly stopped all enforcement while the service kept answering 200.
+        let quota = limiter_with_interval(
+            MockRedisClient::new().zrangebyscore_ret(
+                "@posthog/quota-limits/logs_mb_ingested",
+                vec!["phc_over".into()],
+            ),
+            Duration::ZERO,
+        );
+
+        assert_eq!(
+            await_limited(&quota, Signal::Logs, "phc_over").await,
+            Some(RETRY_AFTER)
         );
     }
 
