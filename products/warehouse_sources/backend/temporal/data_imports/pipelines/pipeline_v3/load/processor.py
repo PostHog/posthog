@@ -2,6 +2,7 @@ import uuid
 from collections.abc import Callable
 from typing import Any, Literal
 
+from django.conf import settings
 from django.db import close_old_connections, transaction
 
 import s3fs
@@ -11,6 +12,7 @@ import structlog
 import pyarrow.compute as pc
 import posthoganalytics
 from asgiref.sync import async_to_sync
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.utils import get_machine_id
@@ -461,34 +463,33 @@ def _trigger_ducklake_register_data_imports(export_signal: ExportSignalMessage, 
         return
 
     try:
-        from django.conf import settings as django_settings
-
-        from temporalio.exceptions import WorkflowAlreadyStartedError
-
-        from posthog.temporal.common.client import sync_connect
+        from posthog.temporal.common.client import async_connect
         from posthog.temporal.ducklake.ducklake_register_data_imports_workflow import (
             DuckLakeRegisterDataImportsInputs,
             DuckLakeRegisterDataImportsWorkflow,
         )
 
-        temporal = sync_connect()
-        # start_workflow is async on the client; we're in a sync consumer callback,
-        # so drive it through async_to_sync like the rest of the file's async calls.
-        # START is fire-and-forget — we don't need the execution result, just the start ack.
-        async_to_sync(temporal.start_workflow)(
-            DuckLakeRegisterDataImportsWorkflow.run,
-            DuckLakeRegisterDataImportsInputs(
-                team_id=export_signal.team_id,
-                job_id=export_signal.job_id,
-                schema_id=uuid.UUID(export_signal.schema_id),
-                prepared_queryable_folder=prepared_queryable_folder,
-            ),
-            id=(
-                f"ducklake-register-data-imports-{export_signal.team_id}-"
-                f"{export_signal.schema_id}-{export_signal.job_id}"
-            ),
-            task_queue=str(django_settings.DUCKLAKE_TASK_QUEUE),
-        )
+        # Connect and start inside one event loop: sync_connect() builds the client in
+        # asgiref's loop, and the start would then run on the loop async_to_sync spins up
+        # here. Start is fire-and-forget — we only need the start ack, not the result.
+        async def _start() -> None:
+            temporal = await async_connect()
+            await temporal.start_workflow(
+                DuckLakeRegisterDataImportsWorkflow.run,
+                DuckLakeRegisterDataImportsInputs(
+                    team_id=export_signal.team_id,
+                    job_id=export_signal.job_id,
+                    schema_id=uuid.UUID(export_signal.schema_id),
+                    prepared_queryable_folder=prepared_queryable_folder,
+                ),
+                id=(
+                    f"ducklake-register-data-imports-{export_signal.team_id}-"
+                    f"{export_signal.schema_id}-{export_signal.job_id}"
+                ),
+                task_queue=settings.DUCKLAKE_TASK_QUEUE,
+            )
+
+        async_to_sync(_start)()
         logger.info(
             "ducklake_registration_workflow_started",
             team_id=export_signal.team_id,
