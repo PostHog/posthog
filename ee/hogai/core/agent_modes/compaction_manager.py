@@ -350,6 +350,11 @@ class ConversationCompactionManager(ABC):
     def _get_estimated_assistant_message_tokens(self, message: AssistantMessageUnion) -> int:
         """
         Estimate token count for a message using character/4 heuristic.
+
+        `ContextMessage` deliberately counts as zero: attached context and reminders belong to the
+        turn they precede, so `find_window_boundary` must not spend its budget on them and push the
+        window past the context the current turn needs. Keeping duplicates out of the window is
+        `AssistantContextManager`'s job instead.
         """
         char_count = 0
         if isinstance(message, HumanMessage):
