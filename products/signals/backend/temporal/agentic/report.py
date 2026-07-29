@@ -304,7 +304,9 @@ async def _persist_agentic_report_artefacts(
     result: ReportResearchOutput,
     repo_selection: RepoSelectionResult,
     *,
-    charts_enabled: bool,
+    # Defaults off so the debug seed/ingest commands (which don't gate on the flag) never write
+    # charts; the production activity passes the resolved gate explicitly.
+    charts_enabled: bool = False,
 ) -> None:
     # Resolve suggested reviewers from commit hashes (always, from the effective findings —
     # auto-start below needs them even when nothing is persisted this run)
