@@ -102,6 +102,7 @@ Create an IAM user whose policy allows `dynamodb:ListTables`, `dynamodb:Describe
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=False,
                         placeholder="Only needed for temporary credentials",
+                        caption="Only for temporary credentials. Session tokens expire after a few hours, so scheduled syncs will fail once the token expires. Use a permanent access key (starts with AKIA) for recurring imports.",
                         secret=True,
                     ),
                 ],
