@@ -1,0 +1,31 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "metadata": {
+            "additionalProperties": {
+                "anyOf": [
+                    {
+                        "type": "string"
+                    },
+                    {
+                        "type": "number"
+                    },
+                    {
+                        "type": "boolean"
+                    }
+                ]
+            },
+            "description": "Flat map of run dimensions to merge into the run's `self_reported` metadata. Keys are snake_case identifiers (lowercase letters, digits, underscores; start with a letter; max 64 chars); values are scalars — string (max 200 chars), boolean, or number. Nested objects/lists are rejected, and the merged map is capped at 25 keys. Re-using a key overwrites its value. Use it for facts only you can observe — e.g. `has_self_improvement_report: true`, `has_agent_feedback: true`, `validation_run: true` — not for what the harness already records (emit tallies, report ids).",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
+        "run_id": {
+            "description": "UUID of the `SignalScoutRun` bridge row.",
+            "type": "string"
+        }
+    },
+    "required": ["run_id", "metadata"],
+    "type": "object"
+}
