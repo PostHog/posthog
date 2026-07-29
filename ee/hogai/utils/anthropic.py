@@ -128,11 +128,11 @@ def convert_to_anthropic_messages(
             history.extend(convert_to_anthropic_message(message, tool_result_map))
         except ValueError:
             continue
-    return drop_trailing_assistant_messages(history)
+    return history
 
 
 def drop_trailing_assistant_messages(history: list[messages.BaseMessage]) -> list[messages.BaseMessage]:
-    """Drop assistant messages the conversation ends on, so we never prefill.
+    """Drop assistant messages the conversation ends on, so a request never prefills.
 
     Anthropic reads a trailing assistant turn as content to continue from, which Sonnet 4.6 and
     later reject outright. A conversation can end on one when a tool appended its own assistant
@@ -140,7 +140,13 @@ def drop_trailing_assistant_messages(history: list[messages.BaseMessage]) -> lis
     "Open report" button.
 
     Assistant messages carrying tool calls are left in place: dropping one would orphan the tool
-    result that follows it, which Anthropic rejects too.
+    result that follows it, which Anthropic rejects too. Note that an assistant message whose tool
+    calls all lack results is not one of those, because `convert_assistant_message_to_anthropic_message`
+    has already stripped the unanswered calls by this point, leaving content only. Dropping that is
+    the right call for the request, but it also hides that the results went missing, so callers
+    should report when this trims anything.
+
+    Only shapes a request. Do not use it to derive what the conversation contains.
     """
     end = len(history)
     while end > 0:
@@ -148,6 +154,6 @@ def drop_trailing_assistant_messages(history: list[messages.BaseMessage]) -> lis
         if not isinstance(message, messages.AIMessage) or message.tool_calls:
             break
         end -= 1
-    # A history that is nothing but assistant messages has no valid prefix to send, so leave it
-    # alone and let the caller's own validation report it.
+    # Everything being an assistant turn means there is no valid request to build. Return the
+    # history unchanged so the API rejects it loudly, rather than silently sending nothing.
     return history[:end] if end > 0 else history
