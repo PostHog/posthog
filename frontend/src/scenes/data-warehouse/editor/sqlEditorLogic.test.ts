@@ -2197,7 +2197,7 @@ describe('sqlEditorLogic', () => {
             ['SELECT event FROM events ORDER BY event', true],
             ['SELECT event FROM events', false],
         ])('runQuery on `%s` resets the client-side sort: %s', async (query, shouldReset) => {
-            jest.spyOn(queryRunner, 'performQuery').mockResolvedValue({
+            const performQuerySpy = jest.spyOn(queryRunner, 'performQuery').mockResolvedValue({
                 results: [],
                 columns: [],
                 types: [],
@@ -2223,11 +2223,12 @@ describe('sqlEditorLogic', () => {
             logic.actions.runQuery()
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(paneLogic.values.resultsSortColumns).toEqual(
-                shouldReset ? [] : [{ columnKey: 'event', direction: 'ASC' }]
-            )
+            const finalSort = paneLogic.values.resultsSortColumns
 
             paneLogic.unmount()
+            performQuerySpy.mockRestore()
+
+            expect(finalSort).toEqual(shouldReset ? [] : [{ columnKey: 'event', direction: 'ASC' }])
         })
     })
 
