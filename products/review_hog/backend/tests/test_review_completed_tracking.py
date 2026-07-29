@@ -6,7 +6,12 @@ from parameterized import parameterized
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
-from products.review_hog.backend.reviewer.persistence import persist_findings, persist_verdicts, upsert_review_report
+from products.review_hog.backend.reviewer.persistence import (
+    persist_findings,
+    persist_pr_snapshot,
+    persist_verdicts,
+    upsert_review_report,
+)
 from products.review_hog.backend.temporal.activities import TrackReviewCompletedInput, _track_review_completed
 
 _PR_URL = "https://github.com/o/r/pull/7"
@@ -24,10 +29,10 @@ def _pr_metadata() -> PRMetadata:
         base_branch="main",
         head_branch="feat",
         head_sha="sha1",
-        commits=1,
-        additions=1,
-        deletions=0,
-        changed_files=1,
+        commits=3,
+        additions=120,
+        deletions=30,
+        changed_files=7,
     )
 
 
@@ -53,6 +58,14 @@ class TestTrackReviewCompleted(BaseTest):
         # The team-2 ReviewHog dashboard counts reviews from this event's name and these exact
         # properties — a rename, a dropped property, or a broken finding count silently zeroes it.
         report_id = self._review_report()
+        persist_pr_snapshot(
+            team_id=self.team.id,
+            report_id=report_id,
+            head_sha="sha1",
+            pr_metadata=_pr_metadata(),
+            pr_comments=[],
+            pr_files=[],
+        )
         issues = [_issue("1-1-1"), _issue("1-1-2")]
         persist_findings(team_id=self.team.id, report_id=report_id, issues=issues, run_index=1)
         persist_verdicts(
@@ -68,7 +81,9 @@ class TestTrackReviewCompleted(BaseTest):
 
         with patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture:
             _track_review_completed(
-                TrackReviewCompletedInput(team_id=self.team.id, report_id=report_id, run_index=1, published=published)
+                TrackReviewCompletedInput(
+                    team_id=self.team.id, report_id=report_id, head_sha="sha1", run_index=1, published=published
+                )
             )
 
         capture.assert_called_once()
@@ -85,3 +100,24 @@ class TestTrackReviewCompleted(BaseTest):
         assert props["published"] is published
         assert props["findings_total"] == 2
         assert props["findings_valid"] == 1
+        assert props["pr_additions"] == 120
+        assert props["pr_deletions"] == 30
+        assert props["pr_changed_files"] == 7
+        assert props["pr_commits"] == 3
+
+    def test_missing_snapshot_still_captures_without_pr_size(self) -> None:
+        # A turn whose pr_snapshot is unavailable must still count as a review — size props go
+        # null rather than the capture (and with it the review count) being lost.
+        report_id = self._review_report()
+
+        with patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture:
+            _track_review_completed(
+                TrackReviewCompletedInput(
+                    team_id=self.team.id, report_id=report_id, head_sha="sha1", run_index=1, published=False
+                )
+            )
+
+        capture.assert_called_once()
+        props = capture.call_args.kwargs["properties"]
+        assert props["pr_additions"] is None
+        assert props["findings_total"] == 0

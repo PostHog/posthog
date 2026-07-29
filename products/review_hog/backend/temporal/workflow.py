@@ -605,6 +605,7 @@ class ReviewPRWorkflow:
                 TrackReviewCompletedInput(
                     team_id=inputs.team_id,
                     report_id=report_id,
+                    head_sha=head_sha,
                     run_index=meta.run_index,
                     published=posted,
                 ),

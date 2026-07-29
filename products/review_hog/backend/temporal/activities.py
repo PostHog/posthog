@@ -384,6 +384,7 @@ class TrackReviewCompletedInput:
 
     team_id: int
     report_id: str
+    head_sha: str
     run_index: int
     published: bool
 
@@ -1246,6 +1247,8 @@ async def publish_review_activity(input: PublishInput) -> PublishResult:
 def _track_review_completed(input: TrackReviewCompletedInput) -> None:
     report = ReviewReport.objects.for_team(input.team_id).select_related("acting_user", "team").get(id=input.report_id)
     findings = load_turn_findings(team_id=input.team_id, report_id=input.report_id, run_index=input.run_index)
+    snapshot = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha)
+    pr_meta = snapshot.pr_metadata if snapshot is not None else None
     # Acting user when resolved, else the team — the same attribution the TaskRun analytics use.
     distinct_id = str(report.acting_user.distinct_id) if report.acting_user is not None else str(report.team.uuid)
     posthoganalytics.capture(
@@ -1262,6 +1265,11 @@ def _track_review_completed(input: TrackReviewCompletedInput) -> None:
             "published": input.published,
             "findings_total": len(findings),
             "findings_valid": sum(1 for _, verdict in findings if verdict is not None and verdict.is_valid),
+            # PR size as fetched for this turn; None when the turn's snapshot is unavailable.
+            "pr_additions": pr_meta.additions if pr_meta is not None else None,
+            "pr_deletions": pr_meta.deletions if pr_meta is not None else None,
+            "pr_changed_files": pr_meta.changed_files if pr_meta is not None else None,
+            "pr_commits": pr_meta.commits if pr_meta is not None else None,
         },
         groups=groups(team=report.team),
         send_feature_flags=True,
