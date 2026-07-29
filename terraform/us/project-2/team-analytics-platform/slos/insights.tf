@@ -104,12 +104,13 @@ locals {
         SELECT
             toDate(timestamp) AS date,
             count() AS total,
-            countIf(properties.outcome = 'failure') AS failures
+            countIf(properties.outcome = 'failure' OR properties.alert_state = 'Errored') AS failures
         FROM events
         WHERE event = 'slo_operation_completed'
             AND properties.operation = 'alert_check'
             AND properties.alert_type = 'insight'
             AND properties.region = '{{REGION}}'
+            AND properties.skip_reason IS NULL
             AND timestamp >= now() - INTERVAL 30 DAY
         GROUP BY date
       SQL
@@ -132,7 +133,7 @@ locals {
                 properties.calculation_interval AS calculation_interval,
                 timestamp,
                 lagInFrame(timestamp) OVER (
-                    PARTITION BY properties.alert_id, properties.calculation_interval
+                    PARTITION BY properties.resource_id, properties.calculation_interval
                     ORDER BY timestamp ASC
                     ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
                 ) AS prev_check
@@ -141,6 +142,7 @@ locals {
                 AND properties.operation = 'alert_check'
                 AND properties.alert_type = 'insight'
                 AND properties.region = '{{REGION}}'
+                AND properties.skip_reason IS NULL
                 AND properties.calculation_interval IN ('hourly', 'daily', 'weekly', 'monthly')
                 AND timestamp >= now() - INTERVAL 45 DAY
         )
