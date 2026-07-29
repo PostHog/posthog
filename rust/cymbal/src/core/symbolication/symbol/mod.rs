@@ -9,7 +9,7 @@ use crate::{
     metric_consts::JAVA_EXCEPTION_REMAP_FAILED,
     symbolication::symbol_store::{chunk_id::OrChunkId, proguard::ProguardRef},
 };
-use tracing::warn;
+use tracing::debug;
 pub mod local;
 pub mod records;
 
@@ -82,12 +82,13 @@ pub trait SymbolResolver: Send + Sync + 'static {
                 exception.exception_type = new_type
             }
             Err(ResolveError::ResolutionError(frame_error)) => {
-                warn!(
-                    "Failed to resolve Java exception module and type: {}",
-                    frame_error
+                debug!(
+                    team_id,
+                    reason = frame_error.metric_reason(),
+                    error = %frame_error,
+                    "failed to resolve Java exception module and type"
                 );
-                // Handle resolution error
-                metrics::counter!(JAVA_EXCEPTION_REMAP_FAILED, "reason" => frame_error.to_string())
+                metrics::counter!(JAVA_EXCEPTION_REMAP_FAILED, "reason" => frame_error.metric_reason())
                     .increment(1)
             }
             Err(ResolveError::UnhandledError(err)) => {
