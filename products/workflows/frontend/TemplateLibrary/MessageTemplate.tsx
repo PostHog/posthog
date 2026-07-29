@@ -25,26 +25,29 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
+import designGuidelinesReference from '../../skills/designing-email-templates/references/design-guidelines.md?raw'
+import unlayerDesignJsonReference from '../../skills/designing-email-templates/references/unlayer-design-json.md?raw'
+import designingEmailTemplatesSkill from '../../skills/designing-email-templates/SKILL.md?raw'
 import { MessageTemplateCard } from './MessageTemplateCard'
 import { messageTemplateLogic } from './messageTemplateLogic'
 import { MessageTemplateSceneLogicProps, messageTemplateSceneLogic } from './messageTemplateSceneLogic'
 
 // Injected into the agent's trusted context while the editor is open (once per task chain), so an
-// edit request goes straight to a targeted patch instead of re-deriving how to work on templates
-// (loading the authoring skill, reading tool schemas). The id in the value keys the dedupe, so
-// opening a different template re-sends it.
+// edit request goes straight to the tool calls instead of re-deriving how to work on templates
+// (loading the authoring skill and its references from disk). Inlines the real skill files at build
+// time so the content can never drift from what an agent without this context would read.
 function buildTemplateEditorAgentContext(templateId: string): AttachedContextItem {
     return {
         type: 'instructions',
+        key: `email-template-editor-guide:${templateId}`,
         hidden: true,
         value:
             `The user has email template ${templateId} open in PostHog's visual editor; the open canvas live-reloads your saved edits. ` +
-            'To change it: call workflows-get-email-template for the current design and its block ids (humans may have edited it), then ' +
-            'workflows-patch-email-template with a small list of ops. Common op shapes: rewrite one block with ' +
-            `{op: 'update_content', id: '<block-id>', patch: {values: {text: '<p>New copy</p>'}}} (a null leaf deletes that key); ` +
-            'add_content / remove_content / move_content / add_row / remove_row for structure. Ops apply atomically and the server re-renders the sent HTML. ' +
-            'Subject, preheader, and plain-text changes go through workflows-update-email-template with the complete content. ' +
-            'The designing-email-templates skill is for composing whole designs; targeted patches need only the tools above.',
+            'The designing-email-templates skill and its references are preloaded below - use them directly rather than loading the skill. ' +
+            'For small targeted edits prefer workflows-patch-email-template; its tool description carries the op format.\n\n' +
+            `<skill name="designing-email-templates">\n${designingEmailTemplatesSkill}\n</skill>\n\n` +
+            `<reference name="references/unlayer-design-json.md">\n${unlayerDesignJsonReference}\n</reference>\n\n` +
+            `<reference name="references/design-guidelines.md">\n${designGuidelinesReference}\n</reference>`,
     }
 }
 

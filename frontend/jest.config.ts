@@ -184,6 +184,7 @@ const config: Config = {
         // so mock them to the styleMock string instead of executing them.
         '^@posthog/brand/.*/png/.*$': '<rootDir>/src/test/mocks/styleMock.js',
         '^.+\\.sql\\?raw$': '<rootDir>/src/test/mocks/rawFileMock.js',
+        '^.+\\.md\\?raw$': '<rootDir>/src/test/mocks/rawFileMock.js',
         '^(.+)\\.yaml\\?raw$': '$1.yaml',
         '^~/(.*)$': '<rootDir>/src/$1',
         '^@posthog/hogql-parser$': '<rootDir>/node_modules/@posthog/hogql-parser/dist/index.cjs',
