@@ -38,7 +38,11 @@ import { type CSSProperties, type PointerEvent as ReactPointerEvent, useCallback
 import { IconComment, IconImage } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTextArea, lemonToast } from '@posthog/lemon-ui'
 
-import { createMarkdownNotebookRegistry } from 'lib/components/MarkdownNotebook'
+import {
+    COMMON_INSERT_COMMAND_CATEGORY,
+    QUERY_SQL_INSERT_COMMAND_KEY,
+    createMarkdownNotebookRegistry,
+} from 'lib/components/MarkdownNotebook'
 import { wasNotebookNodeJustInserted } from 'lib/components/MarkdownNotebook/freshlyInserted'
 import { isDiscussionCommentProps } from 'lib/components/MarkdownNotebook/markdown'
 import {
@@ -177,6 +181,10 @@ export const MARKDOWN_NODE_DEFINITIONS: {
         // are not insertable), so it reads as plain "SQL" in the insert menu.
         label: 'SQL',
         insertCommand: {
+            // Sits in the menu's top group, where the built-in SQL command it replaces used to be,
+            // so SQL stays where people already reach for it. Only the menu grouping moves; the
+            // definition's category still drives the node's SQL styling in the editor.
+            category: COMMON_INSERT_COMMAND_CATEGORY,
             aliases: ['data', 'sql'],
             // New cells get a durable nodeId up front: parsed markdown block ids are content
             // fingerprints, so without a persisted id every prop change (running the cell
@@ -283,6 +291,15 @@ export function getMarkdownRegistryForFeatureFlags(featureFlags: FeatureFlagsSet
         }
     }
     return { components }
+}
+
+// The editor's built-in insert commands live outside the registry, so hiding a node's tag is not
+// enough to keep it out of the menu: a built-in that inserts the same tag has to be dropped by key.
+export function getHiddenInsertCommandKeysForFeatureFlags(featureFlags: FeatureFlagsSet): string[] {
+    // The built-in SQL command inserts a legacy `<Query>` HogQL cell, which SQLV2 replaces: it runs
+    // through the sandbox, names a dataframe other cells can reference, and keeps run history.
+    // Offering both would put two entries labeled "SQL" in the menu.
+    return featureFlags[FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS] ? [QUERY_SQL_INSERT_COMMAND_KEY] : []
 }
 
 export function getMarkdownNotebookNodeTitle(
