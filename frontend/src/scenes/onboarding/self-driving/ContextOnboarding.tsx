@@ -9,6 +9,8 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { cn } from 'lib/utils/css-classes'
 
+import selfDrivingHog from 'public/hedgehog/self-driving-hog.png'
+
 // Deliberate self-driving → legacy import: onboardingLogic owns the completion flow (marking the
 // team onboarded, redirecting out) for both variants.
 import { onboardingLogic } from '../legacy/onboardingLogic'
@@ -30,6 +32,22 @@ import { ContextBillingStep } from './ContextBillingStep'
  */
 
 // ---- Steps ---------------------------------------------------------------------------------------
+
+/** The opener: what self-driving is, before we ask anyone to paste a command. */
+function WelcomeStep(): JSX.Element {
+    return (
+        <div className="flex flex-col items-center text-center gap-5">
+            <img src={selfDrivingHog} alt="A hedgehog riding in a self-driving car" className="w-full rounded-lg" />
+            <div className="flex flex-col gap-2">
+                <h1 className="text-2xl font-bold m-0">Let's make your product self-driving</h1>
+                <p className="text-muted max-w-md mx-auto m-0">
+                    PostHog runs on your product's context. One command gets it flowing, then agents can start finding
+                    and fixing things, with you steering.
+                </p>
+            </div>
+        </div>
+    )
+}
 
 /** What the self-driving run wires up, so the command isn't a leap of faith. */
 const WIZARD_SETS_UP = [
@@ -126,12 +144,13 @@ interface StepDef {
 }
 
 /**
- * Two steps: run the wizard, then pick a plan. The wizard does the real configuration (sources,
+ * Say what this is, run the wizard, pick a plan. The wizard does the real configuration (sources,
  * scouts, GitHub), so the app's job is to show the run and get out of the way — anything this flow
  * asked for separately would be a second place to set the same thing.
  */
 const STEPS: StepDef[] = [
-    { id: 'install', title: 'Make your product self-driving', Content: InstallStep },
+    { id: 'welcome', title: '', Content: WelcomeStep },
+    { id: 'install', title: 'Install PostHog', Content: InstallStep },
     {
         id: 'billing',
         title: 'Pick a plan',
