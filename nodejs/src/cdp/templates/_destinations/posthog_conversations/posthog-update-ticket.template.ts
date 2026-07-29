@@ -51,8 +51,21 @@ if (not empty(inputs.assignee)) {
 }
 
 if (not empty(inputs.tags)) {
-  updates.tags := inputs.tags
-  updates.tags_mode := (not empty(inputs.tags_mode)) ? inputs.tags_mode : 'add'
+  // A templated tag renders empty when what it references is missing, e.g. {person.properties.plan}
+  // on a ticket from an anonymous visitor. The API rejects a blank tag, so sending it would fail the
+  // whole update and take the status, priority and assignee down with it.
+  let tags := arrayFilter(tag -> not empty(trim(toString(tag ?? ''))), inputs.tags)
+  let skipped := length(inputs.tags) - length(tags)
+
+  if (skipped > 0) {
+    let noun := skipped == 1 ? 'tag' : 'tags'
+    print(f'Skipped {skipped} {noun} that resolved to no value. Check the referenced properties are set.')
+  }
+
+  if (not empty(tags)) {
+    updates.tags := tags
+    updates.tags_mode := (not empty(inputs.tags_mode)) ? inputs.tags_mode : 'add'
+  }
 }
 
 let response := postHogUpdateTicket({
