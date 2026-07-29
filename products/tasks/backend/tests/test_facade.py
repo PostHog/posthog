@@ -586,6 +586,23 @@ class TestFacadeReadsAndMappers(TestCase):
         # and the run never opens a PR. Wizard runs must pin the overlap boot off.
         self.assertIs(run.state.get("overlap_clone_boot_enabled"), False)
 
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_wizard_cloud_run_pins_its_model(self, _mock_workflow):
+        Integration.objects.create(team=self.team, kind="github", config={})
+        created = facade.create_wizard_cloud_run(
+            team=self.team,
+            user_id=self.user.id,
+            repository="acme-co/web",
+        )
+        run = TaskRun.objects.get(task_id=created.task_id)
+        # Wizard runs route to the unbilled `onboarding` gateway product, which allowlists only
+        # these models. Dropping the pin puts the run back on the agent-server's premium default,
+        # which that product rejects, so every wizard cloud run would 403 at the gateway. Changing
+        # the pin means changing the allowlist in services/llm-gateway too.
+        self.assertEqual(run.state.get("runtime_adapter"), "claude")
+        self.assertEqual(run.state.get("model"), "claude-sonnet-5")
+        self.assertEqual(run.state.get("ai_stage"), "wizard_pr_agent")
+
 
 class TestRecentWizardCloudRunTimes(TestCase):
     organization: ClassVar[Organization]

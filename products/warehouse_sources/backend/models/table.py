@@ -760,11 +760,17 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             and self.external_data_source.direct_engine == "clickhouse"
         ):
             job_inputs = self.external_data_source.job_inputs or {}
-            clickhouse_database = (
-                self.options.get(DIRECT_CLICKHOUSE_DATABASE_OPTION)
-                if isinstance(self.options.get(DIRECT_CLICKHOUSE_DATABASE_OPTION), str)
-                else job_inputs.get("database", "default")
-            )
+            # Every direct-ClickHouse table is discovered from the source's single configured
+            # database, so the live source config is authoritative. Prefer it over the per-table
+            # option, which can be stale — e.g. stored as "default" when the source was first synced
+            # before a database was set — and would otherwise resolve to a database that doesn't
+            # exist on the server. Fall back to the stored option only when no database is configured.
+            configured_database = job_inputs.get("database")
+            if isinstance(configured_database, str) and configured_database.strip():
+                clickhouse_database = configured_database
+            else:
+                stored_database = self.options.get(DIRECT_CLICKHOUSE_DATABASE_OPTION)
+                clickhouse_database = stored_database if isinstance(stored_database, str) else "default"
             clickhouse_table_name = (
                 self.options.get(DIRECT_CLICKHOUSE_TABLE_OPTION)
                 if isinstance(self.options.get(DIRECT_CLICKHOUSE_TABLE_OPTION), str)
