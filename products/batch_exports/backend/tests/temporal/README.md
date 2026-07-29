@@ -69,6 +69,16 @@ To additionally also run 'COPY' tests (available in the `test_copy_activity.py` 
 DEBUG=1 AWS_ACCESS_KEY_ID="AAAA" AWS_SECRET_ACCESS_KEY="BBBB" AWS_REGION="region" S3_TEST_BUCKET="my-test-bucket" REDSHIFT_HOST=workgroup.111222333.region.redshift-serverless.amazonaws.com REDSHIFT_USER=test_user REDSHIFT_PASSWORD=test_password pytest products/batch_exports/backend/tests/temporal/destinations/redshift
 ```
 
+### Redshift Serverless IAM role test
+
+`test_serverless_iam_role_e2e.py` creates temporary AWS resources in the selected account: an IAM role, security group, Redshift Serverless namespace, and Redshift Serverless workgroup. It is skipped by default.
+
+To run it, use an empty AWS account with a default VPC and at least three default subnets in the selected region. AWS credentials must be available in the environment, and `BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN` must point to the PostHog role that assumes customer roles.
+
+```bash
+DEBUG=1 REDSHIFT_SERVERLESS_TEST=1 AWS_REGION="us-east-1" BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN="arn:aws:iam::123456789012:role/posthog-batch-export" pytest products/batch_exports/backend/tests/temporal/destinations/redshift/test_serverless_iam_role_e2e.py
+```
+
 ## Testing S3 batch exports
 
 S3 batch exports are tested against a MinIO bucket available in the local development stack. However there are also unit tests that specifically target an S3 bucket (like `test_s3_export_workflow_with_s3_bucket`), tests that target a Google Cloud Storage (GCS) bucket, and tests that run against a playground AWS account.

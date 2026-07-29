@@ -424,10 +424,10 @@ class RedshiftCopyInputs:
 class RedshiftBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Redshift export workflow."""
 
-    user: str
-    password: str
-    host: str
     database: str
+    user: str | None = None
+    password: str | None = None
+    host: str | None = None
     schema: str = "public"
     table_name: str = "events"
     port: int = 5439

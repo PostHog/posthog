@@ -43,6 +43,8 @@ from posthog.models.integration import (
     DatabricksIntegration,
     DatabricksIntegrationError,
     Integration,
+    RedshiftIntegration,
+    RedshiftIntegrationError,
 )
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse, str_to_bool
@@ -444,6 +446,96 @@ class SnowflakeDestinationConfigSerializer(serializers.Serializer):
     )
 
 
+class RedshiftAWSCredentialsSerializer(serializers.Serializer):
+    """AWS access keys used by Redshift COPY configuration."""
+
+    aws_access_key_id = serializers.CharField(help_text="AWS access key ID.")
+    aws_secret_access_key = serializers.CharField(help_text="AWS secret access key.")
+
+
+@extend_schema_field(
+    {
+        "oneOf": [
+            {
+                "type": "string",
+                "description": "IAM role ARN Redshift uses to read staged files.",
+            },
+            {
+                "type": "object",
+                "properties": {
+                    "aws_access_key_id": {"type": "string", "description": "AWS access key ID."},
+                    "aws_secret_access_key": {"type": "string", "description": "AWS secret access key."},
+                },
+                "required": ["aws_access_key_id", "aws_secret_access_key"],
+                "additionalProperties": False,
+                "description": "AWS access keys Redshift uses to read staged files.",
+            },
+        ]
+    }
+)
+class RedshiftCopyAuthorizationField(serializers.JSONField):
+    pass
+
+
+class RedshiftCopyInputsSerializer(serializers.Serializer):
+    """COPY-mode S3 configuration for a Redshift batch-export destination."""
+
+    s3_bucket = serializers.CharField(help_text="S3 bucket used for Redshift COPY staging.")
+    region_name = serializers.CharField(help_text="AWS region for the S3 staging bucket.")
+    s3_key_prefix = serializers.CharField(
+        required=False,
+        default="/",
+        help_text="S3 key prefix for staged files.",
+    )
+    bucket_credentials = RedshiftAWSCredentialsSerializer(help_text="Credentials PostHog uses to write staged files.")
+    authorization = RedshiftCopyAuthorizationField(
+        help_text="IAM role ARN or AWS access keys Redshift uses to read staged files.",
+    )
+
+
+class RedshiftDestinationConfigSerializer(serializers.Serializer):
+    """Typed configuration for a Redshift batch-export destination.
+
+    Redshift connection credentials live in the linked Integration. Database, schema, table and
+    COPY staging settings remain on the export.
+    """
+
+    database = serializers.CharField(help_text="Redshift database to write to.")
+    host = serializers.CharField(help_text="Redshift host to connect to.")
+    port = serializers.IntegerField(
+        min_value=0,
+        max_value=65535,
+        help_text="Redshift port to connect to.",
+    )
+    schema = serializers.CharField(
+        required=False,
+        default="public",
+        help_text="Redshift schema containing the destination table.",
+    )
+    table_name = serializers.CharField(
+        required=False,
+        default="events",
+        help_text="Destination table name.",
+    )
+    properties_data_type = serializers.ChoiceField(
+        choices=["varchar", "super"],
+        required=False,
+        default="varchar",
+        help_text="Redshift type to use for semi-structured fields.",
+    )
+    mode = serializers.ChoiceField(
+        choices=["COPY", "INSERT"],
+        required=False,
+        default="INSERT",
+        help_text="SQL command used to write exported rows.",
+    )
+    copy_inputs = RedshiftCopyInputsSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Required when mode is COPY.",
+    )
+
+
 @extend_schema_field(
     PolymorphicProxySerializer(
         component_name="BatchExportDestinationConfig",
@@ -455,6 +547,7 @@ class SnowflakeDestinationConfigSerializer(serializers.Serializer):
             "AwsS3": AwsS3DestinationConfigSerializer,
             "S3Compatible": S3CompatibleDestinationConfigSerializer,
             "Snowflake": SnowflakeDestinationConfigSerializer,
+            "Redshift": RedshiftDestinationConfigSerializer,
         },
         resource_type_field_name="type",
     )
@@ -562,6 +655,19 @@ class SnowflakeDestinationRequestSerializer(serializers.Serializer):
     config = SnowflakeDestinationConfigSerializer()
 
 
+class RedshiftDestinationRequestSerializer(serializers.Serializer):
+    """Request shape for creating or updating a Redshift batch-export destination."""
+
+    type = serializers.ChoiceField(choices=["Redshift"])
+    integration_id = serializers.IntegerField(
+        help_text=(
+            "ID of a redshift-kind Integration providing connection credentials. Required when creating "
+            "a batch export. Use the integrations-list MCP tool to find one."
+        ),
+    )
+    config = RedshiftDestinationConfigSerializer()
+
+
 BatchExportDestinationRequest = PolymorphicProxySerializer(
     component_name="BatchExportDestinationRequest",
     serializers={
@@ -572,6 +678,7 @@ BatchExportDestinationRequest = PolymorphicProxySerializer(
         "AwsS3": AwsS3DestinationRequestSerializer,
         "S3Compatible": S3CompatibleDestinationRequestSerializer,
         "Snowflake": SnowflakeDestinationRequestSerializer,
+        "Redshift": RedshiftDestinationRequestSerializer,
     },
     resource_type_field_name="type",
 )
@@ -582,9 +689,10 @@ class BatchExportDestinationRequestField(serializers.JSONField):
     """JSONField annotated with a polymorphic OpenAPI request schema.
 
     Only integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3,
-    S3Compatible, Snowflake) are exposed in the schema. integration_id is required for Databricks,
-    AzureBlob and BigQuery, and optional for the S3 family and Snowflake (inline credentials remain
-    supported for the time being). Existing Postgres, S3 and Snowflake exports created before
+    S3Compatible, Snowflake, Redshift) are exposed in the schema. integration_id is required for
+    Databricks, AzureBlob, BigQuery, Postgres and Redshift, and optional for the S3 family and
+    Snowflake (inline credentials remain supported for the time being). Existing S3 and Snowflake
+    exports created before
     integrations keep their inline credentials. Runtime validation remains
     `BatchExportDestinationSerializer.validate_destination`.
     """
@@ -662,15 +770,15 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
 
     The `config` field is polymorphic and typed only for destinations that keep
     credentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres,
-    AwsS3, S3Compatible, Snowflake). Other destination types accept the same JSON shape but without a
-    typed OpenAPI schema. Secret fields are stripped from `config` on read.
+    AwsS3, S3Compatible, Snowflake, Redshift). Other destination types accept the same JSON shape but
+    without a typed OpenAPI schema. Secret fields are stripped from `config` on read.
     """
 
     config = TypedBatchExportDestinationConfigField(
         help_text=(
             "Destination-specific configuration. Fields depend on `type`. Credentials for "
             "integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, "
-            "Snowflake) are NOT stored here — they live in the linked Integration. Secret fields are stripped "
+            "Snowflake, Redshift) are NOT stored here - they live in the linked Integration. Secret fields are stripped "
             "from responses."
         ),
     )
@@ -688,8 +796,8 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text=(
             "ID of a team-scoped Integration providing credentials. Required when creating Databricks, "
-            "AzureBlob, and BigQuery destinations; optional for AwsS3, S3Compatible and Snowflake (inline "
-            "credentials remain supported); unused for other types."
+            "AzureBlob, BigQuery, Postgres and Redshift destinations; optional for AwsS3, S3Compatible "
+            "and Snowflake (inline credentials remain supported); unused for other types."
         ),
     )
 
@@ -1355,6 +1463,29 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 )
 
         if destination_type == BatchExportDestination.Destination.REDSHIFT:
+            integration = destination_attrs.get("integration")
+
+            if instance is not None and instance.destination.integration is not None and integration is None:
+                raise serializers.ValidationError(
+                    "Cannot remove the integration from a Redshift batch export that uses one. "
+                    "Re-send its `integration` to keep it (or a different one to swap)."
+                )
+
+            if integration is None and instance is None:
+                raise serializers.ValidationError("Integration is required for Redshift batch exports")
+            if integration is not None and integration.kind != Integration.IntegrationKind.REDSHIFT:
+                raise serializers.ValidationError("Integration is not a Redshift integration.")
+            if integration is not None:
+                try:
+                    RedshiftIntegration(integration)
+                except RedshiftIntegrationError as e:
+                    raise serializers.ValidationError(str(e))
+            if not self.partial:
+                if not merged_config.get("host"):
+                    raise serializers.ValidationError("Configuration missing required field: 'host'")
+                if "port" not in merged_config:
+                    raise serializers.ValidationError("Configuration missing required field: 'port'")
+
             mode = merged_config.get("mode")
 
             if mode == "COPY":
@@ -1395,20 +1526,21 @@ class BatchExportSerializer(serializers.ModelSerializer):
             ):
                 raise PermissionDenied("Backfilling Workflows is not enabled for this team.")
 
-        if destination_type in (
-            BatchExportDestination.Destination.POSTGRES,
-            BatchExportDestination.Destination.REDSHIFT,
-        ):
-            # Integration-backed Postgres exports keep the host in the linked Integration
-            # rather than in `config`; inline configs (Redshift, legacy Postgres) keep it in
-            # `config`. Prefer the Integration's host when one is provided so we don't skip
-            # SSRF validation (and don't `KeyError` on a `config` that has no `host`).
+        if destination_type == BatchExportDestination.Destination.POSTGRES:
             integration = destination_attrs.get("integration")
             if integration is not None:
                 host = integration.config.get("host")
             else:
                 host = merged_config.get("host")
 
+            if host is not None:
+                try:
+                    resolve_and_validate_host(host)
+                except ValueError:
+                    raise serializers.ValidationError(f"Invalid host: '{host}'")
+
+        if destination_type == BatchExportDestination.Destination.REDSHIFT:
+            host = merged_config.get("host")
             if host is not None:
                 try:
                     resolve_and_validate_host(host)
@@ -1518,7 +1650,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
         if parsed.ctes:
             raise serializers.ValidationError("CTEs are not supported")
 
-        if isinstance(parsed.select_from.table, (ast.SelectQuery, ast.SelectSetQuery)):
+        if isinstance(parsed.select_from.table, ast.SelectQuery | ast.SelectSetQuery):
             raise serializers.ValidationError("Subqueries are not supported")
 
         # Not sure how to make mypy understand this works, hence the ignore comment.

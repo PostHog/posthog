@@ -4,12 +4,18 @@ from django.test.client import Client as HttpClient
 
 from rest_framework import status
 
+from posthog.models.integration import Integration
+
 from products.batch_exports.backend.tests.api.operations import create_batch_export
 
 pytestmark = [
     pytest.mark.django_db,
-    pytest.mark.usefixtures("temporal_worker", "cleanup"),
 ]
+
+
+@pytest.fixture(autouse=True)
+def mock_batch_export_schedule(monkeypatch) -> None:
+    monkeypatch.setattr("products.batch_exports.backend.api.batch_export.sync_batch_export", lambda *_, **__: None)
 
 
 @pytest.mark.parametrize(
@@ -120,22 +126,33 @@ pytestmark = [
     ],
 )
 def test_create_redshift_batch_export_validates_copy_inputs(
-    client: HttpClient, mode, copy_inputs, expected_status, temporal, organization, team, user
+    client: HttpClient, mode, copy_inputs, expected_status, organization, team, user
 ):
-    """Test creating a BatchExport with Redshift destination validates inputs for 'COPY'."""
+    integration = Integration.objects.create(
+        team=team,
+        kind=Integration.IntegrationKind.REDSHIFT,
+        integration_id="prod-redshift",
+        config={
+            "name": "prod-redshift",
+            "authentication_type": "password",
+            "user": "user",
+        },
+        sensitive_config={"password": "my-password"},
+        created_by=user,
+    )
 
     destination_data = {
         "type": "Redshift",
         "config": {
-            "user": "user",
-            "password": "my-password",
             "database": "my-db",
-            "host": "localhost",
+            "host": "8.8.8.8",
+            "port": 5439,
             "schema": "public",
             "table_name": "my_events",
             "mode": mode,
             "copy_inputs": copy_inputs,
         },
+        "integration": integration.id,
     }
 
     batch_export_data = {
