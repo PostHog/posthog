@@ -81,8 +81,12 @@ export function teamResponseTargetGroups(team: TeamPublicType | TeamType | null)
                 group.tags.every((tag: any) => typeof tag === 'string')
         ) &&
         // Duplicate labels would collide in the grouped view's per-label
-        // headers — treat them as malformed too.
-        new Set(groups.map((group: any) => group.label)).size === groups.length
+        // headers, and a tag in two groups would rank with its FIRST group
+        // server-side while the tag→rank map here keeps the LAST — treat
+        // both as malformed too.
+        new Set(groups.map((group: any) => group.label)).size === groups.length &&
+        new Set(groups.flatMap((group: any) => group.tags)).size ===
+            groups.reduce((sum: number, group: any) => sum + group.tags.length, 0)
     ) {
         return groups
     }
