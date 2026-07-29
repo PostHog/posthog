@@ -29,8 +29,10 @@ pub trait StashHandler: Send + Sync {
 
     /// Drain stashed writes to the given target and resume normal routing.
     /// `cancel` requests a cooperative stop: implementations yield at a
-    /// batch boundary, leaving any remaining stash intact for a successor
-    /// drain.
+    /// request boundary, putting anything they had taken back so the full
+    /// remaining stash stays parked, in order, for a successor drain.
+    /// Cancellation is a routing decision, never a request outcome — no
+    /// client-visible failure may result from it.
     async fn drain_stash(
         &self,
         partition: u32,
@@ -68,9 +70,13 @@ pub trait StashHandler: Send + Sync {
 /// live), and the new drain starts only after the old one has fully
 /// stopped, so two drains can never interleave batches toward different
 /// targets. A request toward the same target is absorbed by the running
-/// drain, whose loop already covers later arrivals. Lane entries are
-/// retained after completion — the map is bounded by the partition count,
-/// and a finished lane costs one no-op cancel and an immediate join on the
+/// drain, whose loop already covers later arrivals. Observing a
+/// non-terminal handoff phase pauses the lane: the running drain is
+/// cancelled with no successor, so the partition stops forwarding until
+/// the next `Complete` names a target — the ownership state, not the
+/// drain, decides where parked requests go. Lane entries are retained
+/// after completion — the map is bounded by the partition count, and a
+/// finished lane costs one no-op cancel and an immediate join on the
 /// next request.
 struct DrainLanes {
     /// Parent of every drain token, so cancelling it stops all drains on
@@ -107,12 +113,10 @@ impl DrainLanes {
         let task_token = token.clone();
         let mut lanes = self.lanes.lock().expect("drain lanes lock poisoned");
         // A drain already running toward the same target covers everything
-        // this request would: its loop keeps taking batches until it
-        // observes the queue empty, including arrivals after this point.
-        // Restarting it would only fail the requests it has in flight —
-        // which the routine post-`Complete` handoff cleanup would do on
-        // every healthy handoff, since its deletion event drains back to
-        // the owner the table already flipped to.
+        // this request would: its loop keeps taking runs until it observes
+        // the queue fully settled, including arrivals after this point.
+        // Restarting it would only churn — cancel, put back, re-take the
+        // same backlog — for no coverage gain.
         if let Some(prev) = lanes.get(&partition) {
             if prev.target == target && !prev.token.is_cancelled() && !prev.handle.is_finished() {
                 return;
@@ -146,6 +150,38 @@ impl DrainLanes {
                 target,
             },
         );
+    }
+
+    /// Pause the drain for `partition`, if one is running: cancel its
+    /// token without starting a successor. The drain puts anything it
+    /// had taken back and exits, leaving the stash parked. Called when a
+    /// non-terminal handoff phase is observed — the partition is
+    /// (re-)entering a stash window, and nothing may be forwarded until
+    /// the next `Complete` names the target. Idempotent; a later
+    /// `request` supersedes the paused lane.
+    fn pause(&self, partition: u32) {
+        let lanes = self.lanes.lock().expect("drain lanes lock poisoned");
+        if let Some(lane) = lanes.get(&partition) {
+            lane.token.cancel();
+        }
+    }
+
+    /// Cancel every lane and await the drains' termination. Runs during
+    /// teardown, after the watch loop (the only source of new requests)
+    /// has stopped and before the router's lease is revoked: the lease
+    /// must outlive the last forward. Joining is quick — cancellation
+    /// stops each drain within one in-flight request — and joining the
+    /// newest handle per partition transitively joins its predecessors,
+    /// which each successor task awaits before starting.
+    async fn shutdown(&self) {
+        self.cancel.cancel();
+        let handles: Vec<JoinHandle<()>> = {
+            let mut lanes = self.lanes.lock().expect("drain lanes lock poisoned");
+            lanes.drain().map(|(_, lane)| lane.handle).collect()
+        };
+        for handle in handles {
+            drop(handle.await);
+        }
     }
 }
 
@@ -371,12 +407,13 @@ impl RoutingTable {
             });
         }
 
-        // Drain lanes get their own token, cancelled in the teardown below:
-        // drains must wind down on any exit path — including an error
-        // teardown, where the caller's token was never cancelled — rather
-        // than outliving the run as orphans forwarding for a deregistered
-        // router.
-        let lanes_cancel = cancel.child_token();
+        // Drain lanes get their own token, torn down below: drains must
+        // wind down on any exit path — including an error teardown, where
+        // the caller's token was never cancelled — rather than outliving
+        // the run as orphans forwarding for a deregistered router. The
+        // handle is held here, not just inside the watch loop, so the
+        // teardown can join the lane tasks rather than merely signal them.
+        let lanes = Arc::new(DrainLanes::new(cancel.child_token()));
 
         {
             let store = Arc::clone(&self.store);
@@ -384,7 +421,7 @@ impl RoutingTable {
             let addresses = Arc::clone(&self.addresses);
             let handler = Arc::clone(&handler);
             let router_name = self.config.router_name.clone();
-            let lanes = Arc::new(DrainLanes::new(lanes_cancel.clone()));
+            let lanes = Arc::clone(&lanes);
             let last_progress = Arc::clone(&last_progress);
             let reconcile_interval = self.config.reconcile_interval;
             let reconcile_failure_budget = self.config.reconcile_failure_budget;
@@ -416,10 +453,19 @@ impl RoutingTable {
             }
         };
 
-        // Abort and await all remaining tasks for clean shutdown, and stop
-        // any in-flight drains at their next batch boundary.
+        // Abort and await all remaining tasks first — the watch loop is
+        // the only source of new drain requests, so once it is gone the
+        // lane set is final and can be joined.
         tasks.shutdown().await;
-        lanes_cancel.cancel();
+
+        // Cancel and JOIN every drain before touching the lease: the
+        // lease must outlive the last forward, so anything a drain
+        // delivered happened while this router was still a legitimately
+        // registered participant. Signalling without joining would let
+        // drains keep forwarding past deregistration, stretching the
+        // zombie-router window beyond the lease bound the protocol's
+        // residual analysis relies on.
+        lanes.shutdown().await;
 
         // Deregister so freeze quorums stop counting this router
         // immediately. Left to lease expiry, every handoff frozen in the
@@ -734,6 +780,7 @@ impl RoutingTable {
             constrained.insert(handoff.partition);
             match handoff.phase {
                 HandoffPhase::Freezing | HandoffPhase::Draining | HandoffPhase::Warming => {
+                    lanes.pause(handoff.partition);
                     handler
                         .begin_stash(handoff.partition, &handoff.new_owner)
                         .await?;
@@ -834,6 +881,13 @@ impl RoutingTable {
                     phase = ?handoff.phase,
                     "beginning stash"
                 );
+                // A drain still running from the previous ownership era
+                // must stop before this partition re-enters the stash
+                // window: pausing the lane makes the running drain put
+                // its in-flight entries back, so they park behind
+                // nothing and drain to whatever owner the next
+                // `Complete` names.
+                lanes.pause(handoff.partition);
                 handler
                     .begin_stash(handoff.partition, &handoff.new_owner)
                     .await?;
@@ -980,10 +1034,10 @@ mod tests {
     }
 
     /// A request toward the target already being drained must not restart
-    /// the drain: the running loop covers all arrivals, and restarting
-    /// would fail its in-flight requests — on every healthy handoff, since
-    /// post-`Complete` cleanup deletion drains back to the same owner the
-    /// table just flipped to.
+    /// the drain: the running loop covers all arrivals — including the
+    /// routine post-`Complete` cleanup deletion that drains back to the
+    /// same owner the table just flipped to — and restarting it would
+    /// only churn the same backlog.
     #[tokio::test]
     async fn a_same_target_request_does_not_supersede_the_running_drain() {
         let (lanes, handler, mut rx) = parking_lanes();
@@ -998,6 +1052,54 @@ mod tests {
         // duplicate "a" drain in between.
         lanes.request(handler, "r".into(), 0, "b".into());
         assert_eq!(rx.recv().await.unwrap(), "stop:a");
+        assert_eq!(rx.recv().await.unwrap(), "start:b");
+    }
+
+    /// Teardown must JOIN drains, not merely signal them: `shutdown`
+    /// returns only after every lane task has observed cancellation and
+    /// exited, so the caller can revoke the router's lease knowing no
+    /// forward happens after it. Signalling without joining would leave
+    /// detached drains forwarding for a deregistered router.
+    #[tokio::test]
+    async fn shutdown_joins_running_drains_before_returning() {
+        let (lanes, handler, mut rx) = parking_lanes();
+
+        lanes.request(Arc::clone(&handler), "r".into(), 0, "a".into());
+        lanes.request(handler, "r".into(), 1, "b".into());
+        let starts = [rx.recv().await.unwrap(), rx.recv().await.unwrap()];
+        assert!(starts.contains(&"start:a".to_string()));
+        assert!(starts.contains(&"start:b".to_string()));
+
+        lanes.shutdown().await;
+
+        // Both drains exited before shutdown returned — their stop
+        // events must already be in the channel, no further waiting.
+        let mut stops = [rx.try_recv().unwrap(), rx.try_recv().unwrap()];
+        stops.sort();
+        assert_eq!(stops, ["stop:a".to_string(), "stop:b".to_string()]);
+    }
+
+    /// Observing a non-terminal handoff phase pauses the lane: the
+    /// running drain is cancelled with no successor, so nothing forwards
+    /// while the partition re-enters its stash window. Only the next
+    /// `Complete`'s request may start a fresh drain, toward whatever
+    /// owner it names.
+    #[tokio::test]
+    async fn a_pause_stops_the_drain_without_starting_a_successor() {
+        let (lanes, handler, mut rx) = parking_lanes();
+
+        lanes.request(Arc::clone(&handler), "r".into(), 0, "a".into());
+        assert_eq!(rx.recv().await.unwrap(), "start:a");
+
+        lanes.pause(0);
+        assert_eq!(rx.recv().await.unwrap(), "stop:a");
+        assert!(
+            rx.try_recv().is_err(),
+            "pause must not start a successor drain"
+        );
+
+        // The next Complete re-requests; the paused lane is superseded.
+        lanes.request(handler, "r".into(), 0, "b".into());
         assert_eq!(rx.recv().await.unwrap(), "start:b");
     }
 }
