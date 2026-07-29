@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1266_comment_convo_content_trgm"),
+        ("posthog", "1270_untrack_provisioning_auth_columns"),
     ]
 
     # Nullable with no default so existing rows stay NULL, which the frontend resolves as
