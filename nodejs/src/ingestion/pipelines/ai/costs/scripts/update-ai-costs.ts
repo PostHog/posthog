@@ -62,13 +62,14 @@ const parsePricingNumber = (value: unknown): number | undefined => {
  */
 export const parseDiscountRate = (pricing: Record<string, unknown>, context?: string, warn = true): number => {
     const parsed = parsePricingNumber(pricing.discount)
-    if (parsed === undefined || parsed === 0) {
+    if (parsed === undefined) {
         return 0
     }
 
-    // A rate at or above 1 would divide by zero or flip the sign. Negatives are
-    // already clamped to 0 by parsePricingNumber.
-    if (parsed >= 1) {
+    // A rate at or above 1 would divide by zero or flip the sign. Negatives read
+    // the raw value because parsePricingNumber clamps them to 0, which would
+    // otherwise be indistinguishable from "no promotion".
+    if (parsed >= 1 || Number(pricing.discount) < 0) {
         if (warn) {
             console.warn(`Ignoring out-of-range discount ${String(pricing.discount)} for ${context ?? 'unknown model'}`)
         }
@@ -77,6 +78,28 @@ export const parseDiscountRate = (pricing: Record<string, unknown>, context?: st
 
     return parsed
 }
+
+/**
+ * Strips the promotion rate so a cost built from this pricing keeps the price as
+ * served. `default` mirrors the list payload, and sharing `buildModelCost` would
+ * otherwise de-discount it the day OpenRouter adds the field to that payload.
+ */
+export const withoutDiscount = (pricing: Record<string, unknown> | undefined): Record<string, unknown> | undefined => {
+    if (!pricing) {
+        return undefined
+    }
+    const { discount: _rate, ...rest } = pricing
+    return rest
+}
+
+/**
+ * Builds the `default` cost. Routed through `withoutDiscount` so the shared
+ * builder cannot de-discount it, whatever the list payload starts carrying.
+ */
+export const buildDefaultCost = (
+    modelPricing: Record<string, unknown> | undefined,
+    context?: string
+): ModelCost | null => buildModelCost(withoutDiscount(modelPricing), context)
 
 export const buildModelCost = (pricing: Record<string, unknown> | undefined, context?: string): ModelCost | null => {
     if (!pricing) {
@@ -271,7 +294,15 @@ export interface BuiltModelRow {
  * Split out of the fetch loop so the wiring is reachable from a test: the
  * network call is the only part that has to be live.
  */
-export const buildModelRow = (modelId: string, defaultCost: ModelCost, endpoints: unknown[]): BuiltModelRow => {
+export const buildModelRow = (
+    modelId: string,
+    modelPricing: Record<string, unknown> | undefined,
+    endpoints: unknown[]
+): BuiltModelRow | null => {
+    const defaultCost = buildDefaultCost(modelPricing, modelId)
+    if (!defaultCost) {
+        return null
+    }
     const cost: Record<string, ModelCost> = { default: defaultCost }
     const candidates: EndpointCandidate[] = []
 
@@ -296,7 +327,7 @@ export const buildModelRow = (modelId: string, defaultCost: ModelCost, endpoints
         candidates.push({
             key: safeProviderKey,
             cost: endpointCost,
-            discount: parseDiscountRate(endpoint.pricing ?? {}),
+            discount: parseDiscountRate(endpoint.pricing ?? {}, context, false),
         })
     }
 
@@ -329,13 +360,11 @@ export interface RunTotals {
 
 /** Folds one built row into the run totals; split out so a test can cover the
  * wire between what `buildModelRow` reports and what the summary claims. */
-export const accumulateModelRow = (built: BuiltModelRow, modelId: string, totals: RunTotals): RunTotals => {
-    totals.models.push({ model: modelId, cost: built.cost })
-    if (built.discount) {
-        totals.discounts.push(built.discount)
-    }
-    return { ...totals, uncheckedModels: totals.uncheckedModels + (built.checked ? 0 : 1) }
-}
+export const accumulateModelRow = (built: BuiltModelRow, modelId: string, totals: RunTotals): RunTotals => ({
+    models: [...totals.models, { model: modelId, cost: built.cost }],
+    discounts: built.discount ? [...totals.discounts, built.discount] : totals.discounts,
+    uncheckedModels: totals.uncheckedModels + (built.checked ? 0 : 1),
+})
 
 /** Name of the env var carrying the summary path, shared with the workflow that sets it. */
 export const DISCOUNT_SUMMARY_ENV = 'DISCOUNT_SUMMARY_PATH'
@@ -381,9 +410,7 @@ const fetchOpenRouterCosts = async (): Promise<RunTotals> => {
     console.log('OpenRouter models:', data.data.length)
     const models = data.data
 
-    const allModels: ModelRow[] = []
-    const discounts: DiscountReportEntry[] = []
-    let uncheckedModels = 0
+    let totals: RunTotals = { models: [], discounts: [], uncheckedModels: 0 }
 
     for (const [modelIndex, model] of models.entries()) {
         if (!model?.id) {
@@ -391,8 +418,9 @@ const fetchOpenRouterCosts = async (): Promise<RunTotals> => {
             continue
         }
 
-        const defaultCost = buildModelCost(model.pricing, model.id)
-        if (!defaultCost) {
+        // Gate before the endpoints request so an unpriceable model costs no
+        // network call; buildModelRow re-derives the cost it validates here.
+        if (!buildDefaultCost(model.pricing, model.id)) {
             console.warn('Skipping model without valid pricing:', model.id)
             continue
         }
@@ -426,23 +454,25 @@ const fetchOpenRouterCosts = async (): Promise<RunTotals> => {
             console.warn('Error fetching endpoint pricing for model:', model.id, error)
         }
 
-        const accumulated = accumulateModelRow(buildModelRow(model.id, defaultCost, endpoints), model.id, {
-            models: allModels,
-            discounts,
-            uncheckedModels,
-        })
-        uncheckedModels = accumulated.uncheckedModels
+        const built = buildModelRow(model.id, model.pricing, endpoints)
+        if (!built) {
+            console.warn('Skipping model without valid pricing:', model.id)
+            continue
+        }
+        totals = accumulateModelRow(built, model.id, totals)
     }
 
-    allModels.sort((a, b) => a.model.localeCompare(b.model))
+    const sortedModels = [...totals.models].sort((a, b) => a.model.localeCompare(b.model))
 
-    if (uncheckedModels > 0) {
+    if (totals.uncheckedModels > 0) {
         // Alias and meta-router models carry no per-endpoint pricing, so a
         // handful here is the steady state; aggregated to keep it readable.
-        console.log(`${uncheckedModels} model(s) had no usable endpoint pricing and were not checked for promotions`)
+        console.log(
+            `${totals.uncheckedModels} model(s) had no usable endpoint pricing and were not checked for promotions`
+        )
     }
 
-    return { models: allModels, discounts, uncheckedModels }
+    return { ...totals, models: sortedModels }
 }
 
 const sortProviderCosts = (models: ModelRow[]): ModelRow[] => {

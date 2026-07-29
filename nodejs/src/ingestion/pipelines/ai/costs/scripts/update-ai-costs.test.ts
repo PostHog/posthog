@@ -9,12 +9,14 @@ import {
     type EndpointCandidate,
     type RunTotals,
     accumulateModelRow,
+    buildDefaultCost,
     buildModelCost,
     buildModelRow,
     confirmDiscountAgainstSiblings,
     parseDiscountRate,
     renderDiscountReport,
     sanitizeReportCell,
+    withoutDiscount,
     writeOutputs,
 } from './update-ai-costs'
 
@@ -55,10 +57,60 @@ describe('parseDiscountRate()', () => {
         expect(parseDiscountRate({ discount })).toBe(expected)
     })
 
+    it('warns on a negative rate, which would otherwise look like no promotion', () => {
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+        expect(parseDiscountRate({ discount: -0.5 }, 'x/y')).toBe(0)
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('x/y'))
+    })
+
+    it('stays silent when there is no rate at all', () => {
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+        parseDiscountRate({}, 'x/y')
+        expect(warn).not.toHaveBeenCalled()
+    })
+
     it('warns naming the model when the rate is out of range', () => {
         const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
         parseDiscountRate({ discount: 2 }, 'openai/gpt-5.6-luna (openai)')
         expect(warn).toHaveBeenCalledWith(expect.stringContaining('openai/gpt-5.6-luna (openai)'))
+    })
+})
+
+describe('withoutDiscount()', () => {
+    it('returns undefined for absent pricing', () => {
+        expect(withoutDiscount(undefined)).toBeUndefined()
+    })
+
+    it('drops the rate and keeps every other field', () => {
+        expect(withoutDiscount({ prompt: '1', completion: '2', discount: 0.5 })).toEqual({
+            prompt: '1',
+            completion: '2',
+        })
+    })
+
+    it('keeps a cost at the served price even when a rate is present', () => {
+        // `default` is built through this. The list payload carries no rate today,
+        // so without the strip the carve-out would rest on that staying true.
+        const served = { prompt: '0.0000005', completion: '0.000003', discount: 0.5 }
+        expect(buildModelCost(withoutDiscount(served))!.prompt_token).toBe(0.0000005)
+        expect(buildModelCost(served)!.prompt_token).toBe(0.000001)
+    })
+})
+
+describe('buildDefaultCost()', () => {
+    it('keeps the served price when the list payload carries a rate', () => {
+        // The list payload has no rate today. This is what stops the carve-out
+        // from depending on that staying true.
+        expect(buildDefaultCost({ prompt: '0.0000005', completion: '0.000003', discount: 0.5 })!.prompt_token).toBe(
+            0.0000005
+        )
+    })
+
+    it('behaves like the plain builder when there is no rate', () => {
+        expect(buildDefaultCost({ prompt: '0.000001', completion: '0.000006' })).toEqual({
+            prompt_token: 0.000001,
+            completion_token: 0.000006,
+        })
     })
 })
 
@@ -150,47 +202,51 @@ describe('buildModelCost() recovers prices the cost book previously recorded', (
 })
 
 describe('buildModelRow()', () => {
+    const listPricing = { prompt: '0.0000005', completion: '0.0000005' }
     const listCost = cost('0.0000005')!
 
     it('reports nothing was checked when there are no endpoints', () => {
-        const built = buildModelRow('openai/gpt-5.6-luna', listCost, [])
-        expect(built.checked).toBe(false)
-        expect(built.discount).toBeUndefined()
-        expect(built.cost).toEqual({ default: listCost })
+        const built = buildModelRow('openai/gpt-5.6-luna', listPricing, [])
+        expect(built!.checked).toBe(false)
+        expect(built!.discount).toBeUndefined()
+        expect(built!.cost).toEqual({ default: listCost })
     })
 
     it('reports nothing was checked when every endpoint fails to parse', () => {
         // A payload can arrive non-empty and still yield no usable pricing, which
         // is the same "we learned nothing" state as an empty list.
-        const built = buildModelRow('openai/gpt-5.6-luna', listCost, [{ tag: 'openai', pricing: { prompt: 'x' } }, {}])
-        expect(built.checked).toBe(false)
-        expect(Object.keys(built.cost)).toEqual(['default'])
+        const built = buildModelRow('openai/gpt-5.6-luna', listPricing, [
+            { tag: 'openai', pricing: { prompt: 'x' } },
+            {},
+        ])
+        expect(built!.checked).toBe(false)
+        expect(Object.keys(built!.cost)).toEqual(['default'])
     })
 
     it('stores each endpoint at its de-discounted list price', () => {
-        const built = buildModelRow('openai/gpt-5.6-luna', listCost, [
+        const built = buildModelRow('openai/gpt-5.6-luna', listPricing, [
             endpoint('openai', '0.0000005', 0.5),
             endpoint('azure', '0.000001'),
         ])
-        expect(built.checked).toBe(true)
-        expect(built.cost.openai.prompt_token).toBe(0.000001)
-        expect(built.cost.azure.prompt_token).toBe(0.000001)
+        expect(built!.checked).toBe(true)
+        expect(built!.cost.openai.prompt_token).toBe(0.000001)
+        expect(built!.cost.azure.prompt_token).toBe(0.000001)
     })
 
     it('leaves `default` exactly as OpenRouter served it', () => {
         // `default` is what provider-matching.ts resolves `$ai_provider: openrouter`
         // onto, and OpenRouter really does bill the promo rate, so it must not move.
-        const built = buildModelRow('openai/gpt-5.6-luna', listCost, [endpoint('openai', '0.0000005', 0.5)])
-        expect(built.cost.default).toBe(listCost)
-        expect(built.cost.default.prompt_token).toBe(0.0000005)
+        const built = buildModelRow('openai/gpt-5.6-luna', listPricing, [endpoint('openai', '0.0000005', 0.5)])
+        expect(built!.cost.default).toEqual(listCost)
+        expect(built!.cost.default.prompt_token).toBe(0.0000005)
     })
 
     it('reports the discounted endpoints and the confirmation verdict', () => {
-        const built = buildModelRow('openai/gpt-5.6-luna', listCost, [
+        const built = buildModelRow('openai/gpt-5.6-luna', listPricing, [
             endpoint('openai', '0.0000005', 0.5),
             endpoint('azure', '0.000001'),
         ])
-        expect(built.discount).toEqual({
+        expect(built!.discount).toEqual({
             model: 'openai/gpt-5.6-luna',
             endpoints: [{ key: 'openai', discount: 0.5 }],
             confirmation: 'confirmed',
@@ -198,33 +254,52 @@ describe('buildModelRow()', () => {
     })
 
     it('reports no discount entry when every endpoint is at list price', () => {
-        const built = buildModelRow('openai/gpt-5.6-luna', listCost, [endpoint('azure', '0.000001')])
-        expect(built.checked).toBe(true)
-        expect(built.discount).toBeUndefined()
+        const built = buildModelRow('openai/gpt-5.6-luna', listPricing, [endpoint('azure', '0.000001')])
+        expect(built!.checked).toBe(true)
+        expect(built!.discount).toBeUndefined()
     })
 
     it('never lets an endpoint claim the `default` key', () => {
         // A route tagged "default" would otherwise overwrite the served price with
         // a de-discounted one, which is the exact over-report this branch avoids.
-        const built = buildModelRow('evil/model', listCost, [endpoint('default', '0.0000009', 0.5)])
-        expect(built.cost.default).toBe(listCost)
-        expect(built.cost['provider-default'].prompt_token).toBe(0.0000018)
+        const built = buildModelRow('evil/model', listPricing, [endpoint('default', '0.0000009', 0.5)])
+        expect(built!.cost.default).toEqual(listCost)
+        expect(built!.cost['provider-default'].prompt_token).toBe(0.0000018)
     })
 
     it('reports not-checkable when no undiscounted sibling exists', () => {
         // The shape of every Qwen model: Alibaba is the only route, so the
         // arithmetic cannot be independently corroborated.
-        const built = buildModelRow('qwen/qwen-plus', listCost, [endpoint('alibaba-fp8', '0.000000169', 0.35)])
-        expect(built.discount?.confirmation).toBe('not-checkable')
+        const built = buildModelRow('qwen/qwen-plus', listPricing, [endpoint('alibaba-fp8', '0.000000169', 0.35)])
+        expect(built!.discount?.confirmation).toBe('not-checkable')
+    })
+
+    it('warns once, naming the model, on an out-of-range rate', () => {
+        // The rate is parsed twice per endpoint; only the call carrying the model
+        // context should speak, or the log gains an unattributable duplicate.
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+        buildModelRow('openai/gpt-5.6-luna', listPricing, [endpoint('openai', '0.000001', 1.5)])
+        expect(warn).toHaveBeenCalledTimes(1)
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('openai/gpt-5.6-luna'))
+    })
+
+    it('returns null when the model has no usable list pricing', () => {
+        expect(buildModelRow('x/y', { prompt: 'nonsense' }, [])).toBeNull()
+    })
+
+    it('keeps `default` at the served price even if the list payload gains a rate', () => {
+        const built = buildModelRow('x/y', { ...listPricing, discount: 0.5 }, [endpoint('openai', '0.0000005', 0.5)])
+        expect(built!.cost.default.prompt_token).toBe(0.0000005)
+        expect(built!.cost.openai.prompt_token).toBe(0.000001)
     })
 
     it('confines a hostile provider name to a safe key', () => {
         // The key is interpolated into canonical-providers.ts as a string literal,
         // so an apostrophe must not be able to reach it.
-        const built = buildModelRow('evil/model', listCost, [
+        const built = buildModelRow('evil/model', listPricing, [
             { tag: '!!!', provider_name: "o'brien <script>", pricing: { prompt: '0.000001', completion: '0.000001' } },
         ])
-        const key = Object.keys(built.cost).find((k) => k !== 'default')!
+        const key = Object.keys(built!.cost).find((k) => k !== 'default')!
         expect(key).toBe('provider-o-brien-script')
         expect(key).toMatch(/^[a-z0-9-]+$/)
     })
@@ -436,6 +511,23 @@ describe('accumulateModelRow()', () => {
         expect(accumulateModelRow(built({ checked: false }), 'm', totals()).uncheckedModels).toBe(1)
     })
 
+    it('accumulates across successive calls', () => {
+        // Every field has to accumulate the same way, or a caller picks up one
+        // that silently stayed behind.
+        let acc = totals()
+        acc = accumulateModelRow(built({ checked: false }), 'a', acc)
+        acc = accumulateModelRow(built({ checked: false }), 'b', acc)
+        expect(acc.models).toHaveLength(2)
+        expect(acc.uncheckedModels).toBe(2)
+    })
+
+    it('leaves the totals it was handed untouched', () => {
+        const base = totals()
+        accumulateModelRow(built({ checked: false }), 'a', base)
+        expect(base.models).toHaveLength(0)
+        expect(base.uncheckedModels).toBe(0)
+    })
+
     it('does not count a row that was checked', () => {
         expect(accumulateModelRow(built({ checked: true }), 'm', totals()).uncheckedModels).toBe(0)
     })
@@ -500,7 +592,10 @@ describe('workflow contract', () => {
             path.join(__dirname, '../../../../../../../.github/workflows/update-ai-costs.yml'),
             'utf8'
         )
-        expect(workflow).toContain(`${DISCOUNT_SUMMARY_ENV}=`)
+        expect(workflow).toContain(`${DISCOUNT_SUMMARY_ENV}=`) // the step that sets it
+        // The exact guard and the exact read, so renaming either one fails here.
+        expect(workflow).toContain(`[ -f "$${DISCOUNT_SUMMARY_ENV}" ]`)
+        expect(workflow).toContain(`cat "$${DISCOUNT_SUMMARY_ENV}"`)
     })
 })
 
