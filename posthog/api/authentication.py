@@ -523,7 +523,9 @@ class DevLoginSerializer(serializers.Serializer):
 
     def validate(self, data: dict[str, Any]) -> dict[str, Any]:
         if not data.get("create_fresh_account") and not data.get("email"):
-            raise serializers.ValidationError({"email": serializers.ErrorDetail("This field is required.", code="required")})
+            raise serializers.ValidationError(
+                {"email": serializers.ErrorDetail("This field is required.", code="required")}
+            )
         return data
 
     def create(self, validated_data: dict[str, Any]) -> Any:
