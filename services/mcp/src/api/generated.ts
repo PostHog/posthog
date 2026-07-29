@@ -41213,6 +41213,11 @@ export namespace Schemas {
       readonly customer_id: string | null;
       /** @nullable */
       enforce_2fa?: boolean | null;
+      /**
+         * When True, invites and signups into this organization are restricted to email addresses on its verified domains. Existing members are unaffected.
+         * @nullable
+         */
+      enforce_login_with_verified_domain?: boolean | null;
       /** @nullable */
       members_can_invite?: boolean | null;
       /**
@@ -51034,6 +51039,11 @@ export namespace Schemas {
       readonly customer_id?: string | null;
       /** @nullable */
       enforce_2fa?: boolean | null;
+      /**
+         * When True, invites and signups into this organization are restricted to email addresses on its verified domains. Existing members are unaffected.
+         * @nullable
+         */
+      enforce_login_with_verified_domain?: boolean | null;
       /** @nullable */
       members_can_invite?: boolean | null;
       /**
