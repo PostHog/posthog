@@ -10,6 +10,7 @@ use futures::future::BoxFuture;
 use futures::stream::{FuturesUnordered, StreamExt};
 use metrics::{counter, gauge, histogram};
 use tokio::sync::{Mutex, Notify, Semaphore, SemaphorePermit};
+use tokio::task::JoinError;
 use tokio_util::sync::CancellationToken;
 
 use assignment_coordination::store::parse_watch_value;
@@ -344,15 +345,7 @@ impl PodHandle {
                 let result = tokio::select! {
                     r = self.run_once(cancel.clone()) => r,
                     r = &mut heartbeat_handle => {
-                        let err = match r {
-                            Ok(Ok(())) => Error::invalid_state(
-                                "lease keepalive exited unexpectedly".to_string(),
-                            ),
-                            Ok(Err(e)) => e,
-                            Err(join_err) => Error::invalid_state(format!(
-                                "keepalive task panicked: {join_err}"
-                            )),
-                        };
+                        let err = Self::heartbeat_exit_error(r);
                         tracing::error!(
                             pod = %self.config.pod_name,
                             error = %err,
@@ -374,25 +367,62 @@ impl PodHandle {
                     fatal = Some(err);
                     break;
                 }
-                if self.run_backoff(&cancel, consecutive_failures).await {
-                    break;
+                // The nap races the heartbeat: every await under a live
+                // lease must observe lease loss promptly, and this one
+                // otherwise defers it by a full backoff period — the
+                // coordinator may already be reassigning while the pod
+                // serves, unaware, until the nap ends.
+                tokio::select! {
+                    stop = self.run_backoff(&cancel, consecutive_failures) => {
+                        if stop {
+                            break;
+                        }
+                    }
+                    r = &mut heartbeat_handle => {
+                        let err = Self::heartbeat_exit_error(r);
+                        tracing::error!(
+                            pod = %self.config.pod_name,
+                            error = %err,
+                            "lease keepalive failed during backoff; self-fencing"
+                        );
+                        lease_err = Some(err);
+                        break;
+                    }
                 }
                 // Next attempt runs under the same lease: the
                 // registration was never given up, so the coordinator's
                 // view of this pod is unbroken.
             }
-            let lease_lost = lease_err.is_some();
 
             // Graceful drain only on external shutdown with a live
             // lease. Skipped on lease loss: the coordinator already
             // considers this pod dead and is reassigning via the
             // dead-owner path — a graceful drain would only race it, and
             // every status write would fail against the expired lease.
-            if cancel.is_cancelled() && !lease_lost {
-                if let Err(e) = self.drain(lease_id).await {
-                    tracing::warn!(pod = %self.config.pod_name, error = %e, "drain failed");
+            // The drain itself races the heartbeat for the same reason
+            // as every other live-lease await: the pod serves its
+            // partitions until their handoffs complete, so a lease lost
+            // mid-drain must switch to the local self-fence immediately
+            // rather than draining leaseless until the timeout.
+            if cancel.is_cancelled() && lease_err.is_none() {
+                tokio::select! {
+                    r = self.drain(lease_id) => {
+                        if let Err(e) = r {
+                            tracing::warn!(pod = %self.config.pod_name, error = %e, "drain failed");
+                        }
+                    }
+                    r = &mut heartbeat_handle => {
+                        let err = Self::heartbeat_exit_error(r);
+                        tracing::error!(
+                            pod = %self.config.pod_name,
+                            error = %err,
+                            "lease keepalive failed during drain; self-fencing"
+                        );
+                        lease_err = Some(err);
+                    }
                 }
             }
+            let lease_lost = lease_err.is_some();
 
             if !lease_lost {
                 // The heartbeat is still running; on lease loss it has
@@ -439,6 +469,16 @@ impl PodHandle {
                 }
                 None => return Ok(()),
             }
+        }
+    }
+
+    /// Classify the session keepalive task's exit. Any exit while the
+    /// session is live means the lease can no longer be trusted.
+    fn heartbeat_exit_error(result: std::result::Result<Result<()>, JoinError>) -> Error {
+        match result {
+            Ok(Ok(())) => Error::invalid_state("lease keepalive exited unexpectedly".to_string()),
+            Ok(Err(e)) => e,
+            Err(join_err) => Error::invalid_state(format!("keepalive task panicked: {join_err}")),
         }
     }
 

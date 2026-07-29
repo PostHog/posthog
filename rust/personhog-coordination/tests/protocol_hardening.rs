@@ -23,8 +23,8 @@ use async_trait::async_trait;
 use common::{
     revoke_lease_of_key, start_coordinator, start_coordinator_named, start_pod, start_pod_gated,
     start_pod_with_lease_ttl, start_router_with_lease_ttl, test_store, test_store_with_prefix,
-    wait_for_condition, CutoverEvent, HandoffEvent, MockCutoverHandler, POLL_INTERVAL,
-    WAIT_TIMEOUT,
+    wait_for_condition, CutoverEvent, HandoffEvent, MockCutoverHandler, MockHandoffHandler,
+    POLL_INTERVAL, WAIT_TIMEOUT,
 };
 use personhog_coordination::error::Result;
 use personhog_coordination::routing_table::{RoutingTable, RoutingTableConfig, StashHandler};
@@ -2634,4 +2634,144 @@ async fn concurrent_warms_are_bounded_by_warm_concurrency() {
     );
 
     cancel.cancel();
+}
+
+// ============================================================
+// Lease loss is observed promptly at every live-lease await
+// ============================================================
+//
+// The session's keepalive task fails fast when the lease dies, but a
+// signal only fences if the supervisor is listening. Every await the
+// session makes while holding a lease must race the heartbeat handle:
+// an unraced await defers the self-fence for its full duration, and the
+// coordinator — which starts reassigning at TTL expiry — does not wait.
+// These pin the two awaits that were unraced: the backoff nap between
+// failed attempts, and the graceful drain.
+
+/// A lease revoked while the supervisor naps between failed attempts
+/// must self-fence when the keepalive notices — not when the nap ends.
+/// The nap here is far longer than the assertion window, so this fails
+/// if detection waits out the backoff.
+#[tokio::test]
+async fn lease_loss_during_attempt_backoff_self_fences_promptly() {
+    let (store, prefix) = test_store_with_prefix("pod-backoff-fence").await;
+    let cancel = CancellationToken::new();
+
+    let events: Arc<Mutex<Vec<HandoffEvent>>> = Arc::new(Mutex::new(Vec::new()));
+    let fail_warm = Arc::new(AtomicBool::new(false));
+    let handler = FlakyHandoffHandler {
+        events: Arc::clone(&events),
+        fail_warm: Arc::clone(&fail_warm),
+    };
+    let pod = personhog_coordination::pod::PodHandle::new(
+        Arc::clone(&store),
+        personhog_coordination::pod::PodConfig {
+            pod_name: "backoff-fence-pod".to_string(),
+            lease_ttl: 5,
+            heartbeat_interval: Duration::from_secs(1),
+            reconcile_interval: Duration::from_secs(86_400),
+            // One failed attempt naps 8s — far past the 4s assertion
+            // window below.
+            run_retry_backoff: Duration::from_secs(8),
+            ..Default::default()
+        },
+        Arc::new(handler),
+        None,
+    );
+    let token = cancel.child_token();
+    tokio::spawn(async move { pod.run(token).await });
+
+    // Acquire partition 0 healthily so the self-fence has something to
+    // release.
+    put_handoff(&store, 0, None, "backoff-fence-pod", HandoffPhase::Warming).await;
+    wait_for_event(&events, HandoffEvent::Warmed(0)).await;
+
+    // A failing warm for partition 1 kills the attempt; the supervisor
+    // enters its nap. The sleep positions the revocation inside the 8s
+    // nap — if it ever lands before the nap instead, the attempt-select
+    // race detects it and the test still passes, just via the path that
+    // was already covered.
+    fail_warm.store(true, Ordering::SeqCst);
+    put_handoff(&store, 1, None, "backoff-fence-pod", HandoffPhase::Warming).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    revoke_lease_of_key(&format!("{prefix}pods/backoff-fence-pod")).await;
+
+    // Well inside the nap: the self-fence must already have run.
+    wait_for_condition(Duration::from_secs(4), POLL_INTERVAL, || {
+        let events = Arc::clone(&events);
+        async move { events.lock().await.contains(&HandoffEvent::Released(0)) }
+    })
+    .await;
+
+    cancel.cancel();
+}
+
+/// A lease revoked during the graceful drain must switch to the local
+/// self-fence immediately: the pod serves its partitions until their
+/// handoffs complete, and with the lease gone the coordinator is
+/// already reassigning them via the dead-owner path. Draining leaseless
+/// until the drain timeout is the same zombie window the attempt-path
+/// fence closes.
+#[tokio::test]
+async fn lease_loss_during_graceful_drain_self_fences_promptly() {
+    let (store, prefix) = test_store_with_prefix("pod-drain-fence").await;
+    let cancel = CancellationToken::new();
+
+    let (handler, events) = MockHandoffHandler::new();
+    let pod = personhog_coordination::pod::PodHandle::new(
+        Arc::clone(&store),
+        personhog_coordination::pod::PodConfig {
+            pod_name: "drain-fence-pod".to_string(),
+            lease_ttl: 5,
+            heartbeat_interval: Duration::from_secs(1),
+            reconcile_interval: Duration::from_secs(86_400),
+            // No coordinator completes the handoffs, so an undetected
+            // lease loss would leave the drain waiting out this full
+            // timeout.
+            drain_timeout: Duration::from_secs(30),
+            ..Default::default()
+        },
+        Arc::new(handler),
+        None,
+    );
+    let token = cancel.child_token();
+    let join = tokio::spawn(async move { pod.run(token).await });
+
+    put_handoff(&store, 0, None, "drain-fence-pod", HandoffPhase::Warming).await;
+    wait_for_event(&events, HandoffEvent::Warmed(0)).await;
+
+    // Graceful shutdown: the pod flips to Draining and waits for its
+    // partition's outbound handoff, which never comes.
+    cancel.cancel();
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, move || {
+        let store = Arc::clone(&check_store);
+        async move {
+            store
+                .list_pods()
+                .await
+                .map(|pods| {
+                    pods.iter()
+                        .any(|p| p.pod_name == "drain-fence-pod" && p.status == PodStatus::Draining)
+                })
+                .unwrap_or(false)
+        }
+    })
+    .await;
+
+    revoke_lease_of_key(&format!("{prefix}pods/drain-fence-pod")).await;
+
+    // Well inside the 30s drain timeout: the self-fence must have
+    // released the partition and the run must have exited.
+    wait_for_condition(Duration::from_secs(4), POLL_INTERVAL, || {
+        let events = Arc::clone(&events);
+        async move { events.lock().await.contains(&HandoffEvent::Released(0)) }
+    })
+    .await;
+    tokio::time::timeout(Duration::from_secs(5), join)
+        .await
+        .expect("run exits promptly after the drain-time self-fence")
+        .expect("run task")
+        .expect("run returns Ok on graceful shutdown");
 }
