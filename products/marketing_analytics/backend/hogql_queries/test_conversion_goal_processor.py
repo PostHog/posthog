@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 from freezegun import freeze_time
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, events_cache_tests
@@ -29,6 +31,7 @@ from products.marketing_analytics.backend.hogql_queries.conversion_goal_processo
     add_conversion_goal_property_filters,
 )
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_config import MarketingAnalyticsConfig
+from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 
 def _create_action(**kwargs):
@@ -252,6 +255,59 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         assert processor.get_table_name() == "warehouse_table"
         assert processor.get_date_field() == "event_timestamp"
+
+    def test_data_warehouse_node_empty_utm_falls_back_to_organic(self):
+        csv_path = Path(__file__).parent / "test/external/warehouse_conversions_empty_utm.csv"
+        table, _source, _credential, _df, cleanup_fn = create_data_warehouse_table_from_csv(
+            csv_path,
+            "conversions_empty_utm",
+            {
+                "user_id": "String",
+                "event_timestamp": "DateTime",
+                "campaign_name": "String",
+                "source_name": "String",
+                "revenue": "Int64",
+            },
+            "test_storage_bucket-posthog.marketing_analytics.empty_utm",
+            self.team,
+        )
+        self.addCleanup(cleanup_fn)
+
+        goal = ConversionGoalFilter3(
+            kind="DataWarehouseNode",
+            id=table.name,
+            table_name=table.name,
+            conversion_goal_id="warehouse_empty_utm",
+            conversion_goal_name="Warehouse Empty UTM",
+            math=BaseMathType.TOTAL,
+            distinct_id_field="user_id",
+            id_field="user_id",
+            timestamp_field="event_timestamp",
+            schema_map={
+                "utm_campaign_name": "campaign_name",
+                "utm_source_name": "source_name",
+                "distinct_id_field": "user_id",
+                "timestamp_field": "event_timestamp",
+            },
+        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
+
+        additional_conditions: list[ast.Expr] = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["event_timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-01-01")]),
+            ),
+        ]
+        cte_query = processor.generate_cte_query(additional_conditions)
+        response = execute_hogql_query(query=cte_query, team=self.team)
+
+        # Schema: [0]=match_key, [1]=campaign, [2]=id, [3]=source, [4]=conversion
+        results = {row[1]: (row[3], row[4]) for row in response.results}
+        assert results == {
+            "organic": ("organic", 1),
+            "summer_sale": ("google", 1),
+        }, f"Empty utm columns must fall back to organic like event goals do, got {response.results}"
 
     # ================================================================
     # 3. MATH TYPE TESTS - TOTAL, DAU, SUM, etc.
