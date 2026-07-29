@@ -299,6 +299,7 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
 
     actions({
         refreshHealthChecks: (isManual: boolean = true) => ({ isManual }),
+        refreshHealthChecksIfDue: true,
         trackTabViewed: true,
         trackSectionToggled: (category: HealthCheckCategory, isExpanded: boolean) => ({ category, isExpanded }),
         trackActionClicked: (
@@ -560,6 +561,12 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
                 throw error
             }
         },
+        refreshHealthChecksIfDue: () => {
+            const { nextRefreshAvailableAt } = values
+            if (nextRefreshAvailableAt === null || nextRefreshAvailableAt <= Date.now()) {
+                actions.refreshHealthChecks(false)
+            }
+        },
         loadHealthIssuesSuccess: () => {
             const { activeIssuesByKind, overallHealthStatus } = values
             if (overallHealthStatus.status !== 'loading') {
@@ -600,10 +607,10 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
     })),
 
     afterMount(({ actions }) => {
-        // Only load the latest results here. Health checks are re-evaluated on their own daily
-        // schedule, and the refresh endpoint is throttled to one call per team every 5 minutes —
-        // auto-firing it on every mount just produced 429 storms across a team's users without
-        // giving them fresher data. Users can still trigger a re-run via the manual refresh button.
+        // Only the read-only GET runs on mount. This logic is mounted app-wide by the tab label to
+        // render its urgent-issues badge, so firing the throttled background refresh POST here (one
+        // call per team every 5 minutes) on every mount just produced 429 storms. The refresh POST
+        // is triggered from HealthStatusTab instead, so it fires only when the health tab is viewed.
         actions.loadHealthIssues()
     }),
 ])
