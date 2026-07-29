@@ -76,6 +76,7 @@ import type {
     SharingConfigurationSettings,
     TileFilters,
     UserProductListItem,
+    UserUIConfiguration,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
@@ -293,6 +294,7 @@ export enum AccessControlResourceType {
     LlmPlayground = 'llm_playground',
     AiObservabilityClusters = 'ai_observability_clusters',
     Notebook = 'notebook',
+    Ticket = 'ticket',
     SessionRecording = 'session_recording',
     SharingConfiguration = 'sharing_configuration',
     RevenueAnalytics = 'revenue_analytics',
@@ -382,6 +384,8 @@ export interface UserType extends UserBaseType {
     shortcut_position: UserShortcutPosition
     has_seen_product_intro_for?: Record<string, boolean>
     hide_mcp_hints?: boolean
+    /** Per-user UI customization. Null means no customization: every element is shown. */
+    ui_configuration?: UserUIConfiguration | null
     scene_personalisation?: SceneDashboardChoice[]
     theme_mode?: UserTheme | null
     hedgehog_config?: HedgehogConfig
@@ -1443,6 +1447,7 @@ export enum SessionRecordingSidebarTab {
     INSPECTOR = 'inspector',
     NETWORK_WATERFALL = 'network-waterfall',
     LINKED_ISSUES = 'linked-issues',
+    SESSIONS = 'sessions',
 }
 
 export enum SessionRecordingSidebarStacking {
@@ -5466,6 +5471,7 @@ export const INTEGRATION_KINDS = [
     'firebase',
     'jira',
     'pinterest-ads',
+    'pardot',
     'customerio-app',
     'customerio-webhook',
     'customerio-track',
@@ -7225,6 +7231,7 @@ export type HogFunctionConfigurationContextId =
 export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
     | 'survey-response'
+    | 'mcp-tool-error'
     | 'activity-log'
     | 'feature-flag-change'
     | 'error-tracking-issue-created'
@@ -7602,8 +7609,8 @@ export interface ProductManifest {
     treeItemsMetadata?: FileSystemImport[]
     /**
      * Boot-time setup-status probe for this product's empty state. Aggregated across
-     * manifests into `productSetupProbes` and answered by one combined event-count
-     * query at app boot (see `productSetupPreloadLogic`).
+     * manifests into `productSetupProbes` and answered by one property-definition
+     * request at app boot (see `productSetupPreloadLogic`).
      */
     setupProbe?: ProductSetupProbe
 }

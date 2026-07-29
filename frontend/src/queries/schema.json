@@ -13819,6 +13819,10 @@
         "ChartSettings": {
             "additionalProperties": false,
             "properties": {
+                "chartStyle": {
+                    "$ref": "#/definitions/ChartStyle",
+                    "description": "Chart rendering style overrides (line shape). Only applies to line and area charts."
+                },
                 "goalLines": {
                     "items": {
                         "$ref": "#/definitions/GoalLine"
@@ -17267,6 +17271,10 @@
         "DatabaseSchemaBatchExportTable": {
             "additionalProperties": false,
             "properties": {
+                "certification": {
+                    "$ref": "#/definitions/DatabaseSchemaTableCertification",
+                    "description": "Present only when the table or view carries a settled data catalog certification."
+                },
                 "fields": {
                     "additionalProperties": {
                         "$ref": "#/definitions/DatabaseSchemaField"
@@ -17293,6 +17301,10 @@
         "DatabaseSchemaDataWarehouseTable": {
             "additionalProperties": false,
             "properties": {
+                "certification": {
+                    "$ref": "#/definitions/DatabaseSchemaTableCertification",
+                    "description": "Present only when the table or view carries a settled data catalog certification."
+                },
                 "fields": {
                     "additionalProperties": {
                         "$ref": "#/definitions/DatabaseSchemaField"
@@ -17340,6 +17352,10 @@
         "DatabaseSchemaEndpointTable": {
             "additionalProperties": false,
             "properties": {
+                "certification": {
+                    "$ref": "#/definitions/DatabaseSchemaTableCertification",
+                    "description": "Present only when the table or view carries a settled data catalog certification."
+                },
                 "fields": {
                     "additionalProperties": {
                         "$ref": "#/definitions/DatabaseSchemaField"
@@ -17416,6 +17432,10 @@
         "DatabaseSchemaManagedViewTable": {
             "additionalProperties": false,
             "properties": {
+                "certification": {
+                    "$ref": "#/definitions/DatabaseSchemaTableCertification",
+                    "description": "Present only when the table or view carries a settled data catalog certification."
+                },
                 "fields": {
                     "additionalProperties": {
                         "$ref": "#/definitions/DatabaseSchemaField"
@@ -17462,6 +17482,10 @@
         "DatabaseSchemaMaterializedViewTable": {
             "additionalProperties": false,
             "properties": {
+                "certification": {
+                    "$ref": "#/definitions/DatabaseSchemaTableCertification",
+                    "description": "Present only when the table or view carries a settled data catalog certification."
+                },
                 "fields": {
                     "additionalProperties": {
                         "$ref": "#/definitions/DatabaseSchemaField"
@@ -17497,6 +17521,10 @@
         "DatabaseSchemaPostHogTable": {
             "additionalProperties": false,
             "properties": {
+                "certification": {
+                    "$ref": "#/definitions/DatabaseSchemaTableCertification",
+                    "description": "Present only when the table or view carries a settled data catalog certification."
+                },
                 "fields": {
                     "additionalProperties": {
                         "$ref": "#/definitions/DatabaseSchemaField"
@@ -17621,6 +17649,10 @@
         "DatabaseSchemaSystemTable": {
             "additionalProperties": false,
             "properties": {
+                "certification": {
+                    "$ref": "#/definitions/DatabaseSchemaTableCertification",
+                    "description": "Present only when the table or view carries a settled data catalog certification."
+                },
                 "fields": {
                     "additionalProperties": {
                         "$ref": "#/definitions/DatabaseSchemaField"
@@ -17672,9 +17704,37 @@
                 }
             ]
         },
+        "DatabaseSchemaTableCertification": {
+            "additionalProperties": false,
+            "properties": {
+                "certified_at": {
+                    "type": "string"
+                },
+                "certified_by": {
+                    "type": "string"
+                },
+                "notes": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/DatabaseSchemaTableCertificationStatus",
+                    "description": "Settled data catalog trust mark: 'certified' (prefer this source) or 'deprecated' (avoid it)."
+                }
+            },
+            "required": ["status"],
+            "type": "object"
+        },
+        "DatabaseSchemaTableCertificationStatus": {
+            "enum": ["certified", "deprecated"],
+            "type": "string"
+        },
         "DatabaseSchemaTableCommon": {
             "additionalProperties": false,
             "properties": {
+                "certification": {
+                    "$ref": "#/definitions/DatabaseSchemaTableCertification",
+                    "description": "Present only when the table or view carries a settled data catalog certification."
+                },
                 "fields": {
                     "additionalProperties": {
                         "$ref": "#/definitions/DatabaseSchemaField"
@@ -17713,6 +17773,10 @@
         "DatabaseSchemaViewTable": {
             "additionalProperties": false,
             "properties": {
+                "certification": {
+                    "$ref": "#/definitions/DatabaseSchemaTableCertification",
+                    "description": "Present only when the table or view carries a settled data catalog certification."
+                },
                 "fields": {
                     "additionalProperties": {
                         "$ref": "#/definitions/DatabaseSchemaField"
@@ -27542,6 +27606,7 @@
                 "firebase",
                 "jira",
                 "pinterest-ads",
+                "pardot",
                 "customerio-app",
                 "customerio-webhook",
                 "customerio-track",
@@ -45186,6 +45251,77 @@
             },
             "type": "object"
         },
+        "SidebarConfiguration": {
+            "additionalProperties": false,
+            "description": "Customization of the main navigation sidebar.",
+            "properties": {
+                "items": {
+                    "$ref": "#/definitions/SidebarItemsConfiguration"
+                },
+                "sections": {
+                    "$ref": "#/definitions/SidebarSectionsConfiguration"
+                }
+            },
+            "type": "object"
+        },
+        "SidebarItemsConfiguration": {
+            "additionalProperties": false,
+            "description": "Individual items of the main navigation sidebar. Items inside a hidden section are hidden regardless of their own config. Activity and Settings are deliberately absent: they always stay visible.",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/UIVisibilityConfig",
+                    "description": "\"Data\" panel trigger in the Project section."
+                },
+                "files": {
+                    "$ref": "#/definitions/UIVisibilityConfig",
+                    "description": "\"Files\" panel trigger in the Project section."
+                },
+                "help": {
+                    "$ref": "#/definitions/UIVisibilityConfig",
+                    "description": "\"Help\" entry in the sidebar footer."
+                },
+                "home": {
+                    "$ref": "#/definitions/UIVisibilityConfig",
+                    "description": "\"Home\" link in the Project section."
+                },
+                "inbox": {
+                    "$ref": "#/definitions/UIVisibilityConfig",
+                    "description": "\"Inbox\" link in the Project section. Only rendered when the inbox feature is available."
+                },
+                "notifications": {
+                    "$ref": "#/definitions/UIVisibilityConfig",
+                    "description": "\"Notifications\" entry in the sidebar footer. Only rendered when real-time notifications are available."
+                },
+                "starred": {
+                    "$ref": "#/definitions/UIVisibilityConfig",
+                    "description": "\"Starred\" panel trigger in the Project section."
+                },
+                "tools": {
+                    "$ref": "#/definitions/UIVisibilityConfig",
+                    "description": "\"Tools\" panel trigger in the Project section."
+                }
+            },
+            "type": "object"
+        },
+        "SidebarSectionsConfiguration": {
+            "additionalProperties": false,
+            "description": "Collapsible sections of the main navigation sidebar. Hiding a section hides everything inside it, except always-visible items like Activity.",
+            "properties": {
+                "my_tools": {
+                    "$ref": "#/definitions/UIVisibilityConfig",
+                    "description": "The \"My tools\" section, listing the user's selected tools."
+                },
+                "project": {
+                    "$ref": "#/definitions/UIVisibilityConfig",
+                    "description": "The \"Project\" section (Home and the Data/Files/Tools/Starred panel triggers). Activity stays visible even when this section is hidden."
+                },
+                "recents": {
+                    "$ref": "#/definitions/UIVisibilityConfig",
+                    "description": "The \"Recents\" section, listing recently viewed items."
+                }
+            },
+            "type": "object"
+        },
         "SimilarIssue": {
             "additionalProperties": false,
             "properties": {
@@ -48900,6 +49036,16 @@
             "required": ["kind"],
             "type": "object"
         },
+        "UIVisibilityConfig": {
+            "additionalProperties": false,
+            "description": "Visibility of a single customizable UI element. An absent config or an absent `visible` means the element is shown.",
+            "properties": {
+                "visible": {
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
         "UsageMetric": {
             "additionalProperties": false,
             "properties": {
@@ -49137,6 +49283,21 @@
                 "onboarding_delegated"
             ],
             "type": "string"
+        },
+        "UserUIConfiguration": {
+            "additionalProperties": false,
+            "description": "Per-user UI customization, persisted on the User model as a single JSONB blob. A null configuration and any absent key mean \"default\", which for visibility is \"shown\", so newly added UI surfaces appear for everyone until explicitly hidden. Writers must send the complete object; the server validates and replaces it wholesale.",
+            "properties": {
+                "sidebar": {
+                    "$ref": "#/definitions/SidebarConfiguration"
+                },
+                "version": {
+                    "description": "Schema version of this configuration blob, for future format migrations.",
+                    "type": "integer"
+                }
+            },
+            "required": ["version"],
+            "type": "object"
         },
         "VectorSearchQuery": {
             "additionalProperties": false,

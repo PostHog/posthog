@@ -22,7 +22,11 @@ permissions:
 
 jobs:
     lint-pr:
-        if: contains(fromJSON('["opened", "edited", "synchronize"]'), github.event.action)
+        # The merge queue opens its own PR per batch, titled after the branch
+        # (trunk-merge/pr-70624/<uuid>), which can never satisfy Conventional
+        # Commits. The title that matters was already validated on the PR being
+        # queued, so checking the queue's copy only fails its run.
+        if: contains(fromJSON('["opened", "edited", "synchronize"]'), github.event.action) && !startsWith(github.head_ref, 'trunk-merge/')
         uses: ./.github/workflows/pr-updated.yml
 
     turbo:
