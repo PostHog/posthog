@@ -772,6 +772,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
                 author_email=author_email,
                 item_url=build_comment_item_url(comment.scope, comment.item_id),
                 item_label=comment_scope_display_name(comment.scope),
+                organization_id=self.team.organization_id,
             )
         except Exception as e:
             _release_slack_reservation(slack_thread)

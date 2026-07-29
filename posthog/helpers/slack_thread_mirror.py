@@ -6,6 +6,8 @@ The inbound counterpart — ingesting Slack replies back as comments — is wire
 the Slack event webhook lives.
 """
 
+from uuid import UUID
+
 import structlog
 from slack_sdk import WebClient
 
@@ -72,16 +74,20 @@ def post_comment_to_slack_thread(
     thread_ts: str | None = None,
     item_url: str | None = None,
     item_label: str | None = None,
+    organization_id: str | UUID | None = None,
 ) -> str | None:
     """Post a comment's content to a Slack channel, optionally threaded under ``thread_ts``.
 
     When ``item_url`` is given (the thread root), the message renders as a card linking back to the
-    discussion; otherwise (replies) it's a plain threaded message. Returns the posted message's
-    ``ts`` so the caller can anchor a mirror on the first post, or ``None`` when there was nothing
-    to post. Raises on a Slack API failure so callers can react (the API action surfaces an error;
-    the Celery tasks retry) instead of silently dropping the message.
+    discussion; otherwise (replies) it's a plain threaded message. ``organization_id`` scopes
+    @-mention resolution — without it every mention renders as a generic teammate. Returns the
+    posted message's ``ts`` so the caller can anchor a mirror on the first post, or ``None`` when
+    there was nothing to post. Raises on a Slack API failure so callers can react (the API action
+    surfaces an error; the Celery tasks retry) instead of silently dropping the message.
     """
-    slack_text, slack_blocks = rich_content_to_slack_payload(rich_content, content, include_images=False)
+    slack_text, slack_blocks = rich_content_to_slack_payload(
+        rich_content, content, include_images=False, organization_id=organization_id
+    )
     if not slack_text.strip() and not slack_blocks:
         return None
 

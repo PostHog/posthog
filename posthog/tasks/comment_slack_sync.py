@@ -19,6 +19,17 @@ logger = structlog.get_logger(__name__)
 # idempotency marker that keeps Celery retries and backfill re-runs from double-posting.
 SLACK_SYNCED_TS_KEY = "slack_synced_ts"
 
+# A discussion's reply history is caller-controlled and unbounded, and each post can block on a
+# rate-limit wait, so one backfill run takes a bounded slice and reschedules the rest. Without
+# this, mirroring a few large discussions could hold shared workers for a long time.
+BACKFILL_BATCH_SIZE = 25
+BACKFILL_SLEEP_BUDGET_SECONDS = 60
+BACKFILL_RESCHEDULE_COUNTDOWN_SECONDS = 60
+
+
+def _organization_id_for_team(team_id: int) -> str | None:
+    return Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first()
+
 
 def _sync_killed(team_id: int) -> bool:
     """Kill switch for syncing on existing mirrors: only an explicit flag *off* halts it.
@@ -57,7 +68,9 @@ def _slack_retry_after(exc: Exception) -> int | None:
         return 1
 
 
-def _post_backfill_reply(client: WebClient, mirror: CommentSlackThread, reply: Comment) -> str | None:
+def _post_backfill_reply(
+    client: WebClient, mirror: CommentSlackThread, reply: Comment, organization_id: str | None
+) -> str | None:
     author_name, author_email = slack_author_from_user(reply.created_by)
     return post_comment_to_slack_thread(
         client=client,
@@ -67,6 +80,7 @@ def _post_backfill_reply(client: WebClient, mirror: CommentSlackThread, reply: C
         author_name=author_name,
         author_email=author_email,
         thread_ts=mirror.slack_thread_ts,
+        organization_id=organization_id,
     )
 
 
@@ -137,6 +151,7 @@ def mirror_comment_reply_to_slack(self: Task, comment_id: str) -> None:
             author_name=author_name,
             author_email=author_email,
             thread_ts=mirror.slack_thread_ts,
+            organization_id=_organization_id_for_team(comment.team_id),
         )
     except Exception as exc:
         raise self.retry(exc=exc)
@@ -148,11 +163,15 @@ def mirror_comment_reply_to_slack(self: Task, comment_id: str) -> None:
 def backfill_comment_slack_thread(comment_slack_thread_id: str) -> None:
     """Post a discussion's pre-existing replies into a freshly-mirrored Slack thread.
 
-    Runs once, asynchronously, after send_to_slack — so the request isn't blocked on N sequential
-    Slack posts. Bounded to replies created before the mirror: later replies belong exclusively to
-    the live post_save signal, so the two paths can't both post the same reply. Best-effort per
-    reply — a failure on one is logged and skipped — and each success is stamped with its posted
-    ts, so a re-run never double-posts.
+    Runs asynchronously after send_to_slack — so the request isn't blocked on N sequential Slack
+    posts. Bounded to replies created before the mirror: later replies belong exclusively to the
+    live post_save signal, so the two paths can't both post the same reply. Best-effort per reply —
+    a failure on one is logged and skipped — and each success is stamped with its posted ts, so a
+    re-run never double-posts.
+
+    Each run takes at most BACKFILL_BATCH_SIZE replies and spends at most
+    BACKFILL_SLEEP_BUDGET_SECONDS waiting out rate limits, then reschedules itself for the rest.
+    That keeps one big discussion from occupying a shared worker for an unbounded stretch.
     """
     mirror = (
         CommentSlackThread.objects.unscoped().filter(id=comment_slack_thread_id).select_related("integration").first()
@@ -168,7 +187,11 @@ def backfill_comment_slack_thread(comment_slack_thread_id: str) -> None:
         logger.warning("comment_slack_backfill_client_failed", comment_slack_thread_id=comment_slack_thread_id)
         return
 
+    organization_id = _organization_id_for_team(mirror.team_id)
+
     # source_comment_id matches the thread root, so this returns its replies (not the root itself).
+    # Already-stamped replies are excluded in SQL rather than skipped in Python, so each run's
+    # batch is fresh work and a rescheduled run makes progress instead of re-walking the tail.
     replies = (
         Comment.objects.filter(
             team_id=mirror.team_id,
@@ -176,14 +199,22 @@ def backfill_comment_slack_thread(comment_slack_thread_id: str) -> None:
             deleted=False,
             created_at__lt=mirror.created_at,
         )
+        .exclude(item_context__has_key=SLACK_SYNCED_TS_KEY)
         .select_related("created_by")
         .order_by("created_at")
     )
-    for reply in replies:
+    batch = list(replies[: BACKFILL_BATCH_SIZE + 1])
+    remaining = len(batch) > BACKFILL_BATCH_SIZE
+    slept_seconds = 0
+    synced_any = False
+    for reply in batch[:BACKFILL_BATCH_SIZE]:
+        if slept_seconds >= BACKFILL_SLEEP_BUDGET_SECONDS:
+            remaining = True
+            break
         if _reply_skip_reason(reply):
             continue
         try:
-            posted_ts = _post_backfill_reply(client, mirror, reply)
+            posted_ts = _post_backfill_reply(client, mirror, reply, organization_id)
         except Exception as exc:
             # chat.postMessage allows ~1 msg/sec per channel, so a long backfill will get rate
             # limited; honoring Retry-After once keeps the whole thread mirroring instead of
@@ -193,9 +224,18 @@ def backfill_comment_slack_thread(comment_slack_thread_id: str) -> None:
                 _log_backfill_reply_failure(comment_slack_thread_id, reply)
                 continue
             time.sleep(retry_after)
+            slept_seconds += retry_after
             try:
-                posted_ts = _post_backfill_reply(client, mirror, reply)
+                posted_ts = _post_backfill_reply(client, mirror, reply, organization_id)
             except Exception:
                 _log_backfill_reply_failure(comment_slack_thread_id, reply)
                 continue
         _mark_reply_synced(reply, posted_ts)
+        synced_any = True
+
+    # Only continue while the run is actually draining the queue. A batch where every post failed
+    # leaves the same rows unstamped, so rescheduling on `remaining` alone would loop forever.
+    if remaining and synced_any:
+        backfill_comment_slack_thread.apply_async(
+            (comment_slack_thread_id,), countdown=BACKFILL_RESCHEDULE_COUNTDOWN_SECONDS
+        )

@@ -15,6 +15,8 @@ from posthog.helpers.slack_thread_mirror import escape_slack_mrkdwn
 from posthog.models.comment import Comment, CommentSlackThread
 from posthog.models.integration import Integration
 from posthog.tasks.comment_slack_sync import (
+    BACKFILL_BATCH_SIZE,
+    BACKFILL_RESCHEDULE_COUNTDOWN_SECONDS,
     SLACK_SYNCED_TS_KEY,
     backfill_comment_slack_thread,
     mirror_comment_reply_to_slack,
@@ -414,6 +416,35 @@ class TestBackfill(APIBaseTest):
         backfill_comment_slack_thread(str(mirror.id))
 
         assert mock_slack.return_value.client.chat_postMessage.call_count == 1
+
+    @patch("posthog.tasks.comment_slack_sync.backfill_comment_slack_thread.apply_async")
+    @patch("posthog.tasks.comment_slack_sync.SlackIntegration")
+    def test_backfill_stops_at_the_batch_size_and_reschedules(self, mock_slack, mock_apply_async):
+        # Reply history is caller-controlled, so one run must not walk an unbounded thread while
+        # holding a shared worker.
+        mock_slack.return_value.client.chat_postMessage.return_value = {"ts": "100.2"}
+        for index in range(BACKFILL_BATCH_SIZE + 3):
+            self._reply(f"r{index}")
+        mirror = self._mirror()
+
+        backfill_comment_slack_thread(str(mirror.id))
+
+        assert mock_slack.return_value.client.chat_postMessage.call_count == BACKFILL_BATCH_SIZE
+        mock_apply_async.assert_called_once_with((str(mirror.id),), countdown=BACKFILL_RESCHEDULE_COUNTDOWN_SECONDS)
+
+    @patch("posthog.tasks.comment_slack_sync.backfill_comment_slack_thread.apply_async")
+    @patch("posthog.tasks.comment_slack_sync.SlackIntegration")
+    def test_backfill_does_not_reschedule_when_the_batch_posted_nothing(self, mock_slack, mock_apply_async):
+        # A failed post leaves the reply unstamped, so it stays in the next batch — rescheduling on
+        # "work remains" alone would requeue the same doomed batch forever.
+        mock_slack.return_value.client.chat_postMessage.side_effect = Exception("slack is down")
+        for index in range(BACKFILL_BATCH_SIZE + 3):
+            self._reply(f"r{index}")
+        mirror = self._mirror()
+
+        backfill_comment_slack_thread(str(mirror.id))
+
+        mock_apply_async.assert_not_called()
 
 
 class TestSlackThreadSerialization(APIBaseTest):
