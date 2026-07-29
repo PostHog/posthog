@@ -191,11 +191,11 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                 return False
 
         # Check if at least one property is eligible for hybrid query
-        for prop in person_properties:
-            if hasattr(prop, "key") and prop.key in HYBRID_QUERY_ELIGIBLE_PROPERTIES:
-                return True
+        return any(self._is_hybrid_eligible_property(prop) for prop in person_properties)
 
-        return False
+    @staticmethod
+    def _is_hybrid_eligible_property(prop: object) -> bool:
+        return getattr(prop, "key", None) in HYBRID_QUERY_ELIGIBLE_PROPERTIES
 
     def _build_persons_query(
         self,
@@ -374,11 +374,9 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             operators = [str(p.operator) if hasattr(p, "operator") else "unknown" for p in person_properties]
 
             # Check which properties are in the allowlist
-            eligible_properties = [
-                p.key for p in person_properties if hasattr(p, "key") and p.key in HYBRID_QUERY_ELIGIBLE_PROPERTIES
-            ]
+            eligible_properties = [p.key for p in person_properties if self._is_hybrid_eligible_property(p)]
             ineligible_properties = [
-                p.key for p in person_properties if hasattr(p, "key") and p.key not in HYBRID_QUERY_ELIGIBLE_PROPERTIES
+                p.key for p in person_properties if hasattr(p, "key") and not self._is_hybrid_eligible_property(p)
             ]
 
             posthoganalytics.capture(
@@ -468,7 +466,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             for p in self.person_properties:
                 if skip_negative_properties and is_negative_prop(p):
                     continue
-                if use_hybrid_query and getattr(p, "key", None) in HYBRID_QUERY_ELIGIBLE_PROPERTIES:
+                if use_hybrid_query and self._is_hybrid_eligible_property(p):
                     hybrid_queries.append(self._get_person_id_based_sessions_query([p]))
                 else:
                     # Standard PoE approach: fast, but misses sessions from before the person
