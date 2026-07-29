@@ -92,7 +92,9 @@ describe('snapshotDataLogic', () => {
         it('handles normal web data', async () => {
             const parsed = await parseEncodedSnapshots(encodedWebSnapshotData, sessionId)
             expect(parsed.length).toEqual(numberOfParsedLinesInData)
-            expect(parsed).toMatchSnapshot()
+            // seq counts every snapshot parsed in the process, so including it would tie these
+            // snapshots to how much else ran first. The parsed payload is what these tests are about.
+            expect(parsed.map(({ seq, ...snapshot }) => snapshot)).toMatchSnapshot()
         })
 
         it('handles data with unparseable lines', async () => {
@@ -107,7 +109,7 @@ describe('snapshotDataLogic', () => {
             expect(encodedWebSnapshotData.length).toEqual(2)
             expect(parsed.length).toEqual(numberOfParsedLinesInData / 2)
 
-            expect(parsed).toMatchSnapshot()
+            expect(parsed.map(({ seq, ...snapshot }) => snapshot)).toMatchSnapshot()
         })
     })
 

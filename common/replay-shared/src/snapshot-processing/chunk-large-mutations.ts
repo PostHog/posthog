@@ -33,6 +33,10 @@ export function chunkMutationSnapshot(snapshot: RecordingSnapshot): RecordingSna
         const chunkSnapshot: RecordingSnapshot = {
             ...snapshot,
             timestamp: snapshot.timestamp,
+            // Chunks share a timestamp and differ only in their slice of `adds`, so they look like
+            // duplicates to the same-timestamp dedupe. Marking them keeps it from dropping one and
+            // stranding the `texts`/`attributes` on the last chunk from the nodes they belong to.
+            isMutationChunk: true,
             data: {
                 ...snapshot.data,
                 adds: adds.slice(startIdx, endIdx),

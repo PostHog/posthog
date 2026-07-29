@@ -11,7 +11,9 @@ describe('snapshot parsing', () => {
     it('handles normal mobile data', async () => {
         const parsed = await parseEncodedSnapshots(encodedWebSnapshotData, sessionId)
         expect(parsed.length).toEqual(numberOfParsedLinesInData)
-        expect(parsed).toMatchSnapshot()
+        // seq counts every snapshot parsed in the process, so including it would tie this snapshot to
+        // how much else ran first. The transformed rrweb payload is what this test is about.
+        expect(parsed.map(({ seq, ...snapshot }) => snapshot)).toMatchSnapshot()
     })
     it('handles mobile data with no meta event', async () => {
         const withoutMeta = [encodedWebSnapshotData[0], encodedWebSnapshotData[2]]

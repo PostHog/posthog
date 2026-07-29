@@ -17,7 +17,7 @@ import {
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import { keyForSource } from '@posthog/replay-shared'
+import { keyForSource, sortSnapshots } from '@posthog/replay-shared'
 import { SnapshotSourceType, SnapshotStore, SourceLoadingState } from '@posthog/replay-shared'
 
 import api, { RecordingDeletedError } from 'lib/api'
@@ -406,14 +406,14 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                     }
 
                     // sorting is very cheap for already sorted lists
-                    const parsedSnapshots = (
+                    const parsedSnapshots = sortSnapshots(
                         await parseEncodedSnapshots(
                             response,
                             props.sessionRecordingId,
                             posthog,
                             registerWindowIdCallback
                         )
-                    ).sort((a, b) => a.timestamp - b.timestamp)
+                    )
 
                     breakpoint()
 

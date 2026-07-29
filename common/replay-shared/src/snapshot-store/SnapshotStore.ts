@@ -1,5 +1,6 @@
 import { EventType } from 'posthog-js/rrweb-types'
 
+import { sortSnapshots } from '../snapshot-processing/sort-snapshots'
 import { RecordingSnapshot, SessionRecordingSnapshotSource } from '../types'
 import { FullSnapshotRef, SourceEntry, SourceLoadingState } from './types'
 
@@ -62,17 +63,17 @@ export class SnapshotStore {
             return
         }
 
-        snapshots.sort((a, b) => a.timestamp - b.timestamp)
+        const sorted = sortSnapshots(snapshots)
 
         const fullSnapshots: FullSnapshotRef[] = []
-        for (const snap of snapshots) {
+        for (const snap of sorted) {
             if (snap.type === EventType.FullSnapshot) {
                 fullSnapshots.push({ timestamp: snap.timestamp, windowId: snap.windowId })
             }
         }
 
         entry.state = 'fetched'
-        entry.processedSnapshots = snapshots
+        entry.processedSnapshots = sorted
         entry.fullSnapshots = fullSnapshots
         this.bump()
     }

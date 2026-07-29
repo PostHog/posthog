@@ -12,7 +12,9 @@ import { isObject } from '../utils'
 import { CHROME_EXTENSION_DENY_LIST, stripChromeExtensionDataFromNode } from './chrome-extension-stripping'
 import { chunkMutationSnapshot } from './chunk-large-mutations'
 import { decompressEvent } from './decompress'
+import { findDuplicateIndices } from './deduplicate-snapshots'
 import { extractDimensionsFromMobileSnapshot, ViewportResolution } from './patch-meta-event'
+import { nextIngestSequence, sortSnapshots } from './sort-snapshots'
 import { keyForSource, SourceKey } from './source-key'
 import { throttleCapture } from './throttle-capturing'
 
@@ -131,8 +133,6 @@ export async function processAllSnapshots(
         matchedExtensions: new Set<string>(),
         hasSeenMeta: false,
         seenFullByWindow: {},
-        previousTimestamp: null,
-        seenHashes: new Set<number>(),
         sourceHadViewportGap: false,
     }
 
@@ -142,6 +142,12 @@ export async function processAllSnapshots(
 
     const YIELD_AFTER_MS = 50
     let lastYield = performance.now()
+    const yieldIfNeeded = async (): Promise<void> => {
+        if (performance.now() - lastYield > YIELD_AFTER_MS) {
+            await new Promise<void>((r) => setTimeout(r, 0))
+            lastYield = performance.now()
+        }
+    }
 
     for (let sourceIdx = 0; sourceIdx < sources.length; sourceIdx++) {
         const source = sources[sourceIdx]
@@ -166,8 +172,8 @@ export async function processAllSnapshots(
 
         context.sourceResult = []
         context.sourceHadViewportGap = false
-        const sortedSnapshots = sourceSnapshots.sort((a, b) => a.timestamp - b.timestamp)
-        context.seenHashes = new Set<number>()
+        const sortedSnapshots = sortSnapshots(sourceSnapshots)
+        const duplicateIndices = await findDuplicateIndices(sortedSnapshots, yieldIfNeeded)
         const pushPatchedMeta = createPushPatchedMeta(
             context,
             sourceKey,
@@ -177,21 +183,24 @@ export async function processAllSnapshots(
         )
 
         for (let snapshotIndex = 0; snapshotIndex < sortedSnapshots.length; snapshotIndex++) {
-            const snapshot = sortedSnapshots[snapshotIndex]
+            if (duplicateIndices.has(snapshotIndex)) {
+                throttleCapture(`${sessionRecordingId}-duplicate-snapshot`, () => {
+                    telemetry.capture('session recording has duplicate snapshots', {
+                        sessionRecordingId,
+                        sourceKey: sourceKey,
+                    })
+                })
+                continue
+            }
             processSnapshot(
-                snapshot,
-                sortedSnapshots,
-                snapshotIndex,
+                sortedSnapshots[snapshotIndex],
                 context,
                 pushPatchedMeta,
                 sessionRecordingId,
                 sourceKey,
                 telemetry
             )
-            if (performance.now() - lastYield > YIELD_AFTER_MS) {
-                await new Promise<void>((r) => setTimeout(r, 0))
-                lastYield = performance.now()
-            }
+            await yieldIfNeeded()
         }
 
         if (context.sourceHadViewportGap) {
@@ -207,9 +216,7 @@ export async function processAllSnapshots(
         }
     }
 
-    context.result.sort((a, b) => a.timestamp - b.timestamp)
-
-    return context.result
+    return sortSnapshots(context.result)
 }
 
 type ProcessSnapshotContext = {
@@ -218,8 +225,6 @@ type ProcessSnapshotContext = {
     matchedExtensions: Set<string>
     hasSeenMeta: boolean
     seenFullByWindow: Record<number, boolean>
-    previousTimestamp: number | null
-    seenHashes: Set<number>
     // Set when a meta patch failed because no viewport was available for the current source
     sourceHadViewportGap: boolean
 }
@@ -283,36 +288,12 @@ function createPushPatchedMeta(
 
 function processSnapshot(
     snapshot: RecordingSnapshot,
-    sortedSnapshots: RecordingSnapshot[],
-    snapshotIndex: number,
     context: ProcessSnapshotContext,
     pushPatchedMeta: (ts: number, winId?: number, fullSnapshot?: RecordingSnapshot) => boolean,
     sessionRecordingId: string,
     sourceKey: SourceKey,
     telemetry: ReplayTelemetry
 ): void {
-    const currentTimestamp = snapshot.timestamp
-
-    if (currentTimestamp === context.previousTimestamp) {
-        if (context.seenHashes.size === 0 && snapshotIndex > 0) {
-            context.seenHashes.add(hashSnapshot(sortedSnapshots[snapshotIndex - 1]))
-        }
-        const snapshotHash = hashSnapshot(snapshot)
-        if (!context.seenHashes.has(snapshotHash)) {
-            context.seenHashes.add(snapshotHash)
-        } else {
-            throttleCapture(`${sessionRecordingId}-duplicate-snapshot`, () => {
-                telemetry.capture('session recording has duplicate snapshots', {
-                    sessionRecordingId,
-                    sourceKey: sourceKey,
-                })
-            })
-            return
-        }
-    } else {
-        context.seenHashes = new Set<number>()
-    }
-
     if (snapshot.type === EventType.Meta) {
         context.hasSeenMeta = true
     }
@@ -405,7 +386,6 @@ function processSnapshot(
 
     context.result.push(snapshot)
     context.sourceResult.push(snapshot)
-    context.previousTimestamp = currentTimestamp
 }
 
 function isRecordingSnapshot(x: unknown): x is RecordingSnapshot {
@@ -454,6 +434,15 @@ export const parseJsonSnapshots = (
     const unparseableLines: string[] = []
     const parsedLines: RecordingSnapshot[] = []
 
+    // Stamped here, on the way out of the blob, because this is the only place that still knows the
+    // order the events were captured in. Everything downstream sorts by timestamp.
+    const pushParsed = (baseSnapshot: RecordingSnapshot): void => {
+        for (const chunk of chunkMutationSnapshot(baseSnapshot)) {
+            chunk.seq = nextIngestSequence()
+            parsedLines.push(chunk)
+        }
+    }
+
     const parseItem = (l: RecordingSnapshot | EncodedRecordingSnapshot | string): void => {
         if (!l) {
             return
@@ -482,8 +471,7 @@ export const parseJsonSnapshots = (
                     windowId: snapshotLine.windowId,
                     ...snap,
                 }
-                const chunkedSnapshots = chunkMutationSnapshot(baseSnapshot)
-                parsedLines.push(...chunkedSnapshots)
+                pushParsed(baseSnapshot)
             } else if (
                 'type' in snapshotLine &&
                 'timestamp' in snapshotLine &&
@@ -496,8 +484,7 @@ export const parseJsonSnapshots = (
                     windowId,
                     ...snap,
                 }
-                const chunkedSnapshots = chunkMutationSnapshot(baseSnapshot)
-                parsedLines.push(...chunkedSnapshots)
+                pushParsed(baseSnapshot)
             } else {
                 const snapshotData = snapshotLine['data'] || []
                 const rawWindowId =
@@ -510,8 +497,7 @@ export const parseJsonSnapshots = (
                         windowId,
                         ...snap,
                     }
-                    const chunkedSnapshots = chunkMutationSnapshot(baseSnapshot)
-                    parsedLines.push(...chunkedSnapshots)
+                    pushParsed(baseSnapshot)
                 }
             }
         } catch {
@@ -538,30 +524,4 @@ export const parseJsonSnapshots = (
     }
 
     return parsedLines
-}
-
-function hashSnapshot(snapshot: RecordingSnapshot): number {
-    const { delay, ...delayFreeSnapshot } = snapshot
-    return cyrb53(JSON.stringify(delayFreeSnapshot))
-}
-
-/*
-    cyrb53 (c) 2018 bryc (github.com/bryc)
-    License: Public domain. Attribution appreciated.
-    A fast and simple 53-bit string hash function with decent collision resistance.
-    Largely inspired by MurmurHash2/3, but with a focus on speed/simplicity.
-*/
-const cyrb53 = function (str: string, seed = 0): number {
-    let h1 = 0xdeadbeef ^ seed,
-        h2 = 0x41c6ce57 ^ seed
-    for (let i = 0, ch; i < str.length; i++) {
-        ch = str.charCodeAt(i)
-        h1 = Math.imul(h1 ^ ch, 2654435761)
-        h2 = Math.imul(h2 ^ ch, 1597334677)
-    }
-    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507)
-    h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909)
-    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507)
-    h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909)
-    return 4294967296 * (2097151 & h2) + (h1 >>> 0)
 }

@@ -24,6 +24,7 @@ export type { ViewportResolution } from './snapshot-processing/patch-meta-event'
 export { extractDimensionsFromMobileSnapshot, getHrefFromSnapshot } from './snapshot-processing/patch-meta-event'
 export type { SourceKey } from './snapshot-processing/source-key'
 export { keyForSource } from './snapshot-processing/source-key'
+export { sortSnapshots } from './snapshot-processing/sort-snapshots'
 export { throttleCapture, clearThrottle } from './snapshot-processing/throttle-capturing'
 export type { RegisterWindowIdCallback, ProcessingCache } from './snapshot-processing/process-all-snapshots'
 export {
