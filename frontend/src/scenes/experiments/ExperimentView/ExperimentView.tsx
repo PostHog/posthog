@@ -145,7 +145,7 @@ export function ExperimentView(): JSX.Element {
         setExperiment,
         setExposureCriteria,
         updateExposureCriteria,
-        updateExperimentMetrics,
+        persistMetric,
         addSharedMetricsToExperiment,
         removeSharedMetricFromExperiment,
         removeMetric,
@@ -265,6 +265,10 @@ export function ExperimentView(): JSX.Element {
                         experiment={experiment}
                         exposureCriteria={exposureCriteria}
                         onSave={(metric, context) => {
+                            if (!metric.uuid) {
+                                return
+                            }
+
                             const metrics = experiment[context.field]
                             const isNew = !metrics.some(({ uuid }) => uuid === metric.uuid)
 
@@ -274,7 +278,11 @@ export function ExperimentView(): JSX.Element {
                                     : metrics.map((m) => (m.uuid === metric.uuid ? metric : m)),
                             })
 
-                            updateExperimentMetrics()
+                            persistMetric({
+                                uuid: metric.uuid,
+                                isSecondary: context.type === 'secondary',
+                                isNew,
+                            })
                             closeExperimentMetricModal()
                         }}
                         onDelete={(metric, context) => {

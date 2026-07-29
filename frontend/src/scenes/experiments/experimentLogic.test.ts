@@ -501,6 +501,137 @@ describe('experimentLogic', () => {
             expect(logic.values.experiment.metrics_secondary).toEqual([])
         })
     })
+    describe('per-metric writes', () => {
+        const metricA = {
+            kind: 'ExperimentMetric',
+            uuid: 'metric-a',
+            name: 'Metric A',
+        } as unknown as ExperimentMetric
+        const metricB = {
+            kind: 'ExperimentMetric',
+            uuid: 'metric-b',
+            name: 'Metric B',
+        } as unknown as ExperimentMetric
+
+        const withMetrics = (metrics: ExperimentMetric[]): Experiment =>
+            ({
+                ...experiment,
+                saved_metrics: [],
+                metrics,
+                metrics_secondary: [],
+                primary_metrics_ordered_uuids: metrics.map(({ uuid }) => uuid),
+                secondary_metrics_ordered_uuids: [],
+            }) as unknown as Experiment
+
+        beforeEach(() => {
+            jest.spyOn(api, 'create')
+            jest.spyOn(api, 'update')
+            jest.spyOn(api, 'delete')
+            api.create.mockClear()
+            api.update.mockClear()
+            api.delete.mockClear()
+        })
+
+        // Restore so the resolved values stubbed below don't leak into later suites,
+        // which rely on api.create reaching the useMocks query handlers.
+        afterEach(() => {
+            api.create.mockRestore()
+            api.update.mockRestore()
+            api.delete.mockRestore()
+        })
+
+        it('sends only the edited metric, never the array', async () => {
+            logic.actions.setExperiment(withMetrics([metricA, metricB]))
+            api.update.mockResolvedValue({
+                metric: { ...metricB, name: 'Renamed' },
+                primary_metrics_ordered_uuids: ['metric-a', 'metric-b'],
+                secondary_metrics_ordered_uuids: [],
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.setMetric({ uuid: 'metric-b', metric: { ...metricB, name: 'Renamed' } })
+                logic.actions.persistMetric({ uuid: 'metric-b', isSecondary: false, isNew: false })
+            }).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(
+                expect.stringContaining('/metrics/metric-b/'),
+                { metric: expect.objectContaining({ uuid: 'metric-b', name: 'Renamed' }) },
+                expect.anything()
+            )
+            // The regression this guards: no request may carry a whole metrics array.
+            expect(api.update).not.toHaveBeenCalledWith(
+                expect.anything(),
+                expect.objectContaining({ metrics: expect.anything() }),
+                expect.anything()
+            )
+        })
+
+        it('applies a response to the addressed metric only, keeping the server uuid', async () => {
+            // A create is optimistically inserted with a client uuid, then the server
+            // returns its own. Reconciling by the local uuid is what keeps the sibling
+            // metric (and a concurrent edit to it) intact.
+            logic.actions.setExperiment(withMetrics([metricA, { ...metricB, uuid: 'client-placeholder' }]))
+            api.create.mockResolvedValue({
+                metric: { ...metricB, uuid: 'server-assigned' },
+                primary_metrics_ordered_uuids: ['metric-a', 'server-assigned'],
+                secondary_metrics_ordered_uuids: [],
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.persistMetric({ uuid: 'client-placeholder', isSecondary: false, isNew: true })
+            }).toFinishAllListeners()
+
+            expect(logic.values.experiment.metrics.map(({ uuid }) => uuid)).toEqual(['metric-a', 'server-assigned'])
+            expect(logic.values.experiment.metrics[0]).toEqual(metricA)
+            expect(logic.values.experiment.primary_metrics_ordered_uuids).toEqual(['metric-a', 'server-assigned'])
+        })
+
+        it('ignores a second create for the same metric while the first is in flight', async () => {
+            // Each create mints a server uuid, so a double-click used to add the metric twice.
+            logic.actions.setExperiment(withMetrics([{ ...metricA, uuid: 'client-placeholder' }]))
+            api.create.mockResolvedValue({
+                metric: { ...metricA, uuid: 'server-assigned' },
+                primary_metrics_ordered_uuids: ['server-assigned'],
+                secondary_metrics_ordered_uuids: [],
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.persistMetric({
+                    uuid: 'client-placeholder',
+                    isSecondary: false,
+                    isNew: true,
+                    reloadResults: false,
+                })
+                logic.actions.persistMetric({
+                    uuid: 'client-placeholder',
+                    isSecondary: false,
+                    isNew: true,
+                    reloadResults: false,
+                })
+            }).toFinishAllListeners()
+
+            const metricCreates = api.create.mock.calls.filter(([url]: any[]) => String(url).includes('/metrics/'))
+            expect(metricCreates).toHaveLength(1)
+            expect(logic.values.experiment.metrics.map(({ uuid }) => uuid)).toEqual(['server-assigned'])
+        })
+
+        it('deletes through the per-metric endpoint and leaves the sibling alone', async () => {
+            logic.actions.setExperiment(withMetrics([metricA, metricB]))
+            api.delete.mockResolvedValue({
+                metric: null,
+                primary_metrics_ordered_uuids: ['metric-a'],
+                secondary_metrics_ordered_uuids: [],
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.removeMetric('metric-b', 'primary')
+            }).toFinishAllListeners()
+
+            expect(api.delete).toHaveBeenCalledWith(expect.stringContaining('/metrics/metric-b/'))
+            expect(logic.values.experiment.metrics).toEqual([metricA])
+            expect(api.update).not.toHaveBeenCalled()
+        })
+    })
     describe('saveMetricsReorder', () => {
         const primaryMetric = {
             kind: 'ExperimentMetric',
@@ -542,10 +673,12 @@ describe('experimentLogic', () => {
 
         beforeEach(() => {
             jest.spyOn(api, 'update')
+            jest.spyOn(api, 'put')
             api.update.mockClear()
+            api.put.mockClear()
         })
 
-        it('persists a pure reorder without touching metric arrays or results', async () => {
+        it('persists a pure reorder through the metrics order endpoint', async () => {
             const testExperiment = {
                 ...experiment,
                 saved_metrics: [],
@@ -556,9 +689,10 @@ describe('experimentLogic', () => {
 
             logic.actions.setExperiment(testExperiment)
             logic.actions.setPrimaryMetricsResults([primaryMetricResult, otherPrimaryMetricResult])
-            api.update.mockResolvedValue({
-                ...testExperiment,
+            api.put.mockResolvedValue({
+                metric: null,
                 primary_metrics_ordered_uuids: ['other-primary-uuid', 'primary-metric-uuid'],
+                secondary_metrics_ordered_uuids: [],
             })
 
             await expectLogic(logic, () => {
@@ -567,10 +701,14 @@ describe('experimentLogic', () => {
                 .toFinishAllListeners()
                 .toNotHaveDispatchedActions(['refreshExperimentResults', 'loadPrimaryMetricsResults'])
 
-            expect(api.update).toHaveBeenCalledWith(expect.stringContaining('/experiments/'), {
-                primary_metrics_ordered_uuids: ['other-primary-uuid', 'primary-metric-uuid'],
-                update_feature_flag_params: false,
-            })
+            expect(api.put).toHaveBeenCalledWith(
+                expect.stringContaining('/metrics/order/'),
+                { section: 'primary', uuids: ['other-primary-uuid', 'primary-metric-uuid'] },
+                expect.anything()
+            )
+            // A reorder never sends the metric arrays, so nothing can clobber them.
+            expect(api.update).not.toHaveBeenCalled()
+            expect(logic.values.experiment.metrics).toEqual([primaryMetric, otherPrimaryMetric])
             expect(logic.values.primaryMetricsResults).toEqual([primaryMetricResult, otherPrimaryMetricResult])
         })
 

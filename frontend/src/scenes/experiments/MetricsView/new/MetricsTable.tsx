@@ -58,7 +58,7 @@ export function MetricsTable({
     const {
         duplicateMetric,
         duplicateSharedMetricAsInlineMetric,
-        updateExperimentMetrics,
+        persistMetric,
         updateMetricBreakdown,
         removeMetricBreakdown,
         removeMetric,
@@ -155,7 +155,7 @@ export function MetricsTable({
 
                                     const newUuid = crypto.randomUUID()
                                     duplicateMetric({ uuid: metric.uuid, isSecondary, newUuid })
-                                    updateExperimentMetrics()
+                                    persistMetric({ uuid: newUuid, isSecondary, isNew: true })
                                 }}
                                 onDuplicateAsSingleUseMetric={() => {
                                     if (!metric.isSharedMetric || !metric.sharedMetricId || !experiment) {
@@ -168,7 +168,7 @@ export function MetricsTable({
                                         isSecondary,
                                         newUuid,
                                     })
-                                    updateExperimentMetrics()
+                                    persistMetric({ uuid: newUuid, isSecondary, isNew: true })
                                 }}
                                 onDeleteMetric={() => {
                                     if (metric.isSharedMetric && metric.sharedMetricId) {
