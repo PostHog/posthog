@@ -16,6 +16,7 @@ from products.managed_migrations.backend import trial_storage
 from products.managed_migrations.backend.admin.batch_imports import BatchImportAdmin
 from products.managed_migrations.backend.api.batch_imports import BatchImportS3SourceCreateSerializer
 from products.managed_migrations.backend.models.batch_imports import (
+    DEFAULT_SEND_RATE,
     BatchImport,
     BatchImportConfigBuilder,
     ContentType,
@@ -695,7 +696,7 @@ class TestBatchImportAPI(APIBaseTest):
 
         # Verify sink defaults to capture
         self.assertEqual(batch_import.import_config["sink"]["type"], "capture")
-        self.assertEqual(batch_import.import_config["sink"]["send_rate"], 1000)
+        self.assertEqual(batch_import.import_config["sink"]["send_rate"], DEFAULT_SEND_RATE)
 
     def test_amplitude_migration_includes_amplitude_specific_fields(self):
         """Test that Amplitude migrations include import_events and generate_identify_events in config"""
@@ -1366,7 +1367,7 @@ class TestBatchImportTrialAPI(APIBaseTest):
         self.assertEqual(response.status_code, 201, response.json())
         promoted = BatchImport.objects.get(id=response.json()["id"])
         self.assertNotEqual(promoted.id, trial.id)
-        self.assertEqual(promoted.import_config["sink"], {"type": "capture", "send_rate": 1000})
+        self.assertEqual(promoted.import_config["sink"], {"type": "capture", "send_rate": DEFAULT_SEND_RATE})
         self.assertEqual(promoted.import_config["source"], trial.import_config["source"])
         self.assertEqual(promoted.secrets, trial.secrets)
         self.assertEqual(promoted.status, BatchImport.Status.RUNNING)
