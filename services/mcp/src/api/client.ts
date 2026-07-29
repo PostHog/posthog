@@ -11,6 +11,7 @@ import {
     PostHogValidationError,
 } from '@/lib/errors'
 import { getSearchParamsFromRecord } from '@/lib/utils.js'
+import { describeValidationError } from '@/lib/validation-errors'
 import type {
     ApiEventDefinition,
     ApiOAuthIntrospection,
@@ -859,12 +860,25 @@ export class ApiClient {
                     holdout: experiment.holdout,
                 }
 
-                // Validate against existing ExperimentExposureQuerySchema
-                const validated = ExperimentExposureQuerySchema.parse(exposureQuery)
+                // Validate against existing ExperimentExposureQuerySchema. The query is built
+                // entirely from the experiment the API just returned, so a rejection means this
+                // hand-written schema has drifted from a stored shape, not that the caller sent
+                // anything wrong. Report the offending field paths only: a thrown ZodError's
+                // message is the full issue array with the values inlined.
+                const validated = ExperimentExposureQuerySchema.safeParse(exposureQuery)
+                if (!validated.success) {
+                    const { fields } = describeValidationError(validated.error)
+                    return {
+                        success: false,
+                        error: new Error(
+                            `Couldn't read this experiment's exposure configuration, so exposure data isn't available (unexpected shape at ${fields.join(', ')}). Open the experiment in PostHog to see its results.`
+                        ),
+                    }
+                }
 
                 // The API expects a QueryRequest object with the query wrapped
                 const queryRequest: any = {
-                    query: validated,
+                    query: validated.data,
                     ...(refresh ? { refresh: 'blocking' } : {}),
                 }
 

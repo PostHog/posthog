@@ -19,7 +19,8 @@ import {
 } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { getPostHogClient } from '@/lib/posthog'
-import { createExecTool, formatInputValidationError, type ExecInnerCallTracker } from '@/tools/exec'
+import { describeValidationError, findZodError, formatInputValidationError } from '@/lib/validation-errors'
+import { createExecTool, type ExecInnerCallTracker } from '@/tools/exec'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { createRenderUiTool } from '@/tools/render-ui'
 import type { Context, ZodObjectAny } from '@/tools/types'
@@ -518,6 +519,15 @@ function resolveToolErrorClassification(error: unknown): ToolErrorClassification
             ...(error.fields.length ? { validationFields: error.fields } : {}),
             ...(error.inputKeys.length ? { validationInputKeys: error.inputKeys } : {}),
         }
+    }
+    // A `.parse()` past the pre-handler gate throws a bare ZodError; it's still a
+    // schema rejection, so bucket it with the rest instead of as `internal`.
+    // `$mcp_validation_fields` names the offending path so a schema that drifted
+    // out of sync stays diagnosable without the payload.
+    const zodError = findZodError(error)
+    if (zodError) {
+        const { fields } = describeValidationError(zodError)
+        return { errorType: 'validation', ...(fields.length ? { validationFields: fields } : {}) }
     }
     // Agent-recoverable command mistakes, so keep them out of the `internal` rate
     // ops alerts on. `missing_scope` is the exception: no input the agent sends

@@ -9,12 +9,11 @@ import { buildQueryToolsBlock, buildToolDomainsCompact } from '@/lib/instruction
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
 import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
+import { describeValidationError, formatInputValidationError } from '@/lib/validation-errors'
 import {
     createExecTool,
-    describeValidationError,
     type ExecInnerCallProperties,
     type ExecToolOptions,
-    formatInputValidationError,
     parseExecCallInnerToolName,
 } from '@/tools/exec'
 import { ExecHelpCatalog } from '@/tools/exec-help'

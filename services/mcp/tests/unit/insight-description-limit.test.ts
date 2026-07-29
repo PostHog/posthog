@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
-import { formatInputValidationError } from '@/tools/exec'
+import { formatInputValidationError } from '@/lib/validation-errors'
 import { GENERATED_TOOLS } from '@/tools/generated/product_analytics'
 
 // Minimal valid input per tool: create requires `query`, update requires `id`.

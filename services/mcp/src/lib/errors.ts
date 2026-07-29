@@ -3,6 +3,7 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { getPostHogClient } from '@/lib/posthog'
 import { getToolRecoveryHint } from '@/lib/tool-error-hints'
 import { sanitizeHeaderValue } from '@/lib/utils'
+import { describeValidationError, findZodError, formatInputValidationError } from '@/lib/validation-errors'
 
 export enum ErrorCode {
     INVALID_API_KEY = 'INVALID_API_KEY',
@@ -404,6 +405,33 @@ export function findPostHogPermissionError(error: unknown): PostHogPermissionErr
  * to X: ...", { cause })`) hide the underlying typed error, so callers must
  * unwrap before classifying the failure.
  */
+/**
+ * Reclassifies a stray ZodError — one thrown by a `.parse()` past the pre-handler
+ * validation gate — as the same recoverable, field-named failure the gate itself
+ * produces. Returns undefined when no ZodError is in the cause chain.
+ *
+ * Without this, `handleToolError` falls through to wrapping `error.message`, and a
+ * zod v4 `ZodError.message` is the JSON-stringified issue array: the model is handed
+ * hundreds of lines of nested `invalid_union` objects instead of something it can
+ * self-correct from, and chat UIs render the dump verbatim to the user.
+ */
+export function asToolInputValidationError(error: unknown, toolName: string): ToolInputValidationError | undefined {
+    if (error instanceof ToolInputValidationError) {
+        return error
+    }
+    const zodError = findZodError(error)
+    if (!zodError) {
+        return undefined
+    }
+    // `describeValidationError` without the payload: the offending paths and issue
+    // codes still ride along (so `$mcp_validation_fields` names the rejected field),
+    // and `handleToolError` never sees the caller's input.
+    return new ToolInputValidationError(
+        formatInputValidationError(toolName, zodError),
+        describeValidationError(zodError)
+    )
+}
+
 export function findRecoverableApiError(error: unknown): PostHogApiError | PostHogValidationError | undefined {
     let current: unknown = error
     const seen = new Set<unknown>()
@@ -437,18 +465,21 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
     // Recoverable: expected agent or user state, not a bug — no project picked,
     // input the schema rejected, a mistyped exec command. Each of these classes
     // pre-formats a message the agent can self-correct from, so return it verbatim
-    // and skip exception capture, which would mint an issue per slip-up.
+    // and skip exception capture, which would mint an issue per slip-up. A stray
+    // ZodError is folded in here too, so its raw JSON message never reaches the
+    // fallthrough below.
+    const validationError = asToolInputValidationError(error, toolName)
     if (
+        validationError ||
         error instanceof MissingProjectContextError ||
         error instanceof MissingOrganizationContextError ||
-        error instanceof ToolInputValidationError ||
         error instanceof ExecCommandError
     ) {
         return {
             content: [
                 {
                     type: 'text',
-                    text: `Error: [${toolName}]: ${error.message}`,
+                    text: `Error: [${toolName}]: ${(validationError ?? error).message}`,
                 },
             ],
             isError: true,
