@@ -3,7 +3,7 @@ from datetime import timedelta
 from posthog.test.base import APIBaseTest, BaseTest
 
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -328,6 +328,18 @@ class TestScannerMonthlyCreditLimit(APIBaseTest):
         with self.assertRaises(ValidationError) as ctx:
             scanner.full_clean()
         assert "monthly_credit_limit" in ctx.exception.message_dict
+
+    @parameterized.expand([("zero", 0), ("negative", -5)])
+    def test_database_rejects_non_positive_limit(self, _name: str, limit: int) -> None:
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                ReplayScanner.objects.filter(pk=self._scanner().pk).update(monthly_credit_limit=limit)
+
+    def test_database_accepts_null_limit_on_update(self) -> None:
+        scanner = self._scanner(monthly_credit_limit=10)
+        ReplayScanner.objects.filter(pk=scanner.pk).update(monthly_credit_limit=None)
+        scanner.refresh_from_db()
+        assert scanner.monthly_credit_limit is None
 
     def test_changing_the_limit_does_not_bump_scanner_version_or_stale_the_estimate(self) -> None:
         scanner = self._scanner()

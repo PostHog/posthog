@@ -145,6 +145,12 @@ class ReplayScanner(UUIDModel):
                 condition=models.Q(sampling_rate__gte=0.0) & models.Q(sampling_rate__lte=1.0),
                 name="replay_scanner_sampling_rate_range",
             ),
+            # A stray 0 would read as "block every observation" to the quota check, and be
+            # indistinguishable from an unset cap. NULL stays valid: it means no scanner-level cap.
+            models.CheckConstraint(
+                condition=models.Q(monthly_credit_limit__isnull=True) | models.Q(monthly_credit_limit__gte=1),
+                name="replay_scanner_credit_limit_positive",
+            ),
         ]
         indexes = [
             models.Index(fields=["team", "enabled"], name="rl_team_enabled_idx"),
