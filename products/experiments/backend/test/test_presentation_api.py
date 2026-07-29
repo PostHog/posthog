@@ -8846,3 +8846,96 @@ class TestExperimentApiExposureCriteriaParity(unittest.TestCase):
             "Generated write clients (MCP, frontend) strip these silently — add them to the slim API "
             "type in frontend/src/queries/schema/schema-general.ts and rerun hogli build:schema.",
         )
+
+
+class TestExperimentPerMetricWrites(_HoistFlagConfigClientMixin, APILicensedTest):
+    """The per-metric endpoints exist so a client never sends a whole metric array to
+    change one metric. These cover the three ways that guarantee could break."""
+
+    def _metric(self, event: str) -> dict[str, Any]:
+        return {"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "EventsNode", "event": event}}
+
+    def _create_experiment(self) -> int:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {"name": "Per-metric writes", "feature_flag_key": "per-metric-writes"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        return response.json()["id"]
+
+    def _add_metric(self, experiment_id: int, event: str, section: str = "primary") -> str:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/metrics/",
+            {"section": section, "metric": self._metric(event), "allow_unknown_events": True},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        return response.json()["metric"]["uuid"]
+
+    def _stored_metrics(self, experiment_id: int) -> list[dict[str, Any]]:
+        return Experiment.objects.get(pk=experiment_id).metrics or []
+
+    def test_deleting_one_metric_leaves_its_siblings(self):
+        experiment_id = self._create_experiment()
+        first = self._add_metric(experiment_id, "first")
+        second = self._add_metric(experiment_id, "second")
+        third = self._add_metric(experiment_id, "third")
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/experiments/{experiment_id}/metrics/{second}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["primary_metrics_ordered_uuids"], [first, third])
+
+        self.assertEqual([m["uuid"] for m in self._stored_metrics(experiment_id)], [first, third])
+
+    def test_patch_leaves_omitted_keys_and_other_metrics_alone(self):
+        experiment_id = self._create_experiment()
+        first = self._add_metric(experiment_id, "first")
+        second = self._add_metric(experiment_id, "second")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/metrics/{second}/",
+            {"metric": {"name": "Renamed"}, "allow_unknown_events": True},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        stored = {m["uuid"]: m for m in self._stored_metrics(experiment_id)}
+        self.assertEqual(stored[second]["name"], "Renamed")
+        # Keys the patch omitted survive, and the sibling is untouched.
+        self.assertEqual(stored[second]["source"]["event"], "second")
+        self.assertEqual(stored[first]["source"]["event"], "first")
+
+    def test_reorder_keeps_metrics_the_client_did_not_list(self):
+        experiment_id = self._create_experiment()
+        first = self._add_metric(experiment_id, "first")
+        second = self._add_metric(experiment_id, "second")
+        # A metric the reordering client never saw, plus one it thinks still exists.
+        third = self._add_metric(experiment_id, "third")
+
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/metrics/order/",
+            {"section": "primary", "uuids": [second, first, str(uuid4())]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        # The requested pair swaps; `third` holds its slot instead of dropping off.
+        self.assertEqual(response.json()["primary_metrics_ordered_uuids"], [second, first, third])
+
+    def test_shared_metric_uuid_is_not_addressable_here(self):
+        experiment_id = self._create_experiment()
+        response = self.client.delete(f"/api/projects/{self.team.id}/experiments/{experiment_id}/metrics/{uuid4()}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, response.json())
+
+    def test_metric_write_locks_the_experiment_row(self):
+        # Without the row lock, two simultaneous writes both read the same array and the
+        # second overwrite loses the first's metric — the incident these endpoints exist to
+        # prevent. Asserting the FOR UPDATE is issued is far cheaper than a threaded
+        # TransactionTestCase and fails just as surely if the lock is dropped.
+        experiment_id = self._create_experiment()
+
+        with CaptureQueriesContext(connection) as queries:
+            self._add_metric(experiment_id, "locked")
+
+        self.assertTrue(
+            any(
+                "posthog_experiment" in q["sql"] and "FOR UPDATE" in q["sql"].upper() for q in queries.captured_queries
+            ),
+            "Per-metric writes must SELECT ... FOR UPDATE the experiment row.",
+        )

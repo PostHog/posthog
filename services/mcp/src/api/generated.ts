@@ -27537,6 +27537,33 @@ export namespace Schemas {
     }
 
     /**
+     * * `primary` - primary
+     * * `secondary` - secondary
+     */
+    export type SectionEnum = typeof SectionEnum[keyof typeof SectionEnum];
+
+
+    export const SectionEnum = {
+      Primary: 'primary',
+      Secondary: 'secondary',
+    } as const;
+
+    /**
+     * Body for adding or patching a single metric.
+     */
+    export interface ExperimentMetricCreate {
+      /** The metric definition. Must have kind='ExperimentMetric' and a metric_type: 'mean', 'funnel', 'ratio', or 'retention'. On a patch, the keys you send replace theirs on the stored metric; keys you omit are preserved. The uuid is server-owned and taken from the URL. */
+      metric: ExperimentApiMetric;
+      /** Suppresses the validation that rejects metrics referencing events not yet ingested by this project. REQUIRES explicit user confirmation before being set to true — never flip this silently to retry a failed call. */
+      allow_unknown_events?: boolean;
+      /** Which metric section to write: 'primary' or 'secondary'.
+       *
+       * * `primary` - primary
+       * * `secondary` - secondary */
+      section: SectionEnum;
+    }
+
+    /**
      * * `categorical` - categorical
      * * `numeric` - numeric
      * * `boolean` - boolean
@@ -27549,6 +27576,31 @@ export namespace Schemas {
       Numeric: 'numeric',
       Boolean: 'boolean',
     } as const;
+
+    /**
+     * What a per-metric write returns — the affected metric plus both ordering arrays.
+     *
+     * Deliberately not the whole experiment: a client that overwrites its local state with
+     * a full response is how concurrent edits get clobbered in the first place.
+     */
+    export interface ExperimentMetricMutationResponse {
+      /** The persisted metric, or null for a delete. */
+      metric: ExperimentApiMetric | null;
+      /** @nullable */
+      primary_metrics_ordered_uuids: string[] | null;
+      /** @nullable */
+      secondary_metrics_ordered_uuids: string[] | null;
+    }
+
+    export interface ExperimentMetricOrder {
+      /** Which metric section to write: 'primary' or 'secondary'.
+       *
+       * * `primary` - primary
+       * * `secondary` - secondary */
+      section: SectionEnum;
+      /** Metric uuids in the desired order. Uuids that no longer exist are ignored, and metrics you did not list keep their current position — so a reorder computed against stale state cannot drop metrics added since. */
+      uuids: string[];
+    }
 
     /**
      * * `manual` - Manual
@@ -48740,6 +48792,16 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level?: string | null;
+    }
+
+    /**
+     * Body for adding or patching a single metric.
+     */
+    export interface PatchedExperimentMetricWrite {
+      /** The metric definition. Must have kind='ExperimentMetric' and a metric_type: 'mean', 'funnel', 'ratio', or 'retention'. On a patch, the keys you send replace theirs on the stored metric; keys you omit are preserved. The uuid is server-owned and taken from the URL. */
+      metric?: ExperimentApiMetric;
+      /** Suppresses the validation that rejects metrics referencing events not yet ingested by this project. REQUIRES explicit user confirmation before being set to true — never flip this silently to retry a failed call. */
+      allow_unknown_events?: boolean;
     }
 
     /**

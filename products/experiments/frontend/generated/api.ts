@@ -18,6 +18,9 @@ import type {
     ExperimentFlagCleanupTaskApi,
     ExperimentHoldoutApi,
     ExperimentHoldoutsListParams,
+    ExperimentMetricCreateApi,
+    ExperimentMetricMutationResponseApi,
+    ExperimentMetricOrderApi,
     ExperimentMetricsRecalculationApi,
     ExperimentSavedMetricApi,
     ExperimentSavedMetricsListParams,
@@ -32,6 +35,7 @@ import type {
     PaginatedExperimentHoldoutListApi,
     PaginatedExperimentSavedMetricListApi,
     PatchedExperimentHoldoutApi,
+    PatchedExperimentMetricWriteApi,
     PatchedExperimentSavedMetricApi,
     PatchedExperimentWriteApi,
     RecalculateMetricsRequestApi,
@@ -655,6 +659,96 @@ export const experimentsLaunchCreate = async (
     return apiMutator<ExperimentApi>(getExperimentsLaunchCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getExperimentsMetricsCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/metrics/`
+}
+
+/**
+ * Appends one metric to the experiment's primary or secondary section and returns it with its server-assigned uuid. Metrics already on the experiment are left untouched, so this is safe to call from a client whose local copy of the experiment is out of date.
+ * @summary Add a metric to an experiment
+ */
+export const experimentsMetricsCreate = async (
+    projectId: string,
+    id: number,
+    experimentMetricCreateApi: ExperimentMetricCreateApi,
+    options?: RequestInit
+): Promise<ExperimentMetricMutationResponseApi> => {
+    return apiMutator<ExperimentMetricMutationResponseApi>(getExperimentsMetricsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(experimentMetricCreateApi),
+    })
+}
+
+export const getExperimentsMetricsPartialUpdateUrl = (projectId: string, id: number, metricUuid: string) => {
+    return `/api/projects/${projectId}/experiments/${id}/metrics/${metricUuid}/`
+}
+
+/**
+ * Shallow-merges the given definition into one metric, addressed by uuid. Keys you send replace theirs on the stored metric; keys you omit are preserved, and every other metric on the experiment is untouched. Returns 404 for a shared-metric uuid — those are edited through the shared-metric endpoints.
+ * @summary Update a single experiment metric
+ */
+export const experimentsMetricsPartialUpdate = async (
+    projectId: string,
+    id: number,
+    metricUuid: string,
+    patchedExperimentMetricWriteApi?: PatchedExperimentMetricWriteApi,
+    options?: RequestInit
+): Promise<ExperimentMetricMutationResponseApi> => {
+    return apiMutator<ExperimentMetricMutationResponseApi>(
+        getExperimentsMetricsPartialUpdateUrl(projectId, id, metricUuid),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedExperimentMetricWriteApi),
+        }
+    )
+}
+
+export const getExperimentsMetricsDestroyUrl = (projectId: string, id: number, metricUuid: string) => {
+    return `/api/projects/${projectId}/experiments/${id}/metrics/${metricUuid}/`
+}
+
+/**
+ * Removes one metric, addressed by uuid, from whichever section holds it. Returns 404 for a shared-metric uuid — unlink those through the shared-metric endpoints.
+ * @summary Delete a single experiment metric
+ */
+export const experimentsMetricsDestroy = async (
+    projectId: string,
+    id: number,
+    metricUuid: string,
+    options?: RequestInit
+): Promise<ExperimentMetricMutationResponseApi> => {
+    return apiMutator<ExperimentMetricMutationResponseApi>(getExperimentsMetricsDestroyUrl(projectId, id, metricUuid), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getExperimentsMetricsOrderUpdateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/metrics/order/`
+}
+
+/**
+ * Sets the display order of one metric section. Uuids that no longer exist are ignored and metrics missing from the list keep their current position, so a reorder computed against stale state cannot drop metrics that were added since.
+ * @summary Reorder an experiment's metrics
+ */
+export const experimentsMetricsOrderUpdate = async (
+    projectId: string,
+    id: number,
+    experimentMetricOrderApi: ExperimentMetricOrderApi,
+    options?: RequestInit
+): Promise<ExperimentMetricMutationResponseApi> => {
+    return apiMutator<ExperimentMetricMutationResponseApi>(getExperimentsMetricsOrderUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(experimentMetricOrderApi),
     })
 }
 

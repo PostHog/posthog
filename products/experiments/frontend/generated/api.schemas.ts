@@ -1856,6 +1856,67 @@ export interface ExperimentFlagCleanupTaskApi {
 }
 
 /**
+ * * `primary` - primary
+ * * `secondary` - secondary
+ */
+export type SectionEnumApi = (typeof SectionEnumApi)[keyof typeof SectionEnumApi]
+
+export const SectionEnumApi = {
+    Primary: 'primary',
+    Secondary: 'secondary',
+} as const
+
+/**
+ * Body for adding or patching a single metric.
+ */
+export interface ExperimentMetricCreateApi {
+    /** The metric definition. Must have kind='ExperimentMetric' and a metric_type: 'mean', 'funnel', 'ratio', or 'retention'. On a patch, the keys you send replace theirs on the stored metric; keys you omit are preserved. The uuid is server-owned and taken from the URL. */
+    metric: ExperimentApiMetricApi
+    /** Suppresses the validation that rejects metrics referencing events not yet ingested by this project. REQUIRES explicit user confirmation before being set to true — never flip this silently to retry a failed call. */
+    allow_unknown_events?: boolean
+    /** Which metric section to write: 'primary' or 'secondary'.
+     *
+     * * `primary` - primary
+     * * `secondary` - secondary */
+    section: SectionEnumApi
+}
+
+/**
+ * What a per-metric write returns — the affected metric plus both ordering arrays.
+ *
+ * Deliberately not the whole experiment: a client that overwrites its local state with
+ * a full response is how concurrent edits get clobbered in the first place.
+ */
+export interface ExperimentMetricMutationResponseApi {
+    /** The persisted metric, or null for a delete. */
+    metric: ExperimentApiMetricApi | null
+    /** @nullable */
+    primary_metrics_ordered_uuids: string[] | null
+    /** @nullable */
+    secondary_metrics_ordered_uuids: string[] | null
+}
+
+/**
+ * Body for adding or patching a single metric.
+ */
+export interface PatchedExperimentMetricWriteApi {
+    /** The metric definition. Must have kind='ExperimentMetric' and a metric_type: 'mean', 'funnel', 'ratio', or 'retention'. On a patch, the keys you send replace theirs on the stored metric; keys you omit are preserved. The uuid is server-owned and taken from the URL. */
+    metric?: ExperimentApiMetricApi
+    /** Suppresses the validation that rejects metrics referencing events not yet ingested by this project. REQUIRES explicit user confirmation before being set to true — never flip this silently to retry a failed call. */
+    allow_unknown_events?: boolean
+}
+
+export interface ExperimentMetricOrderApi {
+    /** Which metric section to write: 'primary' or 'secondary'.
+     *
+     * * `primary` - primary
+     * * `secondary` - secondary */
+    section: SectionEnumApi
+    /** Metric uuids in the desired order. Uuids that no longer exist are ignored, and metrics you did not list keep their current position — so a reorder computed against stale state cannot drop metrics added since. */
+    uuids: string[]
+}
+
+/**
  * * `manual` - Manual
  * * `agent_mcp` - Agent (MCP)
  * * `cold_run` - Cold Run

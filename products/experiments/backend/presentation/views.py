@@ -61,7 +61,11 @@ from products.experiments.backend.presentation.serializers import (
     ExperimentActivityQuerySerializer,
     ExperimentBasicSerializer,
     ExperimentFlagCleanupTaskSerializer,
+    ExperimentMetricCreateSerializer,
+    ExperimentMetricMutationResponseSerializer,
+    ExperimentMetricOrderSerializer,
     ExperimentMetricsRecalculationSerializer,
+    ExperimentMetricWriteSerializer,
     ExperimentSerializer,
     ExperimentSessionContextResponseSerializer,
     ExperimentWriteSerializer,
@@ -1172,6 +1176,127 @@ class EnterpriseExperimentsViewSet(
         if recalc is None:
             return Response({"detail": "Recalculation not found"}, status=404)
         return Response(_serialize_recalculation(recalc))
+
+    # --- per-metric writes ----------------------------------------------------
+    # Address one metric at a time so a client never has to send the whole array
+    # back to change a single metric. The array is read-modify-written server-side
+    # under a row lock, so two concurrent metric writes commute — a stale client
+    # can no longer drop metrics it never saw. `PATCH /experiments/{id}` still
+    # accepts whole `metrics` arrays for API and MCP callers, with the
+    # last-write-wins semantics that implies.
+
+    @validated_request(
+        request_serializer=ExperimentMetricCreateSerializer,
+        responses={201: OpenApiResponse(response=ExperimentMetricMutationResponseSerializer)},
+        summary="Add a metric to an experiment",
+        description=(
+            "Appends one metric to the experiment's primary or secondary section and returns it with "
+            "its server-assigned uuid. Metrics already on the experiment are left untouched, so this is "
+            "safe to call from a client whose local copy of the experiment is out of date."
+        ),
+    )
+    @action(methods=["POST"], detail=True, url_path="metrics", required_scopes=["experiment:write"])
+    def metrics(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        experiment: Experiment = self.get_object()
+        data = request.validated_data
+        updated, metric = ExperimentService(team=self.team, user=request.user).add_metric(
+            experiment.id,
+            metric_type=data["section"],
+            metric=data["metric"],
+            serializer_context=self.get_serializer_context(),
+            allow_unknown_events=data["allow_unknown_events"],
+        )
+        return self._metric_mutation_response(updated, metric, status_code=201)
+
+    @validated_request(
+        request_serializer=ExperimentMetricOrderSerializer,
+        responses={200: OpenApiResponse(response=ExperimentMetricMutationResponseSerializer)},
+        summary="Reorder an experiment's metrics",
+        description=(
+            "Sets the display order of one metric section. Uuids that no longer exist are ignored and "
+            "metrics missing from the list keep their current position, so a reorder computed against "
+            "stale state cannot drop metrics that were added since."
+        ),
+    )
+    @action(methods=["PUT"], detail=True, url_path="metrics/order", required_scopes=["experiment:write"])
+    def metrics_order(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        experiment: Experiment = self.get_object()
+        data = request.validated_data
+        updated = ExperimentService(team=self.team, user=request.user).reorder_metrics(
+            experiment.id,
+            metric_type=data["section"],
+            uuids=data["uuids"],
+            serializer_context=self.get_serializer_context(),
+        )
+        return self._metric_mutation_response(updated, None)
+
+    @extend_schema(
+        methods=["PATCH"],
+        request=ExperimentMetricWriteSerializer,
+        responses={200: OpenApiResponse(response=ExperimentMetricMutationResponseSerializer)},
+        summary="Update a single experiment metric",
+        description=(
+            "Shallow-merges the given definition into one metric, addressed by uuid. Keys you send "
+            "replace theirs on the stored metric; keys you omit are preserved, and every other metric "
+            "on the experiment is untouched. Returns 404 for a shared-metric uuid — those are edited "
+            "through the shared-metric endpoints."
+        ),
+    )
+    @extend_schema(
+        methods=["DELETE"],
+        request=None,
+        responses={200: OpenApiResponse(response=ExperimentMetricMutationResponseSerializer)},
+        summary="Delete a single experiment metric",
+        description=(
+            "Removes one metric, addressed by uuid, from whichever section holds it. Returns 404 for a "
+            "shared-metric uuid — unlink those through the shared-metric endpoints."
+        ),
+    )
+    @action(
+        methods=["PATCH", "DELETE"],
+        detail=True,
+        # Strict UUID regex so the sibling 'metrics/order' route can never match here.
+        url_path=r"metrics/(?P<metric_uuid>[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})",
+        required_scopes=["experiment:write"],
+    )
+    def metrics_detail(self, request: Request, metric_uuid: str, *args: Any, **kwargs: Any) -> Response:
+        experiment: Experiment = self.get_object()
+        service = ExperimentService(team=self.team, user=request.user)
+
+        if request.method == "DELETE":
+            updated = service.delete_metric(
+                experiment.id, metric_uuid=metric_uuid, serializer_context=self.get_serializer_context()
+            )
+            return self._metric_mutation_response(updated, None)
+
+        request_serializer = ExperimentMetricWriteSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
+        updated, metric = service.patch_metric(
+            experiment.id,
+            metric_uuid=metric_uuid,
+            patch=request_serializer.validated_data["metric"],
+            serializer_context=self.get_serializer_context(),
+            allow_unknown_events=request_serializer.validated_data["allow_unknown_events"],
+        )
+        return self._metric_mutation_response(updated, metric)
+
+    @staticmethod
+    def _metric_mutation_response(experiment: Experiment, metric: dict | None, *, status_code: int = 200) -> Response:
+        """Return the affected metric and both ordering arrays — never the whole experiment.
+
+        A client that replaces its local state with a full experiment response is exactly
+        how a concurrent edit gets clobbered, so per-metric writes don't hand one back.
+        """
+        return Response(
+            ExperimentMetricMutationResponseSerializer(
+                {
+                    "metric": metric,
+                    "primary_metrics_ordered_uuids": experiment.primary_metrics_ordered_uuids,
+                    "secondary_metrics_ordered_uuids": experiment.secondary_metrics_ordered_uuids,
+                }
+            ).data,
+            status=status_code,
+        )
 
     @action(methods=["GET"], detail=False, url_path="stats", required_scopes=["experiment:read"])
     def stats(self, request: Request, **kwargs: Any) -> Response:

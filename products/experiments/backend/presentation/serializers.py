@@ -1103,6 +1103,64 @@ class ShipVariantSerializer(EndExperimentSerializer):
     )
 
 
+_SECTION_HELP_TEXT = "Which metric section to write: 'primary' or 'secondary'."
+
+_ALLOW_UNKNOWN_EVENTS_HELP_TEXT = (
+    "Suppresses the validation that rejects metrics referencing events not yet ingested "
+    "by this project. REQUIRES explicit user confirmation before being set to true — never "
+    "flip this silently to retry a failed call."
+)
+
+
+@extend_schema_field(ExperimentApiMetric)  # type: ignore[arg-type]
+class ExperimentSingleMetricField(serializers.JSONField):
+    pass
+
+
+class ExperimentMetricWriteSerializer(serializers.Serializer):
+    """Body for adding or patching a single metric."""
+
+    metric = ExperimentSingleMetricField(
+        help_text=(
+            "The metric definition. Must have kind='ExperimentMetric' and a metric_type: "
+            "'mean', 'funnel', 'ratio', or 'retention'. On a patch, the keys you send replace "
+            "theirs on the stored metric; keys you omit are preserved. The uuid is server-owned "
+            "and taken from the URL."
+        )
+    )
+    allow_unknown_events = serializers.BooleanField(
+        required=False, default=False, help_text=_ALLOW_UNKNOWN_EVENTS_HELP_TEXT
+    )
+
+
+class ExperimentMetricCreateSerializer(ExperimentMetricWriteSerializer):
+    section = serializers.ChoiceField(choices=["primary", "secondary"], help_text=_SECTION_HELP_TEXT)
+
+
+class ExperimentMetricOrderSerializer(serializers.Serializer):
+    section = serializers.ChoiceField(choices=["primary", "secondary"], help_text=_SECTION_HELP_TEXT)
+    uuids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "Metric uuids in the desired order. Uuids that no longer exist are ignored, and metrics "
+            "you did not list keep their current position — so a reorder computed against stale state "
+            "cannot drop metrics added since."
+        ),
+    )
+
+
+class ExperimentMetricMutationResponseSerializer(serializers.Serializer):
+    """What a per-metric write returns — the affected metric plus both ordering arrays.
+
+    Deliberately not the whole experiment: a client that overwrites its local state with
+    a full response is how concurrent edits get clobbered in the first place.
+    """
+
+    metric = ExperimentSingleMetricField(allow_null=True, help_text="The persisted metric, or null for a delete.")
+    primary_metrics_ordered_uuids = serializers.ListField(child=serializers.CharField(), allow_null=True)
+    secondary_metrics_ordered_uuids = serializers.ListField(child=serializers.CharField(), allow_null=True)
+
+
 class CopyExperimentToProjectSerializer(serializers.Serializer):
     target_team_id = serializers.IntegerField(help_text="The team ID to copy the experiment to.")
     feature_flag_key = serializers.CharField(

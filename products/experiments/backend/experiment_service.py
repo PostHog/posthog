@@ -19,7 +19,7 @@ from django.utils import timezone
 import pydantic
 import structlog
 import posthoganalytics
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 
 from posthog.schema import (
     ActionsNode,
@@ -150,6 +150,13 @@ FREEZE_EXPOSURE_SNAPSHOT_NAME_PREFIX = "Exposure snapshot for experiment "
 # Auto-saved sample-size estimate, not a user edit: skip the "experiment updated" event.
 RUNNING_TIME_ONLY_CHANGED_FIELDS = ["running_time_calculation"]
 
+MetricType = Literal["primary", "secondary"]
+METRIC_FIELD_BY_TYPE: dict[MetricType, str] = {"primary": "metrics", "secondary": "metrics_secondary"}
+ORDERING_FIELD_BY_TYPE: dict[MetricType, str] = {
+    "primary": "primary_metrics_ordered_uuids",
+    "secondary": "secondary_metrics_ordered_uuids",
+}
+
 # Deprecated flag-config sub-keys under `parameters` that should move to the `feature_flag` object.
 # Kept in sync with the model's `parameters` deprecation comment. Used to attribute deprecated-field
 # usage to organizations for migration outreach.
@@ -263,6 +270,18 @@ def _strip_frozen_exposure(filters: dict) -> tuple[dict, list[int]]:
         cohort_key=EXPOSURE_FROZEN_COHORT_KEY,
         marker_note=EXPOSURE_FROZEN_GROUP_MARKER,
     )
+
+
+def _merge_ordering(current: list[str], requested: list[str]) -> list[str]:
+    """Apply ``requested`` order to the uuids it covers, leaving the rest where they are.
+
+    ``requested`` must be a deduped subset of ``current``. Uuids the client never saw
+    (a metric added since it loaded) keep their absolute position instead of falling
+    off the end, which is what makes a reorder from a stale client safe to apply.
+    """
+    remaining = iter(requested)
+    covered = set(requested)
+    return [next(remaining) if uuid in covered else uuid for uuid in current]
 
 
 class ExperimentQueryStatus(str, Enum):
@@ -3064,6 +3083,154 @@ class ExperimentService:
                 )
 
         return experiment
+
+    # --- per-metric writes ------------------------------------------------------
+    # These exist so clients never have to send a whole metric array to change one
+    # metric. Each read-modify-writes the array server-side under a row lock, keyed
+    # by metric uuid, so two concurrent metric writes commute instead of one
+    # clobbering the other. Everything else (validation, uuid assignment, fingerprint
+    # recompute, ordering sync, activity log, analytics) is reused by delegating to
+    # update_experiment.
+    #
+    # Wrapping update_experiment in a transaction is only safe because a metric-only
+    # payload never reaches its feature-flag write: _sync_feature_flag_on_update
+    # no-ops without a feature_flag_config or a "holdout" key, and the launch-time
+    # flag activation needs a start_date. So no ApprovalRequired can be rolled back
+    # here — the reason update_experiment is otherwise deliberately non-atomic.
+
+    def add_metric(
+        self,
+        experiment_id: int,
+        *,
+        metric_type: MetricType,
+        metric: dict,
+        serializer_context: dict | None = None,
+        allow_unknown_events: bool = False,
+    ) -> tuple[Experiment, dict]:
+        """Append one metric to a section. Returns the experiment and the persisted metric."""
+        field = METRIC_FIELD_BY_TYPE[metric_type]
+        with transaction.atomic():
+            experiment = self._locked_experiment(experiment_id)
+            # Drop any client-supplied uuid: the server owns metric identity, and a
+            # client that reuses one would silently address an existing metric.
+            appended = [*(getattr(experiment, field) or []), {**metric, "uuid": str(uuid4())}]
+            experiment = self.update_experiment(
+                experiment,
+                {field: appended, "update_feature_flag_params": False},
+                serializer_context=serializer_context,
+                allow_unknown_events=allow_unknown_events,
+            )
+            # Read the metric back rather than returning what we built: update_experiment
+            # stamps a fingerprint on it (and may regenerate a colliding uuid).
+            return experiment, (getattr(experiment, field) or [])[-1]
+
+    def patch_metric(
+        self,
+        experiment_id: int,
+        *,
+        metric_uuid: str,
+        patch: dict,
+        serializer_context: dict | None = None,
+        allow_unknown_events: bool = False,
+    ) -> tuple[Experiment, dict]:
+        """Shallow-merge ``patch`` into one metric, leaving every other metric untouched."""
+        with transaction.atomic():
+            experiment = self._locked_experiment(experiment_id)
+            field, index = self._locate_metric(experiment, metric_uuid)
+            metrics = list(getattr(experiment, field) or [])
+            # uuid comes from the URL, never the body — a patch must not re-key a metric.
+            metrics[index] = {**metrics[index], **patch, "uuid": metric_uuid}
+            experiment = self.update_experiment(
+                experiment,
+                {field: metrics, "update_feature_flag_params": False},
+                serializer_context=serializer_context,
+                allow_unknown_events=allow_unknown_events,
+            )
+            return experiment, (getattr(experiment, field) or [])[index]
+
+    def delete_metric(
+        self,
+        experiment_id: int,
+        *,
+        metric_uuid: str,
+        serializer_context: dict | None = None,
+    ) -> Experiment:
+        """Remove one metric from whichever section holds it."""
+        with transaction.atomic():
+            experiment = self._locked_experiment(experiment_id)
+            field, index = self._locate_metric(experiment, metric_uuid)
+            metrics = list(getattr(experiment, field) or [])
+            del metrics[index]
+            # The remaining metrics get re-validated on the way through, so a sibling
+            # referencing an event this project never ingested would otherwise block a
+            # delete. Removing a metric must never be blocked by a different one.
+            return self.update_experiment(
+                experiment,
+                {field: metrics, "update_feature_flag_params": False},
+                serializer_context=serializer_context,
+                allow_unknown_events=True,
+            )
+
+    def reorder_metrics(
+        self,
+        experiment_id: int,
+        *,
+        metric_type: MetricType,
+        uuids: list[str],
+        serializer_context: dict | None = None,
+    ) -> Experiment:
+        """Reorder one section, reconciling the request against the metrics that actually exist."""
+        ordering_field = ORDERING_FIELD_BY_TYPE[metric_type]
+        with transaction.atomic():
+            experiment = self._locked_experiment(experiment_id)
+            current = self._current_ordering(experiment, metric_type)
+            known = set(current)
+            # Unknown uuids are dropped rather than 400ing: a client that reorders
+            # against a metric someone else just deleted should still get its reorder.
+            requested = [uuid for uuid in dict.fromkeys(uuids) if uuid in known]
+            return self.update_experiment(
+                experiment,
+                {ordering_field: _merge_ordering(current, requested), "update_feature_flag_params": False},
+                serializer_context=serializer_context,
+            )
+
+    def _locked_experiment(self, experiment_id: int) -> Experiment:
+        """Row-lock an experiment for the duration of the caller's transaction."""
+        try:
+            return Experiment.objects.select_for_update().get(pk=experiment_id, team_id=self.team.id)
+        except Experiment.DoesNotExist:
+            raise NotFound("Experiment not found.")
+
+    @staticmethod
+    def _locate_metric(experiment: Experiment, metric_uuid: str) -> tuple[str, int]:
+        """Find which inline metric list holds ``metric_uuid``, and where.
+
+        Shared metrics live in ``ExperimentToSavedMetric`` rows rather than these
+        arrays, so their uuids resolve to a 404 here — they are edited through the
+        shared-metric endpoints.
+        """
+        for field in METRIC_FIELD_BY_TYPE.values():
+            for index, metric in enumerate(getattr(experiment, field) or []):
+                if metric.get("uuid") == metric_uuid:
+                    return field, index
+        raise NotFound(f"No inline metric with uuid {metric_uuid} on this experiment.")
+
+    def _current_ordering(self, experiment: Experiment, metric_type: MetricType) -> list[str]:
+        """The section's stored ordering, backfilled with any metric uuid missing from it.
+
+        Rows that pre-date the ordering arrays (or that drifted) would otherwise fail
+        the coverage assertion in update_experiment and make reordering impossible.
+        """
+        ordering = list(getattr(experiment, ORDERING_FIELD_BY_TYPE[metric_type]) or [])
+        inline = [
+            uuid for m in (getattr(experiment, METRIC_FIELD_BY_TYPE[metric_type]) or []) if (uuid := m.get("uuid"))
+        ]
+        saved = self._saved_metric_uuids_by_type(
+            (link.saved_metric.query, link.metadata)
+            for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").all()
+        )[metric_type]
+        already_ordered = set(ordering)
+        return [*ordering, *(uuid for uuid in [*inline, *sorted(saved)] if uuid not in already_ordered)]
 
     def _sync_feature_flag_on_update(
         self,
