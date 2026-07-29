@@ -5,5 +5,5 @@
  * `$pageview` — mobile, SPA, or a custom pageview event name.
  */
 export function replayPropertyValuesEndpoint(teamId: number, key: string): string {
-    return `api/environments/${teamId}/session_recordings/property_values/?key=${encodeURIComponent(key)}`
+    return `api/projects/${teamId}/session_recordings/property_values/?key=${encodeURIComponent(key)}`
 }
