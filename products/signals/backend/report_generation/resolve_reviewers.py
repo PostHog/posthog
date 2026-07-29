@@ -237,8 +237,14 @@ def _rank_scored_candidates(
     # up to shallow, monorepo-wide paths — so surfacing them next to a live reviewer just pads
     # the list with noise. Drop them when a weighted candidate is itself still active in the area
     # (that candidate is the real reviewer). Keep them only when every weighted candidate is stale
-    # or absent — then the area's current contributors are the best reviewer we have.
-    if any(login in activity_by_login for login in login_weights):
+    # or absent — then the area's current contributors are the best reviewer we have. Recency, not
+    # bare map membership, decides "active": the area cache is served while a rebuild is scheduled,
+    # so an entry can have aged past the window, which is exactly when the fallback still matters.
+    def _weighted_candidate_still_active(login: str) -> bool:
+        activity = activity_by_login.get(login)
+        return activity is not None and activity.days_since_last_commit < ACTIVITY_WINDOW_DAYS
+
+    if any(_weighted_candidate_still_active(login) for login in login_weights):
         scores = {login: score for login, score in scores.items() if login in login_weights}
 
     def rank_key(item: tuple[str, float]) -> tuple[float, int, str]:
