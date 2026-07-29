@@ -140,10 +140,7 @@ LIMIT 20
 ```
 
 The `(issue_id = ... OR properties.$exception_issue_id = ...)` pattern
-mirrors how the query runners in
-`products/error_tracking/backend/hogql_queries/` resolve an issue: they
-render `issue_id` as a disjunction that falls back from the fingerprint
-override to the raw `$exception_issue_id` property. `issue_id` is the
+covers both ways an event links to its issue. `issue_id` is the
 resolved virtual field on `events` (it follows fingerprint overrides so
 merged/split issues route correctly); `properties.$exception_issue_id` is
 the raw event property captured at ingestion. Filtering on only the property
@@ -353,7 +350,7 @@ Keep the synthesis tight. The user wants the answer, not a tour of the data.
 
 - The canonical join key from events to an issue is the resolved `issue_id`
   virtual field, with `properties.$exception_issue_id` as fallback — see Step 3
-  for the reason and how the query runners render this disjunction.
+  for the reason.
 - For a "what version introduced this?" breakdown, prefer `$app_version` (the
   user's deployed app version, auto-captured on iOS / React Native and
   manually set on web / server) or `$exception_releases` when populated. Avoid
