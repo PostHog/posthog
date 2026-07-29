@@ -5,7 +5,13 @@ from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 
 from posthog.sync import database_sync_to_async
 
-from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
+from products.batch_exports.backend.hogql_source import UnsupportedHogQLQueryError
+from products.batch_exports.backend.service import BatchExportModel
+from products.batch_exports.backend.temporal.record_batch_model import (
+    HogQLQueryRecordBatchModel,
+    SessionsRecordBatchModel,
+    resolve_batch_exports_model,
+)
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -93,7 +99,7 @@ class TestSessionsRecordBatchModel:
         model = SessionsRecordBatchModel(
             team_id=ateam.id,
         )
-        printed_query, query_parameters = await model.as_insert_into_s3_query_with_parameters(
+        printed_query, _ = await model.as_insert_into_s3_query_with_parameters(
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
             s3_folder="https://test-bucket.s3.amazonaws.com/test-prefix",
@@ -122,10 +128,11 @@ class TestSessionsRecordBatchModel:
             "greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus("
             in printed_query
         )
-
-        # check that we have a log_comment set (we pass this in as a query parameter)
-        assert "log_comment={log_comment}" in printed_query
-        assert "log_comment" in query_parameters
+        # the sessions query carries its settings on the AST, so the printer renders them
+        assert "SETTINGS" in printed_query
+        assert "optimize_aggregation_in_order=1" in printed_query
+        # this model needs no request settings: the printer already emitted them
+        assert model.get_clickhouse_request_settings() == {}
 
     async def test_as_insert_into_s3_query_with_parameters_keyless_auth(
         self, ateam, data_interval_start, data_interval_end
@@ -151,3 +158,89 @@ class TestSessionsRecordBatchModel:
             in printed_query
         )
         assert "PARTITION BY rand() %% 5" in printed_query
+
+
+class TestHogQLQueryRecordBatchModel:
+    async def test_as_query_with_parameters(self, ateam, data_interval_start, data_interval_end):
+        model = HogQLQueryRecordBatchModel(
+            team_id=ateam.id, hogql_query="SELECT event AS event, distinct_id AS distinct_id FROM events"
+        )
+        printed_query, query_parameters = await model.as_query_with_parameters(data_interval_start, data_interval_end)
+
+        # should add filter on team_id
+        assert f"equals(events.team_id, {ateam.id})" in printed_query
+        assert "FORMAT ArrowStream" in printed_query
+        assert "log_comment" in query_parameters
+
+    async def test_as_insert_into_s3_query_with_parameters(self, ateam, data_interval_start, data_interval_end):
+        model = HogQLQueryRecordBatchModel(
+            team_id=ateam.id, hogql_query="SELECT event AS event, distinct_id AS distinct_id FROM events"
+        )
+        printed_query, query_parameters = await model.as_insert_into_s3_query_with_parameters(
+            data_interval_start=data_interval_start,
+            data_interval_end=data_interval_end,
+            s3_folder="https://test-bucket.s3.amazonaws.com/test-prefix",
+            s3_key="test-key",
+            s3_secret="test-secret",
+            num_partitions=5,
+        )
+
+        assert "INSERT INTO FUNCTION" in printed_query
+        assert "https://test-bucket.s3.amazonaws.com/test-prefix/export_{{_partition_id}}.arrow" in printed_query
+        assert "PARTITION BY rand() %% 5" in printed_query
+        assert f"equals(events.team_id, {ateam.id})" in printed_query
+        # the user's query is wrapped as-is: settings are sent as query parameters, so we never write a
+        # SETTINGS clause into the query
+        assert "SETTINGS" not in printed_query
+
+    async def test_get_clickhouse_request_settings(self):
+        """Batch export settings are sent as query parameters rather than a SETTINGS clause.
+
+        Values are rendered the way the HogQL printer renders them (bools as 1/0), so a
+        setting reads the same in query_log however it was applied. ClickHouse rejects
+        unknown setting names outright, so a typo here fails the export.
+        """
+        model = HogQLQueryRecordBatchModel(team_id=1, hogql_query="SELECT event AS event FROM events")
+
+        assert model.get_clickhouse_request_settings() == {
+            "optimize_aggregation_in_order": "1",
+            "max_bytes_before_external_sort": "50000000000",
+            "max_bytes_before_external_group_by": "50000000000",
+        }
+
+    @pytest.mark.parametrize(
+        "hogql_query,expected_message",
+        [
+            ("SELECT event AS event FROM events WHERE {filters}", "Placeholders are not supported"),
+            ("SELECT event AS event FROM events WHERE event = {placeholder_field}", "Placeholders are not supported"),
+            ("SELECT event AS event FROM events WHERE event = {concat('a', 'b')}", "Placeholders are not supported"),
+            ("not a valid query", "Failed to parse HogQL query"),
+            ("DROP TABLE events", "Failed to parse HogQL query"),
+        ],
+        ids=["filters", "placeholder-field", "placeholder-expression", "invalid-syntax", "not-a-select"],
+    )
+    async def test_get_hogql_query_raises_on_unsupported_query(
+        self, hogql_query, expected_message, data_interval_start, data_interval_end
+    ):
+        model = HogQLQueryRecordBatchModel(team_id=1, hogql_query=hogql_query)
+
+        with pytest.raises(UnsupportedHogQLQueryError, match=expected_message):
+            model.get_hogql_query(data_interval_start, data_interval_end)
+
+    async def test_resolve_batch_exports_model_returns_hogql_model(self):
+        batch_export_model = BatchExportModel(
+            name="hogql", schema=None, hogql_query="SELECT event AS event FROM events"
+        )
+
+        _, record_batch_model, model_name, _, _, _ = resolve_batch_exports_model(
+            team_id=1, batch_export_model=batch_export_model
+        )
+
+        assert isinstance(record_batch_model, HogQLQueryRecordBatchModel)
+        assert model_name == "hogql"
+        assert record_batch_model.hogql_query == batch_export_model.hogql_query
+
+    async def test_resolve_batch_exports_model_raises_without_hogql_query(self):
+        """Without this, a missing query would fall through to the events template path and export the wrong data."""
+        with pytest.raises(UnsupportedHogQLQueryError):
+            resolve_batch_exports_model(team_id=1, batch_export_model=BatchExportModel(name="hogql", schema=None))
