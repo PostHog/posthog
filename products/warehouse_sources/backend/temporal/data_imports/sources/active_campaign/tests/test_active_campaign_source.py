@@ -5,14 +5,14 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.active_campaign.active_campaign import (
     ActiveCampaignResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.active_campaign.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.active_campaign.source import ActiveCampaignSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.activecampaign import (
     ActiveCampaignSourceConfig,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType

@@ -183,6 +183,7 @@ class TestExperimentMetricsRecalculationWorkflow:
             query_to: str,
             metric_type: str,
             is_final_attempt: bool,
+            attempt: int,
         ) -> MetricRecalculationResult:
             recorded_flags.append(is_final_attempt)
             raise RuntimeError("always fails")

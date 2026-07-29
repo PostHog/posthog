@@ -155,6 +155,32 @@ class TestRelaySlackMessage(TestCase):
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
+    def test_labeled_mention_echoed_in_body_is_posted_as_bare(
+        self,
+        _mock_delete_progress,
+        mock_post,
+        _mock_update,
+    ):
+        # The agent echoes participants in the labeled ``<@U…|display name>`` form fed to it.
+        # That form does not reliably notify when the bot posts it, so the relay must rewrite
+        # it to the bare ``<@U…>`` — otherwise a display name with a space (here "Radu Raicea")
+        # renders as inert text and the mentioned user is never pinged.
+        relay_slack_message(
+            RelaySlackMessageInput(
+                run_id=str(self.task_run.id),
+                relay_id="relay-labeled-mention",
+                text="Answering <@U094TR1E59V|Radu Raicea> now.",
+            )
+        )
+
+        mock_post.assert_called_once()
+        posted = mock_post.call_args.args[0]
+        assert "<@U094TR1E59V>" in posted
+        assert "Radu Raicea" not in posted
+
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
     def test_unconfirmed_attachment_claim_gets_notice(
         self,
         _mock_delete_progress,

@@ -489,6 +489,11 @@ class OrganizationAdmin(admin.ModelAdmin):
                 "send-usage-report/", self.admin_site.admin_view(self.send_usage_report_view), name="send-usage-report"
             ),
             path(
+                "send-ai-observability-usage-report/",
+                self.admin_site.admin_view(self.send_ai_observability_usage_report_view),
+                name="send-ai-observability-usage-report",
+            ),
+            path(
                 "<path:organization_id>/limit-product/",
                 self.admin_site.admin_view(self.limit_product_view),
                 name="limit_product",
@@ -549,6 +554,23 @@ class OrganizationAdmin(admin.ModelAdmin):
             form = UsageReportForm()
 
         return render(request, "admin/posthog/organization/send_usage_report.html", {"form": form})
+
+    def send_ai_observability_usage_report_view(self, request):
+        # Staff-only on purpose (no group gate like the sibling): nothing customer-facing, and
+        # duplicate emissions are ignorable at query time (read one event per org per day).
+        if request.method == "POST":
+            form = UsageReportForm(request.POST)
+            if form.is_valid():
+                report_date = form.cleaned_data["report_date"]
+                call_command(
+                    "send_ai_observability_usage_report", f"--date={report_date.strftime('%Y-%m-%d')}", "--async"
+                )
+                messages.success(request, f"AI observability usage report for date {report_date} was queued.")
+                return redirect(reverse("admin:posthog_organization_changelist"))
+        else:
+            form = UsageReportForm()
+
+        return render(request, "admin/posthog/organization/send_ai_observability_usage_report.html", {"form": form})
 
     def changelist_view(self, request, extra_context=None):
         extra_context = extra_context or {}

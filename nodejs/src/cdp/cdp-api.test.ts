@@ -838,6 +838,57 @@ describe('CDP API', () => {
         })
     })
 
+    it('redacts a flow function action secret from mocked async function logs', async () => {
+        const SECRET_TOKEN = 'super-secret-flow-token-xyz'
+
+        await insertHogFunctionTemplate(hub.postgres, {
+            id: 'template-cdp-api-flow-secret-fetch',
+            name: 'Flow secret fetch',
+            code: `fetch(inputs.url, { 'method': 'POST', 'headers': { 'Authorization': f'Bearer {inputs.access_token}' } })`,
+            inputs_schema: [
+                { key: 'url', type: 'string', label: 'URL', secret: false, required: true },
+                { key: 'access_token', type: 'string', label: 'Access token', secret: true, required: true },
+            ],
+        })
+
+        const flowConfiguration = {
+            name: 'Flow with secret fetch',
+            actions: [
+                { id: 'trigger_node', name: 'Trigger', type: 'trigger', config: { type: 'event', filters: {} } },
+                {
+                    id: 'fetch_node',
+                    name: 'Fetch',
+                    type: 'function',
+                    config: {
+                        template_id: 'template-cdp-api-flow-secret-fetch',
+                        inputs: {
+                            url: { value: 'https://example.com/hook' },
+                            access_token: { value: SECRET_TOKEN },
+                        },
+                    },
+                },
+                { id: 'exit_node', name: 'Exit', type: 'exit', config: {} },
+            ],
+            edges: [
+                { from: 'trigger_node', to: 'fetch_node', type: 'continue' },
+                { from: 'fetch_node', to: 'exit_node', type: 'continue' },
+            ],
+        }
+
+        const res = await supertest(app).post(`/api/projects/${team.id}/hog_flows/new/invocations`).send({
+            globals,
+            mock_async_functions: true,
+            configuration: flowConfiguration,
+            current_action_id: 'fetch_node',
+        })
+
+        expect(res.status).toEqual(200)
+        const allLogText = res.body.logs.map((log: any) => log.message).join('\n')
+        expect(allLogText).not.toContain(SECRET_TOKEN)
+        // Confirm redaction actually ran, rather than passing because no fetch log was emitted.
+        expect(allLogText).toContain('***REDACTED***')
+    })
+
     describe('batch hogflow invocations', () => {
         let batchHogFlow: HogFlow
 
@@ -915,7 +966,7 @@ describe('CDP API', () => {
             const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
             api['batchResolverProducer'] = {
                 createJob: createJobMock,
-                countInFlightJobs: jest.fn().mockResolvedValue(0),
+                countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
                 rescheduleParkedJobs: jest.fn(),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
@@ -965,6 +1016,36 @@ describe('CDP API', () => {
             }
         })
 
+        it('resolves the audience from the posted snapshot, not the live trigger filters', async () => {
+            // The snapshot was validated at confirm time - re-reading the trigger here would let an
+            // edit racing the dispatch widen the send past what was previewed.
+            const snapshotProperties = [{ key: 'email', type: 'person', value: 'a', operator: 'icontains' }]
+
+            const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
+            api['batchResolverProducer'] = {
+                createJob: createJobMock,
+                countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
+                rescheduleParkedJobs: jest.fn(),
+                disconnect: jest.fn().mockResolvedValue(undefined),
+            }
+
+            try {
+                const res = await supertest(app)
+                    .post(
+                        `/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-791`
+                    )
+                    .send({ filters: { properties: snapshotProperties } })
+
+                expect(res.status).toEqual(200)
+                const arg = createJobMock.mock.calls[0][0]
+                const state = parseJSON((arg.state as Buffer).toString('utf-8')) as Record<string, any>
+                expect(state.filters.properties).toEqual(snapshotProperties)
+                expect(state.filters.properties).not.toEqual((batchHogFlow as any).trigger.filters.properties)
+            } finally {
+                api['batchResolverProducer'] = null
+            }
+        })
+
         it('sets email dedupe on the resolver state when the flow sends email to the default {{person.properties.email}}', async () => {
             const emailHogFlow = await insertHogFlow({
                 id: new UUIDT().toString(),
@@ -1003,7 +1084,7 @@ describe('CDP API', () => {
             const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
             api['batchResolverProducer'] = {
                 createJob: createJobMock,
-                countInFlightJobs: jest.fn().mockResolvedValue(0),
+                countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
                 rescheduleParkedJobs: jest.fn(),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
@@ -1065,7 +1146,7 @@ describe('CDP API', () => {
             const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
             api['batchResolverProducer'] = {
                 createJob: createJobMock,
-                countInFlightJobs: jest.fn().mockResolvedValue(0),
+                countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
                 rescheduleParkedJobs: jest.fn(),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
@@ -1180,7 +1261,9 @@ describe('CDP API', () => {
         let mockCountInFlightJobs: jest.Mock
 
         beforeEach(async () => {
-            mockCountInFlightJobs = jest.fn().mockResolvedValue(3)
+            mockCountInFlightJobs = jest
+                .fn()
+                .mockResolvedValue({ count: 3, byAction: { delay_1: 2 }, positionUnknown: 1 })
             api['batchResolverProducer'] = {
                 createJob: jest.fn(),
                 disconnect: jest.fn(),
@@ -1213,7 +1296,7 @@ describe('CDP API', () => {
             )
 
             expect(res.status).toEqual(200)
-            expect(res.body).toEqual({ count: 3 })
+            expect(res.body).toEqual({ count: 3, by_action: { delay_1: 2 }, position_unknown: 1 })
             expect(mockCountInFlightJobs).toHaveBeenCalledWith(countHogFlow.team_id, countHogFlow.id)
         })
 

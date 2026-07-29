@@ -3,7 +3,9 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import UptimerobotSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.uptimerobot import (
+    UptimerobotSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.uptimerobot.settings import (
     ENDPOINTS,
     UPTIMEROBOT_ENDPOINTS,
@@ -64,6 +66,20 @@ class TestUptimerobotSource:
     def test_non_retryable_errors_do_not_match_transient(self, other_error):
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
+
+    @pytest.mark.parametrize(
+        "error_message",
+        [
+            "UptimeRobot API error (retryable): status=429, method=getMonitors",
+            "UptimeRobot API error (retryable): status=500, method=getMonitors",
+            "UptimeRobot API error (retryable): status=503, method=getAlertContacts",
+        ],
+    )
+    def test_retryable_errors_match_exhausted_backoff(self, error_message):
+        # _post already retries 429/5xx internally with backoff; once those attempts are
+        # exhausted, this must stay classified as retryable so it doesn't get tracked as noise.
+        retryable_errors = self.source.get_retryable_errors()
+        assert any(pattern in error_message for pattern in retryable_errors)
 
     def test_get_schemas_match_endpoints_with_correct_sync_modes(self):
         schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}

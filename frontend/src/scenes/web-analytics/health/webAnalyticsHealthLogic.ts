@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import type { HealthIssuesResponse } from 'scenes/health/healthSceneLogic'
 import {
@@ -47,6 +48,13 @@ const INSTALL_GUIDE_ACTION: HealthCheckAction = {
     to: 'https://posthog.com/docs/libraries/js',
 }
 
+// The failing $pageview check reads like a "finish installing" call to action, so its button
+// should say the same thing rather than the generic "View installation guide".
+const COMPLETE_INSTALL_ACTION: HealthCheckAction = {
+    label: 'Complete installation',
+    to: 'https://posthog.com/docs/libraries/js',
+}
+
 const WEB_HEALTH_CHECKS: WebHealthCheckConfig[] = [
     {
         id: HealthCheckId.PAGEVIEW_EVENTS,
@@ -56,7 +64,7 @@ const WEB_HEALTH_CHECKS: WebHealthCheckConfig[] = [
         passingDescription:
             'Events are flowing in as expected. Head over to the Web Analytics tab to start reviewing your analytics!',
         failingDescription: 'Complete the PostHog installation to start seeing events in your dashboard.',
-        failingAction: INSTALL_GUIDE_ACTION,
+        failingAction: COMPLETE_INSTALL_ACTION,
         docsUrl: 'https://posthog.com/docs/product-analytics/capture-events',
         urgent: true,
     },
@@ -132,7 +140,9 @@ export interface webAnalyticsHealthLogicValues {
     healthIssues: HealthIssuesResponse | null
     healthIssuesLoading: boolean
     nextRefreshAvailableAt: number | null
+    now: number
     overallHealthStatus: OverallHealthStatus
+    refreshDisabledReason: string | null
     urgentFailedChecks: HealthCheck[]
 }
 
@@ -216,6 +226,12 @@ export interface webAnalyticsHealthLogicActions {
     setNextRefreshAvailableAt: (timestamp: number | null) => {
         timestamp: number | null
     }
+    setNow: (now: number) => {
+        now: number
+    }
+    startCooldownCountdown: () => {
+        value: true
+    }
     trackActionClicked: (
         checkId: HealthCheckId,
         category: HealthCheckCategory,
@@ -253,6 +269,7 @@ export interface webAnalyticsHealthLogicMeta {
         hasIssues: (overallHealthStatus: OverallHealthStatus) => boolean
         urgentFailedChecks: (allChecks: HealthCheck[]) => HealthCheck[]
         hasUrgentIssues: (urgentFailedChecks: HealthCheck[]) => boolean
+        refreshDisabledReason: (nextRefreshAvailableAt: number | null, now: number) => string | null
     }
 }
 
@@ -296,6 +313,8 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
             isUrgent,
         }),
         setNextRefreshAvailableAt: (timestamp: number | null) => ({ timestamp }),
+        setNow: (now: number) => ({ now }),
+        startCooldownCountdown: true,
     }),
 
     reducers({
@@ -304,6 +323,12 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
             { persist: true },
             {
                 setNextRefreshAvailableAt: (_, { timestamp }) => timestamp,
+            },
+        ],
+        now: [
+            Date.now(),
+            {
+                setNow: (_, { now }) => now,
             },
         ],
     }),
@@ -446,9 +471,40 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
                 return urgentFailedChecks.length > 0
             },
         ],
+
+        refreshDisabledReason: [
+            (s) => [s.nextRefreshAvailableAt, s.now],
+            (nextRefreshAvailableAt: number | null, now: number): string | null => {
+                if (nextRefreshAvailableAt === null || nextRefreshAvailableAt <= now) {
+                    return null
+                }
+                const secondsLeft = Math.ceil((nextRefreshAvailableAt - now) / 1000)
+                return `A refresh just ran. Available again in ${humanFriendlyDuration(secondsLeft, { maxUnits: 2 })}`
+            },
+        ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
+        setNextRefreshAvailableAt: ({ timestamp }) => {
+            if (timestamp !== null && timestamp > Date.now()) {
+                actions.startCooldownCountdown()
+            }
+        },
+        startCooldownCountdown: () => {
+            // Tick `now` once a second so the button's countdown stays live, and tear the
+            // ticker down as soon as the cooldown clears. Re-adding with the same key replaces
+            // any in-flight ticker, and the plugin pauses it while the tab is hidden.
+            cache.disposables.add(() => {
+                const intervalId = setInterval(() => {
+                    actions.setNow(Date.now())
+                    const { nextRefreshAvailableAt } = values
+                    if (nextRefreshAvailableAt === null || nextRefreshAvailableAt <= Date.now()) {
+                        cache.disposables.dispose('cooldownTicker')
+                    }
+                }, 1000)
+                return () => clearInterval(intervalId)
+            }, 'cooldownTicker')
+        },
         refreshHealthChecks: async ({ isManual }, breakpoint) => {
             const { overallHealthStatus } = values
             actions.reportWebAnalyticsHealthRefreshed({
@@ -543,12 +599,11 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
         },
     })),
 
-    afterMount(({ actions, values }) => {
+    afterMount(({ actions }) => {
+        // Only load the latest results here. Health checks are re-evaluated on their own daily
+        // schedule, and the refresh endpoint is throttled to one call per team every 5 minutes —
+        // auto-firing it on every mount just produced 429 storms across a team's users without
+        // giving them fresher data. Users can still trigger a re-run via the manual refresh button.
         actions.loadHealthIssues()
-
-        const { nextRefreshAvailableAt } = values
-        if (nextRefreshAvailableAt === null || nextRefreshAvailableAt <= Date.now()) {
-            actions.refreshHealthChecks(false)
-        }
     }),
 ])

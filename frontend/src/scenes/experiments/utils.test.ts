@@ -36,6 +36,7 @@ import {
     filterToExposureConfig,
     getBaselineVariantKey,
     getEventCountQuery,
+    getExposureFallbackFilter,
     getOrderedMetricsWithResults,
     getSessionLinkabilityEventNames,
     getViewRecordingFilters,
@@ -490,6 +491,52 @@ describe('getViewRecordingFiltersForVariant', () => {
             },
         ])
     })
+
+    describe('getExposureFallbackFilter', () => {
+        it.each([
+            {
+                desc: 'default exposure, specific variant: property filter on the flag value',
+                experiment: experimentBase,
+                variantKey: 'variantA',
+                expected: {
+                    key: '$feature/my-flag',
+                    type: PropertyFilterType.Event,
+                    value: ['variantA'],
+                    operator: PropertyOperator.Exact,
+                },
+            },
+            {
+                desc: 'default exposure, all variants: matches the flag value against every variant',
+                experiment: experimentBase,
+                variantKey: undefined,
+                expected: {
+                    key: '$feature/my-flag',
+                    type: PropertyFilterType.Event,
+                    value: ['control', 'test'],
+                    operator: PropertyOperator.Exact,
+                },
+            },
+            {
+                desc: 'default exposure, unknown flag variants: falls back to the flag value being set',
+                experiment: { ...experimentBase, feature_flag: undefined },
+                variantKey: undefined,
+                expected: {
+                    key: '$feature/my-flag',
+                    type: PropertyFilterType.Event,
+                    value: PropertyOperator.IsSet,
+                    operator: PropertyOperator.IsSet,
+                },
+            },
+            {
+                desc: 'custom exposure: no fallback, a flag-value filter cannot stand in for custom criteria',
+                experiment: { ...experimentBase, ...customExposure },
+                variantKey: 'variantA',
+                expected: null,
+            },
+        ])('$desc', ({ experiment, variantKey, expected }) => {
+            expect(getExposureFallbackFilter(experiment, variantKey)).toEqual(expected)
+        })
+    })
 })
 
 describe('getSessionLinkabilityEventNames', () => {
@@ -599,47 +646,89 @@ describe('applySessionLinkability', () => {
         properties: [],
     }
     const purchaseActionFilter: UniversalFiltersGroupValue = { id: 123, name: 'purchase', type: 'actions' }
+    const fallbackFilter: UniversalFiltersGroupValue = {
+        key: '$feature/my-flag',
+        type: PropertyFilterType.Event,
+        value: ['test'],
+        operator: PropertyOperator.Exact,
+    }
 
     it.each([
         {
             case: 'keeps everything when nothing is unlinkable',
             filters: [exposureFilter, purchaseEventFilter],
             unlinkable: new Set<string>(),
+            fallback: null,
             expected: {
                 filters: [exposureFilter, purchaseEventFilter],
                 droppedMetricEventCount: 0,
                 exposureUnlinkable: false,
+                usedExposureFallback: false,
             },
         },
         {
             case: 'drops unlinkable metric event steps but keeps the rest',
             filters: [exposureFilter, purchaseEventFilter, checkoutEventFilter],
             unlinkable: new Set(['purchase']),
+            fallback: null,
             expected: {
                 filters: [exposureFilter, checkoutEventFilter],
                 droppedMetricEventCount: 1,
                 exposureUnlinkable: false,
+                usedExposureFallback: false,
             },
         },
         {
             case: 'lets action steps pass through unchecked even when their name matches',
             filters: [exposureFilter, purchaseActionFilter],
             unlinkable: new Set(['purchase']),
+            fallback: null,
             expected: {
                 filters: [exposureFilter, purchaseActionFilter],
                 droppedMetricEventCount: 0,
                 exposureUnlinkable: false,
+                usedExposureFallback: false,
             },
         },
         {
-            case: 'empties the filters when the exposure event itself is unlinkable',
+            case: 'empties the filters when the exposure event is unlinkable and there is no fallback',
             filters: [exposureFilter, purchaseEventFilter],
             unlinkable: new Set(['$feature_flag_called']),
-            expected: { filters: [], droppedMetricEventCount: 0, exposureUnlinkable: true },
+            fallback: null,
+            expected: {
+                filters: [],
+                droppedMetricEventCount: 0,
+                exposureUnlinkable: true,
+                usedExposureFallback: false,
+            },
         },
-    ])('$case', ({ filters, unlinkable, expected }) => {
+        {
+            case: 'substitutes the fallback for an unlinkable exposure event, still dropping unlinkable metric steps',
+            filters: [exposureFilter, purchaseEventFilter, checkoutEventFilter],
+            unlinkable: new Set(['$feature_flag_called', 'purchase']),
+            fallback: fallbackFilter,
+            expected: {
+                filters: [fallbackFilter, checkoutEventFilter],
+                droppedMetricEventCount: 1,
+                exposureUnlinkable: false,
+                usedExposureFallback: true,
+            },
+        },
+        {
+            case: 'keeps the exposure event over the fallback when it is linkable',
+            filters: [exposureFilter, purchaseEventFilter],
+            unlinkable: new Set<string>(),
+            fallback: fallbackFilter,
+            expected: {
+                filters: [exposureFilter, purchaseEventFilter],
+                droppedMetricEventCount: 0,
+                exposureUnlinkable: false,
+                usedExposureFallback: false,
+            },
+        },
+    ])('$case', ({ filters, unlinkable, fallback, expected }) => {
         const input = [...filters]
-        expect(applySessionLinkability(filters, unlinkable)).toEqual(expected)
+        expect(applySessionLinkability(filters, unlinkable, fallback)).toEqual(expected)
         expect(filters).toEqual(input) // does not mutate its input
     })
 })

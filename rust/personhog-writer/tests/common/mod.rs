@@ -1,3 +1,8 @@
+// Each `tests/*.rs` integration test compiles as its own binary and imports
+// `common` via `mod common;`. Helpers used by some test files but not others
+// would otherwise fire `dead_code` per-binary; suppress at the module level.
+#![allow(dead_code)]
+
 use std::time::Duration;
 
 use common_kafka::kafka_producer::KafkaContext;
@@ -20,8 +25,6 @@ pub fn test_store_config() -> StoreConfig {
     StoreConfig {
         chunk_size: 500,
         row_fallback_concurrency: 8,
-        properties_size_threshold: 655_360,
-        properties_trim_target: 524_288,
     }
 }
 

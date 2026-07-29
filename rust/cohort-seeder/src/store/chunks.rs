@@ -67,9 +67,13 @@ impl PgChunkStore {
         let result = sqlx::query_as::<_, PlanRow>(
             r#"
             WITH target_run AS (
+                -- Serializes against the completion CAS: an unlocked `seeding` read is evaluated
+                -- against this statement's snapshot, so a run could reach `reconciling` carrying
+                -- freshly inserted pending chunks and certify completion on unseeded days.
                 SELECT id, team_id
                 FROM cohort_backfill_runs
                 WHERE id = $1 AND status = 'seeding'
+                FOR UPDATE
             ), input AS (
                 SELECT * FROM unnest($2::uuid[], $3::date[], $4::smallint[]) AS u(id, day, band)
             ), inserted AS (
@@ -284,6 +288,32 @@ impl PgChunkStore {
         u64::try_from(count).map_err(|_| ChunkStoreError::InvalidRemainingCount(count))
     }
 
+    pub async fn chunk_progress(&self, run_id: RunId) -> Result<ChunkProgress, ChunkStoreError> {
+        let row = sqlx::query_as::<_, ChunkProgressRow>(
+            r#"
+            SELECT count(*)::bigint AS total,
+                   count(*) FILTER (WHERE status <> $2)::bigint AS remaining
+            FROM cohort_backfill_chunks
+            WHERE run_id = $1
+            "#,
+        )
+        .bind(run_id)
+        .bind(ChunkStatus::Confirmed.as_str())
+        .fetch_one(&self.pool)
+        .await?;
+        let total = u64::try_from(row.total)
+            .map_err(|_| ChunkStoreError::InvalidChunkProgress(row.total, row.remaining))?;
+        let remaining = u64::try_from(row.remaining)
+            .map_err(|_| ChunkStoreError::InvalidChunkProgress(row.total, row.remaining))?;
+        if remaining > total {
+            return Err(ChunkStoreError::InvalidChunkProgress(
+                row.total,
+                row.remaining,
+            ));
+        }
+        Ok(ChunkProgress { total, remaining })
+    }
+
     pub(crate) async fn heartbeat(
         &self,
         lease: ChunkLease,
@@ -439,6 +469,24 @@ pub enum ChunkStoreError {
     InvalidInsertedCount(i64),
     #[error("chunk counter returned invalid remaining count {0}")]
     InvalidRemainingCount(i64),
+    #[error("chunk counter returned invalid progress total={0}, remaining={1}")]
+    InvalidChunkProgress(i64, i64),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChunkProgress {
+    total: u64,
+    remaining: u64,
+}
+
+impl ChunkProgress {
+    pub const fn total(self) -> u64 {
+        self.total
+    }
+
+    pub const fn remaining(self) -> u64 {
+        self.remaining
+    }
 }
 
 #[derive(Debug, FromRow)]
@@ -458,6 +506,12 @@ struct ClaimedRow {
 struct PlanRow {
     run_seeding: bool,
     inserted: i64,
+}
+
+#[derive(Debug, FromRow)]
+struct ChunkProgressRow {
+    total: i64,
+    remaining: i64,
 }
 
 fn fenced(

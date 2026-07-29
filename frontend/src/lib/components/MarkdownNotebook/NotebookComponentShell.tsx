@@ -5,6 +5,7 @@ import {
     PointerEvent as ReactPointerEvent,
     ReactNode,
     memo,
+    useEffect,
     useMemo,
     useRef,
     useState,
@@ -21,6 +22,7 @@ import {
     DEFAULT_COMPONENT_PANEL_VISIBILITY,
     withPersistedComponentPanelProps,
 } from './componentPanels'
+import { useNotebookComponentRunStatus } from './componentRunStatus'
 import { getNotebookObjectProp, getNotebookStringProp } from './documentModel'
 import { InsertMenuSelectionDirection } from './editorTypes'
 import { getMarkdownNotebookComponentDefinition } from './registry'
@@ -80,6 +82,7 @@ export function NotebookComponentShell({
     moveFocusToAdjacentNode,
 }: NotebookComponentShellProps): JSX.Element {
     const definition = getMarkdownNotebookComponentDefinition(registry, node.tagName)
+    const runStatus = useNotebookComponentRunStatus(node)
     const errors = [...(node.errors ?? []), ...(definition?.validateProps?.(node.props) ?? [])]
     const ViewComponent = definition?.ViewComponent
     const EditComponent = definition?.EditComponent ?? definition?.ViewComponent
@@ -113,6 +116,19 @@ export function NotebookComponentShell({
         [componentPanels, showEditPanel, showViewPanel]
     )
     const [titleDraft, setTitleDraft] = useState<string | null>(null)
+    const [isEditingTitle, setIsEditingTitle] = useState(false)
+    // A browser fires two `click`s before `dblclick`. Defer the title's collapse so a rename
+    // (double-click) can cancel it, otherwise renaming would collapse then restore the panels
+    // (a flicker) and persist the node twice.
+    const titleCollapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+    useEffect(
+        () => () => {
+            if (titleCollapseTimerRef.current) {
+                clearTimeout(titleCollapseTimerRef.current)
+            }
+        },
+        []
+    )
     // Escape blurs the input, which fires commitTitle synchronously before the titleDraft
     // state update lands — this ref lets commitTitle see the cancel intent in that same tick
     const cancellingTitleRef = useRef(false)
@@ -262,6 +278,7 @@ export function NotebookComponentShell({
         <div
             className={clsx(
                 'MarkdownNotebook__component-shell',
+                `MarkdownNotebook__component-shell--status-${runStatus}`,
                 isSelected && 'MarkdownNotebook__component-shell--selected',
                 errors.length && 'MarkdownNotebook__component-shell--error'
             )}
@@ -310,16 +327,56 @@ export function NotebookComponentShell({
                     ) : null}
                 </div>
                 {mode === 'edit' ? (
-                    <input
-                        className="MarkdownNotebook__component-toolbar-title MarkdownNotebook__component-toolbar-title--input"
-                        value={titleInputValue}
-                        placeholder={titlePlaceholder}
-                        aria-label="Component title"
-                        spellCheck={false}
-                        onChange={(event) => setTitleDraft(event.target.value)}
-                        onBlur={commitTitle}
-                        onKeyDown={handleTitleKeyDown}
-                    />
+                    isEditingTitle ? (
+                        <input
+                            className="MarkdownNotebook__component-toolbar-title MarkdownNotebook__component-toolbar-title--input"
+                            value={titleInputValue}
+                            placeholder={titlePlaceholder}
+                            aria-label="Component title"
+                            spellCheck={false}
+                            autoFocus
+                            onChange={(event) => setTitleDraft(event.target.value)}
+                            onBlur={() => {
+                                commitTitle()
+                                setIsEditingTitle(false)
+                            }}
+                            onKeyDown={handleTitleKeyDown}
+                        />
+                    ) : (
+                        // Clicking the title collapses the whole cell (same as hiding both panels);
+                        // double-click renames. No extra control is added to the toolbar.
+                        <button
+                            type="button"
+                            className="MarkdownNotebook__component-toolbar-title MarkdownNotebook__component-toolbar-title--button"
+                            title={resolvedTitle ?? titlePlaceholder}
+                            aria-expanded={hasOpenComponentPanel}
+                            onClick={() => {
+                                if (!canToggleComponentPanels) {
+                                    return
+                                }
+                                if (titleCollapseTimerRef.current) {
+                                    clearTimeout(titleCollapseTimerRef.current)
+                                }
+                                titleCollapseTimerRef.current = setTimeout(() => {
+                                    titleCollapseTimerRef.current = null
+                                    toggleAllComponentPanels()
+                                }, 250)
+                            }}
+                            onDoubleClick={() => {
+                                if (titleCollapseTimerRef.current) {
+                                    clearTimeout(titleCollapseTimerRef.current)
+                                    titleCollapseTimerRef.current = null
+                                }
+                                setIsEditingTitle(true)
+                            }}
+                        >
+                            {resolvedTitle ?? (
+                                <span className="MarkdownNotebook__component-toolbar-title-placeholder">
+                                    {titlePlaceholder}
+                                </span>
+                            )}
+                        </button>
+                    )
                 ) : resolvedTitle ? (
                     <div className="MarkdownNotebook__component-toolbar-title" title={resolvedTitle}>
                         {resolvedTitle}

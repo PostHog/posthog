@@ -3,7 +3,7 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.settings import (
     DEFAULT_PROPS,
     HUBSPOT_API_VERSION_2026_03,
@@ -51,7 +51,7 @@ class TestGetSchemas:
         schemas = src.get_schemas(MagicMock(), team_id=1)
 
         by_name = {s.name: s for s in schemas}
-        # All seven endpoints currently have cursor properties, so all should support incremental.
+        # Every endpoint currently has a cursor property, so all should support incremental.
         assert set(by_name.keys()) == set(HUBSPOT_ENDPOINTS.keys())
         for name, schema in by_name.items():
             endpoint_config = HUBSPOT_ENDPOINTS[name]
@@ -62,6 +62,15 @@ class TestGetSchemas:
             if expected_field:
                 assert schema.incremental_fields
                 assert schema.incremental_fields[0]["field"] == expected_field
+
+    def test_leads_is_default_disabled_others_default_enabled(self) -> None:
+        # Leads needs the crm.objects.leads.read scope existing connections lack, so it must start
+        # off; flipping it on by default would 403 every existing customer's sync.
+        src = HubspotSource()
+        by_name = {s.name: s for s in src.get_schemas(MagicMock(), team_id=1)}
+
+        assert by_name["leads"].should_sync_default is False
+        assert all(s.should_sync_default for name, s in by_name.items() if name != "leads")
 
     def test_filters_by_names(self) -> None:
         src = HubspotSource()
@@ -256,14 +265,36 @@ def test_missing_token_error_is_non_retryable(error_msg: str) -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "error_msg",
+    [
+        # fetch_page/_get, exhausted after tenacity's 5 in-process attempts (e.g. a Cloudflare 522)
+        "Hubspot API error (retryable): status=522, url=https://api.hubapi.com/crm/v3/properties/meetings",
+        "Hubspot API error (retryable): status=429, url=https://api.hubapi.com/crm/v3/objects/contacts",
+        "Hubspot API malformed JSON response (retryable): url=https://api.hubapi.com/crm/v3/objects/deals",
+        "Hubspot search error (retryable): status=503, url=https://api.hubapi.com/crm/v3/objects/contacts/search",
+        "Hubspot search malformed JSON response (retryable): url=https://api.hubapi.com/crm/v3/objects/deals/search",
+        "Hubspot v4 associations error (retryable): status=500, "
+        "url=https://api.hubapi.com/crm/v4/associations/contacts/deals/batch/read",
+        "Hubspot v4 associations malformed JSON response (retryable): "
+        "url=https://api.hubapi.com/crm/v4/associations/contacts/deals/batch/read",
+    ],
+)
+def test_transient_http_error_is_retryable(error_msg: str) -> None:
+    patterns = HubspotSource().get_retryable_errors()
+    assert any(pattern in error_msg for pattern in patterns), (
+        f"HubSpot error {error_msg!r} did not match any retryable pattern"
+    )
+
+
 class TestApiVersion:
-    def test_defaults_to_v3_until_date_version_is_verified(self) -> None:
+    def test_defaults_to_latest_date_version(self) -> None:
         src = HubspotSource()
-        assert src.default_version == HUBSPOT_API_VERSION_V3
-        # A source with no pin (a newly created one) resolves to the v3 default...
-        assert src.resolve_api_version(None) == HUBSPOT_API_VERSION_V3
-        # ...while a 2026-03 pin is honored verbatim so opt-in sources use the date version.
-        assert src.resolve_api_version(HUBSPOT_API_VERSION_2026_03) == HUBSPOT_API_VERSION_2026_03
+        assert src.default_version == HUBSPOT_API_VERSION_2026_03
+        # A source with no pin (a newly created one) resolves to the 2026-03 default...
+        assert src.resolve_api_version(None) == HUBSPOT_API_VERSION_2026_03
+        # ...while a v3 pin is honored verbatim so existing sources stay on the legacy paths.
+        assert src.resolve_api_version(HUBSPOT_API_VERSION_V3) == HUBSPOT_API_VERSION_V3
 
     def test_both_versions_supported(self) -> None:
         assert set(HubspotSource().supported_versions) == {HUBSPOT_API_VERSION_V3, HUBSPOT_API_VERSION_2026_03}
@@ -295,7 +326,7 @@ class TestApiVersion:
     @pytest.mark.parametrize(
         "pin,expected",
         [
-            (None, HUBSPOT_API_VERSION_V3),
+            (None, HUBSPOT_API_VERSION_2026_03),
             (HUBSPOT_API_VERSION_V3, HUBSPOT_API_VERSION_V3),
             (HUBSPOT_API_VERSION_2026_03, HUBSPOT_API_VERSION_2026_03),
         ],

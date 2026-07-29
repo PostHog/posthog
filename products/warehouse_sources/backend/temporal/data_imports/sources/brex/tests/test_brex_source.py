@@ -11,7 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.brex.brex 
 from products.warehouse_sources.backend.temporal.data_imports.sources.brex.settings import ENDPOINTS, INCREMENTAL_FIELDS
 from products.warehouse_sources.backend.temporal.data_imports.sources.brex.source import BrexSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BrexSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.brex import BrexSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -32,6 +32,14 @@ class TestBrexSource:
     def test_resolve_api_version_falls_back_to_default_and_honors_pin(self):
         assert self.source.resolve_api_version(None) == BREX_API_VERSION_V2
         assert self.source.resolve_api_version(BREX_API_VERSION_V1) == BREX_API_VERSION_V1
+
+    def test_v1_is_deprecated_without_sunset_and_v2_is_not(self):
+        # Brex announced no sunset date, so v1 is flagged deprecated with sunset_at=None; the default
+        # v2 must never be deprecated.
+        deprecation = self.source.get_version_deprecation(BREX_API_VERSION_V1)
+        assert deprecation is not None
+        assert deprecation.sunset_at is None
+        assert self.source.get_version_deprecation(BREX_API_VERSION_V2) is None
 
     def test_get_source_config(self):
         config = self.source.get_source_config
@@ -162,6 +170,8 @@ class TestBrexSource:
         kwargs = mock_brex_source.call_args.kwargs
         assert kwargs["api_key"] == "bxt_test_token"
         assert kwargs["endpoint"] == "expenses"
+        assert kwargs["team_id"] is inputs.team_id
+        assert kwargs["job_id"] is inputs.job_id
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2024-01-01T00:00:00Z"

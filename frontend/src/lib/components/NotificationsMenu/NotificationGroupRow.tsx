@@ -139,7 +139,7 @@ export function NotificationGroupRow({
                     allRead={allRead}
                     expanded={isExpanded}
                     readOnly={readOnly}
-                    hasArchivable={archivingEnabled && group.has_archivable}
+                    hasArchivable={archivingEnabled}
                     onToggleRead={handleToggleRead}
                     onToggleExpand={handleExpand}
                     onArchive={handleArchive}

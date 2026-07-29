@@ -7,12 +7,14 @@ import structlog
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshchat.freshchat import FreshchatResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshchat.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshchat.source import FreshchatSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FreshchatSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.freshchat import (
+    FreshchatSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 PATCH_VALIDATE = (

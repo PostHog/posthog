@@ -9,7 +9,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.codefresh.
 from products.warehouse_sources.backend.temporal.data_imports.sources.codefresh.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.codefresh.source import CodefreshSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CodefreshSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.codefresh import (
+    CodefreshSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

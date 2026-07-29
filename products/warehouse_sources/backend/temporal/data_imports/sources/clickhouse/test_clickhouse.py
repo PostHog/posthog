@@ -680,6 +680,43 @@ class TestClickHouseSourceNonRetryableErrors:
         assert not is_non_retryable, f"Transient error should be retryable: {error_msg}"
 
 
+class TestClickHouseSourceRetryableErrors:
+    @pytest.fixture
+    def source(self):
+        return ClickHouseSource()
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # The exact wrapped message that reached error tracking: a bare HTTP 502
+            # from clickhouse-connect's HTTPDriver (no proxy CONNECT tunnel involved).
+            "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 502",
+            "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 503",
+            "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 504",
+            "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 429",
+            "Tunnel connection failed: 502 Bad gateway",
+            "Tunnel connection failed: 503 Service Unavailable",
+            "Tunnel connection failed: 504 Gateway Timeout",
+            "EOF occurred in violation of protocol",
+            "Connection reset by peer",
+        ],
+    )
+    def test_transient_errors_are_retryable(self, source, error_msg):
+        retryable = source.get_retryable_errors()
+        assert any(pattern in error_msg for pattern in retryable), (
+            f"Transient, self-recovering error should be classified as retryable (kept out of "
+            f"error tracking): {error_msg}"
+        )
+
+    def test_permanent_errors_are_not_classified_as_retryable(self, source):
+        # A 404 is a deterministic failure (already asserted non-retryable above) — it must not
+        # also be misclassified as a benign retryable error, or `_handle_import_error` would log
+        # it at `warning` and mask the real cause.
+        error_msg = "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 404"
+        retryable = source.get_retryable_errors()
+        assert not any(pattern in error_msg for pattern in retryable)
+
+
 class TestIsTransientConnectDrop:
     @pytest.mark.parametrize(
         "message",
@@ -915,6 +952,27 @@ class TestGetSchemas:
         assert events_cols["id"] == ("UInt64", False)
         assert events_cols["name"] == ("Nullable(String)", True)
 
+    def test_discovery_query_excludes_alias_and_ephemeral_columns(self):
+        # A native `SELECT *` skips ALIAS/EPHEMERAL columns, but our `SELECT *` expands to an
+        # explicit column list — an included ALIAS whose expression can't resolve breaks the whole
+        # query with UNKNOWN_IDENTIFIER (code 47). The filter must stay in the discovery query.
+        from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
+
+        mock_client = self._make_mock_client([("events", "id", "UInt64")])
+        with patch.object(ch_module, "_get_client", return_value=mock_client):
+            ch_module.get_schemas(
+                host="localhost",
+                port=8443,
+                database="default",
+                user="default",
+                password="",
+                secure=True,
+                verify=True,
+            )
+
+        queries = [str(call.args[0]) for call in mock_client.query.call_args_list]
+        assert any("default_kind NOT IN ('ALIAS', 'EPHEMERAL')" in q for q in queries)
+
     def test_excludes_materialized_view_inner_tables(self):
         from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
 
@@ -1074,6 +1132,9 @@ class TestHasDuplicatePrimaryKeys:
             "Setting optimize_aggregation_in_order is unknown or readonly",
             # Server-side memory cap below our probe's max_memory_usage.
             "Code: 241. DB::Exception: Query memory limit exceeded ... (MEMORY_LIMIT_EXCEEDED)",
+            # HTTP client read timeout firing before the server-side
+            # max_execution_time cap does (e.g. ClickHouse Cloud cold-resume).
+            "Error HTTPSConnectionPool(host='example.clickhouse.cloud', port=8443): Read timed out. (read timeout=120)",
         ],
     )
     def test_expected_probe_failures_not_captured(self, error_msg):
@@ -1279,3 +1340,106 @@ class TestClickHouseReconcileSchemaMetadata(BaseTest):
         metadata = schema.schema_metadata
         assert metadata is not None
         assert [column["name"] for column in metadata["columns"]] == ["uuid", "timestamp"]
+
+
+class TestBypassEnvProxy:
+    """The proxy bypass for PostHog-internal direct connections.
+
+    `bypass_env_proxy=True` must hand clickhouse-connect a pool manager, which
+    stops it consulting HTTP(S)_PROXY env vars; `False` must leave the default
+    (proxy-honouring) behaviour intact.
+    """
+
+    @pytest.mark.parametrize("verify", [True, False])
+    def test_no_env_proxy_pool_manager_ignores_proxy_env(self, verify):
+        from urllib3 import PoolManager, ProxyManager
+
+        from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.clickhouse import (
+            _no_env_proxy_pool_manager,
+        )
+
+        with patch.dict("os.environ", {"HTTPS_PROXY": "http://egress-proxy:4750"}):
+            manager = _no_env_proxy_pool_manager(verify)
+        assert isinstance(manager, PoolManager)
+        assert not isinstance(manager, ProxyManager)
+        # Cached: streaming clients must share the manager (they don't own it).
+        assert _no_env_proxy_pool_manager(verify) is manager
+
+    @pytest.mark.parametrize(
+        "bypass,expected_pool_mgr_factory",
+        [
+            (True, lambda: ch_module._no_env_proxy_pool_manager(True)),
+            (False, lambda: None),
+        ],
+    )
+    def test_get_client_forwards_pool_manager_only_when_bypassing(self, bypass, expected_pool_mgr_factory):
+        with patch.object(ch_module, "get_client") as mock_get_client:
+            _get_client(
+                host="ch.example.com",
+                port=8443,
+                database="default",
+                user="reader",
+                password="secret",
+                secure=True,
+                verify=True,
+                bypass_env_proxy=bypass,
+            )
+        assert mock_get_client.call_count == 1
+        assert mock_get_client.call_args.kwargs["pool_mgr"] is expected_pool_mgr_factory()
+
+
+class TestInternalHostTeamAllowlist:
+    @pytest.mark.parametrize(
+        "region,team_id,expected",
+        [
+            ("US", 2, True),
+            ("US", 1, False),
+            ("US", 12345, False),
+            ("EU", 1, True),
+            ("EU", 2, False),
+            ("EU", 12345, False),
+            (None, 2, False),
+            ("DEV", 2, False),
+        ],
+    )
+    def test_allowlist(self, region, team_id, expected):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common import mixins
+
+        with patch.object(mixins, "get_instance_region", return_value=region):
+            assert mixins.is_team_allowlisted_for_internal_hosts(team_id) is expected
+
+
+class TestDirectQueryClientBypassEnvProxy:
+    """`direct_query_client` backs the HogQL direct-SQL adapter, and unlike every other
+    `_get_client` call site on `ClickHouseSource` it once omitted `bypass_env_proxy` entirely —
+    an allowlisted internal team's direct query silently routed through the egress proxy and
+    failed to reach the PostHog-internal host it was pointed at.
+    """
+
+    @pytest.mark.parametrize(
+        "region,team_id,expected_bypass",
+        [
+            ("US", 2, True),
+            ("US", 12345, False),
+        ],
+    )
+    def test_forwards_bypass_env_proxy_from_team_allowlist(self, region, team_id, expected_bypass):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import source as source_module
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common import mixins
+
+        source = ClickHouseSource()
+        config = MagicMock()
+        config.database = "default"
+        config.user = "default"
+        config.password = None
+        config.secure = True
+        config.verify = True
+
+        with patch.object(mixins, "get_instance_region", return_value=region):
+            with patch.object(source, "with_ssh_tunnel") as mock_with_ssh_tunnel:
+                mock_with_ssh_tunnel.return_value.__enter__.return_value = ("host", 8443)
+                with patch.object(source_module, "_get_client") as mock_get_client:
+                    with source.direct_query_client(config, team_id, query_timeout=60):
+                        pass
+
+        assert mock_get_client.call_args.kwargs["bypass_env_proxy"] is expected_bypass

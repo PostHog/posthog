@@ -5,19 +5,25 @@ edition = "2021"
 publish = false
 
 [dependencies]
+personhog-proto = { path = "../personhog-proto" }
+
 bytes = { workspace = true }
+chrono = { workspace = true }
 flate2 = { workspace = true }
 futures = { workspace = true }
 http = { workspace = true }
 http-body = { workspace = true }
 http-body-util = { workspace = true }
 metrics = { workspace = true }
+serde_json = { workspace = true }
 pin-project = "1.1"
 sqlx = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
 tower = { workspace = true }
+thiserror = { workspace = true }
 tracing = { workspace = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
 rstest = "0.26"

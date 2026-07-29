@@ -4,7 +4,7 @@ import requests
 
 from posthog.schema import SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.heroku.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
@@ -98,7 +98,8 @@ class TestHerokuSource:
         mocked_source.assert_called_once_with(
             api_key="key",
             endpoint="releases",
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=manager,
         )
 

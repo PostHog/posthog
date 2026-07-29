@@ -1,18 +1,27 @@
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest, BaseTest
+from unittest.mock import patch
 
 from django.contrib.admin.sites import AdminSite
 from django.contrib.messages import get_messages
 from django.contrib.messages.middleware import MessageMiddleware
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.http import HttpResponse
-from django.test import RequestFactory
+from django.test import RequestFactory, SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
+from products.managed_migrations.backend import trial_storage
 from products.managed_migrations.backend.admin.batch_imports import BatchImportAdmin
-from products.managed_migrations.backend.models.batch_imports import BatchImport, BatchImportConfigBuilder, ContentType
+from products.managed_migrations.backend.api.batch_imports import BatchImportS3SourceCreateSerializer
+from products.managed_migrations.backend.models.batch_imports import (
+    DEFAULT_SEND_RATE,
+    BatchImport,
+    BatchImportConfigBuilder,
+    ContentType,
+    get_aws_external_id,
+)
 
 
 class TestBatchImportModel(BaseTest):
@@ -399,6 +408,155 @@ class TestBatchImportConfigBuilder(BaseTest):
         }
         self.assertEqual(self.batch_import.import_config, expected_config)
 
+    @parameterized.expand([("s3", "from_s3"), ("s3_gzip", "from_s3_gzip")])
+    def test_from_s3_with_iam_role(self, _name, method):
+        getattr(self.batch_import.config, method)(
+            bucket="customer-bucket",
+            prefix="events/",
+            region="eu-west-1",
+            role_arn="arn:aws:iam::123456789012:role/PostHogImport",
+            external_id="posthog-us-test-uuid",
+        )
+
+        source = self.batch_import.import_config["source"]
+        self.assertEqual(source["type"], _name)
+        self.assertEqual(source["bucket"], "customer-bucket")
+        self.assertEqual(source["role_arn"], "arn:aws:iam::123456789012:role/PostHogImport")
+        self.assertEqual(source["external_id"], "posthog-us-test-uuid")
+        self.assertNotIn("access_key_id_key", source)
+        self.assertNotIn("secret_access_key_key", source)
+        self.assertIsNone(self.batch_import.secrets)
+
+    @parameterized.expand(
+        [
+            (
+                "role_and_keys",
+                {
+                    "role_arn": "arn:aws:iam::123456789012:role/R",
+                    "external_id": "ext",
+                    "access_key_id": "AK",
+                    "secret_access_key": "SK",
+                },
+                "Exactly one of access keys or role_arn",
+            ),
+            (
+                "role_and_endpoint",
+                {
+                    "role_arn": "arn:aws:iam::123456789012:role/R",
+                    "external_id": "ext",
+                    "endpoint_url": "http://minio:9000",
+                },
+                "only works with AWS S3",
+            ),
+            (
+                "role_without_external_id",
+                {"role_arn": "arn:aws:iam::123456789012:role/R"},
+                "external_id is required",
+            ),
+            (
+                "no_auth",
+                {},
+                "Exactly one of access keys or role_arn",
+            ),
+        ]
+    )
+    def test_from_s3_invalid_auth_combinations(self, _name, kwargs, expected_message):
+        with self.assertRaisesRegex(ValueError, expected_message):
+            self.batch_import.config.from_s3(
+                bucket="b",
+                prefix="",
+                region="us-east-1",
+                **kwargs,
+            )
+
+
+@override_settings(MANAGED_MIGRATIONS_IMPORT_ROLE_ARN="arn:aws:iam::999999999999:role/PostHogBatchImport")
+class TestBatchImportS3AuthValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "role_only_valid",
+                {"role_arn": "arn:aws:iam::123456789012:role/PostHogImport"},
+                True,
+            ),
+            (
+                "keys_only_valid",
+                {"access_key": "AKIATEST", "secret_key": "secret123"},
+                True,
+            ),
+            (
+                "role_and_keys_rejected",
+                {"role_arn": "arn:aws:iam::123456789012:role/R", "access_key": "AK", "secret_key": "SK"},
+                False,
+            ),
+            (
+                "role_and_endpoint_rejected",
+                {"role_arn": "arn:aws:iam::123456789012:role/R", "endpoint_url": "http://minio:9000"},
+                False,
+            ),
+            (
+                "partial_keys_rejected",
+                {"access_key": "AK"},
+                False,
+            ),
+            (
+                "no_auth_rejected",
+                {},
+                False,
+            ),
+        ]
+    )
+    @patch.object(BatchImportS3SourceCreateSerializer, "_is_iam_role_enabled", return_value=True)
+    def test_auth_combination_validation(self, _name, auth_fields, should_be_valid, _mock_flag):
+        data = {
+            "source_type": "s3",
+            "content_type": "captured",
+            "s3_bucket": "test-bucket",
+            "s3_region": "us-east-1",
+            **auth_fields,
+        }
+        serializer = BatchImportS3SourceCreateSerializer(data=data)
+        self.assertEqual(serializer.is_valid(), should_be_valid, serializer.errors)
+
+    def test_invalid_role_arn_format_rejected(self):
+        data = {
+            "source_type": "s3",
+            "content_type": "captured",
+            "s3_bucket": "test-bucket",
+            "s3_region": "us-east-1",
+            "role_arn": "not-a-valid-arn",
+        }
+        serializer = BatchImportS3SourceCreateSerializer(data=data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("role_arn", serializer.errors)
+
+    @patch.object(BatchImportS3SourceCreateSerializer, "_is_iam_role_enabled", return_value=False)
+    def test_role_arn_rejected_when_flag_off(self, _mock_flag):
+        data = {
+            "source_type": "s3",
+            "content_type": "captured",
+            "s3_bucket": "test-bucket",
+            "s3_region": "us-east-1",
+            "role_arn": "arn:aws:iam::123456789012:role/PostHogImport",
+        }
+        serializer = BatchImportS3SourceCreateSerializer(data=data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("IAM role authentication is not available", str(serializer.errors))
+
+    @patch.object(BatchImportS3SourceCreateSerializer, "_is_iam_role_enabled", return_value=True)
+    def test_role_arn_rejected_when_import_role_unconfigured(self, _mock_flag):
+        data = {
+            "source_type": "s3",
+            "content_type": "captured",
+            "s3_bucket": "test-bucket",
+            "s3_region": "us-east-1",
+            "role_arn": "arn:aws:iam::123456789012:role/PostHogImport",
+        }
+        with override_settings(MANAGED_MIGRATIONS_IMPORT_ROLE_ARN=""):
+            serializer = BatchImportS3SourceCreateSerializer(data=data)
+            self.assertFalse(serializer.is_valid())
+        self.assertIn("IAM role authentication is not available", str(serializer.errors))
+
 
 class TestBatchImportAdminActions(BaseTest):
     def _request_with_messages(self):
@@ -538,7 +696,7 @@ class TestBatchImportAPI(APIBaseTest):
 
         # Verify sink defaults to capture
         self.assertEqual(batch_import.import_config["sink"]["type"], "capture")
-        self.assertEqual(batch_import.import_config["sink"]["send_rate"], 1000)
+        self.assertEqual(batch_import.import_config["sink"]["send_rate"], DEFAULT_SEND_RATE)
 
     def test_amplitude_migration_includes_amplitude_specific_fields(self):
         """Test that Amplitude migrations include import_events and generate_identify_events in config"""
@@ -966,3 +1124,290 @@ class TestBatchImportAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["attr"], "endpoint_url")
+
+    @override_settings(MANAGED_MIGRATIONS_IMPORT_ROLE_ARN="arn:aws:iam::999999999999:role/PostHogBatchImport")
+    @patch("products.managed_migrations.backend.api.batch_imports.posthoganalytics.feature_enabled", return_value=True)
+    def test_s3_import_with_iam_role_creates_config_without_secrets(self, _mock_flag):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {
+                "source_type": "s3",
+                "content_type": "captured",
+                "s3_bucket": "customer-bucket",
+                "s3_region": "eu-west-1",
+                "s3_prefix": "events/",
+                "role_arn": "arn:aws:iam::123456789012:role/PostHogImport",
+            },
+        )
+
+        self.assertEqual(response.status_code, 201, response.json())
+        batch_import = BatchImport.objects.get(id=response.json()["id"])
+        source = batch_import.import_config["source"]
+        self.assertEqual(source["role_arn"], "arn:aws:iam::123456789012:role/PostHogImport")
+        self.assertIn("external_id", source)
+        self.assertNotIn("access_key_id_key", source)
+        self.assertIsNone(batch_import.secrets)
+
+    @patch("products.managed_migrations.backend.api.batch_imports.posthoganalytics.feature_enabled", return_value=False)
+    def test_s3_import_with_role_rejected_when_flag_off(self, _mock_flag):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {
+                "source_type": "s3",
+                "content_type": "captured",
+                "s3_bucket": "test-bucket",
+                "s3_region": "us-east-1",
+                "role_arn": "arn:aws:iam::123456789012:role/PostHogImport",
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("not available", str(response.json()))
+
+    @patch("products.managed_migrations.backend.api.batch_imports.posthoganalytics.feature_enabled", return_value=True)
+    def test_aws_iam_setup_returns_policy_material(self, _mock_flag):
+        with self.settings(MANAGED_MIGRATIONS_IMPORT_ROLE_ARN="arn:aws:iam::999999999999:role/PostHogBatchImport"):
+            response = self.client.get(f"/api/projects/{self.team.id}/managed_migrations/aws_iam_setup")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["available"])
+        self.assertEqual(data["external_id"], get_aws_external_id(self.team))
+        self.assertEqual(data["posthog_role_arn"], "arn:aws:iam::999999999999:role/PostHogBatchImport")
+        self.assertIn("sts:AssumeRole", data["trust_policy"])
+        self.assertIn("s3:GetObject", data["permission_policy_template"])
+
+    @patch("products.managed_migrations.backend.api.batch_imports.posthoganalytics.feature_enabled", return_value=True)
+    def test_aws_iam_setup_unavailable_without_role_arn_setting(self, _mock_flag):
+        with self.settings(MANAGED_MIGRATIONS_IMPORT_ROLE_ARN=""):
+            response = self.client.get(f"/api/projects/{self.team.id}/managed_migrations/aws_iam_setup")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["available"])
+
+    @patch("products.managed_migrations.backend.api.batch_imports.posthoganalytics.feature_enabled", return_value=False)
+    def test_aws_iam_setup_unavailable_when_flag_off(self, _mock_flag):
+        with self.settings(MANAGED_MIGRATIONS_IMPORT_ROLE_ARN="arn:aws:iam::999999999999:role/PostHogBatchImport"):
+            response = self.client.get(f"/api/projects/{self.team.id}/managed_migrations/aws_iam_setup")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["available"])
+
+
+class TestBatchImportTrialAPI(APIBaseTest):
+    S3_PAYLOAD = {
+        "source_type": "s3",
+        "content_type": "captured",
+        "s3_bucket": "test-bucket",
+        "s3_region": "us-east-1",
+        "s3_prefix": "data/",
+        "access_key": "test-key",
+        "secret_key": "test-secret",
+    }
+
+    def _create_import(self, status=BatchImport.Status.RUNNING, is_trial=False, state=None) -> BatchImport:
+        sink = {"type": "trial_s3", "record_limit": 100} if is_trial else {"type": "capture", "send_rate": 1000}
+        return BatchImport.objects.create(
+            team=self.team,
+            created_by_id=self.user.id,
+            import_config={"source": {"type": "s3"}, "sink": sink},
+            secrets={"access_key": "k", "secret_key": "s"},
+            status=status,
+            state=state,
+        )
+
+    def test_create_trial_sets_trial_sink_and_limit(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {**self.S3_PAYLOAD, "is_trial": True, "trial_record_limit": 500},
+        )
+
+        self.assertEqual(response.status_code, 201, response.json())
+        batch_import = BatchImport.objects.get(id=response.json()["id"])
+        self.assertEqual(batch_import.import_config["sink"], {"type": "trial_s3", "record_limit": 500})
+        self.assertTrue(response.json()["is_trial"])
+        self.assertEqual(response.json()["trial_record_limit"], 500)
+
+    @parameterized.expand([("zero", 0), ("above_max", 50_001)])
+    def test_trial_record_limit_out_of_bounds_is_rejected(self, _name, limit):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {**self.S3_PAYLOAD, "is_trial": True, "trial_record_limit": limit},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["attr"], "trial_record_limit")
+
+    def test_trial_allowed_while_real_import_is_running(self):
+        self._create_import(is_trial=False)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {**self.S3_PAYLOAD, "is_trial": True},
+        )
+
+        self.assertEqual(response.status_code, 201, response.json())
+
+    def test_real_import_allowed_while_trial_is_running(self):
+        self._create_import(is_trial=True)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/managed_migrations", self.S3_PAYLOAD)
+
+        self.assertEqual(response.status_code, 201, response.json())
+
+    def test_second_trial_is_blocked_while_one_is_running(self):
+        existing = self._create_import(is_trial=True)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {**self.S3_PAYLOAD, "is_trial": True},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("trial", response.json()["error"])
+        self.assertIn(str(existing.id), response.json()["detail"])
+
+    def test_trial_records_rejects_non_trial_imports(self):
+        batch_import = self._create_import(is_trial=False)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/managed_migrations/{batch_import.id}/trial_records")
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_trial_records_returns_page_with_progress_metadata(self):
+        trial_state = {
+            "parts": [],
+            "trial": {
+                "records_emitted": 4,
+                "pages_written": 2,
+                "summary": {"source_records": 4, "dropped_records": 1},
+            },
+        }
+        batch_import = self._create_import(status=BatchImport.Status.COMPLETED, is_trial=True, state=trial_state)
+        records = [{"seq": 2, "source": {"event": "a"}, "outputs": [], "error": None}]
+
+        with patch(
+            "products.managed_migrations.backend.api.batch_imports.trial_storage.read_trial_page",
+            return_value=records,
+        ) as mock_read:
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/managed_migrations/{batch_import.id}/trial_records?page=1"
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "records": records,
+                "page": 1,
+                "total_pages": 2,
+                "total_records": 4,
+                "summary": {"source_records": 4, "dropped_records": 1},
+            },
+        )
+        mock_read.assert_called_once_with(self.team.id, str(batch_import.id), 1)
+
+    def test_trial_records_with_no_pages_returns_empty_state(self):
+        batch_import = self._create_import(
+            status=BatchImport.Status.COMPLETED,
+            is_trial=True,
+            state={"parts": [], "trial": {"records_emitted": 0, "pages_written": 0, "summary": {"source_records": 0}}},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/managed_migrations/{batch_import.id}/trial_records")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "records": [],
+                "page": 0,
+                "total_pages": 0,
+                "total_records": 0,
+                "summary": {"source_records": 0},
+            },
+        )
+
+    def test_trial_records_page_out_of_range_is_404(self):
+        batch_import = self._create_import(
+            status=BatchImport.Status.COMPLETED,
+            is_trial=True,
+            state={"parts": [], "trial": {"records_emitted": 4, "pages_written": 2, "summary": {}}},
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/managed_migrations/{batch_import.id}/trial_records?page=2"
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["total_pages"], 2)
+
+    def test_trial_records_expired_results_are_410(self):
+        batch_import = self._create_import(
+            status=BatchImport.Status.COMPLETED,
+            is_trial=True,
+            state={"parts": [], "trial": {"records_emitted": 4, "pages_written": 2, "summary": {}}},
+        )
+
+        with patch(
+            "products.managed_migrations.backend.api.batch_imports.trial_storage.read_trial_page",
+            side_effect=trial_storage.TrialResultsUnavailable("gone"),
+        ):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/managed_migrations/{batch_import.id}/trial_records"
+            )
+
+        self.assertEqual(response.status_code, 410)
+
+    def test_promote_creates_real_import_with_capture_sink_and_copied_secrets(self):
+        trial = self._create_import(status=BatchImport.Status.COMPLETED, is_trial=True)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/managed_migrations/{trial.id}/promote")
+
+        self.assertEqual(response.status_code, 201, response.json())
+        promoted = BatchImport.objects.get(id=response.json()["id"])
+        self.assertNotEqual(promoted.id, trial.id)
+        self.assertEqual(promoted.import_config["sink"], {"type": "capture", "send_rate": DEFAULT_SEND_RATE})
+        self.assertEqual(promoted.import_config["source"], trial.import_config["source"])
+        self.assertEqual(promoted.secrets, trial.secrets)
+        self.assertEqual(promoted.status, BatchImport.Status.RUNNING)
+        self.assertFalse(response.json()["is_trial"])
+        self.assertEqual(response.json()["promoted_from_trial_id"], str(trial.id))
+
+    def test_promote_is_single_use(self):
+        trial = self._create_import(status=BatchImport.Status.COMPLETED, is_trial=True)
+
+        first = self.client.post(f"/api/projects/{self.team.id}/managed_migrations/{trial.id}/promote")
+        self.assertEqual(first.status_code, 201, first.json())
+
+        # Once the promoted import is no longer running, the RUNNING-conflict
+        # check no longer applies — re-promotion must still be rejected.
+        BatchImport.objects.filter(id=first.json()["id"]).update(status=BatchImport.Status.COMPLETED)
+
+        second = self.client.post(f"/api/projects/{self.team.id}/managed_migrations/{trial.id}/promote")
+
+        self.assertEqual(second.status_code, 400)
+        self.assertIn("already been promoted", second.json()["error"])
+        self.assertEqual(BatchImport.objects.filter(team_id=self.team.id).exclude(id=trial.id).count(), 1)
+
+    @parameterized.expand(
+        [
+            ("not_a_trial", False, BatchImport.Status.COMPLETED),
+            ("not_completed", True, BatchImport.Status.RUNNING),
+        ]
+    )
+    def test_promote_rejects_ineligible_jobs(self, _name, is_trial, job_status):
+        batch_import = self._create_import(status=job_status, is_trial=is_trial)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/managed_migrations/{batch_import.id}/promote")
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_promote_blocked_while_real_import_is_running(self):
+        trial = self._create_import(status=BatchImport.Status.COMPLETED, is_trial=True)
+        self._create_import(is_trial=False)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/managed_migrations/{trial.id}/promote")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Cannot create a new batch import", response.json()["error"])

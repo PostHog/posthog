@@ -262,19 +262,35 @@ class TestErrorTracking(APIBaseTest):
         assert ErrorTrackingIssueFingerprintV2.objects.filter(fingerprint="fingerprint_two", version=1).exists()
         assert ErrorTrackingIssue.objects.count() == 1
 
-    def test_issue_merge_returns_not_found_when_source_issue_is_stale(self):
-        issue_one = self.create_issue(fingerprints=["fingerprint_one"])
-        issue_two = self.create_issue(fingerprints=["fingerprint_two"])
-        ErrorTrackingIssue.objects.filter(id=issue_two.id).delete()
+    def test_issue_merge_drops_stale_source_and_merges_the_rest(self):
+        target = self.create_issue(fingerprints=["fingerprint_target"])
+        live_source = self.create_issue(fingerprints=["fingerprint_live"])
+        stale_source = self.create_issue(fingerprints=["fingerprint_stale"])
+        ErrorTrackingIssue.objects.filter(id=stale_source.id).delete()
 
         response = self.client.post(
-            f"/api/environments/{self.team.id}/error_tracking/issues/{issue_one.id}/merge",
-            data={"ids": [issue_two.id]},
+            f"/api/environments/{self.team.id}/error_tracking/issues/{target.id}/merge",
+            data={"ids": [live_source.id, stale_source.id]},
+        )
+
+        # A single stale issue in the selection no longer rejects the whole merge with a 404
+        assert response.status_code == 200
+        assert not ErrorTrackingIssue.objects.filter(id=live_source.id).exists()
+        assert ErrorTrackingIssueFingerprintV2.objects.get(fingerprint="fingerprint_live").issue_id == target.id
+
+    def test_issue_merge_returns_not_found_when_target_issue_is_stale(self):
+        target = self.create_issue(fingerprints=["fingerprint_target"])
+        source = self.create_issue(fingerprints=["fingerprint_source"])
+        ErrorTrackingIssue.objects.filter(id=target.id).delete()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/issues/{target.id}/merge",
+            data={"ids": [source.id]},
         )
 
         assert response.status_code == 404
-        assert ErrorTrackingIssue.objects.filter(id=issue_one.id).exists()
-        assert ErrorTrackingIssueFingerprintV2.objects.get(fingerprint="fingerprint_one").issue_id == issue_one.id
+        assert ErrorTrackingIssue.objects.filter(id=source.id).exists()
+        assert ErrorTrackingIssueFingerprintV2.objects.get(fingerprint="fingerprint_source").issue_id == source.id
 
     def test_issue_merge_requires_ids(self):
         issue = self.create_issue(fingerprints=["fingerprint_one"])
@@ -1204,6 +1220,8 @@ class TestErrorTracking(APIBaseTest):
         activity: list[dict] = activity_response["results"]
         for item in activity:
             item.pop("id", None)
+            for envelope_key in ("is_system", "was_impersonated", "client"):
+                item.pop(envelope_key, None)
         self.maxDiff = None
         self.assertEqual(activity, expected)
 

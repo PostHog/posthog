@@ -11,7 +11,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.calendly.c
 from products.warehouse_sources.backend.temporal.data_imports.sources.calendly.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.calendly.source import CalendlySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CalendlySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.calendly import (
+    CalendlySourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -160,6 +162,15 @@ class TestCalendlySource:
         # New sources must start on v2; v1 stays supported so existing pins keep resolving.
         assert self.source.default_version == CALENDLY_API_VERSION_V2
         assert set(self.source.supported_versions) == {CALENDLY_API_VERSION_V1, CALENDLY_API_VERSION_V2}
+
+    def test_v1_is_deprecated_without_sunset_and_v2_is_not(self):
+        # v1 is flagged so the in-product deprecation warning fires, but carries no sunset date —
+        # both labels hit the same live host, so no pin is on borrowed time. The default (v2) must
+        # never be deprecated.
+        deprecation = self.source.get_version_deprecation(CALENDLY_API_VERSION_V1)
+        assert deprecation is not None
+        assert deprecation.sunset_at is None
+        assert self.source.get_version_deprecation(CALENDLY_API_VERSION_V2) is None
 
     @pytest.mark.parametrize(
         "pin, expected",

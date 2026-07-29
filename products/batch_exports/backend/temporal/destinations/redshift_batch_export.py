@@ -1402,6 +1402,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
                 data_interval_end=inputs.batch_export.data_interval_end,
                 batch_export_model=inputs.batch_export.batch_export_model,
                 file_format="Parquet",
+                checksum_algorithm="CRC64NVME",
                 compression="zstd",
                 encryption=None,
                 s3_client=client,

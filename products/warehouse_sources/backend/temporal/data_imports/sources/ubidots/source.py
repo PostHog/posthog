@@ -11,10 +11,6 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -22,7 +18,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import UbidotsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ubidots import (
+    UbidotsSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.settings import (
     DEFAULT_UBIDOTS_API_BASE_URL,
     ENDPOINTS,
@@ -30,6 +29,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.se
     UBIDOTS_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.ubidots import (
+    SUPPORTED_UBIDOTS_API_VERSIONS,
+    UBIDOTS_API_VERSION_V2_0,
     UbidotsResumeConfig,
     ubidots_source,
     validate_credentials,
@@ -41,6 +42,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class UbidotsSource(ResumableSource[UbidotsSourceConfig, UbidotsResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.ubidots.com/reference/welcome"
+    supported_versions = SUPPORTED_UBIDOTS_API_VERSIONS
+    default_version = UBIDOTS_API_VERSION_V2_0
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -119,9 +122,11 @@ Use the permanent token from **your profile → API Credentials** in Ubidots —
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Only `values` filters server-side (`start`/`end` millisecond timestamps); the v2.0
-        # metadata endpoints expose no monotonic update cursor, so they are full refresh only.
+        # The table set is version-independent: every version discovers entities through the v2.0
+        # entity API, so the pin doesn't change which schemas exist. Only `values` filters
+        # server-side (`start`/`end` ms); metadata endpoints expose no update cursor (full refresh).
         schemas = [
             SourceSchema(
                 name=endpoint,
@@ -137,9 +142,14 @@ Use the permanent token from **your profile → API Credentials** in Ubidots —
         return schemas
 
     def validate_credentials(
-        self, config: UbidotsSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: UbidotsSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        # Ubidots tokens are account-wide, so a single probe validates access to every schema.
+        # Ubidots tokens are account-wide, so a single probe validates access to every schema. The
+        # probe hits the v2.0 entity API, which every version uses, so the pin makes no difference.
         return validate_credentials(config.api_token, config.api_base_url)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[UbidotsResumeConfig]:
@@ -160,6 +170,7 @@ Use the permanent token from **your profile → API Credentials** in Ubidots —
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value,
         )

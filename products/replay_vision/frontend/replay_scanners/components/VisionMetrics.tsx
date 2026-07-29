@@ -1,16 +1,17 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { Spinner, Tooltip } from '@posthog/lemon-ui'
+import { Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { urls } from 'scenes/urls'
 
 import { InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType, InsightLogicProps } from '~/types'
 
 import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
-import { formatCredits } from '../../utils/credits'
+import { creditsToUsd, formatCreditCount } from '../../utils/credits'
 import { QUOTA_STATUS_STYLES, hasCreditLimit, projectQuota } from '../../utils/quotaProjection'
 import { replayScannersLogic } from '../replayScannersLogic'
 import { SCANNER_TYPE_OPTIONS } from '../types'
@@ -60,7 +61,7 @@ export function VisionMetrics(): JSX.Element {
     )
 
     return (
-        <div className="flex flex-col lg:flex-row gap-4 h-80">
+        <div className="flex flex-col lg:flex-row gap-4 h-96">
             <div className="flex-1 bg-bg-light rounded p-4 flex flex-col InsightCard h-full">
                 <div className="flex items-start justify-between gap-2 mb-1">
                     <h3 className="text-base font-semibold m-0">Observations over time</h3>
@@ -104,11 +105,13 @@ export function VisionMetrics(): JSX.Element {
                 </div>
                 <div className="flex-1 bg-bg-light border rounded p-4 flex flex-col">
                     <div className="flex items-baseline justify-between gap-3 mb-2">
-                        <div className="text-muted text-xs font-medium uppercase">Spend this month</div>
+                        <div className="text-muted text-xs font-medium uppercase">Spend this period</div>
                         {hasCap && (
                             <span className={`text-xs tabular-nums ${styles.text}`}>
                                 {percentLabel}%{' '}
-                                <span className="text-muted font-normal">by {resetsOn ?? 'period end'}</span>
+                                <span className="text-muted font-normal">
+                                    by period end{resetsOn ? ` (${resetsOn})` : ''}
+                                </span>
                             </span>
                         )}
                     </div>
@@ -119,13 +122,17 @@ export function VisionMetrics(): JSX.Element {
                                 Estimated spend. You won't be billed during the closed beta.
                             </div>
                             <div className="text-3xl font-semibold tabular-nums">
-                                {formatCredits(quota.credits_used)}
+                                {formatCreditCount(quota.credits_used)}
                                 {hasCap && (
                                     <span className="text-muted text-lg font-normal">
                                         {' / '}
-                                        {formatCredits(quota.credit_limit ?? 0)}
+                                        {formatCreditCount(quota.credit_limit ?? 0)}
                                     </span>
                                 )}
+                            </div>
+                            <div className="text-muted text-sm tabular-nums">
+                                ≈ {creditsToUsd(quota.credits_used)}
+                                {hasCap ? ` / ${creditsToUsd(quota.credit_limit ?? 0)}` : ''}
                             </div>
                             {hasCap ? (
                                 <>
@@ -133,18 +140,18 @@ export function VisionMetrics(): JSX.Element {
                                         title={
                                             <div className="text-xs space-y-0.5">
                                                 <div>
-                                                    Spent this month:{' '}
-                                                    <strong>{formatCredits(quota.credits_used)}</strong>
+                                                    Spent this period:{' '}
+                                                    <strong>{formatCreditCount(quota.credits_used)}</strong>
                                                 </div>
                                                 <div>
                                                     Projected from enabled scanners:{' '}
                                                     <strong>
-                                                        ~{formatCredits(quota.projected_monthly_credits)}/month
+                                                        ~{formatCreditCount(quota.projected_monthly_credits)}/month
                                                     </strong>
                                                 </div>
                                                 <div>
                                                     Monthly limit:{' '}
-                                                    <strong>{formatCredits(quota.credit_limit ?? 0)}</strong>
+                                                    <strong>{formatCreditCount(quota.credit_limit ?? 0)}</strong>
                                                 </div>
                                                 {resetsOn && <div className="text-muted">Resets {resetsOn}</div>}
                                             </div>
@@ -170,11 +177,16 @@ export function VisionMetrics(): JSX.Element {
                                 </>
                             ) : (
                                 <div className="text-xs text-muted mt-2">
-                                    No spend limit set: projected ~{formatCredits(quota.projected_monthly_credits)}
+                                    No spend limit set: projected ~{formatCreditCount(quota.projected_monthly_credits)}
                                     /month from enabled scanners. Set a billing limit in your billing settings to cap
                                     spend.
                                 </div>
                             )}
+                            <div className="mt-2">
+                                <Link to={`${urls.replayVision()}?tab=usage`} className="text-xs">
+                                    View usage by scanner
+                                </Link>
+                            </div>
                         </>
                     ) : quotaLoading ? (
                         <div className="flex items-center py-2">

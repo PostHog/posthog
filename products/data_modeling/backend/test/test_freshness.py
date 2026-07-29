@@ -10,19 +10,24 @@ from products.data_modeling.backend.logic.freshness import (
     InvalidTarget,
     UnsatisfiableFrequencyError,
     UnsupportedFrequencyTargetError,
+    all_consumer_ceilings,
+    all_source_floors,
     clamp_to_source_floor,
     compute_effective_cadences,
-    declared_target_bounds,
     find_invalid_targets,
+    normalize_seed_target,
     validate_declared_target,
 )
 
 M5 = timedelta(minutes=5)
 M15 = timedelta(minutes=15)
+M30 = timedelta(minutes=30)
 M45 = timedelta(minutes=45)
 H1 = timedelta(hours=1)
 H6 = timedelta(hours=6)
 DAY = timedelta(days=1)
+DAY30 = timedelta(days=30)
+DAY45 = timedelta(days=45)
 
 
 class TestComputeEffectiveCadences(TestCase):
@@ -79,56 +84,6 @@ class TestComputeEffectiveCadences(TestCase):
         # corrupt graphs exist in prod; a cycle must fail loud, not loop or overflow
         with self.assertRaisesRegex(ValueError, "cycle"):
             compute_effective_cadences(nodes={"a", "b"}, edges=[("a", "b"), ("b", "a")], declared_targets={"a": H1})
-
-
-class TestFrequencyTargetBounds(TestCase):
-    @parameterized.expand(
-        [
-            # streamed source (events) imposes no floor -> a 15min endpoint is allowed
-            (
-                "streamed_source_no_floor",
-                "ep",
-                [("src", "ep")],
-                {"ep": M15},
-                {"src": STREAMING},
-                (STREAMING, None),
-            ),
-            # imported source refreshing every 6h floors an intermediate node at 6h
-            (
-                "imported_source_floors",
-                "a",
-                [("src", "a"), ("a", "ep")],
-                {"ep": H1},
-                {"src": H6},
-                (H6, H1),
-            ),
-            # ceiling comes from the tightest descendant demand
-            (
-                "ceiling_from_tightest_descendant",
-                "a",
-                [("src", "a"), ("a", "epA"), ("a", "epB")],
-                {"epA": H1, "epB": M15},
-                {"src": STREAMING},
-                (STREAMING, M15),
-            ),
-            # floor above ceiling: no legal target exists (unsatisfiable)
-            (
-                "unsatisfiable_floor_above_ceiling",
-                "a",
-                [("src", "a"), ("a", "ep")],
-                {"ep": M15},
-                {"src": H6},
-                (H6, M15),
-            ),
-        ]
-    )
-    def test_bounds(self, _name, node_id, edges, targets, source_intervals, expected):
-        self.assertEqual(
-            declared_target_bounds(
-                node_id=node_id, edges=edges, declared_targets=targets, source_intervals=source_intervals
-            ),
-            expected,
-        )
 
 
 class TestValidateFrequencyTarget(TestCase):
@@ -239,6 +194,9 @@ class TestClampToSourceFloor(TestCase):
             ("finer_than_floor", {"a": M15}, {"src": H6}, {"a": H6}, H6),
             # floor is not a bucket (45min) -> clamp up to the nearest bucket (1h), never finer
             ("non_bucket_floor_rounds_up", {"a": M15}, {"src": M45}, {"a": H1}, H1),
+            # a rogue source floor coarser than every bucket clamps to the coarsest (30day),
+            # never crashes: the interval column is an unconstrained DurationField
+            ("floor_beyond_coarsest_clamps_to_coarsest", {"a": M15}, {"src": DAY45}, {"a": DAY30}, DAY30),
             # already at the floor -> untouched
             ("at_floor", {"a": H6}, {"src": H6}, {"a": H6}, None),
             # coarser than the floor -> untouched
@@ -260,3 +218,50 @@ class TestClampToSourceFloor(TestCase):
             self.assertEqual(changes[0].demanded, effective["a"])
             self.assertEqual(changes[0].source_floor, source_intervals["src"])
             self.assertEqual(changes[0].clamped_to, expected_clamped_to)
+
+
+class TestNormalizeSeedTarget(TestCase):
+    @parameterized.expand(
+        [
+            # already a schedulable bucket within bounds -> unchanged
+            ("bucket_within_bounds", M15, STREAMING, M15),
+            # non-bucket seed snaps down to the nearest finer bucket (fresher is safe)
+            ("non_bucket_snaps_down", M45, STREAMING, M30),
+            # a bucket finer than the source floor coarsens up to the floor
+            ("finer_than_floor_coarsens", M15, H1, H1),
+            # non-bucket over a slow source: snap down then coarsen to the floor
+            ("snaps_then_coarsens_to_floor", M45, H6, H6),
+            # already coarser than the floor -> left alone
+            ("coarser_than_floor_stays", DAY, H6, DAY),
+        ]
+    )
+    def test_normalize(self, _name, seed, source_floor, expected):
+        self.assertEqual(normalize_seed_target(seed, source_floor), expected)
+
+
+class TestBatchBounds(TestCase):
+    @parameterized.expand(
+        [
+            # chain src->a->b: the 6h source floors every descendant
+            ("chain_floors_descendants", [("src", "a"), ("a", "b")], {"src": H6}, "b", H6),
+            # fan-in of two sources: the node inherits the slowest (daily)
+            ("fan_in_takes_slowest_source", [("srcA", "m"), ("srcB", "m")], {"srcA": H6, "srcB": DAY}, "m", DAY),
+            # no ancestor source -> no floor
+            ("no_source_is_streaming", [("a", "b")], {}, "b", STREAMING),
+        ]
+    )
+    def test_source_floors(self, _name, edges, source_intervals, node_id, expected):
+        self.assertEqual(all_source_floors(edges, source_intervals).get(node_id, STREAMING), expected)
+
+    @parameterized.expand(
+        [
+            # a takes the tightest of its two consumers
+            ("tightest_consumer", [("a", "epA"), ("a", "epB")], {"epA": H1, "epB": M15}, "a", M15),
+            # transitive: demand propagates up past an untargeted intermediate
+            ("transitive_demand", [("a", "b"), ("b", "c")], {"c": H1}, "a", H1),
+            # no descendant declares a target -> no ceiling
+            ("no_descendant_target", [("a", "b")], {}, "a", None),
+        ]
+    )
+    def test_consumer_ceilings(self, _name, edges, declared_targets, node_id, expected):
+        self.assertEqual(all_consumer_ceilings(edges, declared_targets).get(node_id), expected)

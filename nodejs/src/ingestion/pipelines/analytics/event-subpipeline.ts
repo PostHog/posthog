@@ -6,6 +6,7 @@ import { IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { TeamManager } from '~/common/utils/team-manager'
 import { GroupStoreForBatch } from '~/ingestion/common/groups/group-store-for-batch'
+import { WithMergeFoldDecision } from '~/ingestion/common/persons/person-merge-fold'
 import { PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
 import { createCreateEventStep } from '~/ingestion/common/steps/event-processing/create-event-step'
 import { EmitEventStepOutput, createEmitEventStep } from '~/ingestion/common/steps/event-processing/emit-event-step'
@@ -64,7 +65,10 @@ export interface EventSubpipelineConfig {
     topHog: TopHogWrapper
 }
 
-export function createEventSubpipeline<TInput extends EventSubpipelineInput, TContext>(
+// The WithMergeFoldDecision constraint (not a field on EventSubpipelineInput) is deliberate: the
+// decision is produced by the merge-fold planning step, so only compositions wired after it — or
+// ones that decide `immediate` themselves — can build this subpipeline.
+export function createEventSubpipeline<TInput extends EventSubpipelineInput & WithMergeFoldDecision, TContext>(
     builder: StartPipelineBuilder<TInput, TContext>,
     config: EventSubpipelineConfig
 ): PipelineBuilder<TInput, EmitEventStepOutput, TContext, AsyncOutput> {

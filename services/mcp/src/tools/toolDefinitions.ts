@@ -24,6 +24,12 @@ export const ToolDefinitionSchema = z
         /** Variant of `feature_flag` to match exactly. Requires `feature_flag` to be set. */
         feature_flag_variant: z.string().optional(),
         /**
+         * Additional gate: hide the tool whenever this flag is on, independent of
+         * `feature_flag`. For retiring a tool under a successor surface's rollout
+         * flag while the tool keeps its own gating flag.
+         */
+        hidden_when_flag_on: z.string().optional(),
+        /**
          * AvailableFeature the org's plan must include for this tool to be
          * advertised (e.g. `'audit_logs'`), matching the backend's
          * `premium_feature_on_cloud`. Best-effort — the backend
@@ -153,6 +159,9 @@ export function getRequiredFeatureFlags(): string[] {
         if (definition.feature_flag) {
             flags.add(definition.feature_flag)
         }
+        if (definition.hidden_when_flag_on) {
+            flags.add(definition.hidden_when_flag_on)
+        }
     }
     return [...flags]
 }
@@ -165,12 +174,16 @@ function normalizeFeatureName(name: string): string {
  * Predicate: does a tool's `feature_flag` configuration permit it under the
  * given evaluation map? An undefined map is treated as "no flags evaluated".
  *
+ *   `hidden_when_flag_on` set and that flag is on → always hidden
  *   no `feature_flag`         → always passes
  *   `feature_flag_variant` set → flag value must equal the variant string
  *   `feature_flag_behavior: 'enable'` (default) → flag must be `=== true`
  *   `feature_flag_behavior: 'disable'` → flag must NOT be `=== true`
  */
 export function toolPassesFlagGate(definition: ToolDefinition, featureFlags: EvaluatedFlags = {}): boolean {
+    if (definition.hidden_when_flag_on && featureFlags[definition.hidden_when_flag_on] === true) {
+        return false
+    }
     if (!definition.feature_flag) {
         // Belt-and-braces: the schema `.refine` rejects this at parse time, but
         // `z.infer` strips refinements so TS lets callers hand-roll a bad
