@@ -120,6 +120,27 @@ describe('quickActionsLogic', () => {
         expect(logic.values.name).toBe('Second')
     })
 
+    it('fires a single DELETE when the delete action is dispatched twice in quick succession', async () => {
+        const gate = deferred()
+        let deleteCount = 0
+        useMocks({
+            delete: {
+                '/api/projects/:team_id/conversations/quick_actions/:short_id/': async () => {
+                    deleteCount += 1
+                    await gate.promise
+                    return [204]
+                },
+            },
+        })
+        // A double click on the confirm button dispatches the action twice before the first resolves.
+        logic.actions.deleteQuickAction(actionA.short_id)
+        logic.actions.deleteQuickAction(actionA.short_id)
+        gate.resolve()
+        await expectLogic(logic).toDispatchActions(['quickActionDeleted']).toFinishAllListeners()
+        expect(deleteCount).toBe(1)
+        expect(logic.values.quickActions.some((q) => q.short_id === actionA.short_id)).toBe(false)
+    })
+
     it('drops a superseded load instead of clobbering the newer result', async () => {
         const firstRequestStarted = deferred()
         const gate = deferred()

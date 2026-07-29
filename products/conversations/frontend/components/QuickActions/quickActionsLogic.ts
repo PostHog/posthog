@@ -289,10 +289,10 @@ export const quickActionsLogic = kea<quickActionsLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         saveQuickAction: async ({ body }) => {
             const name = values.name.trim()
-            if (!name) {
+            if (!name || values.currentTeamId === null) {
                 return
             }
             const ticketActions: QuickActionActionsApi = {}
@@ -343,6 +343,13 @@ export const quickActionsLogic = kea<quickActionsLogicType>([
             }
         },
         deleteQuickAction: async ({ shortId }) => {
+            // The in-flight set makes a double-fired delete (e.g. a double click on the confirm
+            // button) a no-op instead of a second DELETE that 404s and toasts a spurious error.
+            const inFlight: Set<string> = (cache.deletingShortIds ??= new Set())
+            if (values.currentTeamId === null || inFlight.has(shortId)) {
+                return
+            }
+            inFlight.add(shortId)
             try {
                 await conversationsQuickActionsDestroy(String(values.currentTeamId), shortId)
                 actions.quickActionDeleted(shortId)
@@ -350,6 +357,8 @@ export const quickActionsLogic = kea<quickActionsLogicType>([
             } catch (error) {
                 posthog.captureException(error)
                 lemonToast.error('Failed to delete quick action')
+            } finally {
+                inFlight.delete(shortId)
             }
         },
         loadQuickActionsFailure: () => {

@@ -1,5 +1,6 @@
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Team, User
@@ -110,6 +111,21 @@ class TestQuickActionAPI(APIBaseTest):
         listed = {q["short_id"] for q in self.client.get(child_url).json()["results"]}
         self.assertIn(created["short_id"], listed)
         self.assertEqual(self.client.get(f"{child_url}{created['short_id']}/").status_code, status.HTTP_200_OK)
+
+    @parameterized.expand(["get", "patch", "delete"])
+    def test_other_teams_quick_action_is_not_reachable_object_level(self, method: str) -> None:
+        # Regression guard: list scoping is covered above, but retrieve/update/delete resolve a
+        # single object by short_id and must 404 across teams too, or the id becomes an IDOR.
+        created = self._create("Team-scoped reply")
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        url = f"/api/projects/{other_team.id}/conversations/quick_actions/{created['short_id']}/"
+        if method == "patch":
+            response = self.client.patch(url, {"name": "Hijacked"}, format="json")
+        else:
+            response = getattr(self.client, method)(url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, response.content)
+        quick_action = QuickAction.objects.unscoped().get(short_id=created["short_id"])
+        self.assertEqual(quick_action.name, "Team-scoped reply")
 
     def test_assignee_only_action_can_be_resaved_after_clearing_reply(self) -> None:
         # Regression guard: an assignee-only quick action (assignee is API-only) still counts as

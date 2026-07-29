@@ -18,6 +18,9 @@ import type { QuickActionApi } from '../../generated/api.schemas'
 import { AssigneeTypeEnumApi, QuickActionVisibilityEnumApi } from '../../generated/api.schemas'
 import { priorityOptions, statusOptionsWithoutAll } from '../../types'
 
+const statusLabels = Object.fromEntries(statusOptionsWithoutAll.map((o) => [o.value, o.label]))
+const priorityLabels = Object.fromEntries(priorityOptions.map((o) => [o.value, o.label]))
+
 /** Short human summary of what a quick action does, for the table. */
 function summary(quickAction: QuickActionApi): string {
     const parts: string[] = []
@@ -25,10 +28,10 @@ function summary(quickAction: QuickActionApi): string {
         parts.push('reply')
     }
     if (quickAction.actions?.status) {
-        parts.push(`status → ${quickAction.actions.status}`)
+        parts.push(`status → ${statusLabels[quickAction.actions.status] ?? quickAction.actions.status}`)
     }
     if (quickAction.actions?.priority) {
-        parts.push(`priority → ${quickAction.actions.priority}`)
+        parts.push(`priority → ${priorityLabels[quickAction.actions.priority] ?? quickAction.actions.priority}`)
     }
     if (quickAction.actions?.tags?.length) {
         parts.push(`${quickAction.actions.tags.length} tag${quickAction.actions.tags.length === 1 ? '' : 's'}`)
