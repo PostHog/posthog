@@ -43,7 +43,15 @@ export function SavedInsight({
         )
     }
 
-    const query = { ...propsQuery, ...dataQuery, full: propsQuery.full }
+    // `showResults` is reapplied only when the caller set it: a stored query carrying an explicit
+    // `false` would otherwise override an embed that asked for the result body and draw a card with
+    // nothing in it, while callers that say nothing keep deferring to what the insight stored.
+    const query = {
+        ...propsQuery,
+        ...dataQuery,
+        full: propsQuery.full,
+        ...(propsQuery.showResults === undefined ? {} : { showResults: propsQuery.showResults }),
+    }
 
     return (
         <Query

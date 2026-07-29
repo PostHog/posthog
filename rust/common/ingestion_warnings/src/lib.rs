@@ -64,6 +64,18 @@ pub const INGESTION_WARNINGS_TOTAL: &str = "ingestion_warnings_total";
 /// on each sweep. The early-warning signal for the cardinality cap.
 pub const INGESTION_WARNINGS_THROTTLE_KEYS: &str = "ingestion_warnings_throttle_keys";
 
+/// Gauge reporting whether a process that *wants* an emitter actually built
+/// one: `1` healthy, `0` enabled-but-failed. Deliberately unset when warnings
+/// are disabled, because otherwise a misconfigured pod reporting `0` would be
+/// indistinguishable from an intentionally quiet one. Absence means "off",
+/// `0` means "broken".
+///
+/// Emitter construction is one-shot (`create_threaded_kafka_producer` fetches
+/// metadata once, with no retry), so a broker blip at boot mutes that process
+/// for its entire life. The only other symptom is lower-than-expected warning
+/// volume, which is unobservable without a baseline. Alert on `min() == 0`.
+pub const INGESTION_WARNINGS_EMITTER_ENABLED: &str = "ingestion_warnings_emitter_enabled";
+
 /// Identifies which service — and which code path within it — produced a
 /// warning.
 ///
