@@ -1,5 +1,5 @@
 use std::error::Error as StdError;
-use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs};
 use std::{fmt, io};
 
 use futures::FutureExt;
@@ -25,18 +25,40 @@ pub(crate) type BoxError = Box<dyn StdError + Send + Sync>;
 
 /// Returns [`true`] if the IP appears to be a globally reachable IPv4.
 ///
-/// Trimmed down version of the unstable IpAddr::is_global, move to it when it's stable.
+/// Mirrors the semantics of the still-unstable `Ipv4Addr::is_global`: every range that
+/// is not globally routable is rejected, so we never fetch from localhost or an internal
+/// host. Move to `Ipv4Addr::is_global` once it stabilizes.
+///
+/// IPv6 is rejected wholesale for now, as our infra does not route it.
 pub fn is_global_ip(ip: &IpAddr) -> bool {
     match ip {
-        IpAddr::V4(ip) => {
-            !(ip.octets()[0] == 0 // "This network"
-            || ip.is_private()
-            || ip.is_loopback()
-            || ip.is_link_local()
-            || ip.is_broadcast())
-        }
+        IpAddr::V4(ip) => is_global_ipv4_addr(ip),
         IpAddr::V6(_) => false, // Our network does not currently support ipv6, let's ignore for now
     }
+}
+
+fn is_global_ipv4_addr(ip: &Ipv4Addr) -> bool {
+    let [a, b, c, d] = ip.octets();
+
+    // Shared address space (100.64.0.0/10) — carrier-grade NAT, routinely internal.
+    let is_shared = a == 100 && (b & 0b1100_0000) == 0b0100_0000;
+    // IETF protocol assignments (192.0.0.0/24); only .9 and .10 are globally reachable.
+    let is_ietf_protocol = a == 192 && b == 0 && c == 0 && d != 9 && d != 10;
+    // Benchmarking range (198.18.0.0/15).
+    let is_benchmarking = a == 198 && (b & 0xfe) == 18;
+    // Reserved for future use (240.0.0.0/4); also covers the 255.255.255.255 broadcast address.
+    let is_reserved = (a & 0xf0) == 0xf0;
+
+    !(a == 0 // "This network" (0.0.0.0/8)
+        || ip.is_private() // 10/8, 172.16/12, 192.168/16
+        || is_shared
+        || ip.is_loopback() // 127/8
+        || ip.is_link_local() // 169.254/16, includes the cloud metadata IP
+        || is_ietf_protocol
+        || ip.is_documentation() // 192.0.2/24, 198.51.100/24, 203.0.113/24
+        || is_benchmarking
+        || ip.is_multicast() // 224.0.0.0/4
+        || is_reserved)
 }
 
 fn is_global_ipv4(addr: &SocketAddr) -> bool {
@@ -130,9 +152,53 @@ impl aws_smithy_runtime_api::client::dns::ResolveDns for PublicIPv4SmithyResolve
 
 #[cfg(test)]
 mod tests {
-    use crate::{NoPublicIPv4Error, PublicIPv4Resolver};
+    use crate::{is_global_ip, NoPublicIPv4Error, PublicIPv4Resolver};
     use reqwest::dns::{Name, Resolve};
+    use std::net::IpAddr;
     use std::str::FromStr;
+
+    fn is_global(ip: &str) -> bool {
+        is_global_ip(&ip.parse::<IpAddr>().unwrap())
+    }
+
+    #[test]
+    fn is_global_ip_allows_public_ipv4() {
+        assert!(is_global("8.8.8.8"));
+        assert!(is_global("1.1.1.1"));
+        assert!(is_global("93.184.216.34")); // example.com
+    }
+
+    #[test]
+    fn is_global_ip_rejects_internal_ranges() {
+        // Loopback / localhost
+        assert!(!is_global("127.0.0.1"));
+        // Unspecified / "this network"
+        assert!(!is_global("0.0.0.0"));
+        // Private ranges
+        assert!(!is_global("10.0.0.1"));
+        assert!(!is_global("172.16.5.4"));
+        assert!(!is_global("192.168.1.1"));
+        // Shared / carrier-grade NAT (100.64.0.0/10)
+        assert!(!is_global("100.64.0.1"));
+        assert!(!is_global("100.127.255.255"));
+        // Link-local, including the cloud metadata endpoint
+        assert!(!is_global("169.254.0.1"));
+        assert!(!is_global("169.254.169.254"));
+        // Benchmarking (198.18.0.0/15)
+        assert!(!is_global("198.18.0.1"));
+        // Multicast, reserved and broadcast
+        assert!(!is_global("224.0.0.1"));
+        assert!(!is_global("240.0.0.1"));
+        assert!(!is_global("255.255.255.255"));
+    }
+
+    #[test]
+    fn is_global_ip_rejects_all_ipv6() {
+        // We do not route IPv6, so nothing resolves to a fetchable address, including
+        // the IPv6 loopback which must never be reachable.
+        assert!(!is_global("::1"));
+        assert!(!is_global("2606:4700:4700::1111"));
+    }
 
     #[tokio::test]
     async fn it_resolves_google_com() {
