@@ -1528,6 +1528,40 @@ describe('dashboardLogic', () => {
                 getInsightWithRetrySpy.mockRestore()
             })
 
+            it('shows query status errors returned in serialized insights', async () => {
+                const dashboard = dashboards[5]
+                const insight1 = dashboard.tiles[0].insight!
+                const insight2 = dashboard.tiles[1].insight!
+                const getInsightWithRetrySpy = jest.spyOn(dashboardUtils, 'getInsightWithRetry').mockResolvedValue({
+                    ...insight1,
+                    query_status: {
+                        id: 'failed-query-id',
+                        query_async: true,
+                        team_id: MOCK_TEAM_ID,
+                        error: true,
+                        complete: true,
+                        error_message: 'This query ran out of memory before it could finish',
+                        error_code: 'query_memory_limit',
+                    },
+                })
+
+                await expectLogic(logic, () => {
+                    logic.actions.triggerDashboardRefresh()
+                }).toFinishAllListeners()
+
+                for (const insight of [insight1, insight2]) {
+                    expect(logic.values.refreshStatus[insight.short_id]).toMatchObject({
+                        errored: true,
+                        error: expect.objectContaining({
+                            detail: 'This query ran out of memory before it could finish',
+                            code: 'query_memory_limit',
+                        }),
+                    })
+                }
+
+                getInsightWithRetrySpy.mockRestore()
+            })
+
             it('automatic refresh reloads stale insights (but not fresh ones)', async () => {
                 const dashboard = dashboards[5]
                 const staleInsight = {
