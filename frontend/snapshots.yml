@@ -7746,6 +7746,10 @@ snapshots:
         hash: v1.k794b7964.8ebd0fb0b9db1f2cc68bcb63d890a44003403e27688a938e5cb04fbffb3b5d5e.aKxLz7jngQZcJL6b0nrArk3V-pDEoGNoPsYUiGbIYy4
     scenes-other-onboarding-shared-wizard-sync-card--local-running--light:
         hash: v1.k794b7964.644de0941a464befbdd1c1173307918762ec7bf580d08b6bb73e0170da71ab57.roPN1jIIWT47y5Xh3Gluqd744nCUVhJkfniX1oq__3M
+    scenes-other-onboarding-shared-wizard-sync-card--local-waiting-for-input--dark:
+        hash: v1.k794b7964.a869a7db1cef69d62dcab3587b818b010092de15f5f1d8946192525f5385ba49.XXiD4m8UHJIJR7EW51xd2WGSY4PVUGmkvLCqi9XVbds
+    scenes-other-onboarding-shared-wizard-sync-card--local-waiting-for-input--light:
+        hash: v1.k794b7964.5a2460cdb0c5aa2c9d8b3cf15b2fb6d620c642d7ebecc195f631a8f3ad11d6e2.djzXkWSsGV5ycQhefNm0U22G9oNI_6x_6NiTKf2RooU
     scenes-other-onboarding-shared-wizard-sync-card--playground--dark:
         hash: v1.k794b7964.c69534afe39d0311b0ed3247beb145b94381706a25f2e6c7b5d3415c87564375.ViSw0_amXLmDYynCEuR_kgnY5Ncm4ULveglgIJoTIaU
     scenes-other-onboarding-shared-wizard-sync-card--playground--light:
