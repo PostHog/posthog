@@ -6,6 +6,7 @@ const AUDIENCE = 'posthog:integration_gateway'
 const SECRET = 'test-secret'
 
 function mint(opts: { secret?: string; audience?: string; expiresIn?: number; claims?: object } = {}): string {
+    // nosemgrep: javascript.jsonwebtoken.security.jwt-hardcode.hardcoded-jwt-secret
     return jwt.sign({ team_id: 42, caller: 'cdp', ...(opts.claims ?? {}) }, opts.secret ?? SECRET, {
         audience: opts.audience ?? AUDIENCE,
         expiresIn: opts.expiresIn ?? 300,
@@ -28,6 +29,7 @@ describe('GatewayAuth', () => {
         ['wrong audience', (): string => mint({ audience: 'posthog:something_else' })],
         ['wrong secret', (): string => mint({ secret: 'other-secret' })],
         ['expired', (): string => mint({ expiresIn: -10 })],
+        // nosemgrep: javascript.jsonwebtoken.security.jwt-hardcode.hardcoded-jwt-secret
         ['missing team_id claim', (): string => jwt.sign({ caller: 'cdp' }, SECRET, { audience: AUDIENCE })],
     ])('rejects a token with %s', (_name, make) => {
         expect(new GatewayAuth(SECRET).verify(`Bearer ${make()}`)).toBeNull()

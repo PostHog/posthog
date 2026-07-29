@@ -1,12 +1,12 @@
 import jwt from 'jsonwebtoken'
 
-import { internalFetch } from '~/common/utils/request'
 import { parseJSON } from '~/common/utils/json-parse'
+import { internalFetch } from '~/common/utils/request'
 
 import {
-    createIntegrationGatewayService,
     IntegrationGatewayService,
     IntegrationGatewayServiceConfig,
+    createIntegrationGatewayService,
 } from './integration-gateway.service'
 
 jest.mock('~/common/utils/request', () => ({
@@ -32,7 +32,13 @@ describe('IntegrationGatewayService', () => {
             json: () =>
                 Promise.resolve({
                     integrations: {
-                        '1': { id: 1, team_id: 42, kind: 'slack', config: {}, sensitive_config: { access_token: 'tok' } },
+                        '1': {
+                            id: 1,
+                            team_id: 42,
+                            kind: 'slack',
+                            config: {},
+                            sensitive_config: { access_token: 'tok' },
+                        },
                     },
                 }),
             dump: () => Promise.resolve(),
@@ -46,13 +52,18 @@ describe('IntegrationGatewayService', () => {
         expect(url).toBe('http://gw:6738/api/v1/credentials/fetch')
         expect(parseJSON(options.body).integration_ids).toEqual([1, 2])
         const token = (options.headers.authorization as string).replace('Bearer ', '')
+        // nosemgrep: javascript.jsonwebtoken.security.jwt-hardcode.hardcoded-jwt-secret
         const decoded = jwt.verify(token, 'test-secret', { audience: AUDIENCE }) as jwt.JwtPayload
         expect(decoded.team_id).toBe(42)
         expect(decoded.caller).toBe('cdp')
     })
 
     it('throws on a non-200 so the manager falls back to Postgres', async () => {
-        mockInternalFetch.mockResolvedValue({ status: 503, json: () => Promise.resolve({}), dump: () => Promise.resolve() })
+        mockInternalFetch.mockResolvedValue({
+            status: 503,
+            json: () => Promise.resolve({}),
+            dump: () => Promise.resolve(),
+        })
         await expect(new IntegrationGatewayService(config()).fetchMany([1], 42)).rejects.toThrow('503')
     })
 

@@ -20,6 +20,7 @@ const SECRET = 'test-secret'
 const SALT = '00beef0000beef0000beef0000beef00'
 
 function mint(teamId: number): string {
+    // nosemgrep: javascript.jsonwebtoken.security.jwt-hardcode.hardcoded-jwt-secret
     return jwt.sign({ team_id: teamId, caller: 'test' }, SECRET, { audience: AUDIENCE, expiresIn: 300 })
 }
 
