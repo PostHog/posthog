@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.schema import DateRange, FilterLogicalOperator
+from posthog.schema import DateRange, FilterLogicalOperator, LogEntryPropertyFilter
 
 from posthog.clickhouse.client import sync_execute
 
@@ -1775,4 +1775,6 @@ class TestBuildLogsQuery(unittest.TestCase):
         # Top-level value is now a group, not the bare leaf that failed validation.
         inner = query.filterGroup.values[0]
         assert inner.type == FilterLogicalOperator.AND_
-        assert inner.values[0].key == "message"
+        leaf_filter = inner.values[0]
+        assert isinstance(leaf_filter, LogEntryPropertyFilter)
+        assert leaf_filter.key == "message"
