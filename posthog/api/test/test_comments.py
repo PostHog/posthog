@@ -939,6 +939,38 @@ class TestCommentsTicketAccessControl(APIBaseTest):
         task.refresh_from_db()
         assert task.completed_at is None
 
+    @parameterized.expand(TICKET_SCOPE_CASES)
+    def test_cannot_reply_into_a_denied_ticket_using_an_editable_ticket_item_id(self, scope: str) -> None:
+        # /thread selects by source_comment_id, so a reply naming a ticket the member can edit
+        # would still render in the denied ticket's thread if item_id weren't pinned to the parent.
+        editable_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="editable-session",
+            distinct_id="editable-user",
+            status=Status.OPEN,
+        )
+        AccessControl.objects.create(
+            resource="ticket",
+            resource_id=str(editable_ticket.id),
+            organization_member=self.member.organization_memberships.get(organization=self.organization),
+            team=self.team,
+            access_level="editor",
+        )
+        parent = Comment.objects.get(scope=scope, item_id=str(self.ticket.id))
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "injected into a denied ticket",
+                "scope": scope,
+                "item_id": str(editable_ticket.id),
+                "source_comment": str(parent.id),
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not Comment.objects.filter(source_comment=parent).exists()
+
 
 class TestDiscussionMentionInternalEvents(APIBaseTest, QueryMatchingTest):
     @mock.patch("posthog.models.comment.utils.produce_internal_event")

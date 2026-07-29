@@ -138,22 +138,42 @@ class CommentSerializer(serializers.ModelSerializer):
             if "is_task" in data and bool(data["is_task"]) != bool(instance.is_task):
                 raise exceptions.ValidationError({"is_task": "Cannot change task state after creation."})
 
-        # Check both the comment's persisted (scope, item_id) and the submitted target — so losing
-        # ticket editor access after creation, and re-scoping a comment into or out of a ticket,
-        # are all caught, not just fresh ticket-message creation.
-        scopes_and_items = {
-            (
-                data.get("scope", instance.scope if instance else None),
-                data.get("item_id", instance.item_id if instance else None),
-            )
-        }
+        # A reply lives in its parent's thread: a scope mismatch would let content cross the
+        # authorization boundary between ticket and non-ticket discussions in either direction.
+        source_comment = (
+            data["source_comment"] if "source_comment" in data else getattr(instance, "source_comment", None)
+        )
+        scope = data["scope"] if "scope" in data else getattr(instance, "scope", None)
+        item_id = data["item_id"] if "item_id" in data else getattr(instance, "item_id", None)
+        if source_comment is not None:
+            if source_comment.team_id != self.context["team_id"]:
+                raise exceptions.ValidationError({"source_comment": "Comment not found."})
+            if source_comment.scope != scope:
+                raise exceptions.ValidationError(
+                    {"scope": "A reply must use the same scope as the comment it replies to."}
+                )
+            # /thread selects replies by source_comment_id alone, so a ticket reply carrying a
+            # different item_id would render in a thread on a ticket its author never had to pass
+            # the editor check for.
+            if scope in TICKET_COMMENT_SCOPES and source_comment.item_id != item_id:
+                raise exceptions.ValidationError(
+                    {"item_id": "A reply must belong to the same ticket as the comment it replies to."}
+                )
+
+        # Check the comment's persisted (scope, item_id), the submitted target, and a reply's
+        # parent — so losing ticket editor access after creation, re-scoping a comment into or out
+        # of a ticket, and replying into a thread on another ticket are all caught, not just fresh
+        # ticket-message creation.
+        scopes_and_items = {(scope, item_id)}
         if instance:
             scopes_and_items.add((instance.scope, instance.item_id))
-        for scope, item_id in scopes_and_items:
-            if scope in TICKET_COMMENT_SCOPES:
+        if source_comment is not None:
+            scopes_and_items.add((source_comment.scope, source_comment.item_id))
+        for target_scope, target_item_id in scopes_and_items:
+            if target_scope in TICKET_COMMENT_SCOPES:
                 _require_ticket_editor_access(
                     team_id=self.context["get_team"]().id,
-                    item_id=item_id,
+                    item_id=target_item_id,
                     user_access_control=self.context["get_user_access_control"](),
                 )
 
@@ -174,20 +194,6 @@ class CommentSerializer(serializers.ModelSerializer):
                 item_context = data.get("item_context") or {}
                 if item_context.get("is_emoji"):
                     raise exceptions.ValidationError({"is_task": "Emoji reactions cannot be tasks."})
-
-        # A reply lives in its parent's thread: a scope mismatch would let content cross the
-        # authorization boundary between ticket and non-ticket discussions in either direction.
-        source_comment = (
-            data["source_comment"] if "source_comment" in data else getattr(instance, "source_comment", None)
-        )
-        scope = data["scope"] if "scope" in data else getattr(instance, "scope", None)
-        if source_comment is not None:
-            if source_comment.team_id != self.context["team_id"]:
-                raise exceptions.ValidationError({"source_comment": "Comment not found."})
-            if source_comment.scope != scope:
-                raise exceptions.ValidationError(
-                    {"scope": "A reply must use the same scope as the comment it replies to."}
-                )
 
         return data
 
