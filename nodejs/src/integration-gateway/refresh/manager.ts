@@ -7,6 +7,13 @@ import { RefreshTeamGate } from '../config'
 import { recordRefresh } from '../metrics'
 import { IntegrationRepository } from '../repository'
 import { IntegrationRow } from '../types'
+import {
+    RefreshFailureReason,
+    recordRefreshFailure,
+    recordRefreshSuccess,
+    refreshBackoffActive,
+    refreshFailureReason,
+} from './backoff'
 import { accessTokenExpired, nowSecs } from './expiry'
 import { Provider, ProviderCredentials, providerFor } from './providers'
 
@@ -14,6 +21,14 @@ interface TokenResponse {
     access_token?: string
     expires_in?: number
     refresh_token?: string
+}
+
+/** Outcome of one refresh attempt, used for the metric label. */
+type RefreshOutcome = 'refreshed' | 'failed' | 'skipped' | 'backoff' | 'superseded'
+
+interface RefreshLockedResult {
+    row: IntegrationRow
+    outcome: RefreshOutcome
 }
 
 export type RefreshManagerConfig = ProviderCredentials & {
@@ -60,6 +75,13 @@ export class RefreshManager {
             return row
         }
 
+        // Honor the persisted backoff/terminal state (same fields Django's beat writes) before doing
+        // any work: a dead grant or an in-window failure must not be retried on every read.
+        if (refreshBackoffActive(row.config)) {
+            recordRefresh(row.kind, 'backoff')
+            return row
+        }
+
         const provider = providerFor(row.kind, this.config, row.config)
         if (!provider) {
             logger.warn('[RefreshManager] refresh requested but no provider/credentials configured; skipping', {
@@ -96,41 +118,57 @@ export class RefreshManager {
         }
 
         try {
-            const updated = await this.refreshLocked(row, provider)
-            await this.releaseLock(lockKey)
-            recordRefresh(row.kind, 'refreshed')
+            const { row: updated, outcome } = await this.refreshLocked(row, provider)
+            recordRefresh(row.kind, outcome)
             return updated
         } catch (error) {
-            // Deliberately do NOT release the lock on failure: its TTL becomes a per-integration
-            // cooldown so a persistently-failing provider is retried at most once per lock window
-            // rather than on every fetch — a lightweight stand-in for Django's refresh backoff.
-            logger.warn('[RefreshManager] token refresh failed', { id: row.id, kind: row.kind, error: String(error) })
-            try {
-                await this.repository.markRefreshFailed(row.id)
-            } catch (markError) {
-                logger.warn('[RefreshManager] failed to record refresh error', {
-                    id: row.id,
-                    error: String(markError),
-                })
-            }
+            // Backstop for unexpected errors (DB/lock); persisted backoff handles per-provider
+            // cooldown so we can safely release the lock in `finally` and fail open.
+            logger.warn('[RefreshManager] unexpected error during refresh', {
+                id: row.id,
+                kind: row.kind,
+                error: String(error),
+            })
             recordRefresh(row.kind, 'failed')
             return row
+        } finally {
+            await this.releaseLock(lockKey)
         }
     }
 
-    private async refreshLocked(row: IntegrationRow, provider: Provider): Promise<IntegrationRow> {
+    private async refreshLocked(row: IntegrationRow, provider: Provider): Promise<RefreshLockedResult> {
         // Re-read under the lock from the primary: a concurrent head (or Django) may have just
-        // rotated the token, and a replica read could miss that.
+        // rotated the token or recorded backoff, and a replica read could miss that.
         const fresh = (await this.repository.fetchOneForUpdate(row.id)) ?? row
         if (!accessTokenExpired(fresh.kind, fresh.config)) {
-            return fresh
+            return { row: fresh, outcome: 'skipped' }
+        }
+        if (refreshBackoffActive(fresh.config)) {
+            return { row: fresh, outcome: 'backoff' }
+        }
+        if (typeof fresh.sensitive_config?.refresh_token !== 'string') {
+            return { row: fresh, outcome: 'skipped' }
         }
 
         // The exact stored ciphertext we're about to spend — used as the compare-and-swap guard so a
         // concurrent Django reconnect can't be clobbered (see repository.updateAfterRefresh).
         const storedRefreshToken = fresh.sensitive_config.refresh_token
-        const refreshToken = this.decryptRefreshToken(fresh)
-        const tokens = await this.requestRefresh(provider, refreshToken)
+        let refreshToken: string
+        try {
+            refreshToken = this.decryptRefreshToken(fresh)
+        } catch (error) {
+            logger.warn('[RefreshManager] stored refresh_token is not decryptable', {
+                id: fresh.id,
+                error: String(error),
+            })
+            return await this.recordFailure(fresh, storedRefreshToken, 'other')
+        }
+
+        const { status, body } = await this.requestRefresh(provider, refreshToken)
+        if (status === null || status < 200 || status >= 300 || typeof body?.access_token !== 'string') {
+            return await this.recordFailure(fresh, storedRefreshToken, refreshFailureReason(status, body, fresh.kind))
+        }
+        const tokens = body as TokenResponse
 
         // Some providers omit expires_in on refresh; Django assumes 3600s for Salesforce/Stripe.
         let expiresIn: number | null
@@ -142,7 +180,12 @@ export class RefreshManager {
             expiresIn = null
         }
 
-        const newConfig = { ...fresh.config, refreshed_at: Math.floor(nowSecs()), expires_in: expiresIn }
+        // Clear any prior backoff/terminal state on success (mirrors Django's record_refresh_success).
+        const newConfig = recordRefreshSuccess({
+            ...fresh.config,
+            refreshed_at: Math.floor(nowSecs()),
+            expires_in: expiresIn,
+        })
         // Overwrite only the rotated leaves; other (still-encrypted) leaves are left untouched.
         const newSensitiveConfig: Record<string, any> = {
             ...fresh.sensitive_config,
@@ -165,10 +208,40 @@ export class RefreshManager {
                 id: fresh.id,
                 kind: fresh.kind,
             })
-            return (await this.repository.fetchOneForUpdate(fresh.id)) ?? fresh
+            return { row: (await this.repository.fetchOneForUpdate(fresh.id)) ?? fresh, outcome: 'superseded' }
         }
 
-        return { ...fresh, config: newConfig, sensitive_config: newSensitiveConfig }
+        return { row: { ...fresh, config: newConfig, sensitive_config: newSensitiveConfig }, outcome: 'refreshed' }
+    }
+
+    /**
+     * Record a refresh failure with capped exponential backoff + terminal detection (Django parity),
+     * compare-and-swap guarded so a concurrent reconnect isn't overwritten with stale failure state.
+     * Fail-open: the caller still serves the existing token.
+     */
+    private async recordFailure(
+        fresh: IntegrationRow,
+        storedRefreshToken: string,
+        reason: RefreshFailureReason
+    ): Promise<RefreshLockedResult> {
+        logger.warn('[RefreshManager] token refresh failed', { id: fresh.id, kind: fresh.kind, reason })
+        const failedConfig = recordRefreshFailure(fresh.config, reason)
+        try {
+            const persisted = await this.repository.recordRefreshFailure(fresh.id, failedConfig, storedRefreshToken)
+            if (!persisted) {
+                logger.info('[RefreshManager] failure superseded by a concurrent write; discarding', {
+                    id: fresh.id,
+                    kind: fresh.kind,
+                })
+                return { row: (await this.repository.fetchOneForUpdate(fresh.id)) ?? fresh, outcome: 'superseded' }
+            }
+        } catch (markError) {
+            logger.warn('[RefreshManager] failed to record refresh error', {
+                id: fresh.id,
+                error: String(markError),
+            })
+        }
+        return { row: fresh, outcome: 'failed' }
     }
 
     private decryptRefreshToken(row: IntegrationRow): string {
@@ -188,7 +261,15 @@ export class RefreshManager {
         return decrypted
     }
 
-    private async requestRefresh(provider: Provider, refreshToken: string): Promise<TokenResponse> {
+    /**
+     * POST the refresh grant. Returns the HTTP status and parsed JSON body (for failure
+     * classification); `status: null` signals a network error/timeout (no response), which the
+     * caller buckets as a transient `network` failure rather than a terminal one.
+     */
+    private async requestRefresh(
+        provider: Provider,
+        refreshToken: string
+    ): Promise<{ status: number | null; body: any }> {
         const body = new URLSearchParams({
             grant_type: 'refresh_token',
             refresh_token: refreshToken,
@@ -196,23 +277,25 @@ export class RefreshManager {
             client_secret: provider.clientSecret,
         }).toString()
 
-        const response = await fetch(provider.tokenUrl, {
-            method: 'POST',
-            headers: { 'content-type': 'application/x-www-form-urlencoded' },
-            body,
-            timeoutMs: this.config.INTEGRATION_GATEWAY_REFRESH_HTTP_TIMEOUT_MS,
-        })
-
-        if (response.status < 200 || response.status >= 300) {
-            const text = await response.text()
-            throw new Error(`provider returned ${response.status}: ${text}`)
+        try {
+            const response = await fetch(provider.tokenUrl, {
+                method: 'POST',
+                headers: { 'content-type': 'application/x-www-form-urlencoded' },
+                body,
+                timeoutMs: this.config.INTEGRATION_GATEWAY_REFRESH_HTTP_TIMEOUT_MS,
+            })
+            let parsed: any = {}
+            try {
+                parsed = await response.json()
+            } catch {
+                // Non-JSON error body (some providers return HTML/text on 5xx) — status still classifies it.
+                parsed = {}
+            }
+            return { status: response.status, body: parsed }
+        } catch (error) {
+            logger.warn('[RefreshManager] network error during token refresh', { error: String(error) })
+            return { status: null, body: {} }
         }
-
-        const parsed = (await response.json()) as TokenResponse
-        if (!parsed.access_token) {
-            throw new Error('provider response had no access_token')
-        }
-        return parsed
     }
 
     private async acquireLock(key: string): Promise<boolean> {
