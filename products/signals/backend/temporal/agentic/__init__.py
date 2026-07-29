@@ -29,7 +29,6 @@ SCOUT_RESEARCH_ALLOWED_DOMAINS: list[str] = [
     "developers.facebook.com",
     "developers.google.com",
     "developer.linkedin.com",
-    "learn.microsoft.com",
     "business-api.tiktok.com",
     "ads.tiktok.com",
     "developers.snap.com",
