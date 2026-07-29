@@ -27,6 +27,7 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import OrganizationMembership
 
+from products.customer_analytics.backend.facade.api import TicketSummary
 from products.customer_analytics.backend.facade.constants import (
     CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES,
     CUSTOM_PROPERTY_OPTION_COLORS,
@@ -292,6 +293,26 @@ class AccountNoteSerializer(DataclassSerializer):
         dataclass = AccountNoteView
         ref_name = "AccountNote"
         fields = ["short_id", "title", "created_at", "last_modified_at", "account_id", "account_name", "created_by"]
+
+
+class SupportTicketSerializer(DataclassSerializer):
+    """A support ticket linked to an account, sourced from the conversations product (read-only)."""
+
+    id = serializers.CharField(read_only=True, help_text="UUID of the support ticket.")
+    ticket_number = serializers.IntegerField(read_only=True, help_text="Human-readable ticket number.")
+    status = serializers.CharField(read_only=True, help_text="Current status of the ticket (e.g. 'new', 'open').")
+    last_message_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When the most recent message was sent on this ticket."
+    )
+    last_message_text = serializers.CharField(
+        read_only=True, allow_null=True, help_text="Truncated preview of the most recent message."
+    )
+    deep_link = serializers.CharField(read_only=True, help_text="Absolute URL to open this ticket in the app.")
+
+    class Meta:
+        dataclass = TicketSummary
+        ref_name = "SupportTicket"
+        fields = ["id", "ticket_number", "status", "last_message_at", "last_message_text", "deep_link"]
 
 
 class CustomPropertyReferenceSerializer(DataclassSerializer):
