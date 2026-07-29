@@ -53,6 +53,7 @@ function progress(overrides: Partial<InstallationProgress>): InstallationProgres
         prMerged: false,
         isCurrent: true,
         pendingInput: null,
+        startedBy: null,
         ...overrides,
     }
 }

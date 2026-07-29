@@ -10,13 +10,23 @@ disallow reverse relations with related_name='+'.
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import CreatedMetaFields, UUIDModel
 
 from products.wizard.backend.facade.enums import RunPhase
 
 
-class WizardSession(UUIDModel, TeamScopedRootMixin):
+class WizardSession(UUIDModel, TeamScopedRootMixin, CreatedMetaFields):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+
+    # db_constraint=False because posthog_user is a hot table (a constrained FK would lock it).
+    created_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        db_constraint=False,
+    )
 
     session_id = models.CharField(max_length=255)
     workflow_id = models.CharField(max_length=255)
@@ -33,7 +43,6 @@ class WizardSession(UUIDModel, TeamScopedRootMixin):
     # question is just the next upsert without the field.
     pending_input = models.JSONField(null=True, blank=True)
 
-    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta(TeamScopedRootMixin.Meta):
