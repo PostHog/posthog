@@ -12,13 +12,18 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
 
+import { userInterviewsEmptyState } from './emptyState/userInterviewsEmptyState'
 import type { UserInterviewSearchResultApi, UserInterviewTopicApi } from './generated/api.schemas'
+import { NEW_TOPIC_PROMPT, NEW_TOPIC_SUGGESTIONS } from './newTopicMaxTool'
 import { userInterviewsLogic } from './userInterviewsLogic'
 
 export const scene: SceneExport = {
     component: UserInterviews,
     logic: userInterviewsLogic,
+    productKey: ProductKey.USER_INTERVIEWS,
+    emptyState: userInterviewsEmptyState,
 }
 
 function targetingLabel(topic: UserInterviewTopicApi): string {
@@ -33,19 +38,6 @@ function targetingLabel(topic: UserInterviewTopicApi): string {
     }
     return parts.length > 0 ? parts.join(' + ') : 'Not set'
 }
-
-const NEW_TOPIC_PROMPT = `!I want to set up a new user research topic. Help me work through:
-1. What I want to learn — the feature, behavior, or question to research.
-2. Who to interview — let me give you emails or distinct IDs, or help me pick from a cohort.
-3. The interview questions — 3-6 open-ended, conversational prompts in a sensible order.
-Then create the topic using the create_user_interview_topic tool. Don't try to send emails or generate links yourself — once the topic exists I'll do that from the topic page.`
-
-const NEW_TOPIC_SUGGESTIONS = [
-    'Interview recent signups about their onboarding experience',
-    'Talk to power users about what they wish the product did better',
-    'Interview customers who churned in the last 30 days',
-    'Research how teams are using dashboards day-to-day',
-]
 
 function SearchResultCard({ result }: { result: UserInterviewSearchResultApi }): JSX.Element {
     const target = result.topic_id

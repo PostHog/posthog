@@ -199,7 +199,7 @@ function createDefaultBannerContent(): ProductTourContent {
     }
 }
 
-function createDefaultTourContent(): ProductTourContent {
+export function createDefaultTourContent(): ProductTourContent {
     return {
         type: 'tour',
         steps: [

@@ -49,7 +49,9 @@ function ProductEmptyStateGateInner({ emptyState, children }: ProductEmptyStateG
     const { unskipEmptyState } = useActions(setupLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    if (skipped) {
+    // A lingering local skip is ignored for non-skippable products (the button may have
+    // been shown before the product opted out of skipping).
+    if (skipped && config.skippable !== false) {
         // Skip bypasses the screen, not detection: render the scene, plus a "Set up" reminder
         // until data lands, so there's always a way back to setup.
         const needsSetup = status === 'needs-setup' || status === 'waiting-for-data'

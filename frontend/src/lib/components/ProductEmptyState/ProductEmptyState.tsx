@@ -66,6 +66,8 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
 
                 {showWizard ? (
                     <TerminalCard command={wizardCommand} copyLabel={`${config.productName} wizard command`} />
+                ) : config.PrimaryAction ? (
+                    <config.PrimaryAction />
                 ) : config.primaryAction ? (
                     <LemonButton
                         type="primary"
@@ -94,9 +96,11 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
                             Read the docs
                         </LemonButton>
                     ) : null}
-                    <LemonButton size="xsmall" type="tertiary" onClick={skipEmptyState}>
-                        Skip for now
-                    </LemonButton>
+                    {config.skippable !== false ? (
+                        <LemonButton size="xsmall" type="tertiary" onClick={skipEmptyState}>
+                            Skip for now
+                        </LemonButton>
+                    ) : null}
                 </div>
             </div>
 

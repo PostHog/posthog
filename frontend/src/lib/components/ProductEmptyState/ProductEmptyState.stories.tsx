@@ -2,9 +2,18 @@ import { Meta } from '@storybook/react'
 
 import type { Mocks } from '~/mocks/utils'
 
+import { llmPromptsEmptyState } from 'products/ai_observability/frontend/emptyState/llmPromptsEmptyState'
+import { webScriptsEmptyState } from 'products/cdp/frontend/emptyState/webScriptsEmptyState'
+import { supportEmptyState } from 'products/conversations/frontend/emptyState/supportEmptyState'
+import { earlyAccessFeaturesEmptyState } from 'products/early_access_features/frontend/emptyState/earlyAccessFeaturesEmptyState'
+import { endpointsEmptyState } from 'products/endpoints/frontend/emptyState/endpointsEmptyState'
 import { experimentsEmptyState } from 'products/experiments/frontend/emptyState/experimentsEmptyState'
 import { featureFlagsEmptyState } from 'products/feature_flags/frontend/emptyState/featureFlagsEmptyState'
+import { linksEmptyState } from 'products/links/frontend/emptyState/linksEmptyState'
 import { mcpAnalyticsEmptyState } from 'products/mcp_analytics/frontend/emptyState/mcpAnalyticsEmptyState'
+import { productToursEmptyState } from 'products/product_tours/frontend/emptyState/productToursEmptyState'
+import { llmSkillsEmptyState } from 'products/skills/frontend/emptyState/llmSkillsEmptyState'
+import { userInterviewsEmptyState } from 'products/user_interviews/frontend/emptyState/userInterviewsEmptyState'
 
 import { ProductEmptyState } from './ProductEmptyState'
 import { ProductEmptyStateStory, productEmptyStateStory } from './storybookHelpers'
@@ -69,4 +78,60 @@ export const ExperimentsNeedsSetup: ProductEmptyStateStory = productEmptyStateSt
     experimentsEmptyState,
     'needs-setup',
     { mocks: { get: { '/api/projects/:team_id/experiments/': [200, emptyEntityList] } } }
+)
+
+export const EarlyAccessFeaturesNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    earlyAccessFeaturesEmptyState,
+    'needs-setup',
+    { mocks: { get: { '/api/projects/:team_id/early_access_feature/': [200, emptyEntityList] } } }
+)
+
+export const LLMPromptsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    llmPromptsEmptyState,
+    'needs-setup',
+    {
+        mocks: { get: { '/api/projects/:team_id/llm_prompts/': [200, emptyEntityList] } },
+    }
+)
+
+export const SkillsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(llmSkillsEmptyState, 'needs-setup', {
+    mocks: { get: { '/api/projects/:team_id/llm_skills/': [200, emptyEntityList] } },
+})
+
+export const EndpointsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(endpointsEmptyState, 'needs-setup', {
+    mocks: { get: { '/api/projects/:team_id/endpoints/': [200, emptyEntityList] } },
+})
+
+export const UserInterviewsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    userInterviewsEmptyState,
+    'needs-setup',
+    { mocks: { get: { '/api/projects/:team_id/user_interview_topics/': [200, emptyEntityList] } } }
+)
+
+export const LinksNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(linksEmptyState, 'needs-setup', {
+    mocks: { get: { '/api/projects/:team_id/links/': [200, emptyEntityList] } },
+})
+
+export const ProductToursNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    productToursEmptyState,
+    'needs-setup',
+    { mocks: { get: { '/api/projects/:team_id/product_tours/': [200, emptyEntityList] } } }
+)
+
+export const SupportNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(supportEmptyState, 'needs-setup', {
+    mocks: { get: { '/api/projects/:team_id/conversations/tickets/': [200, emptyEntityList] } },
+})
+
+export const SupportWaitingForData: ProductEmptyStateStory = productEmptyStateStory(
+    supportEmptyState,
+    'waiting-for-data',
+    { mocks: { get: { '/api/projects/:team_id/conversations/tickets/': [200, emptyEntityList] } } }
+)
+
+export const WebScriptsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    webScriptsEmptyState,
+    'needs-setup',
+    {
+        mocks: { get: { '/api/projects/:team_id/hog_functions/': [200, emptyEntityList] } },
+    }
 )

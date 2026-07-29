@@ -22,11 +22,12 @@ export const featureFlagsEmptyState: SceneProductEmptyState = {
         hedgehog: HedgehogTrafficController,
         text: {
             'needs-setup': {
-                headline: 'Release features safely, roll back instantly',
-                lead: 'Turn features on for specific users, roll them out gradually, and switch them off the moment something breaks. No redeploy needed.',
+                headline: 'Ship code without shipping the feature',
+                lead: 'Wrap a change in a feature flag, roll it out to 1% of users, and watch what happens: the session replays, events, and exceptions from the people who got it. Turn it off the moment something looks wrong, no redeploy needed. Flags also power experiments, early access programs, kill switches, and remote config.',
             },
         },
         primaryAction: { label: 'Create your first feature flag', to: urls.featureFlag('new') },
+        skippable: false,
         docsUrl: 'https://posthog.com/docs/feature-flags',
         previewLabel: 'Your flags, once created',
         Preview: FeatureFlagPreview,

@@ -23,10 +23,11 @@ export const experimentsEmptyState: SceneProductEmptyState = {
         text: {
             'needs-setup': {
                 headline: 'Test changes on real users before you commit',
-                lead: 'Split traffic between variants, measure the impact on the metrics you care about, and ship the winner. Statistical analysis is automatic, so you know when a result is real and when it is chance.',
+                lead: 'Split traffic between variants and measure the impact on the metrics you care about. Choose Bayesian or frequentist statistics, keep a holdout to track long-term impact, and reuse shared metrics across experiments. Run no-code experiments on your site, or test anything a flag can gate, LLM prompts included.',
             },
         },
         primaryAction: { label: 'Create your first experiment', to: urls.experiment('new') },
+        skippable: false,
         docsUrl: 'https://posthog.com/docs/experiments',
         previewLabel: 'Your results, once running',
         Preview: ExperimentPreview,

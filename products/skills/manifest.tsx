@@ -59,7 +59,10 @@ export const manifest: ProductManifest = {
             category: ProductItemCategory.TOOLS,
             type: 'llm_skills',
             iconType: 'llm_prompts' as FileSystemIconType,
-            iconColor: ['var(--color-product-llm-prompts-light)'] as FileSystemIconColor,
+            iconColor: [
+                'var(--color-product-llm-prompts-light)',
+                'var(--color-product-llm-prompts-dark)',
+            ] as FileSystemIconColor,
             href: urls.skills(),
             sceneKey: 'Skills',
         },
