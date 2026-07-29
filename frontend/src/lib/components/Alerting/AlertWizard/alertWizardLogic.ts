@@ -74,6 +74,65 @@ export interface AlertWizardLogicProps {
 
 const PRIMARY_DESTINATION_LIMIT = 3
 
+/**
+ * Input types the wizard's configure step knows how to render. A required input of any other type
+ * would silently never be shown, leaving the user with no way to complete the flow — keep this in
+ * sync with `SchemaInput` in `steps/ConfigureStep.tsx`.
+ */
+const RENDERABLE_INPUT_TYPES = new Set<CyclotronJobInputSchemaType['type']>([
+    'integration',
+    'integration_field',
+    'string',
+    'choice',
+])
+
+/** The inputs the user still has to fill in: required, not already set by the sub-template. */
+export function requiredInputsToConfigure(
+    selectedTemplate: HogFunctionTemplateType | null,
+    activeSubTemplate: HogFunctionSubTemplateType | null
+): CyclotronJobInputSchemaType[] {
+    if (!selectedTemplate) {
+        return []
+    }
+    const prefilledKeys = new Set(Object.keys(activeSubTemplate?.inputs ?? {}))
+    return (selectedTemplate.inputs_schema ?? []).filter(
+        (schema) => schema.required && !prefilledKeys.has(schema.key) && RENDERABLE_INPUT_TYPES.has(schema.type)
+    )
+}
+
+// Wrapper keys carry no meaning for the reader, so they're dropped from the path we build.
+const OPAQUE_ERROR_KEYS = new Set(['configuration', 'inputs', 'input', 'detail', 'non_field_errors'])
+
+/**
+ * The test invocation endpoint returns raw serializer errors rather than raising, so a field error
+ * arrives nested (`configuration.inputs.<key>`) with no flat `detail` to fall back on. Walk the tree
+ * to the first message so the user learns which field is wrong.
+ */
+export function firstErrorMessage(error: unknown, path: string[] = []): string | null {
+    if (typeof error === 'string') {
+        const field = path[path.length - 1]
+        return field ? `${field}: ${error}` : error
+    }
+    if (Array.isArray(error)) {
+        for (const entry of error) {
+            const message = firstErrorMessage(entry, path)
+            if (message) {
+                return message
+            }
+        }
+        return null
+    }
+    if (error && typeof error === 'object') {
+        for (const [key, value] of Object.entries(error)) {
+            const message = firstErrorMessage(value, OPAQUE_ERROR_KEYS.has(key) ? path : [...path, key])
+            if (message) {
+                return message
+            }
+        }
+    }
+    return null
+}
+
 function hasSubTemplateForDestination(
     triggerKey: HogFunctionSubTemplateIdType,
     destination: WizardDestination
@@ -583,18 +642,7 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
             (
                 selectedTemplate: HogFunctionTemplateType | null,
                 activeSubTemplate: null | import('~/types').HogFunctionSubTemplateType
-            ) => {
-                if (!selectedTemplate) {
-                    return []
-                }
-                const prefilledKeys = new Set(Object.keys(activeSubTemplate?.inputs ?? {}))
-                return (selectedTemplate.inputs_schema ?? []).filter(
-                    (s) =>
-                        s.required &&
-                        !prefilledKeys.has(s.key) &&
-                        (s.type === 'integration' || s.type === 'integration_field' || s.type === 'string')
-                )
-            },
+            ) => requiredInputsToConfigure(selectedTemplate, activeSubTemplate),
         ],
 
         configuration: [
@@ -730,7 +778,7 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
                 lemonToast.success('Test invocation sent')
             } catch (e: any) {
                 breakpoint()
-                lemonToast.error(e.detail || 'Test invocation failed')
+                lemonToast.error(e.detail || firstErrorMessage(e?.data) || 'Test invocation failed')
             }
 
             actions.testConfigurationComplete()

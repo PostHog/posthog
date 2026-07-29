@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { CyclotronJobInputIntegration } from 'lib/components/CyclotronJob/integrations/CyclotronJobInputIntegration'
 import { CyclotronJobInputIntegrationField } from 'lib/components/CyclotronJob/integrations/CyclotronJobInputIntegrationField'
@@ -97,6 +97,12 @@ function SchemaInput({
                 onChange={onChange}
                 configuration={configuration}
             />
+        )
+    }
+
+    if (schema.type === 'choice') {
+        return (
+            <LemonSelect fullWidth value={value ?? schema.default} onChange={onChange} options={schema.choices ?? []} />
         )
     }
 

@@ -1,6 +1,12 @@
-import { CyclotronJobFiltersType, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    CyclotronJobFiltersType,
+    CyclotronJobInputSchemaType,
+    HogFunctionTemplateType,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
-import { applyKindFilter, decorateAlertName } from './alertWizardLogic'
+import { applyKindFilter, decorateAlertName, firstErrorMessage, requiredInputsToConfigure } from './alertWizardLogic'
 
 describe('applyKindFilter', () => {
     const baseFilters: CyclotronJobFiltersType = {
@@ -88,5 +94,56 @@ describe('decorateAlertName', () => {
         expect(decorateAlertName(baseName, ['some_future_kind'])).toBe(
             'Email when a Health check fires (some_future_kind)'
         )
+    })
+})
+
+describe('requiredInputsToConfigure', () => {
+    const input = (
+        key: string,
+        type: CyclotronJobInputSchemaType['type'],
+        required: boolean
+    ): CyclotronJobInputSchemaType => ({ key, type, required, label: key })
+    const templateWith = (...inputs_schema: CyclotronJobInputSchemaType[]): HogFunctionTemplateType =>
+        ({ inputs_schema }) as HogFunctionTemplateType
+
+    // A required input the configure step can't render leaves the user with a form they can never
+    // complete: the field is invisible, so it's never submitted, and the save fails server-side.
+    it.each([
+        ['string', true],
+        ['choice', true],
+        ['integration', true],
+        ['integration_field', true],
+        ['json', false],
+    ] as [CyclotronJobInputSchemaType['type'], boolean][])('renders a required %s input: %s', (type, rendered) => {
+        const result = requiredInputsToConfigure(templateWith(input('field', type, true)), null)
+        expect(result.map((s) => s.key)).toEqual(rendered ? ['field'] : [])
+    })
+
+    it('skips optional inputs and inputs the sub-template already fills in', () => {
+        const template = templateWith(
+            input('webhookUrl', 'string', true),
+            input('content', 'string', true),
+            input('note', 'string', false)
+        )
+        const result = requiredInputsToConfigure(template, { inputs: { content: { value: 'hi' } } } as any)
+        expect(result.map((s) => s.key)).toEqual(['webhookUrl'])
+    })
+})
+
+describe('firstErrorMessage', () => {
+    it.each([
+        [
+            'a nested field error from the test invocation endpoint',
+            { configuration: { inputs: { allowedMentions: ['This field is required.'] } } },
+            'allowedMentions: This field is required.',
+        ],
+        [
+            'a top-level non-field error',
+            { configuration: { non_field_errors: ['Invalid filters'] } },
+            'Invalid filters',
+        ],
+        ['no error at all', {}, null],
+    ])('describes %s', (_, data, expected) => {
+        expect(firstErrorMessage(data)).toBe(expected)
     })
 })

@@ -376,6 +376,33 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         assert validated["A"].get("transpiled") is None
         assert validated["A"].get("value") == "{inputs.X} + A"
 
+    def test_validate_inputs_falls_back_to_schema_default_for_omitted_required_input(self):
+        # Templates gain required inputs over time, and callers written against the old schema keep
+        # sending payloads without them. Anything with a default must still validate, or the new
+        # input silently breaks every existing caller of that template.
+        inputs_schema = [
+            {"key": "webhookUrl", "type": "string", "required": True},
+            {
+                "key": "allowedMentions",
+                "type": "choice",
+                "required": True,
+                "default": "none",
+                "choices": [{"label": "None", "value": "none"}, {"label": "Everyone", "value": "everyone"}],
+            },
+        ]
+
+        validated = validate_inputs(inputs_schema, {"webhookUrl": {"value": "https://example.com/hook"}})
+
+        assert validated["allowedMentions"]["value"] == "none"
+
+    def test_validate_inputs_still_rejects_omitted_required_input_without_default(self):
+        inputs_schema = [{"key": "webhookUrl", "type": "string", "required": True}]
+
+        with pytest.raises(ValidationError) as ctx:
+            validate_inputs(inputs_schema, {})
+
+        assert "This field is required." in str(ctx.value.detail)
+
     @parameterized.expand(
         [
             ("string_input", "string", "Hey {{ person.properties.name }}"),

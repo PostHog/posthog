@@ -311,7 +311,13 @@ class InputsItemSerializer(serializers.Serializer):
         item_type = schema["type"]
 
         if schema.get("required") and (value is None or value == ""):
-            raise serializers.ValidationError({"input": f"This field is required."})
+            # A template can gain a required input long after a UI (or an API caller) learned how to
+            # build its payload. Falling back to the schema default keeps those callers working
+            # instead of rejecting them for a field they were never asked to supply.
+            default = schema.get("default")
+            if default is None or default == "":
+                raise serializers.ValidationError({"input": f"This field is required."})
+            value = attrs["value"] = default
 
         if not value:
             return attrs
