@@ -30,12 +30,13 @@ def _wait_until_dictionary_loaded(name: str, timeout_seconds: int = 600) -> None
 
 
 def remove_deleted_person_data():
-    """Hard-delete soft-deleted persons (rows with is_deleted > 0) from ClickHouse.
+    """Hard-delete persons whose current (latest-version) state is deleted from ClickHouse.
 
-    The direct `DELETE FROM person WHERE id IN (SELECT id FROM person WHERE is_deleted > 0)`
-    re-runs the whole-table subquery for every affected part, which does not scale as the
-    table grows. Instead we load the ids to delete into a dictionary once and delete with
-    dictHas(), so each part is scanned a single time.
+    `person` is a ReplacingMergeTree keyed on (team_id, id); a person can be soft-deleted and
+    later revived by a newer version, so whether to remove one is decided by the latest version
+    -- argMax(is_deleted, version) > 0 -- not by any version having is_deleted > 0. The keys are
+    loaded into a dictionary once and deleted with dictHas(), so each part is scanned a single
+    time instead of re-running a whole-table subquery per affected part.
     """
     dict_reader_user, dict_reader_password = get_clickhouse_creds(ClickHouseUser.DICT_READER)
 
@@ -51,10 +52,10 @@ def remove_deleted_person_data():
         # with dictHas().
         sync_execute(
             f"""
-            CREATE OR REPLACE DICTIONARY {qualified} {ON_CLUSTER_CLAUSE()} (id UUID, present UInt8)
-            PRIMARY KEY id
+            CREATE OR REPLACE DICTIONARY {qualified} {ON_CLUSTER_CLAUSE()} (team_id Int64, id UUID, present UInt8)
+            PRIMARY KEY team_id, id
             SOURCE(CLICKHOUSE(
-                QUERY 'SELECT id, toUInt8(1) AS present FROM {CLICKHOUSE_DATABASE}.person WHERE is_deleted > 0'
+                QUERY 'SELECT team_id, id, toUInt8(1) AS present FROM {CLICKHOUSE_DATABASE}.person WHERE (team_id, id) IN (SELECT team_id, id FROM {CLICKHOUSE_DATABASE}.person WHERE is_deleted > 0) GROUP BY team_id, id HAVING argMax(is_deleted, version) > 0'
                 USER %(dict_reader_user)s PASSWORD %(dict_reader_password)s
             ))
             LAYOUT(COMPLEX_KEY_HASHED())
@@ -72,7 +73,7 @@ def remove_deleted_person_data():
 
         # Synchronous so the dictionary is dropped only after the mutation is applied everywhere.
         sync_execute(
-            f"DELETE FROM person WHERE dictHas('{qualified}', tuple(id))",
+            f"DELETE FROM person WHERE dictHas('{qualified}', (team_id, id))",
             settings={"lightweight_deletes_sync": 2},
             workload=Workload.OFFLINE,
         )
