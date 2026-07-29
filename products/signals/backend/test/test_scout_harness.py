@@ -1640,8 +1640,13 @@ class TestRunRowProvenanceStamps(BaseTest):
 
     @parameterized.expand(
         [
-            ("report_channel_custom", ["emit_report"], "custom", True, "custom"),
-            ("legacy_channel_canonical", ["emit_finding"], "canonical", False, "canonical"),
+            # emit-only and edit-only are separate prompt builds, not one "report channel" —
+            # `build_run_prompt` renders different follow-up, escalation, and action guidance for
+            # each, so collapsing them to a boolean would pool runs given different instructions.
+            ("emit_only_custom", ["emit_report"], "custom", "emit", "custom"),
+            ("edit_only_custom", ["edit_report"], "custom", "edit", "custom"),
+            ("both_tools_canonical", ["emit_report", "edit_report"], "canonical", "both", "canonical"),
+            ("legacy_channel_canonical", ["emit_finding"], "canonical", "none", "canonical"),
         ]
     )
     def test_stamps_prompt_build_channel_and_origin(
@@ -1649,7 +1654,7 @@ class TestRunRowProvenanceStamps(BaseTest):
         _name: str,
         allowed_tools: list[str],
         origin: str,
-        expected_channel: bool,
+        expected_channel: str,
         expected_origin: str,
     ) -> None:
         config, _ = SignalScoutConfig.objects.get_or_create(team=self.team, skill_name="signals-scout-general")
@@ -1662,7 +1667,7 @@ class TestRunRowProvenanceStamps(BaseTest):
         )
         stamped = run.metadata or {}
         assert stamped["harness_prompt_version"] == HARNESS_PROMPT_VERSION
-        assert stamped["report_channel"] is expected_channel
+        assert stamped["report_channel"] == expected_channel
         assert stamped["skill_origin"] == expected_origin
         # The routing triple stays absent on the default-model path, so its keys can't be
         # confused with the always-present provenance keys.

@@ -282,7 +282,8 @@ one sandbox session → zero or more emitted signals.
   isn't worth a dedicated column — in two server-written regions.
   Top-level keys are stamped write-once at creation by `_create_run_row`, and split by whether they
   are always present.
-  `harness_prompt_version` / `report_channel` / `skill_origin` / `github_guidance` always are:
+  `harness_prompt_version` / `report_channel` (`none`/`emit`/`edit`/`both`) / `skill_origin` /
+  `github_guidance` always are:
   together they pin down which instructions the run was given, which is the thing an eval or A/B
   has to hold constant. The last three are composition forks the build alone doesn't capture, since
   the same prompt build renders different sections depending on channel, skill origin, and whether
@@ -293,8 +294,9 @@ one sandbox session → zero or more emitted signals.
   resolved at read time.
   `model` / `runtime_adapter` / `reasoning_effort` appear only when the `scouts-model-selection`
   gate (or a runtime pin) overrode the agent-server default, so their absence is meaningful.
-  `harness_prompt_version` is also attached to both lifecycle events via
-  `_attach_run_shape_props`, since that is where the A/B readout happens.
+  All four are attached to both lifecycle events via `_attach_run_shape_props`, since that is where
+  the A/B readout happens, and `github_guidance` is resolved in `arun_signals_scout` rather than
+  inside `_spawn_and_run` so the failure and cancellation paths can report it too.
   New runner-known run dimensions belong here, not grown as ad-hoc columns.
   The nested `derived` object is written once at finalize by `derived_metadata.py` and holds
   booleans the harness computes from the run's own settled output (`has_emit_report`,

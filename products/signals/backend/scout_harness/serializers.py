@@ -53,7 +53,7 @@ from products.skills.backend.models.skills import LLMSkill
         "type": "object",
         "properties": {
             "harness_prompt_version": {"type": "string"},
-            "report_channel": {"type": "boolean"},
+            "report_channel": {"type": "string"},
             "skill_origin": {"type": "string"},
             "github_guidance": {"type": "boolean"},
             "model": {"type": "string"},
@@ -191,7 +191,8 @@ class SignalScoutRunSummarySerializer(serializers.Serializer):
         help_text=(
             "Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner "
             "at run start. Always present: `harness_prompt_version` (id of the harness prompt build "
-            "the run was given), `report_channel` (whether the run held the report-authoring tools), "
+            "the run was given), `report_channel` (which report tools the run held: `none`, `emit`, "
+            "`edit`, or `both`), "
             "`skill_origin` (`canonical` or `custom`), and `github_guidance` (whether the run got "
             "the GitHub evidence section) — the provenance set that says which instructions the run "
             "actually got, so runs are only compared against runs of the same shape. Present only "
