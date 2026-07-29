@@ -894,7 +894,8 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     (error): error is string => typeof error === 'string'
                 )
                 if (validationErrors.length > 0) {
-                    lemonToast.error(`Couldn't save alert: ${validationErrors.join('. ')}`)
+                    const message = validationErrors.map((error) => error.replace(/[.!?]+$/, '')).join('. ')
+                    lemonToast.error(`Couldn't save alert: ${message}`)
                 }
             },
             submitAlertFormSuccess: async () => {
