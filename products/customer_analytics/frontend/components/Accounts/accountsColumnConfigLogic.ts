@@ -91,6 +91,9 @@ export type AccountColumnGroupKey =
     | 'sql_expression'
     | `accounts.${string}`
 
+export const ALL_COLUMNS_KEY = 'all'
+export type PickerGroupKey = AccountColumnGroupKey | typeof ALL_COLUMNS_KEY
+
 // Custom property definition ids are UUIDs, which aren't valid HogQL identifiers (hyphens).
 // Strip them so the column alias is a clean identifier, and so the renderer can map a visible
 // column name back to its definition.
@@ -181,6 +184,8 @@ export type AccountColumnGroup = {
     options: AccountColumnOption[]
     isFreeform?: boolean
 }
+
+export type AccountPickerColumnOption = AccountColumnOption & { groupLabel: string }
 
 // Field types that point at joined tables/views (lazy joins, virtual tables,
 // user-defined data warehouse joins, saved queries). Each one surfaces as a
@@ -350,6 +355,7 @@ export interface accountsColumnConfigLogicValues {
     currentProjectId: number | null // projectLogic
     currentTeamId: number | null // teamLogic
     accountsColumnGroups: AccountColumnGroup[]
+    activePickerGroup: AccountColumnGroup | null
     aliasToDefinition: Record<string, CustomPropertyDefinitionApi>
     aliasToRelationshipDefinition: Record<string, AccountRelationshipDefinitionApi>
     columnConfiguratorVisible: boolean
@@ -365,6 +371,10 @@ export interface accountsColumnConfigLogicValues {
     displayByAlias: AccountColumnDisplayState
     editingColumn: string | null
     editingColumnIndex: number | null
+    filteredColumnOptions: AccountPickerColumnOption[]
+    pickerGroupKey: PickerGroupKey
+    pickerSearch: string
+    pickerSqlInput: string
     querySelectColumns: string[]
     relationshipDefinitions: AccountRelationshipDefinitionApi[]
     relationshipDefinitionsLoaded: boolean
@@ -445,6 +455,15 @@ export interface accountsColumnConfigLogicActions {
     setEditingColumnIndex: (index: number | null) => {
         index: number | null
     }
+    setPickerGroupKey: (key: PickerGroupKey) => {
+        key: PickerGroupKey
+    }
+    setPickerSearch: (search: string) => {
+        search: string
+    }
+    setPickerSqlInput: (sqlInput: string) => {
+        sqlInput: string
+    }
     setSelectColumns: (columns: string[]) => {
         columns: string[]
     }
@@ -484,6 +503,15 @@ export interface accountsColumnConfigLogicMeta {
             customPropertyDefinitions: CustomPropertyDefinitionApi[],
             relationshipDefinitions: AccountRelationshipDefinitionApi[]
         ) => AccountColumnGroup[]
+        activePickerGroup: (
+            accountsColumnGroups: AccountColumnGroup[],
+            pickerGroupKey: any
+        ) => AccountColumnGroup | null
+        filteredColumnOptions: (
+            accountsColumnGroups: AccountColumnGroup[],
+            activePickerGroup: any,
+            pickerSearch: any
+        ) => AccountPickerColumnOption[]
         customPropertyDefinitionsById: (
             customPropertyDefinitions: CustomPropertyDefinitionApi[]
         ) => Record<string, CustomPropertyDefinitionApi>
@@ -545,6 +573,9 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
         setColumnDisplayConfig: (config: AccountColumnDisplayState) => ({ config }),
         setEditingColumnIndex: (index: number | null) => ({ index }),
         updateColumnExpression: (index: number, expression: string) => ({ index, expression }),
+        setPickerGroupKey: (key: PickerGroupKey) => ({ key }),
+        setPickerSearch: (search: string) => ({ search }),
+        setPickerSqlInput: (sqlInput: string) => ({ sqlInput }),
     }),
     reducers({
         selectColumns: [
@@ -592,6 +623,26 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
             {
                 showColumnConfigurator: () => true,
                 hideColumnConfigurator: () => false,
+            },
+        ],
+        pickerGroupKey: [
+            ALL_COLUMNS_KEY as PickerGroupKey,
+            {
+                setPickerGroupKey: (_, { key }) => key,
+            },
+        ],
+        pickerSearch: [
+            '',
+            {
+                setPickerSearch: (_, { search }) => search,
+                // A stale query from another category would silently hide results.
+                setPickerGroupKey: () => '',
+            },
+        ],
+        pickerSqlInput: [
+            '',
+            {
+                setPickerSqlInput: (_, { sqlInput }) => sqlInput,
             },
         ],
         columnDisplay: [
@@ -689,6 +740,35 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
                     customPropertyDefinitions,
                     relationshipDefinitions
                 ),
+        ],
+        activePickerGroup: [
+            (s) => [s.accountsColumnGroups, s.pickerGroupKey],
+            (accountsColumnGroups: AccountColumnGroup[], pickerGroupKey: PickerGroupKey): AccountColumnGroup | null =>
+                pickerGroupKey === ALL_COLUMNS_KEY
+                    ? null
+                    : (accountsColumnGroups.find((group) => group.key === pickerGroupKey) ?? null),
+        ],
+        // Null activePickerGroup means "All columns": search spans every non-freeform group.
+        filteredColumnOptions: [
+            (s) => [s.accountsColumnGroups, s.activePickerGroup, s.pickerSearch],
+            (
+                accountsColumnGroups: AccountColumnGroup[],
+                activePickerGroup: AccountColumnGroup | null,
+                pickerSearch: string
+            ): AccountPickerColumnOption[] => {
+                if (activePickerGroup?.isFreeform) {
+                    return []
+                }
+                const searchableGroups = activePickerGroup
+                    ? [activePickerGroup]
+                    : accountsColumnGroups.filter((group) => !group.isFreeform)
+                const query = pickerSearch.trim().toLowerCase()
+                return searchableGroups.flatMap((group) =>
+                    group.options
+                        .filter((option) => !query || option.name.toLowerCase().includes(query))
+                        .map((option) => ({ ...option, groupLabel: group.label }))
+                )
+            },
         ],
         customPropertyDefinitionsById: [
             (s) => [s.customPropertyDefinitions],

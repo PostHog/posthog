@@ -5,7 +5,7 @@ import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifi
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 
 import { IconPencil, IconX } from '@posthog/icons'
 import {
@@ -29,11 +29,12 @@ import type { CustomPropertyDefinitionApi } from 'products/customer_analytics/fr
 import { isNumericDisplayType } from '../../scenes/CustomerAnalyticsConfigurationScene/account/customPropertyTypes'
 import {
     ACCOUNTS_NAME_COLUMN,
+    ALL_COLUMNS_KEY,
     AccountColumnDisplayMode,
     AccountColumnGroup,
-    AccountColumnGroupKey,
     COLUMN_DISPLAY_WINDOW_OPTIONS,
     DEFAULT_COLUMN_DISPLAY_WINDOW_DAYS,
+    PickerGroupKey,
     accountsColumnConfigLogic,
 } from './accountsColumnConfigLogic'
 import { accountsViewsLogic } from './accountsViewsLogic'
@@ -360,48 +361,26 @@ function SelectedAccountColumn({
     )
 }
 
-const ALL_COLUMNS_KEY = 'all'
-type PickerGroupKey = AccountColumnGroupKey | typeof ALL_COLUMNS_KEY
-
 function AvailableColumnsPicker({ groups, loading }: { groups: AccountColumnGroup[]; loading: boolean }): JSX.Element {
-    const { selectColumns } = useValues(accountsColumnConfigLogic)
-    const { selectColumn } = useActions(accountsColumnConfigLogic)
-    const [activeGroupKey, setActiveGroupKey] = useState<PickerGroupKey>(ALL_COLUMNS_KEY)
-    const [search, setSearch] = useState('')
-    const [sqlInput, setSqlInput] = useState('')
-
-    const activeGroup = useMemo(
-        () => (activeGroupKey === ALL_COLUMNS_KEY ? null : (groups.find((g) => g.key === activeGroupKey) ?? null)),
-        [groups, activeGroupKey]
-    )
-
-    const filteredOptions = useMemo(() => {
-        if (activeGroup?.isFreeform) {
-            return []
-        }
-        const searchableGroups = activeGroup ? [activeGroup] : groups.filter((g) => !g.isFreeform)
-        const query = search.trim().toLowerCase()
-        return searchableGroups.flatMap((group) =>
-            group.options
-                .filter((option) => !query || option.name.toLowerCase().includes(query))
-                .map((option) => ({ ...option, groupLabel: group.label }))
-        )
-    }, [groups, activeGroup, search])
+    const { selectColumns, pickerGroupKey, pickerSearch, pickerSqlInput, activePickerGroup, filteredColumnOptions } =
+        useValues(accountsColumnConfigLogic)
+    const { selectColumn, setPickerGroupKey, setPickerSearch, setPickerSqlInput } =
+        useActions(accountsColumnConfigLogic)
 
     const isSelected = (expression: string): boolean => selectColumns.includes(expression)
 
     const addSqlExpression = (): void => {
-        const expr = sqlInput.trim()
+        const expr = pickerSqlInput.trim()
         if (expr) {
             selectColumn(expr)
-            setSqlInput('')
+            setPickerSqlInput('')
         }
     }
 
-    const searchPlaceholder = activeGroup?.isFreeform
+    const searchPlaceholder = activePickerGroup?.isFreeform
         ? 'Use the SQL expression panel below'
-        : activeGroup
-          ? `Search ${activeGroup.label.toLowerCase()}`
+        : activePickerGroup
+          ? `Search ${activePickerGroup.label.toLowerCase()}`
           : 'Search all columns'
 
     return (
@@ -409,35 +388,26 @@ function AvailableColumnsPicker({ groups, loading }: { groups: AccountColumnGrou
             <LemonInput
                 type="search"
                 placeholder={searchPlaceholder}
-                value={search}
-                onChange={setSearch}
-                disabled={activeGroup?.isFreeform}
+                value={pickerSearch}
+                onChange={setPickerSearch}
+                disabled={activePickerGroup?.isFreeform}
                 fullWidth
                 data-attr="accounts-columns-search"
-                suffix={
-                    <CategoryPicker
-                        groups={groups}
-                        activeKey={activeGroupKey}
-                        onChange={(key) => {
-                            setActiveGroupKey(key)
-                            setSearch('')
-                        }}
-                    />
-                }
+                suffix={<CategoryPicker groups={groups} activeKey={pickerGroupKey} onChange={setPickerGroupKey} />}
             />
-            {activeGroup?.isFreeform ? (
-                <SqlExpressionPanel value={sqlInput} onChange={setSqlInput} onAdd={addSqlExpression} />
+            {activePickerGroup?.isFreeform ? (
+                <SqlExpressionPanel value={pickerSqlInput} onChange={setPickerSqlInput} onAdd={addSqlExpression} />
             ) : (
                 <div className="AvailableColumnsList border border-border rounded">
-                    {loading && filteredOptions.length === 0 ? (
+                    {loading && filteredColumnOptions.length === 0 ? (
                         <div className="p-3 text-secondary">Loading schema…</div>
-                    ) : filteredOptions.length === 0 ? (
+                    ) : filteredColumnOptions.length === 0 ? (
                         <div className="p-3 text-secondary">
-                            {search.trim() ? 'No matching columns' : 'No columns available'}
+                            {pickerSearch.trim() ? 'No matching columns' : 'No columns available'}
                         </div>
                     ) : (
                         <ul className="m-0 p-0 list-none">
-                            {filteredOptions.map((option) => {
+                            {filteredColumnOptions.map((option) => {
                                 const already = isSelected(option.expression)
                                 return (
                                     <li
@@ -452,7 +422,7 @@ function AvailableColumnsPicker({ groups, loading }: { groups: AccountColumnGrou
                                             data-attr={`accounts-column-option-${option.name}`}
                                         >
                                             <span className="flex-1 font-mono">{option.name}</span>
-                                            {!activeGroup ? (
+                                            {!activePickerGroup ? (
                                                 <span className="ml-2 text-xs text-secondary">{option.groupLabel}</span>
                                             ) : null}
                                             {option.type ? (
