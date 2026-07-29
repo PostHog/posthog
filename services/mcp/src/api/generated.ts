@@ -59427,12 +59427,12 @@ export namespace Schemas {
     }
 
     /**
-     * Flat map of run dimensions to merge into the run's `self_reported` metadata. Keys are snake_case identifiers (lowercase letters, digits, underscores; start with a letter; max 64 chars); values are scalars — string (max 200 chars), boolean, or number. Nested objects/lists are rejected, and the merged map is capped at 25 keys. Re-using a key overwrites its value. Use it for facts only you can observe — e.g. `has_self_improvement_report: true`, `has_agent_feedback: true`, `validation_run: true` — not for what the harness already records (emit tallies, report ids).
+     * Flat map of run dimensions to merge into the run's `self_reported` metadata. Keys are snake_case identifiers (lowercase letters, digits, underscores; start with a letter; max 64 chars); values are scalars — string (max 200 chars), boolean, or number. Nested objects/lists are rejected, and the merged map is capped at 25 keys. Re-using a key overwrites its value. Use it for facts only you can observe — e.g. `has_agent_feedback: true`, `validation_run: true` — not for what the harness already records (emit tallies, report ids, server-derived report kinds).
      */
     export type RecordRunMetadataRequestMetadata = {[key: string]: string | number | boolean};
 
     export interface RecordRunMetadataRequest {
-      /** Flat map of run dimensions to merge into the run's `self_reported` metadata. Keys are snake_case identifiers (lowercase letters, digits, underscores; start with a letter; max 64 chars); values are scalars — string (max 200 chars), boolean, or number. Nested objects/lists are rejected, and the merged map is capped at 25 keys. Re-using a key overwrites its value. Use it for facts only you can observe — e.g. `has_self_improvement_report: true`, `has_agent_feedback: true`, `validation_run: true` — not for what the harness already records (emit tallies, report ids). */
+      /** Flat map of run dimensions to merge into the run's `self_reported` metadata. Keys are snake_case identifiers (lowercase letters, digits, underscores; start with a letter; max 64 chars); values are scalars — string (max 200 chars), boolean, or number. Nested objects/lists are rejected, and the merged map is capped at 25 keys. Re-using a key overwrites its value. Use it for facts only you can observe — e.g. `has_agent_feedback: true`, `validation_run: true` — not for what the harness already records (emit tallies, report ids, server-derived report kinds). */
       metadata: RecordRunMetadataRequestMetadata;
     }
 

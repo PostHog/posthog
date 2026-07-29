@@ -806,8 +806,8 @@ class RecordRunMetadataRequestSerializer(serializers.Serializer):
             f"{MAX_SELF_REPORTED_VALUE_LENGTH} chars), boolean, or number. Nested objects/lists are "
             f"rejected, and the merged map is capped at {MAX_SELF_REPORTED_KEYS} keys. Re-using a key "
             "overwrites its value. Use it for facts only you can observe — e.g. "
-            "`has_self_improvement_report: true`, `has_agent_feedback: true`, `validation_run: true` — "
-            "not for what the harness already records (emit tallies, report ids)."
+            "`has_agent_feedback: true`, `validation_run: true` — not for what the harness already "
+            "records (emit tallies, report ids, server-derived report kinds)."
         ),
     )
 
