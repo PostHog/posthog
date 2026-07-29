@@ -4,6 +4,7 @@ import { Form } from 'kea-forms'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import PasswordStrength from 'lib/components/PasswordStrength'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { userLogic } from 'scenes/userLogic'
 
@@ -18,6 +19,7 @@ export function ChangePasswordTitle(): JSX.Element {
 export function ChangePassword(): JSX.Element {
     const { validatedPassword, isChangePasswordSubmitting, user } = useValues(changePasswordLogic)
     const hasPassword = user?.has_password ?? false
+    const socialAuthOnly = !hasPassword && !!user?.has_social_auth
 
     return (
         <Form
@@ -26,6 +28,14 @@ export function ChangePassword(): JSX.Element {
             enableFormOnSubmit
             className="deprecated-space-y-4 max-w-160"
         >
+            {socialAuthOnly && (
+                <LemonBanner type="warning">
+                    Social login is the only way into your account right now. If you lose access to that provider you
+                    won't be able to sign in, and a password reset would go to the same email address. Setting a
+                    password gives you a second way in.
+                </LemonBanner>
+            )}
+
             {hasPassword && (
                 <LemonField name="current_password" label="Current Password">
                     <LemonInput

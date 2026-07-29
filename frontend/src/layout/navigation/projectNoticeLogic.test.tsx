@@ -9,6 +9,7 @@ import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/rev
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { verifyEmailLogic } from 'scenes/authentication/verify-email/verifyEmailLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -286,6 +287,74 @@ describe('projectNoticeLogic', () => {
             await expectLogic(verifyEmailLogic, () => {
                 verifyEmailLogic.actions.requestVerificationLink('test-uuid')
             }).toDispatchActions(['requestVerificationLink', 'requestVerificationLinkSuccess'])
+
+            logic.unmount()
+        })
+    })
+
+    describe('social auth without a password', () => {
+        const SOCIAL_DISMISS_KEY = 'project-notice-dismissed.social_auth_no_password'
+
+        let getItemSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/organizations/:organization_id/proxy_records': [200, { results: [] }],
+                },
+            })
+            initKeaTests()
+            // Without email_service_available the unverified-email branch can't win the priority chain.
+            preflightLogic.actions.loadPreflightSuccess({ cloud: true } as any)
+            getItemSpy = jest.spyOn(Storage.prototype, 'getItem').mockImplementation(() => null)
+        })
+
+        afterEach(() => {
+            getItemSpy.mockRestore()
+        })
+
+        const mountWithUser = (user: Record<string, any>): ReturnType<typeof projectNoticeLogic> => {
+            const logic = projectNoticeLogic()
+            logic.mount()
+            userLogic.actions.loadUserSuccess({
+                has_social_auth: true,
+                has_password: false,
+                has_sso_enforcement: false,
+                is_email_verified: true,
+                ...user,
+            } as any)
+            return logic
+        }
+
+        it.each([
+            { label: 'social login is the only credential', user: {}, dismissed: false, expected: true },
+            { label: 'a password is already set', user: { has_password: true }, dismissed: false, expected: false },
+            { label: 'the org enforces SSO', user: { has_sso_enforcement: true }, dismissed: false, expected: false },
+            {
+                label: 'the account has no social login',
+                user: { has_social_auth: false },
+                dismissed: false,
+                expected: false,
+            },
+            { label: 'the nudge was already dismissed', user: {}, dismissed: true, expected: false },
+        ])('shows the nudge: $expected when $label', async ({ user, dismissed, expected }) => {
+            if (dismissed) {
+                getItemSpy.mockImplementation((key: string) => (key === SOCIAL_DISMISS_KEY ? 'true' : null))
+            }
+
+            const logic = mountWithUser(user)
+
+            expect(logic.values.projectNoticeVariant === 'social_auth_no_password').toBe(expected)
+
+            logic.unmount()
+        })
+
+        it('offers a way to dismiss the nudge', async () => {
+            const logic = mountWithUser({})
+
+            // Without a dismiss key the banner renders no close button, so it would nag forever.
+            expect(logic.values.projectNoticeDismissKey).toEqual('social_auth_no_password')
+            expect(logic.values.projectNotice?.onClose).toBeTruthy()
 
             logic.unmount()
         })

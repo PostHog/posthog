@@ -2,7 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
-import { IconGear, IconPlus } from '@posthog/icons'
+import { IconGear, IconLock, IconPlus } from '@posthog/icons'
 
 import api, { ApiError } from 'lib/api'
 import { getProductPushDisplay } from 'lib/components/NavPanelAdvertisement/navPanelProductPushDisplay'
@@ -38,6 +38,7 @@ export type ProjectNoticeVariant =
     | 'real_project_with_no_events'
     | 'invite_teammates'
     | 'unverified_email'
+    | 'social_auth_no_password'
     | 'internet_connection_issue'
     | 'event_ingestion_restriction'
     | 'missing_reverse_proxy'
@@ -419,6 +420,18 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     return 'demo_project'
                 } else if (!user?.is_email_verified && !user?.has_social_auth && preflight?.email_service_available) {
                     return 'unverified_email'
+                } else if (
+                    // Social login is this account's only credential, and every account recovery path we
+                    // have (password reset, email verification, 2FA reset) delivers its token to the same
+                    // mailbox. Losing the provider account means losing PostHog access with no self-serve
+                    // way back in, so nudge for a password while the account is still reachable.
+                    user?.has_social_auth &&
+                    !user.has_password &&
+                    // With SSO enforced by the org, a password can't be used to sign in anyway.
+                    !user.has_sso_enforcement &&
+                    !isNoticeDismissed('social_auth_no_password')
+                ) {
+                    return 'social_auth_no_password'
                 } else if (isProvisionedUser && !isNoticeDismissed('provisioned_welcome')) {
                     // For partner-provisioned accounts, the welcome nudge supersedes the generic
                     // "no events yet" banner — their events arrive via the background wizard install.
@@ -467,6 +480,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     case 'missing_reverse_proxy':
                     case 'invite_teammates':
                     case 'provisioned_welcome':
+                    case 'social_auth_no_password':
                         return variant
                     default:
                         return null
@@ -617,6 +631,19 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                                 children: 'Send verification email',
                             },
                             type: 'warning',
+                        }
+                    case 'social_auth_no_password':
+                        return {
+                            message:
+                                "Social login is the only way into your account right now. If you lose access to that provider you won't be able to sign in, and a password reset would go to the same email address. Set a password as a backup.",
+                            type: 'warning',
+                            action: {
+                                to: urls.settings('user-profile', 'change-password'),
+                                'data-attr': 'social-auth-no-password-cta',
+                                icon: <IconLock />,
+                                children: 'Set password',
+                            },
+                            onClose: dismiss,
                         }
                     case 'internet_connection_issue':
                         return {
