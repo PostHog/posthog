@@ -567,7 +567,13 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                             source: {
                                 kind: NodeKind.TrendsQuery,
                                 tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
-                                series: [dauSeries, wauSeries, mauSeries],
+                                // Label each line distinctly here rather than on the shared
+                                // selectors, which are reused by other single-metric charts.
+                                series: [
+                                    { ...dauSeries, custom_name: 'Daily active' },
+                                    { ...wauSeries, custom_name: 'Weekly active' },
+                                    { ...mauSeries, custom_name: 'Monthly active' },
+                                ],
                                 interval: 'day',
                                 dateRange: {
                                     date_from: dateRange.date_from,
