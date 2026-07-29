@@ -41,6 +41,7 @@ import { urls } from 'scenes/urls'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { NavLink } from '~/layout/panel-layout/ai-first/NavLink'
 import { PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { ProjectTree } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
@@ -179,6 +180,7 @@ export function NavTabBrowse(): JSX.Element {
     const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
     const { recentItems, recentItemsLoading } = useValues(navRecentsLogic)
     const { isSidebarSectionShown, isSidebarItemShown, uiCustomizationEnabled } = useValues(uiCustomizationLogic)
+    const { enabledToolPaths } = useValues(customProductsLogic)
     // Flag-off path: the pre-customization edit mode and home modal.
     const { isEditMode, checkedTools } = useValues(editToolsLogic)
     const { enterEditMode, saveAndExitEditMode, toggleTool } = useActions(editToolsLogic)
@@ -198,11 +200,6 @@ export function NavTabBrowse(): JSX.Element {
             showLayoutPanel(false)
         }
     }
-
-    // Hiding the Project section hides its hideable items, but the section header itself stays:
-    // Activity always stays visible (like Settings in the footer) and must remain under its
-    // section header rather than floating uncategorized.
-    const projectSectionShown = isSidebarSectionShown('project')
 
     return (
         <ScrollableShadows
@@ -226,7 +223,7 @@ export function NavTabBrowse(): JSX.Element {
                     <SectionTrigger icon={<IconFolder />} label="Project" isCollapsed={isLayoutNavCollapsed} />
                 )}
                 <Collapsible.Panel className={cn('pl-2 pt-1', isLayoutNavCollapsed && 'items-center pl-0')}>
-                    {projectSectionShown && isSidebarItemShown('home') && (
+                    {isSidebarItemShown('home') && (
                         <NavLink
                             to={urls.projectRoot()}
                             label="Home"
@@ -245,7 +242,7 @@ export function NavTabBrowse(): JSX.Element {
                         />
                     )}
 
-                    {projectSectionShown && isProductAutonomyEnabled && isSidebarItemShown('inbox') && (
+                    {isProductAutonomyEnabled && isSidebarItemShown('inbox') && (
                         <NavLink
                             to={urls.inbox()}
                             label="Inbox"
@@ -270,7 +267,7 @@ export function NavTabBrowse(): JSX.Element {
                         {panelTriggerItems
                             // Starred only joined the trigger list with customization; keep the old layout without it.
                             .filter((item) => uiCustomizationEnabled || item.configKey !== 'starred')
-                            .filter((item) => projectSectionShown && isSidebarItemShown(item.configKey))
+                            .filter((item) => isSidebarItemShown(item.configKey))
                             .map((item) => {
                                 const isActive =
                                     activePanelIdentifier === item.identifier ||
@@ -475,7 +472,12 @@ export function NavTabBrowse(): JSX.Element {
                             ))}
                     </div>
                     <Collapsible.Panel className="-ml-2 pl-3 pr-1 w-[calc(100%+(var(--spacing)*4))]">
-                        {(expandedNavSections.tools ?? false) && (
+                        {!(expandedNavSections.tools ?? false) ? null : uiCustomizationEnabled &&
+                          enabledToolPaths.size === 0 ? (
+                            // Without this the section header opens onto nothing, reading as broken
+                            // rather than as "you haven't picked any tools yet".
+                            <span className="text-xs text-tertiary px-2 py-1 block">No tools shown</span>
+                        ) : (
                             <ProjectTree
                                 root={!uiCustomizationEnabled && isEditMode ? 'products://' : 'custom-products://'}
                                 onlyTree
