@@ -596,7 +596,12 @@ RAW_REPLAY_MIN_QUERY_COUNT = 10
 # ClickHouse pool. Overridable via WEB_ANALYTICS_WARMING_SHAPE_CONCURRENCY without
 # a redeploy; the pool is fixed for the life of a pass, so a change applies when
 # the next run starts. This is the fallback when the setting is unset.
-WARMING_SHAPE_CONCURRENCY = 16
+WARMING_SHAPE_CONCURRENCY = 6
+
+# Fallback shard count for the sharded warm pass (see split_warmable_queries_op);
+# overridable live via WEB_ANALYTICS_WARMING_SHARDS. Total ClickHouse-side
+# concurrency is shards x per-shard threads.
+WARMING_SHARDS = 8
 
 # Heartbeat cadence for the warm pass. Cold bucket builds run ~1s each, so a full
 # selection can take hours; without a heartbeat the op is silent start to finish
@@ -637,8 +642,7 @@ class WarmQueriesConfig(dagster.Config):
     limit: int = 0
 
 
-@dagster.op(retry_policy=cache_warming_retry_policy)
-def warm_queries_op(context: dagster.OpExecutionContext, config: WarmQueriesConfig, queries: list[dict]) -> None:
+def _scope_queries(config: WarmQueriesConfig, queries: list[dict]) -> tuple[str, list[dict]]:
     if config.mode not in ("full", "refresh", "backfill"):
         raise ValueError(f"Unknown warming mode {config.mode!r} (expected full, refresh, or backfill)")
     if config.team_ids:
@@ -646,7 +650,42 @@ def warm_queries_op(context: dagster.OpExecutionContext, config: WarmQueriesConf
         queries = [q for q in queries if q["team_id"] in wanted]
     if config.limit > 0:
         queries = queries[: config.limit]
+    return config.mode, queries
 
+
+@dagster.op(retry_policy=cache_warming_retry_policy)
+def warm_queries_op(context: dagster.OpExecutionContext, config: WarmQueriesConfig, queries: list[dict]) -> None:
+    mode, queries = _scope_queries(config, queries)
+    _warm_queries(context, mode, queries)
+
+
+@dagster.op(out=dagster.DynamicOut(dict))
+def split_warmable_queries_op(context: dagster.OpExecutionContext, config: WarmQueriesConfig, queries: list[dict]):
+    """Scope the selection and fan it out into team-disjoint shards.
+
+    Each shard becomes its own mapped op — a separate subprocess under the
+    multiprocess executor, with its own GIL. HogQL compilation is CPU-bound
+    Python, so threads inside one process serialize on the interpreter; real
+    parallelism needs processes. Sharding by team keeps every potential
+    duplicate cache key inside one shard (the dedupe set is keyed on
+    (team_id, cache_key)), so no cross-process coordination is needed.
+    """
+    mode, queries = _scope_queries(config, queries)
+    shards = min(16, max(1, get_instance_setting("WEB_ANALYTICS_WARMING_SHARDS") or WARMING_SHARDS))
+    buckets: dict[int, list[dict]] = {}
+    for query_info in queries:
+        buckets.setdefault(query_info["team_id"] % shards, []).append(query_info)
+    context.log.info(f"Split {len(queries)} shapes into {len(buckets)} shards (mode={mode})")
+    for shard_index in sorted(buckets):
+        yield dagster.DynamicOutput({"mode": mode, "queries": buckets[shard_index]}, mapping_key=f"shard_{shard_index}")
+
+
+@dagster.op(retry_policy=cache_warming_retry_policy)
+def warm_queries_shard_op(context: dagster.OpExecutionContext, shard: dict) -> None:
+    _warm_queries(context, shard["mode"], shard["queries"])
+
+
+def _warm_queries(context: dagster.OpExecutionContext, mode: str, queries: list[dict]) -> None:
     team_ids = {q["team_id"] for q in queries}
     teams: dict[int, Team] = {t.pk: t for t in Team.objects.filter(pk__in=team_ids)}
     missing_teams = team_ids - teams.keys()
@@ -748,10 +787,10 @@ def warm_queries_op(context: dagster.OpExecutionContext, config: WarmQueriesConf
             # warmed at least once has one (possibly stale); a never-warmed shape
             # doesn't. refresh keeps the warm set fresh without paying for cold
             # builds; backfill expands coverage without re-touching the warm set.
-            if config.mode == "refresh" and entry is None:
+            if mode == "refresh" and entry is None:
                 WARMING_QUERIES_COUNTER.labels(outcome="skipped_cold").inc()
                 return "skipped_cold"
-            if config.mode == "backfill" and entry is not None:
+            if mode == "backfill" and entry is not None:
                 WARMING_QUERIES_COUNTER.labels(outcome="skipped_already_warmed").inc()
                 return "skipped_already_warmed"
 
@@ -806,9 +845,7 @@ def warm_queries_op(context: dagster.OpExecutionContext, config: WarmQueriesConf
     processed = 0
     started_at = time.monotonic()
     last_log_at = started_at
-    context.log.info(
-        f"Warming {total} shapes across {len(teams)} teams (mode={config.mode}, concurrency={concurrency})"
-    )
+    context.log.info(f"Warming {total} shapes across {len(teams)} teams (mode={mode}, concurrency={concurrency})")
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
         # Futures are consumed by completion, not input order: with pool.map one
         # slow early shape would block this loop — and the heartbeat — while later
@@ -839,7 +876,7 @@ def warm_queries_op(context: dagster.OpExecutionContext, config: WarmQueriesConf
     final_breakdown = ", ".join(f"{k}={v}" for k, v in sorted(outcomes.items()))
     context.log.info(
         f"Warmed {queries_warmed} queries in {(time.monotonic() - started_at) / 60:.1f}m "
-        f"(mode={config.mode}: {final_breakdown})"
+        f"(mode={mode}: {final_breakdown})"
     )
     context.add_output_metadata(
         {
@@ -853,7 +890,7 @@ def warm_queries_op(context: dagster.OpExecutionContext, config: WarmQueriesConf
             "queries_failed": queries_failed,
             "queries_unsupported": queries_unsupported,
             "concurrency": concurrency,
-            "mode": config.mode,
+            "mode": mode,
         }
     )
 
@@ -899,11 +936,23 @@ def report_warming_plan_op(context: dagster.OpExecutionContext, queries: list[di
     tags={
         "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
         "dagster/web_analytics_cache_warming": "web_analytics_cache_warming",
+        # The agent default is 2 CPUs / 8Gi (charts: argocd/dagster/values). The
+        # sharded pass runs one subprocess per shard, each compiling HogQL on its
+        # own core, so the run pod needs CPU for the shards and memory for that
+        # many Django interpreters.
+        "dagster-k8s/config": {
+            "container_config": {
+                "resources": {
+                    "requests": {"cpu": "8000m", "memory": "12Gi"},
+                    "limits": {"memory": "12Gi"},
+                }
+            }
+        },
     },
 )
 def web_analytics_cache_warming_job():
     queries = get_warmable_queries_op()
-    warm_queries_op(queries)
+    split_warmable_queries_op(queries).map(warm_queries_shard_op)
 
 
 @dagster.job(
