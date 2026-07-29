@@ -202,22 +202,32 @@ def supersede_active_runs(team_id: int, cohort_ids: Iterable[int]) -> int:
     if not cohort_id_set:
         return 0
 
+    error = "Cohort definition changed during backfill"
     with transaction.atomic():
-        participations = CohortBackfillRunCohort.objects.for_team(team_id).filter(
-            cohort_id__in=cohort_id_set,
-            superseded_at__isnull=True,
-            run__status__in=ACTIVE_COHORT_BACKFILL_RUN_STATUSES,
+        # Resolve the targets first, then write run rows before participation rows. The finalizer
+        # locks in that order (run FOR UPDATE, then participations via stamp_events_readiness), so
+        # the opposite order here would deadlock the two on a cohort-scoped run.
+        targets = list(
+            CohortBackfillRunCohort.objects.for_team(team_id)
+            .filter(
+                cohort_id__in=cohort_id_set,
+                superseded_at__isnull=True,
+                run__status__in=ACTIVE_COHORT_BACKFILL_RUN_STATUSES,
+            )
+            .values_list("id", "run_id", "run__scope")
         )
-        cohort_run_ids = list(
-            participations.filter(run__scope=CohortBackfillScope.COHORT).values_list("run_id", flat=True)
-        )
-        participation_count = participations.update(
-            superseded_at=Now(), error="Cohort definition changed during backfill"
-        )
+        if not targets:
+            return 0
+
+        cohort_run_ids = [run_id for _, run_id, scope in targets if scope == CohortBackfillScope.COHORT]
         if cohort_run_ids:
             CohortBackfillRun.objects.for_team(team_id).filter(id__in=cohort_run_ids).update(
                 status=CohortBackfillRunStatus.SUPERSEDED,
                 finished_at=Now(),
-                error="Cohort definition changed during backfill",
+                error=error,
             )
-        return participation_count
+        return (
+            CohortBackfillRunCohort.objects.for_team(team_id)
+            .filter(id__in=[participation_id for participation_id, _, _ in targets], superseded_at__isnull=True)
+            .update(superseded_at=Now(), error=error)
+        )

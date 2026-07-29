@@ -5,10 +5,12 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.db import DatabaseError, transaction
 from django.db.models import Model
 from django.test import SimpleTestCase
 from django.utils import timezone
 
+from dateutil import parser
 from parameterized import parameterized
 
 from posthog.models.signals import model_activity_signal
@@ -202,6 +204,26 @@ class TestExternalDataSchemaActivityLogging(BaseTest):
             model_activity_signal.disconnect(self._signal_handler, sender=ExternalDataSchema)
         schema.refresh_from_db()
         assert schema.incremental_field_last_value == 42
+
+    def test_bookkeeping_save_raises_instead_of_resurrecting_deleted_row(self) -> None:
+        # Source (and its schema, via CASCADE) deleted concurrently with a sync still holding a
+        # stale in-memory schema reference. Without force_update, Django's UUID-pk insert fallback
+        # would silently recreate the row here and hit an FK violation on source_id instead.
+        schema = self._create(
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field_type": IncrementalFieldType.Integer},
+        )
+        schema_id = schema.pk
+        # A queryset delete (unlike self.source.delete()) doesn't null out this process's cached
+        # `schema.source`, matching production where the delete happens on another connection.
+        ExternalDataSource.objects.filter(pk=self.source.pk).delete()
+
+        # Postgres aborts the whole transaction on an unhandled DatabaseError; a savepoint keeps
+        # the failure scoped so the existence check below can still run.
+        with self.assertRaises(DatabaseError), transaction.atomic():
+            schema.update_incremental_field_value(42)
+
+        assert not ExternalDataSchema.objects.filter(pk=schema_id).exists()
 
 
 class TestExternalDataSchemaOOMEvent(BaseTest):
@@ -736,10 +758,43 @@ def test_process_incremental_value_xid_returns_value_as_is() -> None:
         (datetime(2024, 6, 14, 15, 33, 31), IncrementalFieldType.DateTime, datetime(2024, 6, 14, 15, 33, 31)),
         ("2024-06-14T15:33:31", IncrementalFieldType.DateTime, datetime(2024, 6, 14, 15, 33, 31)),
         ("2024-06-14", IncrementalFieldType.Date, date(2024, 6, 14)),
+        # JS `Date.prototype.toString()` cursors carry a parenthetical timezone name dateutil
+        # can't parse on its own, even though the GMT offset earlier in the string is sufficient.
+        (
+            "Sun Mar 15 2026 16:59:47 GMT+0000 (Coordinated Universal Time)",
+            IncrementalFieldType.DateTime,
+            datetime(2026, 3, 15, 16, 59, 47, tzinfo=timezone.get_fixed_timezone(0)),
+        ),
+        (
+            "Mon Jan 05 2026 09:15:00 GMT-0800 (Pacific Standard Time)",
+            IncrementalFieldType.Date,
+            date(2026, 1, 5),
+        ),
+        # A bare digit-string cursor on a date/time-typed field (e.g. a ClickHouse column Arrow
+        # casts to String) crashed here: dateutil misreads it as a calendar year and overflows
+        # past datetime's year-9999 ceiling. Fall back to the raw integer instead of crashing.
+        ("20662", IncrementalFieldType.Timestamp, 20662),
+        ("20662", IncrementalFieldType.DateTime, 20662),
+        ("20662", IncrementalFieldType.Date, 20662),
+        # Longer digit runs overflow C's int range and raise `OverflowError` instead of
+        # `ParserError` - same fallback must catch both.
+        ("20662123456", IncrementalFieldType.DateTime, 20662123456),
+        # A genuine compact date string (YYYYMMDD) must still parse as a real date, not fall
+        # back to the raw-integer path.
+        ("20240115", IncrementalFieldType.Date, date(2024, 1, 15)),
     ],
 )
 def test_process_incremental_value_datetime_handles_epoch_numbers(value, field_type, expected) -> None:
     assert process_incremental_value(value, field_type) == expected
+
+
+@pytest.mark.parametrize(
+    "field_type",
+    [IncrementalFieldType.DateTime, IncrementalFieldType.Timestamp, IncrementalFieldType.Date],
+)
+def test_process_incremental_value_datetime_reraises_unparseable_non_numeric_string(field_type) -> None:
+    with pytest.raises(parser.ParserError):
+        process_incremental_value("not-a-date-at-all", field_type)
 
 
 @pytest.mark.parametrize(

@@ -130,6 +130,20 @@ export const CompletedLocal: Story = {
     },
 }
 
+// A run still nominally in flight that has gone quiet: the clock is replaced by the reason it stopped
+// meaning anything, and the X dismisses rather than minimizes.
+export const Stalled: Story = {
+    args: {
+        mode: 'cloud',
+        elapsedSeconds: 42 * 3600,
+        stale: true,
+        dismissTooltip: 'Dismiss',
+        progress: progress({
+            steps: cloudSteps(['completed', 'completed', 'in_progress', 'pending', 'pending', 'pending']),
+        }),
+    },
+}
+
 export const Failed: Story = {
     args: {
         mode: 'cloud',
@@ -154,6 +168,7 @@ export const AllStates: Story = {
             { label: 'Local, running', args: LocalRunning.args },
             { label: 'Completed', args: Completed.args },
             { label: 'Completed, local (dashboard payoff)', args: CompletedLocal.args },
+            { label: 'Stalled', args: Stalled.args },
             { label: 'Failed', args: Failed.args },
         ]
         return (
@@ -165,6 +180,7 @@ export const AllStates: Story = {
                             progress={args!.progress!}
                             elapsedSeconds={args!.elapsedSeconds!}
                             mode={args!.mode!}
+                            stale={args!.stale}
                             dashboard={args!.dashboard}
                             onExpand={() => {}}
                             onDismiss={() => {}}

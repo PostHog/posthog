@@ -13,7 +13,6 @@ import {
     IconNotification,
     IconCheck,
     IconPencil,
-    IconRocket,
     IconSearch,
     IconStar,
 } from '@posthog/icons'
@@ -207,17 +206,6 @@ export function NavTabBrowse(): JSX.Element {
                     <SectionTrigger icon={<IconFolder />} label="Project" isCollapsed={isLayoutNavCollapsed} />
                 )}
                 <Collapsible.Panel className={cn('pl-2 pt-1', isLayoutNavCollapsed && 'items-center pl-0')}>
-                    {featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE] === 'test' && (
-                        <NavLink
-                            to={urls.quickstart()}
-                            label="Quickstart"
-                            icon={<IconRocket />}
-                            isCollapsed={isLayoutNavCollapsed}
-                            data-attr="nav-item-quickstart"
-                            onClick={() => posthog.capture('nav item clicked', { item: 'quickstart' })}
-                        />
-                    )}
-
                     <NavLink
                         to={urls.projectRoot()}
                         label="Home"
