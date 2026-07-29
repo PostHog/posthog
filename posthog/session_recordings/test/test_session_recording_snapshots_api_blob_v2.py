@@ -10,7 +10,7 @@ from posthog.models import PersonalAPIKey, SessionRecording
 from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
-from posthog.session_recordings.recordings.errors import RecordingDeletedError
+from posthog.session_recordings.recordings.errors import BlockListingError, RecordingDeletedError
 from posthog.session_recordings.session_recording_v2_service import RecordingBlock
 
 
@@ -1018,3 +1018,47 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         assert response.status_code == status.HTTP_410_GONE
         assert response.json()["error"] == "recording_deleted"
         assert response.json()["deleted_at"] == 1700000000
+
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
+    @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
+    @patch("posthog.session_recordings.session_recording_api.list_blocks_async", new_callable=AsyncMock)
+    def test_blob_v2_returns_503_when_block_listing_fails(
+        self,
+        mock_list_blocks,
+        mock_get_session_recording,
+        _mock_exists,
+    ) -> None:
+        session_id = str(uuid7())
+        mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
+        mock_list_blocks.side_effect = BlockListingError("recording-api unreachable")
+
+        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob_v2&start_blob_key=0&end_blob_key=0"
+        response = self.client.get(url)
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert response.json()["detail"] == "We couldn't load this recording. Please try again."
+
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
+    @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
+    @patch("posthog.session_recordings.session_recording_api.list_blocks")
+    def test_snapshot_sources_returns_503_when_block_listing_fails(
+        self,
+        mock_list_blocks,
+        mock_get_session_recording,
+        _mock_exists,
+    ) -> None:
+        session_id = str(uuid7())
+        mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
+        mock_list_blocks.side_effect = BlockListingError("recording-api unreachable")
+
+        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/"
+        response = self.client.get(url)
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert response.json()["detail"] == "We couldn't load this recording. Please try again."

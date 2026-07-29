@@ -29,7 +29,7 @@ from posthog.schema import LogEntryPropertyFilter, RecordingsQuery
 
 from posthog.hogql.errors import QueryError
 
-from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.models import Organization, SessionRecording, User
 from posthog.models.team import Team
 from posthog.models.utils import uuid7
@@ -1403,6 +1403,25 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response.status_code == expected_status
         # the real reason must reach the client, not a generic "internal server error"
         assert expected_detail_substring in response.json()["detail"]
+
+    @parameterized.expand(
+        [
+            ("clickhouse_timeout", ClickHouseQueryTimeOut(), 504),
+            ("clickhouse_memory_limit", ClickHouseQueryMemoryLimitExceeded(), 513),
+        ]
+    )
+    @patch("posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.get_metadata")
+    def test_single_recording_failed_metadata_lookup_is_not_a_404(
+        self, _name, exception, expected_status, mock_get_metadata
+    ):
+        mock_get_metadata.side_effect = exception
+        session_id = str(uuid7())
+        self.produce_replay_summary("user", session_id, now() - relativedelta(days=1))
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_id}")
+
+        # a failed lookup must not tell the user their recording isn't there
+        assert response.status_code == expected_status
 
     def test_sync_execute_ch_at_capacity_retry_then_503(self):
         """Test that list_blocks throws ClickHouseAtCapacity multiple times and eventually returns 503"""

@@ -104,7 +104,7 @@ from posthog.session_recordings.queries.session_replay_events import (
     get_latest_session_event_properties,
 )
 from posthog.session_recordings.recordings import recording_s3_client
-from posthog.session_recordings.recordings.errors import BlockFetchError, RecordingDeletedError
+from posthog.session_recordings.recordings.errors import BlockFetchError, BlockListingError, RecordingDeletedError
 from posthog.session_recordings.recordings.recording_api_client import RecordingApiClient, recording_api_client
 from posthog.session_recordings.session_recording_v2_service import list_blocks, list_blocks_async
 from posthog.session_recordings.utils import (
@@ -868,6 +868,14 @@ def clean_referer_url(current_url: str | None) -> str:
         return "unknown"
 
 
+class RecordingTemporarilyUnavailable(exceptions.APIException):
+    """The recording may well exist, we just couldn't load it - never report this as a 404."""
+
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "recording_temporarily_unavailable"
+    default_detail = "We couldn't load this recording. Please try again."
+
+
 # NOTE: Could we put the sharing stuff in the shared mixin :thinking:
 @extend_schema(tags=["replay"])
 class SessionRecordingViewSet(
@@ -1483,6 +1491,10 @@ class SessionRecordingViewSet(
                 },
                 status=status.HTTP_410_GONE,
             )
+        except BlockListingError as e:
+            # Already logged where it was raised. A 404 here would tell the user their recording
+            # is gone when we only failed to reach the service that lists its blocks.
+            raise RecordingTemporarilyUnavailable() from e
         except Exception as e:
             posthoganalytics.capture_exception(
                 e,

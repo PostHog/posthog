@@ -3,6 +3,7 @@ from unittest.mock import Mock, patch
 from django.test import TestCase, override_settings
 
 from posthog.session_recordings.models.session_recording import SessionRecording
+from posthog.session_recordings.recordings.errors import BlockListingError
 from posthog.session_recordings.session_recording_v2_service import (
     FIVE_SECONDS,
     RecordingBlock,
@@ -65,12 +66,11 @@ class TestSessionRecordingV2Service(TestCase):
         mock_fetch.assert_called_once_with("test_session", 1)
 
     @patch("posthog.session_recordings.session_recording_v2_service.fetch_blocks_from_recording_api")
-    def test_list_blocks_returns_empty_list_on_error(self, mock_fetch):
+    def test_list_blocks_raises_on_error_rather_than_looking_empty(self, mock_fetch):
         mock_fetch.side_effect = Exception("connection refused")
 
-        blocks = list_blocks(self.recording)
-
-        assert blocks == []
+        with self.assertRaises(BlockListingError):
+            list_blocks(self.recording)
 
     @patch("posthog.session_recordings.session_recording_v2_service.fetch_blocks_from_recording_api")
     def test_list_blocks_returns_empty_list_when_no_blocks(self, mock_fetch):
@@ -147,6 +147,7 @@ class TestSessionRecordingV2Service(TestCase):
         mock_cache.get.return_value = None
         mock_fetch.side_effect = Exception("timeout")
 
-        list_blocks(self.recording)
+        with self.assertRaises(BlockListingError):
+            list_blocks(self.recording)
 
         mock_cache.set.assert_not_called()

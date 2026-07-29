@@ -8,6 +8,7 @@ from asgiref.sync import async_to_sync
 from prometheus_client import Counter
 
 from posthog.session_recordings.models.session_recording import SessionRecording
+from posthog.session_recordings.recordings.errors import BlockListingError
 from posthog.session_recordings.recordings.recording_api_client import recording_api_client
 
 logger = structlog.get_logger(__name__)
@@ -84,6 +85,9 @@ def list_blocks(recording: SessionRecording) -> list[RecordingBlock]:
     """
     Returns a list of recording blocks fetched from the recording-api.
     Results are cached to avoid excessive calls.
+
+    An empty list means the recording has no blocks. Raises BlockListingError when the
+    listing couldn't be fetched, so callers don't mistake that for a missing recording.
     """
     cache_key, cached_blocks = _get_cached_blocks(recording)
     if cached_blocks is not None:
@@ -91,13 +95,9 @@ def list_blocks(recording: SessionRecording) -> list[RecordingBlock]:
 
     try:
         blocks = async_to_sync(fetch_blocks_from_recording_api)(recording.session_id, recording.team_id)
-    except Exception:
-        logger.exception(
-            "recording_api_list_blocks_failed",
-            session_id=recording.session_id,
-            team_id=recording.team_id,
-        )
-        return []
+    except Exception as e:
+        _log_listing_failure(recording)
+        raise BlockListingError(f"Failed to list blocks for recording: {e}") from e
 
     _cache_blocks(cache_key, blocks)
     return blocks
@@ -113,13 +113,17 @@ async def list_blocks_async(recording: SessionRecording) -> list[RecordingBlock]
 
     try:
         blocks = await fetch_blocks_from_recording_api(recording.session_id, recording.team_id)
-    except Exception:
-        logger.exception(
-            "recording_api_list_blocks_failed",
-            session_id=recording.session_id,
-            team_id=recording.team_id,
-        )
-        return []
+    except Exception as e:
+        _log_listing_failure(recording)
+        raise BlockListingError(f"Failed to list blocks for recording: {e}") from e
 
     _cache_blocks(cache_key, blocks)
     return blocks
+
+
+def _log_listing_failure(recording: SessionRecording) -> None:
+    logger.exception(
+        "recording_api_list_blocks_failed",
+        session_id=recording.session_id,
+        team_id=recording.team_id,
+    )
