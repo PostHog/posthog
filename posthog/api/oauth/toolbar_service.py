@@ -24,7 +24,7 @@ from django.db import transaction
 import requests
 import structlog
 
-from posthog.api.utils import strip_url_userinfo, unparsed_hostname_in_allowed_url_list
+from posthog.api.utils import canonicalize_encoded_url, strip_url_userinfo, unparsed_hostname_in_allowed_url_list
 from posthog.models import Team, User
 from posthog.models.oauth import OAuthApplication, is_loopback_host
 from posthog.models.organization import Organization
@@ -103,6 +103,9 @@ class ToolbarOAuthState:
 
 
 def normalize_and_validate_app_url(team: Team, app_url: str) -> str:
+    # Everything below - the scheme checks, the allowlist check, and the returned redirect target -
+    # has to see the same URL, so canonicalize before any of them run.
+    app_url = canonicalize_encoded_url(app_url)
     try:
         parsed = urlparse(app_url)
     except ValueError as exc:

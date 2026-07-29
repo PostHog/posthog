@@ -61,6 +61,7 @@ from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
 from posthog.api.utils import (
     ClassicBehaviorBooleanFieldSerializer,
     action,
+    canonicalize_encoded_url,
     strip_url_userinfo,
     unparsed_hostname_in_allowed_url_list,
 )
@@ -1829,7 +1830,8 @@ def redirect_to_site(request):
             status_code=403,
         )
 
-    app_url = strip_url_userinfo(app_url)
+    # Redirect to the form that was approved, not the caller's raw string.
+    app_url = strip_url_userinfo(canonicalize_encoded_url(app_url))
 
     params = {
         "action": "ph_authorize",

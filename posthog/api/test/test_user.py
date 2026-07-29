@@ -2,7 +2,7 @@ import uuid
 import datetime
 from datetime import timedelta
 from typing import cast
-from urllib.parse import quote, unquote
+from urllib.parse import quote, unquote, urlparse
 
 import pytest
 from freezegun.api import freeze_time
@@ -1694,6 +1694,20 @@ class TestUserAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert response.headers.get("location") is None
+
+    @parameterized.expand([("http", "http%3A%2F%2Fwww.example.com"), ("https", "https%3A%2F%2Fwww.example.com")])
+    def test_redirect_to_site_accepts_a_fully_encoded_app_url(self, _name: str, encoded: str) -> None:
+        # Some browsers encode the whole redirect target (#23504). The redirect has to go to the
+        # decoded form, so the URL that passed the allowlist is the URL the browser resolves.
+        self.team.app_urls = ["https://www.example.com"]
+        self.team.save()
+
+        response = self.client.get(f"/api/user/redirect_to_site/?appUrl={quote(encoded, safe='')}")
+
+        assert response.status_code == status.HTTP_302_FOUND
+        location = response.headers["location"]
+        assert location.startswith("http")
+        assert urlparse(location).hostname == "www.example.com"
 
     @patch("posthog.api.user.secrets.token_urlsafe")
     @patch("posthog.api.user.get_flags_from_service")

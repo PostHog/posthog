@@ -317,9 +317,23 @@ class TestUtils(BaseTest):
             ("needle is whitespace", ["http://localhost"], "    ", False),
             ("needle is absent", ["http://localhost"], None, False),
             ("single element matches", ["http://localhost"], "http://localhost:8123", True),
-            # Django decodes query params once, so a needle only looks like this on the wire
-            # when it was double-encoded. Judge it as the raw string a client would resolve.
-            ("url encoded needle has no host", ["http://localhost"], "http%3A%2F%2Flocalhost:8123", False),
+            # A needle encoded whole has no authority to judge, so it is decoded once and the
+            # decoded form is both validated and redirected to. See #23504.
+            ("fully encoded needle is decoded", ["http://localhost"], "http%3A%2F%2Flocalhost:8123", True),
+            (
+                "fully encoded needle still has to match the allowlist",
+                ["http://localhost"],
+                "http%3A%2F%2Fevil.example",
+                False,
+            ),
+            # The decode only applies when there is no authority. A needle that already parses to a
+            # host is judged as-is, so a percent-encoded authority terminator cannot smuggle one in.
+            (
+                "encoded terminator in an authority is not decoded",
+                ["https://localhost"],
+                "https://localhost%2F@evil.example/",
+                False,
+            ),
             ("url encoded dot in host", ["https://example.com"], "https://example%2Ecom/", False),
             ("multi element matches", ["http://localhost", "http://posthog.com"], "http://localhost:8123", True),
             ("scheme should be ignored", ["ftp://localhost"], "https://localhost:8123", True),

@@ -496,13 +496,31 @@ class PublicIPOnlyHttpAdapter(HTTPAdapter):
         }
 
 
+def canonicalize_encoded_url(url: str) -> str:
+    """Decode a URL that arrived fully percent-encoded, so it has an authority to validate.
+
+    Some browsers encode a whole redirect target, turning ``https://permitted.example`` into
+    ``https%3A%2F%2Fpermitted.example`` — a string that parses to no host at all.
+
+    Only a string with no host is decoded, and only once. Decoding a URL that already has an
+    authority is what lets ``https://permitted.example%2F@evil.example/`` be approved as
+    ``permitted.example`` while a browser resolves ``evil.example``, so that case is left alone.
+    Callers must redirect to what this returns, not to what they passed in — approving the decoded
+    form and emitting the raw one would reintroduce the same split.
+    """
+    if urlparse(url).hostname:
+        return url
+    decoded = urllib.parse.unquote(url)
+    return decoded if urlparse(decoded).hostname else url
+
+
 def unparsed_hostname_in_allowed_url_list(allowed_url_list: Optional[list[str]], hostname: Optional[str]) -> bool:
-    if hostname and has_authority_bypass_chars(hostname):
+    if not hostname:
+        return hostname_in_allowed_url_list(allowed_url_list, hostname)
+    candidate = canonicalize_encoded_url(hostname)
+    if has_authority_bypass_chars(candidate):
         return False
-    # Parse the string as given: decoding first would validate an authority that no
-    # client resolves, letting an attacker-chosen host inherit the allowlist decision.
-    hostname = urlparse(hostname).hostname if hostname else hostname
-    return hostname_in_allowed_url_list(allowed_url_list, hostname)
+    return hostname_in_allowed_url_list(allowed_url_list, urlparse(candidate).hostname)
 
 
 def strip_url_userinfo(url: str) -> str:
