@@ -1474,8 +1474,8 @@ export interface ErrorTrackingSettingsApi {
      */
     project_rate_limit_bucket_size_minutes?: number | null
     /**
-     * Maximum number of exception events ingested per bucket for each individual issue. Null removes the limit.
-     * @minimum 1
+     * Maximum number of exception events ingested per bucket for each individual issue. Null falls back to default_per_issue_rate_limit_value; 0 removes the limit.
+     * @minimum 0
      * @nullable
      */
     per_issue_rate_limit_value?: number | null
@@ -1485,6 +1485,13 @@ export interface ErrorTrackingSettingsApi {
      * @nullable
      */
     per_issue_rate_limit_bucket_size_minutes?: number | null
+    /**
+     * Per-issue limit applied when the project hasn't set one of its own. Null if there is no fallback.
+     * @nullable
+     */
+    readonly default_per_issue_rate_limit_value: number | null
+    /** Bucket window the fallback per-issue limit applies over, in minutes. */
+    readonly default_per_issue_rate_limit_bucket_size_minutes: number
 }
 
 export interface PatchedErrorTrackingSettingsApi {
@@ -1501,8 +1508,8 @@ export interface PatchedErrorTrackingSettingsApi {
      */
     project_rate_limit_bucket_size_minutes?: number | null
     /**
-     * Maximum number of exception events ingested per bucket for each individual issue. Null removes the limit.
-     * @minimum 1
+     * Maximum number of exception events ingested per bucket for each individual issue. Null falls back to default_per_issue_rate_limit_value; 0 removes the limit.
+     * @minimum 0
      * @nullable
      */
     per_issue_rate_limit_value?: number | null
@@ -1512,6 +1519,13 @@ export interface PatchedErrorTrackingSettingsApi {
      * @nullable
      */
     per_issue_rate_limit_bucket_size_minutes?: number | null
+    /**
+     * Per-issue limit applied when the project hasn't set one of its own. Null if there is no fallback.
+     * @nullable
+     */
+    readonly default_per_issue_rate_limit_value?: number | null
+    /** Bucket window the fallback per-issue limit applies over, in minutes. */
+    readonly default_per_issue_rate_limit_bucket_size_minutes?: number
 }
 
 export interface ErrorTrackingSpikeDetectionConfigApi {

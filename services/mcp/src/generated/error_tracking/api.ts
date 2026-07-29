@@ -6351,6 +6351,8 @@ export const ErrorTrackingSettingsUpdateSettingsPartialUpdateParams = /* @__PURE
         ),
 })
 
+export const errorTrackingSettingsUpdateSettingsPartialUpdateBodyPerIssueRateLimitValueMin = 0
+
 export const ErrorTrackingSettingsUpdateSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
     project_rate_limit_value: zod
         .number()
@@ -6366,10 +6368,10 @@ export const ErrorTrackingSettingsUpdateSettingsPartialUpdateBody = /* @__PURE__
         .describe('Bucket window over which the project-wide rate limit applies, in minutes.'),
     per_issue_rate_limit_value: zod
         .number()
-        .min(1)
+        .min(errorTrackingSettingsUpdateSettingsPartialUpdateBodyPerIssueRateLimitValueMin)
         .nullish()
         .describe(
-            'Maximum number of exception events ingested per bucket for each individual issue. Null removes the limit.'
+            'Maximum number of exception events ingested per bucket for each individual issue. Null falls back to default_per_issue_rate_limit_value; 0 removes the limit.'
         ),
     per_issue_rate_limit_bucket_size_minutes: zod
         .number()

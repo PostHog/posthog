@@ -1253,7 +1253,7 @@ export const getErrorTrackingSettingsUpdateSettingsPartialUpdateUrl = (projectId
 
 export const errorTrackingSettingsUpdateSettingsPartialUpdate = async (
     projectId: string,
-    patchedErrorTrackingSettingsApi?: PatchedErrorTrackingSettingsApi,
+    patchedErrorTrackingSettingsApi?: NonReadonly<PatchedErrorTrackingSettingsApi>,
     options?: RequestInit
 ): Promise<ErrorTrackingSettingsApi> => {
     return apiMutator<ErrorTrackingSettingsApi>(getErrorTrackingSettingsUpdateSettingsPartialUpdateUrl(projectId), {
