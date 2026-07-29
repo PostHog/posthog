@@ -86,10 +86,12 @@ and close with the notebook URL: "Full write-up with charts: `<notebook-url>`."
 
 The notebook stays the durable write-up, but attach the scored series to the report itself via
 `charts` too, so the inbox reader sees the break without leaving the report. Reuse the same
-widened-window node you embed in the notebook — a `SavedInsightNode` only when the insight's
-saved range already shows the baseline, else the widened `InsightVizNode` or
-`DataVisualizationNode` (with its axes named in `chartSettings` — a report chart carrying
-`display` but no `chartSettings` draws an empty box). The chart mechanics themselves (allowed
+widened-window node you embed in the notebook — but a `SavedInsightNode` only when the insight's
+saved range is **absolute** and contains both the baseline and the anomaly (a relative range
+like `-63d` shows them today and then slides until the anomaly scrolls off the durable report),
+else a widened ad-hoc `InsightVizNode` or `DataVisualizationNode` with pinned dates (and its
+axes named in `chartSettings` — a report chart carrying `display` but no `chartSettings` draws
+an empty box). The chart mechanics themselves (allowed
 kinds, placement, sizing, edit semantics) live in the harness prompt — don't re-derive them
 here.
 

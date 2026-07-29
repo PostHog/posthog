@@ -392,7 +392,7 @@ For each candidate, the call is **edit an existing report, author a new one, rem
   **concrete remediation** — the last two pulled from
   [`references/remediation.md`](references/remediation.md) — with the numbers in the
   `evidence`. Below that bar, write memory instead.
-  Attach the page's daily p75 series via `charts` so the band crossing (or the standing-poor plateau) and its onset are visible in the report.
+  Attach the page's daily p75 series via `charts` — for a dated regression show the band crossing and its onset; for a standing-poor page show just the observed window, since a series that starts in the poor band cannot date an onset.
   The fix lives in the team's own
   frontend code, CDN, or asset pipeline — so default to
   `actionability=requires_human_input` and `repository=NO_REPO` (NO_REPO is what stops
