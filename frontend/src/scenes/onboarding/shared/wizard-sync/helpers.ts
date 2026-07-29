@@ -116,14 +116,24 @@ export function currentTaskLabel(progress: InstallationProgress): string | null 
         return progress.prUrl ? 'Pull request is ready to review' : 'Everything is wired up'
     }
     if (progress.pendingInput) {
-        // Sensitive asks (secrets) publish no prompt text, so fall back to pointing at the terminal.
-        return progress.pendingInput.prompts[0] ?? 'The agent has a question in your terminal'
+        // The run is blocked and the user is usually looking at the app, not the terminal, so the
+        // prominent line is the call to go back there. The question itself is secondary, since
+        // knowing there is one is what unblocks the run.
+        return 'Your terminal needs your attention'
     }
     const step = activeStep(progress.steps)
     if (step) {
         return step.detail ?? step.label
     }
     return progress.phase === 'connecting' ? 'Connecting to your run' : 'Getting things ready'
+}
+
+/**
+ * The pending question, shown below the call to action rather than in place of it. Null when nothing
+ * is pending and for sensitive asks, which publish no prompt text at all.
+ */
+export function pendingQuestionLabel(progress: InstallationProgress): string | null {
+    return progress.pendingInput?.prompts[0] ?? null
 }
 
 export function stepCounts(steps: InstallationStep[]): { completed: number; total: number } {

@@ -67,7 +67,7 @@ export const Connecting: Story = {
 }
 
 // Local, the agent is blocked on a wizard_ask in the terminal: the question leads the card in the
-// warning tone. Sensitive asks render the generic terminal pointer instead of the prompt text.
+// warning tone. The call to go back to the terminal leads; the question sits under it.
 export const LocalWaitingForInput: Story = {
     args: {
         mode: 'local',
@@ -84,6 +84,28 @@ export const LocalWaitingForInput: Story = {
                 questionCount: 1,
                 sensitive: false,
                 prompts: ['Which region is your project in?'],
+            },
+        }),
+    },
+}
+
+// A secret was asked for, so no prompt text is published and the call to action stands alone.
+export const LocalWaitingForSensitiveInput: Story = {
+    args: {
+        mode: 'local',
+        elapsedSeconds: 74,
+        progress: progress({
+            steps: [
+                { id: '0', label: 'Detect framework', status: 'completed', detail: null },
+                { id: '1', label: 'Install the SDK', status: 'in_progress', detail: null },
+                { id: '2', label: 'Instrument events', status: 'pending', detail: null },
+            ],
+            pendingInput: {
+                id: 'ask-2',
+                askedAt: '2026-01-01T00:01:00Z',
+                questionCount: 1,
+                sensitive: true,
+                prompts: [],
             },
         }),
     },
