@@ -29,6 +29,7 @@ _WEBHOOK_COLUMNS = {
     "action_id": "Identifier of the specific action (message) within the campaign or journey that produced the event.",
     "parent_action_id": "Identifier of the parent action in the journey, for actions nested inside another action.",
     "customer_id": "Identifier of the customer the event relates to.",
+    "distinct_id": "Identifier PostHog uses to associate the event with a person — the customer's Customer.io id, falling back to their email address.",
     "campaign_id": "Identifier of the campaign that triggered the message, if any.",
     "newsletter_id": "Identifier of the newsletter that triggered the message, if any.",
 }

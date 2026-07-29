@@ -10,6 +10,9 @@ facade import path doesn't drag in DB drivers or the Google client libraries.
 """
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
+from products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.constants import (
+    CIO_WEBHOOK_SCHEMA_NAMES as CUSTOMER_IO_WEBHOOK_SCHEMA_NAMES,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.naming import (
     schema_repo_endpoint,
     split_schema_name as github_split_schema_name,
@@ -26,6 +29,7 @@ github_schema_repo_endpoint = schema_repo_endpoint
 
 __all__ = [
     "CHARGE_RESOURCE_NAME",
+    "CUSTOMER_IO_WEBHOOK_SCHEMA_NAMES",
     "CUSTOMER_RESOURCE_NAME",
     "INVOICE_RESOURCE_NAME",
     "NamingConvention",

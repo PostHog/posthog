@@ -36,6 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.customer_i
 from products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.constants import (
     CIO_API_ENDPOINTS,
     CIO_API_SCHEMA_NAMES,
+    CIO_IDENTITY_FIELD_CHAINS,
     CIO_WEBHOOK_SCHEMA_NAMES,
     RESOURCE_TO_CIO_OBJECT_TYPE,
 )
@@ -50,6 +51,17 @@ if TYPE_CHECKING:
 
 CIO_DOCS_WEBHOOKS_URL = "https://fly.customer.io/settings/webhooks/new/reporting_webhook"
 CIO_APP_API_KEY_URL = "https://fly.customer.io/settings/api_credentials?keyType=app"
+
+
+def _webhook_distinct_id(row: dict[str, Any]) -> str | None:
+    for chain in CIO_IDENTITY_FIELD_CHAINS:
+        value: Any = row
+        for key in chain:
+            value = value.get(key) if isinstance(value, dict) else None
+        if value is None or value == "":
+            continue
+        return str(value)
+    return None
 
 
 def _webhook_table_transformer(table: pa.Table) -> pa.Table:
@@ -73,6 +85,9 @@ def _webhook_table_transformer(table: pa.Table) -> pa.Table:
         row["event_id"] = event_id
         row["timestamp"] = timestamp
         row["metric"] = metric
+        # Always set the key, even when nothing matches: a column that appears on only some
+        # batches would give the delta table an unstable schema across syncs.
+        row["distinct_id"] = row.get("distinct_id") or _webhook_distinct_id(row)
         rows.append(row)
 
     return table_from_py_list(rows)

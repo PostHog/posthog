@@ -25,6 +25,19 @@ RESOURCE_TO_CIO_OBJECT_TYPE: dict[str, str] = {
 
 CIO_WEBHOOK_SCHEMA_NAMES: tuple[str, ...] = tuple(RESOURCE_TO_CIO_OBJECT_TYPE.keys())
 
+# Paths into a reporting-webhook payload's `data` object, in priority order, used to fill the
+# `distinct_id` column on webhook tables so they can be joined to PostHog persons.
+# `customer_id` (mirrored as `identifiers.id`) is the id the workspace supplied when identifying
+# the person, which is what a PostHog distinct_id normally holds. Email is the last resort — it
+# covers events that carry only an address, e.g. a transactional send to a non-customer.
+# `identifiers.cio_id` is deliberately excluded: it's Customer.io's own id and never a distinct_id.
+CIO_IDENTITY_FIELD_CHAINS: tuple[tuple[str, ...], ...] = (
+    ("customer_id",),
+    ("identifiers", "id"),
+    ("email_address",),
+    ("identifiers", "email"),
+)
+
 # Maps Customer.io `object_type` -> the full set of reporting-webhook event names accepted
 # by `POST /v1/reporting_webhooks`. The OpenAPI enum is missing `in_app_*`, but the
 # Reporting Webhooks docs (https://docs.customer.io/integrations/data-out/connections/webhooks/)

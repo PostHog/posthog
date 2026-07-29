@@ -11,8 +11,17 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
-from products.data_warehouse.backend.logic.data_load.source_templates import database_operations
+from products.data_warehouse.backend.logic.data_load.source_templates import (
+    create_warehouse_templates_for_source,
+    database_operations,
+)
 from products.revenue_analytics.backend.joins import get_customer_revenue_view_name
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseTable,
+    ExternalDataJob,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
 
 pytestmark = [pytest.mark.django_db]
 
@@ -88,6 +97,72 @@ class TestDatabaseOperations(BaseTest):
         assert DataWarehouseJoin.objects.filter(
             team=self.team, joining_table_name="stripe_customer", deleted=True
         ).exists()
+
+
+class TestCustomerIOPersonJoin(BaseTest):
+    def _schema(self, schema_name: str, *, with_table: bool = True) -> ExternalDataSchema:
+        source = ExternalDataSource.objects.create(team=self.team, source_type="CustomerIO")
+        table = (
+            DataWarehouseTable.objects.create(
+                team=self.team, name=f"customerio_{schema_name}", format="Parquet", url_pattern=""
+            )
+            if with_table
+            else None
+        )
+        return ExternalDataSchema.objects.create(name=schema_name, team=self.team, source=source, table=table)
+
+    def _sync(self, schema: ExternalDataSchema) -> None:
+        job = ExternalDataJob.objects.create(
+            team=self.team,
+            pipeline=schema.source,
+            schema=schema,
+            status=ExternalDataJob.Status.COMPLETED,
+            rows_synced=1,
+        )
+        create_warehouse_templates_for_source(self.team.pk, str(job.id))
+
+    def _person_joins(self):
+        return DataWarehouseJoin.objects.filter(team=self.team, joining_table_name="person_distinct_ids")
+
+    def test_creates_person_distinct_ids_join_for_a_webhook_table(self):
+        self._sync(self._schema("email_events"))
+
+        join = self._person_joins().get()
+        assert join.source_table_name == "customerio_email_events"
+        assert join.source_table_key == "distinct_id"
+        assert join.joining_table_key == "distinct_id"
+        assert join.field_name == "person_distinct_ids"
+        assert join.deleted is False
+
+    @parameterized.expand(
+        [
+            # API list endpoints describe workspace config, not per-person activity.
+            ("api_schema", "campaigns", True),
+            # Nothing to join to until the first sync creates the table.
+            ("webhook_schema_without_table", "email_events", False),
+        ]
+    )
+    def test_skips_join(self, _name, schema_name, with_table):
+        self._sync(self._schema(schema_name, with_table=with_table))
+
+        assert not self._person_joins().exists()
+
+    def test_idempotent_across_syncs(self):
+        schema = self._schema("email_events")
+        self._sync(schema)
+        self._sync(schema)
+
+        assert self._person_joins().count() == 1
+
+    def test_does_not_recreate_a_join_the_user_removed(self):
+        schema = self._schema("email_events")
+        self._sync(schema)
+        self._person_joins().get().soft_delete()
+
+        self._sync(schema)
+
+        assert self._person_joins().count() == 1
+        assert self._person_joins().get().deleted is True
 
 
 class TestCustomerRevenueViewPersonsJoin(RevenueAnalyticsTestBase):

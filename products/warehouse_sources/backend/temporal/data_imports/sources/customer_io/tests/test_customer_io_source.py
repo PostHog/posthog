@@ -1,6 +1,7 @@
 from collections.abc import Iterable
 from typing import Literal, cast
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
@@ -379,7 +380,13 @@ class TestCustomerIOWebhookTableTransformer:
         rows = result.to_pylist()
 
         assert rows == [
-            {"event_id": "evt-2", "timestamp": 1777655416, "metric": "opened", "recipient": "a@example.com"}
+            {
+                "event_id": "evt-2",
+                "timestamp": 1777655416,
+                "metric": "opened",
+                "recipient": "a@example.com",
+                "distinct_id": None,
+            }
         ]
 
     def test_skips_rows_with_null_data(self):
@@ -397,7 +404,15 @@ class TestCustomerIOWebhookTableTransformer:
         result = _webhook_table_transformer(table)
         rows = result.to_pylist()
 
-        assert rows == [{"event_id": "evt-4", "timestamp": 2, "metric": "clicked", "recipient": "b@example.com"}]
+        assert rows == [
+            {
+                "event_id": "evt-4",
+                "timestamp": 2,
+                "metric": "clicked",
+                "recipient": "b@example.com",
+                "distinct_id": None,
+            }
+        ]
 
     def test_returns_empty_when_data_column_missing(self):
         table = pa.table({"event_id": ["evt-5"], "timestamp": [1]})
@@ -405,3 +420,27 @@ class TestCustomerIOWebhookTableTransformer:
         result = _webhook_table_transformer(table)
 
         assert result.num_rows == 0
+
+    # `distinct_id` is what lets a webhook table join to persons — the auto-created
+    # `person_distinct_ids` join and the insight-series field defaults both key off it, so a
+    # regression here silently produces tables that can't be analyzed per person.
+    @pytest.mark.parametrize(
+        "data,expected",
+        [
+            pytest.param({"customer_id": "user-1", "email_address": "a@example.com"}, "user-1", id="prefers-customer"),
+            pytest.param({"identifiers": {"id": "user-2", "cio_id": "cio-2"}}, "user-2", id="identifiers-id"),
+            pytest.param({"email_address": "a@example.com"}, "a@example.com", id="email-fallback"),
+            pytest.param({"identifiers": {"email": "b@example.com"}}, "b@example.com", id="identifiers-email"),
+            pytest.param({"customer_id": 42}, "42", id="stringifies-numeric-id"),
+            pytest.param({"customer_id": "", "email_address": "c@example.com"}, "c@example.com", id="skips-empty"),
+            # Customer.io's own id can't be resolved to a PostHog person.
+            pytest.param({"identifiers": {"cio_id": "cio-3"}}, None, id="ignores-cio-id"),
+            pytest.param({"distinct_id": "explicit", "customer_id": "user-4"}, "explicit", id="keeps-payload-value"),
+        ],
+    )
+    def test_derives_distinct_id_from_payload_identity_fields(self, data, expected):
+        table = table_from_py_list([{"event_id": "evt-1", "timestamp": 1, "metric": "sent", "data": data}])
+
+        rows = _webhook_table_transformer(table).to_pylist()
+
+        assert rows[0]["distinct_id"] == expected
