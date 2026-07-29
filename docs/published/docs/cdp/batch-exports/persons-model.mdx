@@ -1,0 +1,109 @@
+---
+title: Persons model
+sidebar: Docs
+showTitle: true
+---
+
+Every batch export has a **model**, which decides what data gets exported.
+The persons model exports the person profiles in your project, so you can join person properties onto your exported events in your own warehouse.
+
+The most important thing to know before you build that join: **the persons model only exports people who have a person profile.**
+Anonymous visitors don't have one, so they never appear in the persons export, even though their events do appear in the events export.
+If you count visitors by joining events to persons, you'll undercount, and on a site with a lot of logged-out traffic you'll undercount by a lot.
+
+## What a row represents
+
+One row per person and distinct ID pair, not one row per person.
+
+A person can have several distinct IDs.
+Someone who browses anonymously and then logs in usually ends up with at least two: the anonymous ID their SDK generated, and the ID you identified them with.
+That person gets one row per distinct ID, each with the same `person_id`.
+
+This pair is also the update key.
+Destinations that support merges (Postgres, Redshift, Snowflake, BigQuery, Databricks) use `(team_id, distinct_id)` as the primary key and update rows in place as person properties change.
+File destinations like S3 and Azure Blob append new versions instead, so you'll see multiple versions of the same pair over time and need to pick the latest one yourself using `person_version` and `person_distinct_id_version`.
+
+Two consequences worth spelling out:
+
+- Counting rows does not count people. Use `count(DISTINCT person_id)`.
+- A row disappearing is not the same as a person being deleted. Deletions arrive as a row with `is_deleted` set to `true`.
+
+## Columns
+
+| Column                       | Type     | Description                                                                                        |
+| ---------------------------- | -------- | -------------------------------------------------------------------------------------------------- |
+| `team_id`                    | integer  | The PostHog project the person belongs to.                                                         |
+| `distinct_id`                | string   | One of the person's distinct IDs. Joins to `distinct_id` on the events model.                      |
+| `person_id`                  | string   | The person's UUID. Matches `person_id` on the events model.                                        |
+| `properties`                 | json     | The person's properties as of the export.                                                          |
+| `person_version`             | integer  | Increments when the person is updated. Use it to find the latest version of a row.                 |
+| `person_distinct_id_version` | integer  | Increments when the distinct ID mapping changes, for example after a merge.                        |
+| `created_at`                 | datetime | When the person profile was first created.                                                         |
+| `is_deleted`                 | boolean  | `true` when the person has been deleted in PostHog. Delete the matching row in your own warehouse. |
+
+## Why anonymous visitors are missing
+
+Events captured with [person profiles disabled](/docs/data/anonymous-vs-identified-events) (`$process_person_profile: false`) skip person processing entirely.
+No person profile is created, and no person properties are stored.
+This is what makes anonymous events cheaper to ingest.
+
+Those events still get a `person_id`.
+PostHog derives a UUID deterministically from the distinct ID, so the same anonymous visitor keeps the same `person_id` across their events.
+But because there's no profile behind it, there is no matching row in the persons export, and there never will be unless that visitor later identifies.
+
+So an inner join from exported events to exported persons silently drops every anonymous visitor, and a left join leaves them with no person columns.
+Neither is a bug or a sign of missing data.
+It's the shape of the two models.
+
+For the ingestion-side detail of how this works, see [person processing](/handbook/engineering/person-processing#personless-mode-anonymous-events) in our engineering handbook.
+
+## Counting visitors from exported data
+
+**If your events export includes `person_id`, count off the events export and skip the join.**
+The deterministic UUID means anonymous visitors are already counted:
+
+```sql
+SELECT count(DISTINCT person_id) AS visitors
+FROM exported_events
+WHERE timestamp >= '2026-01-01'
+```
+
+S3 and S3-compatible destinations include `person_id` in the events model by default.
+The others (BigQuery, Snowflake, Postgres, Redshift, Databricks, Azure Blob) don't, so their exported events carry `distinct_id` only.
+There, resolve the person through the persons export but fall back to the distinct ID when there's no profile:
+
+```sql
+SELECT count(DISTINCT coalesce(p.person_id, e.distinct_id)) AS visitors
+FROM exported_events e
+LEFT JOIN exported_persons p
+    ON p.team_id = e.team_id AND p.distinct_id = e.distinct_id
+WHERE e.timestamp >= '2026-01-01'
+```
+
+This is an approximation.
+An anonymous visitor is counted once per distinct ID, which is normally one, and identified people are counted once no matter how many distinct IDs they have.
+
+### If you run the join in ClickHouse
+
+ClickHouse fills unmatched columns from a `LEFT JOIN` with the column type's default value rather than `NULL`, so `p.person_id` comes back as an empty string and `coalesce` does nothing.
+Set `join_use_nulls=1` for the query, otherwise every anonymous visitor collapses into a single empty-string bucket:
+
+```sql
+SELECT count(DISTINCT coalesce(p.person_id, e.distinct_id)) AS visitors
+FROM exported_events e
+LEFT JOIN exported_persons p
+    ON p.team_id = e.team_id AND p.distinct_id = e.distinct_id
+WHERE e.timestamp >= '2026-01-01'
+SETTINGS join_use_nulls = 1
+```
+
+This applies to PostHog's SQL editor and to your own ClickHouse.
+BigQuery, Snowflake, Postgres, Redshift, and Databricks all return `NULL` as you'd expect.
+
+## Merges after the fact
+
+Exported rows are a snapshot of the moment they were exported.
+When an anonymous visitor later identifies, PostHog links their earlier events to their new person profile, but events already written to your destination keep the `person_id` they had at export time.
+The persons export delivers the updated mapping as new rows, so a distinct ID that used to have no profile starts appearing with one.
+
+If exact historical attribution matters to you, either resolve `person_id` at query time through the latest persons rows, or [run a backfill](/docs/cdp/batch-exports) over the affected window to re-export those events.

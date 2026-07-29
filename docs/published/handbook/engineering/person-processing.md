@@ -199,6 +199,12 @@ By default, every event creates or updates a person profile. Personless mode (`$
 
 If a personless user later identifies themselves via `$identify`, an override is created to link their anonymous events to their real person. This gives you the best of both worlds: cheap ingestion for anonymous users, full person support once they identify.
 
+#### Consequences for batch exports
+
+Because no person row is ever written, personless persons cannot appear in the persons batch export - its query is an inner join between `person` and `person_distinct_id2`. Their deterministic `person_id` does appear in the events batch export, so a customer joining exported events to exported persons will find person IDs with no match, and will undercount visitors if they count through that join.
+
+This is a frequent source of "we're missing persons" support tickets. The user-facing explanation lives in [the persons model docs](/docs/cdp/batch-exports/persons-model), which is the page to point customers at.
+
 ---
 
 ## Detailed component walkthrough

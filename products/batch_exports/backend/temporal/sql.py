@@ -27,6 +27,10 @@ def get_s3_function_call(s3_folder: str, s3_key: str | None, s3_secret: str | No
     PARTITION BY rand() %% {num_partitions}"""
 
 
+# Every persons query in this module inner joins `person` to `person_distinct_id2`, which means
+# personless distinct IDs are never exported: they have no `person` row, only a deterministic person UUID on
+# their events. Customers joining an events export to a persons export therefore find unmatched person IDs.
+# That is intended, and documented in docs/published/docs/cdp/batch-exports/persons-model.mdx.
 SELECT_FROM_PERSONS = """
 SELECT
     persons.team_id AS team_id,
