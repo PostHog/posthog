@@ -24,7 +24,7 @@ import { ChartDisplayType, InsightShortId, QueryBasedInsightModel } from '~/type
 
 import { editorSceneLogic } from './editorSceneLogic'
 import { OutputTab } from './outputPaneLogic'
-import { activeTabMatchesUrlTarget, getDisplayTypeToSaveInsight, sqlEditorLogic } from './sqlEditorLogic'
+import { activeTabMatchesUrlTarget, getDisplayTypeToSaveInsight, sqlEditorLogic, MANAGED_WAREHOUSE_SOURCE_PREFIX } from './sqlEditorLogic'
 import { SQLEditorMode } from './sqlEditorModes'
 
 // endpointLogic uses permanentlyMount() with a keyed logic, which crashes in
@@ -1460,6 +1460,105 @@ describe('sqlEditorLogic', () => {
             expect(logic.values.sendRawQueryEnabled).toEqual(true)
             expect(logic.values.sourceQuery.source.connectionId).toEqual('conn-123')
             expect(String(router.values.hashParams.raw)).toEqual('1')
+        })
+
+        it('defaults to raw SQL mode for the managed warehouse connection', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/external_data_sources/connections/': [
+                        200,
+                        [
+                            {
+                                id: 'managed-conn-1',
+                                prefix: MANAGED_WAREHOUSE_SOURCE_PREFIX,
+                                engine: 'duckdb',
+                                source_type: 'Postgres',
+                                access_method: 'direct',
+                                supports_hogql: true,
+                            },
+                        ],
+                    ],
+                    '/api/environments/:team_id/external_data_sources/': [
+                        200,
+                        {
+                            results: [
+                                {
+                                    id: 'managed-conn-1',
+                                    source_id: 'src-managed-1',
+                                    prefix: MANAGED_WAREHOUSE_SOURCE_PREFIX,
+                                    source_type: 'Postgres',
+                                    access_method: 'direct',
+                                    engine: 'duckdb',
+                                } as any,
+                            ],
+                        },
+                    ],
+                },
+            })
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', c: 'managed-conn-1' })
+
+            await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
+            await expectLogic(logic).toDispatchActions(['setSendRawQuery'])
+
+            expect(logic.values.selectedConnectionSupportsHogQL).toEqual(true)
+            expect(logic.values.sourceQuery.source.sendRawQuery).toEqual(true)
+            expect(logic.values.sendRawQueryEnabled).toEqual(true)
+        })
+
+        it('does not force raw SQL mode for a user-managed Postgres direct connection', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/external_data_sources/connections/': [
+                        200,
+                        [
+                            {
+                                id: 'user-conn-1',
+                                prefix: 'my_postgres',
+                                engine: 'postgres',
+                                source_type: 'Postgres',
+                                access_method: 'direct',
+                                supports_hogql: true,
+                            },
+                        ],
+                    ],
+                    '/api/environments/:team_id/external_data_sources/': [
+                        200,
+                        {
+                            results: [
+                                {
+                                    id: 'user-conn-1',
+                                    source_id: 'src-user-1',
+                                    prefix: 'my_postgres',
+                                    source_type: 'Postgres',
+                                    access_method: 'direct',
+                                    engine: 'postgres',
+                                } as any,
+                            ],
+                        },
+                    ],
+                },
+            })
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', c: 'user-conn-1' })
+
+            await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
+
+            expect(logic.values.selectedConnectionSupportsHogQL).toEqual(true)
+            expect(logic.values.sourceQuery.source.sendRawQuery).toBeUndefined()
+            expect(logic.values.sendRawQueryEnabled).toEqual(false)
         })
 
         it('forces raw SQL mode when the selected connection does not support HogQL', async () => {
