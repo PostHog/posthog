@@ -16,6 +16,7 @@ from posthog.api.llm_prompt import LLMPromptViewSet
 from posthog.api.llm_prompt_serializers import (
     MAX_PROMPT_PAYLOAD_BYTES,
     LLMPromptDuplicateSerializer,
+    LLMPromptListQuerySerializer,
     validate_prompt_label_name_value,
 )
 from posthog.api.services.llm_prompt import MAX_PROMPT_VERSION
@@ -949,6 +950,70 @@ class TestLLMPromptAPI(APIBaseTest):
         assert response.json()["name"] == "archived-name"
         assert response.json()["version"] == 1
 
+    def test_prompt_lifecycle_events_are_activity_logged_into_the_history_stream(self):
+        create = self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            data={"name": "my-prompt", "prompt": "v1 content"},
+            format="json",
+        )
+        assert create.status_code == status.HTTP_201_CREATED
+        publish = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_prompts/name/my-prompt/",
+            data={"prompt": "v2 content", "base_version": 1, "version_description": "tightened wording"},
+            format="json",
+        )
+        assert publish.status_code == status.HTTP_200_OK
+        label = self.client.put(
+            f"/api/environments/{self.team.id}/llm_prompts/name/my-prompt/labels/production/",
+            data={"version": 2},
+            format="json",
+        )
+        assert label.status_code == status.HTTP_201_CREATED
+        duplicate = self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/name/my-prompt/duplicate/",
+            data={"new_name": "my-prompt-copy"},
+            format="json",
+        )
+        assert duplicate.status_code == status.HTTP_201_CREATED
+        archive = self.client.post(f"/api/environments/{self.team.id}/llm_prompts/name/my-prompt/archive/")
+        assert archive.status_code == status.HTTP_204_NO_CONTENT
+
+        entries = ActivityLog.objects.filter(team_id=self.team.id, scope="LLMPrompt")
+        assert sorted((entry.item_id, entry.activity) for entry in entries) == [
+            ("my-prompt", "archived"),
+            ("my-prompt", "created"),
+            ("my-prompt", "duplicated"),
+            ("my-prompt", "published"),
+            ("my-prompt-copy", "created"),
+        ]
+
+        published = entries.get(activity="published")
+        assert published.user is not None and published.user.id == self.user.id
+        published_detail = published.detail
+        assert published_detail is not None
+        assert published_detail["changes"][0]["field"] == "version"
+        assert published_detail["changes"][0]["before"] == 1
+        assert published_detail["changes"][0]["after"] == 2
+        assert published_detail["changes"][1]["field"] == "version_description"
+        assert published_detail["changes"][1]["after"] == "tightened wording"
+
+        copy_detail = entries.get(item_id="my-prompt-copy").detail
+        assert copy_detail is not None
+        assert copy_detail["changes"][0]["field"] == "duplicated_from"
+        assert copy_detail["changes"][0]["after"] == "my-prompt"
+
+        # The History tab queries both scopes by the shared item_id in one request;
+        # lifecycle and label entries must come back as one merged stream.
+        history = self.client.get(
+            f"/api/projects/{self.team.id}/activity_log/?scopes=LLMPrompt,LLMPromptLabel&item_id=my-prompt"
+        )
+        assert history.status_code == status.HTTP_200_OK
+        rows = history.json()["results"]
+        assert {row["scope"] for row in rows} == {"LLMPrompt", "LLMPromptLabel"}
+        # 4 lifecycle entries for my-prompt (the copy's "created" is keyed to the copy)
+        # + label created and label deleted-on-archive.
+        assert len(rows) == 6
+
 
 class TestLLMPromptDuplicateSerializerValidationNoDB(SimpleTestCase):
     # validate_new_name is a pure regex + reserved-name check (no context, no DB). The duplicate
@@ -970,6 +1035,15 @@ class TestLLMPromptDuplicateSerializerValidationNoDB(SimpleTestCase):
     def test_accepts_valid_new_name(self) -> None:
         serializer = LLMPromptDuplicateSerializer(data={"new_name": "a-valid_name1"})
         assert serializer.is_valid(), serializer.errors
+
+
+class TestLLMPromptListQuerySerializerValidationNoDB(SimpleTestCase):
+    def test_rejects_unknown_order_by(self) -> None:
+        # order_by used to be read from raw query params with a silent fallback; the serializer
+        # now owns the contract, so an unknown value must fail validation (and 400 at the endpoint).
+        serializer = LLMPromptListQuerySerializer(data={"order_by": "prompt"})
+        assert not serializer.is_valid()
+        assert "order_by" in serializer.errors
 
 
 class TestLLMPromptLabelsAPI(APIBaseTest):

@@ -14,7 +14,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.rbac.user_access_control import UserAccessControlError
+from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlError
 
 if TYPE_CHECKING:
     from posthog.schema import DateRange
@@ -22,8 +22,9 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
     from posthog.models.user import User
 
-# Gates these runners behind the same flag the product's DRF endpoints require, so the
-# generic /query/ endpoint can't bypass it (see PostHogFeatureFlagPermission).
+# Gates these runners behind the same flag and RBAC resource the product's DRF endpoints
+# require, so the generic /query/ endpoint can't bypass either (see PostHogFeatureFlagPermission
+# and the "mcp_analytics" entry in ACCESS_CONTROL_RESOURCES).
 MCP_ANALYTICS_FEATURE_FLAG = "mcp-analytics"
 
 # The effective tool name for new-SDK events: the inner tool when the call went through the
@@ -62,7 +63,7 @@ def validate_mcp_analytics_access(team: "Team", user: "User") -> bool:
     )
     if not enabled:
         raise UserAccessControlError("mcp_analytics", "viewer")
-    return True
+    return UserAccessControl(user=user, team=team).assert_access_level_for_resource("mcp_analytics", "viewer")
 
 
 def mcp_query_date_range(team: "Team", date_range: "DateRange | None") -> QueryDateRange:

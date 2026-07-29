@@ -299,7 +299,7 @@ Defined in `backend/temporal/agentic/scout_coordinator.py`.
 
 **Flow:**
 
-1. Activity `fetch_enabled_signals_scout_runs_activity` bounds candidates to the teams enrolled via the `signals-scout` feature flag's JSON payload allowlist — `guaranteed_team_ids` minus `skip_team_ids`, with a hardcoded fail-safe default (`_participating_teams` → `_enrolled_team_ids`, modeled on `posthog/temporal/ai_observability/team_discovery.py`). Enrollment is flag-driven: editing the payload in the flag UI enrolls or drains a team next tick with no manual seed. For each enrolled team it calls `sync_canonical_skills(team, prune=True)` to mirror the on-disk `signals-scout-*` skills onto the team's `LLMSkill` rows, then auto-registers a `SignalScoutConfig` for any scout skill missing one (`scout_harness/config_registry.register_missing_configs`; the `scout-config-create` endpoint is the explicit upsert counterpart, so a freshly authored scout is configurable without waiting for a tick). Failures here are logged and the tick continues — a stale skill is preferable to a dead tick.
+1. Activity `fetch_enabled_signals_scout_runs_activity` bounds candidates to the teams enrolled via the `signals-scout` feature flag's JSON payload allowlist — `guaranteed_team_ids` minus `skip_team_ids`, with a hardcoded fail-safe default (`_participating_teams` → `_enrolled_team_ids`, modeled on `posthog/temporal/ai_observability/team_discovery.py`). Enrollment is flag-driven: editing the payload in the flag UI enrolls or drains a team next tick with no manual seed. For each enrolled team it calls `sync_canonical_skills(team, prune=True)` to mirror the on-disk `signals-scout-*` skills onto the team's `LLMSkill` rows, then auto-registers a `SignalScoutConfig` for any scout skill missing one (`scout_harness/config_registry.register_missing_configs`). The `scout-create` endpoint atomically creates a custom skill and config; `scout-config-create` is the lower-level explicit upsert for an existing skill. Failures here are logged and the tick continues — a stale skill is preferable to a dead tick.
 2. For each enabled config, the coordinator computes how overdue the scout is. Rolling schedules are due when `last_run_at is None`, or `now - last_run_at >= run_interval_minutes`. A config with a `run_cron_schedule` is due at the earliest unfulfilled cron slot, evaluated as wall-clock time in the project's timezone (so slots follow daylight-saving changes). It runs on the first coordinator tick at or after that slot. Saving the config after a slot has passed waits for the next slot. There is no sampling — every due scout is planned.
 3. Due runs are sorted most-overdue-first and truncated at `MAX_RUNS_PER_TICK` (50 per tick; the cost bound — overflow catches up next tick). `last_run_at` is advanced via `.update()` for everything dispatched (bypasses `save()`, so the per-tick write never hits the activity log). Planned runs are re-sorted by `(team_id, skill_name)` for stable child IDs.
 4. Each `PlannedRun` becomes a child `RunSignalsScoutWorkflow` started with `ParentClosePolicy.ABANDON` and a deterministic workflow ID per `(team_id, skill_name, tick_id)` so retried coordinators can't double-launch within a tick.
@@ -447,6 +447,14 @@ An **append-only, attributed, schema-validated log of the work done on a report*
 | `note`                   | `{"note": "...", "author"?: "..."}` — free-form note (markdown allowed)                                                                                         |
 
 **Content schemas.** `artefact_schemas.py` is the canonical, pydantic-only home of every content shape, collected in `ARTEFACT_CONTENT_SCHEMAS` (one model per type; a test asserts exact coverage). Raw payloads become typed models once, at the boundaries (`parse_artefact_content`); the model helpers derive a row's type from the content model's class (`artefact_type_for`), so a type can never mismatch its content. `repo_selection` reuses the tasks product's `RepoSelectionResult` DTO directly (kept in the dependency-light leaf module `repo_selection/types.py` so importing the schema registry doesn't pull in the sandbox runtime). Reads of legacy rows stay tolerant — parse failures are skipped or degraded, never raised.
+
+**Charts.** `SignalReport.charts` holds the queries the inbox renders on the report, so a finding about a metric move can be seen rather than taken on trust. They sit on the report rather than in its artefact log because a chart is part of what the report _says_, not a record of something that happened to it — it illustrates the summary and is replaced with it, where a log entry would accumulate versions the reader never asked for. Their schema lives in `report_charts.py` (`ReportChart`), kept as dependency-light as `artefact_schemas.py` for the same reason: it loads with the signals models.
+
+`query` is an `InsightVizNode` / `DataVisualizationNode` / `SavedInsightNode` node, kept as an unparsed dict — validating it against the real node models would mean importing `posthog.schema`, so only the `kind` allowlist, a size bound, and the executable-payload refusals (`bytecode`, a nested `HogQuery`, `sendRawQuery` — a chart renders data, it does not run code — plus a nested `SuggestedQuestionsQuery`, refused for cost, since its runner calls an LLM once per reader who opens the report) are enforced server-side, and the renderer degrades in place on a bad query. That is the same contract a notebook's `ph-query` node has.
+
+`chart_id` is the author's own slug because a report's summary and its charts are written in one call: the summary places a chart by referencing it as a markdown link with a `chart:` target (`[Daily signups](chart:signups-drop)`), and an unreferenced chart still renders below the summary. Ids are unique within the set, so a reference resolves to exactly one chart. Placement is resolved from the same markdown parse the renderer runs (`frontend/src/scenes/inbox/utils/chartPlacement.ts`) rather than by matching the raw summary: a reference in a code span is literal text, one in a table cell or heading has no room to draw, and a repeated reference points back at a chart rather than asking for a second copy — each of those resolves to "not placed here", so the chart falls to the trailing block instead of being drawn twice or lost. A paragraph holding nothing but references lays its charts out as a row. Height comes from the node (a `BoldNumber` gets a short box, a retention grid a tall scrolling one) unless the author sets `size`.
+
+Scouts write them via `charts` on `emit_report` / `edit_report`. On an edit `charts` is the report's whole set — it replaces what was there, the way `summary` replaces the summary, and omitting it leaves the existing charts alone. On the emit path the safety judge sees a report's chart titles, captions, and queries alongside its prose, so an injected chart is suppressed with the report. The edit path judges nothing today — not title, summary, notes, reviewers, or charts — so a chart set by a later edit reaches the reader unscreened, exactly as an edited summary does.
 
 **Attribution.** Every write helper (`append_status` / `add_log` / `append_finding` / `append_dismissal`) requires an `ArtefactAttribution` — exactly one of `from_user(user_id)` / `from_task(task_id)` / `system()` — so no write site can silently skip it. Agent writes are attributed deterministically: sandbox provisioning bakes the agent's task id into an `X-PostHog-Task-Id` header on its MCP config, forwarded by the MCP server on every API call; the LLM never handles its own task id. The header is attribution metadata, not an authorization boundary (the token is team-scoped and the named task must belong to the same team).
 
@@ -623,9 +631,9 @@ Defined in `products/error_tracking/backend/embedding.py`:
 | --------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | `team_id`       | Int64                  | Team identifier                                                                                                                  |
 | `product`       | LowCardinality(String) | Product bucket — signals uses `'signals'`                                                                                        |
-| `document_type` | LowCardinality(String) | Document type — signals uses `'signal'`                                                                                          |
+| `document_type` | LowCardinality(String) | Document type — `'signal'` for signals, `'report'` for report documents (see below)                                              |
 | `model_name`    | LowCardinality(String) | Embedding model name (e.g., `text-embedding-3-small-1536`)                                                                       |
-| `rendering`     | LowCardinality(String) | How content was rendered — signals uses `'plain'`                                                                                |
+| `rendering`     | LowCardinality(String) | How content was rendered — signals use `'plain'`, report documents use `'title_summary_v1'`                                      |
 | `document_id`   | String                 | Unique signal ID (UUID)                                                                                                          |
 | `timestamp`     | DateTime64(3, 'UTC')   | Document creation time                                                                                                           |
 | `inserted_at`   | DateTime64(3, 'UTC')   | When the embedding was inserted (used for dedup)                                                                                 |
@@ -643,6 +651,54 @@ Defined in `products/error_tracking/backend/embedding.py`:
 emit_embedding_request() → Kafka (document_embeddings_input topic)
     → Kafka table → Materialized View → Writable Distributed table → Sharded ReplacingMergeTree
 ```
+
+### Report Documents
+
+Alongside the per-signal rows, each `SignalReport` gets one embedding of its own: `document_type = 'report'`, `document_id` = the report UUID, content rendered from the report's `title` and `summary`.
+This gives a report a single vector instead of only the cloud of constituent-signal vectors,
+and is the feature-side building block for the inbox ranking model,
+whose label stream is the `signal_report_status_changed` event emitted by `backend/receivers.py`.
+
+Emission lives in `backend/report_embeddings.py`,
+driven by a `post_save` receiver that fires whenever a report's `title` or `summary` actually changes.
+That covers the matcher writing text at creation, the summary workflow on `IN_PROGRESS -> READY`, re-research runs, and the scout channel's `update_authored_content`.
+Two properties are load-bearing:
+
+- The row's `timestamp` is pinned to the report's `created_at`, never the emission time.
+  The table partitions by `toMonday(timestamp)` and orders by `toDate(timestamp)`,
+  so a re-emission stamped "now" would land in a different partition and sit alongside the earlier row rather than superseding it.
+  The trade-off is that the 3-month TTL runs from report creation, so a report open longer than that loses its vector while still live.
+- `rendering` is versioned (`title_summary_v1`) rather than `'plain'`, because a report document is a composition of fields we expect to extend.
+  Bumping to a v2 lets both compositions coexist and be compared instead of silently replacing each other.
+
+Metadata is deliberately limited to `report_id` plus the `deleted` tombstone flag.
+It only refreshes when the report's text changes or the report is deleted, so mutable state (status, priority, `signal_count`) would go stale there.
+Join that from Postgres or the status-change event stream instead.
+
+#### Safety gating and retraction
+
+A report's title and summary are derived from its signals, so they inherit the same prompt-injection exposure.
+Emission is therefore gated on the durable `safety_judgment` artefact: when the latest verdict is `choice: false`, no vector is written.
+That read is pinned to the writer (`using("default")`), because it runs immediately after the transaction that wrote the verdict and `ReplicaRouter` documents replication lag on exactly that pattern.
+
+Withholding new emissions is not sufficient on its own, because a report can be embedded while safe and only later be judged unsafe.
+Three paths therefore **retract** an existing vector by re-emitting the row with `metadata.deleted = true`, preserving `created_at` so it replaces the live row in the same partition:
+
+- **Deletion**: the report-level counterpart to `soft_delete_report_signals`. Both the soft path, where `delete_report_activity` flips status to `DELETED`, and a hard `delete()` of the row, which is what `delete_team_reports_activity` and the `cleanup_signals` command issue. The hard path matters most: once the row is gone, no later write can retract the vector.
+- **A later unsafe verdict**: the summary workflow re-judges safety on every run, and a READY report re-researches whenever new signals join it.
+- **An unreviewed edit**: the `PATCH` endpoint and the scout `edit_report` channel supply text the judge has never seen, so the report is retracted and left unindexed until the pipeline writes judged text again.
+
+Tombstones carry fixed placeholder content (`TOMBSTONE_CONTENT`) rather than the report's own text.
+Content is not part of the `ReplacingMergeTree` key, so a placeholder supersedes a live row just as well, and it means a tombstone can be emitted without first knowing whether a live row exists, which is the question none of these paths can answer cheaply.
+It also guarantees a retraction can never introduce the very text the safety judge withheld.
+This is a deliberate divergence from `soft_delete_report_signals`, which re-emits signal text verbatim and so makes rows filterable rather than erased.
+
+Readers must filter with `NOT JSONExtractBool(metadata, 'deleted')`, as every existing signals query already does.
+
+A caller removing reports in bulk should delete the reports and let their artefacts cascade, rather than deleting artefacts first.
+Django reports the cascade as the artefact's deletion `origin`, which is what lets the verdict receiver skip reconciliation it does not need:
+the report is going away in the same operation and retracts its own embedding.
+Deleting artefacts directly costs two extra queries each, which `delete_team_reports_activity` cannot afford inside its five minute budget.
 
 ### Soft Deletion
 
@@ -795,6 +851,21 @@ The `status` clause sorts by annotated `pipeline_status_rank` (not lexicographic
 So with `ordering=status`, **`failed` sorts after actionable `ready`**. With `ordering=-status`, **`failed` sorts before actionable `ready`**.
 
 Default ordering is **`-is_suggested_reviewer,status,-updated_at,id`**.
+
+**Dismissal feedback.** `dismissal_reason` / `dismissal_note` on the state and bulk-state bodies persist as a stacking `dismissal` artefact on the report, which stays the record of truth.
+When the caller typed a note, that feedback is _also_ forwarded to a `SignalScoutNote` (`dismissal_notes.forward_dismissal_note`).
+The artefact alone only reaches a scout if some later run happens to search the inbox and land on that report; notes are read by name at the start of every run, which is where a "this was noise, and here is why" verdict belongs.
+"Forward" rather than "promote" because promotion in this product means the pipeline moving a report up the status ladder to `candidate` (`promoted_at`, `signals_at_run`, re-promotion), and nothing here changes a report's standing.
+Forwarding targets the scout that authored the report (resolved in Postgres from `SignalScoutRun.emitted_report_ids`, then `edited_report_ids`) and addresses the whole fleet when no run claims it, and it writes one note per targeted scout per request, so a bulk dismissal of 40 reports under one note does not write 40 notes.
+Each note describes the status the report actually landed in, not the requested target, so a restore out of the archive is never reported to a scout as a snooze.
+A report that ends up `resolved` is never forwarded: resolving says the report did its job, so the note on it records how the work landed rather than whether filing it was worth it, and this channel is for the latter.
+Derived notes carry `origin=report_dismissal` and a 30-day TTL so they cannot permanently crowd out deliberate human steering, and a failure to write one never fails the transition the caller asked for.
+Because the notes table is otherwise gated to skill-authoring authorization (scouts read note content verbatim while holding privileged sandbox tools), forwarding re-checks that the dismisser could have left the note by hand: canonical-project access, a token whose `scoped_teams` cover that project, and the `llm_skill` editor level, mirroring `SignalScoutNoteViewSet` (`dismissal_notes._may_steer_scouts`).
+In practice the `llm_skill` leg only bites in orgs with the access-control entitlement where an admin has explicitly restricted skill editing, since `default_access_level` grants `editor` otherwise; the token `scoped_teams` and child-environment legs are what constrain the common case.
+A dismisser who can't clear that bar still gets their feedback recorded on the report; it just doesn't enter the steering channel.
+Two audience rules follow from a note living on the canonical project while the report it quotes may not.
+Reports on a child environment are never forwarded, since the note would be readable by people with no access to that environment.
+And on the read side, `scout-notes-list` withholds `report_dismissal` notes from callers who can't read reports (`task` scope plus `task` RBAC), so the notes surface can't be used to read report ids, titles, and dismissal text around the reports API (`scout_harness/views._may_read_reports`).
 
 #### `SignalReportArtefactViewSet`
 

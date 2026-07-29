@@ -172,6 +172,14 @@ class RedditAdsSource(ResumableSource[RedditAdsSourceConfig, RedditAdsResumeConf
                     "Reddit rejected the credentials for this integration. Please reconnect your Reddit Ads "
                     "integration and make sure the connected account can access your ad accounts."
                 ) from e
+            if e.api_status_code == 404:
+                # /me/businesses and /businesses/{id}/ad_accounts are both real, static paths, so a 404
+                # here means Reddit found no business or ad account for these credentials, not a bad
+                # request on our end — the user needs a Reddit Ads business account to reconnect with.
+                raise IntegrationAccountListingError(
+                    "Reddit couldn't find any businesses or ad accounts for this integration. Please make "
+                    "sure the connected Reddit account has access to Reddit Ads, then reconnect."
+                ) from e
             if e.api_status_code == 429 or e.api_status_code >= 500:
                 # The session already retried these; Reddit rate-limits ~1 req/s per advertiser and this
                 # listing fires one call per business, so exhausting the retries is expected under load.

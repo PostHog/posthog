@@ -1,5 +1,17 @@
 # posthog-cli
 
+## 0.9.2 — 2026-07-28
+
+### Patch changes
+
+- [d871ba0d38](https://github.com/PostHog/posthog/commit/d871ba0d38042331e19b8426ef09fcf0a375a832) Fixed `posthog-cli api` commands crashing on Windows when loading the bundled Node.js script. — Thanks @cvolzer3!
+
+## 0.9.1 — 2026-07-23
+
+### Patch changes
+
+- [1e49417142](https://github.com/PostHog/posthog/commit/1e49417142febac7925637eeb92ec12549e88235) Publish fresh CLI artifacts after fixing repository paths that prevented the Windows release build from checking out the source. — Thanks @cat-ph!
+
 ## 0.9.0 — 2026-07-22
 
 ### Minor changes

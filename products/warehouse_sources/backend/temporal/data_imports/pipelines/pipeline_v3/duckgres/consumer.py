@@ -15,6 +15,7 @@ from prometheus_client import Gauge
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import DuckgresSinkSchemaState
+from posthog.sync import database_sync_to_async_pool
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
     MAX_ATTEMPTS,
@@ -42,6 +43,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.jobs_db import (
     DuckgresBatchQueue,
+    is_eligibility_query_timeout,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     LEASE_TTL_SECONDS,
@@ -159,7 +161,10 @@ class DuckgresBatchConsumerAdapter:
         try:
             first_resolution = self._team_ids_fetched_at is None
             previous = self._team_ids
-            enablement = await sync_to_async(duckgres_sink_enablement, thread_sensitive=False)()
+            # database_sync_to_async_pool (not a bare sync_to_async) so a connection killed by
+            # the DB/proxy since the last refresh gets closed and reopened before this query,
+            # instead of surfacing as "the connection is closed" OperationalErrors.
+            enablement = await database_sync_to_async_pool(duckgres_sink_enablement)()
             self._team_ids = None if enablement is None else enablement.team_ids
             self._team_org_budgets = [] if enablement is None else enablement.team_org_budgets
             self._team_ids_fetched_at = now
@@ -215,8 +220,14 @@ class DuckgresBatchConsumerAdapter:
             )
             SINK_ORGS_AT_BUDGET.set(orgs_at_budget)
         except Exception as e:
-            logger.exception("duckgres_sink_maintenance_query_failed")
-            capture_exception(e)
+            if is_eligibility_query_timeout(e):
+                # Expected under a slow/loaded queue DB — the eligibility-CTE
+                # queries are timeout-bounded specifically so this fails fast
+                # and the next tick just retries; not worth an error-tracking report.
+                logger.warning("duckgres_sink_maintenance_query_timed_out")
+            else:
+                logger.exception("duckgres_sink_maintenance_query_failed")
+                capture_exception(e)
             return
 
         block_list_was_unset = self._blocked_schema_ids is None
@@ -474,6 +485,11 @@ class DuckgresBatchConsumerAdapter:
 
     def is_retryable_error(self, err: Exception) -> bool:
         return not isinstance(err, PermanentBatchApplyError)
+
+    def is_expected_user_error(self, err: Exception) -> bool:
+        # The duckgres sink applies already-validated Delta batches; it has no expected
+        # customer-actionable failures of its own to keep out of error tracking.
+        return False
 
 
 class DuckgresBatchConsumer(SharedBatchConsumer):

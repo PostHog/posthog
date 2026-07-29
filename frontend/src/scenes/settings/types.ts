@@ -58,6 +58,7 @@ export type SettingSectionId =
     | 'project-product-analytics'
     | 'project-replay'
     | 'project-surveys'
+    | 'project-web-analytics'
     | 'project-danger-zone'
     // Organization
     | 'organization-details'
@@ -120,6 +121,8 @@ export type SettingId =
     | 'csp-reporting'
     | 'customer-analytics-accounts'
     | 'customer-analytics-dashboard-events'
+    | 'customer-analytics-event-stream'
+    | 'customer-analytics-group-properties'
     | 'customer-analytics-person-properties'
     | 'customer-analytics-usage-metrics'
     | 'customization-irl'
@@ -238,7 +241,6 @@ export type SettingId =
     | 'revenue-analytics-events'
     | 'revenue-analytics-external-data-sources'
     | 'revenue-analytics-filter-test-accounts'
-    | 'revenue-analytics-goals'
     | 'revenue-base-currency'
     | 'session-join-mode'
     | 'session-table-version'
@@ -257,6 +259,7 @@ export type SettingId =
     | 'web-analytics-pre-aggregated-tables'
     | 'web-revenue-events'
     | 'web-vitals-autocapture'
+    | 'workflows-email-tracking-consent'
     | 'workflows-engagement-events'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
@@ -337,4 +340,12 @@ export interface SettingSection extends Pick<Setting, 'flag'> {
      * product's own configuration scene).
      */
     hideFromNavigation?: boolean
+
+    /**
+     * When true, navigating to this section prompts for re-authentication if the sensitive
+     * session has expired — matching how user- and organization-level settings behave. Use for
+     * environment/project sections that manage credentials, which otherwise only surface the
+     * re-auth modal reactively when a write is attempted.
+     */
+    requiresReauthentication?: boolean
 }

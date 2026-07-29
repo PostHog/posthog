@@ -467,7 +467,9 @@ def send_password_changed_email(user_id: int) -> None:
 
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
-def send_email_verification(user_id: int, token: str, next_url: str | None = None) -> None:
+def send_email_verification(
+    user_id: int, token: str, next_url: str | None = None, target_email: str | None = None
+) -> None:
     user: User = User.objects.get(pk=user_id)
     next_query = f"?next={quote(next_url, safe='')}" if next_url else ""
     message = EmailMessage(
@@ -482,7 +484,9 @@ def send_email_verification(user_id: int, token: str, next_url: str | None = Non
             "url": f"{settings.SITE_URL}/verify_email/{user.uuid}/{token}{next_query}",
         },
     )
-    message.add_user_recipient(user, email_override=user.pending_email)
+    # Pin the recipient to the email the token authorizes (the caller-captured `target_email`)
+    # rather than re-reading `pending_email`, which a concurrent email change could have drifted.
+    message.add_user_recipient(user, email_override=target_email if target_email is not None else user.pending_email)
     message.send(send_async=False)
     posthoganalytics.capture(
         distinct_id=str(user.distinct_id),
@@ -2054,21 +2058,33 @@ def send_error_tracking_weekly_digest_for_org(self: Task, org_id: str) -> None:
         if not should_send_notification(user, NotificationSetting.ERROR_TRACKING_WEEKLY_DIGEST.value):
             continue
 
-        if error_tracking_api.auto_select_project_for_user(user, org.id, autoselect_counts):
+        # One instance per user: its membership and access-control prefetches are cached on the
+        # instance, so rebuilding it per team would re-query them for every team in the org.
+        user_permissions = UserPermissions(user)
+        accessible_team_ids = {
+            team_id
+            for team_id in team_ids_with_exceptions
+            if user_permissions.team(all_org_teams[team_id]).effective_membership_level_for_parent_membership(
+                org, membership
+            )
+            is not None
+        }
+
+        # Rank only projects this member can open. Auto-select is one-shot and persisted, so enrolling
+        # someone onto a project they can't reach leaves every other project disabled-by-omission and
+        # silences their digest for good.
+        if error_tracking_api.auto_select_project_for_user(
+            user, org.id, {tid: counts for tid, counts in autoselect_counts.items() if tid in accessible_team_ids}
+        ):
             user.refresh_from_db(fields=["partial_notification_settings"])
 
         enabled_team_ids: list[int] = []
         disabled_team_names: list[str] = []
-        for team_id in team_ids_with_exceptions:
-            team = all_org_teams[team_id]
-            user_permissions = UserPermissions(user).team(team)
-            if user_permissions.effective_membership_level_for_parent_membership(org, membership) is None:
-                continue
-
+        for team_id in accessible_team_ids:
             if should_send_notification(user, NotificationSetting.ERROR_TRACKING_WEEKLY_DIGEST.value, team_id):
                 enabled_team_ids.append(team_id)
             else:
-                disabled_team_names.append(team.name)
+                disabled_team_names.append(all_org_teams[team_id].name)
 
         if enabled_team_ids:
             recipients.append((membership, enabled_team_ids, disabled_team_names))

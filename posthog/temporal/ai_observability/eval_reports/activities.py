@@ -5,6 +5,8 @@ from collections import defaultdict
 from typing import TYPE_CHECKING, NamedTuple
 from zoneinfo import ZoneInfo
 
+from django.db.models import Q
+
 import temporalio.activity
 from dateutil.rrule import rrulestr
 from structlog import get_logger
@@ -179,13 +181,15 @@ def _count_triggered_pg_gate(
     """
     from products.ai_observability.backend.models.evaluation_reports import EvaluationReportRun
 
-    if report.last_delivered_at:
+    cooldown_anchor = report.last_attempted_at or report.last_delivered_at
+    if cooldown_anchor:
         cooldown_delta = dt.timedelta(minutes=report.cooldown_minutes)
-        if (now - report.last_delivered_at) < cooldown_delta:
+        if (now - cooldown_anchor) < cooldown_delta:
             return "cooldown", None
 
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     today_runs = EvaluationReportRun.objects.filter(
+        Q(content__generation_status__isnull=True) | ~Q(content__generation_status="metrics_unavailable"),
         report=report,
         created_at__gte=today_start,
     ).count()
@@ -609,6 +613,7 @@ async def run_eval_report_agent_activity(
             content=content.to_dict(),
             period_start=inputs.period_start,
             period_end=inputs.period_end,
+            generation_status=content.generation_status.value,
         )
 
 
@@ -633,6 +638,7 @@ async def store_report_run_activity(
         from posthog.models.event.util import create_event
         from posthog.models.team import Team
         from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (  # noqa: PLC0415 -- keeps report agent dependencies off the activity import path
+            EvalReportGenerationStatus,
             EvalReportMetrics,
             normalize_report_content_payload,
         )
@@ -642,13 +648,14 @@ async def store_report_run_activity(
         # Mirror content.metrics into the legacy `metadata` JSONField for consumers that still read it.
         content = normalize_report_content_payload(inputs.content or {})
         evaluation_target = resolve_evaluation_target(content.get("evaluation_target", GENERATION_TARGET))
-        metrics = content.get("metrics", {}) or {}
-        parsed_metrics = EvalReportMetrics.from_dict(metrics)
+        generation_status = EvalReportGenerationStatus(content["generation_status"])
+        metrics = content.get("metrics")
+        parsed_metrics = EvalReportMetrics.from_dict(metrics) if isinstance(metrics, dict) else None
 
         run = EvaluationReportRun.objects.create(
             report_id=inputs.report_id,
             content=content,
-            metadata=metrics,
+            metadata=metrics or {},
             period_start=inputs.period_start,
             period_end=inputs.period_end,
         )
@@ -668,14 +675,8 @@ async def store_report_run_activity(
             "$ai_report_title": content.get("title", ""),
             "$ai_report_period_start": inputs.period_start,
             "$ai_report_period_end": inputs.period_end,
-            "$ai_report_output_type": parsed_metrics.output_type,
             "$ai_report_evaluation_target": evaluation_target,
-            "$ai_report_result_counts": parsed_metrics.result_counts,
-            "$ai_report_result_rates": parsed_metrics.result_rates,
-            "$ai_report_previous_result_counts": parsed_metrics.previous_result_counts,
-            "$ai_report_previous_result_rates": parsed_metrics.previous_result_rates,
-            "$ai_report_total_runs": parsed_metrics.total_runs,
-            "$ai_report_previous_total_runs": parsed_metrics.previous_total_runs,
+            "$ai_report_generation_status": generation_status.value,
             # Structured content + citations for downstream consumption
             "$ai_report_content": content,
             "$ai_report_citations": citations,
@@ -683,7 +684,19 @@ async def store_report_run_activity(
             "$ai_report_referenced_trace_ids": all_referenced_trace_ids,
             "$ai_report_section_count": len(content.get("sections", [])),
         }
-        if parsed_metrics.output_type == "boolean":
+        if parsed_metrics is not None:
+            properties.update(
+                {
+                    "$ai_report_output_type": parsed_metrics.output_type,
+                    "$ai_report_result_counts": parsed_metrics.result_counts,
+                    "$ai_report_result_rates": parsed_metrics.result_rates,
+                    "$ai_report_previous_result_counts": parsed_metrics.previous_result_counts,
+                    "$ai_report_previous_result_rates": parsed_metrics.previous_result_rates,
+                    "$ai_report_total_runs": parsed_metrics.total_runs,
+                    "$ai_report_previous_total_runs": parsed_metrics.previous_total_runs,
+                }
+            )
+        if parsed_metrics is not None and parsed_metrics.output_type == "boolean":
             # Preserve the original flat properties for existing boolean-report consumers.
             properties.update(
                 {
@@ -733,27 +746,42 @@ async def deliver_report_activity(
         await deliver()
 
 
+def _update_next_delivery_date(inputs: UpdateNextDeliveryDateInput) -> None:
+    """Persist automatic-run timing without creating gaps in the report data cursor.
+
+    `period_end` is captured when report context is prepared. It anchors both the
+    attempt and successful cursor so time spent generating and delivering cannot
+    leave uncovered data between consecutive reports.
+
+    `advance_data_cursor=None` preserves the behavior of activity inputs recorded
+    before attempt and delivery updates were split.
+    """
+    from products.ai_observability.backend.models.evaluation_reports import (  # noqa: PLC0415 -- keeps product model loading inside activity execution
+        EvaluationReport,
+    )
+
+    report = EvaluationReport.objects.get(id=inputs.report_id)
+    period_end = dt.datetime.fromisoformat(inputs.period_end)
+    advance_data_cursor = (
+        inputs.generation_status == "completed" if inputs.advance_data_cursor is None else inputs.advance_data_cursor
+    )
+    update_fields: list[str] = []
+    if inputs.record_attempt:
+        report.last_attempted_at = period_end
+        report.set_next_delivery_date()
+        update_fields.extend(["next_delivery_date", "last_attempted_at"])
+    if advance_data_cursor:
+        report.last_delivered_at = period_end
+        update_fields.append("last_delivered_at")
+    report.save(update_fields=update_fields)
+
+
 @temporalio.activity.defn
 async def update_next_delivery_date_activity(
     inputs: UpdateNextDeliveryDateInput,
 ) -> None:
-    """Update the report's next_delivery_date and last_delivered_at.
-
-    last_delivered_at is set to the report's period_end (captured at the start of
-    this run) rather than the current wall-clock time. This guarantees that the
-    next run's period_start picks up exactly where this run's period_end left off,
-    so any time spent generating/delivering does not create a coverage gap.
-    """
-
     @database_sync_to_async(thread_sensitive=False)
-    def update():
-        import datetime as dt_mod
-
-        from products.ai_observability.backend.models.evaluation_reports import EvaluationReport
-
-        report = EvaluationReport.objects.get(id=inputs.report_id)
-        report.last_delivered_at = dt_mod.datetime.fromisoformat(inputs.period_end)
-        report.set_next_delivery_date()
-        report.save(update_fields=["last_delivered_at", "next_delivery_date"])
+    def update() -> None:
+        _update_next_delivery_date(inputs)
 
     await update()

@@ -57,7 +57,8 @@ def set_signal_source_types_enabled(
     config: dict | None = None,
 ) -> None:
     """Atomically update a product-owned bundle of signal-source types. Every enable refreshes
-    ``created_by`` (and ``config`` only when provided, so re-enables can't wipe stored config)."""
+    ``created_by``. Provided ``config`` keys are merged into each row's stored config rather than
+    replacing it, so re-enables can't wipe keys they don't manage (e.g. an operator's ``dry_run``)."""
     with transaction.atomic():
         Team.objects.select_for_update().only("id").get(id=team_id)
         if not enabled:
@@ -67,16 +68,18 @@ def set_signal_source_types_enabled(
                 source_type__in=source_types,
             ).update(enabled=False)
             return
-        defaults: dict = {"enabled": True, "created_by_id": created_by_id}
-        if config is not None:
-            defaults["config"] = config
         for source_type in source_types:
-            SignalSourceConfig.objects.update_or_create(
+            row, _ = SignalSourceConfig.objects.update_or_create(
                 team_id=team_id,
                 source_product=source_product,
                 source_type=source_type,
-                defaults=defaults,
+                defaults={"enabled": True, "created_by_id": created_by_id},
             )
+            if config is not None:
+                merged = {**row.config, **config} if isinstance(row.config, dict) else dict(config)
+                if merged != row.config:
+                    row.config = merged
+                    row.save(update_fields=["config"])
 
 
 def _token_count(text: str) -> int:

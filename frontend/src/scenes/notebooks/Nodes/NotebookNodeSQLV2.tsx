@@ -6,6 +6,7 @@ import { IconCornerDownRight } from '@posthog/icons'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
+import type { NotebookNodeRunTerminalStatus } from 'scenes/notebooks/Notebook/notebookNodeStalenessLogic'
 
 import { Query } from '~/queries/Query/Query'
 import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
@@ -18,6 +19,7 @@ import { NotebookRunDownstreamBanner } from './components/NotebookRunDownstreamB
 import { NotebookCodeSQLEditorSettings } from './components/NotebookSQLEditor'
 import { NotebookStaleCellBanner } from './components/NotebookStaleCellBanner'
 import { notebookNodeLogic } from './notebookNodeLogic'
+import { outputHeightForShape } from './notebookNodeOutputHeight'
 import { SQL_V2_DEFAULT_PAGE_SIZE, collectSqlV2Refs, notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
 import { NotebookDataframeResult } from './pythonExecution'
 
@@ -41,15 +43,15 @@ export type NotebookNodeSQLV2Attributes = {
     returnVariable: string
     runId?: string | null
     result?: NotebookNodeSQLV2Result | null
+    // How the run that produced `result` ended. An interrupt persists a partial result just
+    // like a completed run does, so the result alone can't tell the two apart on a reload.
+    runStatus?: NotebookNodeRunTerminalStatus | null
     outputTab?: OutputTab | null
     vizQuery?: DataVisualizationNode | null
 }
 
 // Matches the SQL editor output pane's default so charts land at v1-node size.
 const VIZ_MIN_HEIGHT = 350
-// The default node height only fits a couple of table rows; grow to this once a result lands
-// so the output isn't clipped and the user doesn't have to resize by hand to read it.
-const RESULT_MIN_HEIGHT = 300
 
 // The dataframe name is referenced as a bare SQL table name and becomes a Python variable
 // when a python cell reads the frame, so it must be a plain identifier. Empty is fine —
@@ -164,21 +166,26 @@ const Component = ({
         [attributes.vizQuery, attributes.code]
     )
 
-    // Grow a still-default (too-short) node the first time a result lands so it's readable
-    // without a manual resize. Only grows below the target and only on a fresh result, so a
-    // deliberate resize (or a taller reload) is left untouched.
-    const hadResultRef = useRef(!!result)
+    // Grow a still-too-short node to fit the result each run lands, so output is readable without
+    // a manual resize. Sized to the rows that came back — a scalar stays compact, a wide result
+    // grows up to a cap. Only grows, and only for a run we haven't sized yet, so a deliberate
+    // resize (or a reload of an already-sized cell) is left untouched.
+    const sizedRunIdRef = useRef<string | null | undefined>(result ? (attributes.runId ?? null) : undefined)
     useEffect(() => {
-        const hasResult = !!dataframeResult
-        if (hasResult && !hadResultRef.current) {
-            const target = activeTab === OutputTab.Visualization ? VIZ_MIN_HEIGHT : RESULT_MIN_HEIGHT
-            if (typeof attributes.height !== 'number' || attributes.height < target) {
-                updateAttributes({ height: target })
-            }
+        const runId = attributes.runId ?? null
+        if (!result || runId === sizedRunIdRef.current) {
+            return
         }
-        hadResultRef.current = hasResult
+        sizedRunIdRef.current = runId
+        const target =
+            activeTab === OutputTab.Visualization
+                ? VIZ_MIN_HEIGHT
+                : outputHeightForShape({ rowCount: (result.first_page ?? []).length })
+        if (target !== null && (typeof attributes.height !== 'number' || attributes.height < target)) {
+            updateAttributes({ height: target })
+        }
         // oxlint-disable-next-line exhaustive-deps
-    }, [dataframeResult])
+    }, [result, attributes.runId])
 
     if (!expanded) {
         return null
@@ -239,6 +246,9 @@ const Component = ({
                                     page={page}
                                     pageSize={pageSize}
                                     hasMore={hasMorePages}
+                                    // Wide text columns (long strings, JSON blobs) shouldn't make every
+                                    // row tall; clamp to one line here and let the user open a cell.
+                                    truncateCells
                                     // Serialize page fetches: no new page while one is in flight, a run
                                     // is replacing this result, or another cell's operation is running.
                                     paginationDisabledReason={
@@ -341,7 +351,7 @@ const Settings = ({
         hasResult: !!attributes.result,
         getContent: () => notebookLogic.values.content ?? null,
     })
-    const { isRunning, isInterrupting, operationBlockReason, activeRunLane } = useValues(dataLogic)
+    const { isRunning, isInterrupting, operationBlockReason } = useValues(dataLogic)
     const { runQuery, interruptRun } = useActions(dataLogic)
 
     return (
@@ -355,9 +365,7 @@ const Settings = ({
             runQueryLoading={isRunning}
             runQueryDisabledReason={operationBlockReason ?? undefined}
             runQueryTooltip="Run SQL query"
-            // Direct (no-sandbox) runs cannot be cancelled — there is no kernel to signal;
-            // they finish on their own bounded schedule. Stop applies to kernel-lane runs only.
-            onCancelQuery={activeRunLane === 'kernel' ? interruptRun : undefined}
+            onCancelQuery={interruptRun}
             cancelQueryLoading={isInterrupting}
         />
     )
@@ -384,6 +392,9 @@ export const NotebookNodeSQLV2 = createPostHogWidgetNode<NotebookNodeSQLV2Attrib
             default: null,
         },
         result: {
+            default: null,
+        },
+        runStatus: {
             default: null,
         },
         outputTab: {

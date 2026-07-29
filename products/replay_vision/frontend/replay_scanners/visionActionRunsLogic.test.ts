@@ -67,4 +67,32 @@ describe('visionActionRunsLogic', () => {
                 runsLoading: false,
             })
     })
+
+    it('runNow posts to the run endpoint and refreshes the runs list', async () => {
+        let posted = false
+        useMocks({
+            post: {
+                '/api/projects/:team/vision/actions/:action/run/': ({ request }: { request: Request }) => {
+                    // The button hits this action's run endpoint, not create/observe.
+                    expect(request.url).toContain('/vision/actions/a1/run/')
+                    posted = true
+                    return [202, { workflow_id: 'wf-1', already_running: false }]
+                },
+            },
+        })
+        await expectLogic(logic, () => logic.actions.runNow()).toFinishAllListeners()
+        // Posted, button loading cleared, and runs reloaded so the new running row can appear.
+        expect(posted).toBe(true)
+        expect(logic.values.runningNow).toBe(false)
+    })
+
+    it('runInProgress reflects a running run so Run now can be disabled against spam clicks', async () => {
+        // The button disables while a run is actively processing — a repeat run coalesces server-side,
+        // but the disable is what makes that obvious in the UI.
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.runInProgress).toBe(false) // seeded runs are completed/skipped
+
+        logic.actions.loadRunsSuccess([run('r-live', { status: 'running' })], 1)
+        expect(logic.values.runInProgress).toBe(true)
+    })
 })
