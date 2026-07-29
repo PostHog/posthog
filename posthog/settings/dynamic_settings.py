@@ -319,6 +319,14 @@ CONSTANCE_CONFIG = {
         "of more background compute.",
         int,
     ),
+    "WEB_ANALYTICS_WARMING_SHAPE_CONCURRENCY": (
+        get_from_env("WEB_ANALYTICS_WARMING_SHAPE_CONCURRENCY", default=16, type_cast=int),
+        "Worker threads for the web analytics warm pass. Cold bucket builds dominate a first run "
+        "(each shape builds one bucket per day of its range), so a higher value drains the selection "
+        "faster but adds load to the offline ClickHouse pool. Clamped to 1-64; the pool is fixed per "
+        "pass, so a change applies when the next warming run starts — no redeploy needed.",
+        int,
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
@@ -376,6 +384,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "WEB_ANALYTICS_WARMING_SELECTION_TTL_SECONDS",
     "WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT",
     "WEB_ANALYTICS_WARMING_MAX_SHAPES",
+    "WEB_ANALYTICS_WARMING_SHAPE_CONCURRENCY",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)

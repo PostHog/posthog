@@ -1292,6 +1292,17 @@ export interface EvaluationReportCitationApi {
 }
 
 /**
+ * * `completed` - completed
+ * * `metrics_unavailable` - metrics_unavailable
+ */
+export type GenerationStatusEnumApi = (typeof GenerationStatusEnumApi)[keyof typeof GenerationStatusEnumApi]
+
+export const GenerationStatusEnumApi = {
+    Completed: 'completed',
+    MetricsUnavailable: 'metrics_unavailable',
+} as const
+
+/**
  * Count by output-specific result label, such as pass/fail/N/A or positive/neutral/negative.
  */
 export type EvaluationReportMetricsApiResultCounts = { [key: string]: number }
@@ -1365,7 +1376,12 @@ export interface EvaluationReportRunContentApi {
     sections?: EvaluationReportSectionApi[]
     /** References grounding findings in the report. */
     citations?: EvaluationReportCitationApi[]
-    /** Structured metrics computed for the report period. */
+    /** Whether report generation completed or metrics were temporarily unavailable. Legacy runs without this field completed normally.
+     *
+     * * `completed` - completed
+     * * `metrics_unavailable` - metrics_unavailable */
+    generation_status?: GenerationStatusEnumApi
+    /** Structured metrics for completed reports, or null when metrics were temporarily unavailable. */
     metrics?: EvaluationReportMetricsApi | null
 }
 

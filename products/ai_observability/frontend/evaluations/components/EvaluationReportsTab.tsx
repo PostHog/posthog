@@ -104,6 +104,9 @@ export function EvaluationReportsTab({ evaluationId, onConfigureClick }: Evaluat
                         title: 'Results',
                         key: 'results',
                         render: (_, run: EvaluationReportRun) => {
+                            if (run.content?.generation_status === 'metrics_unavailable') {
+                                return 'Metrics unavailable'
+                            }
                             const metrics = run.content?.metrics ?? run.metadata
                             return metrics ? summarizeEvaluationReportResults(metrics) : '–'
                         },
