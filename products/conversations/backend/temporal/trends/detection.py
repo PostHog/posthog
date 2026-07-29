@@ -12,6 +12,7 @@ import math
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import UUID
 
 from django.db import IntegrityError, transaction
 from django.db.models import Count, QuerySet
@@ -24,6 +25,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
+from posthog.user_permissions import UserPermissions
 
 from products.conversations.backend.models import IncidentScope, IncidentStatus, Ticket, TicketAlertRule, TicketIncident
 from products.conversations.backend.models.ticket_alert_rule import (
@@ -293,16 +295,23 @@ def _notify_incident(team: Team, incident: TicketIncident, title: str) -> None:
         return
     # Notify the configured recipients (the same user list new-ticket emails use);
     # fall back to the whole team when none are configured. The stored ids are raw
-    # user ids with no auth attached, so filter to current org members — a stale id
-    # (user left the org) must not keep receiving this team's incident activity,
-    # matching the membership check the new-ticket email path applies.
+    # user ids with no auth attached, so filter to current org members who can access
+    # this project. A stale id (user left the org or lost project access) must not
+    # keep receiving this team's incident activity, matching the check the
+    # new-ticket email path applies.
     recipient_ids = settings_dict.get("notification_recipients") or []
     if recipient_ids:
-        recipient_ids = list(
-            OrganizationMembership.objects.filter(
-                organization_id=team.organization_id, user_id__in=recipient_ids
-            ).values_list("user_id", flat=True)
+        memberships = OrganizationMembership.objects.select_related("user", "organization").filter(
+            organization_id=team.organization_id, user_id__in=recipient_ids
         )
+        recipient_ids = [
+            membership.user_id
+            for membership in memberships
+            if UserPermissions(membership.user)
+            .team(team)
+            .effective_membership_level_for_parent_membership(membership.organization, membership)
+            is not None
+        ]
     targets = (
         [(TargetType.USER, str(user_id)) for user_id in recipient_ids]
         if recipient_ids
@@ -327,6 +336,20 @@ def _notify_incident(team: Team, incident: TicketIncident, title: str) -> None:
             logger.exception(
                 "ticket_trends: incident notification failed", team_id=team.id, incident_id=str(incident.id)
             )
+
+
+def _lock_active_incident(team_id: int, incident_id: UUID) -> TicketIncident | None:
+    """Row-lock the incident for a read-modify-write. Must run inside transaction.atomic().
+
+    Re-filtering on ACTIVE under the lock means a racing run (or a user dismissal)
+    that already closed the incident wins: a stale in-memory copy can't resurrect
+    it or double-apply calm-run increments."""
+    return (
+        TicketIncident.objects.for_team(team_id)
+        .select_for_update()
+        .filter(id=incident_id, status=IncidentStatus.ACTIVE)
+        .first()
+    )
 
 
 def _reconcile(team: Team, evaluations: list[Evaluation], now: datetime, stats: DetectionStats) -> None:
@@ -386,27 +409,31 @@ def _reconcile(team: Team, evaluations: list[Evaluation], now: datetime, stats: 
             _notify_incident(team, incident, title)
             continue
 
-        if result.fired:
-            incident.calm_run_count = 0
-            incident.observed_count = result.observed
-            incident.baseline_value = result.baseline_median
-            incident.zscore = result.zscore
-            incident.window_minutes = result.window_minutes
-            incident.details = {**incident.details, **evaluation.details}
-        elif result.calm:
-            incident.calm_run_count += 1
-        else:
-            incident.calm_run_count = 0
+        with transaction.atomic():
+            locked = _lock_active_incident(team.id, incident.id)
+            if locked is None:
+                continue
+            if result.fired:
+                locked.calm_run_count = 0
+                locked.observed_count = result.observed
+                locked.baseline_value = result.baseline_median
+                locked.zscore = result.zscore
+                locked.window_minutes = result.window_minutes
+                locked.details = {**locked.details, **evaluation.details}
+            elif result.calm:
+                locked.calm_run_count += 1
+            else:
+                locked.calm_run_count = 0
 
-        # The age backstop only applies once the spike has stopped firing: force-resolving
-        # a still-firing incident would immediately reopen it and re-notify for the same
-        # continuous event on the next run.
-        aged_out = not result.fired and incident.detected_at <= now - timedelta(hours=MAX_INCIDENT_AGE_HOURS)
-        if incident.calm_run_count >= CALM_RUNS_TO_RESOLVE or aged_out:
-            incident.status = IncidentStatus.RESOLVED
-            incident.resolved_at = now
-            stats.incidents_resolved += 1
-        incident.save()
+            # The age backstop only applies once the spike has stopped firing: force-resolving
+            # a still-firing incident would immediately reopen it and re-notify for the same
+            # continuous event on the next run.
+            aged_out = not result.fired and locked.detected_at <= now - timedelta(hours=MAX_INCIDENT_AGE_HOURS)
+            if locked.calm_run_count >= CALM_RUNS_TO_RESOLVE or aged_out:
+                locked.status = IncidentStatus.RESOLVED
+                locked.resolved_at = now
+                stats.incidents_resolved += 1
+            locked.save()
 
     # Incidents whose dimension produced no evaluation this run (rule deleted or
     # disabled, slice with no remaining traffic): rule-scoped ones resolve
@@ -414,17 +441,21 @@ def _reconcile(team: Team, evaluations: list[Evaluation], now: datetime, stats: 
     for key, incident in active_incidents.items():
         if key in touched:
             continue
-        if incident.scope == IncidentScope.RULE:
-            incident.status = IncidentStatus.RESOLVED
-            incident.resolved_at = now
-            stats.incidents_resolved += 1
-        else:
-            incident.calm_run_count += 1
-            if incident.calm_run_count >= CALM_RUNS_TO_RESOLVE:
-                incident.status = IncidentStatus.RESOLVED
-                incident.resolved_at = now
+        with transaction.atomic():
+            locked = _lock_active_incident(team.id, incident.id)
+            if locked is None:
+                continue
+            if locked.scope == IncidentScope.RULE:
+                locked.status = IncidentStatus.RESOLVED
+                locked.resolved_at = now
                 stats.incidents_resolved += 1
-        incident.save()
+            else:
+                locked.calm_run_count += 1
+                if locked.calm_run_count >= CALM_RUNS_TO_RESOLVE:
+                    locked.status = IncidentStatus.RESOLVED
+                    locked.resolved_at = now
+                    stats.incidents_resolved += 1
+            locked.save()
 
 
 def run_detection(team_id: int) -> DetectionStats:

@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
@@ -9,6 +9,7 @@ from django.core.cache import cache
 
 from parameterized import parameterized
 
+from posthog.api.capture import CaptureInternalError, CaptureInternalResult
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
 from posthog.settings import SITE_URL
@@ -16,6 +17,7 @@ from posthog.settings import SITE_URL
 from products.conversations.backend.events import (
     EVENT_SOURCE,
     _resolve_groups_from_analytics,
+    capture_incident_detected,
     capture_message_received,
     capture_message_sent,
     capture_ticket_assigned,
@@ -23,7 +25,7 @@ from products.conversations.backend.events import (
     capture_ticket_priority_changed,
     capture_ticket_status_changed,
 )
-from products.conversations.backend.models import Ticket
+from products.conversations.backend.models import Ticket, TicketIncident
 
 
 class TestConversationEvents(BaseTest):
@@ -249,6 +251,43 @@ class TestConversationEvents(BaseTest):
         assert props["channel_source"] == self.ticket.channel_source
         assert props["status"] == self.ticket.status
         assert props["priority"] == self.ticket.priority
+
+    def _make_incident(self) -> TicketIncident:
+        # In-memory only: capture_incident_detected reads fields, it never saves.
+        return TicketIncident(
+            team=self.team,
+            scope="volume",
+            dimension_value="",
+            detected_at=datetime(2026, 1, 1, 12, 0, tzinfo=UTC),
+            window_minutes=60,
+            observed_count=12,
+        )
+
+    @patch("products.conversations.backend.events.capture_internal")
+    def test_capture_incident_detected_succeeds(self, mock_capture):
+        mock_capture.return_value = CaptureInternalResult(status_code=200, ok=["event-1"])
+
+        capture_incident_detected(self._make_incident(), self.team, "12 tickets in the last hour")
+
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["token"] == self.team.api_token
+        assert call_kwargs["event_name"] == "$conversation_incident_detected"
+        assert call_kwargs["distinct_id"] == str(self.team.uuid)
+
+    @parameterized.expand(
+        [
+            ("whole_request_failure", CaptureInternalResult(status_code=503, error={"error": "unavailable"})),
+            ("event_dropped", CaptureInternalResult(status_code=200, dropped=["event-1"])),
+        ]
+    )
+    @patch("products.conversations.backend.events.capture_internal")
+    def test_capture_incident_detected_raises_on_rejected_event(self, _name, result, mock_capture):
+        # The open incident row dedupes re-fires, so a silently dropped event would
+        # permanently lose the alert; the caller must see the failure.
+        mock_capture.return_value = result
+
+        with self.assertRaises(CaptureInternalError):
+            capture_incident_detected(self._make_incident(), self.team, "12 tickets in the last hour")
 
     @patch("products.conversations.backend.events.capture_internal")
     def test_message_content_truncated_to_1000_chars(self, mock_capture):

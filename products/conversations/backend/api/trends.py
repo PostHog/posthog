@@ -87,6 +87,10 @@ class TicketAlertRuleSerializer(serializers.ModelSerializer):
                 "max_value": 100.0,
             },
             "enabled": {"help_text": "Disabled rules are kept but never evaluated."},
+            "last_evaluated_at": {
+                "help_text": "When the detector last evaluated the rule. Null until first evaluated."
+            },
+            "last_fired_at": {"help_text": "When the rule last opened an incident. Null if it has never fired."},
         }
 
     def validate_filters(self, value: dict[str, str]) -> dict[str, str]:

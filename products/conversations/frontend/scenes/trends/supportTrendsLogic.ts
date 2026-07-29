@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -182,8 +183,9 @@ export const supportTrendsLogic = kea<supportTrendsLogicType>([
         incidents: [
             [] as TicketIncidentApi[],
             {
-                loadIncidents: async () => {
+                loadIncidents: async (_, breakpoint) => {
                     const response = await conversationsIncidentsList(String(getCurrentTeamId()))
+                    breakpoint()
                     return response.results ?? []
                 },
             },
@@ -191,8 +193,9 @@ export const supportTrendsLogic = kea<supportTrendsLogicType>([
         alertRules: [
             [] as TicketAlertRuleApi[],
             {
-                loadAlertRules: async () => {
+                loadAlertRules: async (_, breakpoint) => {
                     const response = await conversationsAlertRulesList(String(getCurrentTeamId()))
+                    breakpoint()
                     return response.results ?? []
                 },
             },
@@ -269,7 +272,8 @@ export const supportTrendsLogic = kea<supportTrendsLogicType>([
                 await conversationsIncidentsDismissCreate(String(getCurrentTeamId()), incidentId)
                 lemonToast.success('Incident dismissed')
                 actions.loadIncidents()
-            } catch {
+            } catch (error) {
+                posthog.captureException(error)
                 lemonToast.error('Failed to dismiss incident')
             } finally {
                 actions.setIncidentDismissing(incidentId, false)
@@ -321,7 +325,8 @@ export const supportTrendsLogic = kea<supportTrendsLogicType>([
                 await conversationsAlertRulesDestroy(String(getCurrentTeamId()), rule.id)
                 lemonToast.success('Alert rule deleted')
                 actions.loadAlertRules()
-            } catch {
+            } catch (error) {
+                posthog.captureException(error)
                 lemonToast.error('Failed to delete alert rule')
             } finally {
                 actions.setRuleMutating(rule.id, false)
@@ -337,7 +342,8 @@ export const supportTrendsLogic = kea<supportTrendsLogicType>([
                     enabled: !rule.enabled,
                 })
                 actions.loadAlertRules()
-            } catch {
+            } catch (error) {
+                posthog.captureException(error)
                 lemonToast.error('Failed to update alert rule')
             } finally {
                 actions.setRuleMutating(rule.id, false)

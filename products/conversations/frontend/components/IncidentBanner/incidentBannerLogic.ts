@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, afterMount, kea, listeners, path } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -57,7 +58,8 @@ export const incidentBannerLogic = kea<incidentBannerLogicType>([
             try {
                 await conversationsIncidentsDismissCreate(String(getCurrentTeamId()), incidentId)
                 actions.loadActiveIncidents()
-            } catch {
+            } catch (error) {
+                posthog.captureException(error)
                 lemonToast.error('Failed to dismiss incident')
             } finally {
                 cache.dismissing = false

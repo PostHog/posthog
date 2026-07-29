@@ -8,6 +8,8 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+from posthog.constants import AvailableFeature
+from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
 
@@ -15,6 +17,8 @@ from products.conversations.backend.models import IncidentStatus, Ticket, Ticket
 from products.conversations.backend.models.constants import Channel
 from products.conversations.backend.temporal.trends import detection
 from products.conversations.backend.temporal.trends.scoring import CALM_RUNS_TO_RESOLVE
+
+from ee.models.rbac.access_control import AccessControl
 
 # UTC-aware: detection buckets by UTC hour and compares against timezone.now().
 FROZEN_NOW = datetime(2026, 7, 20, 14, 30, 0, tzinfo=UTC)
@@ -91,6 +95,37 @@ class TestTrendsDetection(BaseTest):
         ]
         assert targets == [("user", str(member.id))]
 
+    def test_notification_skips_recipients_without_project_access(self) -> None:
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        allowed = User.objects.create_and_join(self.organization, "trends-allowed@posthog.com", None)
+        denied = User.objects.create_and_join(self.organization, "trends-denied@posthog.com", None)
+        # Private project: plain org members need an explicit grant to access it.
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=OrganizationMembership.objects.get(user=allowed, organization=self.organization),
+            access_level="member",
+        )
+        self.team.conversations_settings = {"notification_recipients": [allowed.id, denied.id]}
+        self.team.save()
+
+        with freeze_time(FROZEN_NOW):
+            self._seed_history()
+            self._make_tickets(8, when=IN_WINDOW)
+            detection.run_detection(self.team.id)
+
+        targets = [
+            (call.args[0].target_type, call.args[0].target_id) for call in self.create_notification.call_args_list
+        ]
+        assert targets == [("user", str(allowed.id))]
+
     def test_active_incident_is_not_duplicated(self) -> None:
         with freeze_time(FROZEN_NOW):
             self._seed_history()
@@ -138,6 +173,29 @@ class TestTrendsDetection(BaseTest):
 
         incident = TicketIncident.objects.for_team(self.team.id).get(scope="volume")
         assert incident.status == IncidentStatus.ACTIVE
+        assert self.capture_event.call_count == 1
+
+    def test_incident_dismissed_mid_run_is_not_resurrected(self) -> None:
+        # A run holds an in-memory snapshot of active incidents; a dismissal landing
+        # between that snapshot and the run's write must win, not be overwritten.
+        with freeze_time(FROZEN_NOW):
+            self._seed_history()
+            self._make_tickets(8, when=IN_WINDOW)
+            detection.run_detection(self.team.id)
+            incident = TicketIncident.objects.for_team(self.team.id).get(scope="volume")
+
+            real_lock = detection._lock_active_incident
+
+            def dismiss_then_lock(team_id: int, incident_id: object) -> TicketIncident | None:
+                TicketIncident.objects.for_team(team_id).filter(id=incident_id).update(status=IncidentStatus.DISMISSED)
+                return real_lock(team_id, incident_id)
+
+            with patch.object(detection, "_lock_active_incident", side_effect=dismiss_then_lock):
+                detection.run_detection(self.team.id)
+
+        incident.refresh_from_db()
+        assert incident.status == IncidentStatus.DISMISSED
+        # No re-fire either: the event was only captured by the opening run.
         assert self.capture_event.call_count == 1
 
     def test_dismissed_incident_suppresses_refire(self) -> None:

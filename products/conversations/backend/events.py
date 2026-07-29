@@ -363,7 +363,7 @@ def capture_incident_detected(incident: TicketIncident, team: Team, title: str) 
         "tickets_url": f"{SITE_URL}/project/{team.id}/support/tickets",
     }
 
-    capture_internal(
+    result = capture_internal(
         token=team.api_token,
         event_name="$conversation_incident_detected",
         event_source=EVENT_SOURCE,
@@ -372,6 +372,9 @@ def capture_incident_detected(incident: TicketIncident, team: Team, title: str) 
         properties=properties,
         process_person_profile=False,
     )
+    # A rejected event permanently loses the alert (the open incident row dedupes
+    # re-fires), so surface silent rejections instead of discarding them.
+    result.raise_for_status()
 
 
 def capture_ticket_status_changed(

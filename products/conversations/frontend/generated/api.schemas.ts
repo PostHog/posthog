@@ -607,9 +607,15 @@ export interface TicketAlertRuleApi {
     spike_multiplier?: number | null
     /** Disabled rules are kept but never evaluated. */
     enabled?: boolean
-    /** @nullable */
+    /**
+     * When the detector last evaluated the rule. Null until first evaluated.
+     * @nullable
+     */
     readonly last_evaluated_at: string | null
-    /** @nullable */
+    /**
+     * When the rule last opened an incident. Null if it has never fired.
+     * @nullable
+     */
     readonly last_fired_at: string | null
     /** User who created the rule. */
     readonly created_by: UserBasicApi
@@ -661,9 +667,15 @@ export interface PatchedTicketAlertRuleApi {
     spike_multiplier?: number | null
     /** Disabled rules are kept but never evaluated. */
     enabled?: boolean
-    /** @nullable */
+    /**
+     * When the detector last evaluated the rule. Null until first evaluated.
+     * @nullable
+     */
     readonly last_evaluated_at?: string | null
-    /** @nullable */
+    /**
+     * When the rule last opened an incident. Null if it has never fired.
+     * @nullable
+     */
     readonly last_fired_at?: string | null
     /** User who created the rule. */
     readonly created_by?: UserBasicApi
