@@ -16,7 +16,6 @@ from google.api_core.exceptions import (
 )
 from google.auth.exceptions import RefreshError
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery import bigquery as bq_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import (
     BIGQUERY_CREDENTIALS_REJECTED_ERROR,
@@ -59,6 +58,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ColumnTypeCategory,
     ValidatedRowFilter,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bigquery import (
     BigQueryDatasetProjectConfig,
     BigQueryKeyFileConfig,
@@ -1277,6 +1277,26 @@ def test_non_retryable_errors_match_federated_upstream_permission_denied(observe
 def test_non_retryable_errors_match_unparseable_view(observed_error):
     """A view whose definition no longer matches the underlying data (e.g. a federated query
     references a dropped column) can't be recovered by retrying — the user must fix the view."""
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    assert any(key in observed_error for key in non_retryable_errors)
+
+
+@pytest.mark.parametrize(
+    "observed_error",
+    [
+        # A NaN in a NUMERIC-typed column, surfaced from `jobs.getQueryResults` while polling a query
+        # job — BigQuery's NUMERIC type can't represent NaN the way FLOAT64 can.
+        str(
+            BadRequest(
+                "GET https://bigquery.googleapis.com/bigquery/v2/projects/p/queries/j?maxResults=0"
+                "&location=EU&prettyPrint=false: Invalid NUMERIC value: NaN\n\nLocation: EU\nJob ID: j"
+            )
+        ),
+    ],
+)
+def test_non_retryable_errors_match_numeric_nan(observed_error):
+    """A NUMERIC-typed column holding NaN traces back to the customer's source view/data, and the
+    same query keeps producing it on every retry — the user must fix the underlying view/column."""
     non_retryable_errors = BigQuerySource().get_non_retryable_errors()
     assert any(key in observed_error for key in non_retryable_errors)
 

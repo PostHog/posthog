@@ -783,6 +783,44 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         check = AlertCheck.objects.filter(alert_configuration=firing_alert.id).latest("created_at")
         assert check.state == AlertState.SNOOZED
 
+        self.client.patch(f"/api/projects/{self.team.id}/alerts/{firing_alert.id}", {"enabled": False})
+        disabled_and_snoozed_alert = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{firing_alert.id}",
+            {"snoozed_until": datetime.now()},
+        ).json()
+        assert disabled_and_snoozed_alert["enabled"] is False
+        assert disabled_and_snoozed_alert["state"] == AlertState.NOT_FIRING
+        disabled_check = AlertCheck.objects.filter(alert_configuration=firing_alert.id).latest("created_at")
+        assert disabled_check.state == AlertState.NOT_FIRING
+
+        enabled_and_snoozed_alert = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{firing_alert.id}",
+            {"enabled": True, "snoozed_until": "1d"},
+        ).json()
+        assert enabled_and_snoozed_alert["enabled"] is True
+        assert enabled_and_snoozed_alert["state"] == AlertState.SNOOZED
+
+        snoozed_alert = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{firing_alert.id}",
+            {"snoozed_until": datetime.now()},
+        ).json()
+        assert snoozed_alert["state"] == AlertState.SNOOZED
+
+        edited_snoozed_alert = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{firing_alert.id}",
+            {"threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 200}}}},
+        ).json()
+        assert edited_snoozed_alert["state"] == AlertState.NOT_FIRING
+
+        edited_and_snoozed_alert = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{firing_alert.id}",
+            {
+                "snoozed_until": "1d",
+                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 300}}},
+            },
+        ).json()
+        assert edited_and_snoozed_alert["state"] == AlertState.SNOOZED
+
     @parameterized.expand(
         [
             (
@@ -910,6 +948,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                 status.HTTP_400_BAD_REQUEST,
                 "weekly",
                 None,
+                False,
             ),
             (
                 "omitted_interval_preserves_existing",
@@ -917,6 +956,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                 status.HTTP_200_OK,
                 "weekly",
                 "renamed alert",
+                False,
             ),
             (
                 "updated_interval_applied",
@@ -924,10 +964,19 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                 status.HTTP_200_OK,
                 "hourly",
                 "alert name",
+                True,
             ),
         ]
     )
-    def test_patch_calculation_interval(self, _name, patch_payload, expected_status, expected_interval, expected_name):
+    def test_patch_calculation_interval(
+        self,
+        _name: str,
+        patch_payload: dict[str, Any],
+        expected_status: int,
+        expected_interval: str,
+        expected_name: str | None,
+        clears_next_check: bool,
+    ) -> None:
         creation_request = {
             "insight": self.insight["id"],
             "subscribed_users": [self.user.id],
@@ -939,6 +988,8 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         }
         alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
         assert alert["calculation_interval"] == "weekly"
+        scheduled_check = datetime(2027, 1, 1, tzinfo=UTC)
+        AlertConfiguration.objects.filter(id=alert["id"]).update(next_check_at=scheduled_check)
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/alerts/{alert['id']}",
@@ -949,6 +1000,9 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         if expected_status == status.HTTP_200_OK:
             assert response.json()["calculation_interval"] == expected_interval
             assert response.json()["name"] == expected_name
+
+        persisted_alert = AlertConfiguration.objects.get(id=alert["id"])
+        assert persisted_alert.next_check_at == (None if clears_next_check else scheduled_check)
 
     def test_create_alert_with_schedule_restriction(self) -> None:
         creation_request = {
@@ -1556,62 +1610,6 @@ class TestAlertEventProperties(APIBaseTest):
         props = alert._get_event_properties()
         for key, value in expected.items():
             assert props[key] == value, f"{key} expected {value}, got {props[key]}"
-
-
-class TestTriggerAlertHogFunctions(APIBaseTest):
-    @parameterized.expand(
-        [
-            (
-                "threshold_alert",
-                None,
-                {"alert_mode": "threshold", "detector_type": None, "ensemble_operator": None},
-            ),
-            (
-                "single_detector",
-                {"type": "zscore", "threshold": 0.95, "window": 30},
-                {"alert_mode": "detector", "detector_type": "zscore", "ensemble_operator": None},
-            ),
-            (
-                "ensemble_detector",
-                {
-                    "type": "ensemble",
-                    "operator": "AND",
-                    "detectors": [
-                        {"type": "zscore", "threshold": 0.95, "window": 30},
-                        {"type": "mad", "threshold": 0.95, "window": 30},
-                    ],
-                },
-                {"alert_mode": "detector", "detector_type": "ensemble", "ensemble_operator": "AND"},
-            ),
-        ]
-    )
-    @mock.patch("posthog.tasks.alerts.utils.produce_internal_event")
-    def test_insight_alert_firing_detector_props(
-        self,
-        _name: str,
-        detector_config: dict | None,
-        expected_props: dict,
-        mock_produce: mock.MagicMock,
-    ) -> None:
-        from posthog.tasks.alerts.utils import trigger_alert_hog_functions
-
-        alert = mock.MagicMock()
-        alert.id = "00000000-0000-0000-0000-000000000001"
-        alert.name = "test alert"
-        alert.insight.name = "test insight"
-        alert.insight.short_id = "abcd1234"
-        alert.state = AlertState.FIRING
-        alert.last_checked_at = None
-        alert.team_id = self.team.id
-        alert.detector_config = detector_config
-
-        trigger_alert_hog_functions(alert, properties={"breaches": "test breach"})
-
-        assert mock_produce.call_count == 1
-        event = mock_produce.call_args.kwargs["event"]
-        for key, value in expected_props.items():
-            assert event.properties[key] == value, f"{key} expected {value}, got {event.properties[key]}"
-        assert event.properties["breaches"] == "test breach"
 
 
 class TestAlertListFilters(APIBaseTest):

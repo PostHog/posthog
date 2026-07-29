@@ -1,11 +1,11 @@
-import * as chartHog from '@posthog/brand/hoggies/png/chart-hog'
-import * as construction1 from '@posthog/brand/hoggies/png/construction-1'
+import * as chart from '@posthog/brand/hoggies/png/chart'
+import * as construction from '@posthog/brand/hoggies/png/construction-1'
 import * as director from '@posthog/brand/hoggies/png/director'
 import * as experiment from '@posthog/brand/hoggies/png/experiment'
-import * as magnifyingGlass from '@posthog/brand/hoggies/png/magnifying-glass'
+import * as magnifyingGlass from '@posthog/brand/hoggies/png/magnifying-glass-1'
 import * as readingIsMagic from '@posthog/brand/hoggies/png/reading-is-magic'
 import * as reporter from '@posthog/brand/hoggies/png/reporter'
-import * as roboHog from '@posthog/brand/hoggies/png/robo-hog'
+import * as robot from '@posthog/brand/hoggies/png/robot'
 import {
     IconBolt,
     IconBuilding,
@@ -44,14 +44,14 @@ import { urls } from 'scenes/urls'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { type AvailableOnboardingProducts, type OnboardingProduct } from '~/types'
 
-const HedgehogChartHog = pngHoggie(chartHog)
-const HedgehogConstruction1 = pngHoggie(construction1)
+const HedgehogChart = pngHoggie(chart)
+const HedgehogConstruction = pngHoggie(construction)
 const HedgehogDirector = pngHoggie(director)
 const HedgehogExperiment = pngHoggie(experiment)
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlass)
 const HedgehogReadingIsMagic = pngHoggie(readingIsMagic)
 const HedgehogReporter = pngHoggie(reporter)
-const HedgehogRoboHog = pngHoggie(roboHog)
+const HedgehogRobot = pngHoggie(robot)
 
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string; color?: string }>> = {
     IconBolt,
@@ -131,7 +131,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
             { title: 'Trend analysis & dashboards', problem: 'Track how key metrics change week over week' },
             { title: 'User paths & retention', problem: 'Understand which features keep users coming back' },
         ],
-        hedgehog: HedgehogChartHog,
+        hedgehog: HedgehogChart,
         icon: 'IconGraph',
         iconColor: 'rgb(47 128 250)',
         url: urls.insights(),
@@ -185,7 +185,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
             { title: 'Latency monitoring', problem: 'Find slow prompts before users complain' },
             { title: 'Prompt evaluation', problem: 'Compare prompt versions with real data' },
         ],
-        hedgehog: HedgehogRoboHog,
+        hedgehog: HedgehogRobot,
         icon: 'IconLlmAnalytics',
         iconColor: 'rgb(182 42 217)',
         url: urls.aiObservabilityDashboard(),
@@ -202,7 +202,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
             { title: 'External data joins', problem: 'Combine Stripe, Hubspot, or Postgres data with PostHog' },
             { title: 'SQL queries', problem: 'Ask questions no pre-built dashboard can answer' },
         ],
-        hedgehog: HedgehogConstruction1,
+        hedgehog: HedgehogConstruction,
         icon: 'IconDatabase',
         iconColor: 'rgb(133 103 255)',
         breadcrumbsName: 'Data Warehouse',
@@ -329,7 +329,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
             { title: 'Agent intent', problem: 'Know what agents were trying to do, not just which tools they ran' },
             { title: 'Failures & gaps', problem: 'Catch failing tools and capabilities agents wish you had' },
         ],
-        hedgehog: HedgehogRoboHog,
+        hedgehog: HedgehogRobot,
         icon: 'IconLlmAnalytics',
         iconColor: 'rgb(182 42 217)',
         url: urls.mcpAnalyticsDashboard(),

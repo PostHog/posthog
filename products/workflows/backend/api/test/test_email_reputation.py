@@ -9,6 +9,7 @@ from rest_framework import status
 from posthog.models import Team
 
 from products.workflows.backend.models import EmailReputationSnapshot, HogFlow
+from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 
 RUN_2 = timezone.now().replace(microsecond=0) - timedelta(days=1)
 RUN_1 = RUN_2 - timedelta(days=1)
@@ -41,7 +42,46 @@ class TestEmailReputationAPI(APIBaseTest):
     def test_reputation_endpoint_returns_empty_shape_before_first_evaluation(self):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/reputation")
         assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {"reputation": None, "workflows": []}
+        assert response.json() == {
+            "reputation": None,
+            "workflows": [],
+            "email_sending_suspended": False,
+            "email_sending_suspended_at": None,
+            "email_sending_suspension_reason": "",
+        }
+
+    def test_reputation_endpoint_reports_email_sending_suspension(self):
+        suspended_at = timezone.now().replace(microsecond=0)
+        TeamWorkflowsConfig.objects.update_or_create(
+            team=self.team,
+            defaults={
+                "email_sending_suspended_at": suspended_at,
+                "email_sending_suspension_reason": "critical bounce rate",
+            },
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/reputation")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["email_sending_suspended"] is True
+        assert data["email_sending_suspended_at"] == suspended_at.isoformat().replace("+00:00", "Z")
+        assert data["email_sending_suspension_reason"] == "critical bounce rate"
+
+    def test_reputation_endpoint_search_filters_before_the_cap(self):
+        # A healthy workflow pushed past the worst-50 cap must still be findable by name
+        needle = self._create_flow("Quarterly newsletter")
+        self._create_snapshot(needle, RUN_2, state="healthy", bounce_rate=0.001)
+        for i in range(55):
+            noisy = self._create_flow(f"Blast {i}")
+            self._create_snapshot(noisy, RUN_2, state="critical", bounce_rate=0.2)
+
+        unfiltered = self.client.get(f"/api/projects/{self.team.id}/hog_flows/reputation").json()
+        assert all(row["hog_flow_name"] != "Quarterly newsletter" for row in unfiltered["workflows"])
+
+        searched = self.client.get(f"/api/projects/{self.team.id}/hog_flows/reputation?search=newsLETTER").json()
+        assert [row["hog_flow_name"] for row in searched["workflows"]] == ["Quarterly newsletter"]
+        # The team aggregate is unaffected by workflow search
+        assert searched["reputation"] is None
 
     def test_reputation_endpoint_returns_latest_history_and_worst_first_workflows(self):
         ok_flow = self._create_flow("Fine workflow")
@@ -107,4 +147,10 @@ class TestEmailReputationAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/reputation")
         assert response.status_code == status.HTTP_200_OK
         # Nothing from the other team leaks: no aggregate, no workflow rows
-        assert response.json() == {"reputation": None, "workflows": []}
+        assert response.json() == {
+            "reputation": None,
+            "workflows": [],
+            "email_sending_suspended": False,
+            "email_sending_suspended_at": None,
+            "email_sending_suspension_reason": "",
+        }

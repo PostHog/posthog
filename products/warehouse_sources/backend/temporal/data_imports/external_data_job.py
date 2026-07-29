@@ -24,6 +24,10 @@ from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import (
     DataImportsDuckLakeCopyInputs,
     DuckLakeCopyDataImportsWorkflow,
 )
+from posthog.temporal.ducklake.ducklake_register_data_imports_workflow import (
+    DuckLakeRegisterDataImportsInputs,
+    DuckLakeRegisterDataImportsWorkflow,
+)
 from posthog.temporal.utils import CDPProducerWorkflowInputs, ExternalDataWorkflowInputs
 from posthog.utils import get_machine_id
 
@@ -708,6 +712,29 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     "DuckLake copy already running, skipping",
                     extra={"schema_id": str(inputs.external_data_schema_id)},
                 )
+
+            prepared_queryable_folder = pipeline_result.get("prepared_queryable_folder")
+            if prepared_queryable_folder and workflow.patched("data-imports-ducklake-registration-workflow-v1"):
+                try:
+                    await workflow.start_child_workflow(
+                        DuckLakeRegisterDataImportsWorkflow.run,
+                        DuckLakeRegisterDataImportsInputs(
+                            team_id=inputs.team_id,
+                            job_id=job_id,
+                            schema_id=inputs.external_data_schema_id,
+                            prepared_queryable_folder=prepared_queryable_folder,
+                        ),
+                        id=(
+                            f"ducklake-register-data-imports-{inputs.team_id}-{inputs.external_data_schema_id}-{job_id}"
+                        ),
+                        task_queue=settings.DUCKLAKE_TASK_QUEUE,
+                        parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+                    )
+                except WorkflowAlreadyStartedError:
+                    workflow.logger.warning(
+                        "DuckLake prepared-file registration already running, skipping",
+                        extra={"schema_id": str(inputs.external_data_schema_id), "job_id": job_id},
+                    )
 
         except exceptions.ActivityError as e:
             if isinstance(e.cause, exceptions.ApplicationError) and e.cause.type == "WorkerShuttingDownError":

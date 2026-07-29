@@ -1,11 +1,53 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from datetime import datetime
+from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from products.signals.backend.report_charts import MAX_REPORT_CHARTS
 from products.signals.backend.scout_harness.skill_loader import LoadedSkill, SkillAuthor, skill_uses_report_channel
+
+
+def _compute_harness_prompt_version() -> str:
+    """Identify the harness prompt build, so runs can be grouped by the instructions they got.
+
+    Hashes this module's own source rather than a hand-maintained constant or a list of the
+    section templates. A bumped constant drifts the first time someone edits a section and
+    forgets, and hashing a named subset of templates silently misses a newly added section:
+    both failure modes merge two genuinely different prompt builds under one id, which corrupts
+    any A/B run across the change. Hashing the source can only fail the other way, splitting one
+    build into two ids after a comment or whitespace edit, which costs sample size rather than
+    correctness.
+
+    Deliberately NOT a hash of the assembled prompt: `build_run_prompt` interpolates the skill
+    body, scratchpad entries, project profile, and recent run summaries, so that hash would be
+    unique per run and could not group anything. This identifies the build; `report_channel`,
+    `skill_origin`, and `github_guidance` on the run row identify which sections that build
+    composed.
+
+    Imported values that get rendered into a section have to be hashed alongside the source,
+    because changing one changes the instructions while leaving this file's bytes untouched —
+    the false-merge direction the source hash otherwise rules out. Add to `_RENDERED_IMPORTS`
+    whenever a template starts interpolating something from another module.
+    """
+    try:
+        source = Path(__file__).read_bytes()
+    except OSError:
+        # Falls back rather than failing the import: an unreadable source file must not take the
+        # whole harness down for a field that only feeds analytics.
+        return "unknown"
+    rendered_imports = "\n".join(f"{name}={value}" for name, value in sorted(_RENDERED_IMPORTS.items()))
+    return hashlib.sha256(source + rendered_imports.encode()).hexdigest()[:12]
+
+
+# Values imported from other modules that templates in this file render into the prompt.
+_RENDERED_IMPORTS: dict[str, object] = {"MAX_REPORT_CHARTS": MAX_REPORT_CHARTS}
+
+
+HARNESS_PROMPT_VERSION = _compute_harness_prompt_version()
 
 
 class SignalScoutRunSummary(BaseModel):
@@ -344,6 +386,54 @@ A report you author renders in the inbox like any pipeline report — `title` is
 
 If your skill body defines its own report structure (required sections, a fixed template), follow that instead — the skill body owns the prose contract."""
 
+_REPORT_CHARTS = f"""# Attaching charts
+
+`charts` on the report tools carries queries the inbox draws on the report itself, so the move you describe is visible next to the sentence describing it instead of being a number the reader has to go and reproduce. Optional, and worth it only when the shape of the data is the point — a trend that broke, a distribution that shifted, a funnel step that collapsed. A chart restating one number the summary already gives is noise; write the number.
+
+- **Each chart is `chart_id` + `title` + `query`.** `chart_id` is your own slug (lowercase letters, numbers, `_`, `-`), `title` the heading above it, `query` a query node: `InsightVizNode` (an ad-hoc product analytics chart), `DataVisualizationNode` (a `HogQLQuery` source, plus `display` and `chartSettings` when you want a graph rather than a result table), or `SavedInsightNode` (an existing insight by `shortId`). Anything else is refused. Add a `caption` when there's something specific to look at.
+- **A graph from SQL needs its axes named.** Setting `display` without `chartSettings` draws an empty box: `chartSettings.xAxis.column` and `chartSettings.yAxis[].column` say which columns of your result are which. Leave `display` off entirely and the node renders the result table instead, which reads better than a chart for a handful of rows.
+- **A query is checked for its `kind` and its size when you write it, not for whether it runs.** A well-formed node of an allowed kind holding a broken query is stored without complaint and then fails to draw when a reader opens the report, and nothing tells you. So attach a query you have already run in this session rather than one written from memory, and when you want the exact shape of an ad-hoc node, read it off an insight that already exists instead of guessing at it.
+- **A chart query must not carry anything executable.** HogVM `bytecode` (what conditional formatting compiles to), a nested `HogQuery`, and `sendRawQuery` are each refused wherever they sit in the node, because a chart renders data rather than running code in the reader's session. A nested `SuggestedQuestionsQuery` is refused too: its runner calls an LLM, so every reader who opens the report would buy a completion per chart. A query over a warehouse connection is fine as long as it goes through HogQL: keep `connectionId`, drop `sendRawQuery`. A direct-warehouse query you ran with the raw-SQL bypass has to be rewritten before you can attach it.
+- **Place it from the summary.** A markdown link with a `chart:` target — `[Daily signups](chart:signups-drop)` — draws the chart at that point in the body. A chart you never reference still renders, after the prose. Reference it once: repeating the reference doesn't draw a second copy.
+- **Two references in one paragraph sit side by side.** Put a pair you want compared in a paragraph of their own; anywhere else they stack. A reference inside a table cell or a heading has no room to draw, so its chart falls to the end.
+- **Write prose that stands on its own.** A report can also be delivered to Slack, where nothing can draw a chart and a reference degrades to the plain label you gave it. "Signups fell 60% over the week" survives that; "the chart below shows the drop" leaves a Slack reader with nothing. State the finding in words and let the chart corroborate it.
+- **Pin the window.** Use absolute dates wherever the node supports it, so the reader sees the data you wrote about rather than whatever a relative range resolves to when they open the report days later.
+- **Size only when the default is wrong.** The inbox sizes a chart from its query. Set `size` to `small` (a single number, a short series), `medium`, or `large` (rows or a grid to read — retention, paths, a wide breakdown) when it isn't.
+- **At most {MAX_REPORT_CHARTS} per report**, which is far more than most reports should use. Every chart runs its query when someone opens the report, so attach the ones that carry the argument rather than everything you looked at — three charts a reader studies beat a dozen they scroll past.
+- **`charts` on an edit is the report's whole set, not an addition.** It replaces what the report had, the way `summary` replaces the summary — so to keep a chart, send it again. Leave `charts` out entirely and the report keeps the ones it has. Read the report first (`inbox-reports-retrieve` returns its `charts`) when you mean to add to them rather than start over.
+
+A trends chart and a graph built from SQL, as they arrive in `charts`:
+
+```json
+[
+  {{
+    "chart_id": "exceptions-daily",
+    "title": "Exceptions per day",
+    "caption": "The step up starts on 18 June.",
+    "query": {{
+      "kind": "InsightVizNode",
+      "source": {{
+        "kind": "TrendsQuery",
+        "dateRange": {{"date_from": "2026-06-01", "date_to": "2026-07-02"}},
+        "interval": "day",
+        "series": [{{"kind": "EventsNode", "event": "$exception", "math": "total"}}],
+        "trendsFilter": {{"display": "ActionsLineGraph"}}
+      }}
+    }}
+  }},
+  {{
+    "chart_id": "exceptions-by-type",
+    "title": "People affected, by exception type",
+    "query": {{
+      "kind": "DataVisualizationNode",
+      "source": {{"kind": "HogQLQuery", "query": "SELECT exception_type, uniq(distinct_id) AS people FROM ... GROUP BY exception_type ORDER BY people DESC"}},
+      "display": "ActionsBar",
+      "chartSettings": {{"xAxis": {{"column": "exception_type"}}, "yAxis": [{{"column": "people"}}]}}
+    }}
+  }}
+]
+```"""
+
 _WRITING_SUMMARY = """# Writing the summary (how it renders in run history)
 
 Your close-out `summary` is rendered as GitHub-flavored markdown in the scout's run history, **collapsed to the first ~2 lines** until expanded. The same rules as the description apply — front-load, structure, no walls:
@@ -510,6 +600,7 @@ def _report_tail_sections(
             _SUGGESTED_REVIEWERS_REPORT,
             *([_GITHUB_EVIDENCE_REPORT] if github_read_access else []),
             _WRITING_REPORT,
+            _REPORT_CHARTS,
         ]
     elif can_emit:
         how_a_run_works = f"{_HOW_A_RUN_WORKS_HEAD}\n{_REPORT_STEPS_EMIT_ONLY}\n{_REPORT_CLOSE_OUT_STEP}"
@@ -519,6 +610,7 @@ def _report_tail_sections(
             _SUGGESTED_REVIEWERS_REPORT,
             *([_GITHUB_EVIDENCE_REPORT] if github_read_access else []),
             _WRITING_REPORT,
+            _REPORT_CHARTS,
         ]
     else:  # edit-only — no authoring, so no suggested-reviewers / writing-a-report sections
         how_a_run_works = f"{_HOW_A_RUN_WORKS_HEAD}\n{_REPORT_STEPS_EDIT_ONLY}\n{_REPORT_CLOSE_OUT_STEP}"
@@ -526,6 +618,7 @@ def _report_tail_sections(
             _EDITING_REPORT_EDIT_ONLY,
             _REPORT_SCRATCHPAD_POINTER,
             *([_GITHUB_EVIDENCE_REPORT] if github_read_access else []),
+            _REPORT_CHARTS,
         ]
     return [
         how_a_run_works,
