@@ -696,21 +696,21 @@ class AIObservabilitySentimentSustainedThrottle(PersonalApiKeyRateThrottle):
     rate = "600/hour"
 
 
-class AIObservabilitySummarizationBurstThrottle(PersonalApiKeyRateThrottle):
+class AIObservabilitySummarizationBurstThrottle(PersonalApiKeyOrUserRateThrottle):
     # Rate limit for LLM-powered summarization endpoint
     # Conservative limits to control OpenAI API costs
     scope = "llm_analytics_summarization_burst"
     rate = "50/minute"
 
 
-class AIObservabilitySummarizationSustainedThrottle(PersonalApiKeyRateThrottle):
+class AIObservabilitySummarizationSustainedThrottle(PersonalApiKeyOrUserRateThrottle):
     # Rate limit for LLM-powered summarization endpoint
     # Conservative limits to control OpenAI API costs
     scope = "llm_analytics_summarization_sustained"
     rate = "200/hour"
 
 
-class AIObservabilitySummarizationDailyThrottle(PersonalApiKeyRateThrottle):
+class AIObservabilitySummarizationDailyThrottle(PersonalApiKeyOrUserRateThrottle):
     # Daily cap for LLM-powered summarization endpoint
     # Hard limit to prevent runaway costs
     scope = "llm_analytics_summarization_daily"
@@ -1143,6 +1143,16 @@ class SubscriptionTestDeliveryThrottle(PersonalApiKeyOrUserRateThrottle):
     # this endpoint the real-world side-effect blast radius means we want
     # every auth method covered.
     scope = "subscription_test_delivery"
+    rate = "10/minute"
+
+    def get_cache_key(self, request, view):
+        team_id = self.safely_get_team_id_from_view(view)
+        if team_id:
+            return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
+
+
+class AlertTestDeliveryThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "alert_test_delivery"
     rate = "10/minute"
 
     def get_cache_key(self, request, view):
