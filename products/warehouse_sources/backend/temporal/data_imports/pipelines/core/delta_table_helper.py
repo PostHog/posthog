@@ -605,6 +605,13 @@ class DeltaTableHelper:
                     storage_options=storage_options,
                     partition_by=PARTITION_KEY if use_partitioning else None,
                 )
+            else:
+                # An append re-casts each source column to its stored type, same as a merge. A decimal
+                # column that outgrew decimal128 arrives here as text (decimal256 renders to string),
+                # and delta-rs can't parse the scientific notation arrow emits for scale-heavy zeros
+                # (e.g. '0E-18') back into the stored decimal — an opaque DeltaError that retries
+                # forever. Align to the stored decimal types up front, exactly as the merge path does.
+                data = align_incoming_decimals_to_delta(data, delta_table.schema())
 
             await self._logger.adebug(f"write_to_deltalake: write_type = append")
 
