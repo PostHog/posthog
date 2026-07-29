@@ -88,10 +88,9 @@ def test_compare_column_order_does_not_cause_false_mismatch():
 
 def test_affected_partitions_partitioned():
     data = _table(["a", "b", "c"], [1, 2, 3], parts=["2026-07-01", "2026-07-01", "2026-07-02"])
-    assert sorted(deltalite_shadow._affected_partition_values(data, PARTITION_KEY)) == [
-        "2026-07-01",
-        "2026-07-02",
-    ]
+    result = deltalite_shadow._affected_partition_values(data, PARTITION_KEY)
+    assert result is not None
+    assert sorted(result) == ["2026-07-01", "2026-07-02"]
 
 
 def test_affected_partitions_unpartitioned_is_none():

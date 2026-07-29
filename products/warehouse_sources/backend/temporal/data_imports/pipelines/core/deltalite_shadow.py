@@ -57,11 +57,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 # `build-deltalite` workflow at rollout time — so its import is guarded: this module, and therefore
 # the sync, is unaffected when the wheel isn't installed.
 try:
-    import deltalite  # type: ignore[no-redef]
+    import deltalite
 
     _DELTALITE_AVAILABLE = True
 except ImportError:  # pragma: no cover - exercised only where the wheel isn't installed
-    deltalite = None  # type: ignore[assignment]
+    deltalite = None
     _DELTALITE_AVAILABLE = False
 
 
@@ -131,15 +131,18 @@ def _affected_at_rest_bytes(uri: str, storage_options: dict[str, str], version: 
     """
     try:
         dt = deltalake.DeltaTable(uri, version=version, storage_options=storage_options)
+        # get_add_actions returns an arro3 Table; read columns via its own API and sum in Python
+        # (a table has a few hundred files at most, so this is cheap and avoids arrow-compute typing).
         adds = dt.get_add_actions(flatten=True)
-        size_col = adds.column("size_bytes")
+        sizes = adds["size_bytes"].to_pylist()
         if affected is None:
-            return int(pc.sum(size_col).as_py() or 0)
+            return sum(int(s or 0) for s in sizes)
         part_col_name = f"partition.{PARTITION_KEY}"
         if part_col_name not in adds.column_names:
             return 0
-        mask = pc.is_in(adds.column(part_col_name), value_set=pa.array([str(a) for a in affected]))
-        return int(pc.sum(pc.filter(size_col, mask)).as_py() or 0)
+        parts = adds[part_col_name].to_pylist()
+        affected_set = {str(a) for a in affected}
+        return sum(int(s or 0) for s, p in zip(sizes, parts) if str(p) in affected_set)
     except Exception:
         return 0
 
@@ -204,7 +207,7 @@ def _compare(real: pa.Table, shadow: pa.Table, primary_keys: Sequence[str]) -> t
     try:
         con.register("real_t", real)
         con.register("shadow_t", shadow)
-        real_n, shadow_n, only_real, only_shadow = con.execute(
+        counts = con.execute(
             """
             SELECT
                 (SELECT count(*) FROM real_t),
@@ -213,6 +216,8 @@ def _compare(real: pa.Table, shadow: pa.Table, primary_keys: Sequence[str]) -> t
                 (SELECT count(*) FROM (SELECT * FROM shadow_t EXCEPT ALL SELECT * FROM real_t))
             """
         ).fetchone()
+        assert counts is not None  # the aggregate query always returns exactly one row
+        real_n, shadow_n, only_real, only_shadow = counts
 
         if only_real == 0 and only_shadow == 0 and real_n == shadow_n:
             return True, {"rows": real_n}
