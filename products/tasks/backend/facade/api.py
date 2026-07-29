@@ -94,6 +94,13 @@ CODE_INVITE_NOT_REDEEMABLE = "not_redeemable"
 
 WIZARD_PR_READY_EMAIL_FEATURE_FLAG = "wizard-cloud-run-pr-ready-email-enabled"
 
+# Runtime posture for a setup-wizard cloud run, applied in create_wizard_cloud_run. The model is
+# pinned because these runs route to the unbilled `onboarding` gateway product, which allowlists a
+# narrow model set; the string form avoids pulling the temporal RuntimeAdapter enum onto this path.
+WIZARD_CLOUD_RUN_RUNTIME_ADAPTER = "claude"
+WIZARD_CLOUD_RUN_MODEL = "claude-sonnet-5"
+WIZARD_CLOUD_RUN_AI_STAGE = "wizard_pr_agent"
+
 __all__ = [
     "CODE_INVITE_INVALID_CODE",
     "CODE_INVITE_NOT_REDEEMABLE",
@@ -900,6 +907,10 @@ def create_wizard_cloud_run(
     The PR head branch is generated here (not by the agent) so the GitHub PR webhook can bind the
     opened PR back to this run by branch + repository — wizard PRs are bot-authored, which the
     agent-side PR attribution cannot match.
+
+    The model is pinned rather than left to the agent's default because these runs bill to nobody:
+    they route to the unbilled ``onboarding`` gateway product, whose model allowlist is narrow, and
+    PostHog absorbs the cost. Keep the pin inside that allowlist or the run fails at the gateway.
     """
     head_branch = generate_wizard_head_branch()
     prompt = build_wizard_pr_agent_prompt(head_branch)
@@ -916,6 +927,9 @@ def create_wizard_cloud_run(
         wizard_config={},
         wizard_head_branch=head_branch,
         posthog_mcp_scopes="read_only",
+        runtime_adapter=WIZARD_CLOUD_RUN_RUNTIME_ADAPTER,
+        model=WIZARD_CLOUD_RUN_MODEL,
+        ai_stage=WIZARD_CLOUD_RUN_AI_STAGE,
         # The agent server boots idle; this is the message that actually kicks it off once ready
         # (delivered by forward_pending_user_message). Without it the run stalls after "Started agent".
         pending_user_message=prompt,
@@ -1769,6 +1783,16 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "loop_trigger_id",
         "trigger_context",
         "config_snapshot",
+        # The run's model posture, chosen at creation by the server-owned caller and read back out
+        # of state when the run dispatches. It decides what the run costs, and for a run routed to
+        # an unbilled gateway product (create_wizard_cloud_run pins claude-sonnet-5 for the
+        # `onboarding` product) it is the only thing keeping the run off the more expensive models
+        # that product still allowlists. Every writer is server-side, so nothing legitimate PATCHes
+        # these.
+        "runtime_adapter",
+        "provider",
+        "model",
+        "reasoning_effort",
     }
 )
 

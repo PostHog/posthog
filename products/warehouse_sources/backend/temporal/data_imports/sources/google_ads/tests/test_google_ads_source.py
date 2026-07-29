@@ -1336,27 +1336,38 @@ _GOOGLE_ADS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.s
 
 
 class TestVersionDeclaration:
-    def test_v24_is_default_and_both_versions_supported(self):
+    def test_v25_is_default_and_all_versions_supported(self):
         source = GoogleAdsSource()
-        assert source.default_version == "v24"
-        assert set(source.supported_versions) == {"v23", "v24"}
+        assert source.default_version == "v25"
+        assert set(source.supported_versions) == {"v23", "v24", "v25"}
+
+    def test_v24_deprecated_default_is_not(self):
+        # v24 is the version the vendor is retiring, so it must carry the deprecation flag that drives
+        # the in-product warning; the current default (v25) must never be deprecated.
+        source = GoogleAdsSource()
+        v24_deprecation = source.get_version_deprecation("v24")
+        assert v24_deprecation is not None
+        assert v24_deprecation.sunset_at is None
+        assert source.get_version_deprecation("v25") is None
+        # A NULL pin resolves to the default (v25), so it must not report as deprecated.
+        assert source.get_version_deprecation(None) is None
 
     @pytest.mark.parametrize(
         "pin, expected",
-        [("v23", "v23"), ("v24", "v24"), (None, "v24"), ("", "v24")],
+        [("v23", "v23"), ("v24", "v24"), ("v25", "v25"), (None, "v25"), ("", "v25")],
     )
-    def test_resolve_api_version_honors_pin_and_defaults_to_v24(self, pin, expected):
-        # A present pin is honored verbatim so an existing v23 source is never silently moved; an
-        # empty/missing pin falls back to the new v24 default that new sources are stamped with.
+    def test_resolve_api_version_honors_pin_and_defaults_to_v25(self, pin, expected):
+        # A present pin is honored verbatim so an existing v23/v24 source is never silently moved; an
+        # empty/missing pin falls back to the new v25 default that new sources are stamped with.
         assert GoogleAdsSource().resolve_api_version(pin) == expected
 
 
 class TestApiVersionDispatch:
-    @pytest.mark.parametrize("api_version", ["v23", "v24"])
+    @pytest.mark.parametrize("api_version", ["v23", "v24", "v25"])
     def test_search_service_built_for_resolved_version(self, api_version):
         # The resolved pin must reach GoogleAdsService.get_service so each source syncs against the
         # version it is pinned to — the SDK's default flipped to the newest version, so an unpinned
-        # call would silently move v23 sources to v24.
+        # call would silently move older sources to v25.
         client = mock.Mock()
         table = _single_row_table()
         assert table.alias is not None
@@ -1377,7 +1388,7 @@ class TestApiVersionDispatch:
 
         client.get_service.assert_called_once_with("GoogleAdsService", version=api_version, interceptors=mock.ANY)
 
-    @pytest.mark.parametrize("api_version", ["v23", "v24"])
+    @pytest.mark.parametrize("api_version", ["v23", "v24", "v25"])
     def test_field_service_built_for_resolved_version(self, api_version):
         # Schema discovery must also target the resolved version — before the SDK bump it relied on
         # the client default being v23, which the bump changed to the newest version.
@@ -1400,10 +1411,10 @@ class TestApiVersionDispatch:
         [(False, "CustomerService"), (True, "GoogleAdsService")],
         ids=["direct_account_probe", "mcc_account_probe"],
     )
-    @pytest.mark.parametrize("pin, expected", [("v23", "v23"), (None, "v24")])
+    @pytest.mark.parametrize("pin, expected", [("v23", "v23"), ("v24", "v24"), (None, "v25")])
     def test_validate_credentials_probes_are_pinned(self, is_mcc, service_name, pin, expected):
         # Unpinned probes fall through to the SDK's newest bundled version, so a v23 source would
-        # be validated against v24 and pass (or fail) on a version it never syncs with.
+        # be validated against v25 and pass (or fail) on a version it never syncs with.
         client = mock.Mock()
         config = GoogleAdsSourceConfig(
             customer_id="1234567890",
@@ -1419,10 +1430,10 @@ class TestApiVersionDispatch:
 class TestDiscoveryVersionThreading:
     _SCHEMAS_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.get_schemas"
 
-    @pytest.mark.parametrize("pin, expected", [("v23", "v23"), ("v24", "v24"), (None, "v24")])
+    @pytest.mark.parametrize("pin, expected", [("v23", "v23"), ("v24", "v24"), ("v25", "v25"), (None, "v25")])
     def test_get_schemas_discovers_against_resolved_pin(self, pin, expected):
         # Discovery must reconcile against the source's pinned version, not always the default —
-        # a v23-pinned source must not discover schemas under the newer default (v24).
+        # a v23-pinned source must not discover schemas under the newer default (v25).
         config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
         with mock.patch(self._SCHEMAS_PATH, return_value={}) as mock_get_schemas:
             GoogleAdsSource().get_schemas(config, team_id=1, api_version=pin)
@@ -1431,10 +1442,10 @@ class TestDiscoveryVersionThreading:
 
 
 class TestTypeUrlVersionResolution:
-    @pytest.mark.parametrize("api_version", ["v23", "v24"])
+    @pytest.mark.parametrize("api_version", ["v23", "v24", "v25"])
     def test_resolves_enum_type_url_against_matching_version(self, api_version):
         # Response type URLs carry the API version they were produced under, so the resolver must
-        # decode a v23 and a v24 response each against its own protos.
+        # decode a v23, v24 and v25 response each against its own protos.
         enum_cls = _resolve_protobuf_message_type_url(f"google.ads.googleads.{api_version}.enums.DeviceEnum")
         assert enum_cls.__module__.startswith(f"google.ads.googleads.{api_version}.")
 

@@ -9,17 +9,23 @@ InjectedState, but whole-key replacement does not.
 
 import re
 import json
+import time
+import random
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, TypeVar
 
 from django.db.models import Q
 
 import structlog
+from clickhouse_driver.errors import NetworkError, SocketTimeoutError
 from langchain_core.tools import BaseTool, tool
 from langgraph.prebuilt import InjectedState
 
 from posthog.hogql import ast
 
+from posthog.errors import CH_TRANSIENT_ERRORS
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 from posthog.temporal.ai_observability.eval_reports.output_types import (
     EvaluationReportOutcomeDefinition,
     get_outcome_definition,
@@ -27,6 +33,7 @@ from posthog.temporal.ai_observability.eval_reports.output_types import (
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     MAX_REPORT_SECTIONS,
     Citation,
+    EvalReportGenerationStatus,
     ReportSection,
     calculate_boolean_pass_rate,
     calculate_result_rates,
@@ -101,6 +108,11 @@ def _report_run_target_filter(evaluation_target: str) -> Q:
     if resolve_evaluation_target(evaluation_target) == TRACE_TARGET:
         return Q(content__evaluation_target=TRACE_TARGET)
     return Q(content__evaluation_target=GENERATION_TARGET) | Q(content__evaluation_target__isnull=True)
+
+
+def _completed_report_run_filter() -> Q:
+    unavailable = EvalReportGenerationStatus.METRICS_UNAVAILABLE.value
+    return Q(content__generation_status__isnull=True) | ~Q(content__generation_status=unavailable)
 
 
 def _ch_ts(iso_str: str) -> datetime:
@@ -183,6 +195,59 @@ def _widened_ts_window(state: dict) -> tuple[datetime, datetime]:
     return ts_start, ts_end
 
 
+# Query timeouts and per-query memory limits need a narrower query, so retrying
+# them without changing the query only adds load.
+RETRIABLE_CH_ERRORS = (*CH_TRANSIENT_ERRORS, NetworkError, SocketTimeoutError)
+_CH_QUERY_MAX_RETRIES = 3
+_CH_QUERY_BASE_DELAY_SECONDS = 8.0
+
+T = TypeVar("T")
+
+
+def _is_retriable_ch_error(error: Exception) -> bool:
+    return isinstance(error, RETRIABLE_CH_ERRORS) or (
+        isinstance(error, ClickHouseQueryMemoryLimitExceeded) and not error.is_per_query_limit
+    )
+
+
+def _execute_ch_query_with_retry(
+    run_query: Callable[[], T],
+    *,
+    query_type: str,
+    max_retries: int = _CH_QUERY_MAX_RETRIES,
+    base_delay: float = _CH_QUERY_BASE_DELAY_SECONDS,
+) -> T:
+    """Run a ClickHouse-backed callable, retrying transient errors with exponential backoff + jitter.
+
+    The report agent runs synchronously in a worker thread while the activity's
+    Heartbeater keeps heartbeating on the event loop, so a plain blocking sleep
+    here does not risk a heartbeat timeout. Non-transient errors propagate
+    immediately so genuine bugs still fail loudly.
+    """
+    for attempt in range(max_retries + 1):
+        try:
+            return run_query()
+        except Exception as error:
+            if not _is_retriable_ch_error(error):
+                raise
+            if attempt >= max_retries:
+                raise
+            # Jitter prevents concurrent report workers from retrying together.
+            max_delay = base_delay * (2**attempt)
+            delay = random.uniform(max_delay / 2, max_delay)
+            logger.warning(
+                "llma_eval_reports_clickhouse_retry",
+                error=str(error),
+                error_type=type(error).__name__,
+                delay=round(delay, 1),
+                attempt=attempt + 1,
+                max_retries=max_retries,
+                query_type=query_type,
+            )
+            time.sleep(delay)
+    raise AssertionError("unreachable: retry loop must return or re-raise")
+
+
 def _execute_hogql(team_id: int, query_str: str, placeholders: dict | None = None) -> list[list]:
     """Execute a HogQL query against `events` and return results.
 
@@ -201,11 +266,14 @@ def _execute_hogql(team_id: int, query_str: str, placeholders: dict | None = Non
     query = parse_select(query_str)
 
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.ENRICHMENT, team_id=team_id):
-        result = execute_hogql_query(
+        result = _execute_ch_query_with_retry(
+            lambda: execute_hogql_query(
+                query_type="EvalReportAgent",
+                query=query,
+                placeholders=placeholders or {},
+                team=team,
+            ),
             query_type="EvalReportAgent",
-            query=query,
-            placeholders=placeholders or {},
-            team=team,
         )
 
     return result.results or []
@@ -230,12 +298,15 @@ def _execute_hogql_via_ai_events(team: "Team", query_str: str, placeholders: dic
     # internally but not `feature`, so supply it here to keep these eval-report
     # agent reads attributed to background enrichment.
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.ENRICHMENT, team_id=team.pk):
-        result = query_ai_events(
-            query=query,
-            placeholders=placeholders or {},
-            team=team,
+        result = _execute_ch_query_with_retry(
+            lambda: query_ai_events(
+                query=query,
+                placeholders=placeholders or {},
+                team=team,
+                query_type="EvalReportAgent",
+                fall_back_to_events=True,
+            ),
             query_type="EvalReportAgent",
-            fall_back_to_events=True,
         )
 
     return result.results or []
@@ -1040,6 +1111,7 @@ def list_recent_report_runs(
         period_end__gte=since,
     )
     runs = runs.filter(_report_run_target_filter(evaluation_target))
+    runs = runs.filter(_completed_report_run_filter())
     runs = runs.order_by("-period_end")[:limit]
 
     result = []
@@ -1094,6 +1166,7 @@ def get_report_run(
     evaluation_target = resolve_evaluation_target(state.get("evaluation_target"))
     runs = EvaluationReportRun.objects.filter(id=run_id, report__evaluation_id=evaluation_id)
     runs = runs.filter(_report_run_target_filter(evaluation_target))
+    runs = runs.filter(_completed_report_run_filter())
     try:
         run = runs.get()
     except EvaluationReportRun.DoesNotExist:
