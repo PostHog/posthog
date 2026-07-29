@@ -149,6 +149,36 @@ class TestSlackFormatting(SimpleTestCase):
 
         assert slack_text == expected
 
+    @parameterized.expand(
+        [
+            ("broadcast", "<!channel> ping", "&lt;!channel&gt; ping"),
+            ("user_mention", "hi <@U123ABC>", "hi &lt;@U123ABC&gt;"),
+            ("fake_link", "see <http://evil|click>", "see &lt;http://evil|click&gt;"),
+        ]
+    )
+    def test_outbound_text_fallback_neutralizes_slack_control_chars(self, _name: str, text: str, expected: str) -> None:
+        # Dropping CommonMark escapes must not re-arm Slack control syntax typed as plain
+        # text, or a user could make the bot broadcast to a channel or inject a link.
+        rich_content = {
+            "type": "doc",
+            "content": [{"type": "paragraph", "content": [{"type": "text", "text": text}]}],
+        }
+
+        slack_text, _ = rich_content_to_slack_payload(rich_content, "")
+
+        assert slack_text == expected
+
+    def test_outbound_code_block_preserves_literal_backslashes(self) -> None:
+        # Code bypasses markdown escaping, so the unescape pass must leave its backslashes alone.
+        rich_content = {
+            "type": "doc",
+            "content": [{"type": "codeBlock", "content": [{"type": "text", "text": r"C:\Projects\*"}]}],
+        }
+
+        slack_text, _ = rich_content_to_slack_payload(rich_content, "")
+
+        assert slack_text == "```\nC:\\Projects\\*\n```"
+
     def test_rich_content_roundtrip_preserves_line_breaks_and_paragraphs(self) -> None:
         rich_content = {
             "type": "doc",

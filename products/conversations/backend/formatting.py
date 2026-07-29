@@ -28,6 +28,9 @@ _RE_SINGLE_NEWLINE = re.compile(r"(?<!\n)\n(?!\n)")
 _RE_MD_ESCAPE = re.compile(r"([\\`*_{}\[\]()#+\-.!|])")
 _RE_MD_UNESCAPE = re.compile(r"\\([\\`*_{}\[\]()#+\-.!|])")
 _RE_ALT_ESCAPE = re.compile(r"([\\\]])")
+# Fenced blocks (```...```) or simple inline spans (`code`). Their contents are literal
+# and must skip mrkdwn rewriting and backslash unescaping.
+_RE_CODE_SEGMENT = re.compile(r"```[\s\S]*?```|`[^`\n]*`")
 _RE_SLACK_EMOJI = re.compile(r":([a-z0-9_+\-]+):")
 
 
@@ -159,12 +162,29 @@ def strip_slack_user_mentions(text: str) -> str:
     return _RE_SLACK_USER_MENTION.sub("", text)
 
 
+def _escape_slack_control_chars(text: str) -> str:
+    """Neutralize Slack's control characters so user text can't inject mentions/links/broadcasts."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def content_to_slack_mrkdwn(content: str) -> str:
     """Convert markdown comment content to Slack mrkdwn text."""
     if not content:
         return ""
 
-    text = content
+    # Pull code out first: its contents are literal, so they must not be rewritten as
+    # mrkdwn, have escapes stripped, or have their `<`/`>`/`&` treated as user injection.
+    code_segments: list[str] = []
+
+    def capture_code(match: re.Match) -> str:
+        code_segments.append(match.group(0))
+        return f"\x00CODE{len(code_segments) - 1}\x00"
+
+    text = _RE_CODE_SEGMENT.sub(capture_code, content)
+
+    # Escape control chars in user text before the conversions below emit their own trusted
+    # `<...>` link tokens — otherwise a literal `<!channel>` would become an active broadcast.
+    text = _escape_slack_control_chars(text)
 
     text = _RE_MD_IMAGE.sub(r"<\2|\1>", text)
 
@@ -186,6 +206,9 @@ def content_to_slack_mrkdwn(content: str) -> str:
     # backslash escapes left over from serialization — Slack mrkdwn doesn't use them and
     # would otherwise show them literally (e.g. "world\!").
     text = _RE_MD_UNESCAPE.sub(r"\1", text)
+
+    for index, value in enumerate(code_segments):
+        text = text.replace(f"\x00CODE{index}\x00", _escape_slack_control_chars(value))
 
     def resolve_mention(match: re.Match) -> str:
         uuid_str = match.group(1)
