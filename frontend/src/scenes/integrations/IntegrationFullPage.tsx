@@ -7,6 +7,7 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { TeamMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { useWizardRunInFlight } from 'scenes/onboarding/shared/wizard-sync/useWizardRunInFlight'
 import { urls } from 'scenes/urls'
 
 import { IntegrationType } from '~/types'
@@ -201,9 +202,32 @@ function ConnectedView({
                 </div>
             ) : null}
 
-            <LemonButton type="primary" to={urls.projectHomepage()}>
-                Go to PostHog
-            </LemonButton>
+            <ConnectedNextStep />
         </>
+    )
+}
+
+/**
+ * Where the user goes after connecting. A wizard run owns the flow it started — the browser is only
+ * here to click through the provider's consent screen — so send them back to their terminal rather
+ * than into the app. Routing them anywhere is wrong for every path the wizard can produce: a
+ * provisioned account lands in an onboarding it never started, an unonboarded existing account gets
+ * bounced there by the onboarding gate, and an onboarded one is pulled away from the run mid-flight.
+ */
+function ConnectedNextStep(): JSX.Element {
+    const wizardRunInFlight = useWizardRunInFlight()
+
+    if (wizardRunInFlight) {
+        return (
+            <p className="text-secondary text-center m-0">
+                Head back to your terminal. The setup agent picks up from here.
+            </p>
+        )
+    }
+
+    return (
+        <LemonButton type="primary" to={urls.projectHomepage()}>
+            Go to PostHog
+        </LemonButton>
     )
 }
