@@ -18,12 +18,29 @@ import * as zod from 'zod'
  * the metadata, matching the token links the partner app to this organization and
  * grants a higher default rate limit for account provisioning.
  *
+ * Each token is scoped at creation to the one `cimd_url` it will be published at,
+ * and verifies nowhere else. Two organizations may name the same URL — only the one
+ * whose token is actually served there verifies — so claiming a URL cannot be used
+ * to block a partner from verifying theirs.
+ *
  * The plaintext value is only available on creation; we store a hash.
  */
 export const cimdVerificationTokensCreateBodyLabelMax = 40
 
+export const cimdVerificationTokensCreateBodyCimdUrlMax = 2048
+
 export const CimdVerificationTokensCreateBody = /* @__PURE__ */ zod.object({
-    label: zod.string().max(cimdVerificationTokensCreateBodyLabelMax),
+    label: zod
+        .string()
+        .max(cimdVerificationTokensCreateBodyLabelMax)
+        .describe("Human-readable name to identify this token later, e.g. 'Production CIMD partner'."),
+    cimd_url: zod
+        .string()
+        .max(cimdVerificationTokensCreateBodyCimdUrlMax)
+        .nullable()
+        .describe(
+            'HTTPS URL of the CIMD metadata document this token will be published in. The token only verifies at this exact URL, so a copy hosted anywhere else is rejected. Null on tokens issued before URL binding; those no longer verify and must be reissued.'
+        ),
 })
 
 export const domainsCreateBodyDomainMax = 128

@@ -4,7 +4,7 @@ from freezegun import freeze_time
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -15,6 +15,7 @@ from posthog.models.oauth import (
     OAuthApplication,
     OAuthGrant,
     OAuthRefreshToken,
+    normalize_cimd_url,
     revoke_application_sessions,
     revoke_oauth_session,
 )
@@ -549,3 +550,27 @@ class TestOAuthModels(TestCase):
         other_app.refresh_from_db()
         self.assertEqual(app.sessions_revoked_at, timezone.now())
         self.assertIsNone(other_app.sessions_revoked_at)
+
+
+class TestNormalizeCimdUrl(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("trailing_slash", "https://a.example.com/cimd.json/", "https://a.example.com/cimd.json"),
+            ("uppercase_host", "https://A.Example.COM/cimd.json", "https://a.example.com/cimd.json"),
+            ("uppercase_scheme", "HTTPS://a.example.com/cimd.json", "https://a.example.com/cimd.json"),
+            ("default_port", "https://a.example.com:443/cimd.json", "https://a.example.com/cimd.json"),
+            ("surrounding_space", "  https://a.example.com/cimd.json  ", "https://a.example.com/cimd.json"),
+        ]
+    )
+    def test_equivalent_spellings_collapse(self, _name, raw, expected):
+        self.assertEqual(normalize_cimd_url(raw), expected)
+
+    @parameterized.expand(
+        [
+            ("non_default_port", "https://a.example.com:8443/cimd.json"),
+            ("path_case_is_significant", "https://a.example.com/CIMD.json"),
+            ("different_path", "https://a.example.com/other.json"),
+        ]
+    )
+    def test_distinct_documents_stay_distinct(self, _name, other):
+        self.assertNotEqual(normalize_cimd_url(other), normalize_cimd_url("https://a.example.com/cimd.json"))

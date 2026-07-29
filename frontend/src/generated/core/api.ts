@@ -135,6 +135,11 @@ export const getCimdVerificationTokensListUrl = (organizationId: string, params?
  * the metadata, matching the token links the partner app to this organization and
  * grants a higher default rate limit for account provisioning.
  *
+ * Each token is scoped at creation to the one `cimd_url` it will be published at,
+ * and verifies nowhere else. Two organizations may name the same URL — only the one
+ * whose token is actually served there verifies — so claiming a URL cannot be used
+ * to block a partner from verifying theirs.
+ *
  * The plaintext value is only available on creation; we store a hash.
  */
 export const cimdVerificationTokensList = async (
@@ -160,6 +165,11 @@ export const getCimdVerificationTokensCreateUrl = (organizationId: string) => {
  * `posthog_verification_token` field still works as a fallback). When PostHog fetches
  * the metadata, matching the token links the partner app to this organization and
  * grants a higher default rate limit for account provisioning.
+ *
+ * Each token is scoped at creation to the one `cimd_url` it will be published at,
+ * and verifies nowhere else. Two organizations may name the same URL — only the one
+ * whose token is actually served there verifies — so claiming a URL cannot be used
+ * to block a partner from verifying theirs.
  *
  * The plaintext value is only available on creation; we store a hash.
  */
@@ -189,6 +199,11 @@ export const getCimdVerificationTokensRetrieveUrl = (organizationId: string, id:
  * the metadata, matching the token links the partner app to this organization and
  * grants a higher default rate limit for account provisioning.
  *
+ * Each token is scoped at creation to the one `cimd_url` it will be published at,
+ * and verifies nowhere else. Two organizations may name the same URL — only the one
+ * whose token is actually served there verifies — so claiming a URL cannot be used
+ * to block a partner from verifying theirs.
+ *
  * The plaintext value is only available on creation; we store a hash.
  */
 export const cimdVerificationTokensRetrieve = async (
@@ -214,6 +229,11 @@ export const getCimdVerificationTokensDestroyUrl = (organizationId: string, id: 
  * `posthog_verification_token` field still works as a fallback). When PostHog fetches
  * the metadata, matching the token links the partner app to this organization and
  * grants a higher default rate limit for account provisioning.
+ *
+ * Each token is scoped at creation to the one `cimd_url` it will be published at,
+ * and verifies nowhere else. Two organizations may name the same URL — only the one
+ * whose token is actually served there verifies — so claiming a URL cannot be used
+ * to block a partner from verifying theirs.
  *
  * The plaintext value is only available on creation; we store a hash.
  */

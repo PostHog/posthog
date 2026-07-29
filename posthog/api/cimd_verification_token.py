@@ -7,6 +7,7 @@ from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.response import Response
 
+from posthog.api.oauth.cimd import validate_cimd_url
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.helpers.impersonation import is_impersonated
@@ -17,12 +18,28 @@ from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitive
 
 class CIMDVerificationTokenSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
+    label = serializers.CharField(
+        max_length=40,
+        help_text="Human-readable name to identify this token later, e.g. 'Production CIMD partner'.",
+    )
+    # Nullable on read only, for tokens predating URL binding — writes must supply one.
+    cimd_url = serializers.CharField(
+        max_length=2048,
+        required=True,
+        allow_null=True,
+        help_text=(
+            "HTTPS URL of the CIMD metadata document this token will be published in. "
+            "The token only verifies at this exact URL, so a copy hosted anywhere else is rejected. "
+            "Null on tokens issued before URL binding; those no longer verify and must be reissued."
+        ),
+    )
 
     class Meta:
         model = CIMDVerificationToken
         fields = [
             "id",
             "label",
+            "cimd_url",
             "mask_value",
             "created_by",
             "created_at",
@@ -40,6 +57,17 @@ class CIMDVerificationTokenSerializer(serializers.ModelSerializer):
         value = value.strip()
         if not value:
             raise serializers.ValidationError("Label cannot be empty.")
+        return value
+
+    def validate_cimd_url(self, value: str | None) -> str:
+        if value is None:
+            raise serializers.ValidationError("A CIMD metadata URL is required.")
+        value = value.strip()
+        # Skips the DNS check: the URL is often not serving yet at issuance time,
+        # and the fetch path re-validates with SSRF checks before it ever loads it.
+        valid, error = validate_cimd_url(value)
+        if not valid:
+            raise serializers.ValidationError(error)
         return value
 
 
@@ -74,6 +102,11 @@ class CIMDVerificationTokenViewSet(
     the metadata, matching the token links the partner app to this organization and
     grants a higher default rate limit for account provisioning.
 
+    Each token is scoped at creation to the one `cimd_url` it will be published at,
+    and verifies nowhere else. Two organizations may name the same URL — only the one
+    whose token is actually served there verifies — so claiming a URL cannot be used
+    to block a partner from verifying theirs.
+
     The plaintext value is only available on creation; we store a hash.
     """
 
@@ -93,6 +126,7 @@ class CIMDVerificationTokenViewSet(
         token, plaintext = create_cimd_verification_token(
             organization=self.organization,
             label=serializer.validated_data["label"],
+            cimd_url=serializer.validated_data["cimd_url"],
             created_by=request.user if request.user.is_authenticated else None,
         )
         token.value = plaintext  # type: ignore[attr-defined]

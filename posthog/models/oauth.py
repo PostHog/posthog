@@ -710,13 +710,47 @@ def generate_random_token_cimd_verification() -> str:
     return "phvt_" + generate_random_token()
 
 
+def normalize_cimd_url(url: str) -> str:
+    """Canonicalize a CIMD URL so issuance and verification compare equal.
+
+    Both sides store/compare the output of this function, so the only thing that
+    matters is that it is deterministic and collapses the variations a partner
+    can plausibly produce for the same document: scheme and host case, an
+    explicit `:443`, and a trailing slash. `validate_cimd_url` already rejects
+    query strings, fragments, and userinfo, so nothing else can vary.
+
+    Deliberately does not touch path case or percent-encoding — those are
+    server-defined and two paths differing there are legitimately different
+    documents.
+    """
+    parsed = urlparse(url.strip())
+    host = (parsed.hostname or "").lower()
+    if parsed.port and parsed.port != 443:
+        host = f"{host}:{parsed.port}"
+    path = parsed.path.rstrip("/")
+    return f"{parsed.scheme.lower()}://{host}{path}"
+
+
 class CIMDVerificationToken(models.Model):
     """Token that links a CIMD partner app to a PostHog organization.
 
     A partner embeds the plaintext token in their CIMD metadata document under
     `posthog_verification_token`. On fetch, we hash and look up the token; if it
-    matches, we link the resulting OAuthApplication to this organization and
-    apply the verified-partner rate-limit tier.
+    matches AND the document URL equals `cimd_url`, we link the resulting
+    OAuthApplication to this organization and apply the verified-partner
+    rate-limit tier.
+
+    The token is served unauthenticated at the metadata URL, so possession of it
+    proves nothing — anyone who reads the document can host the same value
+    elsewhere. `cimd_url` is what makes the token unforgeable: it scopes the
+    token to the one document it was issued for, so a copy hosted anywhere else
+    fails to verify.
+
+    `cimd_url` is deliberately NOT unique. Uniqueness would let anyone with a
+    free organization reserve a partner's URL before that partner does and lock
+    them out of verification permanently. Several organizations may claim the
+    same URL; only the one whose token actually appears in the document at that
+    URL verifies.
     """
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
@@ -724,6 +758,7 @@ class CIMDVerificationToken(models.Model):
         "posthog.Organization", on_delete=models.CASCADE, related_name="cimd_verification_tokens"
     )
     label: models.CharField = models.CharField(max_length=40)
+    cimd_url: models.URLField = models.URLField(max_length=2048, null=True, blank=True)
     mask_value: models.CharField = models.CharField(max_length=11, editable=False, null=True)
     secure_value: models.CharField = models.CharField(unique=True, max_length=300, editable=False)
     created_by: "User | None" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
@@ -748,14 +783,18 @@ def find_cimd_verification_token(token: str) -> "CIMDVerificationToken | None":
 
 
 def create_cimd_verification_token(
-    *, organization: "Organization", label: str, created_by: "User | None" = None
+    *, organization: "Organization", label: str, cimd_url: str, created_by: "User | None" = None
 ) -> tuple[CIMDVerificationToken, str]:
     """Create a new token, returning (instance, plaintext). Plaintext is only
-    available at creation time — we only persist its hash."""
+    available at creation time — we only persist its hash.
+
+    `cimd_url` is stored normalized so verification can compare it to the fetch
+    URL as an exact string."""
     plaintext = generate_random_token_cimd_verification()
     token = CIMDVerificationToken.objects.create(
         organization=organization,
         label=label,
+        cimd_url=normalize_cimd_url(cimd_url),
         created_by=created_by,
         secure_value=hash_key_value(plaintext),
         mask_value=mask_key_value(plaintext),

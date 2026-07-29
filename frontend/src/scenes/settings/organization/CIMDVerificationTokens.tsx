@@ -11,10 +11,17 @@ import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { cimdVerificationTokensLogic, CIMDVerificationToken } from './cimdVerificationTokensLogic'
 
 export function CIMDVerificationTokens(): JSX.Element {
-    const { tokens, tokensLoading, isCreateDialogOpen, newTokenLabel, justCreatedToken } =
+    const { tokens, tokensLoading, isCreateDialogOpen, isCreatingToken, newTokenLabel, newTokenUrl, justCreatedToken } =
         useValues(cimdVerificationTokensLogic)
-    const { showCreateDialog, hideCreateDialog, setNewTokenLabel, createToken, deleteToken, setJustCreatedToken } =
-        useActions(cimdVerificationTokensLogic)
+    const {
+        showCreateDialog,
+        hideCreateDialog,
+        setNewTokenLabel,
+        setNewTokenUrl,
+        createToken,
+        deleteToken,
+        setJustCreatedToken,
+    } = useActions(cimdVerificationTokensLogic)
 
     return (
         <div className="space-y-4">
@@ -22,7 +29,7 @@ export function CIMDVerificationTokens(): JSX.Element {
                 Verification tokens link a CIMD partner application to this organization. Add the token to your CIMD
                 metadata document as <code>verification_token</code> inside the <code>com.posthog</code> object.
                 Verified partners get a higher default rate limit for account provisioning and a clear identity trail.
-                See the{' '}
+                Each token verifies only at the metadata URL you name when creating it. See the{' '}
                 <Link
                     to="https://posthog.com/docs/integrate/provisioning#host-a-cimd-metadata-document"
                     target="_blank"
@@ -54,6 +61,13 @@ export function CIMDVerificationTokens(): JSX.Element {
                             key: 'label',
                             render: (_, row: CIMDVerificationToken) => (
                                 <span className="font-semibold">{row.label}</span>
+                            ),
+                        },
+                        {
+                            title: 'Metadata URL',
+                            key: 'cimd_url',
+                            render: (_, row: CIMDVerificationToken) => (
+                                <span className="text-xs font-mono break-all">{row.cimd_url ?? '—'}</span>
                             ),
                         },
                         {
@@ -123,7 +137,14 @@ export function CIMDVerificationTokens(): JSX.Element {
                         <LemonButton
                             type="primary"
                             onClick={() => createToken()}
-                            disabledReason={!newTokenLabel.trim() ? 'Please enter a label' : undefined}
+                            loading={isCreatingToken}
+                            disabledReason={
+                                !newTokenLabel.trim()
+                                    ? 'Please enter a label'
+                                    : !newTokenUrl.trim()
+                                      ? 'Please enter your CIMD metadata URL'
+                                      : undefined
+                            }
                             data-attr="confirm-create-cimd-verification-token"
                         >
                             Create token
@@ -144,6 +165,20 @@ export function CIMDVerificationTokens(): JSX.Element {
                     />
                     <p className="text-secondary text-xs">
                         Pick a label that helps you identify this token later. You'll only see the plaintext value once.
+                    </p>
+
+                    <label className="text-sm font-semibold pt-2 block" htmlFor="cimd-token-url">
+                        CIMD metadata URL
+                    </label>
+                    <LemonInput
+                        id="cimd-token-url"
+                        placeholder="https://example.com/.well-known/posthog-client.json"
+                        value={newTokenUrl}
+                        onChange={setNewTokenUrl}
+                    />
+                    <p className="text-secondary text-xs">
+                        The token verifies only when found at this exact URL, so a copy published anywhere else is
+                        ignored. Must be HTTPS and include a path.
                     </p>
                 </div>
             </LemonModal>

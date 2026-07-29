@@ -64,8 +64,17 @@ export interface UserBasicApi {
 
 export interface CIMDVerificationTokenApi {
     readonly id: string
-    /** @maxLength 40 */
+    /**
+     * Human-readable name to identify this token later, e.g. 'Production CIMD partner'.
+     * @maxLength 40
+     */
     label: string
+    /**
+     * HTTPS URL of the CIMD metadata document this token will be published in. The token only verifies at this exact URL, so a copy hosted anywhere else is rejected. Null on tokens issued before URL binding; those no longer verify and must be reissued.
+     * @maxLength 2048
+     * @nullable
+     */
+    cimd_url: string | null
     /** @nullable */
     readonly mask_value: string | null
     readonly created_by: UserBasicApi
@@ -91,8 +100,17 @@ export interface PaginatedCIMDVerificationTokenListApi {
  */
 export interface CIMDVerificationTokenWithValueApi {
     readonly id: string
-    /** @maxLength 40 */
+    /**
+     * Human-readable name to identify this token later, e.g. 'Production CIMD partner'.
+     * @maxLength 40
+     */
     label: string
+    /**
+     * HTTPS URL of the CIMD metadata document this token will be published in. The token only verifies at this exact URL, so a copy hosted anywhere else is rejected. Null on tokens issued before URL binding; those no longer verify and must be reissued.
+     * @maxLength 2048
+     * @nullable
+     */
+    cimd_url: string | null
     /** @nullable */
     readonly mask_value: string | null
     readonly created_by: UserBasicApi

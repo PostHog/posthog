@@ -33,6 +33,7 @@ from posthog.models.oauth import (
     OAuthApplication,
     TokenEndpointAuthMethod,
     find_cimd_verification_token,
+    normalize_cimd_url,
 )
 from posthog.ph_client import ph_scoped_capture
 from posthog.rate_limit import IPThrottle
@@ -428,24 +429,73 @@ def fetch_cimd_metadata(url: str) -> tuple[CIMDMetadataDocument, int]:
     return metadata, cache_ttl
 
 
-def _resolve_verification_token(metadata: CIMDMetadataDocument) -> CIMDVerificationToken | None:
+def _resolve_verification_token(metadata: CIMDMetadataDocument, url: str) -> CIMDVerificationToken | None:
     """Look up a verification token from CIMD metadata, preferring the nested
     `com.posthog.verification_token` and falling back to the legacy top-level
     `posthog_verification_token`. Falls back to the top-level token when the nested
     one is absent OR present-but-unrecognized, so a typo'd nested token doesn't drop
-    a partner whose legacy token still resolves. Returns the token record, or None."""
+    a partner whose legacy token still resolves. Returns the token record, or None.
+
+    A token only resolves at the URL it was issued for. The document is public,
+    so a token found here may have been copied from someone else's document —
+    `url` is the only thing distinguishing the real publisher from a copier.
+
+    A recognized nested token bound to some other URL resolves to None rather than
+    falling through to the legacy field: it means this document is quoting someone
+    else's credential, and trying a second one would be working around that."""
     com_posthog = metadata.get("com.posthog")
     if isinstance(com_posthog, dict):
         nested_raw = com_posthog.get("verification_token")
         if nested_raw and isinstance(nested_raw, str):
             token = find_cimd_verification_token(nested_raw)
             if token is not None:
-                return token
+                return token if _token_is_bound_to_url(token, url) else None
 
     raw = metadata.get("posthog_verification_token")
     if not raw or not isinstance(raw, str):
         return None
-    return find_cimd_verification_token(raw)
+    token = find_cimd_verification_token(raw)
+    if token is None:
+        return None
+    return token if _token_is_bound_to_url(token, url) else None
+
+
+def _token_is_bound_to_url(token: CIMDVerificationToken, url: str) -> bool:
+    """Whether this token was issued for the document we just fetched.
+
+    Fails closed on tokens with no URL: those pre-date binding and could not be
+    migrated automatically, so they must be reissued rather than keep verifying
+    any document that quotes them."""
+    if not token.cimd_url:
+        _capture_verification_rejected(token, url, reason="token_not_bound")
+        return False
+    if token.cimd_url != normalize_cimd_url(url):
+        _capture_verification_rejected(token, url, reason="url_mismatch")
+        return False
+    return True
+
+
+def _capture_verification_rejected(token: CIMDVerificationToken, url: str, *, reason: str) -> None:
+    """A `url_mismatch` means a valid token was presented at a document it was not
+    issued for, which is the copied-token case this binding exists to stop. It is
+    the signal worth alerting on, so it gets its own event rather than a log line."""
+    logger.warning(
+        "cimd_verification_token_rejected",
+        reason=reason,
+        fetched_url=url,
+        bound_url=token.cimd_url,
+        organization_id=str(token.organization_id),
+    )
+    posthoganalytics.capture(
+        distinct_id=url,
+        event="cimd_verification_token_rejected",
+        properties={
+            "reason": reason,
+            "fetched_url": url,
+            "bound_url": token.cimd_url,
+            "organization_id": str(token.organization_id),
+        },
+    )
 
 
 def _resolve_scopes(metadata: CIMDMetadataDocument) -> list[str] | None:
@@ -522,7 +572,7 @@ def _create_cimd_application(url: str, metadata: CIMDMetadataDocument) -> OAuthA
 
     redirect_uris = " ".join(metadata.get("redirect_uris", []))
     logo_uri = metadata.get("logo_uri") or None
-    verification = _resolve_verification_token(metadata)
+    verification = _resolve_verification_token(metadata, url)
     resolved_scopes = _resolve_scopes(metadata)
     resolved_optional_scopes = _resolve_optional_scopes(metadata)
 
@@ -591,7 +641,7 @@ def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocume
 
     # Re-evaluate verification on every refresh so a rotated/removed token
     # unlinks the app on the next fetch.
-    verification = _resolve_verification_token(metadata)
+    verification = _resolve_verification_token(metadata, app.cimd_metadata_url or "")
     new_org = verification.organization if verification else None
     update_fields = [
         "name",

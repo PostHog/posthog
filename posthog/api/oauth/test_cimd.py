@@ -36,6 +36,7 @@ from posthog.api.oauth.cimd import (
     validate_fetchable_https_url,
 )
 from posthog.api.oauth.client_name import sanitize_client_name
+from posthog.models import Organization
 from posthog.models.oauth import OAuthApplication, TokenEndpointAuthMethod, create_cimd_verification_token
 from posthog.scopes import OAUTH_SCOPES_HIDDEN, PRIVILEGED_SCOPES
 
@@ -635,7 +636,7 @@ class TestCIMDVerificationToken(APIBaseTest):
     @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_valid_verification_token_links_app_to_organization(self, mock_get, _url_mock):
         token, plaintext = create_cimd_verification_token(
-            organization=self.organization, label="Test partner", created_by=self.user
+            organization=self.organization, label="Test partner", cimd_url=VALID_CIMD_URL, created_by=self.user
         )
         metadata = _make_metadata(posthog_verification_token=plaintext)
         mock_get.return_value = _mock_response(metadata, headers={})
@@ -669,7 +670,7 @@ class TestCIMDVerificationToken(APIBaseTest):
     @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_verified_partner_gets_higher_rate_limit(self, mock_get, _url_mock):
         _, plaintext = create_cimd_verification_token(
-            organization=self.organization, label="Verified partner", created_by=self.user
+            organization=self.organization, label="Verified partner", cimd_url=VALID_CIMD_URL, created_by=self.user
         )
         metadata = _make_metadata(posthog_verification_token=plaintext)
         mock_get.return_value = _mock_response(metadata, headers={})
@@ -699,7 +700,7 @@ class TestCIMDVerificationToken(APIBaseTest):
     @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_refresh_unlinks_app_when_token_removed(self, mock_get, _url_mock):
         _, plaintext = create_cimd_verification_token(
-            organization=self.organization, label="Rotating partner", created_by=self.user
+            organization=self.organization, label="Rotating partner", cimd_url=VALID_CIMD_URL, created_by=self.user
         )
         # First fetch: with token → linked
         mock_get.return_value = _mock_response(_make_metadata(posthog_verification_token=plaintext), headers={})
@@ -724,7 +725,7 @@ class TestCIMDVerificationToken(APIBaseTest):
 
         # Partner adds a token and we refetch
         _, plaintext = create_cimd_verification_token(
-            organization=self.organization, label="Added later", created_by=self.user
+            organization=self.organization, label="Added later", cimd_url=VALID_CIMD_URL, created_by=self.user
         )
         real_cache.delete(_fetch_lock_key(VALID_CIMD_URL))
         mock_get.return_value = _mock_response(_make_metadata(posthog_verification_token=plaintext), headers={})
@@ -755,7 +756,10 @@ class TestCIMDVerificationToken(APIBaseTest):
         )
 
         _, plaintext = create_cimd_verification_token(
-            organization=self.organization, label="Added post-registration", created_by=self.user
+            organization=self.organization,
+            label="Added post-registration",
+            cimd_url=VALID_CIMD_URL,
+            created_by=self.user,
         )
         real_cache.delete(_fetch_lock_key(VALID_CIMD_URL))
         mock_get.return_value = _mock_response(_make_metadata(posthog_verification_token=plaintext), headers={})
@@ -771,7 +775,7 @@ class TestCIMDVerificationToken(APIBaseTest):
     @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_refresh_drops_rate_limit_when_token_removed(self, mock_get, _url_mock):
         _, plaintext = create_cimd_verification_token(
-            organization=self.organization, label="Rotating partner", created_by=self.user
+            organization=self.organization, label="Rotating partner", cimd_url=VALID_CIMD_URL, created_by=self.user
         )
         mock_get.return_value = _mock_response(_make_metadata(posthog_verification_token=plaintext), headers={})
         _register_provisioning_partner()
@@ -808,7 +812,7 @@ class TestCIMDVerificationToken(APIBaseTest):
         )
 
         _, plaintext = create_cimd_verification_token(
-            organization=self.organization, label="Post-admin-override", created_by=self.user
+            organization=self.organization, label="Post-admin-override", cimd_url=VALID_CIMD_URL, created_by=self.user
         )
         real_cache.delete(_fetch_lock_key(VALID_CIMD_URL))
         mock_get.return_value = _mock_response(_make_metadata(posthog_verification_token=plaintext), headers={})
@@ -818,6 +822,78 @@ class TestCIMDVerificationToken(APIBaseTest):
         self.assertEqual(refreshed.organization_id, self.organization.id)
         self.assertEqual(refreshed.provisioning_rate_limit_account_requests, 250)
         self.assertEqual(refreshed.provisioning_rate_limit_account_requests_source, "admin")
+
+
+@patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("93.184.216.34")})
+class TestCIMDVerificationTokenURLBinding(APIBaseTest):
+    """The metadata document is public, so the token in it can be read and republished
+    by anyone. These lock in that the URL is what decides who the token belongs to."""
+
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_token_copied_to_another_url_does_not_link_the_app(self, mock_get, _url_mock):
+        _, plaintext = create_cimd_verification_token(
+            organization=self.organization, label="Victim", cimd_url=VALID_CIMD_URL, created_by=self.user
+        )
+        attacker_url = "https://attacker.example.com/.well-known/oauth-client-metadata.json"
+        mock_get.return_value = _mock_response(
+            _make_metadata(url=attacker_url, posthog_verification_token=plaintext), headers={}
+        )
+
+        app = fetch_and_upsert_cimd_application(attacker_url)
+
+        assert app is not None
+        self.assertIsNone(app.organization_id)
+
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_unbound_legacy_token_no_longer_verifies(self, mock_get, _url_mock):
+        token, plaintext = create_cimd_verification_token(
+            organization=self.organization, label="Legacy", cimd_url=VALID_CIMD_URL, created_by=self.user
+        )
+        token.cimd_url = None
+        token.save(update_fields=["cimd_url"])
+        mock_get.return_value = _mock_response(_make_metadata(posthog_verification_token=plaintext), headers={})
+
+        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        assert app is not None
+        self.assertIsNone(app.organization_id)
+
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_claiming_a_url_does_not_block_the_real_publisher(self, mock_get, _url_mock):
+        # No uniqueness on cimd_url, so a squatter naming someone else's URL first
+        # cannot lock them out — only the token actually served there verifies.
+        squatter_org = Organization.objects.create(name="Squatter")
+        create_cimd_verification_token(
+            organization=squatter_org, label="Squat", cimd_url=VALID_CIMD_URL, created_by=None
+        )
+        _, plaintext = create_cimd_verification_token(
+            organization=self.organization, label="Real partner", cimd_url=VALID_CIMD_URL, created_by=self.user
+        )
+        mock_get.return_value = _mock_response(_make_metadata(posthog_verification_token=plaintext), headers={})
+
+        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        assert app is not None
+        self.assertEqual(app.organization_id, self.organization.id)
+
+    @parameterized.expand(
+        [
+            ("trailing_slash", VALID_CIMD_URL + "/"),
+            ("uppercase_host", "https://APP.EXAMPLE.COM/.well-known/oauth-client-metadata.json"),
+            ("explicit_default_port", "https://app.example.com:443/.well-known/oauth-client-metadata.json"),
+        ]
+    )
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_equivalent_url_spellings_still_verify(self, _name, issued_url, mock_get, _url_mock):
+        _, plaintext = create_cimd_verification_token(
+            organization=self.organization, label="Partner", cimd_url=issued_url, created_by=self.user
+        )
+        mock_get.return_value = _mock_response(_make_metadata(posthog_verification_token=plaintext), headers={})
+
+        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        assert app is not None
+        self.assertEqual(app.organization_id, self.organization.id)
 
 
 class TestAuthorizationServerMetadata(APIBaseTest):
@@ -950,7 +1026,7 @@ class TestCIMDComPostHogNamespace(APIBaseTest):
     @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_verification_token_dual_read(self, token_placement, mock_get, _url_mock):
         token, plaintext = create_cimd_verification_token(
-            organization=self.organization, label="Dual-read partner", created_by=self.user
+            organization=self.organization, label="Dual-read partner", cimd_url=VALID_CIMD_URL, created_by=self.user
         )
         if token_placement == "nested":
             metadata = _make_metadata(com_posthog={"verification_token": plaintext})
@@ -967,7 +1043,7 @@ class TestCIMDComPostHogNamespace(APIBaseTest):
     @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_verification_token_falls_back_when_nested_unrecognized(self, mock_get, _url_mock):
         _, plaintext = create_cimd_verification_token(
-            organization=self.organization, label="Fallback partner", created_by=self.user
+            organization=self.organization, label="Fallback partner", cimd_url=VALID_CIMD_URL, created_by=self.user
         )
         metadata = _make_metadata(
             posthog_verification_token=plaintext,
@@ -983,7 +1059,7 @@ class TestCIMDComPostHogNamespace(APIBaseTest):
     @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_nested_token_takes_precedence_over_top_level(self, mock_get, _url_mock):
         _, plaintext_nested = create_cimd_verification_token(
-            organization=self.organization, label="Nested partner", created_by=self.user
+            organization=self.organization, label="Nested partner", cimd_url=VALID_CIMD_URL, created_by=self.user
         )
         metadata = _make_metadata(
             posthog_verification_token="phvt_fake_top_level",
