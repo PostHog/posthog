@@ -461,3 +461,48 @@ describe('updateFeatureFlagArchived', () => {
         expect(logic.values.featureFlagsUpdating[2]).toBe(true)
     })
 })
+
+describe('displayedFlags stability while a filter change is loading', () => {
+    let logic: ReturnType<typeof featureFlagsLogic.build>
+
+    beforeEach(() => {
+        useMocks({
+            get: {
+                '/api/projects/:projectId/feature_flags/': () => [
+                    200,
+                    {
+                        results: [
+                            { id: 1, key: 'alpha', active: true },
+                            { id: 2, key: 'beta', active: true },
+                        ],
+                        count: 2,
+                    },
+                ],
+            },
+        })
+        initKeaTests()
+        logic = featureFlagsLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic?.unmount()
+    })
+
+    // Regression guard: displayedFlags must filter the cache by the filters it was loaded under, not the
+    // just-changed live filters. Filtering the previous page against a new search before the refetch lands
+    // used to empty the list, which flashed LemonTable's skeleton rows over a table that already had data.
+    it('keeps the loaded rows until the refetch lands when a non-matching search is typed', async () => {
+        logic.actions.loadFeatureFlags()
+        await expectLogic(logic).toDispatchActions(['loadFeatureFlagsSuccess'])
+        expect(logic.values.displayedFlags.map((f) => f.key)).toEqual(['alpha', 'beta'])
+
+        // setFeatureFlagsFilters debounces the refetch, so this asserts the pre-refetch render.
+        await expectLogic(logic, () => {
+            logic.actions.setFeatureFlagsFilters({ search: 'no-such-flag' })
+        }).toMatchValues({
+            filters: expect.objectContaining({ search: 'no-such-flag' }),
+            displayedFlags: [expect.objectContaining({ key: 'alpha' }), expect.objectContaining({ key: 'beta' })],
+        })
+    })
+})

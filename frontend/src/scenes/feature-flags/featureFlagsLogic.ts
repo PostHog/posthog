@@ -398,7 +398,7 @@ export interface featureFlagsLogicMeta {
             featureFlags: FeatureFlagsResult,
             filtersChanged: boolean
         ) => PaginationManual
-        displayedFlags: (localFlagsCache: FeatureFlagType[], filters: FeatureFlagsFilters) => FeatureFlagType[]
+        displayedFlags: (localFlagsCache: FeatureFlagType[], featureFlags: FeatureFlagsResult) => FeatureFlagType[]
     }
 }
 
@@ -638,9 +638,13 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             }),
         ],
         displayedFlags: [
-            (s) => [s.localFlagsCache, s.filters],
-            (cache: FeatureFlagType[], filters: FeatureFlagsFilters): FeatureFlagType[] => {
-                return cache.filter((flag) => flagMatchesFilters(flag, filters))
+            (s) => [s.localFlagsCache, s.featureFlags],
+            (cache: FeatureFlagType[], featureFlags: FeatureFlagsResult): FeatureFlagType[] => {
+                // Filter by the filters the cache was loaded under, not the live filters. Re-filtering the
+                // previous page against just-changed filters (before the refetch lands) can momentarily empty
+                // the list, which makes LemonTable flash skeleton rows over a table that already has data.
+                const appliedFilters = featureFlags.filters ?? DEFAULT_FILTERS
+                return cache.filter((flag) => flagMatchesFilters(flag, appliedFilters))
             },
         ],
     }),
