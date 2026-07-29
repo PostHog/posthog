@@ -8,6 +8,7 @@ import {
     extractQueryResult,
     extractRecordingFilters,
     extractVisualizationArtifact,
+    parseInvocationOutputRecord,
 } from './extractors'
 
 function toolMessage(
@@ -29,6 +30,27 @@ function toolMessage(
 }
 
 describe('mcp tool adapter extractors', () => {
+    describe('parseInvocationOutputRecord', () => {
+        // Live ACP frames deliver `rawOutput` as the raw MCP result envelope, with the record
+        // TOON-encoded inside a text content block — not as a bare record.
+        it('unwraps an MCP content envelope and parses the TOON record inside', () => {
+            const record = parseInvocationOutputRecord({
+                input: { command: 'call workflows-create {...}' },
+                output: {
+                    content: [{ type: 'text', text: 'id: 019fae50-da77\nname: Welcome email\nstatus: draft' }],
+                    _meta: {},
+                    isError: false,
+                },
+            })
+            expect(record).toMatchObject({ id: '019fae50-da77', name: 'Welcome email', status: 'draft' })
+        })
+
+        it('leaves a record whose `content` field is a plain object untouched', () => {
+            const templateRecord = { id: 'tpl-1', content: { email: { subject: 'Hi' } } }
+            expect(parseInvocationOutputRecord({ input: {}, output: templateRecord })).toEqual(templateRecord)
+        })
+    })
+
     describe('extractVisualizationArtifact', () => {
         it('classifies a REST insight payload with short_id as a saved insight', () => {
             const artifact = extractVisualizationArtifact(

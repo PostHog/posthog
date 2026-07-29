@@ -59,20 +59,43 @@ export function parseToolOutputRecord(message: ToolCallMessage): Record<string, 
     return parseInvocationOutputRecord({ input: message.rawInput, output: message.rawOutput })
 }
 
+// A raw MCP result envelope (`{content: [{type: 'text', text}, ...], _meta?, isError?}`), as ACP
+// frames carry in `rawOutput` — the record itself is the encoded text inside the blocks. Distinct
+// from a domain record that happens to have a `content` field (e.g. an email template), where
+// `content` is an object, not an array of text blocks.
+function textFromMcpEnvelope(record: Record<string, unknown>): string | null {
+    const content = record.content
+    if (!Array.isArray(content) || content.length === 0) {
+        return null
+    }
+    const texts: string[] = []
+    for (const block of content) {
+        const text = asRecord(block)?.text
+        if (typeof text !== 'string') {
+            return null
+        }
+        texts.push(text)
+    }
+    return texts.join('\n')
+}
+
 /** Same contract as `parseToolOutputRecord`, for callers holding a raw `ToolInvocation` instead. */
 export function parseInvocationOutputRecord(invocation: {
     input: Record<string, unknown>
     output?: unknown
 }): Record<string, unknown> | null {
     const direct = asRecord(invocation.output)
-    if (direct) {
+    const text =
+        (direct ? textFromMcpEnvelope(direct) : null) ??
+        (typeof invocation.output === 'string' ? invocation.output : null)
+    if (direct && text === null) {
         return direct
     }
-    if (typeof invocation.output !== 'string') {
+    if (text === null) {
         return null
     }
-    const text = invocation.output.trim()
-    if (!text) {
+    const trimmed = text.trim()
+    if (!trimmed) {
         return null
     }
     const command = typeof invocation.input.command === 'string' ? invocation.input.command : ''
@@ -80,7 +103,7 @@ export function parseInvocationOutputRecord(invocation: {
     const forceJson = verb === 'call' && parseExecCall(rest).forceJson
     const attempts = forceJson ? [parseJsonRecord, parseToonRecord] : [parseToonRecord, parseJsonRecord]
     for (const attempt of attempts) {
-        const record = attempt(text)
+        const record = attempt(trimmed)
         // decode('') and JSON '{}' both yield {}, which carries nothing a widget can render.
         if (record && Object.keys(record).length > 0) {
             return record

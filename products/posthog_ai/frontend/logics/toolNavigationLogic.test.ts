@@ -12,7 +12,7 @@ const STREAM_KEY = 'run-1'
 
 function creationEvent(
     toolName: string,
-    output: Record<string, unknown>,
+    record: Record<string, unknown>,
     overrides: Partial<ToolStreamEvent> = {}
 ): ToolStreamEvent {
     return {
@@ -25,8 +25,9 @@ function creationEvent(
             toolCallId: `tc-${toolName}`,
             rawServerName: 'posthog',
             rawToolName: 'exec',
-            input: {},
-            output,
+            input: { command: `call ${toolName} {}` },
+            // Live frames carry the raw MCP result envelope, with the record encoded in a text block.
+            output: { content: [{ type: 'text', text: JSON.stringify(record) }], isError: false },
             status: 'completed',
         } as unknown as ToolStreamEvent['invocation'],
         source: 'live',
