@@ -86,12 +86,12 @@ and close with the notebook URL: "Full write-up with charts: `<notebook-url>`."
 
 The notebook stays the durable write-up, but attach the scored series to the report itself via
 `charts` too, so the inbox reader sees the break without leaving the report. Reuse the same
-widened-window node you embed in the notebook (a `SavedInsightNode` only when the insight's saved
-range already shows the baseline; else the widened `InsightVizNode` / `DataVisualizationNode`),
-and reference it once from the summary with a `[label](chart:<id>)` link so it draws next to the
-hook. The full charts contract (allowed kinds, placement, sizing, edit-replaces-the-set) is in
-the harness prompt; on an `edit_report` recurrence, re-send the chart under the new window when
-you refresh the numbers.
+widened-window node you embed in the notebook — a `SavedInsightNode` only when the insight's
+saved range already shows the baseline, else the widened `InsightVizNode` or
+`DataVisualizationNode` (with its axes named in `chartSettings` — a report chart carrying
+`display` but no `chartSettings` draws an empty box). The chart mechanics themselves (allowed
+kinds, placement, sizing, edit semantics) live in the harness prompt — don't re-derive them
+here.
 
 ### Evidence
 
