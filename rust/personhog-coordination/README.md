@@ -98,7 +98,7 @@ Several failure modes are handled explicitly:
 | `store` | `EtcdStore` abstraction: typed CRUD, watches, leases, and transactions over etcd. Hosts `cas_handoff_phase` and `complete_handoff` (the atomic phase + assignment txn). |
 | `coordinator` | Leader election, assignment computation, handoff orchestration, ack quorum checking, reconcile-on-startup, periodic reconcile tick, stale-handoff cleanup. |
 | `pod` | `PodHandle` + `HandoffHandler` trait: pod registration, heartbeat, and the drain/warm/release/resume responses to handoff phases (state derived by `desired_state` from fresh reads and converged, not accumulated from event payloads). |
-| `routing_table` | `RoutingTable` + `StashHandler` trait: routing map maintenance and the begin-stash / drain-stash phase responses. Drains run off the watch loop in per-partition lanes (a newer drain supersedes and never overlaps the one in flight); the loop's progress feeds the stall watchdog. |
+| `routing_table` | `RoutingTable` + `StashHandler` trait: routing map maintenance and the begin-stash / drain-stash phase responses. Drains run off the watch loop in per-partition lanes (a newer drain supersedes and never overlaps the one in flight; observing a non-terminal phase pauses the lane, and an interrupted drain puts its in-flight requests back rather than failing them); the loop's progress feeds the stall watchdog. |
 | `strategy` | `AssignmentStrategy` trait with `JumpHashStrategy` and `StickyBalancedStrategy` implementations. |
 | `hash` | Jump consistent hash function. |
 | `util` | Shared helpers: lease keepalive with self-fencing on lease loss, handoff id generation. |

@@ -317,7 +317,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             LeaderBackendConfig {
                 num_partitions,
                 timeout: config.backend_timeout(),
-                retry_config: config.retry_config(),
             },
             StashTable::with_bounds(
                 config.stash_max_messages_per_partition,
