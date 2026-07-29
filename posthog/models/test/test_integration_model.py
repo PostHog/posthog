@@ -54,6 +54,7 @@ from posthog.models.integration import (
     SlackIntegration,
     SnowflakeIntegration,
     SnowflakeIntegrationError,
+    UndecryptedIntegrationSecretError,
     invalidate_github_repository_caches_for_installation,
     oauth_refresh_failure_reason,
     oauth_refresh_terminal_counter,
@@ -124,6 +125,21 @@ class TestIntegrationModel(BaseTest):
                     get_db_field_value("sensitive_config", integration.id)
                     == '{"id_token": null, "refresh_token": "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAHlWz9QOMnXDvmix-z5lNG4v0VcO9lGWejmcE_BXHXPZ1wNkb-38JupntWbshBrfFQ=="}'
                 )
+
+    @parameterized.expand([("access_token",), ("refresh_token",)])
+    def test_oauth_token_property_raises_if_still_encrypted(self, field_name: str) -> None:
+        # `sensitive_config` uses `ignore_decrypt_errors=True`, so a value that fails to decrypt
+        # under every configured key comes back as raw Fernet ciphertext instead of raising. If the
+        # `access_token`/`refresh_token` properties didn't check for that, this ciphertext would
+        # get sent straight to the third-party API as the live credential.
+        integration = Integration(team=self.team, kind="stripe", sensitive_config={field_name: "gAAAAABleftover=="})
+        with pytest.raises(UndecryptedIntegrationSecretError):
+            getattr(integration, field_name)
+
+    @parameterized.expand([("access_token",), ("refresh_token",)])
+    def test_oauth_token_property_passes_through_decrypted_value(self, field_name: str) -> None:
+        integration = Integration(team=self.team, kind="stripe", sensitive_config={field_name: "a-real-token"})
+        assert getattr(integration, field_name) == "a-real-token"
 
     def test_slack_integration_config(self):
         set_instance_setting("SLACK_APP_CLIENT_ID", None)

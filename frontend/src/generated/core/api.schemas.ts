@@ -2759,6 +2759,7 @@ export interface FileSystemApi {
     /** @nullable */
     shortcut?: boolean | null
     readonly created_at: string
+    readonly created_by: UserBasicApi | null
     /** @nullable */
     readonly last_viewed_at: string | null
     /**
@@ -2795,6 +2796,7 @@ export interface PatchedFileSystemApi {
     /** @nullable */
     shortcut?: boolean | null
     readonly created_at?: string
+    readonly created_by?: UserBasicApi | null
     /** @nullable */
     readonly last_viewed_at?: string | null
     /**

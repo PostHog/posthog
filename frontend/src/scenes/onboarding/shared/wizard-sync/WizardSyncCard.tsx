@@ -5,6 +5,7 @@ import {
     IconExpand45,
     IconLaptop,
     IconPullRequest,
+    IconQuestion,
     IconWarning,
     IconX,
 } from '@posthog/icons'
@@ -15,7 +16,9 @@ import { urls } from 'scenes/urls'
 
 import {
     currentTaskLabel,
+    elapsedLabel,
     formatElapsed,
+    pendingQuestionLabel,
     pipClass,
     prNameLabel,
     stepCounts,
@@ -38,6 +41,9 @@ export function StatusGlyph({ progress }: { progress: InstallationProgress }): J
     }
     if (progress.prMerged) {
         return <IconPullRequest className="text-purple text-xl shrink-0" />
+    }
+    if (progress.pendingInput) {
+        return <IconQuestion className="text-warning text-xl shrink-0" />
     }
     return <Spinner className="text-xl shrink-0 text-accent" textColored />
 }
@@ -62,6 +68,7 @@ export function WizardSyncCard({
     progress,
     elapsedSeconds,
     mode,
+    stale = false,
     dashboard,
     onDashboardClick,
     onExpand,
@@ -71,6 +78,8 @@ export function WizardSyncCard({
     progress: InstallationProgress
     elapsedSeconds: number
     mode: WizardSyncMode
+    /** The run has gone quiet: the clock is replaced by the reason it stopped meaning anything. */
+    stale?: boolean
     /** Dashboard the wizard built, when detected — the completed card's payoff for runs with no PR. */
     dashboard?: DetectedDashboard | null
     /** Telemetry hook for the dashboard CTA — navigation itself rides the button's `to`. */
@@ -82,6 +91,7 @@ export function WizardSyncCard({
 }): JSX.Element {
     const { completed, total } = stepCounts(progress.steps)
     const task = currentTaskLabel(progress)
+    const question = pendingQuestionLabel(progress)
     const isRunning = progress.phase !== 'completed' && progress.phase !== 'error'
 
     return (
@@ -107,8 +117,17 @@ export function WizardSyncCard({
                             {task}
                         </p>
                         <p className="m-0 text-xs text-muted truncate">{syncHeadline(progress)}</p>
+                        {question && (
+                            // ph-no-capture: the prompt is whatever the wizard asked, so it can
+                            // carry project detail that must not reach autocapture.
+                            <p className="m-0 text-xs text-tertiary truncate ph-no-capture" title={question}>
+                                {question}
+                            </p>
+                        )}
                     </div>
-                    <span className="text-xs text-muted tabular-nums shrink-0">{formatElapsed(elapsedSeconds)}</span>
+                    <span className="text-xs text-muted tabular-nums shrink-0" title={formatElapsed(elapsedSeconds)}>
+                        {elapsedLabel(elapsedSeconds, stale)}
+                    </span>
                 </div>
 
                 {total > 0 ? (
