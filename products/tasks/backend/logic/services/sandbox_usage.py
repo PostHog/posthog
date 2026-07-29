@@ -203,10 +203,11 @@ def get_task_sandbox_usage_by_team(begin: datetime, end: datetime) -> SandboxUsa
         team_usage[1] += seconds * session.cpu_cores
         team_usage[2] += seconds * session.memory_gb
         is_billable_loop = session.origin_product == Task.OriginProduct.LOOP and session.loop_internal is False
-        is_verified_code_run = (
-            session.origin_product == Task.OriginProduct.USER_CREATED and session.created_via_code is True
+        is_desktop_run = (
+            session.origin_product == Task.OriginProduct.USER_CREATED
+            and session.compute_source == ComputeSource.POSTHOG_DESKTOP
         )
-        if session.origin_product in BILLABLE_DIRECT_ORIGINS or is_verified_code_run or is_billable_loop:
+        if session.origin_product in BILLABLE_DIRECT_ORIGINS or is_desktop_run or is_billable_loop:
             billable_seconds = Decimal(ceil(seconds))
             if session.burstable:
                 assert session.cpu_request_cores is not None
