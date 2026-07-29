@@ -487,6 +487,24 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
         return None
 
 
+def get_batch_exports_using_integration(team_id: int, integration_id: int) -> list[BatchExport]:
+    """Return a list of batch exports using integration_id.
+
+    This is used to check when destroying an integration if it is not in use,
+    as otherwise users could get themselves into an undesired state.
+
+    We only consider batch exports that are not deleted, as deleted batch
+    exports are not relevant to users.
+    """
+    return list(
+        BatchExport.objects.filter(
+            team_id=team_id,
+            deleted=False,
+            destination__in=BatchExportDestination.objects.filter(integration_id=integration_id),
+        ).only("id", "name")
+    )
+
+
 class BatchExportBackfill(UUIDTModel):
     class Meta:
         db_table = "posthog_batchexportbackfill"
