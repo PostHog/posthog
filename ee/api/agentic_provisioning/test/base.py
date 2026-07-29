@@ -2,6 +2,7 @@ import json
 import base64
 import hashlib
 import secrets
+from urllib.parse import quote_plus
 
 from posthog.test.base import APIBaseTest
 
@@ -18,6 +19,9 @@ from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX
 from ee.models.rbac.access_control import AccessControl
 
 TEST_PARTNER_CLIENT_ID = "test_partner_client_id"
+# Stored hashed by ClientSecretField.pre_save, so the plaintext has to live here for
+# requests to present it.
+TEST_PARTNER_CLIENT_SECRET = "test_partner_client_secret"
 
 # Broad ceiling so token exchanges in tests aren't rejected by the per-app scope cap.
 TEST_PARTNER_SCOPES = [
@@ -44,13 +48,13 @@ class ProvisioningTestBase(APIBaseTest):
             client_id=TEST_PARTNER_CLIENT_ID,
             defaults={
                 "name": "Test Provisioning Partner",
-                "client_secret": "",
+                "client_secret": TEST_PARTNER_CLIENT_SECRET,
                 "client_type": OAuthApplication.CLIENT_CONFIDENTIAL,
                 "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
                 "redirect_uris": "https://partner.example.com/callback",
                 "algorithm": "RS256",
                 "scopes": TEST_PARTNER_SCOPES,
-                "provisioning_auth_method": "bearer",
+                "is_provisioning_partner": True,
                 "provisioning_partner_type": "test_partner",
                 "provisioning_active": True,
                 "provisioning_can_create_accounts": True,
@@ -86,6 +90,23 @@ class ProvisioningTestBase(APIBaseTest):
     def _post_with_bearer(self, url: str, data: dict | None = None, token: str = "", **kwargs):
         return self._post_api(url, data, HTTP_AUTHORIZATION=f"Bearer {token}", **kwargs)
 
+    def _client_credentials(self, partner=None, secret: str | None = None) -> dict[str, str]:
+        """The client_secret_post form: credentials merged into the request body."""
+        partner = partner or self.partner
+        return {
+            "client_id": partner.client_id,
+            "client_secret": TEST_PARTNER_CLIENT_SECRET if secret is None else secret,
+        }
+
+    def _basic_auth_header(self, partner=None, secret: str | None = None) -> str:
+        """The client_secret_basic form, which is the only one a GET can carry."""
+        partner = partner or self.partner
+        raw = f"{quote_plus(partner.client_id)}:{quote_plus(TEST_PARTNER_CLIENT_SECRET if secret is None else secret)}"
+        return f"Basic {base64.b64encode(raw.encode()).decode()}"
+
+    def _post_with_client_secret(self, url: str, data: dict | None = None, partner=None, **kwargs):
+        return self._post_api(url, {**(data or {}), **self._client_credentials(partner)}, **kwargs)
+
     def _pkce_pair(self) -> tuple[str, str]:
         verifier = secrets.token_urlsafe(48)
         challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode("ascii")).digest()).rstrip(b"=").decode()
@@ -113,12 +134,15 @@ class ProvisioningTestBase(APIBaseTest):
         )
         return code, verifier
 
-    def _request_bearer_token(self, scopes: list[str] | None = None, partner=None):
+    def _request_bearer_token(self, scopes: list[str] | None = None, partner=None, secret: str | None = None):
+        partner = partner or self.partner
         code, verifier = self._mint_auth_code(scopes=scopes, partner=partner)
-        return self.client.post(
-            "/api/agentic/oauth/token",
-            data={"grant_type": "authorization_code", "code": code, "code_verifier": verifier},
-        )
+        data = {"grant_type": "authorization_code", "code": code, "code_verifier": verifier}
+        # A confidential partner has to authenticate at the token endpoint; a public one
+        # exchanges on the code_verifier alone.
+        if partner.uses_client_secret_auth:
+            data.update(self._client_credentials(partner, secret=secret))
+        return self.client.post("/api/agentic/oauth/token", data=data)
 
     def _get_bearer_token(self) -> str:
         return self._request_bearer_token().json()["access_token"]

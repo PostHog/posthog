@@ -54,7 +54,7 @@ class TestAccountRequestsWizardBlock(ProvisioningTestBase):
         return github_grants.create_grant(self.partner, AUTHORIZATION, email)
 
     def _post(self, payload: dict):
-        return self._post_with_bearer(ACCOUNT_REQUESTS_URL, payload, token=self._get_bearer_token())
+        return self._post_with_client_secret(ACCOUNT_REQUESTS_URL, payload)
 
     def test_without_wizard_block_response_and_email_unchanged(self):
         with patch("ee.api.agentic_provisioning.accounts.send_provisioning_welcome") as mock_email:

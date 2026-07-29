@@ -47,7 +47,10 @@ class TestPartnerTokenScopeHydration(ProvisioningTestBase):
         self.organization_membership.save()
 
     def _refresh(self, refresh_token: str):
-        return self._post_api(TOKEN_URL, {"grant_type": "refresh_token", "refresh_token": refresh_token})
+        return self._post_api(
+            TOKEN_URL,
+            {"grant_type": "refresh_token", "refresh_token": refresh_token, **self._client_credentials()},
+        )
 
     def test_issuance_hydrates_with_previously_provisioned_teams(self):
         previously_provisioned = self._provision_team(self.partner, "Previously provisioned", "proj_existing")

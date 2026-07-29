@@ -46,7 +46,7 @@ def capture_auth_event(app: OAuthApplication, outcome: str, **extra: object) -> 
         properties={
             "outcome": outcome,
             "partner_type": app.provisioning_partner_type,
-            "auth_method": app.provisioning_auth_method,
+            "client_type": app.client_type,
             "app_id": str(app.id),
             **extra,
         },
