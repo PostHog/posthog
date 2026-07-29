@@ -1,5 +1,3 @@
-import jwt from 'jsonwebtoken'
-
 import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
 
@@ -15,19 +13,16 @@ jest.mock('~/common/utils/request', () => ({
 }))
 const mockInternalFetch = internalFetch as jest.Mock
 
-const AUDIENCE = 'posthog:integration_gateway'
-
 function config(rollout = '*'): IntegrationGatewayServiceConfig {
     return {
         CDP_INTEGRATION_GATEWAY_URL: 'http://gw:6738',
-        CDP_INTEGRATION_GATEWAY_JWT_SECRET: 'test-secret',
         CDP_INTEGRATION_GATEWAY_ROLLOUT: rollout,
         CDP_INTEGRATION_GATEWAY_TIMEOUT_MS: 3000,
     }
 }
 
 describe('IntegrationGatewayService', () => {
-    it('mints a team-scoped token, calls the gateway, and normalizes missing ids to null', async () => {
+    it('passes team + caller in the body (no auth header), and normalizes missing ids to null', async () => {
         mockInternalFetch.mockResolvedValue({
             status: 200,
             json: () =>
@@ -51,12 +46,12 @@ describe('IntegrationGatewayService', () => {
 
         const [url, options] = mockInternalFetch.mock.calls[0]
         expect(url).toBe('http://gw:6738/api/v1/credentials/fetch')
-        expect(parseJSON(options.body).integration_ids).toEqual([1, 2])
-        const token = (options.headers.authorization as string).replace('Bearer ', '')
-        // nosemgrep: javascript.jsonwebtoken.security.jwt-hardcode.hardcoded-jwt-secret
-        const decoded = jwt.verify(token, 'test-secret', { audience: AUDIENCE }) as jwt.JwtPayload
-        expect(decoded.team_id).toBe(42)
-        expect(decoded.caller).toBe('cdp')
+        const body = parseJSON(options.body)
+        expect(body.integration_ids).toEqual([1, 2])
+        expect(body.team_id).toBe(42)
+        expect(body.caller).toBe('cdp')
+        // No application-level auth: access is bounded by the gateway's NetworkPolicy.
+        expect(options.headers.authorization).toBeUndefined()
     })
 
     it('passes a fast-fail timeout so a degraded gateway falls back to Postgres quickly', async () => {
@@ -100,7 +95,6 @@ describe('IntegrationGatewayService', () => {
 
     it.each([
         ['url', { CDP_INTEGRATION_GATEWAY_URL: '' }],
-        ['secret', { CDP_INTEGRATION_GATEWAY_JWT_SECRET: '' }],
         ['rollout', { CDP_INTEGRATION_GATEWAY_ROLLOUT: '' }],
     ])('createIntegrationGatewayService returns null when missing %s', (_name, override) => {
         expect(createIntegrationGatewayService({ ...config(), ...override })).toBeNull()

@@ -1,8 +1,3 @@
-import { isDevEnv, isTestEnv } from '~/common/utils/env-utils'
-
-/** Shared secret used only for local dev + tests so the whole flow works out of the box. */
-export const LOCAL_DEV_INTEGRATION_GATEWAY_JWT_SECRET = 'integration-gateway-dev-secret'
-
 export function splitCsv(raw: string): string[] {
     return raw
         .split(',')
@@ -32,10 +27,6 @@ export function parseRefreshTeams(raw: string): RefreshTeamGate {
  * CommonConfig and arrive via the base `defaultConfig` spread in the server.
  */
 export type IntegrationGatewayConfig = {
-    // Scoped-JWT verification secret(s) for callers (newest first). Empty in prod => reject all.
-    INTEGRATION_GATEWAY_JWT_SECRET: string
-    INTEGRATION_GATEWAY_JWT_SECRET_FALLBACKS: string
-
     INTEGRATION_GATEWAY_CACHE_TTL_SECONDS: number
     INTEGRATION_GATEWAY_CACHE_MAX_CAPACITY: number
     INTEGRATION_GATEWAY_MAX_BATCH_SIZE: number
@@ -65,11 +56,7 @@ export type IntegrationGatewayConfig = {
 }
 
 export function getDefaultIntegrationGatewayConfig(): IntegrationGatewayConfig {
-    const devOrTest = isDevEnv() || isTestEnv()
     return {
-        INTEGRATION_GATEWAY_JWT_SECRET: devOrTest ? LOCAL_DEV_INTEGRATION_GATEWAY_JWT_SECRET : '',
-        INTEGRATION_GATEWAY_JWT_SECRET_FALLBACKS: '',
-
         INTEGRATION_GATEWAY_CACHE_TTL_SECONDS: 30,
         INTEGRATION_GATEWAY_CACHE_MAX_CAPACITY: 50000,
         INTEGRATION_GATEWAY_MAX_BATCH_SIZE: 100,

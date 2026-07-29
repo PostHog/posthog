@@ -1,5 +1,4 @@
 import { Server } from 'http'
-import jwt from 'jsonwebtoken'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
@@ -11,20 +10,12 @@ import { EncryptedFields } from '~/common/utils/encryption-utils'
 import { createTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub } from '~/types'
 
-import { GatewayAuth } from './auth'
 import { CredentialCache } from './cache'
 import { IntegrationService } from './integration.service'
 import { IntegrationRepository } from './repository'
 import { createGatewayRouter } from './router'
 
-const AUDIENCE = 'posthog:integration_gateway'
-const SECRET = 'test-secret'
 const SALT = '00beef0000beef0000beef0000beef00'
-
-function mint(teamId: number): string {
-    // nosemgrep: javascript.jsonwebtoken.security.jwt-hardcode.hardcoded-jwt-secret
-    return jwt.sign({ team_id: teamId, caller: 'test' }, SECRET, { audience: AUDIENCE, expiresIn: 300 })
-}
 
 describe('integration gateway credential API', () => {
     let hub: Hub
@@ -41,7 +32,7 @@ describe('integration gateway credential API', () => {
     const buildApp = (maxBatchSize = 100, cache = new CredentialCache(30, 1000)): express.Application => {
         const service = new IntegrationService(new IntegrationRepository(hub.postgres), encryptedFields, cache, null)
         const app = setupExpressApp()
-        app.use('/', createGatewayRouter({ service, auth: new GatewayAuth(SECRET), maxBatchSize }))
+        app.use('/', createGatewayRouter({ service, maxBatchSize }))
         servers.push(app.listen(0))
         return app
     }
@@ -72,8 +63,7 @@ describe('integration gateway credential API', () => {
 
         const res = await supertest(buildApp())
             .post('/api/v1/credentials/fetch')
-            .set('authorization', `Bearer ${mint(teamId)}`)
-            .send({ integration_ids: [integration.id] })
+            .send({ team_id: teamId, caller: 'test', integration_ids: [integration.id] })
 
         expect(res.status).toBe(200)
         const got = res.body.integrations[String(integration.id)]
@@ -105,8 +95,7 @@ describe('integration gateway credential API', () => {
 
         const res = await supertest(buildApp())
             .post('/api/v1/credentials/fetch')
-            .set('authorization', `Bearer ${mint(teamId)}`)
-            .send({ integration_ids: [owned.id, otherTeamsRow.id, missingId] })
+            .send({ team_id: teamId, caller: 'test', integration_ids: [owned.id, otherTeamsRow.id, missingId] })
 
         expect(res.status).toBe(200)
         expect(res.body.integrations[String(owned.id)].sensitive_config.access_token).toBe('mine')
@@ -124,8 +113,7 @@ describe('integration gateway credential API', () => {
 
         const first = await supertest(app)
             .post('/api/v1/credentials/fetch')
-            .set('authorization', `Bearer ${mint(teamId)}`)
-            .send({ integration_ids: [integration.id] })
+            .send({ team_id: teamId, caller: 'test', integration_ids: [integration.id] })
         expect(first.body.integrations[String(integration.id)].sensitive_config.access_token).toBe('first')
 
         // Mutate the row directly; a cache hit must still return the original value.
@@ -138,28 +126,22 @@ describe('integration gateway credential API', () => {
 
         const second = await supertest(app)
             .post('/api/v1/credentials/fetch')
-            .set('authorization', `Bearer ${mint(teamId)}`)
-            .send({ integration_ids: [integration.id] })
+            .send({ team_id: teamId, caller: 'test', integration_ids: [integration.id] })
         expect(second.body.integrations[String(integration.id)].sensitive_config.access_token).toBe('first')
     })
 
     it.each([
-        ['a bad token', 'Bearer not-a-jwt'],
-        ['no token', null],
-    ])('rejects %s with 401', async (_name, header) => {
-        const request = supertest(buildApp()).post('/api/v1/credentials/fetch')
-        if (header) {
-            request.set('authorization', header)
-        }
-        const res = await request.send({ integration_ids: [1] })
-        expect(res.status).toBe(401)
+        ['a missing team_id', { integration_ids: [1] }],
+        ['a non-integer team_id', { team_id: 'nope', integration_ids: [1] }],
+    ])('rejects %s with 400', async (_name, body) => {
+        const res = await supertest(buildApp()).post('/api/v1/credentials/fetch').send(body)
+        expect(res.status).toBe(400)
     })
 
     it('rejects a batch larger than the configured max with 400', async () => {
         const res = await supertest(buildApp(1))
             .post('/api/v1/credentials/fetch')
-            .set('authorization', `Bearer ${mint(teamId)}`)
-            .send({ integration_ids: [1, 2] })
+            .send({ team_id: teamId, caller: 'test', integration_ids: [1, 2] })
         expect(res.status).toBe(400)
     })
 })
