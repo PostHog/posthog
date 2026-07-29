@@ -1,7 +1,8 @@
-import { useActions } from 'kea'
+import { useActions, useMountedLogic } from 'kea'
 import { useId, useLayoutEffect } from 'react'
 
 import { foregroundStreamLogic } from '../logics/foregroundStreamLogic'
+import { toolNavigationLogic } from '../logics/toolNavigationLogic'
 
 /**
  * Registers `streamKey` as a foreground stream — a run rendered in a surface the user is watching —
@@ -17,6 +18,9 @@ import { foregroundStreamLogic } from '../logics/foregroundStreamLogic'
  */
 export function useForegroundStream(streamKey: string | null): void {
     const { setForegroundStream, clearForegroundStream } = useActions(foregroundStreamLogic)
+    // Agent-driven navigation reacts to foreground-stream tool events, so it lives and dies with
+    // the surfaces that register them.
+    useMountedLogic(toolNavigationLogic)
     const providerId = useId()
 
     useLayoutEffect(() => {

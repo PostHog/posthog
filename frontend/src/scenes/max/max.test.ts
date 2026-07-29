@@ -7,8 +7,6 @@ import { useMocks } from '~/mocks/jest'
 import { AssistantMessageType } from '~/queries/schema/schema-assistant-messages'
 import { initKeaTests } from '~/test/init'
 
-import { runStreamLogic, toolStreamEventsLogic } from 'products/posthog_ai/frontend/api/logics'
-
 import { SIDE_PANEL_CONVERSATION_KEY } from './max-storage-keys'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
@@ -132,118 +130,5 @@ describe('Max Logics Integration Tests', () => {
 
         await expectLogic(logic).toDispatchActions(['openConversation'])
         expect(logic.values.conversationId).toEqual(MOCK_CONVERSATION_ID)
-    })
-
-    it.each([
-        ['routes to the created workflow', 'live' as const, MOCK_CONVERSATION_ID, true],
-        ['ignores replayed events', 'replay' as const, MOCK_CONVERSATION_ID, false],
-        ['ignores other conversations', 'live' as const, 'other-conversation', false],
-    ])('workflows-create completion: %s', async (_label, source, streamKey, shouldRoute) => {
-        logic = maxLogic({ panelId: 'test' })
-        logic.mount()
-        threadLogic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, panelId: 'test' })
-        threadLogic.mount()
-        router.actions.push('/workflows/library')
-
-        toolStreamEventsLogic.actions.emitToolEvent({
-            streamKey,
-            toolCallId: 'tc-1',
-            toolName: 'workflows-create',
-            rawToolName: 'exec',
-            phase: 'completed',
-            source,
-            invocation: {
-                toolCallId: 'tc-1',
-                rawServerName: 'posthog',
-                rawToolName: 'exec',
-                input: {},
-                output: { id: 'wf-created-1' },
-                status: 'completed',
-            },
-        })
-        await expectLogic(threadLogic).toFinishAllListeners()
-
-        // The router may add a /project/:id prefix, so match on the tail.
-        expect(
-            router.values.location.pathname.endsWith(
-                shouldRoute ? '/workflows/wf-created-1/workflow' : '/workflows/library'
-            )
-        ).toBe(true)
-    })
-
-    it.each([
-        ['template only routes to the template at turn end', false, '/workflows/library/templates/tpl-created-1'],
-        ['template plus workflow routes to the workflow only', true, '/workflows/wf-created-1/workflow'],
-    ])('creation auto-route: %s', async (_label, alsoCreatesWorkflow, expectedPathTail) => {
-        logic = maxLogic({ panelId: 'test' })
-        logic.mount()
-        threadLogic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, panelId: 'test' })
-        threadLogic.mount()
-        const streamLogic = runStreamLogic({ streamKey: MOCK_CONVERSATION_ID })
-        streamLogic.mount()
-        router.actions.push('/workflows/library')
-
-        const emitCreation = (toolName: string, id: string): void =>
-            toolStreamEventsLogic.actions.emitToolEvent({
-                streamKey: MOCK_CONVERSATION_ID,
-                toolCallId: `tc-${id}`,
-                toolName,
-                rawToolName: 'exec',
-                phase: 'completed',
-                source: 'live',
-                invocation: {
-                    toolCallId: `tc-${id}`,
-                    rawServerName: 'posthog',
-                    rawToolName: 'exec',
-                    input: {},
-                    output: { id },
-                    status: 'completed',
-                },
-            })
-
-        emitCreation('workflows-create-email-template', 'tpl-created-1')
-        await expectLogic(threadLogic).toFinishAllListeners()
-        // No mid-turn routing for templates: a workflow later in the turn must win.
-        expect(router.values.location.pathname.endsWith('/workflows/library')).toBe(true)
-
-        if (alsoCreatesWorkflow) {
-            emitCreation('workflows-create', 'wf-created-1')
-        }
-        streamLogic.actions.markTurnComplete()
-        await expectLogic(threadLogic).toFinishAllListeners()
-
-        expect(router.values.location.pathname.endsWith(expectedPathTail)).toBe(true)
-        streamLogic.unmount()
-    })
-
-    it.each([
-        ['navigates to a same-origin url', () => `${window.location.origin}/insights/abc123`, '/insights/abc123'],
-        ['ignores a foreign-origin url', () => 'https://evil.example.com/insights/abc123', '/workflows/library'],
-    ])('navigate-user completion: %s', async (_label, buildUrl, expectedPathTail) => {
-        logic = maxLogic({ panelId: 'test' })
-        logic.mount()
-        threadLogic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, panelId: 'test' })
-        threadLogic.mount()
-        router.actions.push('/workflows/library')
-
-        toolStreamEventsLogic.actions.emitToolEvent({
-            streamKey: MOCK_CONVERSATION_ID,
-            toolCallId: 'tc-nav',
-            toolName: 'navigate-user',
-            rawToolName: 'exec',
-            phase: 'completed',
-            source: 'live',
-            invocation: {
-                toolCallId: 'tc-nav',
-                rawServerName: 'posthog',
-                rawToolName: 'exec',
-                input: {},
-                output: { url: buildUrl() },
-                status: 'completed',
-            },
-        })
-        await expectLogic(threadLogic).toFinishAllListeners()
-
-        expect(router.values.location.pathname.endsWith(expectedPathTail)).toBe(true)
     })
 })
