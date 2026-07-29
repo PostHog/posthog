@@ -8797,6 +8797,27 @@ export namespace Schemas {
     }
 
     /**
+     * * `email` - email
+     * * `destination` - destination
+     */
+    export type FailedDeliveryChannelsEnum = typeof FailedDeliveryChannelsEnum[keyof typeof FailedDeliveryChannelsEnum];
+
+
+    export const FailedDeliveryChannelsEnum = {
+      Email: 'email',
+      Destination: 'destination',
+    } as const;
+
+    export interface AlertTestDeliveryResponse {
+      /** Number of active destinations queued for test delivery. */
+      destination_count: number;
+      /** Number of subscribed users sent a test email. */
+      email_recipient_count: number;
+      /** Configured delivery channels that failed to schedule or send. */
+      failed_delivery_channels: FailedDeliveryChannelsEnum[];
+    }
+
+    /**
      * * `trace` - trace
      * * `generation` - generation
      * * `evaluation` - evaluation
