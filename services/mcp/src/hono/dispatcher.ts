@@ -18,7 +18,6 @@ import type {
     ReadResourceRequest,
 } from '@modelcontextprotocol/sdk/types.js'
 import GUIDELINES from '@shared/guidelines.md'
-import { randomUUID } from 'node:crypto'
 
 import { mapErrorToAuthResponse } from '@/lib/auth-errors'
 import { MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
@@ -41,6 +40,7 @@ import { InstructionsBuilder } from './instructions'
 import { initDurationSeconds, initTotal } from './metrics'
 import { RequestStateResolver, type ResolvedState } from './request-state-resolver'
 import { ResourceCatalog } from './resource-catalog'
+import { mintSessionId } from './standalone-stream'
 import { ToolCatalog } from './tool-catalog'
 import { ToolExecutor } from './tool-executor'
 
@@ -221,7 +221,7 @@ class McpDispatcher {
         // removed RPC and gets method-not-found in dispatch.
         const hasInit = !singleModern && requests.some((r) => r.method === Method.Initialize)
         if (hasInit) {
-            props.mcpSessionId = randomUUID()
+            props.mcpSessionId = mintSessionId(props)
         }
 
         const needsState = requests.some((r) => TRACKED_METHODS.has(r.method))

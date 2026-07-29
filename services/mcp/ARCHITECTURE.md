@@ -33,6 +33,19 @@ The Hono dispatcher serves both MCP dialects side by side (`src/lib/stateless-pr
 
 A request's dialect is detected per request from the `_meta` protocol-version key or a modern `MCP-Protocol-Version` header. Only modern versions (2026-07-28+) are valid there — legacy versions are implemented solely behind the `initialize` handshake, so `server/discover` advertises modern versions only, and a legacy or unknown `_meta` version is rejected with `UnsupportedProtocolVersionError` (`-32022` on HTTP 400, with the spec's machine-readable `data.supported`/`data.requested` payload). Modern requests must also carry SEP-2243's operation headers — `MCP-Protocol-Version` (mirroring `_meta`), `Mcp-Method` (mirroring the body `method`), and `Mcp-Name` (mirroring `params.name`/`params.uri` on `tools/call`, `prompts/get`, `resources/read`) — so intermediaries can route without parsing bodies; a missing or contradicting header is rejected with `HeaderMismatch` (`-32020`) + HTTP 400 before dispatch. Modern messages are also barred from JSON-RPC arrays (`-32600` + 400; batching was removed from the protocol in 2025-06-18), and RPCs the modern dialect removed (`initialize`, `ping`) answer method-not-found on HTTP 404. Legacy clients are untouched by all of this: header-free requests — including ones sending a legacy `MCP-Protocol-Version` value such as `2025-06-18` — keep the exact pre-existing wire behavior (HTTP 200 with errors in the JSON-RPC body). Client identity for analytics is read from the `initialize` body for legacy clients and from per-request `_meta` for stateless clients. Stateless requests never mint or echo `Mcp-Session-Id` — cross-request correlation for that traffic relies on `mcpConversationId` (see below).
 
+### The standalone SSE stream on `GET /mcp`
+
+Streamable HTTP lets a client open a long-lived SSE stream with `GET /mcp` to receive server-initiated messages.
+Nothing here initiates any — every capability is advertised `listChanged: false` — so `/mcp` answers that GET with 405, which the spec permits and the official SDK client explicitly tolerates.
+Serving the stream to everyone would mean holding a connection open per session for the entire client population, to carry nothing.
+
+Some clients treat the stream as part of establishing the connection rather than an optional extra, and abandon the server when it can't be opened.
+Those sessions get an idle keepalive-only stream: `src/hono/standalone-stream.ts` writes an SSE comment immediately (a client blocking on the first event would otherwise wait forever on a stream that has nothing to say), then pings on an interval, and closes on client abort, on shutdown, or when the stream's lifetime cap expires — clients reopen it themselves.
+
+Which clients need it lives in `STANDALONE_SSE_STREAM_CLIENT_NAME_FRAGMENTS` (`src/lib/client-detection.ts`), alongside the other per-client behavior decisions.
+The standalone GET carries no body to identify the client with, so the decision is encoded in the session id minted during `initialize` and travels back on `Mcp-Session-Id`; that keeps it stateless and correct across pods.
+The User-Agent is a fallback for a client that opens the stream without echoing the session id.
+
 ## File Structure
 
 ```txt

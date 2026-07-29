@@ -117,6 +117,21 @@ export const CODING_AGENT_CLIENT_NAME_FRAGMENTS = [
 export const TOOLS_MODE_CLIENT_NAME_FRAGMENTS = ['cursor', 'chatgpt'] as const
 export const TOOLS_MODE_USER_AGENT_FRAGMENTS = ['cursor', 'chatgpt'] as const
 
+// Clients that treat the Streamable HTTP standalone SSE stream (`GET /mcp`) as
+// part of establishing the connection rather than an optional extra. Nothing here
+// pushes server-initiated messages — every capability is advertised
+// `listChanged: false` — so the spec lets `/mcp` answer that GET with 405, and the
+// official SDK client explicitly tolerates it. That stays the default.
+//
+// Antigravity's client is the exception: it retries the standalone stream a few
+// times and then cancels the whole connection, so the server never reaches a
+// usable state and the agent waits on it indefinitely. Handing those sessions an
+// idle keepalive-only stream is enough to get them through the handshake.
+// Matched on `clientInfo.name` (`antigravity-client`, plus the
+// `antigravity-client (via mcp-remote x.y.z)` shape the bridge reports) and on the
+// User-Agent, since the standalone GET carries no body to identify the client with.
+export const STANDALONE_SSE_STREAM_CLIENT_NAME_FRAGMENTS = ['antigravity'] as const
+
 // Known `x-anthropic-client` (`vendorClient`) header values. Anthropic pools
 // MCP transports across all its products and reports the live one in this
 // header, so it's the reliable identifier for an Anthropic client (the
@@ -271,6 +286,16 @@ export class MCPClientProfile {
         return (
             matchesAnyFragment(this.clientName, TOOLS_MODE_CLIENT_NAME_FRAGMENTS) ||
             matchesAnyFragment(this.userAgent, TOOLS_MODE_USER_AGENT_FRAGMENTS)
+        )
+    }
+
+    needsStandaloneSseStream(): boolean {
+        // See STANDALONE_SSE_STREAM_CLIENT_NAME_FRAGMENTS. Checked against both the
+        // self-reported name (available on `initialize`) and the User-Agent (the only
+        // client signal the bodyless standalone GET carries).
+        return (
+            matchesAnyFragment(this.clientName, STANDALONE_SSE_STREAM_CLIENT_NAME_FRAGMENTS) ||
+            matchesAnyFragment(this.userAgent, STANDALONE_SSE_STREAM_CLIENT_NAME_FRAGMENTS)
         )
     }
 

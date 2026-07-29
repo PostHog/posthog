@@ -82,6 +82,10 @@ function authenticate(c: HonoCtx): Response | null {
 
 async function preserveBody(c: HonoCtx): Promise<string> {
     const raw = c.req.raw
+    // GET/HEAD can't carry one, and re-wrapping them in a Request with a body throws.
+    if (raw.method === 'GET' || raw.method === 'HEAD') {
+        return ''
+    }
     const bodyText = await raw.text()
     const fresh = new Request(raw.url, { method: raw.method, headers: raw.headers, body: bodyText })
     Object.defineProperty(c.req, 'raw', { value: fresh, writable: true, configurable: true })

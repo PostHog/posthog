@@ -51,6 +51,11 @@ export const inflightRequests = new Gauge({
     labelNames: ['route'] as const,
 })
 
+export const standaloneSseStreamsTotal = new Counter({
+    name: 'mcp_standalone_sse_streams_total',
+    help: 'Standalone SSE streams opened on GET /mcp.',
+})
+
 export const toolErrorsTotal = new Counter({
     name: 'mcp_tool_errors_total',
     help: 'MCP tool errors by category.',
