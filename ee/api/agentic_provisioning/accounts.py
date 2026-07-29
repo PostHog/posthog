@@ -29,7 +29,11 @@ from ee.api.agentic_provisioning.constants import (
 )
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
 from ee.api.agentic_provisioning.regions import region_to_host
-from ee.api.agentic_provisioning.wizard import create_wizard_run, link_github_grant_to_team
+from ee.api.agentic_provisioning.wizard import (
+    apply_provisioned_onboarding_flags,
+    create_wizard_run,
+    link_github_grant_to_team,
+)
 
 
 def partner_label(partner: OAuthApplication | None) -> str:
@@ -261,6 +265,11 @@ def handle_new_user(
         region=region,
         team_id=team.id,
     )
+
+    # Every provisioned account is treated as already onboarded — apply the flags at
+    # bootstrap so the account is covered regardless of which follow-up blocks (if any)
+    # run, rather than only on the GitHub wizard path.
+    apply_provisioned_onboarding_flags(user, team)
 
     # Emit the standard signup event so provisioned accounts flow into the shared
     # signup / activation / billing analyses, segmentable by client. Vercel does the
