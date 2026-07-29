@@ -204,7 +204,7 @@ pub async fn remote_config(
     let payload: Option<Value> = if has_encrypted_payloads != Some(true) {
         stored.cloned()
     } else if should_decrypt {
-        resolve_decrypted_payload(&state, stored)?
+        resolve_decrypted_payload(&state, stored, scope_project_id, &key)?
     } else {
         stored.map(|_| Value::String(REDACTED_PAYLOAD_VALUE.to_string()))
     };
@@ -287,24 +287,37 @@ fn not_modified(etag: &str) -> Response {
 /// Decrypts the stored ciphertext on the personal-key path. Returns `None` when there is no
 /// stored value or it is not a string (Django 500s on those malformed rows; we render an empty
 /// body instead). Errors (500) on a decrypt failure or a missing decryptor.
+///
+/// `project_id`/`flag_key` are logged on failure only for correlation (which flag keeps
+/// failing) -- never the token or any key material, which `FlagPayloadDecryptorError`'s
+/// `Display` already excludes by construction (see `flag_payload_decryptor.rs`).
 fn resolve_decrypted_payload(
     state: &AppState,
     stored: Option<&Value>,
+    project_id: i64,
+    flag_key: &str,
 ) -> Result<Option<Value>, FlagError> {
     let Some(Value::String(token)) = stored else {
         return Ok(None);
     };
     let Some(decryptor) = state.flag_payload_decryptor.as_ref() else {
-        return Err(FlagError::Internal(
-            "no FLAGS_SECRET_KEYS configured; cannot decrypt remote config payload".to_string(),
+        warn!(
+            project_id,
+            flag_key, "remote_config: no FLAGS_SECRET_KEYS configured; cannot decrypt payload"
+        );
+        return Err(FlagError::RemoteConfigDecryptFailed(
+            "no decryption keys configured".to_string(),
         ));
     };
     decryptor
         .decrypt(token)
         .map(|plaintext| Some(Value::String(plaintext)))
         .map_err(|e| {
-            warn!("remote_config payload decrypt failed: {e}");
-            FlagError::Internal("failed to decrypt remote config payload".to_string())
+            warn!(
+                project_id,
+                flag_key, "remote_config payload decrypt failed: {e}"
+            );
+            FlagError::RemoteConfigDecryptFailed(e.to_string())
         })
 }
 

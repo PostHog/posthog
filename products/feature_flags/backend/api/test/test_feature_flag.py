@@ -2365,6 +2365,31 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(shadow.call_args.kwargs["key"], "my-remote-config-flag")
         self.assertIn("project_id", shadow.call_args.kwargs)
 
+    def test_remote_config_returns_typed_error_when_payload_cannot_be_decrypted(self):
+        # A payload that predates a FLAGS_SECRET_KEYS rotation (or is otherwise corrupt) fails to
+        # decrypt with any configured key. Without explicit handling this becomes an unhandled 500
+        # with an HTML body that SDKs can't parse as JSON — assert it's a typed JSON error instead.
+        self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="my-remote-config-flag",
+            name="Remote Config Flag",
+            active=True,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "payloads": {"true": "not-a-valid-fernet-token"},
+            },
+            is_remote_configuration=True,
+            has_encrypted_payloads=True,
+        )
+        self.client.logout()
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
+            headers={"authorization": f"Bearer {self.team.secret_api_token}"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.assertEqual(response.json(), {"error": "Failed to decrypt flag payload"})
+
     # Encrypted remote config payloads are decrypted only for personal API keys; project
     # secret keys get the redacted marker. This is the parity oracle for the Rust port,
     # which must replicate both.
