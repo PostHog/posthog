@@ -16,6 +16,7 @@ Functions that bridge to those heavy surfaces import them lazily inside the func
 """
 
 import re
+import hashlib
 import logging
 from collections.abc import Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -40,7 +41,9 @@ from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
     MAX_CUSTOM_IMAGES_PER_TEAM,
     MAX_CUSTOM_IMAGES_PER_USER,
+    PI_CLOUD_RUNTIME_FEATURE_FLAG,
     RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS,
+    TASK_SESSION_MAX_SIZE_BYTES,
     is_blocked_sandbox_env_key,
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
@@ -57,11 +60,13 @@ from products.tasks.backend.models import (
     CodeInviteRedemption,
     SandboxCustomImage,
     SandboxEnvironment,
+    SandboxSession,
     SandboxSnapshot,
     Task,
     TaskActivity,
     TaskAutomation,
     TaskRun,
+    TaskSession,
     TaskThreadMessage,
     TaskThreadMessageMention,
 )
@@ -94,6 +99,13 @@ CODE_INVITE_NOT_REDEEMABLE = "not_redeemable"
 
 WIZARD_PR_READY_EMAIL_FEATURE_FLAG = "wizard-cloud-run-pr-ready-email-enabled"
 
+# Runtime posture for a setup-wizard cloud run, applied in create_wizard_cloud_run. The model is
+# pinned because these runs route to the unbilled `onboarding` gateway product, which allowlists a
+# narrow model set; the string form avoids pulling the temporal RuntimeAdapter enum onto this path.
+WIZARD_CLOUD_RUN_RUNTIME_ADAPTER = "claude"
+WIZARD_CLOUD_RUN_MODEL = "claude-sonnet-5"
+WIZARD_CLOUD_RUN_AI_STAGE = "wizard_pr_agent"
+
 __all__ = [
     "CODE_INVITE_INVALID_CODE",
     "CODE_INVITE_NOT_REDEEMABLE",
@@ -105,6 +117,7 @@ __all__ = [
     "TaskRunEnvironment",
     "TaskRunStatus",
     "append_task_run_log",
+    "ensure_task_run_session",
     "beacon_task_presence",
     "bootstrap_task_run",
     "can_mint_readonly_github_token",
@@ -150,6 +163,8 @@ __all__ = [
     "get_task_detail",
     "get_task_id_for_run",
     "get_task_run",
+    "get_task_run_session",
+    "sync_task_run_session",
     "get_task_run_detail",
     "get_task_run_sandbox_connection",
     "get_task_run_living_artifact",
@@ -171,6 +186,7 @@ __all__ = [
     "list_task_repositories",
     "list_task_runs",
     "list_tasks",
+    "pi_cloud_runtime_enabled",
     "prepare_task_run_artifact_uploads",
     "prepare_task_staged_artifacts",
     "presign_task_run_artifact",
@@ -208,6 +224,7 @@ __all__ = [
     "update_task_run_state",
     "upsert_internal_sandbox_env",
     "validate_set_output",
+    "validate_task_run_sandbox_token",
     "validate_task_run_artifact_ids",
     "warm_task_sandbox",
 ]
@@ -900,6 +917,10 @@ def create_wizard_cloud_run(
     The PR head branch is generated here (not by the agent) so the GitHub PR webhook can bind the
     opened PR back to this run by branch + repository — wizard PRs are bot-authored, which the
     agent-side PR attribution cannot match.
+
+    The model is pinned rather than left to the agent's default because these runs bill to nobody:
+    they route to the unbilled ``onboarding`` gateway product, whose model allowlist is narrow, and
+    PostHog absorbs the cost. Keep the pin inside that allowlist or the run fails at the gateway.
     """
     head_branch = generate_wizard_head_branch()
     prompt = build_wizard_pr_agent_prompt(head_branch)
@@ -916,6 +937,9 @@ def create_wizard_cloud_run(
         wizard_config={},
         wizard_head_branch=head_branch,
         posthog_mcp_scopes="read_only",
+        runtime_adapter=WIZARD_CLOUD_RUN_RUNTIME_ADAPTER,
+        model=WIZARD_CLOUD_RUN_MODEL,
+        ai_stage=WIZARD_CLOUD_RUN_AI_STAGE,
         # The agent server boots idle; this is the message that actually kicks it off once ready
         # (delivered by forward_pending_user_message). Without it the run stalls after "Started agent".
         pending_user_message=prompt,
@@ -1769,6 +1793,16 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "loop_trigger_id",
         "trigger_context",
         "config_snapshot",
+        # The run's model posture, chosen at creation by the server-owned caller and read back out
+        # of state when the run dispatches. It decides what the run costs, and for a run routed to
+        # an unbilled gateway product (create_wizard_cloud_run pins claude-sonnet-5 for the
+        # `onboarding` product) it is the only thing keeping the run off the more expensive models
+        # that product still allowlists. Every writer is server-side, so nothing legitimate PATCHes
+        # these.
+        "runtime_adapter",
+        "provider",
+        "model",
+        "reasoning_effort",
     }
 )
 
@@ -2202,6 +2236,148 @@ def append_task_run_log(
     run.append_log(entries)
     run.heartbeat_workflow(agent_active=True)
     return _task_run_detail_to_dto(run)
+
+
+def ensure_task_run_session(run_id: str | UUID) -> UUID:
+    with transaction.atomic():
+        run = TaskRun.objects.select_for_update(of=("self",)).select_related("task__team").get(id=run_id)
+        if run.active_task_session_id is not None:
+            return run.active_task_session_id
+
+        task_session = TaskSession.create_for_task(run.task)
+        run.active_task_session = task_session
+        run.save(update_fields=["active_task_session", "updated_at"])
+        return task_session.id
+
+
+def get_task_run_session(
+    run_id: str | UUID, task_id: str | UUID, team_id: int
+) -> tuple[UUID, str | None, str | None] | None:
+    from posthog.storage import object_storage  # noqa: PLC0415
+
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None or run.active_task_session_id is None:
+        return None
+    task_session = TaskSession.objects.unscoped().get(id=run.active_task_session_id)
+    if task_session.object_storage_key is None:
+        return task_session.id, None, None
+    download_url = object_storage.get_presigned_url(task_session.object_storage_key, expiration=3600)
+    if not download_url:
+        raise RuntimeError("Unable to prepare task session download")
+    return task_session.id, download_url, task_session.content_sha256
+
+
+def _validate_task_session_content(content: bytes) -> None:
+    if not content or len(content) > TASK_SESSION_MAX_SIZE_BYTES:
+        raise ValueError("The task session content size is invalid")
+
+
+def _get_open_sandbox_session(run_id: UUID, sandbox_id: str) -> SandboxSession | None:
+    return (
+        SandboxSession.objects.unscoped()
+        .filter(
+            task_run_id=run_id,
+            sandbox_id=sandbox_id,
+            ended_at__isnull=True,
+        )
+        .first()
+    )
+
+
+def _delete_task_session_object(task_session_id: UUID, object_storage_key: str) -> None:
+    from posthog.storage import object_storage  # noqa: PLC0415
+
+    try:
+        object_storage.delete(object_storage_key)
+    except Exception as error:
+        logger.warning(
+            "task_session.failed_to_delete_object",
+            extra={
+                "task_session_id": str(task_session_id),
+                "object_storage_key": object_storage_key,
+                "error": str(error),
+            },
+        )
+
+
+def validate_task_run_sandbox_token(
+    token: str,
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    sandbox_id: str,
+) -> bool:
+    from jwt import InvalidTokenError  # noqa: PLC0415
+
+    from products.tasks.backend.logic.services.connection_token import (  # noqa: PLC0415
+        validate_sandbox_event_ingest_token,
+    )
+
+    try:
+        claims = validate_sandbox_event_ingest_token(token)
+    except (InvalidTokenError, ValueError):
+        return False
+    return (
+        claims.run_id == str(run_id)
+        and claims.task_id == str(task_id)
+        and claims.team_id == team_id
+        and claims.sandbox_id == sandbox_id
+    )
+
+
+def sync_task_run_session(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    sandbox_id: str,
+    expected_content_sha256: str | None,
+    content: bytes,
+) -> tuple[UUID, str] | None:
+    from posthog.storage import object_storage  # noqa: PLC0415
+
+    visible_run = _get_visible_run(run_id, task_id, team_id)
+    if visible_run is None or visible_run.active_task_session_id is None:
+        return None
+    _validate_task_session_content(content)
+    if _get_open_sandbox_session(visible_run.id, sandbox_id) is None:
+        raise ValueError("The task session writer is not the active sandbox")
+
+    content_sha256 = hashlib.sha256(content).hexdigest()
+    object_storage_key = (
+        f"task-sessions/{visible_run.task.team.organization_id}/{visible_run.task_id}/"
+        f"{visible_run.active_task_session_id}/{uuid4()}.jsonl"
+    )
+    object_storage.write(object_storage_key, content)
+
+    previous_object_storage_key: str | None = None
+    try:
+        with transaction.atomic():
+            locked_run = TaskRun.objects.select_for_update(of=("self",)).get(id=visible_run.id)
+            if locked_run.active_task_session_id != visible_run.active_task_session_id:
+                raise ValueError("The task session sync is stale")
+            if _get_open_sandbox_session(locked_run.id, sandbox_id) is None:
+                raise ValueError("The task session writer is not the active sandbox")
+
+            task_session = TaskSession.objects.unscoped().select_for_update().get(id=locked_run.active_task_session_id)
+            if task_session.content_sha256 == content_sha256:
+                transaction.on_commit(lambda: _delete_task_session_object(task_session.id, object_storage_key))
+                return task_session.id, content_sha256
+            if task_session.content_sha256 != expected_content_sha256:
+                raise ValueError("The task session content is stale")
+
+            previous_object_storage_key = task_session.object_storage_key
+            task_session.object_storage_key = object_storage_key
+            task_session.content_sha256 = content_sha256
+            task_session.size = len(content)
+            task_session.save(update_fields=["object_storage_key", "content_sha256", "size", "updated_at"])
+            if previous_object_storage_key is not None:
+                transaction.on_commit(lambda: _delete_task_session_object(task_session.id, previous_object_storage_key))
+        task_session.tag_object()
+        return task_session.id, content_sha256
+    except Exception:
+        _delete_task_session_object(visible_run.active_task_session_id, object_storage_key)
+        raise
 
 
 def task_run_has_slack_mapping(run_id: str | UUID, task_id: str | UUID, team_id: int) -> bool | None:
@@ -2691,7 +2867,11 @@ def create_task_run_stream_read_token(run_id: str | UUID, task_id: str | UUID, t
     return _create(task_run=run)
 
 
-def resolve_stream_base_url(*, distinct_id: str, organization_id: str | UUID) -> str | None:
+def task_uses_pi_runtime(task_id: str | UUID, team_id: int) -> bool:
+    return Task.objects.filter(id=task_id, team_id=team_id, runtime=Task.Runtime.PI).exists()
+
+
+def resolve_stream_base_url(*, distinct_id: str, organization_id: str | UUID, force_proxy: bool = False) -> str | None:
     """Agent-proxy base URL for the read leg, or ``None`` to read from Django directly.
 
     Returns the configured agent-proxy URL only when it is set for this environment AND the
@@ -2705,7 +2885,7 @@ def resolve_stream_base_url(*, distinct_id: str, organization_id: str | UUID) ->
         return None
     # Local dev disables the analytics SDK, so the rollout flag never evaluates; the URL setting
     # is the opt-in there. Prod (DEBUG off) still gates on the flag below.
-    if settings.DEBUG:
+    if settings.DEBUG or force_proxy:
         return proxy_url
     try:
         enabled = bool(
@@ -3086,6 +3266,8 @@ def bootstrap_task_run(
     runtime_adapter = validated_data.get("runtime_adapter")
     model = validated_data.get("model")
     reasoning_effort = validated_data.get("reasoning_effort")
+    context_window = validated_data.get("context_window")
+    fast_mode = validated_data.get("fast_mode")
     github_user_token = validated_data.get("github_user_token")
     initial_permission_mode = validated_data.get("initial_permission_mode")
     imported_mcp_servers = validated_data.get("imported_mcp_servers")
@@ -3108,6 +3290,8 @@ def bootstrap_task_run(
         "provider": provider,
         "model": model,
         "reasoning_effort": reasoning_effort,
+        "context_window": context_window,
+        "fast_mode": fast_mode,
         "rtk_enabled": validated_data.get("rtk_enabled"),
     }.items():
         if value is not None:
@@ -3205,7 +3389,13 @@ def bootstrap_task_run(
 
 
 def _trigger_task_processing_workflow(
-    task: Task, run: TaskRun, user_id: int | None, *, raise_on_error: bool = False
+    task: Task,
+    run: TaskRun,
+    user_id: int | None,
+    *,
+    initial_message: str | None = None,
+    initial_artifact_ids: list[str] | None = None,
+    raise_on_error: bool = False,
 ) -> None:
     from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
         execute_task_processing_workflow,
@@ -3214,6 +3404,7 @@ def _trigger_task_processing_workflow(
         RunSource,
         parse_run_state,
     )
+    from products.tasks.backend.temporal.process_task.workflow import PendingFollowup  # noqa: PLC0415
 
     # SIGNAL_REPORT: implementation runs log their work on the report (notes, code references)
     # via the task:write artefact tools.
@@ -3222,13 +3413,28 @@ def _trigger_task_processing_workflow(
     posthog_mcp_scopes: Literal["read_only", "full"] = "full" if run_source in full_mcp_run_sources else "read_only"
     try:
         logger.info("Attempting to trigger task processing workflow for task %s, run %s", task.id, run.id)
-        execute_task_processing_workflow(
-            task_id=str(task.id),
-            run_id=str(run.id),
-            team_id=task.team.id,
-            user_id=user_id,
-            posthog_mcp_scopes=posthog_mcp_scopes,
-        )
+        if initial_message or initial_artifact_ids:
+            execute_task_processing_workflow(
+                task_id=str(task.id),
+                run_id=str(run.id),
+                team_id=task.team.id,
+                user_id=user_id,
+                posthog_mcp_scopes=posthog_mcp_scopes,
+                initial_message=PendingFollowup(
+                    message=initial_message,
+                    artifact_ids=initial_artifact_ids or [],
+                    actor_user_id=user_id,
+                    message_id=str(uuid4()),
+                ),
+            )
+        else:
+            execute_task_processing_workflow(
+                task_id=str(task.id),
+                run_id=str(run.id),
+                team_id=task.team.id,
+                user_id=user_id,
+                posthog_mcp_scopes=posthog_mcp_scopes,
+            )
         logger.info("Workflow trigger completed for task %s, run %s", task.id, run.id)
     except Exception as e:
         logger.exception("Failed to trigger task processing workflow for task %s, run %s: %s", task.id, run.id, e)
@@ -3249,8 +3455,6 @@ def check_task_run_startable(run_id: str | UUID, task_id: str | UUID, team_id: i
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return "not_found"
-    if run.task.runtime == Task.Runtime.PI:
-        return "unsupported_runtime"
     if run.environment != TaskRun.Environment.CLOUD:
         return "not_cloud"
     if run.status not in _STARTABLE_TASK_RUN_STATUSES:
@@ -3286,10 +3490,11 @@ def start_task_run(
             return "missing_artifacts:" + ",".join(missing_artifact_ids), None
 
     state_updates: dict = {}
-    if pending_user_message is not None:
-        state_updates["pending_user_message"] = pending_user_message
-    if pending_user_artifact_ids:
-        state_updates["pending_user_artifact_ids"] = pending_user_artifact_ids
+    if task.runtime != Task.Runtime.PI:
+        if pending_user_message is not None:
+            state_updates["pending_user_message"] = pending_user_message
+        if pending_user_artifact_ids:
+            state_updates["pending_user_artifact_ids"] = pending_user_artifact_ids
 
     previous_state = dict(run.state or {})
     try:
@@ -3297,7 +3502,16 @@ def start_task_run(
             TaskRun.update_state_atomic(run.id, updates=state_updates)
             run.refresh_from_db()
         logger.info("Triggering workflow for task %s, existing run %s", task.id, run.id)
-        _trigger_task_processing_workflow(task, run, user_id, raise_on_error=True)
+        _trigger_task_processing_workflow(
+            task,
+            run,
+            user_id,
+            initial_message=(pending_user_message or task.description or None)
+            if task.runtime == Task.Runtime.PI
+            else None,
+            initial_artifact_ids=pending_user_artifact_ids if task.runtime == Task.Runtime.PI else None,
+            raise_on_error=True,
+        )
     except Exception:
         if state_updates:
             rollback_updates = {
@@ -3319,6 +3533,8 @@ def resume_task_run_in_cloud(
     ``"already_active"`` (400), ``"auth_error:<detail>"`` (400, github auth), ``"workflow_failed"``
     (502), or ``"resumed"`` (run_dto set). Mirrors ``TaskRunViewSet.resume_in_cloud``.
     """
+    from products.tasks.backend.facade.streams import reset_task_run_stream  # noqa: PLC0415
+    from products.tasks.backend.redis import run_uses_dedicated_stream  # noqa: PLC0415
     from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
         resume_task_in_cloud_workflow,
     )
@@ -3330,9 +3546,6 @@ def resume_task_run_in_cloud(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return "not_found", None, None
-    if run.task.runtime == Task.Runtime.PI:
-        return "unsupported_runtime", None, None
-
     logger.info(
         "resume_in_cloud_called",
         extra={
@@ -3387,6 +3600,11 @@ def resume_task_run_in_cloud(
     logger.info("Resuming task run in cloud", extra={"task_run_id": str(run.id), "task_id": str(run.task_id)})
 
     try:
+        if not reset_task_run_stream(
+            str(run.id),
+            use_dedicated=run_uses_dedicated_stream(run.state),
+        ):
+            raise RuntimeError("Failed to reset task run event stream")
         resume_task_in_cloud_workflow(str(run.id), run.workflow_id)
     except Exception as e:
         logger.exception("Failed to trigger handoff workflow", extra={"task_run_id": str(run.id), "error": str(e)})
@@ -3502,6 +3720,25 @@ def get_conversation_task_dtos(task_ids: Sequence[str | UUID], team_id: int) -> 
         .annotate(_latest_run_id=Subquery(latest_run_id_sq))
     )
     return {task.id: _task_detail_to_dto(task, include_latest_run=False) for task in tasks}
+
+
+def pi_cloud_runtime_enabled(team: Team, user: User) -> bool:
+    distinct_id = user.distinct_id or f"user_{user.id}"
+    organization_id = str(team.organization_id)
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                PI_CLOUD_RUNTIME_FEATURE_FLAG,
+                distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception("pi-harness flag check failed; treating as disabled")
+        return False
 
 
 def task_runtime(task_id: str | UUID, team_id: int, user_id: int | None, *, for_control: bool = False) -> str | None:
@@ -4378,18 +4615,12 @@ def run_task(
     task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
     if task is None:
         return None
-    if task.runtime == Task.Runtime.PI:
-        return contracts.TaskRunResult(
-            error=contracts.TaskValidationError(
-                kind="detail", detail="Pi tasks cannot be run through the ACP task workflow."
-            )
-        )
-
     mode = validated_data.get("mode", "background")
     branch = validated_data.get("branch")
     resume_from_run_id = validated_data.get("resume_from_run_id")
     pending_user_message = validated_data.get("pending_user_message")
     pending_user_artifact_ids = validated_data.get("pending_user_artifact_ids") or []
+    is_pi_task = task.runtime == Task.Runtime.PI
 
     if not resume_from_run_id:
         warm_run = _idling_warm_run_for_task(task)
@@ -4399,12 +4630,16 @@ def run_task(
                 warm_state.get("runtime_adapter") or None,
                 warm_state.get("model") or None,
                 warm_state.get("reasoning_effort") or None,
+                warm_state.get("context_window") or None,
+                warm_state.get("fast_mode") or None,
                 warm_state.get("sandbox_environment_id") or None,
                 warm_state.get("custom_image_id") or None,
             ) == (
                 validated_data.get("runtime_adapter") or None,
                 validated_data.get("model") or None,
                 validated_data.get("reasoning_effort") or None,
+                validated_data.get("context_window") or None,
+                validated_data.get("fast_mode") or None,
                 str(validated_data["sandbox_environment_id"]) if validated_data.get("sandbox_environment_id") else None,
                 str(validated_data["custom_image_id"]) if validated_data.get("custom_image_id") else None,
             )
@@ -4448,6 +4683,8 @@ def run_task(
     runtime_adapter = validated_data.get("runtime_adapter")
     model = validated_data.get("model")
     reasoning_effort = validated_data.get("reasoning_effort")
+    context_window = validated_data.get("context_window")
+    fast_mode = validated_data.get("fast_mode")
     github_user_token = validated_data.get("github_user_token")
     initial_permission_mode = validated_data.get("initial_permission_mode")
     imported_mcp_servers = validated_data.get("imported_mcp_servers")
@@ -4463,12 +4700,14 @@ def run_task(
         "runtime_adapter": runtime_adapter,
         "model": model,
         "reasoning_effort": reasoning_effort,
+        "context_window": context_window,
+        "fast_mode": fast_mode,
     }
 
     extra_state: dict | None = None
-    if pending_user_message is not None:
+    if pending_user_message is not None and not is_pi_task:
         extra_state = {"pending_user_message": pending_user_message}
-    if pending_user_artifact_ids:
+    if pending_user_artifact_ids and not is_pi_task:
         extra_state = extra_state or {}
         extra_state["pending_user_artifact_ids"] = pending_user_artifact_ids
     if initial_permission_mode is not None:
@@ -4488,8 +4727,9 @@ def run_task(
 
         prev_state = parse_run_state(previous_run.state)
         extra_state = extra_state or {}
-        extra_state["resume_from_run_id"] = str(resume_from_run_id)
-        extra_state.update(prev_state.resume_snapshot_carry_state())
+        if not is_pi_task:
+            extra_state["resume_from_run_id"] = str(resume_from_run_id)
+            extra_state.update(prev_state.resume_snapshot_carry_state())
 
         # The resumed agent still pushes the head branch baked into the original prompt, so the
         # PR webhook must be able to match this run, not the terminal predecessor.
@@ -4521,12 +4761,14 @@ def run_task(
         runtime_adapter = runtime_state_fields["runtime_adapter"]
         model = runtime_state_fields["model"]
         reasoning_effort = runtime_state_fields["reasoning_effort"]
+        context_window = runtime_state_fields["context_window"]
+        fast_mode = runtime_state_fields["fast_mode"]
         if branch is None and prev_state.pr_base_branch is not None:
             branch = prev_state.pr_base_branch
 
     provider = get_provider_for_runtime_adapter(runtime_adapter)
 
-    for key, value in {
+    run_state_values = {
         "pr_base_branch": branch,
         "pr_authorship_mode": pr_authorship_mode,
         "auto_publish": auto_publish,
@@ -4536,7 +4778,13 @@ def run_task(
         "provider": provider,
         "model": model,
         "reasoning_effort": reasoning_effort,
-    }.items():
+        "context_window": context_window,
+        "fast_mode": fast_mode,
+    }
+    if is_pi_task:
+        for key in ("runtime_adapter", "provider", "model", "reasoning_effort"):
+            run_state_values.pop(key)
+    for key, value in run_state_values.items():
         if value is not None:
             extra_state = extra_state or {}
             extra_state[key] = value.value if hasattr(value, "value") else value
@@ -4634,6 +4882,9 @@ def run_task(
 
     logger.info("Creating task run for task %s with mode=%s, branch=%s", task.id, mode, branch)
     task_run = task.create_run(mode=mode, branch=branch, extra_state=extra_state)
+    if is_pi_task and resume_from_run_id:
+        task_run.active_task_session = previous_run.active_task_session
+        task_run.save(update_fields=["active_task_session", "updated_at"])
 
     if imported_mcp_servers or relayed_mcp_servers:
         update_fields = ["updated_at"]
@@ -4655,7 +4906,20 @@ def run_task(
         cache_github_user_token(str(task_run.id), github_user_token)
 
     logger.info("Triggering workflow for task %s, run %s", task.id, task_run.id)
-    _trigger_task_processing_workflow(task, task_run, user_id, raise_on_error=False)
+    if is_pi_task:
+        initial_message = (
+            pending_user_message if resume_from_run_id else pending_user_message or task.description or None
+        )
+        _trigger_task_processing_workflow(
+            task,
+            task_run,
+            user_id,
+            initial_message=initial_message,
+            initial_artifact_ids=pending_user_artifact_ids,
+            raise_on_error=False,
+        )
+    else:
+        _trigger_task_processing_workflow(task, task_run, user_id, raise_on_error=False)
 
     return contracts.TaskRunResult(task=get_task_detail(task.id, team_id, user_id))
 

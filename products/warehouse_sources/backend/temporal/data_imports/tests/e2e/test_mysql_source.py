@@ -22,7 +22,7 @@ from asgiref.sync import sync_to_async
 
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import IncrementalFieldType
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import (
     DEFAULT_CHUNK_SIZE,
     DEFAULT_TABLE_SIZE_BYTES,
 )

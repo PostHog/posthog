@@ -87,7 +87,6 @@ PRODUCTS_APPS = [
     "products.access_control.backend.apps.AccessControlConfig",
     "products.warehouse_sources_queue.backend.apps.WarehouseSourcesQueueConfig",
     "products.business_knowledge.backend.apps.BusinessKnowledgeConfig",
-    "products.agent_platform.backend.apps.AgentPlatformConfig",
     "products.web_analytics.backend.apps.WebAnalyticsConfig",
     "products.warehouse_sources.backend.apps.WarehouseSourcesConfig",
     "products.data_tools.backend.apps.DataToolsConfig",
@@ -591,6 +590,9 @@ SPECTACULAR_SETTINGS = {
         "EmailReputationStateEnum": "products.workflows.backend.models.email_reputation.EmailReputationSnapshot.State",
         "MCPAuthTypeEnum": "products.mcp_store.backend.models.AUTH_TYPE_CHOICES",
         "MCPInstallationScopeEnum": ["personal", "shared"],
+        # Disambiguates from data_modeling's node_type (table/view/matview/endpoint).
+        "NotebookSQLV2NodeTypeEnum": ["hogql", "python"],
+        "NotebookSQLV2RefKindEnum": ["hogql", "local"],
         "TaskRunStatusEnum": "products.tasks.backend.models.TaskRun.Status",
         # Inline-choices variant of TaskRun.Status (labels == values), shared by
         # TaskRunUpdate.status and ExperimentFlagCleanupTask.run_status.
@@ -614,7 +616,7 @@ SPECTACULAR_SETTINGS = {
         "UserInterviewSearchDocumentTypeEnum": "products.user_interviews.backend.facade.enums.SEARCH_DOCUMENT_TYPES",
         "BatchExportRunStatusEnum": "products.batch_exports.backend.models.batch_export.BatchExportRun.Status",
         "HeatmapType": "products.web_analytics.backend.models.heatmap_saved.SavedHeatmap.Type",
-        # Conversations ticket + quick-action priority share one choice set; pin its name so the
+        # Conversations ticket + quick-action priority share one choice set. Pin its name so the
         # quick-action `priority` field doesn't collide with other products' `priority` enums.
         "SupportPriorityEnum": "products.conversations.backend.models.constants.Priority",
         # Conversations' quick-action `visibility` (team/personal) shares the generic `VisibilityEnum`
@@ -659,9 +661,6 @@ SPECTACULAR_SETTINGS = {
         "InvestigationVerdictEnum": ["true_positive", "false_positive", "inconclusive"],
         # Preserve Replay Vision's existing verdict type name after introducing the shared enum above.
         "VerdictEnum": ["yes", "no", "inconclusive"],
-        # AgentRevision.state (model ChoiceField) and RevisionNotDraftError.state (the
-        # bundle-edit 409 body) share one choice set — pin them to a single named enum.
-        "AgentRevisionStateEnum": ["draft", "ready", "live", "archived"],
         # Tracing's span-filter `type` and attribute-breakdown `breakdownType` share one
         # choice set (top-level column vs span attribute vs resource attribute).
         "SpanPropertyTypeEnum": ["span", "span_attribute", "span_resource_attribute"],
@@ -768,7 +767,6 @@ SPECTACULAR_SETTINGS = {
             "workflow_variable",
         ],
         "AssigneeTypeEnum": ["user", "role"],
-        "AgentSessionStateEnum": ["queued", "running", "completed", "closed", "cancelled", "failed"],
         "ScoutOriginEnum": ["canonical", "custom"],
         "FileFormatEnum": ["Parquet", "JSONLines"],
         "MetricAttributeScopeEnum": ["resource", "attribute", "auto"],

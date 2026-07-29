@@ -1,8 +1,8 @@
-import { useMountedLogic, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
 
 import { IconShortcut } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { createFuse } from 'lib/utils/fuseSearch'
 import { isKeyOf } from 'lib/utils/guards'
@@ -32,6 +32,7 @@ export const QuickActionPicker = forwardRef<QuickActionPickerRef, QuickActionPic
     ref
 ): JSX.Element {
     const { teamQuickActions, personalQuickActions, quickActionsLoading, loadFailed } = useValues(quickActionsLogic)
+    const { loadQuickActions } = useActions(quickActionsLogic)
     const [internalQuery, setInternalQuery] = useState('')
     const query = (controlledQuery ?? internalQuery).trim()
     const [selectedIndex, setSelectedIndex] = useState(0)
@@ -154,13 +155,17 @@ export const QuickActionPicker = forwardRef<QuickActionPickerRef, QuickActionPic
                 })}
                 {filtered.length === 0 && (
                     <div className="text-secondary p-2 text-center">
-                        {quickActionsLoading
-                            ? 'Loading quick actions...'
-                            : loadFailed
-                              ? "Couldn't load quick actions. Try again."
-                              : query
-                                ? 'No matching quick actions'
-                                : 'No quick actions yet'}
+                        {quickActionsLoading ? (
+                            'Loading quick actions...'
+                        ) : loadFailed ? (
+                            <>
+                                Couldn't load quick actions. <Link onClick={() => loadQuickActions()}>Try again</Link>
+                            </>
+                        ) : query ? (
+                            'No matching quick actions'
+                        ) : (
+                            'No quick actions yet'
+                        )}
                     </div>
                 )}
             </div>

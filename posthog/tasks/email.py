@@ -36,6 +36,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
 from posthog.models.comment.utils import build_comment_item_url
 from posthog.models.messaging import MessagingRecord, get_email_hashes
+from posthog.models.scoping import with_team_scope
 from posthog.models.utils import UUIDT
 from posthog.ph_client import feature_enabled_or_false, get_client, ph_scoped_capture
 from posthog.scoping_audit import skip_team_scope_audit
@@ -577,6 +578,76 @@ def send_hog_function_disabled(hog_function_id: str) -> None:
         subject=f"[Alert] Destination '{hog_function.name}' has been disabled in project '{team}' due to high error rate",
         template_name="hog_function_disabled",
         template_context={"hog_function": hog_function, "team": team},
+    )
+    for membership in memberships_to_email:
+        message.add_user_recipient(membership.user)
+    message.send()
+
+
+def _get_project_admins_to_notify_of_email_sending_suspension(team: Team) -> list[OrganizationMembership]:
+    # Admin+ only: they're the ones who can act on the issue (contact support, clean up lists).
+    # Everyone else with project access still sees the persistent in-app banner. No
+    # notification-setting gate — the send is failing until action is taken and members must
+    # not be able to mute this.
+    memberships_to_email = []
+    memberships = OrganizationMembership.objects.prefetch_related("user", "organization").filter(
+        organization_id=team.organization_id
+    )
+    for membership in memberships:
+        team_permissions = UserPermissions(membership.user).team(team)
+        effective_level = team_permissions.effective_membership_level_for_parent_membership(
+            membership.organization, membership
+        )
+        if effective_level is not None and effective_level >= OrganizationMembership.Level.ADMIN:
+            memberships_to_email.append(membership)
+    return memberships_to_email
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@with_team_scope()
+def send_email_sending_suspended(team_id: int, reason: str, suspended_at: str) -> None:
+    """
+    Tell a team's members that staff suspended workflow email sending for their project.
+    Deliberately not gated by notification settings — sends are failing until they act.
+    """
+    if not is_email_available(with_absolute_urls=True):
+        return
+    team = Team.objects.get(id=team_id)
+    memberships_to_email = _get_project_admins_to_notify_of_email_sending_suspension(team)
+    if not memberships_to_email:
+        return
+    message = EmailMessage(
+        campaign_key=f"email_sending_suspended_{team_id}_{suspended_at}",
+        subject=f"[Action required] Email sending has been suspended for project '{team}'",
+        template_name="email_sending_suspended",
+        template_context={
+            "team": team,
+            "reason": reason,
+            "reputation_path": f"/project/{team.id}/workflows/reputation",
+        },
+    )
+    for membership in memberships_to_email:
+        message.add_user_recipient(membership.user)
+    message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@with_team_scope()
+def send_email_sending_unsuspended(team_id: int, unsuspended_at: str) -> None:
+    if not is_email_available(with_absolute_urls=True):
+        return
+    team = Team.objects.get(id=team_id)
+    memberships_to_email = _get_project_admins_to_notify_of_email_sending_suspension(team)
+    if not memberships_to_email:
+        return
+    message = EmailMessage(
+        campaign_key=f"email_sending_unsuspended_{team_id}_{unsuspended_at}",
+        subject=f"Email sending has been re-enabled for project '{team}'",
+        template_name="email_sending_unsuspended",
+        template_context={
+            "team": team,
+            "reputation_path": f"/project/{team.id}/workflows/reputation",
+        },
     )
     for membership in memberships_to_email:
         message.add_user_recipient(membership.user)
@@ -2058,21 +2129,33 @@ def send_error_tracking_weekly_digest_for_org(self: Task, org_id: str) -> None:
         if not should_send_notification(user, NotificationSetting.ERROR_TRACKING_WEEKLY_DIGEST.value):
             continue
 
-        if error_tracking_api.auto_select_project_for_user(user, org.id, autoselect_counts):
+        # One instance per user: its membership and access-control prefetches are cached on the
+        # instance, so rebuilding it per team would re-query them for every team in the org.
+        user_permissions = UserPermissions(user)
+        accessible_team_ids = {
+            team_id
+            for team_id in team_ids_with_exceptions
+            if user_permissions.team(all_org_teams[team_id]).effective_membership_level_for_parent_membership(
+                org, membership
+            )
+            is not None
+        }
+
+        # Rank only projects this member can open. Auto-select is one-shot and persisted, so enrolling
+        # someone onto a project they can't reach leaves every other project disabled-by-omission and
+        # silences their digest for good.
+        if error_tracking_api.auto_select_project_for_user(
+            user, org.id, {tid: counts for tid, counts in autoselect_counts.items() if tid in accessible_team_ids}
+        ):
             user.refresh_from_db(fields=["partial_notification_settings"])
 
         enabled_team_ids: list[int] = []
         disabled_team_names: list[str] = []
-        for team_id in team_ids_with_exceptions:
-            team = all_org_teams[team_id]
-            user_permissions = UserPermissions(user).team(team)
-            if user_permissions.effective_membership_level_for_parent_membership(org, membership) is None:
-                continue
-
+        for team_id in accessible_team_ids:
             if should_send_notification(user, NotificationSetting.ERROR_TRACKING_WEEKLY_DIGEST.value, team_id):
                 enabled_team_ids.append(team_id)
             else:
-                disabled_team_names.append(team.name)
+                disabled_team_names.append(all_org_teams[team_id].name)
 
         if enabled_team_ids:
             recipients.append((membership, enabled_team_ids, disabled_team_names))

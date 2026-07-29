@@ -47,7 +47,7 @@ from products.warehouse_sources.backend.models.util import (
     reconstruct_ordered_columns,
     remove_named_tuples,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 
 from .credential import DataWarehouseCredential
 from .external_table_definitions import external_tables, get_hogql_column_name_mapping
@@ -750,14 +750,27 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 connection_metadata=self.external_data_source.connection_metadata,
             )
 
-        # Engine-keyed (no is_direct_clickhouse) to satisfy the source-agnostic guard.
-        if self.external_data_source and self.external_data_source.direct_engine == "clickhouse":
+        # Engine-keyed (no is_direct_clickhouse) to satisfy the source-agnostic guard. The
+        # is_direct_query check is load-bearing: direct_engine ignores access_method, and a synced
+        # source's tables must stay S3-backed — as a direct table, every ordinary query against
+        # them fails (the printer's team_id guard doesn't skip DirectSQLTable).
+        if (
+            self.external_data_source
+            and self.external_data_source.is_direct_query
+            and self.external_data_source.direct_engine == "clickhouse"
+        ):
             job_inputs = self.external_data_source.job_inputs or {}
-            clickhouse_database = (
-                self.options.get(DIRECT_CLICKHOUSE_DATABASE_OPTION)
-                if isinstance(self.options.get(DIRECT_CLICKHOUSE_DATABASE_OPTION), str)
-                else job_inputs.get("database", "default")
-            )
+            # Every direct-ClickHouse table is discovered from the source's single configured
+            # database, so the live source config is authoritative. Prefer it over the per-table
+            # option, which can be stale — e.g. stored as "default" when the source was first synced
+            # before a database was set — and would otherwise resolve to a database that doesn't
+            # exist on the server. Fall back to the stored option only when no database is configured.
+            configured_database = job_inputs.get("database")
+            if isinstance(configured_database, str) and configured_database.strip():
+                clickhouse_database = configured_database
+            else:
+                stored_database = self.options.get(DIRECT_CLICKHOUSE_DATABASE_OPTION)
+                clickhouse_database = stored_database if isinstance(stored_database, str) else "default"
             clickhouse_table_name = (
                 self.options.get(DIRECT_CLICKHOUSE_TABLE_OPTION)
                 if isinstance(self.options.get(DIRECT_CLICKHOUSE_TABLE_OPTION), str)
