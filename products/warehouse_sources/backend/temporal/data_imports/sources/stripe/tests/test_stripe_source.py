@@ -16,15 +16,24 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe import stripe as stripe_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
+    BILLING_CREDIT_BALANCE_SUMMARY_RESOURCE_NAME,
+    CHARGE_RESOURCE_NAME,
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
     CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,
     DISCOUNT_RESOURCE_NAME,
+    PAYMENT_INTENT_RESOURCE_NAME,
     RESOURCE_TO_STRIPE_WEBHOOK_EVENT,
     STRIPE_API_VERSION_ACACIA,
+    SUBSCRIPTION_ITEM_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import (
+    ENDPOINTS,
+    NON_PARTITIONED_ENDPOINTS,
+    WEBHOOK_ONLY_ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe import (
     SUBSCRIPTION_PAGE_LIMIT,
@@ -632,6 +641,145 @@ class TestWebhookOnlyResponseWiring:
         manager = self._make_manager(enabled=True)
         response = self._source(DISCOUNT_RESOURCE_NAME, manager)
         assert response.partition_keys == ["start"]
+
+
+class TestEndpointCatalogWiring:
+    def setup_method(self):
+        self.resources = stripe_module._build_resources(MagicMock(), logger=None)
+
+    @pytest.mark.parametrize("endpoint", [e for e in ENDPOINTS if e not in WEBHOOK_ONLY_ENDPOINTS])
+    def test_every_pollable_endpoint_has_a_resource(self, endpoint):
+        # get_rows raises "Stripe endpoint does not exist" for anything listed in ENDPOINTS but not
+        # wired into _build_resources, failing the sync for that table only once a user enables it.
+        assert endpoint in self.resources
+
+    def test_nested_resources_declare_a_registered_parent(self):
+        # _resolve_to_flat looks the parent up in the same map to pick the endpoint it probes for
+        # permissions, so an unregistered parent name KeyErrors during credential validation.
+        for name, resource in self.resources.items():
+            if isinstance(resource, StripeNestedResource):
+                assert resource.parent_name in self.resources, name
+
+
+class TestPartitioningAndColumnHints:
+    def _source(self, endpoint: str) -> Any:
+        manager = MagicMock(spec=WebhookSourceManager)
+        manager.webhook_enabled = mock.AsyncMock(return_value=False)
+        return stripe_module.stripe_source(
+            api_key="sk_test_123",
+            account_id=None,
+            endpoint=endpoint,
+            db_incremental_field_last_value=None,
+            db_incremental_field_earliest_value=None,
+            logger=MagicMock(adebug=mock.AsyncMock()),
+            resumable_source_manager=MagicMock(can_resume=MagicMock(return_value=False)),
+            webhook_source_manager=manager,
+            api_version=STRIPE_API_VERSION_ACACIA,
+        )
+
+    @pytest.mark.parametrize("endpoint", NON_PARTITIONED_ENDPOINTS)
+    def test_timestampless_endpoints_are_not_partitioned(self, endpoint):
+        # These Stripe objects carry no timestamp at all. Partitioning them would fall back to
+        # "created" and the datetime partitioner KeyErrors on the first row, killing the sync.
+        response = self._source(endpoint)
+        assert response.partition_keys is None
+        assert response.partition_mode is None
+        assert response.partition_count is None
+
+    @pytest.mark.parametrize(
+        "endpoint,expected_key",
+        [
+            (PAYMENT_INTENT_RESOURCE_NAME, "created"),
+            (SUBSCRIPTION_ITEM_RESOURCE_NAME, "created"),
+            (CUSTOMER_RESOURCE_NAME, "created"),
+        ],
+    )
+    def test_timestamped_endpoints_keep_weekly_partitioning(self, endpoint, expected_key):
+        response = self._source(endpoint)
+        assert response.partition_keys == [expected_key]
+        assert response.partition_mode == "datetime"
+        assert response.partition_format == "week"
+
+    def test_endpoint_without_managed_schema_gets_no_column_hints(self):
+        # Only the original Stripe tables have a canonical schema in external_table_definitions.
+        # Looking one up for a table that has none used to KeyError before the source ran a row.
+        assert self._source(PAYMENT_INTENT_RESOURCE_NAME).column_hints == {}
+
+    def test_endpoint_with_managed_schema_keeps_its_column_hints(self):
+        column_hints = self._source(CHARGE_RESOURCE_NAME).column_hints
+        assert column_hints
+        assert column_hints["amount"] is not None
+
+    def test_credit_balance_summary_keys_on_the_credit_grant(self):
+        # The summary is a per-customer view rather than a stored object, so it has no `id`. Keying
+        # it on "id" would merge every row onto a null key and collapse the table to one row.
+        assert self._source(BILLING_CREDIT_BALANCE_SUMMARY_RESOURCE_NAME).primary_keys == ["credit_grant"]
+
+    def test_other_endpoints_keep_the_id_primary_key(self):
+        assert self._source(CHARGE_RESOURCE_NAME).primary_keys == ["id"]
+
+
+class TestCreditBalanceSummaryFanout:
+    def _run(self, grants: list[dict[str, Any]]) -> tuple[list[dict], list[dict]]:
+        retrieved: list[dict] = []
+
+        def retrieve(params):
+            retrieved.append(params)
+            return {"object": "billing.credit_balance_summary", "customer": params["customer"], "balances": []}
+
+        client = MagicMock()
+        client.billing.credit_balance_summary.retrieve.side_effect = retrieve
+        client.billing.credit_grants.list.return_value = _list_object(grants)
+
+        resource = stripe_module._build_resources(client, logger=None)[BILLING_CREDIT_BALANCE_SUMMARY_RESOURCE_NAME]
+        resumable_source_manager = MagicMock()
+        resumable_source_manager.can_resume.return_value = False
+
+        with (
+            patch.object(stripe_module, "StripeClient"),
+            patch.object(
+                stripe_module,
+                "_build_resources",
+                return_value={BILLING_CREDIT_BALANCE_SUMMARY_RESOURCE_NAME: resource},
+            ),
+        ):
+            rows: list[dict] = []
+            for table in get_rows(
+                api_key="sk_test_123",
+                endpoint=BILLING_CREDIT_BALANCE_SUMMARY_RESOURCE_NAME,
+                account_id=None,
+                db_incremental_field_last_value=None,
+                db_incremental_field_earliest_value=None,
+                logger=MagicMock(),
+                resumable_source_manager=resumable_source_manager,
+                api_version=STRIPE_API_VERSION_ACACIA,
+            ):
+                rows.extend(table.to_pylist())
+        return rows, retrieved
+
+    def test_scopes_each_retrieve_to_its_grant_and_customer(self):
+        # The retrieve needs the grant's customer as well as its id, so the fan-out has to read a
+        # field off the parent object — passing the parent id alone would 400 on the missing filter.
+        rows, retrieved = self._run([{"id": "credgr_1", "customer": "cus_1"}])
+
+        assert retrieved == [
+            {"customer": "cus_1", "filter": {"type": "credit_grant", "credit_grant": "credgr_1"}},
+        ]
+        assert [row["credit_grant"] for row in rows] == ["credgr_1"]
+        assert [row["customer"] for row in rows] == ["cus_1"]
+
+    def test_skips_grants_issued_to_an_account(self):
+        # Grants made to an Account carry `customer_account` instead of `customer`; scoping the
+        # summary on a missing customer would make Stripe reject the request.
+        rows, retrieved = self._run(
+            [
+                {"id": "credgr_acct", "customer": None, "customer_account": "acct_1"},
+                {"id": "credgr_cus", "customer": "cus_1"},
+            ]
+        )
+
+        assert [params["filter"]["credit_grant"] for params in retrieved] == ["credgr_cus"]
+        assert [row["credit_grant"] for row in rows] == ["credgr_cus"]
 
 
 class TestSchemaWebhookCapability:

@@ -15,12 +15,42 @@ CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME = "CustomerBalanceTransaction"
 CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME = "CustomerPaymentMethod"
 COUPON_RESOURCE_NAME = "Coupon"
 DISCOUNT_RESOURCE_NAME = "Discount"
+PAYMENT_INTENT_RESOURCE_NAME = "PaymentIntent"
+CHECKOUT_SESSION_RESOURCE_NAME = "CheckoutSession"
+SUBSCRIPTION_ITEM_RESOURCE_NAME = "SubscriptionItem"
+SUBSCRIPTION_SCHEDULE_RESOURCE_NAME = "SubscriptionSchedule"
+PROMOTION_CODE_RESOURCE_NAME = "PromotionCode"
+PLAN_RESOURCE_NAME = "Plan"
+TAX_RATE_RESOURCE_NAME = "TaxRate"
+TAX_ID_RESOURCE_NAME = "TaxId"
+QUOTE_RESOURCE_NAME = "Quote"
+EVENT_RESOURCE_NAME = "Event"
+BILLING_METER_RESOURCE_NAME = "BillingMeter"
+BILLING_CREDIT_GRANT_RESOURCE_NAME = "BillingCreditGrant"
+BILLING_CREDIT_BALANCE_TRANSACTION_RESOURCE_NAME = "BillingCreditBalanceTransaction"
+BILLING_CREDIT_BALANCE_SUMMARY_RESOURCE_NAME = "BillingCreditBalanceSummary"
+ENTITLEMENTS_FEATURE_RESOURCE_NAME = "EntitlementsFeature"
+ENTITLEMENTS_ACTIVE_ENTITLEMENT_RESOURCE_NAME = "EntitlementsActiveEntitlement"
+INVOICE_PAYMENT_RESOURCE_NAME = "InvoicePayment"
+SETUP_INTENT_RESOURCE_NAME = "SetupIntent"
+SETUP_ATTEMPT_RESOURCE_NAME = "SetupAttempt"
+PAYMENT_LINK_RESOURCE_NAME = "PaymentLink"
+TRANSFER_RESOURCE_NAME = "Transfer"
+APPLICATION_FEE_RESOURCE_NAME = "ApplicationFee"
+TOPUP_RESOURCE_NAME = "Topup"
+REVIEW_RESOURCE_NAME = "Review"
+EARLY_FRAUD_WARNING_RESOURCE_NAME = "EarlyFraudWarning"
+SHIPPING_RATE_RESOURCE_NAME = "ShippingRate"
 
 # Vendor API version the sync pipeline pins by default. One constant so the source's version
 # declaration (`StripeSource.supported_versions`) and the request layer share a single label.
 STRIPE_API_VERSION_ACACIA = "2024-09-30.acacia"
 
 # Maps PostHog resource name -> Stripe API object type (as it appears in webhook data.object.object)
+#
+# Only resources we want the source webhook to feed belong here. Adding a resource also widens the
+# event set `_all_known_webhook_events` subscribes existing endpoints to, so resources synced purely
+# by the API sweep are intentionally absent.
 RESOURCE_TO_STRIPE_OBJECT_TYPE: dict[str, str] = {
     ACCOUNT_RESOURCE_NAME: "account",
     BALANCE_TRANSACTION_RESOURCE_NAME: "balance_transaction",
