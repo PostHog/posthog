@@ -1900,13 +1900,17 @@ def redirect_to_website(request):
             if response.text and error_message == "Email or Username are already taken":
                 return redirect("https://posthog.com/auth?error=emailIsTaken")
     else:
+        jwt_secret = os.environ.get("JWT_SECRET_STRAPI")
+        if not jwt_secret:
+            logger.error("JWT_SECRET_STRAPI is not configured")
+            return redirect("https://posthog.com/auth?error=missing_jwt_secret")
         token = jwt.encode(
             {
                 "id": request.user.strapi_id,
                 "iat": int(time.time()),
                 "exp": int((datetime.now() + timedelta(days=30)).timestamp()),
             },
-            os.environ.get("JWT_SECRET_STRAPI", "random_fallback_secret"),
+            jwt_secret,
             algorithm="HS256",
         )
 
