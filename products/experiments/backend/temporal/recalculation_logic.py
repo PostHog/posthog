@@ -192,14 +192,13 @@ def _update_recalculation_progress_sync(update: RecalculationProgressUpdate) -> 
         # Temporal retry of this activity can't move query_to forward (which would orphan any rows persisted by
         # calc activities still in flight from the prior attempt).
         if update.mark_started:
-            # query_to is the run's data-window end, not bare "now": for a stopped experiment
-            # experiment_window_end resolves it to end_date (a fixed value), so repeated recalcs reuse the
-            # same (fingerprint, query_to)-keyed result row instead of appending a redundant post-end
-            # timeseries point on every run. A running experiment still advances with now.
             experiment = Experiment.objects.get(id=state.experiment_id)
             proposed_query_to = experiment_window_end(experiment, timezone.now())
+
             won = (
-                ExperimentMetricsRecalculation.objects.filter(id=update.recalculation_id, query_to__isnull=True).update(
+                ExperimentMetricsRecalculation.objects.filter(
+                    id=update.recalculation_id, query_to__isnull=True, completed_at__isnull=True
+                ).update(
                     query_to=proposed_query_to,
                     started_at=timezone.now(),
                     status=update.status or ExperimentMetricsRecalculation.Status.IN_PROGRESS,
@@ -208,13 +207,16 @@ def _update_recalculation_progress_sync(update: RecalculationProgressUpdate) -> 
                 )
                 == 1
             )
+
             if won:
                 return proposed_query_to.isoformat()
+
             existing_query_to = (
                 ExperimentMetricsRecalculation.objects.filter(id=update.recalculation_id)
                 .values_list("query_to", flat=True)
                 .first()
             )
+
             return existing_query_to.isoformat() if existing_query_to is not None else None
 
         # Finish: same first-write-wins guard so a retried mark_completed activity doesn't re-stamp the

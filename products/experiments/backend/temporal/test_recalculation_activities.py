@@ -230,6 +230,37 @@ class TestRecalculationActivities(BaseTest):
         # Both attempts return the same canonical query_to so the workflow threads the same value either way.
         assert first == second == first_query_to.isoformat()
 
+    def test_mark_started_does_not_revive_a_force_failed_run(self):
+        # A force-fail (admin "Mark as failed" or the staleness sweep) lands while discovery is still running:
+        # it sets status=FAILED + completed_at but never touches query_to, so the row is terminal with
+        # query_to still NULL. A later mark_started must NOT match — without the completed_at guard, its
+        # query_to__isnull=True filter would still match and flip the run back to IN_PROGRESS, wedging it.
+        recalc = self._recalc(self._experiment(flag_key="progress-start-force-failed"))
+        completed_at = timezone.now()
+        ExperimentMetricsRecalculation.objects.filter(id=recalc.id).update(
+            status=ExperimentMetricsRecalculation.Status.FAILED, completed_at=completed_at
+        )
+
+        returned = _update(
+            RecalculationProgressUpdate(
+                recalculation_id=str(recalc.id),
+                status="in_progress",
+                total_metrics=3,
+                metric_uuids=["m1", "m2", "m3"],
+                mark_started=True,
+            )
+        )
+
+        recalc.refresh_from_db()
+        # The run stays terminal: no revival, no started_at, query_to left NULL.
+        assert recalc.status == ExperimentMetricsRecalculation.Status.FAILED
+        assert recalc.completed_at == completed_at
+        assert recalc.started_at is None
+        assert recalc.query_to is None
+        # query_to was never pinned, so the read-back returns None; the workflow's isinstance(str) check then
+        # fails the run non-retryably instead of proceeding to calc activities on a dead run.
+        assert returned is None
+
     @parameterized.expand(
         [
             # name, end_date_offset_days (None = running experiment), expect query_to == end_date
