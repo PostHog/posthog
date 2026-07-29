@@ -6,6 +6,7 @@ import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 import { elapsedSecondsFrom } from 'lib/utils/datetime'
+import { userLogic } from 'scenes/userLogic'
 
 import { onboardingEventUsageLogic } from '../../onboardingEventUsageLogic'
 import { activeCloudRunLogic, CloudRunHandle } from './activeCloudRunLogic'
@@ -19,8 +20,19 @@ import {
 import { InstallationProgressContent } from './InstallationProgressView'
 import { wizardActiveSessionDetectorLogic } from './wizardActiveSessionDetectorLogic'
 import { DetectedDashboard, wizardDashboardLogic } from './wizardDashboardLogic'
-import { StatusGlyph, WizardSyncCard, WizardSyncMode } from './WizardSyncCard'
+import { localModeLabel, StatusGlyph, WizardSyncCard, WizardSyncMode } from './WizardSyncCard'
 import { wizardSyncUiLogic } from './wizardSyncUiLogic'
+
+// The teammate's name, or null for the viewer's own run (matched on email) or an unknown initiator.
+function resolveStartedByLabel(
+    startedBy: InstallationProgress['startedBy'],
+    currentUserEmail: string | undefined
+): string | null {
+    if (!startedBy || startedBy.email === currentUserEmail) {
+        return null
+    }
+    return startedBy.name
+}
 
 // Corner anchor for the collapsed card and the minimized launcher. The dialog is a portal, so it
 // positions itself.
@@ -89,6 +101,7 @@ function WizardSyncDialog({
     onCancel,
     cancelling = false,
     stale = false,
+    startedByLabel,
     onDashboardClick,
 }: {
     progress: InstallationProgress
@@ -102,6 +115,8 @@ function WizardSyncDialog({
     cancelling?: boolean
     /** The run has gone quiet for long enough that it can be dismissed without orphaning live work. */
     stale?: boolean
+    /** A teammate's name for a local run they started (null when it's the viewer's own run or unknown). */
+    startedByLabel?: string | null
     onDashboardClick?: () => void
 }): JSX.Element {
     const isTerminal = progress.phase === 'completed' || progress.phase === 'error'
@@ -111,7 +126,8 @@ function WizardSyncDialog({
                 <div className="flex items-center justify-between text-xs">
                     <span className={cn('font-medium', toneTextClass(progress))}>{syncHeadline(progress)}</span>
                     <span className="text-muted tabular-nums">
-                        {mode === 'cloud' ? 'Cloud run' : 'On your machine'} · {elapsedLabel(elapsedSeconds, stale)}
+                        {mode === 'cloud' ? 'Cloud run' : localModeLabel(startedByLabel)} ·{' '}
+                        {elapsedLabel(elapsedSeconds, stale)}
                     </span>
                 </div>
                 <InstallationProgressContent
@@ -181,6 +197,8 @@ function WizardSyncSurface({
 }): JSX.Element {
     const { dismissedKey, dialogOpen } = useValues(wizardSyncUiLogic)
     const { dismiss, restore, openDialog, closeDialog } = useActions(wizardSyncUiLogic)
+    const { user } = useValues(userLogic)
+    const startedByLabel = resolveStartedByLabel(progress.startedBy, user?.email)
     const {
         reportWizardSyncExpanded,
         reportWizardSyncMinimized,
@@ -194,7 +212,9 @@ function WizardSyncSurface({
     const endMs = endedAt ? new Date(endedAt).getTime() : NaN
     const now = useNow(!Number.isNaN(endMs))
     const elapsedSeconds = startedAt ? elapsedSecondsFrom(startedAt, Number.isNaN(endMs) ? now : endMs) : 0
-    const minimized = dismissedKey === runKey
+    // Input-required overrides minimize: the user who tucked the widget away mid-run is exactly the
+    // one who will miss the prompt. The server clearing pending_input restores their choice.
+    const minimized = dismissedKey === runKey && !progress.pendingInput
     const isTerminal = progress.phase === 'completed' || progress.phase === 'error'
     // Only cloud runs can zombie like this: their handle is persisted browser state that outlives the
     // run, where a local run is gated by the session detector's own liveness poll.
@@ -258,6 +278,7 @@ function WizardSyncSurface({
                         elapsedSeconds={elapsedSeconds}
                         mode={mode}
                         stale={stale}
+                        startedByLabel={startedByLabel}
                         dashboard={dashboard}
                         onDashboardClick={handleDashboardClick}
                         onExpand={() => {
@@ -278,6 +299,7 @@ function WizardSyncSurface({
                 elapsedSeconds={elapsedSeconds}
                 mode={mode}
                 stale={stale}
+                startedByLabel={startedByLabel}
                 dashboard={dashboard}
                 onDashboardClick={handleDashboardClick}
                 isOpen={dialogOpen}

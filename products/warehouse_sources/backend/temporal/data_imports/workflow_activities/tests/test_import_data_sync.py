@@ -5,7 +5,9 @@ from datetime import datetime
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
+from posthog.temporal.common.errors import NonReportableError
+
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     SchemaColumnTypeChangedException,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import SimpleSource
@@ -141,7 +143,11 @@ async def test_unparseable_config_routes_through_handler():
 async def test_source_classified_retryable_error_logged_as_warning_not_exception():
     # A rate-limit / transient error the source retries internally reaches _handle_import_error only
     # once those retries exhaust. Temporal retries the whole activity, so it must be logged at
-    # warning (not aexception, which mints error-tracking noise) while still being re-raised.
+    # warning (not aexception, which mints error-tracking noise) while still being re-raised. Logging
+    # alone doesn't keep it out of error tracking though: the Temporal activity interceptor
+    # (posthog_client.py) captures whatever exception type escapes the activity regardless of log
+    # level, unless it's a NonReportableError — so the re-raise must wrap it as one, the same way
+    # RESTClientRetryableError already does for REST sources.
     error = Exception("Mixpanel API error (retryable): status=429, url=https://data.mixpanel.com/api/2.0/export")
     source = mock.MagicMock(spec=SimpleSource)
     source.get_non_retryable_errors.return_value = {}
@@ -153,9 +159,10 @@ async def test_source_classified_retryable_error_logged_as_warning_not_exception
     logger.adebug = mock.AsyncMock()
 
     with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
-        with pytest.raises(Exception, match="retryable"):
+        with pytest.raises(NonReportableError, match="retryable") as exc_info:
             await module._handle_import_error(mock.MagicMock(), logger, error)
 
+    assert exc_info.value.__cause__ is error
     logger.awarning.assert_awaited_once()
     logger.aexception.assert_not_awaited()
 

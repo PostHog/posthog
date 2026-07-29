@@ -42,9 +42,9 @@ catalog:
     kea-window-values: ^3.0.1
     # PostHog packages
     '@posthog/icons': ^0.38.0
-    '@posthog/brand': 0.6.0
+    '@posthog/brand': 0.9.1
     '@posthog/react': ^1.9.0
-    posthog-js: ^1.407.5
+    posthog-js: ^1.407.8
     # Build tools
     '@parcel/packager-ts': 2.16.4
     '@parcel/transformer-typescript-types': 2.16.4

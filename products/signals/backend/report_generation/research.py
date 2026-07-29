@@ -18,6 +18,10 @@ from products.signals.backend.artefact_schemas import (
     SignalFinding,
 )
 
+# Dependency-light on purpose (see its module docstring): safe to import here without dragging
+# `posthog.schema` onto the research path.
+from products.signals.backend.report_charts import MAX_REPORT_CHARTS, ReportChart
+
 # Deferred: importing temporal.types here runs the signals temporal package __init__, which
 # eager-imports agentic -> report -> back into this module, forming a circular import.
 # SignalData is annotation-only (this module uses `from __future__ import annotations`); the one
@@ -82,6 +86,16 @@ Hard rules:
 - Separate sections and paragraphs with blank lines; you don't need any special line-break syntax.
 """
     )
+    charts: list[ReportChart] = Field(
+        default_factory=list,
+        description=(
+            "Charts the inbox draws on the report, so a finding about a metric move is visible next "
+            "to the sentence describing it. Optional — attach one only when the shape of the data is "
+            "the point. Reference a chart from the summary as a markdown link with a `chart:` target "
+            "(e.g. `[Daily signups](chart:signups-drop)`) to place it inline; an unreferenced chart "
+            "renders after the prose. Leave empty when a chart would only restate a number."
+        ),
+    )
 
     @field_validator("title", "summary")
     @classmethod
@@ -98,6 +112,11 @@ ResearchArtefactContent = SignalFinding | ActionabilityAssessment | PriorityAsse
 class ReportResearchOutput(BaseModel):
     title: str = Field(description="Generated report title.")
     summary: str = Field(description="Generated factual report summary.")
+    charts: list[ReportChart] = Field(
+        default_factory=list,
+        description="Charts the summary illustrates itself with. The report's whole set — the caller "
+        "replaces `SignalReport.charts` with it, the way it replaces title/summary.",
+    )
     research_task_id: str | None = Field(
         default=None,
         description="UUID of the sandbox task that performed the research; artefacts persisted from "
@@ -318,6 +337,38 @@ def _render_previous_presentation_context(previous_title: str | None, previous_s
         ]
     )
     return "\n".join(parts)
+
+
+# Chart-authoring guidance for the presentation step, adapted from the scout channel's
+# `_REPORT_CHARTS`. Rendered only when the team has the report-charts capability — and when it isn't,
+# the `charts` field is dropped from the schema too (see `build_report_presentation_prompt`), so a
+# team that isn't opted in is never shown or steered toward charts on the delicate fleet-wide path.
+_REPORT_CHARTS_GUIDANCE = f"""## Attaching charts
+
+You may attach charts under `charts`, which the inbox draws on the report itself so a data move is visible next to the sentence describing it rather than a number the reader has to go and reproduce. This is optional and usually the wrong call — attach a chart only when the *shape* of the data is the point (a trend that broke, a distribution that shifted, a funnel step that collapsed). A chart restating one number the summary already gives is noise; write the number. Most reports should carry zero charts.
+
+- **Each chart is `chart_id` + `title` + `query`.** `chart_id` is your own slug (lowercase letters, numbers, `_`, `-`); `title` is the heading above it; `query` is a query node — `InsightVizNode` (an ad-hoc product-analytics chart), `DataVisualizationNode` (a `HogQLQuery` source, plus `display` and `chartSettings` for a graph rather than a result table), or `SavedInsightNode` (an existing insight by `shortId`). Any other kind is refused. Add a `caption` when there's a specific thing to look at.
+- **A graph from SQL needs its axes named.** Setting `display` on a `DataVisualizationNode` without `chartSettings` draws every row at one x position instead of a series: `chartSettings.xAxis.column` and `chartSettings.yAxis[].column` say which columns of your result are which, naming them exactly as your `SELECT` aliases them. A daily count aliased `SELECT toDate(timestamp) AS day, count() AS occurrences` needs `"chartSettings": {{"xAxis": {{"column": "day"}}, "yAxis": [{{"column": "occurrences"}}]}}`. Leave `display` off entirely and the node renders the result table instead, which reads better than a chart for a handful of rows.
+- **Only attach a query you actually ran this session.** A well-formed node of an allowed kind holding a broken query is stored without complaint and then fails to draw when the reader opens the report, with nothing to tell you. So build each chart from a query you already executed via the PostHog MCP tools (`query-run`, `execute-sql`, or read the exact node off an existing insight) — never one written from memory.
+- **A chart renders data, it does not run code.** HogVM `bytecode`, a nested `HogQuery`, `sendRawQuery`, and a nested `SuggestedQuestionsQuery` are each refused wherever they sit in the node. A warehouse query is fine through HogQL — keep `connectionId`, drop `sendRawQuery`.
+- **Place it from the summary.** A markdown link with a `chart:` target — `[Daily signups](chart:signups-drop)` — draws the chart at that point in the body; reference it once. A chart you never reference still renders, after the prose. Two references in one paragraph sit side by side.
+- **Prose must stand on its own.** The report is also delivered to Slack, where nothing draws a chart and a reference degrades to its plain label. State the finding in words and let the chart corroborate it — never "the chart below shows the drop".
+- **Pin the window** to absolute dates wherever the node supports it, so the reader sees the data you wrote about rather than whatever a relative range resolves to days later.
+- **At most {MAX_REPORT_CHARTS} per report**, far more than any report should use — three charts a reader studies beat a dozen they scroll past.
+- **`charts` is the report's whole set.** It replaces whatever the report showed before, the way title and summary do. To keep a chart across a re-research, send it again; drop one by leaving it out."""
+
+
+def _render_previous_charts_context(previous_charts: list[ReportChart]) -> str:
+    if not previous_charts:
+        return ""
+    rendered = json.dumps([chart.model_dump(mode="json") for chart in previous_charts], indent=2)
+    return (
+        "## Charts this report already shows\n\n"
+        "Re-send the ones still worth showing (refreshing their window to the data you researched "
+        "this run), drop the ones the latest findings make stale, and add any the new evidence calls "
+        "for. Omitting a chart removes it.\n\n"
+        f"```json\n{rendered}\n```"
+    )
 
 
 def _render_signal_for_research(signal: SignalData, index: int, total: int) -> str:
@@ -581,14 +632,32 @@ def build_report_presentation_prompt(
     *,
     previous_title: str | None = None,
     previous_summary: str | None = None,
+    previous_charts: list[ReportChart] | None = None,
+    charts_enabled: bool = False,
 ) -> str:
-    schema = json.dumps(ReportPresentationOutput.model_json_schema(), indent=2)
+    schema_dict = ReportPresentationOutput.model_json_schema()
+    if not charts_enabled:
+        # Emit a chart-free schema when the team isn't opted in: drop the `charts` field (and the
+        # now-unreferenced chart type defs) so the model is never shown — let alone told to fill —
+        # a field whose description mentions authoring `chart:` links. Combined with the caller
+        # dropping any charts anyway, an un-opted report can never carry one.
+        schema_dict.get("properties", {}).pop("charts", None)
+        schema_dict.pop("$defs", None)
+    schema = json.dumps(schema_dict, indent=2)
     previous_presentation_context = _render_previous_presentation_context(previous_title, previous_summary)
+
+    # The charts guidance (and any previous-charts context) is rendered only when the team is opted in.
+    charts_sections = ""
+    if charts_enabled:
+        previous_charts_context = _render_previous_charts_context(previous_charts or [])
+        charts_sections = "\n\n" + _REPORT_CHARTS_GUIDANCE
+        if previous_charts_context:
+            charts_sections += "\n\n" + previous_charts_context
 
     return f"""Now write the final **report title and summary** based on your research across all {total_signals} signal(s).
 
 Style rules:
-{previous_presentation_context}
+{previous_presentation_context}{charts_sections}
 
 Respond with a JSON object matching this schema:
 
@@ -667,6 +736,7 @@ async def run_multi_turn_research(
     has_business_knowledge: bool = False,
     resolved_report_title: str | None = None,
     resolved_report_summary: str | None = None,
+    charts_enabled: bool = False,
 ) -> ReportResearchOutput:
     """Orchestrate a multi-turn sandbox session that investigates each signal individually."""
     from products.tasks.backend.facade import api as tasks_facade
@@ -825,6 +895,8 @@ async def run_multi_turn_research(
             total,
             previous_title=title or (previous_report_research.title if previous_report_research else None),
             previous_summary=summary or (previous_report_research.summary if previous_report_research else None),
+            previous_charts=previous_report_research.charts if previous_report_research else None,
+            charts_enabled=charts_enabled,
         )
         presentation_result = await session.send_followup(
             presentation_prompt,
@@ -848,6 +920,10 @@ async def run_multi_turn_research(
     return ReportResearchOutput(
         title=presentation_result.title,
         summary=presentation_result.summary,
+        # Only carry charts for an opted-in team, regardless of what the model returned — a redundant
+        # guard alongside the gated schema/guidance, so the capability can't leak even if a future
+        # change reintroduces the field into a disabled prompt.
+        charts=presentation_result.charts if charts_enabled else [],
         research_task_id=str(session.task.id),
         old_artefacts=old_artefacts,
         new_artefacts=new_artefacts,
