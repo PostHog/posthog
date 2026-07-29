@@ -4,7 +4,8 @@ import { LemonTabs } from '@posthog/lemon-ui'
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 
-import { AvailableFeature } from '~/types'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { AvailableFeature, SidePanelTab } from '~/types'
 
 import { AccessControlDefaultSettings } from './AccessControlDefaultSettings'
 import { AccessControlDetail } from './AccessControlDetail'
@@ -34,9 +35,17 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
         selectedRoleId,
     } = useValues(logic)
 
-    const { setActiveTab, setSearchText, setFilters, openMemberDetail, openRoleDetail } = useActions(logic)
+    const { setActiveTab, setSearchText, setFilters } = useActions(logic)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
+    const { selectedTab, selectedTabOptions, sidePanelOpen } = useValues(sidePanelStateLogic)
 
     const scopeType: ScopeType = activeTab === 'roles' ? 'role' : 'member'
+
+    // Highlight the row whose detail is open in the side panel
+    const openInPanelId =
+        sidePanelOpen && selectedTab === SidePanelTab.AccessDetail && selectedTabOptions?.startsWith(`${scopeType}:`)
+            ? selectedTabOptions.slice(scopeType.length + 1)
+            : null
 
     // A member or role is being inspected — take over the whole section with their detail page
     if (activeTab === 'members' && selectedMemberId) {
@@ -85,10 +94,9 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
                                 entries={activeTab === 'roles' ? filteredRoles : filteredMembers}
                                 loading={loading}
                                 canEditAny={canEdit}
+                                selectedEntryId={openInPanelId}
                                 onEdit={(entry) =>
-                                    scopeType === 'member'
-                                        ? openMemberDetail(getEntryId(entry))
-                                        : openRoleDetail(getEntryId(entry))
+                                    openSidePanel(SidePanelTab.AccessDetail, `${scopeType}:${getEntryId(entry)}`)
                                 }
                             />
                         </div>

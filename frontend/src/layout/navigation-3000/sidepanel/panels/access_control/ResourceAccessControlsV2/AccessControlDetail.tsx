@@ -88,7 +88,7 @@ export function AccessControlDetail({
     )
 }
 
-function AccessControlDetailContent({
+export function AccessControlDetailContent({
     projectId,
     scopeType,
     entry,

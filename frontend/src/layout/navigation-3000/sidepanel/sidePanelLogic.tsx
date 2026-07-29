@@ -38,11 +38,20 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             ['isCloudOrDev'],
             userLogic,
             ['hasAvailableFeature'],
+            router,
+            ['location'],
         ],
         actions: [sidePanelStateLogic, ['closeSidePanel', 'openSidePanel']],
     })),
 
     selectors({
+        /** The access control settings page shows member/role access in the side panel */
+        isAccessControlSettings: [
+            (s) => [s.location],
+            (location): boolean =>
+                location.pathname.includes('/settings/') && location.pathname.includes('access-control'),
+        ],
+
         enabledTabs: [
             (s) => [
                 s.sceneSidePanelContext,
@@ -50,8 +59,16 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 s.scenePanelIsPresent,
                 s.isCloudOrDev,
                 s.hasAvailableFeature,
+                s.isAccessControlSettings,
             ],
-            (sceneSidePanelContext, currentTeam, scenePanelIsPresent, isCloudOrDev, hasAvailableFeature) => {
+            (
+                sceneSidePanelContext,
+                currentTeam,
+                scenePanelIsPresent,
+                isCloudOrDev,
+                hasAvailableFeature,
+                isAccessControlSettings
+            ) => {
                 const tabs: SidePanelTab[] = []
 
                 if (scenePanelIsPresent) {
@@ -68,6 +85,10 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
 
                 if (sceneSidePanelContext.access_control_resource && sceneSidePanelContext.access_control_resource_id) {
                     tabs.push(SidePanelTab.AccessControl)
+                }
+
+                if (isAccessControlSettings) {
+                    tabs.push(SidePanelTab.AccessDetail)
                 }
 
                 // Exports and Support are openable programmatically but not shown in the nav bar

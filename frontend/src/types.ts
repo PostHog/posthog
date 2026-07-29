@@ -6826,6 +6826,8 @@ export enum SidePanelTab {
     Discussion = 'discussion',
     Exports = 'exports',
     AccessControl = 'access-control',
+    /** Access detail for one member or role. Opened programmatically from access control settings. */
+    AccessDetail = 'access-detail',
     Info = 'info',
 }
 
