@@ -27,10 +27,9 @@
     parser->removeErrorListeners();                                                                          \
     auto error_listener = new HogQLErrorListener(string(str, (size_t)str_len));                              \
     parser->addErrorListener(error_listener);                                                                \
-    RecursionDepthGuard depth_guard;                                                                         \
-    parser->addParseListener(&depth_guard);                                                                  \
     HogQLParser::PASCAL_CASE##Context* parse_tree;                                                           \
     try {                                                                                                    \
+      guardNestingDepth(stream);                                                                             \
       parse_tree = parser->CAMEL_CASE();                                                                     \
     } catch (const SyntaxError& e) {                                                                         \
       string err_json = buildJSONError("SyntaxError", e.what(), e.start, e.end).dump();                      \

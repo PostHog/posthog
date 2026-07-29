@@ -26,43 +26,51 @@
 
 using namespace std;
 
-// RECURSION DEPTH GUARD
+// NESTING DEPTH GUARD
 
-// HogQL's grammar recurses on nested parentheses (`(((…)))`), subqueries, arrays/dicts,
-// and Hog blocks (`{{…}}`). ANTLR's generated recursive-descent parser mirrors that
-// nesting on the native call stack with no built-in cap, so deeply nested input can
-// exhaust the stack and crash the worker with an uncatchable SIGSEGV before any parse
-// error can fire. A cap surfaces a clean SyntaxError instead, matching the Rust backend's
-// `MAX_RECURSION_DEPTH` and ClickHouse's `max_parser_depth`. The count is over live rule
-// frames, which sit a small constant factor above syntactic nesting depth, so this trips
-// well below the native overflow point while leaving ample headroom for any real query.
+// Cap on bracket nesting depth, mirroring the Rust backend's `MAX_RECURSION_DEPTH` and
+// ClickHouse's `max_parser_depth`. One nesting level per open bracket, so this maps
+// directly onto the descent depth ANTLR would reach — 1000 is absurdly deep for any real
+// query yet safely below the point where the parser gets into trouble.
 static constexpr size_t MAX_PARSER_DEPTH = 1000;
 
-// A ParseTreeListener sees every rule entry/exit — including left-recursive contexts,
-// which `enterRecursionRule` drives and which a Parser subclass can't intercept (those
-// runtime hooks aren't virtual). Counting live depth here bounds total descent regardless
-// of how the nesting is composed. Throwing from `enterEveryRule` unwinds cleanly into the
-// `SyntaxError` catch around the parse call.
-class RecursionDepthGuard : public antlr4::tree::ParseTreeListener {
- public:
-  void enterEveryRule(antlr4::ParserRuleContext* ctx) override {
-    if (++depth_ > MAX_PARSER_DEPTH) {
-      // Point at the rule's start token so downstream tooling highlights where nesting ran away,
-      // matching the real-position errors the Rust guard reports (rather than an empty 0..0 range).
-      antlr4::Token* start_token = ctx ? ctx->getStart() : nullptr;
-      size_t start = start_token ? start_token->getStartIndex() : 0;
-      throw SyntaxError("input too deeply nested", start, start);
+// Reject pathologically deep bracket nesting BEFORE handing the stream to ANTLR. HogQL's
+// grammar recurses on nested parentheses (`(((…`), arrays/subqueries (`[[[…`), and Hog
+// blocks (`{{{…`). ANTLR's generated parser recurses on that nesting with no built-in cap,
+// and — worse — its ALL(*) prediction explores the ambiguous `(` alternatives before any
+// rule-entry hook fires, so deeply nested input either exhausts the native stack (an
+// uncatchable SIGSEGV) or drives prediction into effectively unbounded work. A parse-tree
+// listener can't help: the runaway happens in prediction, before the parse tree exists.
+// Lexing, by contrast, is iterative, so a linear pre-scan of the already-lexed token
+// stream is crash-safe and surfaces a clean SyntaxError. Counting all three bracket kinds
+// on one running depth bounds total nesting regardless of how the kinds are interleaved.
+// (Prefix-operator chains like `NOT NOT …` recurse without brackets and are not covered
+// here — the reported crash vector, and every backend's regression test, is bracket
+// nesting.)
+void guardNestingDepth(antlr4::CommonTokenStream* stream) {
+  stream->fill();
+  size_t depth = 0;
+  for (antlr4::Token* token : stream->getTokens()) {
+    switch (token->getType()) {
+      case HogQLParser::LPAREN:
+      case HogQLParser::LBRACKET:
+      case HogQLParser::LBRACE:
+        if (++depth > MAX_PARSER_DEPTH) {
+          // Point at the bracket that tripped the cap so downstream tooling highlights where
+          // nesting ran away, matching the real-position errors the Rust guard reports.
+          throw SyntaxError("input too deeply nested", token->getStartIndex(), token->getStartIndex());
+        }
+        break;
+      case HogQLParser::RPAREN:
+      case HogQLParser::RBRACKET:
+      case HogQLParser::RBRACE:
+        if (depth > 0) --depth;
+        break;
+      default:
+        break;
     }
   }
-  void exitEveryRule(antlr4::ParserRuleContext* /* ctx */) override {
-    if (depth_ > 0) --depth_;
-  }
-  void visitTerminal(antlr4::tree::TerminalNode* /* node */) override {}
-  void visitErrorNode(antlr4::tree::ErrorNode* /* node */) override {}
-
- private:
-  size_t depth_ = 0;
-};
+}
 
 // JSON UTILS
 
