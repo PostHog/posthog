@@ -1,12 +1,41 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from datetime import datetime
+from pathlib import Path
 
 from pydantic import BaseModel, Field
 
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS
 from products.signals.backend.scout_harness.skill_loader import LoadedSkill, SkillAuthor, skill_uses_report_channel
+
+
+def _compute_harness_prompt_version() -> str:
+    """Identify the harness prompt build, so runs can be grouped by the instructions they got.
+
+    Hashes this module's own source rather than a hand-maintained constant or a list of the
+    section templates. A bumped constant drifts the first time someone edits a section and
+    forgets, and hashing a named subset of templates silently misses a newly added section:
+    both failure modes merge two genuinely different prompt builds under one id, which corrupts
+    any A/B run across the change. Hashing the source can only fail the other way, splitting one
+    build into two ids after a comment or whitespace edit, which costs sample size rather than
+    correctness.
+
+    Deliberately NOT a hash of the assembled prompt: `build_run_prompt` interpolates the skill
+    body, scratchpad entries, project profile, and recent run summaries, so that hash would be
+    unique per run and could not group anything. This identifies the build; `report_channel` and
+    `skill_origin` on the run row identify which sections that build composed.
+    """
+    try:
+        return hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:12]
+    except OSError:
+        # Falls back rather than failing the import: an unreadable source file must not take the
+        # whole harness down for a field that only feeds analytics.
+        return "unknown"
+
+
+HARNESS_PROMPT_VERSION = _compute_harness_prompt_version()
 
 
 class SignalScoutRunSummary(BaseModel):

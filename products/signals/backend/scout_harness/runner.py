@@ -22,7 +22,11 @@ from products.signals.backend.scout_harness.derived_metadata import stamp_derive
 from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
 from products.signals.backend.scout_harness.limits import DEFAULT_MAX_RUNTIME_S, STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.model_selection import resolve_scout_model
-from products.signals.backend.scout_harness.prompt import SignalScoutRunSummary, build_run_prompt
+from products.signals.backend.scout_harness.prompt import (
+    HARNESS_PROMPT_VERSION,
+    SignalScoutRunSummary,
+    build_run_prompt,
+)
 from products.signals.backend.scout_harness.skill_loader import (
     LoadedSkill,
     load_skill_for_run,
@@ -675,8 +679,8 @@ def _create_run_row(
 ) -> SignalScoutRun:
     # Stamp the routed model triple onto the row's `metadata` so "which model ran this?" is a
     # column read on the run API, not an analytics-event join. Keys are omitted (not null-valued)
-    # on the default path, so an empty dict means the agent-server default served the run.
-    metadata = {
+    # on the default path, so their absence means the agent-server default served the run.
+    metadata: dict[str, Any] = {
         key: value
         for key, value in (
             ("model", model),
@@ -685,6 +689,16 @@ def _create_run_row(
         )
         if value is not None
     }
+    # The three dimensions that pin down which instructions this run actually got. All are
+    # point-in-time facts that become unrecoverable later, which is why they are stamped rather
+    # than resolved at read time: the harness prompt has no version history, a skill's
+    # `allowed_tools` can be edited (so an old run's channel can't be re-derived), and a seeded
+    # canonical row flips to `custom` the moment a team edits it, taking every past run's origin
+    # with it. Together they let runs be compared only against runs that got the same prompt
+    # shape, which is what a model or prompt A/B needs to hold constant.
+    metadata["harness_prompt_version"] = HARNESS_PROMPT_VERSION
+    metadata["report_channel"] = skill_uses_report_channel(skill.allowed_tools)
+    metadata["skill_origin"] = skill.origin
     return SignalScoutRun.objects.unscoped().create(
         id=run_id,
         task_run=task_run,
@@ -744,7 +758,7 @@ def _capture_run_started(
         "run_id": str(run_id),
         "task_run_id": task_run_id,
     }
-    _attach_model_props(properties, model=model, runtime_adapter=runtime_adapter)
+    _attach_run_shape_props(properties, model=model, runtime_adapter=runtime_adapter)
     try:
         posthoganalytics.capture(
             event="signals_scout_run_started",
@@ -798,10 +812,18 @@ def _capture_run_reaped(
         )
 
 
-def _attach_model_props(properties: dict[str, Any], *, model: str | None, runtime_adapter: str | None) -> None:
-    # Only attached when the `scouts-model-selection` gate (or a runtime pin) routed the run —
-    # absence means the agent-server default served it. Makes run outcomes (timeout rate, runtime,
-    # emit volume) sliceable by model without joining through $ai_generation.
+def _attach_run_shape_props(properties: dict[str, Any], *, model: str | None, runtime_adapter: str | None) -> None:
+    """Attach the dimensions that describe what this run was configured with, to both lifecycle
+    events from one place so the started and finished streams can never drift apart.
+
+    `harness_prompt_version` is always present: it identifies the prompt build the run was given,
+    which is the dimension a prompt A/B has to hold constant, and until it existed nothing recorded
+    which build a run used. Model and runtime adapter are attached only when the
+    `scouts-model-selection` gate (or a runtime pin) routed the run, so their absence means the
+    agent-server default served it. All three make run outcomes (timeout rate, runtime, emit volume)
+    sliceable without joining through $ai_generation.
+    """
+    properties["harness_prompt_version"] = HARNESS_PROMPT_VERSION
     if model is not None:
         properties["model"] = model
     if runtime_adapter is not None:
@@ -847,7 +869,7 @@ def _capture_run_finished(
         "runtime_seconds": round(runtime_s, 1),
         "emitted_count": emitted_count,
     }
-    _attach_model_props(properties, model=model, runtime_adapter=runtime_adapter)
+    _attach_run_shape_props(properties, model=model, runtime_adapter=runtime_adapter)
     # Only attach failure context on failed runs — keeps successful / cancelled events clean
     # rather than carrying explicit-null error fields on every event.
     if error_type is not None:

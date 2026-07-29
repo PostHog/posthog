@@ -163,14 +163,17 @@ class SignalScoutRunSummarySerializer(serializers.Serializer):
     metadata = RunMetadataField(
         help_text=(
             "Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner "
-            "at run start: `model`, `runtime_adapter`, and `reasoning_effort` — the triple the run "
-            "was routed on when the `scouts-model-selection` gate (or a runtime pin) overrode the "
-            "agent-server default. The nested `derived` object is the harness's own map of boolean "
-            "run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, "
-            "`has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer "
-            "'what kind of run was this?' instead of parsing the `summary` prose. Empty object when "
-            "the run rode the default model and never reached finalize, or for runs predating the "
-            "field."
+            "at run start. Always present: `harness_prompt_version` (id of the harness prompt build "
+            "the run was given), `report_channel` (whether the run held the report-authoring tools), "
+            "and `skill_origin` (`canonical` or `custom`) — the provenance triple that says which "
+            "instructions the run actually got, so runs are only compared against runs of the same "
+            "shape. Present only when routing overrode the agent-server default: `model`, "
+            "`runtime_adapter`, and `reasoning_effort`. The nested `derived` object is the harness's "
+            "own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, "
+            "`has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use "
+            "`derived` to answer 'what kind of run was this?' instead of parsing the `summary` "
+            "prose, and expect no `derived` object at all on a run that never finalized. Empty "
+            "object only for runs predating these fields."
         ),
     )
 

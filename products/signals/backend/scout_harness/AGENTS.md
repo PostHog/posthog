@@ -280,10 +280,19 @@ one sandbox session → zero or more emitted signals.
   LLMA) lives on the `TaskRun`; the harness persists no run state on the bridge row.
   The bridge row does carry a `metadata` JSON column — the API-native record of run context that
   isn't worth a dedicated column — in two server-written regions.
-  Top-level keys are stamped write-once at creation by `_create_run_row`: `model` /
-  `runtime_adapter` / `reasoning_effort`, the triple the run was routed on when the
-  `scouts-model-selection` gate (or a runtime pin) overrode the agent-server default (absent on the
-  default path). New runner-known run dimensions belong there, not grown as ad-hoc columns.
+  Top-level keys are stamped write-once at creation by `_create_run_row`, and split by whether they
+  are always present.
+  `harness_prompt_version` / `report_channel` / `skill_origin` always are: together they pin down
+  which instructions the run was given, which is the thing an eval or A/B has to hold constant.
+  Each is unrecoverable after the fact (the prompt has no version history, a skill's
+  `allowed_tools` can be edited, and a seeded canonical row flips to `custom` the moment a team
+  edits it, taking every past run's origin with it), which is why they are stamped rather than
+  resolved at read time.
+  `model` / `runtime_adapter` / `reasoning_effort` appear only when the `scouts-model-selection`
+  gate (or a runtime pin) overrode the agent-server default, so their absence is meaningful.
+  `harness_prompt_version` is also attached to both lifecycle events via
+  `_attach_run_shape_props`, since that is where the A/B readout happens.
+  New runner-known run dimensions belong here, not grown as ad-hoc columns.
   The nested `derived` object is written once at finalize by `derived_metadata.py` and holds
   booleans the harness computes from the run's own settled output (`has_emit_report`,
   `has_edit_report`, `has_self_improvement`, `has_chart`, `has_self_validation`), so

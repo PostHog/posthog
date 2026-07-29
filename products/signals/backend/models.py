@@ -1269,10 +1269,14 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
     edited_report_ids = models.JSONField(null=True, blank=True, default=list, db_default=[])
     # Scout-owned per-run context — the native home for run dimensions that matter operationally
     # but don't each warrant a dedicated column. Two regions, distinguished by who writes them.
-    # Top-level keys are stamped write-once by the runner at run creation (today: `model` /
-    # `runtime_adapter` / `reasoning_effort`, the triple the run was routed on when the
-    # `scouts-model-selection` gate or a runtime pin overrode the agent-server default; empty for
-    # default-model runs). New runner-known dimensions belong there, stamped by `_create_run_row`.
+    # Top-level keys are stamped write-once by the runner at run creation, and split by whether
+    # they are always present. `harness_prompt_version` / `report_channel` / `skill_origin` always
+    # are: they pin down which instructions the run was given, and each is unrecoverable later
+    # (the prompt has no version history, `allowed_tools` can be edited, and a seeded row flips to
+    # `custom` the moment a team edits it), which is what makes them worth stamping rather than
+    # resolving at read time. `model` / `runtime_adapter` / `reasoning_effort` appear only when the
+    # `scouts-model-selection` gate or a runtime pin overrode the agent-server default, so their
+    # absence is meaningful. New runner-known dimensions belong there, stamped by `_create_run_row`.
     # The nested `derived` object is written once at finalize by
     # `scout_harness/derived_metadata.py` and holds booleans the harness computes from the run's
     # own output, so "what kind of run was this?" is a field lookup rather than prose parsing.
