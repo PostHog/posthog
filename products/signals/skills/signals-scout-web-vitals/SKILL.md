@@ -158,6 +158,19 @@ Patterns to watch — starting points, not a checklist. Pick the metric by what 
 and scratchpad point at; LCP and INP are the highest-impact (load + interactivity), CLS is
 layout breakage, FCP is the early-paint precursor to LCP.
 
+Two cross-metric reads sharpen any pattern below before you write a cause hypothesis:
+
+- **The FCP↔LCP gap locates the delay.** FCP good but LCP 2-3x worse means the LCP
+  element arrives long after first paint — client-side-loaded content (an API-fetched
+  list, a hydrated embed), not slow delivery; elevated CLS on the same page corroborates
+  (late content landing without reserved space moves both). FCP and LCP both poor points
+  at the critical path (document delivery, render-blocking resources) instead.
+- **INP cause attribution never comes from the event payload.** posthog-js captures
+  `$web_vitals_INP_event` with empty `entries`, so the interaction target is invisible in
+  telemetry. Attribute instead by correlating URL state on the slow samples (a
+  `?state=...`-style param on `$current_url` marks which surface was open) and by reading
+  the page's component source when the repo is nameable (see Decide).
+
 #### Standing-poor page (absolute band)
 
 The capability the relative scouts don't have. Per page, p75 over a stable window (7d for
@@ -395,9 +408,17 @@ For each candidate, the call is **edit an existing report, author a new one, rem
   frontend code, CDN, or asset pipeline — so default to
   `actionability=requires_human_input` and `repository=NO_REPO` (NO_REPO is what stops
   `priority`+reviewers from spawning a pointless repo-selection sandbox); reserve
-  `actionability=immediately_actionable` + `repository=owner/repo` for the rare finding
-  whose remediation is well-localized in a repo you can confidently name from project
-  context. Set `priority` + `priority_explanation`: standing-poor or a band-crossing
+  `actionability=immediately_actionable` + `repository=owner/repo` for a finding whose
+  remediation is well-localized in a repo you can confidently name from project
+  context. When the repo IS nameable — a steering note names it, or the site is an open
+  repo whose raw files you can fetch — don't file a "profile it with DevTools"
+  recommendation: read the affected page's component source, name the specific offender
+  (the render-blocking import, the unreserved media or embed, the per-keystroke or
+  per-frame setState), attach `code_reference` artefacts for the exact lines, and file
+  `immediately_actionable` with the repo set — a report that arrives PR-ready is worth
+  far more than one that asks a human to reproduce your analysis. Page-scoped findings
+  usually localize this way; keep `requires_human_input` for delivery-shaped ones (CDN,
+  TTFB, regional gaps) where the fix isn't in page code. Set `priority` + `priority_explanation`: standing-poor or a band-crossing
   regression on a top-3 landing surface P2; any other single-page finding P3; a site-wide
   step P2; an in-band early warning or improvement opportunity P3. Set
   `suggested_reviewers` via `scout-members-list` (objects — a `{github_login}` or
