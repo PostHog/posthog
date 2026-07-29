@@ -15,8 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shipmail.s
     shipmail_source,
 )
 
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-CAPABILITIES_SESSION_PATCH = (
+TRACKED_SESSION_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.shipmail.shipmail.make_tracked_session"
 )
 
@@ -69,9 +68,9 @@ def test_incremental_value_preserves_iso_timestamp() -> None:
     assert _incremental_value("2026-07-29T12:30:00Z") == "2026-07-29T12:30:00Z"
 
 
-@mock.patch(CLIENT_SESSION_PATCH)
-def test_messages_paginates_checkpoints_and_sends_incremental_watermark(MockSession) -> None:
-    session = MockSession.return_value
+@mock.patch(TRACKED_SESSION_PATCH)
+def test_messages_paginates_checkpoints_and_sends_incremental_watermark(make_session: mock.MagicMock) -> None:
+    session = make_session.return_value
     params = _wire(
         session,
         [
@@ -109,11 +108,12 @@ def test_messages_paginates_checkpoints_and_sends_incremental_watermark(MockSess
         "cursor": "cursor_2",
     }
     manager.save_state.assert_called_once_with(ShipMailResumeConfig(cursor="cursor_2"))
+    make_session.assert_called_once_with(redact_values=("test-key",), capture=False)
 
 
-@mock.patch(CLIENT_SESSION_PATCH)
-def test_resumes_from_saved_cursor(MockSession) -> None:
-    session = MockSession.return_value
+@mock.patch(TRACKED_SESSION_PATCH)
+def test_resumes_from_saved_cursor(make_session: mock.MagicMock) -> None:
+    session = make_session.return_value
     params = _wire(
         session,
         [
@@ -132,9 +132,9 @@ def test_resumes_from_saved_cursor(MockSession) -> None:
     assert params[0] == {"limit": 100, "cursor": "cursor_2"}
 
 
-@mock.patch(CLIENT_SESSION_PATCH)
-def test_full_refresh_endpoint_does_not_send_incremental_watermark(MockSession) -> None:
-    session = MockSession.return_value
+@mock.patch(TRACKED_SESSION_PATCH)
+def test_full_refresh_endpoint_does_not_send_incremental_watermark(make_session: mock.MagicMock) -> None:
+    session = make_session.return_value
     params = _wire(
         session,
         [
@@ -160,9 +160,9 @@ def test_full_refresh_endpoint_does_not_send_incremental_watermark(MockSession) 
     assert params[0] == {"limit": 100}
 
 
-@mock.patch(CLIENT_SESSION_PATCH)
-def test_missing_data_key_raises(MockSession) -> None:
-    session = MockSession.return_value
+@mock.patch(TRACKED_SESSION_PATCH)
+def test_missing_data_key_raises(make_session: mock.MagicMock) -> None:
+    session = make_session.return_value
     _wire(session, [_response({"pagination": {"next_cursor": None}})])
 
     with pytest.raises(ValueError, match="matched nothing"):
@@ -186,7 +186,7 @@ def test_source_response_metadata(endpoint: str, primary_keys: list[str], sort_m
     assert response.sort_mode == sort_mode
 
 
-@mock.patch(CAPABILITIES_SESSION_PATCH)
+@mock.patch(TRACKED_SESSION_PATCH)
 def test_get_capabilities_returns_status_and_scopes(make_session: mock.MagicMock) -> None:
     session = make_session.return_value
     session.get.return_value = _response({"scopes": ["messages:read", "domains:read"]})
@@ -197,9 +197,10 @@ def test_get_capabilities_returns_status_and_scopes(make_session: mock.MagicMock
         headers={"Authorization": "Bearer secret-key", "Accept": "application/json"},
         timeout=10,
     )
+    make_session.assert_called_once_with(redact_values=("secret-key",), capture=False)
 
 
-@mock.patch(CAPABILITIES_SESSION_PATCH)
+@mock.patch(TRACKED_SESSION_PATCH)
 def test_get_capabilities_handles_invalid_credentials(make_session: mock.MagicMock) -> None:
     make_session.return_value.get.return_value = _response({"error": "unauthorized"}, status_code=401)
     assert get_capabilities("bad-key") == (401, set())
