@@ -25,6 +25,8 @@ except ImportError:
     WELL_KNOWN_EVENT_NAMES = []
 
 DEFAULT_LIMIT = 500
+DEFAULT_DAYS = 30
+MAX_DAYS = 365
 
 
 class TeamTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[TeamTaxonomyQueryResponse]):
@@ -44,6 +46,10 @@ class TeamTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[TeamTaxon
             limit=self.query.limit or DEFAULT_LIMIT,
             offset=self.query.offset or 0,
         )
+
+    @property
+    def days(self) -> int:
+        return min(self.query.days or DEFAULT_DAYS, MAX_DAYS)
 
     def _calculate(self):
         query = self.to_query()
@@ -86,13 +92,14 @@ class TeamTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[TeamTaxon
                     count() as count
                 FROM events
                 WHERE
-                    timestamp >= now () - INTERVAL 30 DAY
+                    timestamp >= now () - toIntervalDay({days})
                 GROUP BY
                     event
                 ORDER BY
                     count DESC,
                     event ASC
-            """
+            """,
+            placeholders={"days": ast.Constant(value=self.days)},
         )
 
         if IGNORED_EVENT_NAMES:

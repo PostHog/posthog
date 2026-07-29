@@ -46994,6 +46994,10 @@
         "TeamTaxonomyQuery": {
             "additionalProperties": false,
             "properties": {
+                "days": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Only count events seen within this many days. Defaults to 30."
+                },
                 "kind": {
                     "const": "TeamTaxonomyQuery",
                     "type": "string"

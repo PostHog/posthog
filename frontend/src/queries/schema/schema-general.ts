@@ -5630,6 +5630,8 @@ export interface TeamTaxonomyQuery extends DataNode<TeamTaxonomyQueryResponse> {
     limit?: integer
     /** Number of rows to skip before returning rows */
     offset?: integer
+    /** Only count events seen within this many days. Defaults to 30. */
+    days?: integer
 }
 
 export interface TeamTaxonomyQueryResponse extends AnalyticsQueryResponseBase {

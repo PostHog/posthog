@@ -57402,6 +57402,8 @@ export namespace Schemas {
     }
 
     export interface TeamTaxonomyQuery {
+      /** Only count events seen within this many days. Defaults to 30. */
+      days?: number | null;
       kind?: 'TeamTaxonomyQuery';
       /** Number of rows to return */
       limit?: number | null;

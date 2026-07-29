@@ -30,11 +30,12 @@ Each event, action, and entity has its own data schema. You must verify that spe
 Events or properties starting from "$" are system properties automatically captured by SDKs.
 Do not rely on your training data or PostHog defaults for events or properties. Always use this tool to confirm what actually exists in the user's project before referencing any event, property, or property value.
 When reading events, you can paginate using `limit` (1-500, default 500) and `offset` (default 0) on the ReadEvents query. If the response indicates more events are available, increment the offset to fetch subsequent pages.
+Reading events only lists events that have fired in the last 30 days by default. An event can be defined in the project and still be missing from that list, so never conclude an event doesn't exist from a single call: retry with a wider `days` window (up to 365) first.
 
 # Query types
 
 Use exact `kind` values and field names as shown below:
-- kind: "events" — list available events. Optional: `limit` (1-500), `offset`.
+- kind: "events" — list available events. Optional: `limit` (1-500), `offset`, `days` (1-365, default 30).
 - kind: "event_properties" — properties for an event. Required: `event_name`.
 - kind: "event_property_values" — sample values for an event property. Required: `event_name`, `property_name`.
 - kind: "entity_properties" — properties for an entity. Required: `entity` (one of "person", "session", or a group name).

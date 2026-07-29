@@ -38,7 +38,11 @@ from posthog.schema import (
 )
 
 from posthog.event_usage import EventSource
-from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
+from posthog.hogql_queries.ai.team_taxonomy_query_runner import (
+    DEFAULT_DAYS as DEFAULT_TAXONOMY_DAYS,
+    MAX_DAYS as MAX_TAXONOMY_DAYS,
+    TeamTaxonomyQueryRunner,
+)
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, User
 from posthog.settings import EE_AVAILABLE
@@ -198,9 +202,10 @@ def _process_events_data(
     user: User,
     limit: int | None = None,
     offset: int | None = None,
+    days: int | None = None,
 ) -> tuple[list[dict], dict[str, str], bool]:
     """Common logic for processing events and building event data."""
-    query = TeamTaxonomyQuery(limit=limit, offset=offset)
+    query = TeamTaxonomyQuery(limit=limit, offset=offset, days=days)
     response = TeamTaxonomyQueryRunner(query, team, user=user).run(
         ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
         analytics_props={"source": EventSource.POSTHOG_AI},
@@ -338,10 +343,19 @@ def format_events_yaml(
     user: User,
     limit: int | None = None,
     offset: int | None = None,
+    days: int | None = None,
 ) -> str:
-    processed_events, _, has_more = _process_events_data(events_in_context, team, user, limit=limit, offset=offset)
+    processed_events, _, has_more = _process_events_data(
+        events_in_context, team, user, limit=limit, offset=offset, days=days
+    )
+    window_days = min(days or DEFAULT_TAXONOMY_DAYS, MAX_TAXONOMY_DAYS)
 
-    formatted_events = ["events:"]
+    formatted_events = [
+        f"# Only events that have data in the last {window_days} days are listed. An event can be defined in the "
+        "project and still be absent from this list if it hasn't fired in that window, so absence here is not proof "
+        "that an event doesn't exist.",
+        "events:",
+    ]
     for event_data in processed_events:
         name = event_data["name"]
         description = event_data.get("description", "")

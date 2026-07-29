@@ -24049,6 +24049,10 @@ class TeamTaxonomyQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    days: int | None = Field(
+        default=None,
+        description="Only count events seen within this many days. Defaults to 30.",
+    )
     kind: Literal["TeamTaxonomyQuery"] = "TeamTaxonomyQuery"
     limit: int | None = Field(default=None, description="Number of rows to return")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")

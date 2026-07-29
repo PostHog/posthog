@@ -13,6 +13,8 @@ from posthog.test.base import (
 from django.test import override_settings
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.schema import CachedTeamTaxonomyQueryResponse, TeamTaxonomyQuery
 
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import WELL_KNOWN_EVENT_NAMES, TeamTaxonomyQueryRunner
@@ -305,3 +307,33 @@ class TestTeamTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertFalse(response.hasMore)
         zero_count = [r for r in response.results if r.count == 0]
         self.assertEqual(len(zero_count), len(WELL_KNOWN_EVENT_NAMES))
+
+    @parameterized.expand(
+        [
+            ("default_window", None, False),
+            ("explicit_default_window", 30, False),
+            ("widened_window", 365, True),
+            ("clamped_above_max", 10_000, True),
+        ]
+    )
+    def test_days_controls_the_lookback_window(self, _name: str, days: int | None, expected_present: bool):
+        _create_person(
+            distinct_ids=["person1"],
+            properties={"email": "person1@example.com"},
+            team=self.team,
+        )
+        _create_event(
+            event="legacy_event",
+            distinct_id="person1",
+            team=self.team,
+            timestamp=timezone.now() - timedelta(days=100),
+        )
+
+        flush_persons_and_events()
+
+        runner = TeamTaxonomyQueryRunner(team=self.team, query=TeamTaxonomyQuery(days=days))
+        response = runner.run()
+
+        assert isinstance(response, CachedTeamTaxonomyQueryResponse)
+        counted = {r.event for r in response.results if r.count > 0}
+        self.assertEqual("legacy_event" in counted, expected_present)

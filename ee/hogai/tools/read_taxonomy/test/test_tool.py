@@ -110,7 +110,19 @@ class TestReadTaxonomyTool(NonAtomicBaseTest):
         result = execute_taxonomy_query(ReadEvents(), mock_toolkit_class.return_value, self.team, self.user)
 
         self.assertIn("events:", result)
-        mock_format_events.assert_called_once_with([], self.team, self.user, limit=500, offset=0)
+        mock_format_events.assert_called_once_with([], self.team, self.user, limit=500, offset=0, days=30)
+        # The default window hides events that stopped firing over 30 days ago, so the agent is told it can widen it.
+        self.assertIn("days=365", result)
+
+    @patch("ee.hogai.tools.read_taxonomy.core.TaxonomyAgentToolkit")
+    @patch("ee.hogai.tools.read_taxonomy.core.format_events_yaml")
+    def test_execute_taxonomy_query_read_events_at_max_window(self, mock_format_events, mock_toolkit_class):
+        mock_format_events.return_value = "events:\n- `$pageview`"
+
+        result = execute_taxonomy_query(ReadEvents(days=365), mock_toolkit_class.return_value, self.team, self.user)
+
+        mock_format_events.assert_called_once_with([], self.team, self.user, limit=500, offset=0, days=365)
+        self.assertNotIn("retry with a wider window", result)
 
     @patch("ee.hogai.tools.read_taxonomy.core.TaxonomyAgentToolkit")
     def test_person_entity_properties_include_dynamic_hint(self, mock_toolkit_class):

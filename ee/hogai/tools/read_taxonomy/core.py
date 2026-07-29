@@ -2,6 +2,10 @@ from typing import Literal, Union
 
 from pydantic import BaseModel, Field
 
+from posthog.hogql_queries.ai.team_taxonomy_query_runner import (
+    DEFAULT_DAYS as DEFAULT_TAXONOMY_DAYS,
+    MAX_DAYS as MAX_TAXONOMY_DAYS,
+)
 from posthog.models import Team, User
 
 from ee.hogai.chat_agent.query_planner.toolkit import TaxonomyAgentToolkit
@@ -9,11 +13,21 @@ from ee.hogai.utils.helpers import format_events_yaml, get_event_description
 
 
 class ReadEvents(BaseModel):
-    """Returns the list of available events. Events are sorted by their popularity where the most popular events are at the top."""
+    """Returns the list of available events. Events are sorted by their popularity where the most popular events are at the top. Only events that have fired within the `days` window are returned."""
 
     kind: Literal["events"] = "events"
     limit: int = Field(default=500, ge=1, le=500, description="Number of events to return per page.")
     offset: int = Field(default=0, ge=0, description="Number of events to skip for pagination.")
+    days: int = Field(
+        default=DEFAULT_TAXONOMY_DAYS,
+        ge=1,
+        le=MAX_TAXONOMY_DAYS,
+        description=(
+            f"How many days back to look for events. Defaults to {DEFAULT_TAXONOMY_DAYS}. "
+            "Increase it (for example to 365) when an event you expect is missing, since events that stopped firing "
+            "longer ago than this are not returned."
+        ),
+    )
 
 
 class ReadEventProperties(BaseModel):
@@ -102,7 +116,12 @@ def execute_taxonomy_query(query: ReadTaxonomyQuery, toolkit: TaxonomyAgentToolk
     """
     match query:
         case ReadEvents():
-            return format_events_yaml([], team, user, limit=query.limit, offset=query.offset)
+            result = format_events_yaml([], team, user, limit=query.limit, offset=query.offset, days=query.days)
+            if query.days < MAX_TAXONOMY_DAYS:
+                result += (
+                    f"\n# If an event you expect is missing, retry with a wider window, e.g. days={MAX_TAXONOMY_DAYS}."
+                )
+            return result
         case ReadEventProperties():
             result = toolkit.retrieve_event_or_action_properties(query.event_name)
             description = get_event_description(team, query.event_name)

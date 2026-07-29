@@ -8,7 +8,12 @@ from posthog.schema import CachedTeamTaxonomyQueryResponse, MaxEventContext, Tea
 
 from posthog.hogql_queries.query_runner import ExecutionMode
 
-from ee.hogai.utils.helpers import MAX_EVENT_DESCRIPTION_LENGTH, format_events_xml
+from ee.hogai.utils.helpers import (
+    DEFAULT_TAXONOMY_DAYS,
+    MAX_EVENT_DESCRIPTION_LENGTH,
+    format_events_xml,
+    format_events_yaml,
+)
 from ee.models.event_definition import EnterpriseEventDefinition
 
 # Mock CORE_FILTER_DEFINITIONS_BY_GROUP for consistent testing
@@ -470,3 +475,21 @@ class TestFormatEventsPrompt(BaseTest):
             ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
             analytics_props=ANY,
         )
+
+    @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
+    def test_format_events_yaml_discloses_the_lookback_window(self, mock_runner_class):
+        self._setup_mock_runner(mock_runner_class, self._create_taxonomy_items([("custom_event", 3)]))
+
+        result = format_events_yaml([], self.team, self.user)
+
+        self.assertIn(f"last {DEFAULT_TAXONOMY_DAYS} days", result)
+        self.assertIn("`custom_event`", result)
+
+    @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
+    def test_format_events_yaml_passes_the_window_to_the_runner(self, mock_runner_class):
+        self._setup_mock_runner(mock_runner_class, [])
+
+        result = format_events_yaml([], self.team, self.user, days=365)
+
+        mock_runner_class.assert_called_once_with(TeamTaxonomyQuery(days=365), self.team, user=self.user)
+        self.assertIn("last 365 days", result)
