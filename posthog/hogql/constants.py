@@ -90,6 +90,19 @@ class LimitContext(StrEnum):
     POSTHOG_AI = "posthog_ai"
 
 
+# Limit contexts that raise max_execution_time to HOGQL_INCREASED_MAX_EXECUTION_TIME, because the
+# caller polls for the result instead of holding an interactive request open.
+INCREASED_MAX_EXECUTION_TIME_CONTEXTS = (
+    LimitContext.EXPORT,
+    LimitContext.COHORT_CALCULATION,
+    LimitContext.NOTEBOOK_MATERIALIZE,
+    LimitContext.QUERY_ASYNC,
+    LimitContext.SAVED_QUERY,
+    LimitContext.RETENTION,
+    LimitContext.POSTHOG_AI,
+)
+
+
 def get_max_limit_for_context(limit_context: LimitContext) -> int:
     if limit_context in (
         LimitContext.QUERY,

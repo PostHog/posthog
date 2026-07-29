@@ -414,6 +414,18 @@ with suppress(Exception):
     as_json = json.loads(get_from_env("API_QUERIES_LEGACY_TEAM_LIST"))
     API_QUERIES_LEGACY_TEAM_LIST = {int(v) for v in as_json}
 
+# ClickHouse max_execution_time (seconds) for HogQL queries arriving through the public /query API.
+# Much tighter than the 60s in-app default because p95 duration of a HogQL query is 2.78sec.
+API_QUERIES_MAX_EXECUTION_TIME: int = get_from_env("API_QUERIES_MAX_EXECUTION_TIME", 10, type_cast=int)
+
+# Per-team override of the above, e.g. {"2": 30}, so a team that needs longer queries can be raised
+# without changing the ceiling for everyone. Use 0 to exempt a team from the API ceiling entirely.
+# Keys should be strings, not numbers.
+API_QUERIES_MAX_EXECUTION_TIME_PER_TEAM: dict[int, int] = {}
+with suppress(Exception):
+    as_json = json.loads(os.getenv("API_QUERIES_MAX_EXECUTION_TIME_PER_TEAM", "{}"))
+    API_QUERIES_MAX_EXECUTION_TIME_PER_TEAM = {int(k): int(v) for k, v in as_json.items()}
+
 # Per-team API /query concurrent limits, e.g. {"2": 7}
 API_QUERIES_PER_TEAM: dict[int, int] = {}
 with suppress(Exception):

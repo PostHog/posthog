@@ -4,6 +4,8 @@ from typing import cast
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.schema import (
@@ -16,12 +18,15 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.user_query_validator import HOGQL_PERSONAL_API_KEY_OFFSET_ALLOWED_FLAG, OFFSET_NOT_ALLOWED_MESSAGE
 from posthog.hogql.visitor import clear_locations
 
+from posthog import settings as app_settings
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
-from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+from posthog.exceptions import ClickHouseQueryTimeOut
+from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner, api_query_max_execution_time
 from posthog.models.utils import UUIDT
 
 from products.product_analytics.backend.models.insight_variable import InsightVariable
@@ -374,3 +379,72 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response = runner.calculate()
         self.assertEqual(len(response.results), 5)
+
+    @parameterized.expand(
+        [
+            # The API ceiling bound the query, so the message has to name it and offer a way out.
+            ("api_query", True, None, True),
+            # In-app queries never see the API ceiling, so they keep the generic advice.
+            ("in_app_query", False, None, False),
+            # An async submission runs with HOGQL_INCREASED_MAX_EXECUTION_TIME, so "hit the 12-second
+            # limit, try async" would be wrong twice over.
+            ("async_api_query", True, LimitContext.QUERY_ASYNC, False),
+        ]
+    )
+    def test_timeout_detail_names_the_api_limit_only_when_it_applied(
+        self, _name, is_query_service, limit_context, expects_api_detail
+    ):
+        runner = HogQLQueryRunner(
+            team=self.team, query=HogQLQuery(query="select 1 limit 1"), limit_context=limit_context
+        )
+        runner.is_query_service = is_query_service
+
+        with (
+            patch.object(app_settings, "API_QUERIES_MAX_EXECUTION_TIME_PER_TEAM", {self.team.pk: 12}),
+            patch(
+                "posthog.hogql_queries.hogql_query_runner.execute_hogql_query",
+                side_effect=ClickHouseQueryTimeOut(),
+            ),
+            self.assertRaises(ClickHouseQueryTimeOut) as ctx,
+        ):
+            runner.calculate()
+
+        detail = str(ctx.exception.detail)
+        if expects_api_detail:
+            self.assertIn("12-second time limit", detail)
+            self.assertIn("async query", detail)
+        else:
+            self.assertEqual(str(ClickHouseQueryTimeOut().detail), detail)
+
+    def test_api_execution_ceiling_reaches_the_executor(self):
+        runner = self._create_runner(HogQLQuery(query="select 1 limit 1"))
+        runner.is_query_service = True
+
+        with (
+            patch.object(app_settings, "API_QUERIES_MAX_EXECUTION_TIME_PER_TEAM", {self.team.pk: 45}),
+            patch("posthog.hogql_queries.hogql_query_runner.execute_hogql_query") as mock_execute,
+        ):
+            runner.calculate()
+
+        self.assertEqual(45, mock_execute.call_args.kwargs["settings"].max_execution_time)
+
+
+class TestApiQueryMaxExecutionTime(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("team_subject_to_api_limits", {7}, {}, 5, 10),
+            ("legacy_team_keeps_the_in_app_budget", {7}, {}, 7, None),
+            ("deployment_without_api_limits", None, {}, 5, None),
+            ("per_team_override_raises_the_ceiling", {7}, {5: 120}, 5, 120),
+            ("per_team_override_applies_to_legacy_teams_too", {7}, {7: 120}, 7, 120),
+            ("zero_exempts_a_team", {7}, {5: 0}, 5, None),
+        ]
+    )
+    def test_resolves_ceiling(self, _name, legacy_team_list, per_team, team_id, expected):
+        with patch.multiple(
+            app_settings,
+            API_QUERIES_MAX_EXECUTION_TIME=10,
+            API_QUERIES_LEGACY_TEAM_LIST=legacy_team_list,
+            API_QUERIES_MAX_EXECUTION_TIME_PER_TEAM=per_team,
+        ):
+            self.assertEqual(expected, api_query_max_execution_time(team_id))

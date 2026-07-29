@@ -12,7 +12,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.constants import INCREASED_MAX_EXECUTION_TIME_CONTEXTS, HogQLGlobalSettings
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
@@ -26,12 +26,36 @@ from posthog.hogql.variables import replace_variables
 from posthog import settings as app_settings
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
 from products.warehouse_sources.backend.facade.models import get_direct_external_data_source_for_connection
 
 _INFORMATION_SCHEMA_PREFIX = "system.information_schema."
+
+
+def api_query_max_execution_time(team_id: int) -> Optional[int]:
+    """ClickHouse max_execution_time (seconds) to impose on this team's public API queries, or None
+    for no API-specific ceiling."""
+    override = app_settings.API_QUERIES_MAX_EXECUTION_TIME_PER_TEAM.get(team_id)
+    if override is not None:
+        return override if override > 0 else None
+    # Teams that predate the API limits keep the in-app budget, as do deployments that never
+    # configured the limits at all.
+    if not app_settings.API_QUERIES_LEGACY_TEAM_LIST or team_id in app_settings.API_QUERIES_LEGACY_TEAM_LIST:
+        return None
+    return app_settings.API_QUERIES_MAX_EXECUTION_TIME
+
+
+def api_timeout_detail(max_execution_time: int) -> str:
+    return (
+        f"This query hit the {max_execution_time}-second time limit for queries run through the API. "
+        "Submit it as an async query to give it more time: "
+        "https://posthog.com/docs/api/queries#asynchronous-queries. "
+        "You can also narrow the date range or the filters so it scans less data: "
+        "https://posthog.com/docs/api/queries#writing-performant-queries"
+    )
 
 
 class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
@@ -102,17 +126,26 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
 
     def _calculate(self) -> HogQLQueryResponse:
         tag_contains_user_hogql()
-        if (
-            self.is_query_service
-            and app_settings.API_QUERIES_LEGACY_TEAM_LIST
-            and self.team.pk not in app_settings.API_QUERIES_LEGACY_TEAM_LIST
-        ):
+        api_max_execution_time = api_query_max_execution_time(self.team.pk) if self.is_query_service else None
+        if api_max_execution_time is not None:
             assert self.settings is not None
             # p95 threads is 102, limiting to 60 (below global max_threads of 64)
             self.settings.max_threads = 60
-            # p95 duration of HogQL query is 2.78sec
-            self.settings.max_execution_time = 10
+            self.settings.max_execution_time = api_max_execution_time
 
+        try:
+            return self._execute()
+        except ClickHouseQueryTimeOut:
+            # The default copy only talks about materializing, which leaves an API caller with no way
+            # to find out that the ceiling above is what killed the query. Rewrite it only when that
+            # ceiling actually bound this run: execute_hogql_query raises the ceiling back to
+            # HOGQL_INCREASED_MAX_EXECUTION_TIME for the contexts below, so a query that timed out
+            # under one of those had a far bigger budget than we set here.
+            if api_max_execution_time is None or self.limit_context in INCREASED_MAX_EXECUTION_TIME_CONTEXTS:
+                raise
+            raise ClickHouseQueryTimeOut(detail=api_timeout_detail(api_max_execution_time))
+
+    def _execute(self) -> HogQLQueryResponse:
         if self.query.connectionId:
             source = get_direct_external_data_source_for_connection(
                 team_id=self.team.pk, connection_id=self.query.connectionId

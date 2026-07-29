@@ -17,6 +17,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import (
+    INCREASED_MAX_EXECUTION_TIME_CONTEXTS,
     HogQLDialect,
     HogQLGlobalSettings,
     LimitContext,
@@ -308,15 +309,7 @@ class HogQLQueryExecutor:
             self.settings,
         )
 
-        if self.limit_context in (
-            LimitContext.EXPORT,
-            LimitContext.COHORT_CALCULATION,
-            LimitContext.NOTEBOOK_MATERIALIZE,
-            LimitContext.QUERY_ASYNC,
-            LimitContext.SAVED_QUERY,
-            LimitContext.RETENTION,
-            LimitContext.POSTHOG_AI,
-        ):
+        if self.limit_context in INCREASED_MAX_EXECUTION_TIME_CONTEXTS:
             settings.max_execution_time = max(settings.max_execution_time or 0, HOGQL_INCREASED_MAX_EXECUTION_TIME)
 
         return settings
@@ -474,15 +467,7 @@ class HogQLQueryExecutor:
     @tracer.start_as_current_span("HogQLQueryExecutor._generate_clickhouse_sql")
     def _generate_clickhouse_sql(self):
         settings = get_default_hogql_global_settings(self.team.pk, self.settings)
-        if self.limit_context in (
-            LimitContext.EXPORT,
-            LimitContext.COHORT_CALCULATION,
-            LimitContext.NOTEBOOK_MATERIALIZE,
-            LimitContext.QUERY_ASYNC,
-            LimitContext.SAVED_QUERY,
-            LimitContext.RETENTION,
-            LimitContext.POSTHOG_AI,
-        ):
+        if self.limit_context in INCREASED_MAX_EXECUTION_TIME_CONTEXTS:
             settings.max_execution_time = max(settings.max_execution_time or 0, HOGQL_INCREASED_MAX_EXECUTION_TIME)
 
         if self.query_modifiers.formatCsvAllowDoubleQuotes is not None:

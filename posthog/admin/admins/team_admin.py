@@ -500,6 +500,10 @@ class TeamAdmin(admin.ModelAdmin):
             props.append("API_QUERIES_LEGACY_RATE_LIMIT")
         if settings.API_QUERIES_PER_TEAM and team.id in settings.API_QUERIES_PER_TEAM:
             props.append("API_QUERIES_PER_TEAM:{}".format(settings.API_QUERIES_PER_TEAM[team.id]))
+        if team.id in settings.API_QUERIES_MAX_EXECUTION_TIME_PER_TEAM:
+            props.append(
+                "API_QUERIES_MAX_EXECUTION_TIME:{}".format(settings.API_QUERIES_MAX_EXECUTION_TIME_PER_TEAM[team.id])
+            )
         if team_is_allowed_to_bypass_throttle(team.id):
             props.append("API_QUERIES_RATE_LIMIT_BYPASS")
         return format_html("<span>{}</span>", ", ".join(props) or "-")
