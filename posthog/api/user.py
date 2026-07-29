@@ -972,6 +972,7 @@ class UserViewSet(
         "has_seen_product_intro_for",
         "events_column_config",
         "role_at_organization",
+        "ui_configuration",
     ]
     time_sensitive_exclude_actions = [
         "hedgehog_config",
