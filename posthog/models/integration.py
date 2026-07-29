@@ -64,6 +64,30 @@ from products.workflows.backend.providers import SESProvider, TwilioProvider
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
+# Fernet tokens always start with this marker (version byte 0x80 + timestamp, base64-encoded).
+_ENCRYPTED_VALUE_PREFIX = "gAAAAA"
+
+
+class UndecryptedIntegrationSecretError(ValueError):
+    """Raised when a value read off `Integration.sensitive_config` still looks like Fernet
+    ciphertext instead of the decrypted secret.
+
+    `sensitive_config` sets `ignore_decrypt_errors=True` so integrations written before
+    encryption existed keep loading, but that same leniency means a value that fails to
+    decrypt under every configured key (a lost/rotated key, a corrupted row) comes back as
+    raw ciphertext rather than raising. Left unchecked, that ciphertext gets sent to the
+    third-party API as if it were the real credential, which rejects it as invalid — hiding
+    the actual cause behind what looks like a bad customer-supplied key.
+    """
+
+
+def _decrypted_sensitive_value(value: str | None, field_name: str) -> str | None:
+    if value is not None and value.startswith(_ENCRYPTED_VALUE_PREFIX):
+        raise UndecryptedIntegrationSecretError(
+            f"Integration.sensitive_config['{field_name}'] is still encrypted; the stored credentials could not be decrypted"
+        )
+    return value
+
 
 def _decode_jwt_payload(token: str) -> dict | None:
     """
@@ -390,6 +414,7 @@ class Integration(models.Model):
         LINEAR = "linear"
         LINKEDIN_ADS = "linkedin-ads"
         META_ADS = "meta-ads"
+        PARDOT = "pardot"
         PINTEREST_ADS = "pinterest-ads"
         POSTGRESQL = "postgresql"
         REDDIT_ADS = "reddit-ads"
@@ -493,11 +518,11 @@ class Integration(models.Model):
 
     @property
     def access_token(self) -> str | None:
-        return self.sensitive_config.get("access_token")
+        return _decrypted_sensitive_value(self.sensitive_config.get("access_token"), "access_token")
 
     @property
     def refresh_token(self) -> str | None:
-        return self.sensitive_config.get("refresh_token")
+        return _decrypted_sensitive_value(self.sensitive_config.get("refresh_token"), "refresh_token")
 
 
 def defer_repository_cache_fields(queryset: models.QuerySet[Integration]) -> models.QuerySet[Integration]:
@@ -576,6 +601,12 @@ def _salesforce_instance_host(instance_url: str | None) -> str | None:
     return f"https://{host}"
 
 
+# Kinds authorized against Salesforce's OAuth server, so they share its quirks: the token
+# response often omits expires_in, and refresh/revoke must go to the org's own instance host
+# rather than the hardcoded login host (sandbox orgs reject the prod endpoints).
+SALESFORCE_OAUTH_KINDS = ("salesforce", "pardot")
+
+
 class OauthIntegration:
     supported_kinds = [
         "slack",
@@ -595,6 +626,7 @@ class OauthIntegration:
         "linear",
         "clickup",
         "jira",
+        "pardot",
         "pinterest-ads",
         "stripe",
         "resend",
@@ -670,6 +702,26 @@ class OauthIntegration:
                 name_path="instance_url",
                 pkce=True,
             )
+        elif kind == "pardot":
+            if not settings.SALESFORCE_CONSUMER_KEY or not settings.SALESFORCE_CONSUMER_SECRET:
+                raise NotImplementedError("Salesforce app not configured")
+
+            # Account Engagement (formerly Pardot) authorizes against Salesforce, so this reuses the
+            # Salesforce connected app rather than registering a second one. It needs its own kind
+            # because `pardot_api` is not covered by the `full` scope the `salesforce` kind requests:
+            # a Salesforce integration authorized for the CRM cannot call the Account Engagement API,
+            # and a token scoped for Account Engagement should not appear in the CRM picker.
+            return OauthConfig(
+                authorize_url="https://login.salesforce.com/services/oauth2/authorize",
+                token_url="https://login.salesforce.com/services/oauth2/token",
+                token_revoke_url="https://login.salesforce.com/services/oauth2/revoke",
+                client_id=settings.SALESFORCE_CONSUMER_KEY,
+                client_secret=settings.SALESFORCE_CONSUMER_SECRET,
+                scope="pardot_api refresh_token",
+                id_path="instance_url",
+                name_path="instance_url",
+                pkce=True,
+            )
         elif kind == "hubspot":
             if not settings.HUBSPOT_APP_CLIENT_ID or not settings.HUBSPOT_APP_CLIENT_SECRET:
                 raise NotImplementedError("Hubspot app not configured")
@@ -683,8 +735,10 @@ class OauthIntegration:
                 client_secret=settings.HUBSPOT_APP_CLIENT_SECRET,
                 scope="tickets crm.objects.contacts.write sales-email-read crm.objects.companies.read crm.objects.deals.read crm.objects.contacts.read crm.objects.quotes.read crm.objects.companies.write",
                 additional_authorize_params={
-                    # NOTE: these scopes are only available on certain hubspot plans and as such are optional
-                    "optional_scope": "analytics.behavioral_events.send behavioral_events.event_definitions.read_write"
+                    # NOTE: these scopes are only available on certain hubspot plans and as such are optional.
+                    # crm.objects.leads.read is Sales Hub Pro+/Enterprise only — requesting it as a
+                    # mandatory scope would fail the whole authorization for portals that lack it.
+                    "optional_scope": "analytics.behavioral_events.send behavioral_events.event_definitions.read_write crm.objects.leads.read"
                 },
                 id_path="hub_id",
                 name_path="hub_domain",
@@ -1337,7 +1391,7 @@ class OauthIntegration:
         }
 
         # Handle case where Salesforce doesn't provide expires_in in initial response
-        if not config.get("expires_in") and kind == "salesforce":
+        if not config.get("expires_in") and kind in SALESFORCE_OAUTH_KINDS:
             # Default to 1 hour for Salesforce if not provided (conservative)
             config["expires_in"] = 3600
 
@@ -1405,11 +1459,11 @@ class OauthIntegration:
             return
 
         revoke_url = oauth_config.token_revoke_url
-        # Salesforce sandbox integrations are stored as kind "salesforce" (the sandbox is only
-        # a token-exchange fallback), so the static prod revoke URL would miss them. Revoke at
-        # the validated instance host so a stray write to config can't redirect the token to
+        # Salesforce sandbox integrations are stored under the production kind (the sandbox is
+        # only a token-exchange fallback), so the static prod revoke URL would miss them. Revoke
+        # at the validated instance host so a stray write to config can't redirect the token to
         # an attacker origin.
-        if self.integration.kind == "salesforce":
+        if self.integration.kind in SALESFORCE_OAUTH_KINDS:
             allowed_host = _salesforce_instance_host(self.integration.config.get("instance_url"))
             if allowed_host:
                 revoke_url = f"{allowed_host}/services/oauth2/revoke"
@@ -1445,7 +1499,7 @@ class OauthIntegration:
         if not refresh_token:
             return False
 
-        if not expires_in and self.integration.kind == "salesforce":
+        if not expires_in and self.integration.kind in SALESFORCE_OAUTH_KINDS:
             # Salesforce tokens typically last 2-4 hours, we'll assume 1 hour (3600 seconds) to be conservative
             expires_in = 3600
 
@@ -1517,13 +1571,13 @@ class OauthIntegration:
             )
         else:
             token_url = oauth_config.token_url
-            # Salesforce sandbox integrations are stored as kind "salesforce" (the sandbox
+            # Salesforce sandbox integrations are stored under the production kind (the sandbox
             # is only a token-exchange fallback in the OAuth callback), so the static prod
             # token URL would refuse a sandbox-issued refresh_token. Refresh at the org's
             # own instance host instead. Validate the host before sending client_secret +
             # refresh_token so a stray write to config can't exfiltrate the fleet-wide
             # Salesforce app secret; fall back to the hardcoded prod URL on rejection.
-            if kind == "salesforce":
+            if kind in SALESFORCE_OAUTH_KINDS:
                 allowed_host = _salesforce_instance_host(self.integration.config.get("instance_url"))
                 if allowed_host:
                     token_url = f"{allowed_host}/services/oauth2/token"
@@ -1617,7 +1671,7 @@ class OauthIntegration:
 
             # Handle case where Salesforce/Stripe doesn't provide expires_in in refresh response
             expires_in = config.get("expires_in")
-            if not expires_in and self.integration.kind == "salesforce":
+            if not expires_in and self.integration.kind in SALESFORCE_OAUTH_KINDS:
                 expires_in = 3600
             if not expires_in and self.integration.kind == "stripe":
                 expires_in = 3600

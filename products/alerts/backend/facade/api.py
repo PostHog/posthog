@@ -28,7 +28,8 @@ from products.alerts.backend.destinations import (
     soft_delete_all_alert_destinations,
 )
 from products.alerts.backend.email_notifications import send_alert_email
-from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts.backend.insight_alert_state_machine import apply_snooze
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 
 logger = structlog.get_logger(__name__)
 
@@ -125,7 +126,17 @@ def snooze_alert_from_slack(
             return "disabled"
 
         with ActingUserContext(user):
-            locked_alert.snooze(until=snoozed_until)
+            state_fields = apply_snooze(locked_alert)
+            locked_alert.snoozed_until = snoozed_until
+            locked_alert.save(update_fields=[*state_fields, "snoozed_until"])
+            AlertCheck.objects.create(
+                alert_configuration=locked_alert,
+                calculated_value=None,
+                condition=locked_alert.condition,
+                targets_notified={},
+                state=locked_alert.state,
+                error=None,
+            )
 
     return "snoozed"
 
