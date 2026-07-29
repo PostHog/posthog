@@ -47,7 +47,7 @@ from products.warehouse_sources.backend.models.util import (
     reconstruct_ordered_columns,
     remove_named_tuples,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 
 from .credential import DataWarehouseCredential
 from .external_table_definitions import external_tables, get_hogql_column_name_mapping

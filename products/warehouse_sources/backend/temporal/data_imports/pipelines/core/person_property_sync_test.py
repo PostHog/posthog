@@ -8,9 +8,9 @@ from parameterized import parameterized
 from posthog.models import Organization, PropertyDefinition, Team
 
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import PersonPropertySyncSource
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline import person_property_sync as pps
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core import person_property_sync as pps
 
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.person_property_sync"
+_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_sync"
 
 
 class TestBuildBundles:

@@ -5,9 +5,9 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.baserow.baserow import BaserowResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.baserow.source import BaserowSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.baserow import (
     BaserowSourceConfig,
 )

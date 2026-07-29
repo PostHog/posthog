@@ -4,20 +4,18 @@ import pyarrow as pa
 from parameterized import parameterized
 from temporalio.testing import ActivityEnvironment
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.table_stats import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.table_stats import (
     OUTLIER_TABLE_BYTES,
     record_source_item_stats,
     record_table_stats,
 )
 
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.table_stats"
+_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.table_stats"
 _STATS = f"{_MODULE}.record_table_stats"
 _CAPTURE = f"{_MODULE}.posthoganalytics.capture"
 _POD = f"{_MODULE}._pod_name"
-_BATCHER_STATS = (
-    "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher.record_table_stats"
-)
+_BATCHER_STATS = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher.record_table_stats"
 
 
 class TestRecordTableStats:
