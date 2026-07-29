@@ -39,6 +39,7 @@ Below that bar, write a `baseline:` / `noise:` scratchpad entry instead — don'
 | `priority`                  | `P0`–`P4`               | Optional; pair with `priority_explanation`. Needed for an autostart draft PR.                                                                                   |
 | `priority_explanation`      | string                  | Required when `priority` is set.                                                                                                                                |
 | `repository`                | string                  | `owner/repo` for a code fix, the `NO_REPO` sentinel for a pure metric move, omitted for free-form.                                                              |
+| `charts`                    | list, optional          | Queries the inbox draws on the report itself — see _Charts on the report_ below.                                                                                |
 
 The result carries `report_id` (always set when a report was persisted — even when suppressed,
 so you can edit / dedup against it), `report_status`, `emitted` (true only when it surfaced as
@@ -80,6 +81,17 @@ characters behind a "Show more" toggle. Front-load, structure, no walls:
 
 Cite the insight `short_id` and dashboard id inline so a human pivots straight to the source,
 and close with the notebook URL: "Full write-up with charts: `<notebook-url>`."
+
+### Charts on the report
+
+The notebook stays the durable write-up, but attach the scored series to the report itself via
+`charts` too, so the inbox reader sees the break without leaving the report. Reuse the same
+widened-window node you embed in the notebook (a `SavedInsightNode` only when the insight's saved
+range already shows the baseline; else the widened `InsightVizNode` / `DataVisualizationNode`),
+and reference it once from the summary with a `[label](chart:<id>)` link so it draws next to the
+hook. The full charts contract (allowed kinds, placement, sizing, edit-replaces-the-set) is in
+the harness prompt; on an `edit_report` recurrence, re-send the chart under the new window when
+you refresh the numbers.
 
 ### Evidence
 

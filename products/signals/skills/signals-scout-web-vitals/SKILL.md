@@ -391,7 +391,9 @@ For each candidate, the call is **edit an existing report, author a new one, rem
   dated regression (with the onset day), a **metric-specific cause hypothesis**, and a
   **concrete remediation** — the last two pulled from
   [`references/remediation.md`](references/remediation.md) — with the numbers in the
-  `evidence`. Below that bar, write memory instead. The fix lives in the team's own
+  `evidence`. Below that bar, write memory instead.
+  Attach the page's daily p75 series via `charts` so the band crossing (or the
+  standing-poor plateau) and its onset are visible in the report. The fix lives in the team's own
   frontend code, CDN, or asset pipeline — so default to
   `actionability=requires_human_input` and `repository=NO_REPO` (NO_REPO is what stops
   `priority`+reviewers from spawning a pointless repo-selection sandbox); reserve
