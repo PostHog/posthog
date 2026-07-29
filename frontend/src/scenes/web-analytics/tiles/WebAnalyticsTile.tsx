@@ -197,20 +197,21 @@ const UrlValueCell: QueryContextColumnComponent = ({ value }) => {
 
     const url = value.startsWith('http') ? value : `https://${value}`
 
+    // The URL text itself is the click target so it stays discoverable on touch and keyboard focus,
+    // and works even when the cell's max-width clips the trailing icon. The icon is a hover-only hint.
     return (
-        <span className="inline-flex items-center gap-1">
+        <Link
+            to={url}
+            target="_blank"
+            subtle
+            onClick={(e: React.MouseEvent) => e.stopPropagation()}
+            className="inline-flex items-center gap-1"
+        >
             {value}
-            <Link
-                to={url}
-                target="_blank"
-                onClick={(e: React.MouseEvent) => e.stopPropagation()}
-                className="opacity-0 transition-opacity text-muted hover:text-primary [[data-row-key]:hover_&]:opacity-100"
-            >
-                <Tooltip title="Open URL">
-                    <IconExternal className="text-base" />
-                </Tooltip>
-            </Link>
-        </span>
+            <Tooltip title="Open URL">
+                <IconExternal className="text-base opacity-0 transition-opacity [[data-row-key]:hover_&]:opacity-100" />
+            </Tooltip>
+        </Link>
     )
 }
 
