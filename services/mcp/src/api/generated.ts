@@ -10261,15 +10261,118 @@ export namespace Schemas {
       type: SnowflakeDestinationConfigType;
     }
 
-    export type BatchExportDestinationConfig = DatabricksDestinationConfig | AzureBlobDestinationConfig | BigQueryDestinationConfig | PostgresDestinationConfig | AwsS3DestinationConfig | S3CompatibleDestinationConfig | SnowflakeDestinationConfig;
+    /**
+     * * `varchar` - varchar
+     * * `super` - super
+     */
+    export type PropertiesDataTypeEnum = typeof PropertiesDataTypeEnum[keyof typeof PropertiesDataTypeEnum];
+
+
+    export const PropertiesDataTypeEnum = {
+      Varchar: 'varchar',
+      Super: 'super',
+    } as const;
+
+    /**
+     * * `COPY` - COPY
+     * * `INSERT` - INSERT
+     */
+    export type RedshiftDestinationConfigModeEnum = typeof RedshiftDestinationConfigModeEnum[keyof typeof RedshiftDestinationConfigModeEnum];
+
+
+    export const RedshiftDestinationConfigModeEnum = {
+      Copy: 'COPY',
+      Insert: 'INSERT',
+    } as const;
+
+    /**
+     * AWS access keys used by Redshift COPY configuration.
+     */
+    export interface RedshiftAWSCredentials {
+      /** AWS access key ID. */
+      aws_access_key_id: string;
+      /** AWS secret access key. */
+      aws_secret_access_key: string;
+    }
+
+    /**
+     * IAM role ARN or AWS access keys Redshift uses to read staged files.
+     */
+    export type RedshiftCopyInputsAuthorization = string | {
+      /** AWS access key ID. */
+      aws_access_key_id: string;
+      /** AWS secret access key. */
+      aws_secret_access_key: string;
+    };
+
+    /**
+     * COPY-mode S3 configuration for a Redshift batch-export destination.
+     */
+    export interface RedshiftCopyInputs {
+      /** S3 bucket used for Redshift COPY staging. */
+      s3_bucket: string;
+      /** AWS region for the S3 staging bucket. */
+      region_name: string;
+      /** S3 key prefix for staged files. */
+      s3_key_prefix?: string;
+      /** Credentials PostHog uses to write staged files. */
+      bucket_credentials: RedshiftAWSCredentials;
+      /** IAM role ARN or AWS access keys Redshift uses to read staged files. */
+      authorization: RedshiftCopyInputsAuthorization;
+    }
+
+    export type RedshiftDestinationConfigType = typeof RedshiftDestinationConfigType[keyof typeof RedshiftDestinationConfigType];
+
+
+    export const RedshiftDestinationConfigType = {
+      Redshift: 'Redshift',
+    } as const;
+
+    /**
+     * Typed configuration for a Redshift batch-export destination.
+     *
+     * Redshift connection credentials live in the linked Integration. Database, schema, table and
+     * COPY staging settings remain on the export.
+     */
+    export interface RedshiftDestinationConfig {
+      /** Redshift database to write to. */
+      database: string;
+      /** Redshift host to connect to. */
+      host: string;
+      /**
+         * Redshift port to connect to.
+         * @minimum 0
+         * @maximum 65535
+         */
+      port: number;
+      /** Redshift schema containing the destination table. */
+      schema?: string;
+      /** Destination table name. */
+      table_name?: string;
+      /** Redshift type to use for semi-structured fields.
+       *
+       * * `varchar` - varchar
+       * * `super` - super */
+      properties_data_type?: PropertiesDataTypeEnum;
+      /** SQL command used to write exported rows.
+       *
+       * * `COPY` - COPY
+       * * `INSERT` - INSERT */
+      mode?: RedshiftDestinationConfigModeEnum;
+      /** Required when mode is COPY. */
+      copy_inputs?: RedshiftCopyInputs | null;
+      type: RedshiftDestinationConfigType;
+    }
+
+    export type BatchExportDestinationConfig = DatabricksDestinationConfig | AzureBlobDestinationConfig | BigQueryDestinationConfig | PostgresDestinationConfig | AwsS3DestinationConfig | S3CompatibleDestinationConfig | SnowflakeDestinationConfig | RedshiftDestinationConfig;
 
     /**
      * Serializer for an BatchExportDestination model.
      *
      * The `config` field is polymorphic and typed only for destinations that keep
      * credentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres,
-     * AwsS3, S3Compatible, Snowflake). Other destination types accept the same JSON shape but without a
-     * typed OpenAPI schema. Secret fields are stripped from `config` on read.
+     * AwsS3, S3Compatible, Snowflake, Redshift). Other destination types accept the same JSON shape but
+     * without a typed OpenAPI schema. Secret fields are stripped from `config` on read.
      */
     export interface BatchExportDestination {
       /** A choice of supported BatchExportDestination types.
@@ -10288,7 +10391,7 @@ export namespace Schemas {
        * * `NoOp` - Noop
        * * `FileDownload` - File Download */
       type: BatchExportDestinationTypeEnum;
-      /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
+      /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake, Redshift) are NOT stored here - they live in the linked Integration. Secret fields are stripped from responses. */
       config: BatchExportDestinationConfig;
       /**
          * The integration for this destination.
@@ -10296,7 +10399,7 @@ export namespace Schemas {
          */
       integration?: number | null;
       /**
-         * ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, and BigQuery destinations; optional for AwsS3, S3Compatible and Snowflake (inline credentials remain supported); unused for other types.
+         * ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, BigQuery, Postgres and Redshift destinations; optional for AwsS3, S3Compatible and Snowflake (inline credentials remain supported); unused for other types.
          * @nullable
          */
       integration_id?: number | null;
@@ -11282,7 +11385,24 @@ export namespace Schemas {
       config: SnowflakeDestinationConfig;
     }
 
-    export type BatchExportDestinationRequest = DatabricksDestinationRequest | AzureBlobDestinationRequest | BigQueryDestinationRequest | PostgresDestinationRequest | AwsS3DestinationRequest | S3CompatibleDestinationRequest | SnowflakeDestinationRequest;
+    export type RedshiftDestinationRequestType = typeof RedshiftDestinationRequestType[keyof typeof RedshiftDestinationRequestType];
+
+
+    export const RedshiftDestinationRequestType = {
+      Redshift: 'Redshift',
+    } as const;
+
+    /**
+     * Request shape for creating or updating a Redshift batch-export destination.
+     */
+    export interface RedshiftDestinationRequest {
+      type: RedshiftDestinationRequestType;
+      /** ID of a redshift-kind Integration providing connection credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one. */
+      integration_id: number;
+      config: RedshiftDestinationConfig;
+    }
+
+    export type BatchExportDestinationRequest = DatabricksDestinationRequest | AzureBlobDestinationRequest | BigQueryDestinationRequest | PostgresDestinationRequest | AwsS3DestinationRequest | S3CompatibleDestinationRequest | SnowflakeDestinationRequest | RedshiftDestinationRequest;
 
     /**
      * Request body for create/partial_update on BatchExportViewSet.
@@ -36416,6 +36536,7 @@ export namespace Schemas {
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
      * * `reddit-ads` - Reddit Ads
+     * * `redshift` - Redshift
      * * `resend` - Resend
      * * `s3-compatible` - S3 Compatible
      * * `salesforce` - Salesforce
@@ -36462,6 +36583,7 @@ export namespace Schemas {
       PinterestAds: 'pinterest-ads',
       Postgresql: 'postgresql',
       RedditAds: 'reddit-ads',
+      Redshift: 'redshift',
       Resend: 'resend',
       S3Compatible: 's3-compatible',
       Salesforce: 'salesforce',
@@ -36508,6 +36630,7 @@ export namespace Schemas {
        * * `pinterest-ads` - Pinterest Ads
        * * `postgresql` - Postgresql
        * * `reddit-ads` - Reddit Ads
+       * * `redshift` - Redshift
        * * `resend` - Resend
        * * `s3-compatible` - S3 Compatible
        * * `salesforce` - Salesforce
@@ -59431,6 +59554,16 @@ export namespace Schemas {
       recorded: boolean;
     }
 
+    /**
+     * * `Redshift` - Redshift
+     */
+    export type RedshiftDestinationRequestTypeEnum = typeof RedshiftDestinationRequestTypeEnum[keyof typeof RedshiftDestinationRequestTypeEnum];
+
+
+    export const RedshiftDestinationRequestTypeEnum = {
+      Redshift: 'Redshift',
+    } as const;
+
     export interface RelationshipReject {
       /** Why the proposal is rejected. Persisted so it is never re-proposed. */
       rejection_reason?: string;
@@ -77537,6 +77670,7 @@ export namespace Schemas {
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
      * * `reddit-ads` - Reddit Ads
+     * * `redshift` - Redshift
      * * `resend` - Resend
      * * `s3-compatible` - S3 Compatible
      * * `salesforce` - Salesforce
@@ -77594,6 +77728,7 @@ export namespace Schemas {
       PinterestAds: 'pinterest-ads',
       Postgresql: 'postgresql',
       RedditAds: 'reddit-ads',
+      Redshift: 'redshift',
       Resend: 'resend',
       S3Compatible: 's3-compatible',
       Salesforce: 'salesforce',

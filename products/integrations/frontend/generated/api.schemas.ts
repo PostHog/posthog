@@ -179,6 +179,7 @@ export interface RoleLookupResponseApi {
  * * `pinterest-ads` - Pinterest Ads
  * * `postgresql` - Postgresql
  * * `reddit-ads` - Reddit Ads
+ * * `redshift` - Redshift
  * * `resend` - Resend
  * * `s3-compatible` - S3 Compatible
  * * `salesforce` - Salesforce
@@ -224,6 +225,7 @@ export const IntegrationKindEnumApi = {
     PinterestAds: 'pinterest-ads',
     Postgresql: 'postgresql',
     RedditAds: 'reddit-ads',
+    Redshift: 'redshift',
     Resend: 'resend',
     S3Compatible: 's3-compatible',
     Salesforce: 'salesforce',
@@ -460,6 +462,7 @@ export interface IntegrationAccessRequestApi {
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
      * * `reddit-ads` - Reddit Ads
+     * * `redshift` - Redshift
      * * `resend` - Resend
      * * `s3-compatible` - S3 Compatible
      * * `salesforce` - Salesforce
@@ -550,6 +553,7 @@ export type IntegrationsListParams = {
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
      * * `reddit-ads` - Reddit Ads
+     * * `redshift` - Redshift
      * * `resend` - Resend
      * * `s3-compatible` - S3 Compatible
      * * `salesforce` - Salesforce
@@ -606,6 +610,7 @@ export const IntegrationsListKind = {
     PinterestAds: 'pinterest-ads',
     Postgresql: 'postgresql',
     RedditAds: 'reddit-ads',
+    Redshift: 'redshift',
     Resend: 'resend',
     S3Compatible: 's3-compatible',
     Salesforce: 'salesforce',

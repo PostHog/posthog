@@ -42,6 +42,14 @@ export const batchExportsCreateBodyDestinationOneFiveConfigFileFormatDefault = `
 export const batchExportsCreateBodyDestinationOneSixConfigFileFormatDefault = `JSONLines`
 export const batchExportsCreateBodyDestinationOneSixConfigUseVirtualStyleAddressingDefault = false
 export const batchExportsCreateBodyDestinationOneSevenConfigTableNameDefault = `events`
+export const batchExportsCreateBodyDestinationOneEightConfigPortMin = 0
+export const batchExportsCreateBodyDestinationOneEightConfigPortMax = 65535
+
+export const batchExportsCreateBodyDestinationOneEightConfigSchemaDefault = `public`
+export const batchExportsCreateBodyDestinationOneEightConfigTableNameDefault = `events`
+export const batchExportsCreateBodyDestinationOneEightConfigPropertiesDataTypeDefault = `varchar`
+export const batchExportsCreateBodyDestinationOneEightConfigModeDefault = `INSERT`
+export const batchExportsCreateBodyDestinationOneEightConfigCopyInputsOneS3KeyPrefixDefault = `/`
 export const batchExportsCreateBodyOffsetDayMin = 0
 export const batchExportsCreateBodyOffsetDayMax = 6
 
@@ -335,6 +343,107 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                             ),
                     })
                     .describe('Request shape for creating or updating a Snowflake batch-export destination.'),
+                zod
+                    .object({
+                        type: zod.enum(['Redshift']),
+                        integration_id: zod
+                            .number()
+                            .describe(
+                                'ID of a redshift-kind Integration providing connection credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one.'
+                            ),
+                        config: zod
+                            .object({
+                                database: zod.string().describe('Redshift database to write to.'),
+                                host: zod.string().describe('Redshift host to connect to.'),
+                                port: zod
+                                    .number()
+                                    .min(batchExportsCreateBodyDestinationOneEightConfigPortMin)
+                                    .max(batchExportsCreateBodyDestinationOneEightConfigPortMax)
+                                    .describe('Redshift port to connect to.'),
+                                schema: zod
+                                    .string()
+                                    .default(batchExportsCreateBodyDestinationOneEightConfigSchemaDefault)
+                                    .describe('Redshift schema containing the destination table.'),
+                                table_name: zod
+                                    .string()
+                                    .default(batchExportsCreateBodyDestinationOneEightConfigTableNameDefault)
+                                    .describe('Destination table name.'),
+                                properties_data_type: zod
+                                    .enum(['varchar', 'super'])
+                                    .describe('\* `varchar` - varchar\n\* `super` - super')
+                                    .default(batchExportsCreateBodyDestinationOneEightConfigPropertiesDataTypeDefault)
+                                    .describe(
+                                        'Redshift type to use for semi-structured fields.\n\n\* `varchar` - varchar\n\* `super` - super'
+                                    ),
+                                mode: zod
+                                    .enum(['COPY', 'INSERT'])
+                                    .describe('\* `COPY` - COPY\n\* `INSERT` - INSERT')
+                                    .default(batchExportsCreateBodyDestinationOneEightConfigModeDefault)
+                                    .describe(
+                                        'SQL command used to write exported rows.\n\n\* `COPY` - COPY\n\* `INSERT` - INSERT'
+                                    ),
+                                copy_inputs: zod
+                                    .union([
+                                        zod
+                                            .object({
+                                                s3_bucket: zod
+                                                    .string()
+                                                    .describe('S3 bucket used for Redshift COPY staging.'),
+                                                region_name: zod
+                                                    .string()
+                                                    .describe('AWS region for the S3 staging bucket.'),
+                                                s3_key_prefix: zod
+                                                    .string()
+                                                    .default(
+                                                        batchExportsCreateBodyDestinationOneEightConfigCopyInputsOneS3KeyPrefixDefault
+                                                    )
+                                                    .describe('S3 key prefix for staged files.'),
+                                                bucket_credentials: zod
+                                                    .object({
+                                                        aws_access_key_id: zod.string().describe('AWS access key ID.'),
+                                                        aws_secret_access_key: zod
+                                                            .string()
+                                                            .describe('AWS secret access key.'),
+                                                    })
+                                                    .describe('AWS access keys used by Redshift COPY configuration.')
+                                                    .describe('Credentials PostHog uses to write staged files.'),
+                                                authorization: zod
+                                                    .union([
+                                                        zod
+                                                            .string()
+                                                            .describe(
+                                                                'IAM role ARN Redshift uses to read staged files.'
+                                                            ),
+                                                        zod
+                                                            .object({
+                                                                aws_access_key_id: zod
+                                                                    .string()
+                                                                    .describe('AWS access key ID.'),
+                                                                aws_secret_access_key: zod
+                                                                    .string()
+                                                                    .describe('AWS secret access key.'),
+                                                            })
+                                                            .describe(
+                                                                'AWS access keys Redshift uses to read staged files.'
+                                                            ),
+                                                    ])
+                                                    .describe(
+                                                        'IAM role ARN or AWS access keys Redshift uses to read staged files.'
+                                                    ),
+                                            })
+                                            .describe(
+                                                'COPY-mode S3 configuration for a Redshift batch-export destination.'
+                                            ),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('Required when mode is COPY.'),
+                            })
+                            .describe(
+                                'Typed configuration for a Redshift batch-export destination.\n\nRedshift connection credentials live in the linked Integration. Database, schema, table and\nCOPY staging settings remain on the export.'
+                            ),
+                    })
+                    .describe('Request shape for creating or updating a Redshift batch-export destination.'),
             ])
             .describe('Destination configuration. Required integration_id is enforced per destination type.'),
         interval: zod
@@ -400,6 +509,14 @@ export const batchExportsPartialUpdateBodyDestinationOneFiveConfigFileFormatDefa
 export const batchExportsPartialUpdateBodyDestinationOneSixConfigFileFormatDefault = `JSONLines`
 export const batchExportsPartialUpdateBodyDestinationOneSixConfigUseVirtualStyleAddressingDefault = false
 export const batchExportsPartialUpdateBodyDestinationOneSevenConfigTableNameDefault = `events`
+export const batchExportsPartialUpdateBodyDestinationOneEightConfigPortMin = 0
+export const batchExportsPartialUpdateBodyDestinationOneEightConfigPortMax = 65535
+
+export const batchExportsPartialUpdateBodyDestinationOneEightConfigSchemaDefault = `public`
+export const batchExportsPartialUpdateBodyDestinationOneEightConfigTableNameDefault = `events`
+export const batchExportsPartialUpdateBodyDestinationOneEightConfigPropertiesDataTypeDefault = `varchar`
+export const batchExportsPartialUpdateBodyDestinationOneEightConfigModeDefault = `INSERT`
+export const batchExportsPartialUpdateBodyDestinationOneEightConfigCopyInputsOneS3KeyPrefixDefault = `/`
 export const batchExportsPartialUpdateBodyOffsetDayMin = 0
 export const batchExportsPartialUpdateBodyOffsetDayMax = 6
 
@@ -695,6 +812,109 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                             ),
                     })
                     .describe('Request shape for creating or updating a Snowflake batch-export destination.'),
+                zod
+                    .object({
+                        type: zod.enum(['Redshift']),
+                        integration_id: zod
+                            .number()
+                            .describe(
+                                'ID of a redshift-kind Integration providing connection credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one.'
+                            ),
+                        config: zod
+                            .object({
+                                database: zod.string().describe('Redshift database to write to.'),
+                                host: zod.string().describe('Redshift host to connect to.'),
+                                port: zod
+                                    .number()
+                                    .min(batchExportsPartialUpdateBodyDestinationOneEightConfigPortMin)
+                                    .max(batchExportsPartialUpdateBodyDestinationOneEightConfigPortMax)
+                                    .describe('Redshift port to connect to.'),
+                                schema: zod
+                                    .string()
+                                    .default(batchExportsPartialUpdateBodyDestinationOneEightConfigSchemaDefault)
+                                    .describe('Redshift schema containing the destination table.'),
+                                table_name: zod
+                                    .string()
+                                    .default(batchExportsPartialUpdateBodyDestinationOneEightConfigTableNameDefault)
+                                    .describe('Destination table name.'),
+                                properties_data_type: zod
+                                    .enum(['varchar', 'super'])
+                                    .describe('\* `varchar` - varchar\n\* `super` - super')
+                                    .default(
+                                        batchExportsPartialUpdateBodyDestinationOneEightConfigPropertiesDataTypeDefault
+                                    )
+                                    .describe(
+                                        'Redshift type to use for semi-structured fields.\n\n\* `varchar` - varchar\n\* `super` - super'
+                                    ),
+                                mode: zod
+                                    .enum(['COPY', 'INSERT'])
+                                    .describe('\* `COPY` - COPY\n\* `INSERT` - INSERT')
+                                    .default(batchExportsPartialUpdateBodyDestinationOneEightConfigModeDefault)
+                                    .describe(
+                                        'SQL command used to write exported rows.\n\n\* `COPY` - COPY\n\* `INSERT` - INSERT'
+                                    ),
+                                copy_inputs: zod
+                                    .union([
+                                        zod
+                                            .object({
+                                                s3_bucket: zod
+                                                    .string()
+                                                    .describe('S3 bucket used for Redshift COPY staging.'),
+                                                region_name: zod
+                                                    .string()
+                                                    .describe('AWS region for the S3 staging bucket.'),
+                                                s3_key_prefix: zod
+                                                    .string()
+                                                    .default(
+                                                        batchExportsPartialUpdateBodyDestinationOneEightConfigCopyInputsOneS3KeyPrefixDefault
+                                                    )
+                                                    .describe('S3 key prefix for staged files.'),
+                                                bucket_credentials: zod
+                                                    .object({
+                                                        aws_access_key_id: zod.string().describe('AWS access key ID.'),
+                                                        aws_secret_access_key: zod
+                                                            .string()
+                                                            .describe('AWS secret access key.'),
+                                                    })
+                                                    .describe('AWS access keys used by Redshift COPY configuration.')
+                                                    .describe('Credentials PostHog uses to write staged files.'),
+                                                authorization: zod
+                                                    .union([
+                                                        zod
+                                                            .string()
+                                                            .describe(
+                                                                'IAM role ARN Redshift uses to read staged files.'
+                                                            ),
+                                                        zod
+                                                            .object({
+                                                                aws_access_key_id: zod
+                                                                    .string()
+                                                                    .describe('AWS access key ID.'),
+                                                                aws_secret_access_key: zod
+                                                                    .string()
+                                                                    .describe('AWS secret access key.'),
+                                                            })
+                                                            .describe(
+                                                                'AWS access keys Redshift uses to read staged files.'
+                                                            ),
+                                                    ])
+                                                    .describe(
+                                                        'IAM role ARN or AWS access keys Redshift uses to read staged files.'
+                                                    ),
+                                            })
+                                            .describe(
+                                                'COPY-mode S3 configuration for a Redshift batch-export destination.'
+                                            ),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('Required when mode is COPY.'),
+                            })
+                            .describe(
+                                'Typed configuration for a Redshift batch-export destination.\n\nRedshift connection credentials live in the linked Integration. Database, schema, table and\nCOPY staging settings remain on the export.'
+                            ),
+                    })
+                    .describe('Request shape for creating or updating a Redshift batch-export destination.'),
             ])
             .optional()
             .describe('Destination configuration. Required integration_id is enforced per destination type.'),

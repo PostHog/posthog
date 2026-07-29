@@ -335,6 +335,110 @@ export interface SnowflakeDestinationConfigApi {
     type: SnowflakeDestinationConfigApiType
 }
 
+/**
+ * * `varchar` - varchar
+ * * `super` - super
+ */
+export type PropertiesDataTypeEnumApi = (typeof PropertiesDataTypeEnumApi)[keyof typeof PropertiesDataTypeEnumApi]
+
+export const PropertiesDataTypeEnumApi = {
+    Varchar: 'varchar',
+    Super: 'super',
+} as const
+
+/**
+ * * `COPY` - COPY
+ * * `INSERT` - INSERT
+ */
+export type RedshiftDestinationConfigModeEnumApi =
+    (typeof RedshiftDestinationConfigModeEnumApi)[keyof typeof RedshiftDestinationConfigModeEnumApi]
+
+export const RedshiftDestinationConfigModeEnumApi = {
+    Copy: 'COPY',
+    Insert: 'INSERT',
+} as const
+
+/**
+ * AWS access keys used by Redshift COPY configuration.
+ */
+export interface RedshiftAWSCredentialsApi {
+    /** AWS access key ID. */
+    aws_access_key_id: string
+    /** AWS secret access key. */
+    aws_secret_access_key: string
+}
+
+/**
+ * IAM role ARN or AWS access keys Redshift uses to read staged files.
+ */
+export type RedshiftCopyInputsApiAuthorization =
+    | string
+    | {
+          /** AWS access key ID. */
+          aws_access_key_id: string
+          /** AWS secret access key. */
+          aws_secret_access_key: string
+      }
+
+/**
+ * COPY-mode S3 configuration for a Redshift batch-export destination.
+ */
+export interface RedshiftCopyInputsApi {
+    /** S3 bucket used for Redshift COPY staging. */
+    s3_bucket: string
+    /** AWS region for the S3 staging bucket. */
+    region_name: string
+    /** S3 key prefix for staged files. */
+    s3_key_prefix?: string
+    /** Credentials PostHog uses to write staged files. */
+    bucket_credentials: RedshiftAWSCredentialsApi
+    /** IAM role ARN or AWS access keys Redshift uses to read staged files. */
+    authorization: RedshiftCopyInputsApiAuthorization
+}
+
+export type RedshiftDestinationConfigApiType =
+    (typeof RedshiftDestinationConfigApiType)[keyof typeof RedshiftDestinationConfigApiType]
+
+export const RedshiftDestinationConfigApiType = {
+    Redshift: 'Redshift',
+} as const
+
+/**
+ * Typed configuration for a Redshift batch-export destination.
+ *
+ * Redshift connection credentials live in the linked Integration. Database, schema, table and
+ * COPY staging settings remain on the export.
+ */
+export interface RedshiftDestinationConfigApi {
+    /** Redshift database to write to. */
+    database: string
+    /** Redshift host to connect to. */
+    host: string
+    /**
+     * Redshift port to connect to.
+     * @minimum 0
+     * @maximum 65535
+     */
+    port: number
+    /** Redshift schema containing the destination table. */
+    schema?: string
+    /** Destination table name. */
+    table_name?: string
+    /** Redshift type to use for semi-structured fields.
+     *
+     * * `varchar` - varchar
+     * * `super` - super */
+    properties_data_type?: PropertiesDataTypeEnumApi
+    /** SQL command used to write exported rows.
+     *
+     * * `COPY` - COPY
+     * * `INSERT` - INSERT */
+    mode?: RedshiftDestinationConfigModeEnumApi
+    /** Required when mode is COPY. */
+    copy_inputs?: RedshiftCopyInputsApi | null
+    type: RedshiftDestinationConfigApiType
+}
+
 export type BatchExportDestinationConfigApi =
     | DatabricksDestinationConfigApi
     | AzureBlobDestinationConfigApi
@@ -343,14 +447,15 @@ export type BatchExportDestinationConfigApi =
     | AwsS3DestinationConfigApi
     | S3CompatibleDestinationConfigApi
     | SnowflakeDestinationConfigApi
+    | RedshiftDestinationConfigApi
 
 /**
  * Serializer for an BatchExportDestination model.
  *
  * The `config` field is polymorphic and typed only for destinations that keep
  * credentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres,
- * AwsS3, S3Compatible, Snowflake). Other destination types accept the same JSON shape but without a
- * typed OpenAPI schema. Secret fields are stripped from `config` on read.
+ * AwsS3, S3Compatible, Snowflake, Redshift). Other destination types accept the same JSON shape but
+ * without a typed OpenAPI schema. Secret fields are stripped from `config` on read.
  */
 export interface BatchExportDestinationApi {
     /** A choice of supported BatchExportDestination types.
@@ -369,7 +474,7 @@ export interface BatchExportDestinationApi {
      * * `NoOp` - Noop
      * * `FileDownload` - File Download */
     type: BatchExportDestinationTypeEnumApi
-    /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
+    /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake, Redshift) are NOT stored here - they live in the linked Integration. Secret fields are stripped from responses. */
     config: BatchExportDestinationConfigApi
     /**
      * The integration for this destination.
@@ -377,7 +482,7 @@ export interface BatchExportDestinationApi {
      */
     integration?: number | null
     /**
-     * ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, and BigQuery destinations; optional for AwsS3, S3Compatible and Snowflake (inline credentials remain supported); unused for other types.
+     * ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, BigQuery, Postgres and Redshift destinations; optional for AwsS3, S3Compatible and Snowflake (inline credentials remain supported); unused for other types.
      * @nullable
      */
     integration_id?: number | null
@@ -1313,6 +1418,23 @@ export interface SnowflakeDestinationRequestApi {
     config: SnowflakeDestinationConfigApi
 }
 
+export type RedshiftDestinationRequestApiType =
+    (typeof RedshiftDestinationRequestApiType)[keyof typeof RedshiftDestinationRequestApiType]
+
+export const RedshiftDestinationRequestApiType = {
+    Redshift: 'Redshift',
+} as const
+
+/**
+ * Request shape for creating or updating a Redshift batch-export destination.
+ */
+export interface RedshiftDestinationRequestApi {
+    type: RedshiftDestinationRequestApiType
+    /** ID of a redshift-kind Integration providing connection credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one. */
+    integration_id: number
+    config: RedshiftDestinationConfigApi
+}
+
 export type BatchExportDestinationRequestApi =
     | DatabricksDestinationRequestApi
     | AzureBlobDestinationRequestApi
@@ -1321,6 +1443,7 @@ export type BatchExportDestinationRequestApi =
     | AwsS3DestinationRequestApi
     | S3CompatibleDestinationRequestApi
     | SnowflakeDestinationRequestApi
+    | RedshiftDestinationRequestApi
 
 /**
  * Request body for create/partial_update on BatchExportViewSet.
@@ -1878,6 +2001,16 @@ export type SnowflakeDestinationRequestTypeEnumApi =
 
 export const SnowflakeDestinationRequestTypeEnumApi = {
     Snowflake: 'Snowflake',
+} as const
+
+/**
+ * * `Redshift` - Redshift
+ */
+export type RedshiftDestinationRequestTypeEnumApi =
+    (typeof RedshiftDestinationRequestTypeEnumApi)[keyof typeof RedshiftDestinationRequestTypeEnumApi]
+
+export const RedshiftDestinationRequestTypeEnumApi = {
+    Redshift: 'Redshift',
 } as const
 
 export type BatchExportsListParams = {
