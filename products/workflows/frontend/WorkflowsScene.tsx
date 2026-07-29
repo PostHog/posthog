@@ -2,7 +2,7 @@ import { MakeLogicType, actions, connect, kea, path, props, reducers, selectors,
 import { urlToAction } from 'kea-router'
 
 import { IconApple, IconAndroid, IconLetter, IconPlusSmall } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonMenu, LemonMenuItems, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonMenu, LemonMenuItems, LemonTag, Link } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -244,7 +244,14 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
         ...(emailReputationEnabled
             ? [
                   {
-                      label: 'Reputation',
+                      label: (
+                          <>
+                              Reputation{' '}
+                              <LemonTag className="ml-1" type="completion">
+                                  Beta
+                              </LemonTag>
+                          </>
+                      ),
                       key: 'reputation' as const,
                       content: <WorkflowsReputation />,
                       link: urls.workflows('reputation'),
