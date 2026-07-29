@@ -29,7 +29,7 @@ unowned	9	0	coupons
 unowned	99	0	dashboard
 unowned	70	0	data-management
 unowned	76	0	data-pipelines
-enforce	87	99	data-warehouse
+enforce	88	99	data-warehouse
 unowned	20	0	debug
 observe	282	1	experiments
 observe	4	0	exports
@@ -63,7 +63,7 @@ unowned	13	0	project-homepage
 unowned	4	0	resource-transfer
 unowned	15	0	retention
 unowned	23	0	saved-insights
-unowned	266	0	session-recordings
+unowned	269	0	session-recordings
 unowned	11	0	sessions
 unowned	198	0	settings
 unowned	3	0	sites
