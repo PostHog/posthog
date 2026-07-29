@@ -591,9 +591,8 @@ def clickhouse_row_count() -> None:
         for table in CLICKHOUSE_TABLES:
             try:
                 QUERY = """SELECT sum(rows) rows from system.parts
-                       WHERE table = '{table}' and active;"""
-                query = QUERY.format(table=table)
-                rows = sync_execute(query)[0][0]
+                       WHERE table = %(table)s and active;"""
+                rows = sync_execute(QUERY, {"table": table})[0][0]
                 row_count_gauge.labels(table_name=table).set(rows)
                 statsd.gauge(
                     f"posthog_celery_clickhouse_table_row_count",
