@@ -58,6 +58,10 @@
 # - Test durations restored from Depot Cache (posthog-test-durations- prefix), refreshed by
 #   .depot/workflows/ci-backend-update-test-timing.yml, so shard counts match GitHub Actions.
 #   Committed .test_durations is the fallback.
+# - Sharding-plan pinning: canonical snapshots the durations files as a run-scoped
+#   artifact and every test job applies it, so re-runs shard like attempt 1. The shadow
+#   strips artifact uploads (above), so it keeps floating restores; no depot bump needed
+#   for changes confined to that pinning.
 # - master (push) runs only check-migrations to prime the shared schema cache; the
 #   test matrices are skipped on master (canonical runs them). PRs and dispatches
 #   run the full graph — that is where the apples-to-apples comparison happens
@@ -196,6 +200,7 @@ jobs:
             needs.sample.outputs.sampled == 'true'
             && (github.event_name != 'pull_request'
                 || github.event.pull_request.draft != true
+                || startsWith(github.head_ref, 'trunk-merge/')
                 || !contains(github.event.pull_request.labels.*.name, 'no-ci'))
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
@@ -558,9 +563,12 @@ jobs:
         # which build_django_matrix falls back to
         # when select-tests is skipped (empty MODE). The run-ci-backend label
         # forces the full matrices on a draft.
+        # Trunk's merge-queue branches open as draft PRs, but their run IS the
+        # merge gate, so they must never get the narrowed selection.
         if: |
             github.event_name == 'pull_request' &&
             github.event.pull_request.draft == true &&
+            !startsWith(github.head_ref, 'trunk-merge/') &&
             !contains(github.event.pull_request.labels.*.name, 'run-ci-backend') &&
             needs.changes.outputs.backend == 'true'
         runs-on: depot-ubuntu-24.04
@@ -771,7 +779,7 @@ jobs:
     turbo-tests:
         needs: [changes, turbo-discover, detect-snapshot-mode, build-product-test-matrix, get_clickhouse_versions]
         if: >-
-            !cancelled() && (github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'run-ci-backend')) && needs.turbo-discover.result == 'success' && needs.build-product-test-matrix.result == 'success' && needs.build-product-test-matrix.outputs.include != '[]' && needs.build-product-test-matrix.outputs.include != ''
+            !cancelled() && (github.event.pull_request.draft != true || startsWith(github.head_ref, 'trunk-merge/') || contains(github.event.pull_request.labels.*.name, 'run-ci-backend')) && needs.turbo-discover.result == 'success' && needs.build-product-test-matrix.result == 'success' && needs.build-product-test-matrix.outputs.include != '[]' && needs.build-product-test-matrix.outputs.include != ''
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 40
         name: Product tests (${{ matrix.group }}, events schema ${{ matrix.new-events-schema && 'json' || 'legacy' }})
@@ -1274,7 +1282,13 @@ jobs:
                   RUN_POE: ${{ needs.select-tests.outputs.run_poe }}
                   RUN_TEMPORAL: ${{ needs.select-tests.outputs.run_temporal }}
                   CORE_FILES: ${{ needs.select-tests.outputs.core_files }}
-                  IS_DRAFT: ${{ github.event.pull_request.draft }}
+                  # A trunk-merge/** PR opens as a draft but is the merge gate, and
+                  # select-tests deliberately does not run for it. Reporting it as a
+                  # draft here would turn that empty MODE into "skip" and build an
+                  # empty matrix, so the queue would merge having run no Django tests
+                  # at all. Not-draft makes the empty MODE fall through to the full
+                  # matrix, which is what the queue has to run.
+                  IS_DRAFT: ${{ github.event.pull_request.draft && !startsWith(github.head_ref, 'trunk-merge/') }}
                   FORCE_FULL: ${{ contains(github.event.pull_request.labels.*.name, 'run-ci-backend') }}
               run: |
                   # :NOTE: Keep shard counts/group ranges in sync with historical Django matrix tuning.

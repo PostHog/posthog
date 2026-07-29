@@ -608,6 +608,11 @@ class TaskWriteSerializer(serializers.Serializer):
             # would route the task's run logs into PostHog's internal Logs project
             # (run_log_mirror) and inherit scout visibility semantics.
             raise serializers.ValidationError("origin_product 'signals_scout' is reserved for signals scout runs")
+        if value == tasks_facade.TaskOriginProduct.ONBOARDING:
+            # This origin routes the run's LLM traffic to the unbilled `onboarding` gateway
+            # product, so a forged one would be free model access. Only create_wizard_cloud_run
+            # sets it, behind its own rate limits and daily cap.
+            raise serializers.ValidationError("origin_product 'onboarding' is reserved for setup wizard cloud runs")
         return value
 
     def validate_repository(self, value):
