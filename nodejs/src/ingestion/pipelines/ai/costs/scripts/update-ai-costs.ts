@@ -55,21 +55,16 @@ const parsePricingNumber = (value: unknown): number | undefined => {
     }
 }
 
-/**
- * OpenRouter serves `pricing.*` net of any promotion and reports the rate here.
- * A provider key means "what this provider charges a direct caller", so the
- * promotion is divided back out. Returns 0 for absent, zero, or out-of-range.
- */
+/** A provider key means what that provider charges a direct caller, so any
+ * promotion OpenRouter has already applied is divided back out. */
 export const parseDiscountRate = (pricing: Record<string, unknown>, context?: string, warn = true): number => {
     const raw = pricing.discount
     if (raw === undefined || raw === null) {
         return 0
     }
 
-    // Classify with Number(), which never throws, so an unusable rate never
-    // reaches parsePricingNumber and cannot draw a second parse-failure log for
-    // the same field. A rate at or above 1 would divide by zero or flip the
-    // sign; a negative one is malformed data that the clamp would hide.
+    // Classify before parsing: Number() never throws, so an unusable rate cannot
+    // draw a second parse-failure log from parsePricingNumber for the same field.
     const asNumber =
         typeof raw === 'number' ? raw : typeof raw === 'string' && raw.trim() !== '' ? Number(raw) : Number.NaN
     if (!Number.isFinite(asNumber) || asNumber < 0 || asNumber >= 1) {
@@ -82,11 +77,7 @@ export const parseDiscountRate = (pricing: Record<string, unknown>, context?: st
     return parsePricingNumber(raw) ?? 0
 }
 
-/**
- * Strips the promotion rate so a cost built from this pricing keeps the price as
- * served. `default` mirrors the list payload, and sharing `buildModelCost` would
- * otherwise de-discount it the day OpenRouter adds the field to that payload.
- */
+/** Keeps a cost at the served price by hiding the rate from the shared builder. */
 export const withoutDiscount = (pricing: Record<string, unknown> | undefined): Record<string, unknown> | undefined => {
     if (!pricing) {
         return undefined
@@ -95,10 +86,7 @@ export const withoutDiscount = (pricing: Record<string, unknown> | undefined): R
     return rest
 }
 
-/**
- * Builds the `default` cost. Routed through `withoutDiscount` so the shared
- * builder cannot de-discount it, whatever the list payload starts carrying.
- */
+/** `default` must stay at the served price whatever the list payload carries. */
 export const buildDefaultCost = (
     modelPricing: Record<string, unknown> | undefined,
     context?: string
@@ -116,9 +104,8 @@ export const buildModelCost = (pricing: Record<string, unknown> | undefined, con
         return null
     }
 
-    // The rate applies uniformly to every price field, flat fees included: on a
-    // 50%-off endpoint web_search reads 0.005 against 0.01 on the undiscounted
-    // sibling, the same ratio as the token rates.
+    // The rate applies to every field, flat fees included: a 50%-off route serves
+    // web_search at 0.005 against 0.01 on its undiscounted sibling.
     const discount = parseDiscountRate(pricing, context)
     const toListPrice = (value: number): number =>
         discount === 0 ? value : parseFloat((value / (1 - discount)).toPrecision(10))
@@ -158,22 +145,17 @@ export interface EndpointCandidate {
 }
 
 /*
- * `default` holds the `/api/v1/models` list price, promotion included, and no
- * de-discount is applied to it: `PROVIDER_ALIASES` maps `$ai_provider:
- * 'openrouter'` onto `default`, where the promo price is what the caller was
- * billed. Raising it to list over-reports those events by 1/(1 - rate).
- * Separating the two readers needs an `openrouter` key, which requires that key
- * to exist in `CanonicalProvider` first.
+ * `default` keeps the promotion. `PROVIDER_ALIASES` maps `$ai_provider:
+ * 'openrouter'` onto it, and for those callers the promo price is what they were
+ * billed, so raising it to list over-reports them by 1/(1 - rate). Splitting the
+ * two readers needs an `openrouter` key in `CanonicalProvider` first.
  */
 
 export type DiscountConfirmation = 'confirmed' | 'unconfirmed' | 'not-checkable'
 
-/**
- * Corroborates the de-discount: where a model has both a promo route and an
- * undiscounted one, the recovered price should land on the sibling. Evidence
- * only, never a warning. Two hosts legitimately price the same open-weights
- * model differently, so a mismatch fires on half of all checkable models.
- */
+/** Corroborates the de-discount against an undiscounted sibling route. Evidence
+ * only: two hosts legitimately price the same model differently, so a mismatch
+ * fires on half of all checkable models. */
 export const confirmDiscountAgainstSiblings = (candidates: EndpointCandidate[]): DiscountConfirmation => {
     const discounted = candidates.filter((candidate) => candidate.discount > 0)
     const undiscounted = candidates.filter((candidate) => candidate.discount === 0)
@@ -200,12 +182,8 @@ export const UNCHECKED_WARN_FRACTION = 0.1
 /** Table rows rendered before the remainder collapses into a count line. */
 export const DISCOUNT_REPORT_ROW_LIMIT = 200
 
-/**
- * Model ids and endpoint tags are third-party strings from the OpenRouter
- * response, and this table becomes the body of a PR that approves a change to
- * the billing price book. Confine them to one cell: a newline or a pipe would
- * otherwise break the row apart, and angle brackets render as HTML on GitHub.
- */
+/** Confines a third-party string to one table cell. A newline or pipe would break
+ * the row apart, and angle brackets render as HTML on GitHub. */
 export const sanitizeReportCell = (value: string): string =>
     value
         .replace(/[\r\n]+/g, ' ')
@@ -213,12 +191,8 @@ export const sanitizeReportCell = (value: string): string =>
         .trim()
         .slice(0, 120)
 
-/**
- * Renders promotions as explicit line items in the generated PR rather than as
- * unexplained price movements inside a large diff. `uncheckedModels` is
- * reported too: those prices may still carry a promotion, and a bare "no
- * discounts" would read as a verified negative rather than an unmeasured one.
- */
+/** Renders promotions as line items in the generated PR. `uncheckedModels` is
+ * reported too, so a bare "no discounts" cannot read as a verified negative. */
 export const renderDiscountReport = (entries: DiscountReportEntry[], uncheckedModels = 0): string => {
     const unchecked =
         uncheckedModels > 0
@@ -248,9 +222,8 @@ export const renderDiscountReport = (entries: DiscountReportEntry[], uncheckedMo
         '| --- | --- | --- | --- |',
     ]
 
-    // Bounded on emitted rows rather than models: a model renders one row per
-    // discounted endpoint, and the widest model in the catalogue carries 32 of
-    // them, so a model cap does not bound the body GitHub has to accept.
+    // Bounded on emitted rows, not models: the widest model carries 32 endpoints,
+    // so a model cap would not bound the body GitHub has to accept.
     let emitted = 0
     let omittedModels = 0
     for (const row of rows) {
@@ -293,13 +266,8 @@ export interface BuiltModelRow {
     checked: boolean
 }
 
-/**
- * Turn one model's list-payload cost and its endpoints payload into the row that
- * gets written, plus whatever the discount report needs to say about it.
- *
- * Split out of the fetch loop so the wiring is reachable from a test: the
- * network call is the only part that has to be live.
- */
+/** Turns one model's payloads into the row that gets written, plus what the
+ * discount report says about it. */
 export const buildModelRow = (
     modelId: string,
     modelPricing: Record<string, unknown> | undefined,
@@ -321,9 +289,8 @@ export const buildModelRow = (
         }
 
         const providerKey = normalizeProviderKey(endpoint)
-        // The fallback is normalized too: any key here is also interpolated into
-        // canonical-providers.ts as a string literal, so it has to be confined to
-        // [a-z0-9-] by construction rather than by whatever the provider is named.
+        // Normalized too: every key here is interpolated into canonical-providers.ts
+        // as a string literal, so it must be [a-z0-9-] by construction.
         const safeProviderKey =
             providerKey && providerKey !== 'default'
                 ? providerKey
@@ -372,10 +339,7 @@ export const accumulateModelRow = (built: BuiltModelRow, modelId: string, totals
     uncheckedModels: totals.uncheckedModels + (built.checked ? 0 : 1),
 })
 
-/**
- * Folds one model's fetched endpoints into the run totals, skipping a model
- * whose list pricing will not parse.
- */
+/** Skips a model whose list pricing will not parse, keeping what came before. */
 export const foldModelIntoTotals = (
     modelId: string,
     modelPricing: Record<string, unknown> | undefined,
@@ -390,10 +354,7 @@ export const foldModelIntoTotals = (
     return accumulateModelRow(built, modelId, totals)
 }
 
-/**
- * Orders the price book by model id so a run's output does not inherit
- * OpenRouter's response order, which would rewrite the whole file on every run.
- */
+/** Orders by model id: inheriting response order rewrites the whole file each run. */
 export const finalizeTotals = (totals: RunTotals): RunTotals => ({
     ...totals,
     models: [...totals.models].sort((a, b) => a.model.localeCompare(b.model)),
@@ -402,11 +363,8 @@ export const finalizeTotals = (totals: RunTotals): RunTotals => ({
 /** Name of the env var carrying the summary path, shared with the workflow that sets it. */
 export const DISCOUNT_SUMMARY_ENV = 'DISCOUNT_SUMMARY_PATH'
 
-/**
- * Writes the run's outputs. The summary only decorates a PR body, so it goes
- * last and its failure is logged rather than thrown: a scratch-file problem
- * must not discard a completed run's fetching.
- */
+/** The summary only decorates a PR body, so it goes last and cannot throw away a
+ * completed run's fetching. */
 export const writeOutputs = (sortedCosts: ModelRow[], discounts: DiscountReportEntry[], unchecked: number): void => {
     fs.writeFileSync(path.join(PATH_TO_PROVIDERS, OPENROUTER_COSTS_FILENAME), JSON.stringify(sortedCosts, null, 4))
     console.log(`Wrote OpenRouter costs to ${OPENROUTER_COSTS_FILENAME}`)
@@ -434,10 +392,8 @@ interface ListedModel {
     pricing?: Record<string, unknown>
 }
 
-/**
- * Walks the catalogue into a finished, ordered set of totals. Takes the endpoint
- * reader as an argument so every branch here is reachable without a network.
- */
+/** Takes the endpoint reader as an argument so this loop is reachable without a
+ * network. */
 export const collectModelRows = async (models: ListedModel[], readEndpoints: EndpointFetcher): Promise<RunTotals> => {
     let totals: RunTotals = { models: [], discounts: [], uncheckedModels: 0 }
 
@@ -452,9 +408,8 @@ export const collectModelRows = async (models: ListedModel[], readEndpoints: End
     }
 
     if (totals.uncheckedModels > 0) {
-        // Alias and meta-router models carry no per-endpoint pricing, so a handful
-        // here is the steady state. The denominator is what separates that from a
-        // degraded endpoints API, which also strips per-provider keys.
+        // Alias and meta-router models have no per-endpoint pricing, so a handful is
+        // the steady state; the denominator separates that from a degraded API.
         const line = `${totals.uncheckedModels}/${models.length} model(s) had no usable endpoint pricing`
         if (totals.uncheckedModels > models.length * UNCHECKED_WARN_FRACTION) {
             console.warn(`${line}: endpoint pricing looks degraded, per-provider prices are missing`)

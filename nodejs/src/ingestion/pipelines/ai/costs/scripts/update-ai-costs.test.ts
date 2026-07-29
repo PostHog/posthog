@@ -79,7 +79,7 @@ describe('parseDiscountRate()', () => {
         { description: 'a whitespace string', discount: '   ' },
         { description: 'an unparseable string', discount: 'abc' },
     ])('warns on a present but unusable rate: $description', ({ discount }) => {
-        // Silently reading these as "no promotion" stores the promo price as list.
+        // Read as "no promotion", these store the promo price as list.
         const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
         expect(parseDiscountRate({ discount }, 'x/y')).toBe(0)
         expect(warn).toHaveBeenCalledWith(expect.stringContaining('x/y'))
@@ -92,8 +92,7 @@ describe('parseDiscountRate()', () => {
     })
 
     it('warns exactly once on an unparseable string rate', () => {
-        // The decimal parser logs its own failure, so classifying before we hand
-        // it the value is what keeps a single bad field to a single line.
+        // The decimal parser logs its own failure; one bad field, one line.
         const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
         expect(parseDiscountRate({ discount: 'abc' }, 'x/y')).toBe(0)
         expect(warn).toHaveBeenCalledTimes(1)
@@ -125,8 +124,7 @@ describe('withoutDiscount()', () => {
     })
 
     it('keeps a cost at the served price even when a rate is present', () => {
-        // `default` is built through this. The list payload carries no rate today,
-        // so without the strip the carve-out would rest on that staying true.
+        // Without the strip the carve-out rests on the list payload never gaining a rate.
         const served = { prompt: '0.0000005', completion: '0.000003', discount: 0.5 }
         expect(buildModelCost(withoutDiscount(served))!.prompt_token).toBe(0.0000005)
         expect(buildModelCost(served)!.prompt_token).toBe(0.000001)
@@ -135,8 +133,6 @@ describe('withoutDiscount()', () => {
 
 describe('buildDefaultCost()', () => {
     it('keeps the served price when the list payload carries a rate', () => {
-        // The list payload has no rate today. This is what stops the carve-out
-        // from depending on that staying true.
         expect(buildDefaultCost({ prompt: '0.0000005', completion: '0.000003', discount: 0.5 })!.prompt_token).toBe(
             0.0000005
         )
@@ -156,7 +152,6 @@ describe('buildModelCost() discount handling', () => {
     })
 
     it('leaves an undiscounted endpoint untouched', () => {
-        // The azure row for gpt-5.6-luna, which OpenRouter serves at discount: 0.
         expect(buildModelCost({ prompt: '0.000001', completion: '0.000006', discount: 0 })).toEqual({
             prompt_token: 0.000001,
             completion_token: 0.000006,
@@ -171,8 +166,7 @@ describe('buildModelCost() discount handling', () => {
     })
 
     it('divides a promo price back up to list', () => {
-        // The openai row for gpt-5.6-luna at discount: 0.5. The recovered list
-        // price must equal the undiscounted azure sibling exactly.
+        // Must land exactly on the undiscounted azure sibling.
         expect(buildModelCost({ prompt: '0.0000005', completion: '0.000003', discount: 0.5 })).toEqual({
             prompt_token: 0.000001,
             completion_token: 0.000006,
@@ -180,8 +174,7 @@ describe('buildModelCost() discount handling', () => {
     })
 
     it('applies the rate uniformly to every field, flat fees included', () => {
-        // web_search is a per-call fee rather than a token rate, and OpenRouter
-        // discounts it at the same ratio: 0.005 against 0.01 on the azure sibling.
+        // web_search is a per-call fee and is discounted at the same ratio.
         expect(
             buildModelCost({
                 prompt: '0.0000005',
@@ -215,10 +208,8 @@ describe('buildModelCost() discount handling', () => {
 })
 
 describe('buildModelCost() recovers prices the cost book previously recorded', () => {
-    // Each row is a promotion OpenRouter is running today paired with the list
-    // price the cost book itself held for that model before the promotion began.
-    // Sourced from the alibaba -> alibaba-fp8 retag, plus the two OpenAI models
-    // whose list price is independently visible on an undiscounted azure route.
+    // Expectations are the list prices the cost book itself held before each
+    // promotion began, so a wrong divisor fails on values this suite did not pick.
     it.each<{ model: string; served: string; discount: number; list: number }>([
         { model: 'qwen/qwen-plus prompt', served: '0.000000169', discount: 0.35, list: 0.00000026 },
         { model: 'qwen/qwen-plus completion', served: '0.000000507', discount: 0.35, list: 0.00000078 },
@@ -249,8 +240,7 @@ describe('buildModelRow()', () => {
     })
 
     it('reports nothing was checked when every endpoint fails to parse', () => {
-        // A payload can arrive non-empty and still yield no usable pricing, which
-        // is the same "we learned nothing" state as an empty list.
+        // A non-empty payload can still yield no usable pricing.
         const built = buildModelRow('openai/gpt-5.6-luna', listPricing, [
             { tag: 'openai', pricing: { prompt: 'x' } },
             {},
@@ -270,8 +260,8 @@ describe('buildModelRow()', () => {
     })
 
     it('leaves `default` exactly as OpenRouter served it', () => {
-        // `default` is what provider-matching.ts resolves `$ai_provider: openrouter`
-        // onto, and OpenRouter really does bill the promo rate, so it must not move.
+        // provider-matching.ts resolves `$ai_provider: openrouter` onto `default`,
+        // and OpenRouter does bill the promo rate, so it must not move.
         const built = buildModelRow('openai/gpt-5.6-luna', listPricing, [endpoint('openai', '0.0000005', 0.5)])
         expect(built!.cost.default).toEqual(listCost)
         expect(built!.cost.default.prompt_token).toBe(0.0000005)
@@ -296,23 +286,20 @@ describe('buildModelRow()', () => {
     })
 
     it('never lets an endpoint claim the `default` key', () => {
-        // A route tagged "default" would otherwise overwrite the served price with
-        // a de-discounted one, which is the exact over-report this branch avoids.
+        // Otherwise it overwrites the served price with a de-discounted one.
         const built = buildModelRow('evil/model', listPricing, [endpoint('default', '0.0000009', 0.5)])
         expect(built!.cost.default).toEqual(listCost)
         expect(built!.cost['provider-default'].prompt_token).toBe(0.0000018)
     })
 
     it('reports not-checkable when no undiscounted sibling exists', () => {
-        // The shape of every Qwen model: Alibaba is the only route, so the
-        // arithmetic cannot be independently corroborated.
+        // Every Qwen model: Alibaba is the only route, so nothing corroborates it.
         const built = buildModelRow('qwen/qwen-plus', listPricing, [endpoint('alibaba-fp8', '0.000000169', 0.35)])
         expect(built!.discount?.confirmation).toBe('not-checkable')
     })
 
     it('warns once, naming the model, on an out-of-range rate', () => {
-        // The rate is parsed twice per endpoint; only the call carrying the model
-        // context should speak, or the log gains an unattributable duplicate.
+        // Parsed twice per endpoint; a second warn would be unattributable.
         const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
         buildModelRow('openai/gpt-5.6-luna', listPricing, [endpoint('openai', '0.000001', 1.5)])
         expect(warn).toHaveBeenCalledTimes(1)
@@ -330,8 +317,7 @@ describe('buildModelRow()', () => {
     })
 
     it('confines a hostile provider name to a safe key', () => {
-        // The key is interpolated into canonical-providers.ts as a string literal,
-        // so an apostrophe must not be able to reach it.
+        // Interpolated into generated TypeScript, so an apostrophe must not reach it.
         const built = buildModelRow('evil/model', listPricing, [
             { tag: '!!!', provider_name: "o'brien <script>", pricing: { prompt: '0.000001', completion: '0.000001' } },
         ])
@@ -352,7 +338,6 @@ describe('confirmDiscountAgainstSiblings()', () => {
     })
 
     it('confirms when the de-discounted price lands on an undiscounted sibling', () => {
-        // gpt-5.6-luna: openai at 0.5 recovers 0.000001, exactly azure's rate.
         expect(
             confirmDiscountAgainstSiblings([candidate('openai', '0.0000005', 0.5), candidate('azure', '0.000001', 0)])
         ).toBe('confirmed')
@@ -365,8 +350,7 @@ describe('confirmDiscountAgainstSiblings()', () => {
     })
 
     it('compares on the prompt price, not the completion price', () => {
-        // Every other fixture sets completion equal to prompt, which cannot tell
-        // the two fields apart.
+        // Every other fixture sets completion equal to prompt.
         const discounted: EndpointCandidate = {
             key: 'openai',
             cost: buildModelCost({ prompt: '0.0000005', completion: '0.000009', discount: 0.5 })!,
@@ -431,9 +415,7 @@ describe('renderDiscountReport()', () => {
     })
 
     it('counts endpoints and models, and reports the confirmed ratio', () => {
-        // Three rows so the numerator and denominator differ: a ratio fixture
-        // where every checkable row is confirmed reads the same under a
-        // confirmed-count and a checkable-count, and proves neither.
+        // Numerator and denominator must differ, or a checkable-count reads the same.
         const report = renderDiscountReport([
             entry(),
             entry({ model: 'aaa/unconfirmed', confirmation: 'unconfirmed' }),
@@ -472,8 +454,7 @@ describe('renderDiscountReport()', () => {
     })
 
     it('reports models it could not check rather than claiming a clean run', () => {
-        // Absence of a measurement is not a measurement of zero: a run whose
-        // endpoint calls all failed must not read as "no promotions".
+        // A run whose endpoint calls all failed must not read as "no promotions".
         expect(renderDiscountReport([], 17)).toContain('17 model(s) could not be checked')
         expect(renderDiscountReport([entry()], 17)).toContain('17 model(s) could not be checked')
     })
@@ -506,8 +487,7 @@ describe('renderDiscountReport()', () => {
     })
 
     it('caps on rendered rows, not models, since a model can carry many endpoints', () => {
-        // 32 endpoints is the widest model in the catalogue today, so a
-        // model-based cap would render 32x the rows it promises.
+        // The widest model carries 32 endpoints, so a model cap under-counts rows.
         const report = renderDiscountReport(manyEntries(20, 32))
         expect(report.split('\n').filter((line) => line.includes('50%')).length).toBeLessThanOrEqual(
             DISCOUNT_REPORT_ROW_LIMIT
@@ -522,8 +502,7 @@ describe('renderDiscountReport()', () => {
     })
 
     it('escapes a hostile endpoint key so it cannot break the table', () => {
-        // The key is sanitized separately from the model id, so it needs its own
-        // input or dropping one of the two calls stays green.
+        // Sanitized separately from the model id, so it needs its own input.
         const report = renderDiscountReport([entry({ endpoints: [{ key: 'a|b\n| pwned | 9 | 9 |', discount: 0.5 }] })])
         expect(report).not.toContain('pwned | 9 | 9 |')
         expect(report.split('\n').filter((line) => line.includes('50%'))).toHaveLength(1)
@@ -558,14 +537,12 @@ describe('accumulateModelRow()', () => {
     })
 
     it('counts a row that could not be checked', () => {
-        // This is the number the PR body reports, so the wire from `checked` to
-        // the summary has to be covered, not just its two ends.
+        // The wire from `checked` to the summary, not just its two ends.
         expect(accumulateModelRow(built({ checked: false }), 'm', totals()).uncheckedModels).toBe(1)
     })
 
     it('accumulates across successive calls', () => {
-        // Every field has to accumulate the same way, or a caller picks up one
-        // that silently stayed behind.
+        // Every field must accumulate the same way, or one silently stays behind.
         let acc = totals()
         acc = accumulateModelRow(built({ checked: false }), 'a', acc)
         acc = accumulateModelRow(built({ checked: false }), 'b', acc)
@@ -616,7 +593,7 @@ describe('foldModelIntoTotals()', () => {
     })
 
     it('keeps what was already collected when it skips', () => {
-        // Starting from empty cannot tell "added nothing" from "discarded everything".
+        // From empty, "added nothing" and "discarded everything" look the same.
         jest.spyOn(console, 'warn').mockImplementation(() => {})
         const seeded = foldModelIntoTotals('good/one', listPricing, [endpoint('openai', '0.000001', 0.5)], start())
         expect(seeded.models).toHaveLength(1)
@@ -643,13 +620,12 @@ describe('finalizeTotals()', () => {
     const row = (model: string) => ({ model, cost: { default: cost('0.000001')! } })
 
     it('orders models by id so output does not follow response order', () => {
-        // Unsorted output rewrites the whole file every run and opens a PR on noise.
         const out = finalizeTotals({ models: [row('z/z'), row('a/a')], discounts: [], uncheckedModels: 0 })
         expect(out.models.map((m) => m.model)).toStrictEqual(['a/a', 'z/z'])
     })
 
     it('leaves the totals it was handed untouched', () => {
-        // Same contract accumulateModelRow carries; the family grew past its test.
+        // Same contract accumulateModelRow carries.
         const base: RunTotals = { models: [row('z/z'), row('a/a')], discounts: [], uncheckedModels: 0 }
         finalizeTotals(base)
         expect(base.models.map((m) => m.model)).toStrictEqual(['z/z', 'a/a'])
@@ -666,8 +642,7 @@ describe('collectModelRows()', () => {
     const noEndpoints = (): Promise<unknown[]> => Promise.resolve([])
 
     it('orders the price book by model id', () => {
-        // Unsorted output follows OpenRouter's response order, which rewrites the
-        // whole file every run and opens a PR on noise.
+        // Response order rewrites the whole file each run and opens a PR on noise.
         return collectModelRows([priced('z/z'), priced('a/a')], noEndpoints).then((totals) => {
             expect(totals.models.map((m) => m.model)).toStrictEqual(['a/a', 'z/z'])
         })
@@ -692,10 +667,8 @@ describe('collectModelRows()', () => {
     })
 
     it('reports the unchecked count with its denominator', async () => {
-        // 17-of-367 is the healthy steady state; without the denominator that
-        // reads identically to a degraded run. Assert the whole phrase: the
-        // per-model progress line also carries an "n/m" and would satisfy a
-        // bare substring check.
+        // Assert the whole phrase: the per-model progress line also carries an
+        // "n/m" and would satisfy a bare substring check.
         const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
         jest.spyOn(console, 'log').mockImplementation(() => {})
         await collectModelRows([priced('a/a'), priced('b/b')], noEndpoints)
@@ -800,8 +773,7 @@ describe('fetchOpenRouterCosts()', () => {
             })) as never)
 
     it('reads per-endpoint pricing, not just the list payload', async () => {
-        // The loop takes its reader as an argument so a test can fake it; this is
-        // what pins that production hands it the real one.
+        // Pins that production hands the loop the real reader, not a fake.
         jest.spyOn(console, 'log').mockImplementation(() => {})
         mockFetch()
         const totals = await fetchOpenRouterCosts()
@@ -886,8 +858,7 @@ describe('writeOutputs()', () => {
     })
 
     it('renders the promotions it was handed into the summary', () => {
-        // Every other call passes an empty list, which cannot tell the real
-        // argument from a hardcoded empty one.
+        // Every other call passes an empty list, which pins nothing.
         process.env[DISCOUNT_SUMMARY_ENV] = summaryPath
         const writes = captureWrites()
         const promo = {
@@ -952,10 +923,8 @@ describe('workflow contract', () => {
 
 describe('module import safety', () => {
     it('does not fetch or write generated files when imported', () => {
-        // Without the entry guard, importing the module hits the live OpenRouter
-        // API and rewrites the committed price book mid-test-run. Spies are
-        // installed before the module loads here so the assertion catches that,
-        // rather than the damage catching it first.
+        // Without the guard, importing hits the live API and rewrites the committed
+        // price book. Spies go in before the module loads so the assertion catches it.
         const fetchSpy = jest
             .spyOn(global, 'fetch' as never)
             .mockImplementation((() =>
