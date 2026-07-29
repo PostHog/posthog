@@ -1,6 +1,7 @@
 import re
 import json
 import time
+import threading
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
@@ -254,42 +255,70 @@ def _read_capped_json(
     # Resolved at call time (not as defaults) so the module-level caps stay patchable in tests.
     max_bytes = MAX_RESPONSE_BYTES if max_bytes is None else max_bytes
     max_seconds = MAX_DOWNLOAD_SECONDS if max_seconds is None else max_seconds
-    chunks: list[bytes] = []
-    total = 0
-    deadline = time.monotonic() + max_seconds
+    result: dict[str, Any] = {}
+
+    def _drain() -> None:
+        chunks: list[bytes] = []
+        total = 0
+        try:
+            for chunk in response.iter_content(chunk_size=_RESPONSE_CHUNK_BYTES):
+                if not chunk:
+                    continue
+                total += len(chunk)
+                if total > max_bytes:
+                    result["error"] = AdobeCommerceResponseTooLargeError(
+                        f"Adobe Commerce response exceeded the {max_bytes}-byte limit; refusing to buffer it"
+                    )
+                    return
+                chunks.append(chunk)
+            result["body"] = b"".join(chunks)
+        except Exception as e:
+            result["error"] = e
+
+    # `iter_content` blocks until its chunk fills while the socket's per-read timeout resets on every
+    # byte, so a host dripping bytes could stall past `max_seconds` without any inline check running.
+    # Read on a daemon thread we stop waiting on at the deadline, so the worker is freed even when the
+    # underlying socket read never returns; the abandoned thread ends once that read eventually errors.
+    worker = threading.Thread(target=_drain, daemon=True)
+    worker.start()
+    worker.join(max_seconds)
     try:
-        for chunk in response.iter_content(chunk_size=_RESPONSE_CHUNK_BYTES):
-            if time.monotonic() > deadline:
-                raise AdobeCommerceResponseTooSlowError(
-                    f"Adobe Commerce response exceeded the {max_seconds}s download budget; aborting"
-                )
-            if not chunk:
-                continue
-            total += len(chunk)
-            if total > max_bytes:
-                raise AdobeCommerceResponseTooLargeError(
-                    f"Adobe Commerce response exceeded the {max_bytes}-byte limit; refusing to buffer it"
-                )
-            chunks.append(chunk)
+        if worker.is_alive():
+            raise AdobeCommerceResponseTooSlowError(
+                f"Adobe Commerce response exceeded the {max_seconds}s download budget; aborting"
+            )
+        if "error" in result:
+            raise result["error"]
+        return json.loads(result["body"])
     finally:
         response.close()
-    return json.loads(b"".join(chunks))
 
 
 def _read_body_preview(response: requests.Response) -> str:
-    chunks: list[bytes] = []
-    total = 0
-    deadline = time.monotonic() + MAX_DOWNLOAD_SECONDS
-    for chunk in response.iter_content(chunk_size=_RESPONSE_CHUNK_BYTES):
-        if time.monotonic() > deadline:
-            break
-        if not chunk:
-            continue
-        chunks.append(chunk)
-        total += len(chunk)
-        if total >= _ERROR_BODY_PREVIEW_BYTES:
-            break
-    return b"".join(chunks)[:_ERROR_BODY_PREVIEW_BYTES].decode("utf-8", errors="replace")
+    result: dict[str, bytes] = {}
+
+    def _drain() -> None:
+        chunks: list[bytes] = []
+        total = 0
+        try:
+            for chunk in response.iter_content(chunk_size=_RESPONSE_CHUNK_BYTES):
+                if not chunk:
+                    continue
+                chunks.append(chunk)
+                total += len(chunk)
+                if total >= _ERROR_BODY_PREVIEW_BYTES:
+                    break
+        except Exception:
+            # A preview read failing shouldn't mask the real error being logged.
+            pass
+        result["body"] = b"".join(chunks)[:_ERROR_BODY_PREVIEW_BYTES]
+
+    # Same drip hazard as `_read_capped_json`: bound the error-preview read on a daemon thread and
+    # give up at the deadline so a slow host can't stall the worker on the error path.
+    worker = threading.Thread(target=_drain, daemon=True)
+    worker.start()
+    worker.join(MAX_DOWNLOAD_SECONDS)
+    return result.get("body", b"").decode("utf-8", errors="replace")
 
 
 class AdobeCommerceTokenManager:

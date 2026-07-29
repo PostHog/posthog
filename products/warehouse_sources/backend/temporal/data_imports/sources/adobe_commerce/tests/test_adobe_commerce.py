@@ -1,4 +1,5 @@
 import json
+import threading
 from collections.abc import Callable, Iterable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, cast
@@ -20,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_comm
     AdobeCommerceHostNotAllowedError,
     AdobeCommercePaginationLimitError,
     AdobeCommerceResponseTooLargeError,
+    AdobeCommerceResponseTooSlowError,
     AdobeCommerceResumeConfig,
     AdobeCommerceRetryableError,
     AdobeCommerceTokenManager,
@@ -385,6 +387,25 @@ class TestReadCappedJson:
     def test_body_within_the_cap_parses(self) -> None:
         assert _read_capped_json(_make_response(200, {"items": [{"id": 1}]})) == {"items": [{"id": 1}]}
         assert MAX_RESPONSE_BYTES > 0
+
+    def test_slow_body_is_abandoned_at_the_deadline(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # A host that never completes a chunk (dripping bytes under the socket read timeout) must not
+        # hold the worker: the read runs on a thread we stop waiting on once the budget expires.
+        release = threading.Event()
+
+        def blocking_iter(chunk_size: Any = None) -> Iterator[bytes]:
+            release.wait(5)  # the deadline fires first; released in the finally below
+            yield b'"tok"'
+
+        monkeypatch.setattr(adobe_commerce, "MAX_DOWNLOAD_SECONDS", 0.05)
+        response = MagicMock()
+        response.iter_content.side_effect = blocking_iter
+        try:
+            with pytest.raises(AdobeCommerceResponseTooSlowError):
+                _read_capped_json(response)
+        finally:
+            release.set()
+        response.close.assert_called()
 
 
 def _collect(
