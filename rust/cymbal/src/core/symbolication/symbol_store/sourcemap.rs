@@ -45,7 +45,8 @@ const MAX_REDIRECTS: usize = 10;
 /// `http://127.0.0.1:6379/` would otherwise sail straight past it. `Url::parse` normalizes the
 /// octal, hex and integer IPv4 forms, so obfuscated literals arrive here as plain addresses.
 ///
-/// Hostnames are passed through for the resolver to vet at connect time.
+/// Hostnames are passed through, to be vetted at connect time by whichever layer owns that:
+/// `PublicIPv4Resolver` normally, or the egress proxy when one is configured.
 fn ensure_fetchable_host(url: &Url, allow_internal_ips: bool) -> Result<(), JsResolveErr> {
     if allow_internal_ips {
         return Ok(());
@@ -162,12 +163,12 @@ impl SourcemapProvider {
             || valid_proxy_url("https_proxy");
 
         if has_proxy {
-            // When an egress proxy (e.g. smokescreen) is configured, it handles SSRF
-            // protection. The PublicIPv4Resolver would block the connection to the proxy
-            // itself since it resolves to a cluster-internal IP.
-            info!(
-                "HTTP(S)_PROXY is set, skipping PublicIPv4Resolver (proxy handles SSRF protection)"
-            );
+            // When an egress proxy (e.g. smokescreen) is configured, it owns vetting where a
+            // *hostname* ends up resolving. We can't do that ourselves here: PublicIPv4Resolver
+            // would block the connection to the proxy itself, since the proxy resolves to a
+            // cluster-internal IP. `ensure_fetchable_host` below still applies either way - it
+            // inspects the target url's host, not the proxy's, so it costs the proxy nothing.
+            info!("HTTP(S)_PROXY is set, skipping PublicIPv4Resolver (proxy vets hostnames)");
         } else if !config.allow_internal_ips {
             client = client.dns_resolver(Arc::new(common_dns::PublicIPv4Resolver {}));
         } else {
@@ -175,7 +176,8 @@ impl SourcemapProvider {
         }
 
         // Redirect targets are as attacker-controlled as the original URL, so vet every hop the
-        // same way. The DNS resolver covers hostname hops; this catches IP-literal ones.
+        // same way. Whoever vets hostnames above covers those; this catches IP-literal hops,
+        // which never reach a DNS resolver at all.
         let allow_internal_ips = config.allow_internal_ips;
         client = client.redirect(reqwest::redirect::Policy::custom(move |attempt| {
             // `previous` holds the urls already requested, so its length is the number of this
