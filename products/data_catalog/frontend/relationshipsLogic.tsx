@@ -4,6 +4,8 @@ import { urlToAction } from 'kea-router'
 
 import api, { ApiConfig, ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 import { urls } from 'scenes/urls'
 
 import { DataWarehouseViewLink } from '~/types'
@@ -33,6 +35,7 @@ export interface RelationshipRow {
     reviewedBy: string | null
     viaCatalog: boolean
     proposalId: string | null
+    joinId: string | null
 }
 
 function projectId(): string {
@@ -48,6 +51,7 @@ export interface relationshipsLogicValues {
     actionsInFlight: Record<string, boolean>
     filteredRows: RelationshipRow[]
     joins: DataWarehouseViewLink[]
+    joinsById: Record<string, DataWarehouseViewLink>
     joinsLoading: boolean
     pendingCount: number
     pendingCountLoading: boolean
@@ -61,6 +65,9 @@ export interface relationshipsLogicValues {
 export interface relationshipsLogicActions {
     acceptProposal: (id: string) => {
         id: string
+    }
+    deleteJoin: (join: DataWarehouseViewLink) => {
+        join: DataWarehouseViewLink
     }
     loadJoins: () => any
     loadJoinsFailure: (
@@ -131,6 +138,7 @@ export interface relationshipsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         rows: (proposals: DataCatalogRelationshipProposalApi[], joins: DataWarehouseViewLink[]) => RelationshipRow[]
         filteredRows: (rows: RelationshipRow[], statusFilter: RelationshipStatusFilter) => RelationshipRow[]
+        joinsById: (joins: DataWarehouseViewLink[]) => Record<string, DataWarehouseViewLink>
     }
 }
 
@@ -148,6 +156,7 @@ export const relationshipsLogic = kea<relationshipsLogicType>([
         acceptProposal: (id: string) => ({ id }),
         rejectProposal: (id: string, rejectionReason: string) => ({ id, rejectionReason }),
         setActionInFlight: (id: string, inFlight: boolean) => ({ id, inFlight }),
+        deleteJoin: (join: DataWarehouseViewLink) => ({ join }),
     }),
     loaders(() => ({
         // Badge count only — never pull the full proposal payloads (unbounded reasoning/evidence)
@@ -225,6 +234,7 @@ export const relationshipsLogic = kea<relationshipsLogicType>([
                         reviewedBy: proposal?.reviewed_by?.email ?? null,
                         viaCatalog: !!proposal,
                         proposalId: null,
+                        joinId: join.id,
                     }
                 })
 
@@ -251,6 +261,7 @@ export const relationshipsLogic = kea<relationshipsLogicType>([
                         reviewedBy: proposal.reviewed_by?.email ?? null,
                         viaCatalog: true,
                         proposalId: proposal.id,
+                        joinId: null,
                     }))
 
                 const proposalRows: RelationshipRow[] = proposals
@@ -270,6 +281,7 @@ export const relationshipsLogic = kea<relationshipsLogicType>([
                         reviewedBy: proposal.reviewed_by?.email ?? null,
                         viaCatalog: false,
                         proposalId: proposal.id,
+                        joinId: null,
                     }))
 
                 return [...joinRows, ...orphanedAcceptedRows, ...proposalRows]
@@ -279,6 +291,11 @@ export const relationshipsLogic = kea<relationshipsLogicType>([
             (s) => [s.rows, s.statusFilter],
             (rows: RelationshipRow[], statusFilter: RelationshipStatusFilter) =>
                 statusFilter === 'all' ? rows : rows.filter((row) => row.rowStatus === statusFilter),
+        ],
+        joinsById: [
+            (s) => [s.joins],
+            (joins: DataWarehouseViewLink[]): Record<string, DataWarehouseViewLink> =>
+                Object.fromEntries(joins.map((join) => [join.id, join])),
         ],
     }),
     listeners(({ values, actions }) => ({
@@ -316,6 +333,23 @@ export const relationshipsLogic = kea<relationshipsLogicType>([
             } finally {
                 actions.setActionInFlight(id, false)
             }
+        },
+        deleteJoin: async ({ join }) => {
+            try {
+                await deleteWithUndo({
+                    endpoint: `environments/${projectId()}/warehouse_view_link`,
+                    object: { id: join.id, name: `${join.field_name} on ${join.source_table_name}` },
+                    callback: () => actions.loadJoins(),
+                })
+            } catch (error) {
+                lemonToast.error(apiErrorDetail(error) || 'Could not delete the join. Try again.')
+            }
+        },
+        // Refresh after the shared join modal saves. Referencing actionTypes builds
+        // viewLinkLogic without mounting it, so the catalog scene doesn't eagerly load
+        // the database schema; the modal in RelationshipsTab mounts it when visible.
+        [viewLinkLogic.actionTypes.submitViewLinkSuccess]: () => {
+            actions.loadJoins()
         },
     })),
     urlToAction(({ actions }) => ({
