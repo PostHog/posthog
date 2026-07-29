@@ -9,6 +9,7 @@ export interface IntegrationGatewayServiceConfig {
     CDP_INTEGRATION_GATEWAY_URL: string
     CDP_INTEGRATION_GATEWAY_JWT_SECRET: string
     CDP_INTEGRATION_GATEWAY_ROLLOUT: string
+    CDP_INTEGRATION_GATEWAY_TIMEOUT_MS: number
 }
 
 // Short-lived: the gateway only needs the token for the duration of a single request.
@@ -23,11 +24,13 @@ export class IntegrationGatewayService {
     private baseUrl: string
     private jwt: JWT
     private rollout: ValueMatcher<number>
+    private timeoutMs: number
 
     constructor(config: IntegrationGatewayServiceConfig) {
         this.baseUrl = config.CDP_INTEGRATION_GATEWAY_URL.replace(/\/+$/, '')
         this.jwt = new JWT(config.CDP_INTEGRATION_GATEWAY_JWT_SECRET)
         this.rollout = buildIntegerMatcherWithPercentage(config.CDP_INTEGRATION_GATEWAY_ROLLOUT)
+        this.timeoutMs = config.CDP_INTEGRATION_GATEWAY_TIMEOUT_MS
     }
 
     enabledForTeam(teamId: number): boolean {
@@ -47,6 +50,9 @@ export class IntegrationGatewayService {
             method: 'POST',
             headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
             body: JSON.stringify({ integration_ids: ids }),
+            // Fast-fail so a slow/degraded gateway falls back to Postgres quickly instead of every
+            // hot-path read blocking on the long default external-request timeout.
+            timeoutMs: this.timeoutMs,
         })
 
         if (response.status !== 200) {

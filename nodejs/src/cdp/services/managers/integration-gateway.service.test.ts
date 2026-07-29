@@ -22,6 +22,7 @@ function config(rollout = '*'): IntegrationGatewayServiceConfig {
         CDP_INTEGRATION_GATEWAY_URL: 'http://gw:6738',
         CDP_INTEGRATION_GATEWAY_JWT_SECRET: 'test-secret',
         CDP_INTEGRATION_GATEWAY_ROLLOUT: rollout,
+        CDP_INTEGRATION_GATEWAY_TIMEOUT_MS: 3000,
     }
 }
 
@@ -56,6 +57,19 @@ describe('IntegrationGatewayService', () => {
         const decoded = jwt.verify(token, 'test-secret', { audience: AUDIENCE }) as jwt.JwtPayload
         expect(decoded.team_id).toBe(42)
         expect(decoded.caller).toBe('cdp')
+    })
+
+    it('passes a fast-fail timeout so a degraded gateway falls back to Postgres quickly', async () => {
+        mockInternalFetch.mockResolvedValue({
+            status: 200,
+            json: () => Promise.resolve({ integrations: {} }),
+            dump: () => Promise.resolve(),
+        })
+        await new IntegrationGatewayService({ ...config(), CDP_INTEGRATION_GATEWAY_TIMEOUT_MS: 1500 }).fetchMany(
+            [1],
+            42
+        )
+        expect(mockInternalFetch.mock.calls[0][1].timeoutMs).toBe(1500)
     })
 
     it('throws on a non-200 so the manager falls back to Postgres', async () => {

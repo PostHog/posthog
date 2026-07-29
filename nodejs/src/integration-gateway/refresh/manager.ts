@@ -3,6 +3,7 @@ import { logger } from '~/common/utils/logger'
 import { fetch } from '~/common/utils/request'
 import { RedisPool } from '~/types'
 
+import { RefreshTeamGate } from '../config'
 import { recordRefresh } from '../metrics'
 import { IntegrationRepository } from '../repository'
 import { IntegrationRow } from '../types'
@@ -22,9 +23,11 @@ export type RefreshManagerConfig = ProviderCredentials & {
 }
 
 /**
- * Owns just-in-time OAuth token refresh for the kinds listed in `INTEGRATION_GATEWAY_REFRESH_KINDS`.
+ * Owns just-in-time OAuth token refresh for rows whose kind is in `INTEGRATION_GATEWAY_REFRESH_KINDS`
+ * (capability contract) AND whose team is in `INTEGRATION_GATEWAY_REFRESH_TEAMS` (rollout gate).
  * Single-flight per integration via a Redis lock, so only one head refreshes a given row at a time
- * (important for providers that rotate the refresh token). Django's beat MUST exclude these kinds.
+ * (important for providers that rotate the refresh token). Django's beat MUST exclude exactly the
+ * same (kind, team) rows so every row has precisely one refresher.
  */
 export class RefreshManager {
     private ownedKinds: Set<string>
@@ -34,13 +37,17 @@ export class RefreshManager {
         private encryptedFields: EncryptedFields,
         private redisPool: RedisPool,
         private config: RefreshManagerConfig,
-        ownedKinds: string[]
+        ownedKinds: string[],
+        private ownedTeams: RefreshTeamGate
     ) {
         this.ownedKinds = new Set(ownedKinds)
     }
 
-    owns(kind: string): boolean {
-        return this.ownedKinds.has(kind)
+    owns(kind: string, teamId: number): boolean {
+        if (!this.ownedKinds.has(kind)) {
+            return false
+        }
+        return this.ownedTeams === '*' || this.ownedTeams.has(teamId)
     }
 
     /**
