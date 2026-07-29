@@ -48,7 +48,9 @@ export class IntegrationManagerService {
             try {
                 const result = await this.gateway.fetchMany(ids, teamId)
                 gatewayRequestsCounter.inc({ result: 'ok' })
-                logger.info('[IntegrationManager]', 'Loaded integrations via gateway service', { ids, teamId })
+                // Per-fetch, so debug-only — the cdp_integration_gateway_requests_total counter is
+                // the prod signal. The once-per-boot enabled/disabled line stays at info.
+                logger.debug('[IntegrationManager]', 'Loaded integrations via gateway service', { ids, teamId })
                 return result
             } catch (error) {
                 logger.warn('[IntegrationManager]', 'Gateway fetch failed, falling back to Postgres', {
@@ -67,7 +69,7 @@ export class IntegrationManagerService {
     }
 
     private async fetchIntegrations(ids: string[]): Promise<Record<string, IntegrationType | undefined>> {
-        logger.info('[IntegrationManager]', 'Loading integrations via Postgres (direct DB)', { ids })
+        logger.debug('[IntegrationManager]', 'Loading integrations via Postgres (direct DB)', { ids })
 
         const response = await this.postgres.query<IntegrationType>(
             PostgresUse.COMMON_READ,
