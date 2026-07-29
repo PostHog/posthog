@@ -9,6 +9,7 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 import { findInboxProduct, freePrs, pricePerPrUsd } from 'scenes/billing/inboxPricing'
 import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
 import { onboardingEventUsageLogic } from 'scenes/onboarding/onboardingEventUsageLogic'
+import { availableOnboardingProducts } from 'scenes/onboarding/shared/utils'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { type BillingProductV2Type } from '~/types'
@@ -33,6 +34,43 @@ function priceLabel(usd: number | null): string | null {
     }
     const formatted = Number.isInteger(usd) ? `$${usd}` : `$${usd.toFixed(2)}`
     return `${formatted} per shipped PR`
+}
+
+const compact = (value: number): string =>
+    Intl.NumberFormat('en', { notation: 'compact', compactDisplay: 'short', maximumFractionDigits: 1 }).format(value)
+
+/**
+ * Monthly free allowance on the tools the wizard turns on, so the plan reads as the whole platform
+ * rather than PRs alone — subscribing activates the full catalog either way.
+ */
+function ToolFreeTiers({ products }: { products: BillingProductV2Type[] | undefined }): JSX.Element | null {
+    const allowances = (products ?? [])
+        .filter((product) => product.type in availableOnboardingProducts)
+        .map((product) => {
+            const freePlan = product.plans.find((plan) => plan.plan_key?.startsWith('free'))
+            return { name: product.name, unit: freePlan?.unit ?? '', value: freePlan?.free_allocation ?? 0 }
+        })
+        .filter((allowance) => allowance.unit && allowance.value > 0)
+
+    if (allowances.length === 0) {
+        return null
+    }
+
+    return (
+        <>
+            {allowances.map(({ name, unit, value }) => (
+                <li key={name} className="flex items-center gap-2">
+                    <IconCheck className="size-4 text-success shrink-0" />
+                    <span className="text-sm">
+                        <strong>
+                            {compact(value)} {pluralize(value, unit, undefined, false)}
+                        </strong>{' '}
+                        <span className="text-muted">a month {name.toLowerCase()}, free</span>
+                    </span>
+                </li>
+            ))}
+        </>
+    )
 }
 
 function FreeAllowance({ prs }: { prs: number }): JSX.Element {
@@ -69,10 +107,12 @@ function SubscribedState({ onContinue }: { onContinue: () => void }): JSX.Elemen
 function PlanChoice({
     platformProduct,
     inboxProduct,
+    products,
     onContinue,
 }: {
     platformProduct: BillingProductV2Type | null
     inboxProduct: BillingProductV2Type | null
+    products: BillingProductV2Type[] | undefined
     onContinue: () => void
 }): JSX.Element {
     const { startPaymentEntryFlow } = useActions(paymentEntryLogic)
@@ -109,16 +149,17 @@ function PlanChoice({
                     <p className="m-0 text-base font-semibold">Free</p>
                     <p className="m-0 text-sm text-muted">$0 / month</p>
                 </div>
-                {included > 0 && (
-                    <ul className="flex flex-col gap-1.5 m-0 p-0 list-none">
+                <ul className="flex flex-col gap-1.5 m-0 p-0 list-none">
+                    {included > 0 && (
                         <li className="flex items-center gap-2">
                             <IconCheck className="size-4 text-success shrink-0" />
                             <span className="text-sm">
                                 <FreeAllowance prs={included} />
                             </span>
                         </li>
-                    </ul>
-                )}
+                    )}
+                    <ToolFreeTiers products={products} />
+                </ul>
                 <p className="m-0 text-xs text-muted">
                     Agents pause shipping once you've used those up, instead of charging you.
                 </p>
@@ -146,6 +187,10 @@ function PlanChoice({
                     <li className="flex items-center gap-2">
                         <IconCheck className="size-4 text-success shrink-0" />
                         <span className="text-sm">Agents keep shipping past the free allowance</span>
+                    </li>
+                    <li className="flex items-center gap-2">
+                        <IconCheck className="size-4 text-success shrink-0" />
+                        <span className="text-sm">Same monthly free tier on every tool</span>
                     </li>
                     <li className="flex items-center gap-2">
                         <IconCheck className="size-4 text-success shrink-0" />
@@ -218,6 +263,7 @@ export function ContextBillingStep({ onContinue }: { onContinue: () => void }): 
         <PlanChoice
             platformProduct={platformProduct}
             inboxProduct={findInboxProduct(billing.products)}
+            products={billing.products}
             onContinue={onContinue}
         />
     )
