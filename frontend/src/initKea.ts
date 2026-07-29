@@ -11,6 +11,7 @@ import posthog from 'posthog-js'
 import { isAccessDeniedError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
+    URL_PATTERN_OPTIONS,
     addProjectIdIfMissing,
     ensureRoutablePathname,
     removeProjectIdIfPresent,
@@ -91,11 +92,7 @@ export function initKea({
         routerPlugin({
             history: routerHistory,
             location: routerLocation,
-            urlPatternOptions: {
-                // :TRICKY: What chars to allow in named segment values i.e. ":key"
-                // in "/url/:key". Default: "a-zA-Z0-9-_~ %".
-                segmentValueCharset: "a-zA-Z0-9-_~ %.@()!'|:",
-            },
+            urlPatternOptions: URL_PATTERN_OPTIONS,
             pathFromRoutesToWindow: (path) => {
                 return addProjectIdIfMissing(path)
             },
