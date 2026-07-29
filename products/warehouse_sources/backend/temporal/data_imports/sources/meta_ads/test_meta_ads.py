@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     META_AUTH_ERROR_MESSAGE,
     META_TRANSIENT_ERROR_MAX_ATTEMPTS,
     PAGE_LIMIT_FALLBACK_SIZES,
+    SHRINK_EXHAUSTED_ERROR_MESSAGE,
     MetaAdsAuthError,
     MetaAdsResumeConfig,
     _earliest_supported_since,
@@ -309,7 +310,8 @@ class TestSimplePaginationLimitFallback:
             "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
         ) as mock_get:
             mock_get.return_value.get.side_effect = responses
-            with pytest.raises(Exception, match="Meta API request failed: 500"):
+            # Terminal: the next attempt would re-issue the same request.
+            with pytest.raises(Exception, match=SHRINK_EXHAUSTED_ERROR_MESSAGE):
                 list(_iter_simple_pagination(self.INITIAL_URL, self.PARAMS, None, manager))
 
         # One attempt per rung, then it gives up.
@@ -783,6 +785,70 @@ class TestTimeRangePagination:
         tr = json.loads(mock_get.return_value.get.call_args_list[1].kwargs["params"]["time_range"])
         assert tr == {"since": "2026-03-01", "until": "2026-03-07"}
 
+    def test_heavy_query_subcode_retries_unchanged_then_shrinks_chunk(self, monkeypatch) -> None:
+        monkeypatch.setattr(meta_ads_module, "_backoff_sleep", lambda attempt: None)
+        manager = _build_manager()
+        # Production shape: labeled code 2, so it retries unchanged before shrinking.
+        heavy_body = {
+            "error": {
+                "message": "Service temporarily unavailable",
+                "type": "OAuthException",
+                "is_transient": False,
+                "code": 2,
+                "error_subcode": 1504044,
+            }
+        }
+        responses = [_mock_response(400, heavy_body) for _ in range(META_TRANSIENT_ERROR_MAX_ATTEMPTS)] + [
+            _mock_response(200, {"data": [{"ad_id": str(i)}], "paging": {}}) for i in range(1, 6)
+        ]
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            batches = list(
+                _iter_time_range_pagination(
+                    self.URL,
+                    self.PARAMS,
+                    {"since": "2026-03-01", "until": "2026-03-30"},
+                    None,
+                    manager,
+                )
+            )
+
+        assert [b[0]["ad_id"] for b in batches] == ["1", "2", "3", "4", "5"]
+        calls = mock_get.return_value.get.call_args_list
+        for call in calls[:META_TRANSIENT_ERROR_MAX_ATTEMPTS]:
+            assert json.loads(call.kwargs["params"]["time_range"]) == {"since": "2026-03-01", "until": "2026-03-30"}
+        assert json.loads(calls[META_TRANSIENT_ERROR_MAX_ATTEMPTS].kwargs["params"]["time_range"]) == {
+            "since": "2026-03-01",
+            "until": "2026-03-07",
+        }
+
+    def test_exhausting_both_ladders_on_initial_chunk_raises_non_retryable(self) -> None:
+        manager = _build_manager()
+        timeout_body = {"error": {"error_subcode": 1504018, "message": "timeout"}}
+        # Three chunk rungs, then two page-limit rungs once the chunk hits one day.
+        responses = [_mock_response(500, timeout_body) for _ in range(5)]
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            with pytest.raises(Exception, match=SHRINK_EXHAUSTED_ERROR_MESSAGE):
+                list(
+                    _iter_time_range_pagination(
+                        self.URL,
+                        self.PARAMS,
+                        {"since": "2026-03-01", "until": "2026-03-30"},
+                        None,
+                        manager,
+                    )
+                )
+
+        limits = [call.kwargs["params"]["limit"] for call in mock_get.return_value.get.call_args_list]
+        assert limits == [500, 500, 500, 100, 50]
+
 
 class TestOverrideLimit:
     @pytest.mark.parametrize(
@@ -975,7 +1041,7 @@ class TestMidChunkLimitFallback:
             )
             # Drain the first batch (which succeeds), then expect the failure.
             assert next(gen) == [{"ad_id": "1"}]
-            with pytest.raises(Exception, match="Meta API request failed: 500"):
+            with pytest.raises(Exception, match=SHRINK_EXHAUSTED_ERROR_MESSAGE):
                 list(gen)
 
     def test_non_timeout_mid_chunk_error_does_not_retry(self) -> None:
@@ -1184,6 +1250,10 @@ class TestNonRetryableErrors:
             # 500 when Meta's backend refuses to service the query even after adaptive
             # chunking has shrunk the window to its smallest size.
             'Meta API request failed: 500 - {"error":{"code":1,"message":"Please reduce the amount of data you\'re asking for, then retry your request"}}',
+            # Both shrink ladders bottomed out, so the next attempt would re-issue
+            # the identical single-day, smallest-page request that just failed.
+            f"{SHRINK_EXHAUSTED_ERROR_MESSAGE} (Meta API response: 400 - "
+            '{"error":{"message":"Service temporarily unavailable","code":2,"error_subcode":1504044}})',
             # code 190 / subcode 459 — account checkpoint, the user must log in to Facebook.
             f"{META_AUTH_ERROR_MESSAGE} (Meta API response: 400 - "
             '{"error":{"message":"You cannot access the app till you log in to www.facebook.com and follow the '
