@@ -543,17 +543,36 @@ impl PodHandle {
                 .chain(fenced.iter().copied())
                 .collect()
         };
+        // Phase 1: fence and quiesce every partition CONCURRENTLY. Each
+        // drain fences as its first action, so running them together
+        // stops all admissions within milliseconds of each other and
+        // bounds the whole quiesce by a single drain timeout. Draining
+        // sequentially would leave later partitions serving — leaseless
+        // — while earlier ones wait out their in-flight work, extending
+        // the zombie window per held partition.
+        let mut drains = tokio::task::JoinSet::new();
+        for &partition in &held {
+            let handler = Arc::clone(&self.handler);
+            let timeout = self.config.drain_timeout;
+            drains.spawn(async move {
+                tokio::time::timeout(timeout, handler.drain_partition_inflight(partition))
+                    .await
+                    .map_err(|_| {
+                        Error::invalid_state(format!(
+                            "self-fence drain timed out for partition {partition}"
+                        ))
+                    })?
+            });
+        }
+        while let Some(joined) = drains.join_next().await {
+            joined
+                .map_err(|e| Error::invalid_state(format!("self-fence drain panicked: {e}")))??;
+        }
+
+        // Phase 2: with nothing in flight anywhere, release each
+        // partition (dropping cache and serving authority) and clear
+        // the local ownership state.
         for partition in held {
-            tokio::time::timeout(
-                self.config.drain_timeout,
-                self.handler.drain_partition_inflight(partition),
-            )
-            .await
-            .map_err(|_| {
-                Error::invalid_state(format!(
-                    "self-fence drain timed out for partition {partition}"
-                ))
-            })??;
             self.handler.release_partition(partition).await?;
             self.warmed_partitions.lock().await.remove(&partition);
             self.fenced_partitions.lock().await.remove(&partition);
