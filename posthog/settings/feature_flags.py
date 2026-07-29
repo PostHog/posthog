@@ -3,7 +3,7 @@ import json
 from contextlib import suppress
 
 from posthog.settings.access import SECRET_KEY
-from posthog.settings.utils import get_from_env, get_list
+from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 # Used mostly by the hobby install to have some feature flags enabled by default
 # NOTE: This only affects the frontend, the same FFs will still be considered disabled on the backend
@@ -104,6 +104,14 @@ MAX_FEATURE_FLAG_FILTER_SIZE_BYTES: int = get_from_env(
     512 * 1024,
     type_cast=int,  # 512KB
 )
+
+# Kill switch for feature flag filters validation (#50084). When off, structural and
+# cross-field filters validation on the flag API log violations instead of rejecting them;
+# contextual checks (cohort existence, circular dependencies, size limits) still reject.
+# Break-glass for a bad rollout, not a rollback to pre-enforcement behavior: the procedural
+# checks that predated enforcement were replaced by the gated tiers, so turning this off
+# leaves LESS validation than before enforcement shipped.
+FEATURE_FLAG_FILTERS_ENFORCEMENT: bool = get_from_env("FEATURE_FLAG_FILTERS_ENFORCEMENT", True, type_cast=str_to_bool)
 
 # Team ID for the local-evaluation canary. Unset disables the canary task.
 FEATURE_FLAGS_CANARY_TEAM_ID: int | None = get_from_env("FEATURE_FLAGS_CANARY_TEAM_ID", optional=True, type_cast=int)

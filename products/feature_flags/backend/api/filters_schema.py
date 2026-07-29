@@ -8,19 +8,10 @@ Rust poisons the whole team's flag cache, so these serializers reject exactly wh
 reject: no DRF type coercion (`"true"` is not a bool, `"42"` is not an int, `NaN` is not a
 valid rollout percentage).
 
-Modeled on the OpenAPI-only `FeatureFlagFiltersSchemaSerializer` in `posthog/api/documentation.py`
-(which can't validate at runtime — it relies on `PolymorphicProxySerializer`). The two are meant
-to converge: once this serializer is wired into `FeatureFlagSerializer` (phase 3 of #50084), it
-becomes the OpenAPI source of truth and the documentation.py one is retired. Not wired in yet:
-enforcement is gated on the `audit_flag_filters` management command reporting zero violations.
-
-Phase 3 wiring notes:
-- When `feature_flag.py` starts importing this module, move `FEATURE_FLAG_SUPPORTED_OPERATORS`
-  and `FEATURE_FLAG_OPERATOR_ALIASES` here and re-export from `feature_flag.py` to avoid an
-  import cycle.
-- `type` and `operator` are collision-prone enum field names for drf-spectacular; before wiring
-  this serializer into `@extend_schema`, run `python manage.py find_enum_collisions` and add
-  `ENUM_NAME_OVERRIDES` entries as needed.
+Wired into `FeatureFlagSerializer.filters` (phase 3 of #50084), so this module is the OpenAPI
+source of truth for flag filters. The OpenAPI-only `FeatureFlagFiltersSchemaSerializer` in
+`posthog/api/documentation.py` survives solely for its experiments/surveys importers and is
+slated for retirement.
 """
 
 import json
@@ -28,15 +19,54 @@ import math
 from collections.abc import Mapping, Sequence
 from typing import Any, ClassVar, Protocol, cast
 
+from django.core.validators import RegexValidator
+
 import structlog
 from rest_framework import serializers
 
-from products.feature_flags.backend.api.feature_flag import (
-    FEATURE_FLAG_OPERATOR_ALIASES,
-    FEATURE_FLAG_SUPPORTED_OPERATORS,
+logger = structlog.get_logger(__name__)
+
+# Operators the Rust feature-flag evaluation service supports (OperatorType in property_models.rs).
+# None means "no operator specified" which defaults to exact.
+FEATURE_FLAG_SUPPORTED_OPERATORS: frozenset[str | None] = frozenset(
+    {
+        None,
+        "exact",
+        "is_not",
+        "icontains",
+        "not_icontains",
+        "icontains_multi",
+        "not_icontains_multi",
+        "regex",
+        "not_regex",
+        "gt",
+        "gte",
+        "lt",
+        "lte",
+        "semver_gt",
+        "semver_gte",
+        "semver_lt",
+        "semver_lte",
+        "semver_eq",
+        "semver_neq",
+        "semver_tilde",
+        "semver_caret",
+        "semver_wildcard",
+        "is_set",
+        "is_not_set",
+        "is_date_exact",
+        "is_date_after",
+        "is_date_before",
+        "in",
+        "not_in",
+        "flag_evaluates_to",
+    }
 )
 
-logger = structlog.get_logger(__name__)
+FEATURE_FLAG_OPERATOR_ALIASES: dict[str, str] = {
+    "min": "gte",
+    "max": "lte",
+}
 
 # The Rust PropertyType enum also accepts "person_metadata"; the locked inventory in #50084
 # deliberately excludes it. If the audit shows stored flags using it, amend the inventory in
@@ -253,6 +283,26 @@ class FlagPropertySerializer(DropsUnknownKeysMixin, serializers.Serializer):
         allow_null=True,
         help_text="Whether the property condition is negated.",
     )
+    # Display-only passthrough (#50084 inventory addendum): the UI stores these inside filters
+    # and Rust round-trips them via its extras map, but this serializer drops undeclared keys,
+    # so they must be declared to survive writes. Deliberately permissive: display data.
+    label = StrictCharField(  # type: ignore[assignment]
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Display-only label for this property filter, shown in the UI.",
+    )
+    cohort_name = StrictCharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Display name of the referenced cohort. Injected on read and echoed back by clients.",
+    )
+    group_key_names = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text="Display names for group keys, keyed by group key. Injected on read and echoed back by clients.",
+    )
 
     def to_internal_value(self, data: Any) -> dict[str, Any]:
         # Canonicalize operator aliases before field validation so everything downstream
@@ -303,6 +353,34 @@ class FlagConditionGroupSerializer(DropsUnknownKeysMixin, serializers.Serializer
         help_text="Group type index for this condition set. Null means person-level aggregation; "
         "absent falls back to the flag-level value.",
     )
+    # Display-only passthrough (#50084 inventory addendum) — see FlagPropertySerializer.
+    description = StrictCharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Display-only description for this condition group, shown in the UI.",
+    )
+    sort_key = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text="Opaque UI ordering key for this condition group (string or number). Preserved as-is.",
+    )
+    # Experiment freeze-exposure stamps (products/feature_flags/backend/facade/filters.py
+    # restriction markers, written via update_flag): load-bearing, not display data —
+    # Experiment.is_exposure_frozen and the unfreeze strip read them back from stored
+    # filters, so dropping them as unknown keys would silently unfreeze every experiment.
+    exposure_frozen = StrictBooleanField(
+        required=False,
+        allow_null=True,
+        help_text="Set when an experiment froze exposure by narrowing this group to a snapshot cohort.",
+    )
+    exposure_frozen_cohort = StrictIntegerField(
+        min_value=I64_MIN,
+        max_value=I64_MAX,
+        required=False,
+        allow_null=True,
+        help_text="ID of the snapshot cohort this group was narrowed to when experiment exposure was frozen.",
+    )
 
     def validate_properties(self, value: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
         # Null means "no properties" (Rust treats it like absent); normalize so cross-field
@@ -313,7 +391,20 @@ class FlagConditionGroupSerializer(DropsUnknownKeysMixin, serializers.Serializer
 class FlagMultivariateVariantSerializer(DropsUnknownKeysMixin, serializers.Serializer):
     unknown_key_level = "variant"
 
-    key = StrictCharField(help_text="Unique key for this variant.")
+    # Charset widened beyond the flag-key rule (#50084 inventory addendum 2): variant keys are
+    # used as config values (e.g. LLM routing keys like "provider/model-1.2"), so dots and
+    # slashes are allowed. Must match the UI rule in featureFlagLogic.ts.
+    key = StrictCharField(
+        max_length=400,
+        validators=[
+            RegexValidator(
+                regex=r"^[a-zA-Z0-9_./-]+$",
+                message="Only letters, numbers, hyphens (-), underscores (_), dots (.) & slashes (/) are allowed.",
+            )
+        ],
+        help_text="Unique key for this variant. Letters, numbers, hyphens, underscores, dots, and "
+        "slashes; at most 400 characters.",
+    )
     name = StrictCharField(
         required=False,
         allow_null=True,
@@ -324,6 +415,13 @@ class FlagMultivariateVariantSerializer(DropsUnknownKeysMixin, serializers.Seria
         min_value=0,
         max_value=100,
         help_text="Variant rollout percentage, between 0 and 100.",
+    )
+    # Display-only passthrough (#50084 inventory addendum) — see FlagPropertySerializer.
+    description = StrictCharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Display-only description for this variant, shown in the UI.",
     )
 
 

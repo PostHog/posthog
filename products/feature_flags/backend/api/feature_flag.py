@@ -3,9 +3,9 @@ from __future__ import annotations
 import re
 import copy
 import json
-import math
 import logging
 import functools
+from collections.abc import Iterator
 from dataclasses import asdict
 from datetime import datetime, timedelta
 from typing import Any, NoReturn, Optional, cast
@@ -19,17 +19,23 @@ import grpc
 import requests
 import structlog
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse, extend_schema_field
+from drf_spectacular.utils import (
+    OpenApiExample,
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema_field,
+    extend_schema_serializer,
+)
 from rest_framework import exceptions, request, serializers, status, viewsets
+from rest_framework.exceptions import ErrorDetail
+from rest_framework.fields import empty
 from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
 
-from posthog.schema import ProductKey, PropertyOperator
-
-from posthog.hogql.property import parse_semver
+from posthog.schema import ProductKey
 
 from posthog.api.cohort import CohortSerializer
-from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer, extend_schema
+from posthog.api.documentation import extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -63,7 +69,6 @@ from posthog.models.person.point_in_time_properties import (
 from posthog.models.property import Property
 from posthog.permissions import TeamSecretTokenPermission, get_authenticator_scopes, is_service_auth
 from posthog.ph_client import feature_enabled_or_false
-from posthog.queries.base import determine_parsed_date_for_property_matching
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
@@ -82,11 +87,23 @@ from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
 from products.dashboards.backend.api.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment, flag_has_live_experiment
+from products.feature_flags.backend.api.filters_schema import (
+    FEATURE_FLAG_OPERATOR_ALIASES as FEATURE_FLAG_OPERATOR_ALIASES,  # re-exported: historical import location
+    FEATURE_FLAG_SUPPORTED_OPERATORS as FEATURE_FLAG_SUPPORTED_OPERATORS,  # re-exported: historical import location
+    FLAG_ID_CONTEXT_KEY,
+    FeatureFlagFiltersSerializer,
+    FlagConditionGroupSerializer,
+)
 from products.feature_flags.backend.api.remote_config_shadow import shadow_compare_remote_config
 from products.feature_flags.backend.encrypted_flag_payloads import (
     REDACTED_PAYLOAD_VALUE,
     encrypt_flag_payloads,
     get_decrypted_flag_payloads_protected,
+)
+from products.feature_flags.backend.filters_validation import (
+    collect_cross_field_violations,
+    flatten_structural_errors,
+    validate_cross_field_or_raise,
 )
 from products.feature_flags.backend.flag_analytics import increment_request_count
 from products.feature_flags.backend.flag_status import (
@@ -118,6 +135,9 @@ logger = logging.getLogger(__name__)
 # results in a disabled logger because `posthog.api.feature_flag` is loaded during
 # Django startup. Remove this logger together with the helper once the scope is enforced.
 scope_audit_logger = structlog.get_logger("posthog.feature_flag_scope_audit")
+# Dedicated name for the same startup-ordering reason as scope_audit_logger above. Emits
+# the violations that would have been 400s while the #50084 enforcement kill switch is off.
+filters_enforcement_logger = structlog.get_logger("posthog.feature_flag_filters_enforcement")
 
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
 
@@ -346,48 +366,6 @@ def _validate_behavioral_cohort_for_feature_flag(
         code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
     )
 
-
-# Operators the Rust feature-flag evaluation service supports (OperatorType in property_models.rs).
-# None means "no operator specified" which defaults to exact.
-FEATURE_FLAG_SUPPORTED_OPERATORS: frozenset[str | None] = frozenset(
-    {
-        None,
-        "exact",
-        "is_not",
-        "icontains",
-        "not_icontains",
-        "icontains_multi",
-        "not_icontains_multi",
-        "regex",
-        "not_regex",
-        "gt",
-        "gte",
-        "lt",
-        "lte",
-        "semver_gt",
-        "semver_gte",
-        "semver_lt",
-        "semver_lte",
-        "semver_eq",
-        "semver_neq",
-        "semver_tilde",
-        "semver_caret",
-        "semver_wildcard",
-        "is_set",
-        "is_not_set",
-        "is_date_exact",
-        "is_date_after",
-        "is_date_before",
-        "in",
-        "not_in",
-        "flag_evaluates_to",
-    }
-)
-
-FEATURE_FLAG_OPERATOR_ALIASES: dict[str, str] = {
-    "min": "gte",
-    "max": "lte",
-}
 
 FEATURE_FLAG_CREATION_CONTEXT_CHOICES = (
     "feature_flags",
@@ -797,6 +775,68 @@ class EvaluationContextSerializerMixin(serializers.Serializer):
         return ret
 
 
+def _iter_flag_filter_properties(groups: Any) -> Iterator[tuple[int, int, dict[str, Any]]]:
+    """Yield (group_index, property_index, property) over well-formed group/property dicts.
+
+    Malformed entries are skipped instead of crashing: they can only occur while the #50084
+    enforcement kill switch is off, and log-only mode must never 500.
+    """
+    if not isinstance(groups, list):
+        return
+    for group_index, group in enumerate(groups):
+        if not isinstance(group, dict):
+            continue
+        properties = group.get("properties")
+        if not isinstance(properties, list):
+            continue
+        for prop_index, prop in enumerate(properties):
+            if isinstance(prop, dict):
+                yield group_index, prop_index, cast(dict[str, Any], prop)
+
+
+@extend_schema_serializer(component_name="FeatureFlagFilters")
+class FeatureFlagFiltersField(FeatureFlagFiltersSerializer):
+    """Feature flag targeting configuration: release condition groups, multivariate variants, and payloads."""
+
+    # Write-path `filters` field: strict structural validation on writes, raw passthrough on
+    # reads. Reads must return the stored JSON byte-identical to the DictField this replaced:
+    # stored filters legitimately carry unknown legacy keys, encrypted payload ciphertext, and
+    # (for the #50084 leave-and-block flags) data the schema rejects, none of which may be
+    # dropped or reshaped by serialization. The docstring above is user-facing: drf-spectacular
+    # publishes it as the OpenAPI component description.
+
+    # Redeclared without the base's `default=list`: under merged-state PATCH validation an
+    # absent "groups" must stay absent so the stored groups survive the merge, while an
+    # explicit `groups: []` stays an intentional clear-targeting request.
+    groups = FlagConditionGroupSerializer(
+        many=True,
+        required=False,
+        help_text="Release condition groups for the feature flag.",
+    )
+
+    def to_representation(self, value: Any) -> Any:
+        return value
+
+    def run_validation(self, data: Any = empty) -> Any:
+        try:
+            return super().run_validation(data)
+        except serializers.ValidationError as exc:
+            # Flatten DRF's nested error structure: exceptions_hog treats list-valued children
+            # of a nested dict as leaves, so the nested shape would surface str(dict) codes.
+            details = [
+                ErrorDetail(f"{violation.path}: {violation.message}", code=violation.rule_id)
+                for violation in flatten_structural_errors(exc.detail)
+            ]
+            if not settings.FEATURE_FLAG_FILTERS_ENFORCEMENT and isinstance(data, dict):
+                filters_enforcement_logger.warning(
+                    "feature_flag_filters_enforcement_bypassed",
+                    stage="incoming_structural",
+                    errors=[str(detail) for detail in details],
+                )
+                return copy.deepcopy(data)
+            raise serializers.ValidationError(details) from exc
+
+
 class FeatureFlagCreateRequestSchemaSerializer(serializers.Serializer):
     key = serializers.CharField(required=False, help_text="Feature flag key.")
     name = serializers.CharField(
@@ -804,7 +844,7 @@ class FeatureFlagCreateRequestSchemaSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Feature flag description (stored in the `name` field for backwards compatibility).",
     )
-    filters = FeatureFlagFiltersSchemaSerializer(required=False, help_text="Feature flag targeting configuration.")
+    filters = FeatureFlagFiltersField(required=False, help_text="Feature flag targeting configuration.")
     active = serializers.BooleanField(required=False, help_text="Whether the feature flag is active.")
     archived = serializers.BooleanField(
         required=False,
@@ -854,7 +894,7 @@ class FeatureFlagPartialUpdateRequestSchemaSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Feature flag description (stored in the `name` field for backwards compatibility).",
     )
-    filters = FeatureFlagFiltersSchemaSerializer(required=False, help_text="Feature flag targeting configuration.")
+    filters = FeatureFlagFiltersField(required=False, help_text="Feature flag targeting configuration.")
     active = serializers.BooleanField(required=False, help_text="Whether the feature flag is active.")
     archived = serializers.BooleanField(
         required=False,
@@ -916,8 +956,12 @@ class FeatureFlagSerializer(
     version = serializers.IntegerField(required=False, default=0)
     last_modified_by = UserBasicSerializer(read_only=True)
 
-    # :TRICKY: Needed for backwards compatibility
-    filters = serializers.DictField(source="get_filters", required=False)
+    # :TRICKY: source="get_filters" is needed for backwards compatibility
+    filters = FeatureFlagFiltersField(
+        source="get_filters",
+        required=False,
+        help_text="Feature flag targeting configuration: release condition groups, multivariate variants, and payloads.",
+    )
     status = serializers.SerializerMethodField()
 
     ensure_experience_continuity = ClassicBehaviorBooleanFieldSerializer()
@@ -1236,52 +1280,133 @@ class FeatureFlagSerializer(
         return _is_realtime_cohort_flag_targeting_enabled(self.context["request"])
 
     def validate_filters(self, filters):
-        # For some weird internal REST framework reason this field gets validated on a partial PATCH call, even if filters isn't being updatd
-        # If we see this, just return the current filters
-        if "groups" not in filters and self.context["request"].method == "PATCH":
+        # Incoming `filters` was already structurally validated by FeatureFlagFiltersField
+        # (types trusted, operator aliases canonical, payload values JSON-encoded strings),
+        # unless the enforcement kill switch is off, in which case it can be any raw dict.
+        enforcement: bool = settings.FEATURE_FLAG_FILTERS_ENFORCEMENT
+
+        # Updates validate and store the merged final state (#50084): incoming top-level keys
+        # replace stored ones atomically, so `filters: {}` is a validated no-op and
+        # `groups: []` an intentional clear-targeting request. Keyed on instance presence,
+        # not request method: several callers drive partial updates under other methods
+        # (e.g. experiment holdout detach runs under DELETE).
+        if self.instance is not None:
             # mypy cannot tell that self.instance is a FeatureFlag
             assert isinstance(self.instance, FeatureFlag)
-            return self.instance.filters
+            stored_filters = self.instance.filters or {}
+            merged = {**copy.deepcopy(stored_filters), **filters}
+            # Stored encrypted payloads are ciphertext, not JSON: they would fail structural
+            # validation below and, worse, get re-encrypted by update()'s reconciliation if
+            # they flowed through the merge as if this request had sent them. When the
+            # request doesn't replace payloads, validate the redacted sentinel instead;
+            # update() swaps the stored ciphertext back in before saving.
+            if self.instance.has_encrypted_payloads and "payloads" not in filters:
+                stored_payloads = stored_filters.get("payloads") or {}
+                if stored_payloads:
+                    merged["payloads"] = dict.fromkeys(stored_payloads, REDACTED_PAYLOAD_VALUE)
+        else:
+            merged = filters
 
-        filters.setdefault("groups", [])
+        # Re-validate the merged state structurally: the stored side of the merge never went
+        # through FeatureFlagFiltersField on this request, and the cross-field collectors
+        # below are only safe on structurally valid input. For stored filters that predate
+        # enforcement (#50084 leave-and-block), this blocks the first filters edit until the
+        # violation is fixed; reads and non-filter updates of such flags are untouched.
+        structural = FeatureFlagFiltersSerializer(
+            data=merged,
+            context={FLAG_ID_CONTEXT_KEY: getattr(self.instance, "id", None)},
+        )
+        structurally_valid = structural.is_valid()
+        if structurally_valid:
+            # Also normalizes the stored side (operator aliases, payload encoding, groups
+            # default) and drops unknown keys, logging non-legacy ones.
+            merged = structural.validated_data
+        else:
+            details = [
+                ErrorDetail(f"{violation.path}: {violation.message}", code=violation.rule_id)
+                for violation in flatten_structural_errors(structural.errors)
+            ]
+            if enforcement:
+                raise serializers.ValidationError(details)
+            filters_enforcement_logger.warning(
+                "feature_flag_filters_enforcement_bypassed",
+                stage="merged_structural",
+                flag_id=getattr(self.instance, "id", None),
+                errors=[str(detail) for detail in details],
+            )
+            merged.setdefault("groups", [])
 
-        # Only validate empty groups for new flag creation (POST), not updates (PUT/PATCH)
-        # Existing flags may legitimately have empty groups temporarily during scheduled changes
-        if self.context["request"].method == "POST":
-            if not filters["groups"]:
-                raise serializers.ValidationError("Feature flags must have at least one condition set (group).")
+        # Only validate empty groups for new flag creation (POST), not updates (PUT/PATCH).
+        # Locked #50084 asymmetry: existing flags may legitimately have empty groups (e.g.
+        # temporarily during scheduled changes) and PATCH {"groups": []} is a deliberate
+        # clear-targeting request — do not unify this with the update path in either direction.
+        if self.context["request"].method == "POST" and not merged["groups"]:
+            raise serializers.ValidationError("Feature flags must have at least one condition set (group).")
 
-        flag_level_aggregation = filters.get("aggregation_group_type_index", None)
+        # Gate enabling early_exit behind the feature-flag-early-exit flag. The UI hides
+        # the toggle, but the public REST API, MCP tools, and terraform provider all reach
+        # this validator — without the gate they could persist early_exit before server-side
+        # local evaluation honors it. Only block newly turning it on: leaving an existing
+        # truthy value unchanged (or turning it off) always passes, so flags created while
+        # the feature was enabled keep working if access is later revoked.
+        early_exit = merged.get("early_exit")
+        previously_enabled = (
+            bool((self.instance.filters or {}).get("early_exit")) if self.instance is not None else False
+        )
+        if early_exit and not previously_enabled and not self._is_early_exit_enabled():
+            raise serializers.ValidationError("early_exit is not available for this organization.")
 
-        # Validate filter field types to prevent serde deserialization failures in the
-        # Rust flag evaluation service. Non-conforming types poison the entire team's
-        # flag cache and cause 500s on every /flags request.
-        def _validate_rollout_percentage(value: Any, path: str, *, allow_null: bool = True) -> None:
-            if value is None:
-                if not allow_null:
-                    raise serializers.ValidationError(f"{path} must be a number, got null")
-                return
-            # Check bool before int/float because bool is a subclass of int
-            if isinstance(value, bool) or not isinstance(value, (int, float)):
-                expected = "a number or null" if allow_null else "a number"
-                raise serializers.ValidationError(f"{path} must be {expected}, got {type(value).__name__}")
-            if not math.isfinite(value):
-                raise serializers.ValidationError(f"{path} must be finite, got {value}")
-            if value < 0 or value > 100:
-                raise serializers.ValidationError(f"{path} must be between 0 and 100, got {value}")
+        if structurally_valid:
+            # Normalize: distribute the flag-level aggregation_group_type_index to each
+            # condition set that doesn't already have one, so every condition set
+            # explicitly carries its aggregation mode (including None for person-aggregated).
+            flag_level_aggregation = merged.get("aggregation_group_type_index")
+            for condition in merged["groups"]:
+                if "aggregation_group_type_index" not in condition:
+                    condition["aggregation_group_type_index"] = flag_level_aggregation
 
-        def _validate_integer(value: Any, path: str) -> None:
-            # Check bool before int because bool is a subclass of int
-            if value is not None and (isinstance(value, bool) or not isinstance(value, int)):
-                raise serializers.ValidationError(f"{path} must be an integer or null, got {type(value).__name__}")
+            # Derive the flag-level field from condition sets for backward compatibility.
+            # If all condition sets share the same aggregation, use that; when mixed,
+            # set to None since the evaluation engine reads per-condition aggregation.
+            condition_aggregations = [c.get("aggregation_group_type_index") for c in merged["groups"]]
+            if condition_aggregations:
+                if all(a == condition_aggregations[0] for a in condition_aggregations):
+                    merged["aggregation_group_type_index"] = condition_aggregations[0]
+                else:
+                    merged["aggregation_group_type_index"] = None
 
-        def _validate_regex_pattern(value: Any, path: str, existing_patterns: set[str]) -> None:
-            if not isinstance(value, str):
-                return
-            if value not in existing_patterns and not is_valid_regex(value):
-                raise serializers.ValidationError(f"{path}: invalid regex pattern")
+            # Check Early Access Feature constraint: no condition set can use group
+            # aggregation if the flag is linked to an Early Access Feature.
+            has_group_condition = any(c.get("aggregation_group_type_index") is not None for c in merged["groups"])
+            if (
+                has_group_condition
+                and self.instance is not None
+                and hasattr(self.instance, "features")
+                and self.instance.features.exists()
+            ):
+                raise serializers.ValidationError(
+                    "Cannot use group aggregation in any condition set when the flag is linked to an Early Access Feature."
+                )
 
-        _validate_integer(flag_level_aggregation, "aggregation_group_type_index")
+            # Circular dependency checks only apply to person-aggregated conditions
+            # since flag-based property filters only work with person aggregation
+            has_person_condition = any(c.get("aggregation_group_type_index") is None for c in merged["groups"])
+            if has_person_condition:
+                self._check_flag_circular_dependencies(merged)
+
+            # Cross-field tier (#50084): variant sums, key uniqueness, payload/variant
+            # agreement, operator/value compatibility — see filters_validation.py.
+            if enforcement:
+                validate_cross_field_or_raise(merged)
+            else:
+                cross_field_violations = collect_cross_field_violations(merged)
+                if cross_field_violations:
+                    filters_enforcement_logger.warning(
+                        "feature_flag_filters_enforcement_bypassed",
+                        stage="cross_field",
+                        flag_id=getattr(self.instance, "id", None),
+                        errors=[f"{violation.path}: {violation.message}" for violation in cross_field_violations],
+                    )
 
         # Collect existing regex patterns so we don't reject unchanged patterns on
         # PATCH — flags may contain regexes valid in fancy_regex/PG ARE but not Python re.
@@ -1292,337 +1417,61 @@ class FeatureFlagSerializer(
                     if p.get("operator") in ("regex", "not_regex") and isinstance(p.get("value"), str):
                         existing_patterns.add(p["value"])
 
-        early_exit = filters.get("early_exit")
-        if early_exit is not None and not isinstance(early_exit, bool):
-            raise serializers.ValidationError(f"early_exit must be a boolean or null, got {type(early_exit).__name__}")
-
-        # Gate enabling early_exit behind the feature-flag-early-exit flag. The UI hides
-        # the toggle, but the public REST API, MCP tools, and terraform provider all reach
-        # this validator — without the gate they could persist early_exit before server-side
-        # local evaluation honors it. Only block newly turning it on: leaving an existing
-        # truthy value unchanged (or turning it off) always passes, so flags created while
-        # the feature was enabled keep working if access is later revoked.
-        previously_enabled = (
-            bool((self.instance.filters or {}).get("early_exit")) if self.instance is not None else False
-        )
-        if early_exit and not previously_enabled and not self._is_early_exit_enabled():
-            raise serializers.ValidationError("early_exit is not available for this organization.")
-
-        for group_index, group in enumerate(filters.get("groups", [])):
-            variant = group.get("variant")
-            if variant is not None and not isinstance(variant, str):
-                raise serializers.ValidationError(
-                    f"groups[{group_index}].variant must be a string or null, got {type(variant).__name__}"
-                )
-
-            _validate_rollout_percentage(group.get("rollout_percentage"), f"groups[{group_index}].rollout_percentage")
-            _validate_integer(
-                group.get("aggregation_group_type_index"),
-                f"groups[{group_index}].aggregation_group_type_index",
-            )
-
-            for prop_index, prop in enumerate(group.get("properties", [])):
-                _validate_integer(
-                    prop.get("group_type_index"),
-                    f"groups[{group_index}].properties[{prop_index}].group_type_index",
-                )
-
-                if prop.get("operator") in ("regex", "not_regex"):
-                    _validate_regex_pattern(
-                        prop.get("value"),
-                        f"groups[{group_index}].properties[{prop_index}].value",
-                        existing_patterns,
+        for group_index, prop_index, prop in _iter_flag_filter_properties(merged.get("groups")):
+            if prop.get("operator") in ("regex", "not_regex"):
+                pattern = prop.get("value")
+                if isinstance(pattern, str) and pattern not in existing_patterns and not is_valid_regex(pattern):
+                    raise serializers.ValidationError(
+                        f"groups[{group_index}].properties[{prop_index}].value: invalid regex pattern"
                     )
 
-        for var_index, variant in enumerate((filters.get("multivariate") or {}).get("variants", [])):
-            _validate_rollout_percentage(
-                variant.get("rollout_percentage"),
-                f"multivariate.variants[{var_index}].rollout_percentage",
-                allow_null=False,
-            )
-
-        # Normalize: distribute the flag-level aggregation_group_type_index to each
-        # condition set that doesn't already have one, so every condition set
-        # explicitly carries its aggregation mode (including None for person-aggregated).
-        for condition in filters["groups"]:
-            if "aggregation_group_type_index" not in condition:
-                condition["aggregation_group_type_index"] = flag_level_aggregation
-
-        # Derive the flag-level field from condition sets for backward compatibility.
-        # If all condition sets share the same aggregation, use that; when mixed,
-        # set to None since the evaluation engine reads per-condition aggregation.
-        condition_aggregations = [c.get("aggregation_group_type_index") for c in filters["groups"]]
-        if condition_aggregations:
-            if all(a == condition_aggregations[0] for a in condition_aggregations):
-                filters["aggregation_group_type_index"] = condition_aggregations[0]
-            else:
-                filters["aggregation_group_type_index"] = None
-
-        # Check Early Access Feature constraint: no condition set can use group
-        # aggregation if the flag is linked to an Early Access Feature.
-        has_group_condition = any(c.get("aggregation_group_type_index") is not None for c in filters["groups"])
-        if (
-            has_group_condition
-            and self.instance is not None
-            and hasattr(self.instance, "features")
-            and self.instance.features.exists()
-        ):
-            raise serializers.ValidationError(
-                "Cannot use group aggregation in any condition set when the flag is linked to an Early Access Feature."
-            )
-
-        # Validate properties per condition set against that condition set's aggregation.
-        for condition in filters["groups"]:
-            condition_aggregation = condition.get("aggregation_group_type_index")
-            condition_props = condition.get("properties", [])
-
-            for prop_dict in condition_props:
-                prop = Property(**prop_dict)
-
-                if condition_aggregation is None:
-                    # Person-aggregated condition: allow person, cohort, and flag properties
-                    if prop.type not in ["person", "cohort", "flag"]:
-                        raise serializers.ValidationError(
-                            "Filters are not valid (person-aggregated conditions can only use person, cohort, and flag properties)"
-                        )
-                    if prop.type == "flag":
-                        if prop_dict.get("operator") != "flag_evaluates_to":
-                            raise serializers.ValidationError(
-                                "Flag properties must use the 'flag_evaluates_to' operator"
+            if prop.get("type") == "cohort":
+                cohort_id = prop.get("value")
+                try:
+                    initial_cohort: Cohort = Cohort.objects.get(
+                        pk=cast(str | int, cohort_id), team__project_id=self.context["project_id"]
+                    )
+                    # Static cohorts (including one-time snapshots) hold a
+                    # materialised person list.  The populating criteria may
+                    # still be stored on the record, but they are inert – the
+                    # cohort no longer re-evaluates them, and the Rust engine's
+                    # extract_dependencies returns an empty set for them.  Skip
+                    # both the behavioural property check and the dependency walk
+                    # so snapshot cohorts can be used in flags without an extra
+                    # export step, even when their inert criteria reference
+                    # another cohort.  See #65270.
+                    dependency_cohorts = (
+                        []
+                        if initial_cohort.is_static
+                        else get_all_cohort_dependencies(initial_cohort, stop_traversal_at_static=True)
+                    )
+                    for cohort in [initial_cohort, *dependency_cohorts]:
+                        # Static cohorts have materialized membership, any preserved behavioral
+                        # filters are display-only and never evaluated, so skip them.
+                        if cohort.is_static:
+                            continue
+                        behavioral_props = [
+                            cohort_prop for cohort_prop in cohort.properties.flat if cohort_prop.type == "behavioral"
+                        ]
+                        # Gate on both signals: cohort.properties.flat parses each leaf into a
+                        # Property() object, so a leaf shape the parser doesn't recognize would
+                        # silently vanish from it and defeat this guard; _has_filter_type walks
+                        # the raw filters JSON instead, so it can't miss an unparsable leaf. But
+                        # _has_filter_type only reads `filters` — legacy cohorts that store their
+                        # condition in the deprecated `groups` field instead (see Cohort.properties)
+                        # would defeat *that* check, so behavioral_props still needs to cover them.
+                        if cohort._has_filter_type("behavioral") or behavioral_props:
+                            _validate_behavioral_cohort_for_feature_flag(
+                                cohort, behavioral_props, allow_realtime_backfilled=self._allow_realtime_backfilled
                             )
-                        # Flag dependency keys are flag IDs. The Rust flags service declares
-                        # PropertyFilter.key as a string and serde won't coerce a JSON number,
-                        # so a numeric key fails deserialization of the entire team's cached
-                        # flag payload. Persist it as a string so it round-trips cleanly.
-                        dependency_key = prop_dict.get("key")
-                        if dependency_key is not None:
-                            prop_dict["key"] = str(dependency_key)
-                else:
-                    # Group-aggregated condition: only allow group properties matching the
-                    # condition's group type
-                    if prop.type != "group":
-                        raise serializers.ValidationError(
-                            "Filters are not valid (group-aggregated conditions can only use group properties)"
-                        )
-                    if prop.group_type_index != condition_aggregation:
-                        raise serializers.ValidationError(
-                            "Filters are not valid (group properties must match the condition set's group type)"
-                        )
-
-        # Circular dependency checks only apply to person-aggregated conditions
-        # since flag-based property filters only work with person aggregation
-        has_person_condition = any(c.get("aggregation_group_type_index") is None for c in filters["groups"])
-        if has_person_condition:
-            self._check_flag_circular_dependencies(filters)
-
-        variant_list = (filters.get("multivariate") or {}).get("variants", [])
-        variants = {variant["key"] for variant in variant_list}
-
-        # Validate rollout percentages for multivariate variants
-        if variant_list:
-            variant_rollout_sum = sum(variant.get("rollout_percentage", 0) for variant in variant_list)
-            if variant_rollout_sum != 100:
-                raise serializers.ValidationError(
-                    "Invalid variant definitions: Variant rollout percentages must sum to 100.",
-                    code="invalid_input",
-                )
-
-        for condition in filters["groups"]:
-            if condition.get("variant") and condition["variant"] not in variants:
-                raise serializers.ValidationError("Filters are not valid (variant override does not exist)")
-
-            for property in condition.get("properties", []):
-                if property.get("operator") in FEATURE_FLAG_OPERATOR_ALIASES:
-                    property["operator"] = FEATURE_FLAG_OPERATOR_ALIASES[property["operator"]]
-
-                prop = Property(**property)
-
-                if prop.operator is not None and prop.operator not in PropertyOperator.__members__.values():
+                except Cohort.DoesNotExist:
                     raise serializers.ValidationError(
-                        detail=f"Invalid operator: {prop.operator}",
-                        code="invalid_operator",
+                        detail=f"Cohort with id {cohort_id} does not exist",
+                        code="cohort_does_not_exist",
                     )
-
-                if prop.operator not in FEATURE_FLAG_SUPPORTED_OPERATORS:
-                    raise serializers.ValidationError(
-                        detail=f"Unsupported operator for feature flags: {prop.operator}",
-                        code="unsupported_operator",
-                    )
-
-                if prop.type == "cohort":
-                    try:
-                        initial_cohort: Cohort = Cohort.objects.get(
-                            pk=cast(str | int, prop.value), team__project_id=self.context["project_id"]
-                        )
-                        # Static cohorts (including one-time snapshots) hold a
-                        # materialised person list.  The populating criteria may
-                        # still be stored on the record, but they are inert – the
-                        # cohort no longer re-evaluates them, and the Rust engine's
-                        # extract_dependencies returns an empty set for them.  Skip
-                        # both the behavioural property check and the dependency walk
-                        # so snapshot cohorts can be used in flags without an extra
-                        # export step, even when their inert criteria reference
-                        # another cohort.  See #65270.
-                        dependency_cohorts = (
-                            []
-                            if initial_cohort.is_static
-                            else get_all_cohort_dependencies(initial_cohort, stop_traversal_at_static=True)
-                        )
-                        for cohort in [initial_cohort, *dependency_cohorts]:
-                            # Static cohorts have materialized membership, any preserved behavioral
-                            # filters are display-only and never evaluated, so skip them.
-                            if cohort.is_static:
-                                continue
-                            behavioral_props = [
-                                cohort_prop
-                                for cohort_prop in cohort.properties.flat
-                                if cohort_prop.type == "behavioral"
-                            ]
-                            # Gate on both signals: cohort.properties.flat parses each leaf into a
-                            # Property() object, so a leaf shape the parser doesn't recognize would
-                            # silently vanish from it and defeat this guard; _has_filter_type walks
-                            # the raw filters JSON instead, so it can't miss an unparsable leaf. But
-                            # _has_filter_type only reads `filters` — legacy cohorts that store their
-                            # condition in the deprecated `groups` field instead (see Cohort.properties)
-                            # would defeat *that* check, so behavioral_props still needs to cover them.
-                            if cohort._has_filter_type("behavioral") or behavioral_props:
-                                _validate_behavioral_cohort_for_feature_flag(
-                                    cohort, behavioral_props, allow_realtime_backfilled=self._allow_realtime_backfilled
-                                )
-                    except Cohort.DoesNotExist:
-                        raise serializers.ValidationError(
-                            detail=f"Cohort with id {prop.value} does not exist",
-                            code="cohort_does_not_exist",
-                        )
-
-                if prop.operator in (
-                    PropertyOperator.IS_DATE_BEFORE,
-                    PropertyOperator.IS_DATE_AFTER,
-                    PropertyOperator.IS_DATE_EXACT,
-                ):
-                    parsed_date = determine_parsed_date_for_property_matching(prop.value)
-
-                    if not parsed_date:
-                        raise serializers.ValidationError(
-                            detail=f"Invalid date value: {prop.value}",
-                            code="invalid_date",
-                        )
-
-                # make sure regex, icontains, gte, lte, lt, and gt properties have string values
-                if prop.operator in [
-                    "regex",
-                    "icontains",
-                    "not_regex",
-                    "not_icontains",
-                    "gte",
-                    "lte",
-                    "gt",
-                    "lt",
-                ] and not isinstance(prop.value, str):
-                    raise serializers.ValidationError(
-                        detail=f"Invalid value for operator {prop.operator}: {prop.value}",
-                        code="invalid_value",
-                    )
-
-                if prop.operator in (PropertyOperator.IN_, PropertyOperator.NOT_IN) and prop.type != "cohort":
-                    raise serializers.ValidationError(
-                        detail=f"The '{prop.operator}' operator is only valid for cohort properties, not '{prop.type}' properties.",
-                        code="invalid_operator",
-                    )
-
-                # Currently unreachable (between/not_between rejected by FEATURE_FLAG_SUPPORTED_OPERATORS),
-                # but kept so value validation is ready if Rust adds support for these operators.
-                if prop.operator in (PropertyOperator.BETWEEN, PropertyOperator.NOT_BETWEEN):
-                    if not isinstance(prop.value, list) or len(prop.value) != 2:
-                        raise serializers.ValidationError(
-                            detail=f"{prop.operator} operator requires a two-element array [min, max]",
-                            code="invalid_value",
-                        )
-                    try:
-                        min_val = prop.value[0]
-                        max_val = prop.value[1]
-                        # Type check: ensure both values can be converted to float
-                        if not isinstance(min_val, (int, float, str)) or not isinstance(max_val, (int, float, str)):
-                            raise ValueError("Values must be numeric")
-                        if float(min_val) > float(max_val):
-                            raise serializers.ValidationError(
-                                detail=f"{prop.operator} operator requires min value to be less than or equal to max value",
-                                code="invalid_value",
-                            )
-                    except (ValueError, TypeError):
-                        raise serializers.ValidationError(
-                            detail=f"{prop.operator} operator requires numeric values",
-                            code="invalid_value",
-                        )
-
-                semver_operators = (
-                    PropertyOperator.SEMVER_EQ,
-                    PropertyOperator.SEMVER_NEQ,
-                    PropertyOperator.SEMVER_GT,
-                    PropertyOperator.SEMVER_GTE,
-                    PropertyOperator.SEMVER_LT,
-                    PropertyOperator.SEMVER_LTE,
-                    PropertyOperator.SEMVER_TILDE,
-                    PropertyOperator.SEMVER_CARET,
-                    PropertyOperator.SEMVER_WILDCARD,
-                )
-                if prop.operator in semver_operators:
-                    if not isinstance(prop.value, str):
-                        raise serializers.ValidationError(
-                            detail=f"Invalid value for operator {prop.operator}: expected a semver string",
-                            code="invalid_value",
-                        )
-                    try:
-                        semver_value = prop.value
-                        if str(prop.operator) == PropertyOperator.SEMVER_WILDCARD:
-                            semver_value = semver_value.rstrip(".*")
-                        parse_semver(semver_value)
-                    except (ValueError, IndexError):
-                        raise serializers.ValidationError(
-                            detail=f"Invalid semver value for operator {prop.operator}: {prop.value}",
-                            code="invalid_value",
-                        )
-
-                if prop.operator in (
-                    PropertyOperator.ICONTAINS_MULTI,
-                    PropertyOperator.NOT_ICONTAINS_MULTI,
-                ):
-                    if not isinstance(prop.value, list):
-                        raise serializers.ValidationError(
-                            detail=f"{prop.operator} operator requires a list of values",
-                            code="invalid_value",
-                        )
-
-        payloads = filters.get("payloads", {})
-
-        if not isinstance(payloads, dict):
-            raise serializers.ValidationError("Payloads must be passed as a dictionary")
-
-        for key, value in payloads.items():
-            try:
-                if isinstance(value, str):
-                    # An incoming string is already the canonical stored form; just check it parses.
-                    json.loads(value)
-                else:
-                    # Normalize any non-string JSON value (objects, arrays, numbers, booleans, null)
-                    # to a JSON string, matching what the UI sends.
-                    payloads[key] = json.dumps(value)
-            except json.JSONDecodeError:
-                raise serializers.ValidationError("Payload value is not valid JSON")
-            except (TypeError, ValueError):
-                # Defensive: request bodies are JSON-parsed, so values are always JSON-native
-                # (str/int/float/bool/None/dict/list) and serializable. Unreachable via the API.
-                raise serializers.ValidationError("Payload value could not be serialized to JSON")
-
-        if filters.get("multivariate"):
-            if not all(key in variants for key in payloads):
-                raise serializers.ValidationError("Payload keys must match a variant key for multivariate flags")
-        else:
-            if len(payloads) > 1 or any(key != "true" for key in payloads):  # only expect one key
-                raise serializers.ValidationError("Payload keys must be 'true' for boolean flags")
 
         # Validate per-flag filter size
-        filter_size = calculate_filter_size_bytes(filters)
+        filter_size = calculate_filter_size_bytes(merged)
         per_flag_limit = settings.MAX_FEATURE_FLAG_FILTER_SIZE_BYTES
 
         if filter_size > per_flag_limit:
@@ -1632,7 +1481,7 @@ class FeatureFlagSerializer(
                 f"Please simplify conditions or reduce payload sizes."
             )
 
-        return filters
+        return merged
 
     def _validate_flag_reference(self, flag_reference):
         """Validate and convert flag reference to flag key."""

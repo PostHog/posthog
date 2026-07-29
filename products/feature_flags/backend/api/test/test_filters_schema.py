@@ -9,6 +9,7 @@ from parameterized import parameterized
 from products.feature_flags.backend.api.filters_schema import (
     FeatureFlagFiltersSerializer,
     FlagConditionGroupSerializer,
+    FlagMultivariateVariantSerializer,
     FlagPropertySerializer,
 )
 
@@ -288,15 +289,8 @@ class TestFiltersSchema(SimpleTestCase):
     @parameterized.expand(
         [
             ("filters", {"groups": [], "junk": 1}, ["junk"]),
-            (
-                "group",
-                {"groups": [{"properties": [], "description": "x", "sort_key": "y"}]},
-                [
-                    "description",
-                    "sort_key",
-                ],
-            ),
-            ("property", {"groups": [{"properties": [{**VALID_PROPERTY, "cohort_name": "x"}]}]}, ["cohort_name"]),
+            ("group", {"groups": [{"properties": [], "junk_g": 1}]}, ["junk_g"]),
+            ("property", {"groups": [{"properties": [{**VALID_PROPERTY, "junk_p": 1}]}]}, ["junk_p"]),
             (
                 "multivariate",
                 {"multivariate": {"variants": [{"key": "a", "rollout_percentage": 100}], "junk_m": 1}},
@@ -319,6 +313,55 @@ class TestFiltersSchema(SimpleTestCase):
         mock_logger.warning.assert_called_once_with(
             "feature_flag_filters_unknown_keys_dropped", level=level, keys=expected_keys, flag_id=42
         )
+
+    def test_display_passthrough_fields_survive_validation(self) -> None:
+        # Guards the #50084 passthrough addendum: if any of these declared fields is removed,
+        # enforcement silently deletes live UI display data (condition descriptions, cohort
+        # names) from thousands of flags on their next edit.
+        filters = {
+            "groups": [
+                {
+                    "properties": [
+                        {
+                            **VALID_PROPERTY,
+                            "label": "my label",
+                            "cohort_name": "my cohort",
+                            "group_key_names": {"k": "n"},
+                        }
+                    ],
+                    "description": "group description",
+                    "sort_key": "a1b2",
+                }
+            ],
+            "multivariate": {
+                "variants": [{"key": "control", "rollout_percentage": 100, "description": "variant description"}]
+            },
+        }
+        serializer = FeatureFlagFiltersSerializer(data=filters, context={"flag_id": 1})
+        assert serializer.is_valid(), serializer.errors
+        group = serializer.validated_data["groups"][0]
+        assert group["description"] == "group description"
+        assert group["sort_key"] == "a1b2"
+        prop = group["properties"][0]
+        assert prop["label"] == "my label"
+        assert prop["cohort_name"] == "my cohort"
+        assert prop["group_key_names"] == {"k": "n"}
+        assert serializer.validated_data["multivariate"]["variants"][0]["description"] == "variant description"
+
+    @parameterized.expand(
+        [
+            ("simple", "control", True),
+            ("llm_routing_style", "provider/model-1.2", True),
+            ("dots_underscores", "a.b_c-d", True),
+            ("space", "foo bar", False),
+            ("comma", "foo,bar", False),
+            ("blank", "", False),
+            ("too_long", "k" * 401, False),
+        ]
+    )
+    def test_variant_key_charset_and_length(self, _name: str, key: str, valid: bool) -> None:
+        serializer = FlagMultivariateVariantSerializer(data={"key": key, "rollout_percentage": 100})
+        assert serializer.is_valid() is valid, serializer.errors
 
     @patch("products.feature_flags.backend.api.filters_schema.logger")
     def test_sink_collects_unknown_keys_instead_of_logging(self, mock_logger: Any) -> None:

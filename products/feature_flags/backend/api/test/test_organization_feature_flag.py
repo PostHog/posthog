@@ -469,6 +469,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
                 "groups": [
                     {
                         "rollout_percentage": self.rollout_percentage_to_copy,
+                        "properties": [],
                         "aggregation_group_type_index": None,
                     }
                 ],
@@ -595,6 +596,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
                 "groups": [
                     {
                         "rollout_percentage": self.rollout_percentage_to_copy,
+                        "properties": [],
                         "aggregation_group_type_index": None,
                     }
                 ],
@@ -782,6 +784,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
                 "groups": [
                     {
                         "rollout_percentage": self.rollout_percentage_to_copy,
+                        "properties": [],
                         "aggregation_group_type_index": None,
                     }
                 ],

@@ -250,8 +250,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 response.json(),
                 {
                     "type": "validation_error",
-                    "code": "invalid_value",
-                    "detail": f"Invalid value for operator {operator}: ['@posthog.com']",
+                    "code": "cross_field.operator_requires_string_value",
+                    "detail": f"groups[0].properties[0].value: Operator {operator} requires a string value.",
                     "attr": "filters",
                 },
             )
@@ -320,8 +320,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             response.json(),
             {
                 "type": "validation_error",
-                "code": "invalid_operator",
-                "detail": f"The '{operator}' operator is only valid for cohort properties, not 'person' properties.",
+                "code": "cross_field.in_not_in_requires_cohort",
+                "detail": f"groups[0].properties[0].operator: Operator {operator} is only supported on cohort properties.",
                 "attr": "filters",
             },
         )
@@ -363,8 +363,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             response.json(),
             {
                 "type": "validation_error",
-                "code": "invalid_operator",
-                "detail": f"Invalid operator: {operator}",
+                "code": "structural.groups[].properties[].operator.invalid_choice",
+                "detail": f'groups[0].properties[0].operator: "{operator}" is not a valid choice.',
                 "attr": "filters",
             },
         )
@@ -688,13 +688,13 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     @parameterized.expand(
         [
-            ("false", False, "bool"),
-            ("true", True, "bool"),
-            ("string", "not_an_int", "str"),
-            ("float", 1.5, "float"),
+            ("false", False),
+            ("true", True),
+            ("string", "not_an_int"),
+            ("float", 1.5),
         ]
     )
-    def test_non_integer_aggregation_group_type_index_rejected(self, _name, bad_value, expected_type):
+    def test_non_integer_aggregation_group_type_index_rejected(self, _name, bad_value):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             data={
@@ -708,16 +708,16 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn(expected_type, response.json()["detail"])
+        self.assertEqual(response.json()["detail"], "aggregation_group_type_index: A valid integer is required.")
 
     @parameterized.expand(
         [
-            ("false", False, "bool"),
-            ("true", True, "bool"),
-            ("int", 42, "int"),
+            ("false", False),
+            ("true", True),
+            ("int", 42),
         ]
     )
-    def test_non_string_group_variant_rejected(self, _name, bad_value, expected_type):
+    def test_non_string_group_variant_rejected(self, _name, bad_value):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             data={
@@ -730,7 +730,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn(expected_type, response.json()["detail"])
+        self.assertEqual(response.json()["detail"], "groups[0].variant: Not a valid string.")
 
     def test_string_group_variant_preserved(self):
         response = self.client.post(
@@ -844,13 +844,13 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     @parameterized.expand(
         [
-            ("int", 1, "int"),
-            ("string_true", "true", "str"),
-            ("string_false", "false", "str"),
-            ("float", 1.5, "float"),
+            ("int", 1),
+            ("string_true", "true"),
+            ("string_false", "false"),
+            ("float", 1.5),
         ]
     )
-    def test_non_boolean_early_exit_rejected(self, _name, bad_value, expected_type):
+    def test_non_boolean_early_exit_rejected(self, _name, bad_value):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             data={
@@ -864,8 +864,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("early_exit must be a boolean", response.json()["detail"])
-        self.assertIn(expected_type, response.json()["detail"])
+        self.assertIn("early_exit: Must be a valid boolean", response.json()["detail"])
 
     @parameterized.expand(
         [
@@ -914,7 +913,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("between 0 and 100", response.json()["detail"])
+        self.assertIn("groups[0].rollout_percentage: Ensure this value is", response.json()["detail"])
 
     @parameterized.expand(
         [
@@ -971,13 +970,13 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     @parameterized.expand(
         [
-            ("false", False, "bool"),
-            ("true", True, "bool"),
-            ("string", "not_an_int", "str"),
-            ("float", 1.5, "float"),
+            ("false", False),
+            ("true", True),
+            ("string", "not_an_int"),
+            ("float", 1.5),
         ]
     )
-    def test_non_integer_property_group_type_index_rejected(self, _name, bad_value, expected_type):
+    def test_non_integer_property_group_type_index_rejected(self, _name, bad_value):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             data={
@@ -997,7 +996,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn(expected_type, response.json()["detail"])
+        self.assertEqual(
+            response.json()["detail"], "groups[0].properties[0].group_type_index: A valid integer is required."
+        )
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
@@ -1518,7 +1519,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.json().get("type"), "validation_error")
         self.assertEqual(
             response.json().get("detail"),
-            "Invalid variant definitions: Variant rollout percentages must sum to 100.",
+            f"multivariate.variants: Variant rollout percentages must sum to 100, got {float(75 + third_variant_rollout)}.",
         )
 
     def test_cant_update_multivariate_feature_flag_with_variant_rollout_not_100(self):
@@ -1565,7 +1566,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.json().get("type"), "validation_error")
         self.assertEqual(
             response.json().get("detail"),
-            "Invalid variant definitions: Variant rollout percentages must sum to 100.",
+            "multivariate.variants: Variant rollout percentages must sum to 100, got 90.0.",
         )
 
         # Verify flag wasn't updated
@@ -1635,7 +1636,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.json().get("type"), "validation_error")
         self.assertEqual(
             response.json().get("detail"),
-            "Filters are not valid (variant override does not exist)",
+            "groups[0].variant: Variant override 'unknown-variant' does not match any variant key.",
         )
 
     def test_cant_update_multivariate_feature_flag_with_invalid_variant_overrides(self):
@@ -1717,7 +1718,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.json().get("type"), "validation_error")
         self.assertEqual(
             response.json().get("detail"),
-            "Filters are not valid (variant override does not exist)",
+            "groups[0].variant: Variant override 'unknown-variant' does not match any variant key.",
         )
 
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
@@ -5057,8 +5058,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertLessEqual(
             {
                 "type": "validation_error",
-                "code": "invalid_date",
-                "detail": f"Invalid date value: {invalid_date}",
+                "code": "cross_field.date_value_not_parseable",
+                "detail": f"groups[0].properties[0].value: Invalid date value: {invalid_date}.",
                 "attr": "filters",
             }.items(),
             resp.json().items(),
@@ -5077,7 +5078,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             [{"key": "age", "type": "person", "value": "test", "operator": operator}],
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
-        self.assertEqual(resp.json()["code"], "unsupported_operator")
+        self.assertEqual(resp.json()["code"], "structural.groups[].properties[].operator.invalid_choice")
         self.assertIn(operator, resp.json()["detail"])
 
     @parameterized.expand(
@@ -5104,7 +5105,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             format="json",
         )
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(resp.json()["code"], "unsupported_operator")
+        self.assertEqual(resp.json()["code"], "structural.groups[].properties[].operator.invalid_choice")
         self.assertIn(operator, resp.json()["detail"])
 
     @parameterized.expand(
@@ -5162,7 +5163,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             [{"key": "app_version", "type": "person", "value": value, "operator": operator}],
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
-        self.assertEqual(resp.json()["code"], "invalid_value")
+        self.assertEqual(resp.json()["code"], "cross_field.semver_value_invalid")
 
     @parameterized.expand(
         [
@@ -5197,7 +5198,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             [{"key": "url", "type": "person", "value": value, "operator": operator}],
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
-        self.assertEqual(resp.json()["code"], "invalid_value")
+        self.assertEqual(resp.json()["code"], "cross_field.operator_requires_list_value")
         self.assertIn("requires a list", resp.json()["detail"])
 
     @parameterized.expand(
@@ -5375,7 +5376,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
         self.assertEqual(invalid_json_payload.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(invalid_json_payload.json()["detail"], "Payload value is not valid JSON")
+        self.assertEqual(invalid_json_payload.json()["detail"], "payloads: Payload for key 'true' is not valid JSON.")
 
         non_string_payload = self._create_flag_with_properties(
             "non-string-json-flag",
@@ -5426,7 +5427,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["detail"], "Payload value is not valid JSON")
+        self.assertEqual(response.json()["detail"], "payloads: Payload for key 'true' is not valid JSON.")
 
     def test_creating_feature_flag_with_behavioral_cohort(self):
         cohort_valid_for_ff = Cohort.objects.create(
@@ -5954,8 +5955,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             illegal_groups_request.json(),
             {
                 "type": "validation_error",
-                "code": "invalid_input",
-                "detail": "Filters are not valid (group properties must match the condition set's group type)",
+                "code": "cross_field.group_property_type_index_mismatch",
+                "detail": "groups[0].properties[0]: Group properties must match the condition set's group type.",
                 "attr": "filters",
             },
         )
@@ -5977,8 +5978,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             person_request.json(),
             {
                 "type": "validation_error",
-                "code": "invalid_input",
-                "detail": "Filters are not valid (group-aggregated conditions can only use group properties)",
+                "code": "cross_field.group_aggregation_property_type",
+                "detail": "groups[0].properties[0]: Group-aggregated conditions can only use group properties.",
                 "attr": "filters",
             },
         )
@@ -8007,6 +8008,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                     "groups": [
                         {
                             "rollout_percentage": 65,
+                            "aggregation_group_type_index": 0,
                             "properties": [
                                 {
                                     "key": "email",
@@ -8142,7 +8144,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["detail"], "Invalid value for operator regex: 123")
+        self.assertEqual(
+            response.json()["detail"], "groups[0].properties[0].value: Operator regex requires a string value."
+        )
 
     def test_can_create_flag_with_valid_regex(self):
         response = self.client.post(
@@ -8452,6 +8456,129 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["keys"].get(str(flag.id)), "self-created-flag")
+
+
+# Wiring guards for #50084 phase 3 enforcement. The validation rule matrix lives in
+# test_filters_schema.py and test_filters_validation.py; these prove the endpoint is wired
+# to the enforcing serializer and that merged-state PATCH semantics hold end to end.
+class TestFeatureFlagFiltersEnforcement(APIBaseTest):
+    def _create_flag_via_orm(self, key: str, filters: dict) -> FeatureFlag:
+        return FeatureFlag.objects.create(team=self.team, created_by=self.user, key=key, name=key, filters=filters)
+
+    def test_post_with_structurally_invalid_filters_is_rejected(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"key": "bad-filters", "filters": {"groups": [{"rollout_percentage": "50"}]}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        body = response.json()
+        self.assertEqual(body["attr"], "filters")
+        self.assertEqual(body["code"], "structural.groups[].rollout_percentage.invalid")
+        self.assertIn("groups[0].rollout_percentage", body["detail"])
+
+    def test_patch_empty_filters_is_a_validated_noop(self):
+        original: dict = {
+            "groups": [{"properties": [], "rollout_percentage": 50, "aggregation_group_type_index": None}],
+            "payloads": {"true": '"yes"'},
+            "aggregation_group_type_index": None,
+        }
+        flag = self._create_flag_via_orm("noop-flag", original)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"filters": {}}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        flag.refresh_from_db()
+        self.assertEqual(flag.filters, original)
+
+    def test_patch_partial_filters_merges_with_stored_state(self):
+        flag = self._create_flag_via_orm("merge-flag", {"groups": [{"properties": [], "rollout_percentage": 50}]})
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {"filters": {"payloads": {"true": '"hello"'}}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        flag.refresh_from_db()
+        self.assertEqual(flag.filters["payloads"], {"true": '"hello"'})
+        self.assertEqual(flag.filters["groups"][0]["rollout_percentage"], 50)
+
+    def test_stored_violating_flag_blocks_filters_edits_only(self):
+        stored = {
+            "groups": [
+                {
+                    "properties": [{"key": "email", "type": "person", "operator": "is_contained_within", "value": "x"}],
+                    "rollout_percentage": None,
+                }
+            ]
+        }
+        flag = self._create_flag_via_orm("violating-flag", stored)
+
+        read = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/")
+        self.assertEqual(read.status_code, status.HTTP_200_OK)
+        self.assertEqual(read.json()["filters"], stored)
+
+        rename = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"name": "renamed"}, format="json"
+        )
+        self.assertEqual(rename.status_code, status.HTTP_200_OK)
+
+        filters_edit = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {"filters": {"payloads": {"true": '"x"'}}},
+            format="json",
+        )
+        self.assertEqual(filters_edit.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(filters_edit.json()["attr"], "filters")
+
+    @override_settings(FEATURE_FLAG_FILTERS_ENFORCEMENT=False)
+    def test_kill_switch_logs_instead_of_rejecting(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"key": "bypassed-flag", "filters": {"groups": [{"properties": [], "rollout_percentage": "50"}]}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag = FeatureFlag.objects.get(id=response.json()["id"])
+        self.assertEqual(flag.filters["groups"][0]["rollout_percentage"], "50")
+
+    def test_display_passthrough_fields_round_trip(self):
+        filters = {
+            "groups": [
+                {
+                    "properties": [
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "operator": "icontains",
+                            "value": "@x.com",
+                            "label": "Email",
+                        }
+                    ],
+                    "rollout_percentage": None,
+                    "description": "First rollout cohort",
+                    "sort_key": "g1",
+                }
+            ],
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"key": "passthrough-flag", "filters": filters},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        stored = FeatureFlag.objects.get(id=response.json()["id"]).filters
+        group = stored["groups"][0]
+        self.assertEqual(group["description"], "First rollout cohort")
+        self.assertEqual(group["sort_key"], "g1")
+        self.assertEqual(group["properties"][0]["label"], "Email")
 
 
 class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
