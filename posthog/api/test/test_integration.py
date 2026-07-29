@@ -4939,6 +4939,12 @@ class TestIntegrationRequestAccessAPI(APIBaseTest):
 
 
 class TestPushIdentityVerificationAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        # Setting the policy requires admin, and the base test user is a plain member.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
     @patch("posthog.models.integration.GoogleRequest")
     @patch("posthog.models.integration.service_account.Credentials.from_service_account_info")
     def test_setting_the_mode_reaches_the_integration(self, mock_from_sa, _mock_google_request):
