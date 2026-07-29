@@ -107,7 +107,7 @@ class _FakeSession:
 
 
 def _install_session(monkeypatch: pytest.MonkeyPatch, session: _FakeSession) -> None:
-    monkeypatch.setattr(adobe_commerce, "_make_session", lambda credentials, capture=True: session)
+    monkeypatch.setattr(adobe_commerce, "_make_session", lambda credentials, capture=True, retry=None: session)
     monkeypatch.setattr(adobe_commerce, "_is_host_safe", lambda host, team_id: (True, None))
 
 
@@ -537,7 +537,7 @@ class TestGetRows:
 
     def test_internal_host_is_refused_at_sync_time(self, monkeypatch: pytest.MonkeyPatch) -> None:
         session = _FakeSession({})
-        monkeypatch.setattr(adobe_commerce, "_make_session", lambda credentials, capture=True: session)
+        monkeypatch.setattr(adobe_commerce, "_make_session", lambda credentials, capture=True, retry=None: session)
         monkeypatch.setattr(adobe_commerce, "_is_host_safe", lambda host, team_id: (False, "internal address"))
         with pytest.raises(AdobeCommerceHostNotAllowedError):
             list(
@@ -608,6 +608,22 @@ class TestValidateCredentials:
         validate_credentials("https://store.example.com", None, TOKEN_CREDENTIALS, schema_name="orders", team_id=1)
         assert "searchCriteria[pageSize]=1" in session.gets[0]
 
+    def test_validation_disables_transport_retries(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Validation runs inline on the API thread, so its session must opt out of the retrying
+        # policy — otherwise a store answering 429/503 with a large Retry-After stalls the worker
+        # across retry sleeps that the request timeout doesn't bound.
+        captured: dict[str, Any] = {}
+        session = _FakeSession(self._routes_all(lambda: _make_response(200, {"items": [], "total_count": 0})))
+
+        def fake_make_session(credentials: Any, capture: bool = True, retry: Any = None) -> Any:
+            captured["retry"] = retry
+            return session
+
+        monkeypatch.setattr(adobe_commerce, "_make_session", fake_make_session)
+        monkeypatch.setattr(adobe_commerce, "_is_host_safe", lambda host, team_id: (True, None))
+        validate_credentials("https://store.example.com", None, TOKEN_CREDENTIALS, team_id=1)
+        assert captured["retry"] is not None and captured["retry"].total == 0
+
     def test_bad_admin_password_is_reported_before_any_probe(self, monkeypatch: pytest.MonkeyPatch) -> None:
         session = _FakeSession(self._routes_all(lambda: _make_response(401, {"message": "bad"})))
         _install_session(monkeypatch, session)
@@ -626,7 +642,7 @@ class TestValidateCredentials:
 
     def test_internal_host_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
         session = _FakeSession({})
-        monkeypatch.setattr(adobe_commerce, "_make_session", lambda credentials, capture=True: session)
+        monkeypatch.setattr(adobe_commerce, "_make_session", lambda credentials, capture=True, retry=None: session)
         monkeypatch.setattr(adobe_commerce, "_is_host_safe", lambda host, team_id: (False, "internal address"))
         valid, message = validate_credentials("https://internal.local", None, TOKEN_CREDENTIALS, team_id=1)
         assert valid is False

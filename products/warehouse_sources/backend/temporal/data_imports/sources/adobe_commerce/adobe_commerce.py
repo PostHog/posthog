@@ -9,6 +9,7 @@ from urllib.parse import urlencode, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
+from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_commerce.settings import (
@@ -48,6 +49,12 @@ TOKEN_REFRESH_MARGIN_SECONDS = 5 * 60
 # at by `store_url` must not be able to tie up a worker by dribbling a huge body during validation.
 TOKEN_RESPONSE_MAX_BYTES = 1 * 1024 * 1024
 TOKEN_DOWNLOAD_SECONDS = 30
+
+# Credential validation runs inline on the API request thread, so it opts out of transport retries:
+# the shared policy honours a server-supplied `Retry-After` and sleeps between attempts, none of it
+# bounded by the request timeout, so a hostile store could otherwise stall a worker with a 429/503
+# and a large `Retry-After`. A sync run still uses the default retrying session.
+_NO_RETRY = Retry(total=0)
 
 # Magento compares searchCriteria datetime filters against MySQL `DATETIME` columns stored in UTC.
 MAGENTO_DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -357,11 +364,15 @@ class AdobeCommerceTokenManager:
         self._deadline = time.monotonic() + ADMIN_TOKEN_LIFETIME_SECONDS
 
 
-def _make_session(credentials: AdobeCommerceCredentials, capture: bool = True) -> requests.Session:
+def _make_session(
+    credentials: AdobeCommerceCredentials, capture: bool = True, retry: Retry | None = None
+) -> requests.Session:
     # `allow_redirects=False` keeps traffic pointed at the host that was validated. Secrets are
     # redacted from logged URLs and captured samples by value, since the admin password rides a
-    # JSON body the name-based scrubbers can't recognise on every install.
+    # JSON body the name-based scrubbers can't recognise on every install. `retry=None` keeps the
+    # default retrying policy; validation passes `_NO_RETRY` so its sleeps can't stall a worker.
     return make_tracked_session(
+        retry=retry,
         redact_values=credentials.secret_values(),
         allow_redirects=False,
         capture=capture,
@@ -578,7 +589,7 @@ def validate_credentials(
         if not host_ok:
             return False, host_err or HOST_NOT_ALLOWED_ERROR
 
-    session = _make_session(credentials, capture=False)
+    session = _make_session(credentials, capture=False, retry=_NO_RETRY)
     token_manager = AdobeCommerceTokenManager(session, base_url, credentials)
 
     try:
