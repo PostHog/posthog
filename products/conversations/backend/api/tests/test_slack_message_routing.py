@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime
 
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
@@ -25,9 +26,13 @@ from products.conversations.backend.slack import (
     handle_support_reaction,
 )
 from products.conversations.backend.tasks import process_supporthog_interactivity
+from products.customer_analytics.backend.facade import api as customer_analytics
+from products.customer_analytics.backend.test.factories import create_account
 
 MODULE = "products.conversations.backend.slack"
 TASKS_MODULE = "products.conversations.backend.tasks"
+# The "1700000000.000100" message ts used across the last-customer-message tests.
+MESSAGE_SENT_AT = datetime(2023, 11, 14, 22, 13, 20, 100, tzinfo=UTC)
 
 
 class TestSlackMessageRouting(BaseTest):
@@ -447,6 +452,65 @@ class TestSlackMessageRouting(BaseTest):
         )
 
         mock_create_or_update.assert_not_called()
+
+
+class TestSlackLastCustomerMessage(BaseTest):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+        self.team.conversations_settings = {"slack_enabled": True, "slack_channel_id": "C_CONFIG"}
+        self.team.save()
+        self.account = create_account(team_id=self.team.id, _properties={"slack_channel_id": "C_CONFIG"})
+        for target in ("create_or_update_slack_ticket", "get_slack_client", "post_ticket_confirmation_prompt"):
+            patcher = patch(f"{MODULE}.{target}")
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def _handle(self, **overrides) -> None:
+        event = {
+            "type": "message",
+            "channel": "C_CONFIG",
+            "ts": "1700000000.000100",
+            "user": "U123",
+            "text": "Our exports are failing again",
+            **overrides,
+        }
+        handle_support_message(event, self.team, "T123")
+
+    def _recorded_values(self, account=None) -> list:
+        account_id = (account or self.account).id
+        return [
+            value.value for value in customer_analytics.list_active_custom_property_values(self.team.id, account_id)
+        ]
+
+    @patch(f"{MODULE}.resolve_slack_user", return_value={"name": "Customer", "email": "customer@acme.com"})
+    def test_customer_message_is_recorded_on_the_bound_account(self, _mock_resolve):
+        self._handle()
+
+        assert self._recorded_values() == [MESSAGE_SENT_AT]
+
+    @patch(f"{MODULE}.resolve_slack_user", return_value={"name": "Customer", "email": "customer@acme.com"})
+    def test_a_bound_channel_outside_the_support_channels_is_still_recorded(self, _mock_resolve):
+        # The binding is the account's slack_channel_id, which is independent of ticketing.
+        other = create_account(team_id=self.team.id, name="Beta Corp", _properties={"slack_channel_id": "C_OTHER"})
+
+        self._handle(channel="C_OTHER")
+
+        assert self._recorded_values(other) == [MESSAGE_SENT_AT]
+
+    @parameterized.expand(
+        [
+            ("bot", {"bot_id": "B1"}, "customer@acme.com"),
+            ("system subtype", {"subtype": "channel_join"}, "customer@acme.com"),
+            ("unbound channel", {"channel": "C_UNBOUND"}, "customer@acme.com"),
+            ("posthog teammate", {}, None),
+        ]
+    )
+    def test_non_customer_messages_are_not_recorded(self, _name, overrides, email):
+        with patch(f"{MODULE}.resolve_slack_user", return_value={"name": "X", "email": email or self.user.email}):
+            self._handle(**overrides)
+
+        assert self._recorded_values() == []
 
 
 class TestSlackNudge(BaseTest):

@@ -46,6 +46,17 @@ NUMERIC_DISPLAY_TYPES = [
 ]
 
 
+# Canonical properties are written by PostHog, not by a user: conversations records Slack
+# activity on the account bound to the channel. The write path finds the definition by name and
+# creates it on first write, so a rename would orphan the value history and a different display
+# type would reject the write — both are refused for these names.
+CANONICAL_LAST_SLACK_MESSAGE_AT = "Last Slack message at"
+
+CANONICAL_DISPLAY_TYPE_BY_NAME: dict[str, DisplayType] = {
+    CANONICAL_LAST_SLACK_MESSAGE_AT: DisplayType.DATETIME,
+}
+
+
 class CustomPropertyDefinition(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
 

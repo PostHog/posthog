@@ -7,7 +7,7 @@ Called by facade/api.py. Do not call from outside this module.
 
 import math
 from collections.abc import Callable
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -20,6 +20,7 @@ from posthog.models.user import User
 
 from products.customer_analytics.backend.events import emit_account_custom_property_changed
 from products.customer_analytics.backend.models import (
+    CANONICAL_LAST_SLACK_MESSAGE_AT,
     Account,
     CustomPropertyDefinition,
     CustomPropertyValue,
@@ -139,6 +140,51 @@ def set_account_custom_properties_by_id(
             raise
         rows.append(row)
     return rows
+
+
+# Each write appends a history row and emits $account_custom_property_changed (which can start
+# workflow runs), so a busy channel must not write per message: the stored value only moves once
+# it is at least this far behind the new message.
+LAST_SLACK_MESSAGE_MIN_INTERVAL = timedelta(hours=1)
+
+
+def record_last_slack_message_at(*, team_id: int, account_id: str | UUID, timestamp: datetime) -> bool:
+    """Record when a customer last messaged in the Slack channel bound to `account_id`.
+
+    Creates the canonical definition on first write for the team — no user owns it, so
+    `created_by` stays null and no activity-log entry is written. Skips the write when the stored
+    value is newer than `timestamp` (Slack events can arrive out of order) or less than
+    `LAST_SLACK_MESSAGE_MIN_INTERVAL` behind it. Returns whether it wrote.
+
+    Raises `InvalidCustomPropertyValue` when the team already has a property under the canonical
+    name with a non-datetime type.
+    """
+    definition, _ = CustomPropertyDefinition.objects.for_team(team_id).get_or_create(
+        team_id=team_id,
+        name=CANONICAL_LAST_SLACK_MESSAGE_AT,
+        defaults={"display_type": DisplayType.DATETIME},
+    )
+    current = (
+        CustomPropertyValue.objects.for_team(team_id)
+        .filter(account_id=account_id, definition_id=definition.id, is_deleted=False)
+        .values_list("value_datetime", flat=True)
+        .first()
+    )
+    if current is not None and timestamp - current < LAST_SLACK_MESSAGE_MIN_INTERVAL:
+        return False
+    try:
+        _set_value(
+            team_id=team_id,
+            account_id=account_id,
+            definition=definition,
+            value=timestamp,
+            created_by_id=None,
+        )
+    except CustomPropertyValueConflict:
+        # A concurrent message for the same account already moved the value to within the
+        # interval, which is what this write was for — nothing to retry.
+        return False
+    return True
 
 
 def _set_value(
