@@ -425,7 +425,7 @@ importers:
         version: 0.25.12
       jest:
         specifier: ^29.7.0
-        version: 29.7.0(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
+        version: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@6.0.3))
       puppeteer:
         specifier: 19.0.0
         version: 19.0.0(encoding@0.1.13)
@@ -650,6 +650,9 @@ importers:
       '@posthog/products-business-knowledge':
         specifier: workspace:*
         version: link:../products/business_knowledge
+      '@posthog/products-cdp':
+        specifier: workspace:*
+        version: link:../products/cdp
       '@posthog/products-cohorts':
         specifier: workspace:*
         version: link:../products/cohorts
@@ -749,6 +752,9 @@ importers:
       '@posthog/products-product-analytics':
         specifier: workspace:*
         version: link:../products/product_analytics
+      '@posthog/products-product-tours':
+        specifier: workspace:*
+        version: link:../products/product_tours
       '@posthog/products-pulse':
         specifier: workspace:*
         version: link:../products/pulse

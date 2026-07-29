@@ -44,7 +44,9 @@ export function EndpointPreview(): JSX.Element {
                     >
                         <span className="EndpointPreview__copy">
                             <span className="EndpointPreview__name">active-users-daily</span>
-                            <span className="EndpointPreview__path">/api/environments/2/query/active-users-daily</span>
+                            <span className="EndpointPreview__path">
+                                /api/projects/2/endpoints/active-users-daily/run
+                            </span>
                         </span>
                         <span className="EndpointPreview__swap EndpointPreview__mat">
                             <span className="EndpointPreview__when-off">Inline</span>
@@ -55,7 +57,7 @@ export function EndpointPreview(): JSX.Element {
                     <div className="EndpointPreview__row">
                         <span className="EndpointPreview__copy">
                             <span className="EndpointPreview__name">revenue-by-plan</span>
-                            <span className="EndpointPreview__path">/api/environments/2/query/revenue-by-plan</span>
+                            <span className="EndpointPreview__path">/api/projects/2/endpoints/revenue-by-plan/run</span>
                         </span>
                         <span className="EndpointPreview__mat EndpointPreview__mat--live">Materialized</span>
                         <span className="EndpointPreview__switch EndpointPreview__switch--on" aria-hidden="true" />
@@ -82,7 +84,7 @@ export function EndpointPreview(): JSX.Element {
                 <div className="EndpointPreview__screen">
                     <div className="EndpointPreview__line">
                         <span className="EndpointPreview__prompt-char">$</span> curl
-                        us.posthog.com/api/environments/2/query/active-users-daily
+                        us.posthog.com/api/projects/2/endpoints/active-users-daily/run
                     </div>
                     <div className="EndpointPreview__line EndpointPreview__response">
                         {'{ "results": [["2026-07-28", 4102], ["2026-07-27", 3987], …] }'}
