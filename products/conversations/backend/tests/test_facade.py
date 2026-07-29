@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -108,7 +110,7 @@ class TestListAccountTickets(BaseTest):
         assert result[0].deep_link.endswith(f"/project/{self.team.pk}/support/tickets/1")
 
     def test_orders_by_last_message_activity_with_nulls_last(self):
-        older = timezone.now() - timezone.timedelta(hours=1)
+        older = timezone.now() - timedelta(hours=1)
         newer = timezone.now()
         self._create_ticket(team=self.team, organization_id="acct-1", number=1, last_message_at=older)
         self._create_ticket(team=self.team, organization_id="acct-1", number=2, last_message_at=newer)
