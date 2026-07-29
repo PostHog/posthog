@@ -44,7 +44,7 @@ export const NotebooksAddCellSchema = z
             .regex(COMPONENT_TAG_REGEX)
             .optional()
             .describe(
-                "Component cells: the notebook component to insert, e.g. 'Query' (product analytics charts and event tables via its query prop), 'Image', 'Embed', 'Latex', 'FeatureFlag', 'Survey', 'Experiment', 'Person', 'Cohort', 'Recording', 'RecordingPlaylist'. Executable cells are not allowed here — use cell_type sql/python. SQL is never a component: a Query with a HogQLQuery source is rejected, write it as a sql cell."
+                "Component cells: the notebook component to insert, e.g. 'Query' (product analytics charts and event tables via its query prop), 'Image', 'Embed', 'Latex', 'FeatureFlag', 'Survey', 'Experiment', 'Person', 'Cohort', 'Recording', 'RecordingPlaylist'. Executable cells are not allowed here — use cell_type sql/python."
             ),
         props: z
             .record(z.string(), z.unknown())
