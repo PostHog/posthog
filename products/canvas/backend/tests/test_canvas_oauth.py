@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import Any
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
@@ -70,7 +71,7 @@ class TestCanvasOAuthAccess(APIBaseTest):
             channel = Channel.objects.create(team=self.team, name="general")
         token = self._bearer("*", client_id=client_id)
         self.client.logout()
-        extra = {"HTTP_X_POSTHOG_TASK_ID": task_header} if task_header else {}
+        extra: dict[str, Any] = {"HTTP_X_POSTHOG_TASK_ID": task_header} if task_header else {}
         res = self.client.post(
             f"/api/projects/{self.team.id}/canvases/",
             {"channel_id": str(channel.id), "name": "Signups"},

@@ -231,8 +231,8 @@ def _validate_capabilities(path: str, code: str, capabilities: dict[str, Any]) -
             )
 
     if not inline_queries:
-        match = _PH_QUERY_RE.search(code)
-        if match is not None:
+        query_match = _PH_QUERY_RE.search(code)
+        if query_match is not None:
             diagnostics.append(
                 diagnostic(
                     "error",
@@ -240,7 +240,7 @@ def _validate_capabilities(path: str, code: str, capabilities: dict[str, Any]) -
                     "ph.query() requires capabilities.posthog.inlineQueries: true — "
                     "the host rejects undeclared inline queries at runtime",
                     path=path,
-                    line=_line_of(code, match.start()),
+                    line=_line_of(code, query_match.start()),
                 )
             )
 
