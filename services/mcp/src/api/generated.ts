@@ -27258,6 +27258,11 @@ export namespace Schemas {
       /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
       readonly can_freeze_exposure: boolean;
       /**
+         * When the split between the feature flag's variants was first changed after the experiment launched, or null if it never was. Variant assignment is a deterministic hash, so moving the split only switches the users in the band that moved and leaves results mixing both periods. Changes to the overall rollout percentage don't count, because they admit or hold back users without moving anyone between variants.
+         * @nullable
+         */
+      readonly variant_split_changed_at: string | null;
+      /**
          * The effective access level the user has for this object
          * @nullable
          */
@@ -28016,6 +28021,11 @@ export namespace Schemas {
       readonly is_legacy: boolean;
       /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
       readonly can_freeze_exposure: boolean;
+      /**
+         * When the split between the feature flag's variants was first changed after the experiment launched, or null if it never was. Variant assignment is a deterministic hash, so moving the split only switches the users in the band that moved and leaves results mixing both periods. Changes to the overall rollout percentage don't count, because they admit or hold back users without moving anyone between variants.
+         * @nullable
+         */
+      readonly variant_split_changed_at: string | null;
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -49214,6 +49224,11 @@ export namespace Schemas {
       readonly is_legacy?: boolean;
       /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
       readonly can_freeze_exposure?: boolean;
+      /**
+         * When the split between the feature flag's variants was first changed after the experiment launched, or null if it never was. Variant assignment is a deterministic hash, so moving the split only switches the users in the band that moved and leaves results mixing both periods. Changes to the overall rollout percentage don't count, because they admit or hold back users without moving anyone between variants.
+         * @nullable
+         */
+      readonly variant_split_changed_at?: string | null;
       /**
          * The effective access level the user has for this object
          * @nullable
