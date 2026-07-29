@@ -111,56 +111,64 @@ function HeatmapCell({
 }
 
 function Scorecards(): JSX.Element {
-    const { concentratedRoutes, spreadRoutes, topErrorRoute, clusters } = useValues(mcpClusteringLogic)
+    const { concentratedRoutes, spreadRoutes, topErrorRoute, clusters, totalClusterCount } =
+        useValues(mcpClusteringLogic)
 
     const concentratedShare =
         concentratedRoutes.total > 0 ? Math.round((100 * concentratedRoutes.focused) / concentratedRoutes.total) : 0
 
     return (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <div className="bg-surface-primary border rounded p-3 min-h-[88px] flex flex-col">
-                <span className="text-muted text-xs font-medium uppercase">Concentrated routes</span>
-                <div className="flex items-baseline gap-2 mt-1">
-                    <span className="text-2xl font-semibold">
-                        {concentratedRoutes.focused}
-                        <span className="text-muted text-base"> / {concentratedRoutes.total}</span>
-                    </span>
-                    <span className="text-xs text-muted">({concentratedShare}%)</span>
+        <div className="flex flex-col gap-1">
+            {totalClusterCount > clusters.length ? (
+                <div className="text-xs text-muted">
+                    Scorecards cover the top {clusters.length} of {totalClusterCount} clusters by call volume.
                 </div>
-                <span className="text-xs text-muted mt-1">Intent groups where one tool handles ≥80% of calls.</span>
-            </div>
-            <div className="bg-surface-primary border rounded p-3 min-h-[88px] flex flex-col">
-                <span className="text-muted text-xs font-medium uppercase">Spread routes</span>
-                <div className="flex items-baseline gap-2 mt-1">
-                    <span className="text-2xl font-semibold">{spreadRoutes}</span>
-                    <span className="text-xs text-muted">of {clusters.length}</span>
-                </div>
-                <span className="text-xs text-muted mt-1">
-                    Intent groups where no single tool covers half the calls — possible drift.
-                </span>
-            </div>
-            <div className="bg-surface-primary border rounded p-3 min-h-[88px] flex flex-col">
-                <span className="text-muted text-xs font-medium uppercase">Top error route</span>
-                {topErrorRoute && topErrorRoute.error_rate_pct > 0 ? (
-                    <>
-                        <div className="flex items-baseline gap-2 mt-1">
-                            <span className="text-2xl font-semibold text-danger">
-                                {topErrorRoute.error_rate_pct.toFixed(1)}%
-                            </span>
-                            <span className="text-xs text-muted">over {topErrorRoute.call_count} calls</span>
-                        </div>
-                        <span className="text-xs text-muted mt-1 truncate" title={topErrorRoute.label}>
-                            {topErrorRoute.label}
+            ) : null}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <div className="bg-surface-primary border rounded p-3 min-h-[88px] flex flex-col">
+                    <span className="text-muted text-xs font-medium uppercase">Concentrated routes</span>
+                    <div className="flex items-baseline gap-2 mt-1">
+                        <span className="text-2xl font-semibold">
+                            {concentratedRoutes.focused}
+                            <span className="text-muted text-base"> / {concentratedRoutes.total}</span>
                         </span>
-                    </>
-                ) : (
-                    <>
-                        <div className="flex items-baseline gap-2 mt-1">
-                            <span className="text-2xl font-semibold text-success">0%</span>
-                        </div>
-                        <span className="text-xs text-muted mt-1">No errors observed across clusters.</span>
-                    </>
-                )}
+                        <span className="text-xs text-muted">({concentratedShare}%)</span>
+                    </div>
+                    <span className="text-xs text-muted mt-1">Intent groups where one tool handles ≥80% of calls.</span>
+                </div>
+                <div className="bg-surface-primary border rounded p-3 min-h-[88px] flex flex-col">
+                    <span className="text-muted text-xs font-medium uppercase">Spread routes</span>
+                    <div className="flex items-baseline gap-2 mt-1">
+                        <span className="text-2xl font-semibold">{spreadRoutes}</span>
+                        <span className="text-xs text-muted">of {clusters.length}</span>
+                    </div>
+                    <span className="text-xs text-muted mt-1">
+                        Intent groups where no single tool covers half the calls — possible drift.
+                    </span>
+                </div>
+                <div className="bg-surface-primary border rounded p-3 min-h-[88px] flex flex-col">
+                    <span className="text-muted text-xs font-medium uppercase">Top error route</span>
+                    {topErrorRoute && topErrorRoute.error_rate_pct > 0 ? (
+                        <>
+                            <div className="flex items-baseline gap-2 mt-1">
+                                <span className="text-2xl font-semibold text-danger">
+                                    {topErrorRoute.error_rate_pct.toFixed(1)}%
+                                </span>
+                                <span className="text-xs text-muted">over {topErrorRoute.call_count} calls</span>
+                            </div>
+                            <span className="text-xs text-muted mt-1 truncate" title={topErrorRoute.label}>
+                                {topErrorRoute.label}
+                            </span>
+                        </>
+                    ) : (
+                        <>
+                            <div className="flex items-baseline gap-2 mt-1">
+                                <span className="text-2xl font-semibold text-success">0%</span>
+                            </div>
+                            <span className="text-xs text-muted mt-1">No errors observed across clusters.</span>
+                        </>
+                    )}
+                </div>
             </div>
         </div>
     )
@@ -464,7 +472,7 @@ function ClusterDetail({ cluster }: { cluster: MCPIntentClusterApi }): JSX.Eleme
 }
 
 function StatusRow(): JSX.Element | null {
-    const { snapshot, isComputing } = useValues(mcpClusteringLogic)
+    const { snapshot, isComputing, clusters, totalClusterCount } = useValues(mcpClusteringLogic)
     const { recompute } = useActions(mcpClusteringLogic)
     if (snapshot.status === 'error') {
         return null
@@ -487,7 +495,11 @@ function StatusRow(): JSX.Element | null {
                     {meta ? (
                         <>
                             <span>·</span>
-                            <span>{meta.n_clusters} clusters</span>
+                            <span>
+                                {totalClusterCount > clusters.length
+                                    ? `top ${clusters.length} of ${totalClusterCount} clusters`
+                                    : `${totalClusterCount} clusters`}
+                            </span>
                             <span>·</span>
                             <span>{meta.n_intents} intents</span>
                             <span>·</span>

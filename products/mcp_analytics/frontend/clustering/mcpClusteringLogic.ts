@@ -63,6 +63,7 @@ export interface mcpClusteringLogicValues {
     spreadRoutes: number
     toolColumns: string[]
     topErrorRoute: MCPIntentClusterApi | null
+    totalClusterCount: number
     totalToolCount: number
     visibleClusters: MCPIntentClusterApi[]
 }
@@ -131,6 +132,7 @@ export interface mcpClusteringLogicMeta {
         hiddenClusterCount: (sortedClusters: MCPIntentClusterApi[], visibleClusters: MCPIntentClusterApi[]) => number
         toolColumns: (clusters: readonly MCPIntentClusterApi[]) => string[]
         totalToolCount: (clusters: readonly MCPIntentClusterApi[]) => number
+        totalClusterCount: (snapshot: MCPIntentClusterSnapshotApi) => number
         selectedCluster: (
             clusters: readonly MCPIntentClusterApi[],
             selectedClusterId: number | null
@@ -272,6 +274,14 @@ export const mcpClusteringLogic = kea<mcpClusteringLogicType>([
                 }
                 return tools.size
             },
+        ],
+        // The true number of clusters the run found — the snapshot itself only
+        // carries the top MAX_SNAPSHOT_CLUSTERS by call volume, so anything
+        // reporting "how many clusters exist" must read this, not clusters.length.
+        totalClusterCount: [
+            (s) => [s.snapshot],
+            (snapshot: MCPIntentClusterSnapshotApi): number =>
+                Math.max(snapshot.computed_with?.n_clusters ?? 0, snapshot.clusters.length),
         ],
         selectedCluster: [
             (s) => [s.clusters, s.selectedClusterId],

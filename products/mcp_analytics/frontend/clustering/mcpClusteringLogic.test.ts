@@ -102,4 +102,19 @@ describe('mcpClusteringLogic', () => {
         expect(logic.values.toolColumns[0]).toBe('tool-0')
         expect(logic.values.totalToolCount).toBe(N_CLUSTERS * 2)
     })
+
+    it('reports the true cluster count from computed_with when the snapshot is truncated', async () => {
+        expect(logic.values.totalClusterCount).toBe(N_CLUSTERS)
+
+        // The backend stores only the top clusters; n_clusters keeps the run's full count.
+        // Status row, scorecards, and the dashboard KPI must report that, not clusters.length.
+        mockRetrieve.mockResolvedValue({
+            ...SNAPSHOT,
+            computed_with: { ...SNAPSHOT.computed_with!, n_clusters: 500 },
+        })
+        logic.actions.loadSnapshot()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.totalClusterCount).toBe(500)
+    })
 })
