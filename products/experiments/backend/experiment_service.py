@@ -3194,6 +3194,108 @@ class ExperimentService:
                 serializer_context=serializer_context,
             )
 
+    # --- per-link shared-metric writes -----------------------------------------
+    # Same shape as the per-metric writes above, for the experiment↔shared-metric
+    # links. A client addresses one link; the server rebuilds saved_metrics_ids
+    # under the row lock, so linking a shared metric can't drop one someone else
+    # linked meanwhile.
+
+    def link_shared_metric(
+        self,
+        experiment_id: int,
+        *,
+        saved_metric_id: int,
+        metric_type: MetricType,
+        serializer_context: dict | None = None,
+    ) -> Experiment:
+        """Link one shared metric into a section, or move it if already linked."""
+        with transaction.atomic():
+            experiment = self._locked_experiment(experiment_id)
+            links = self._shared_metric_links(experiment)
+            links[saved_metric_id] = {**(links.get(saved_metric_id) or {}), "type": metric_type}
+            return self._write_shared_metric_links(experiment, links, serializer_context)
+
+    def unlink_shared_metric(
+        self,
+        experiment_id: int,
+        *,
+        saved_metric_id: int,
+        serializer_context: dict | None = None,
+    ) -> Experiment:
+        """Unlink one shared metric, and drop any inline copy of it left behind.
+
+        Some experiments carry a stale inline entry marked ``isSharedMetric`` from before links
+        were the only representation, sometimes with no link at all. Cleaning it here means
+        clients no longer have to rewrite the metric arrays to unlink a shared metric — so this
+        succeeds when there is only an orphan to clean, and 404s only when there is neither.
+        """
+        with transaction.atomic():
+            experiment = self._locked_experiment(experiment_id)
+            links = self._shared_metric_links(experiment)
+            # Membership, not the popped value: a link's metadata can legitimately be null.
+            was_linked = saved_metric_id in links
+            links.pop(saved_metric_id, None)
+
+            extra_update: dict = {}
+            for field in METRIC_FIELD_BY_TYPE.values():
+                metrics = getattr(experiment, field) or []
+                kept = [
+                    m for m in metrics if not (m.get("isSharedMetric") and m.get("sharedMetricId") == saved_metric_id)
+                ]
+                if len(kept) != len(metrics):
+                    extra_update[field] = kept
+
+            if not was_linked and not extra_update:
+                raise NotFound(f"Shared metric {saved_metric_id} is not on this experiment.")
+
+            return self._write_shared_metric_links(experiment, links, serializer_context, extra_update=extra_update)
+
+    def patch_shared_metric_link(
+        self,
+        experiment_id: int,
+        *,
+        saved_metric_id: int,
+        metadata: dict,
+        serializer_context: dict | None = None,
+    ) -> Experiment:
+        """Shallow-merge metadata (breakdowns, section) onto one link, leaving others alone."""
+        with transaction.atomic():
+            experiment = self._locked_experiment(experiment_id)
+            links = self._shared_metric_links(experiment)
+            if saved_metric_id not in links:
+                raise NotFound(f"Shared metric {saved_metric_id} is not linked to this experiment.")
+            links[saved_metric_id] = {**(links[saved_metric_id] or {}), **metadata}
+            return self._write_shared_metric_links(experiment, links, serializer_context)
+
+    @staticmethod
+    def _shared_metric_links(experiment: Experiment) -> dict[int, dict | None]:
+        """The experiment's shared-metric links as ``{saved_metric_id: metadata}``."""
+        return dict(experiment.experimenttosavedmetric_set.values_list("saved_metric_id", "metadata"))
+
+    def _write_shared_metric_links(
+        self,
+        experiment: Experiment,
+        links: dict[int, dict | None],
+        serializer_context: dict | None,
+        *,
+        extra_update: dict | None = None,
+    ) -> Experiment:
+        """Persist a rebuilt link set through update_experiment's saved-metrics sync."""
+        return self.update_experiment(
+            experiment,
+            {
+                "saved_metrics_ids": [
+                    {"id": link_id, "metadata": metadata or {"type": "primary"}} for link_id, metadata in links.items()
+                ],
+                **(extra_update or {}),
+                "update_feature_flag_params": False,
+            },
+            serializer_context=serializer_context,
+            # A link write must not be blocked by an inline metric referencing an event
+            # this project never ingested — that metric isn't what's being changed.
+            allow_unknown_events=True,
+        )
+
     def _locked_experiment(self, experiment_id: int) -> Experiment:
         """Row-lock an experiment for the duration of the caller's transaction."""
         try:

@@ -25,6 +25,8 @@ import type {
     ExperimentSavedMetricApi,
     ExperimentSavedMetricsListParams,
     ExperimentSessionContextResponseApi,
+    ExperimentSharedMetricLinkApi,
+    ExperimentSharedMetricLinkResponseApi,
     ExperimentWriteApi,
     ExperimentsActivityRetrieveParams,
     ExperimentsListParams,
@@ -37,6 +39,7 @@ import type {
     PatchedExperimentHoldoutApi,
     PatchedExperimentMetricWriteApi,
     PatchedExperimentSavedMetricApi,
+    PatchedExperimentSharedMetricLinkPatchApi,
     PatchedExperimentWriteApi,
     RecalculateMetricsRequestApi,
     RunningTimeCalculationInputApi,
@@ -931,6 +934,77 @@ export const experimentsResumeCreate = async (
         ...options,
         method: 'POST',
     })
+}
+
+export const getExperimentsSharedMetricsCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/shared_metrics/`
+}
+
+/**
+ * Links one shared metric into the experiment's primary or secondary section, or moves it if it is already linked. Other links are left untouched, so this is safe from a client whose local copy of the experiment is out of date.
+ * @summary Link a shared metric to an experiment
+ */
+export const experimentsSharedMetricsCreate = async (
+    projectId: string,
+    id: number,
+    experimentSharedMetricLinkApi: ExperimentSharedMetricLinkApi,
+    options?: RequestInit
+): Promise<ExperimentSharedMetricLinkResponseApi> => {
+    return apiMutator<ExperimentSharedMetricLinkResponseApi>(getExperimentsSharedMetricsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(experimentSharedMetricLinkApi),
+    })
+}
+
+export const getExperimentsSharedMetricsPartialUpdateUrl = (projectId: string, id: number, savedMetricId: string) => {
+    return `/api/projects/${projectId}/experiments/${id}/shared_metrics/${savedMetricId}/`
+}
+
+/**
+ * Shallow-merges metadata onto one experiment↔shared-metric link — breakdowns, or a 'type' of 'primary'/'secondary' to move it between sections. Keys you omit are preserved and other links are untouched.
+ * @summary Update a shared metric's link metadata
+ */
+export const experimentsSharedMetricsPartialUpdate = async (
+    projectId: string,
+    id: number,
+    savedMetricId: string,
+    patchedExperimentSharedMetricLinkPatchApi?: PatchedExperimentSharedMetricLinkPatchApi,
+    options?: RequestInit
+): Promise<ExperimentSharedMetricLinkResponseApi> => {
+    return apiMutator<ExperimentSharedMetricLinkResponseApi>(
+        getExperimentsSharedMetricsPartialUpdateUrl(projectId, id, savedMetricId),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedExperimentSharedMetricLinkPatchApi),
+        }
+    )
+}
+
+export const getExperimentsSharedMetricsDestroyUrl = (projectId: string, id: number, savedMetricId: string) => {
+    return `/api/projects/${projectId}/experiments/${id}/shared_metrics/${savedMetricId}/`
+}
+
+/**
+ * Removes one experiment↔shared-metric link. Any stale inline copy of that shared metric left in the metric arrays is cleaned up server-side, so the client does not have to rewrite them.
+ * @summary Unlink a shared metric from an experiment
+ */
+export const experimentsSharedMetricsDestroy = async (
+    projectId: string,
+    id: number,
+    savedMetricId: string,
+    options?: RequestInit
+): Promise<ExperimentSharedMetricLinkResponseApi> => {
+    return apiMutator<ExperimentSharedMetricLinkResponseApi>(
+        getExperimentsSharedMetricsDestroyUrl(projectId, id, savedMetricId),
+        {
+            ...options,
+            method: 'DELETE',
+        }
+    )
 }
 
 export const getExperimentsShipVariantCreateUrl = (projectId: string, id: number) => {

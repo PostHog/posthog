@@ -89,8 +89,14 @@ import {
     experimentsMetricsDestroy,
     experimentsMetricsOrderUpdate,
     experimentsMetricsPartialUpdate,
+    experimentsSharedMetricsCreate,
+    experimentsSharedMetricsDestroy,
+    experimentsSharedMetricsPartialUpdate,
 } from 'products/experiments/frontend/generated/api'
-import type { ExperimentMetricMutationResponseApi } from 'products/experiments/frontend/generated/api.schemas'
+import type {
+    ExperimentMetricMutationResponseApi,
+    ExperimentSharedMetricLinkResponseApi,
+} from 'products/experiments/frontend/generated/api.schemas'
 
 import type { ProductIntentProperties } from '../../lib/utils/product-intents'
 import type { Noun } from '../../models/groupsModel'
@@ -821,6 +827,9 @@ export interface experimentLogicActions {
     ) => {
         replacesUuid: string | null
         response: ExperimentMetricMutationResponseApi
+    }
+    applySharedMetricLinks: (response: ExperimentSharedMetricLinkResponseApi) => {
+        response: ExperimentSharedMetricLinkResponseApi
     }
     archiveExperiment: (disableFeatureFlag?: boolean) => {
         disableFeatureFlag: boolean
@@ -1674,6 +1683,7 @@ export const experimentLogic = kea<experimentLogicType>([
             response,
             replacesUuid,
         }),
+        applySharedMetricLinks: (response: ExperimentSharedMetricLinkResponseApi) => ({ response }),
         removeMetric: (uuid: string, context: 'primary' | 'secondary') => ({ uuid, context }),
         saveMetricsReorder: (
             isSecondary: boolean,
@@ -1775,6 +1785,17 @@ export const experimentLogic = kea<experimentLogicType>([
                     }
                     return next
                 },
+                /**
+                 * Apply a per-link write's response. The client is never the source of truth for
+                 * which shared metrics are linked, so taking the server's set wholesale is safe
+                 * here — unlike the inline metric arrays, which the client edits.
+                 */
+                applySharedMetricLinks: (state, { response }) => ({
+                    ...state,
+                    saved_metrics: response.saved_metrics as unknown as ExperimentSavedMetric[],
+                    primary_metrics_ordered_uuids: response.primary_metrics_ordered_uuids,
+                    secondary_metrics_ordered_uuids: response.secondary_metrics_ordered_uuids,
+                }),
                 setExposureCriteria: (
                     state,
                     { exposureCriteria }: { exposureCriteria: ExperimentExposureCriteria }
@@ -2274,10 +2295,23 @@ export const experimentLogic = kea<experimentLogicType>([
                 return
             }
 
-            await asyncActions.updateExperiment({
-                saved_metrics_ids: savedMetrics.map(({ saved_metric, metadata }) => ({ id: saved_metric, metadata })),
-                update_feature_flag_params: false,
-            })
+            const link = savedMetrics.find(({ query: { uuid: savedMetricUuid } }) => savedMetricUuid === uuid)
+            if (!link) {
+                return
+            }
+
+            try {
+                const response = await experimentsSharedMetricsPartialUpdate(
+                    String(values.currentProjectId),
+                    Number(values.experimentId),
+                    String(link.saved_metric),
+                    { metadata: link.metadata }
+                )
+                actions.applySharedMetricLinks(response)
+            } catch (error: any) {
+                lemonToast.error(error.detail || 'Failed to save breakdown')
+                actions.loadExperiment({ triggeredBy: 'config_change' })
+            }
         }
 
         return {
@@ -2961,26 +2995,31 @@ export const experimentLogic = kea<experimentLogicType>([
                 })
             },
             addSharedMetricsToExperiment: async ({ sharedMetricIds, metadata }) => {
-                const existingMetricsIds = values.experiment.saved_metrics.map((sharedMetric) => ({
-                    id: sharedMetric.saved_metric,
-                    metadata: sharedMetric.metadata,
-                }))
-
-                const newMetricsIds = sharedMetricIds.map((id: SharedMetric['id']) => ({ id, metadata }))
-                newMetricsIds.forEach((metricId) => {
-                    const metric = values.sharedMetrics.find((m: SharedMetric) => m.id === metricId.id)
+                sharedMetricIds.forEach((id: SharedMetric['id']) => {
+                    const metric = values.sharedMetrics.find((m: SharedMetric) => m.id === id)
                     if (metric) {
                         actions.reportExperimentSharedMetricAssigned(values.experimentId, metric)
                     }
                 })
-                const combinedMetricsIds = [...existingMetricsIds, ...newMetricsIds]
 
-                await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
-                    saved_metrics_ids: combinedMetricsIds,
-                    update_feature_flag_params: false,
-                })
-
-                actions.loadExperiment({ triggeredBy: 'config_change' })
+                try {
+                    // One request per link. Sequential rather than concurrent because each takes
+                    // the same experiment row lock, so firing them together would just contend.
+                    let response
+                    for (const id of sharedMetricIds) {
+                        response = await experimentsSharedMetricsCreate(
+                            String(values.currentProjectId),
+                            Number(values.experimentId),
+                            { saved_metric_id: id, section: metadata.type }
+                        )
+                    }
+                    if (response) {
+                        actions.applySharedMetricLinks(response)
+                    }
+                } catch (error: any) {
+                    lemonToast.error(error.detail || 'Failed to add shared metric')
+                    actions.loadExperiment({ triggeredBy: 'config_change' })
+                }
             },
             duplicateSharedMetricAsInlineMetric: ({ isSecondary, newUuid }) => {
                 // Listeners run after reducers, so the copy is only there if the shared metric was actually found
@@ -2989,30 +3028,22 @@ export const experimentLogic = kea<experimentLogicType>([
                     lemonToast.success('Metric duplicated as a single-use metric')
                 }
             },
+            // Any orphaned inline copy of this shared metric is cleaned up server-side, so
+            // unlinking no longer has to rewrite the metric arrays to get rid of it.
             removeSharedMetricFromExperiment: async ({ sharedMetricId }) => {
-                const sharedMetricsIds = values.experiment.saved_metrics
-                    .filter((sharedMetric) => sharedMetric.saved_metric !== sharedMetricId)
-                    .map((sharedMetric) => ({
-                        id: sharedMetric.saved_metric,
-                        metadata: sharedMetric.metadata,
-                    }))
-
-                // Also remove orphaned shared metrics that were incorrectly stored in the metrics arrays
-                const cleanedMetrics = (values.experiment.metrics || []).filter(
-                    (m) => !('isSharedMetric' in m && m.isSharedMetric && m.sharedMetricId === sharedMetricId)
-                )
-                const cleanedMetricsSecondary = (values.experiment.metrics_secondary || []).filter(
-                    (m) => !('isSharedMetric' in m && m.isSharedMetric && m.sharedMetricId === sharedMetricId)
-                )
-
-                await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
-                    saved_metrics_ids: sharedMetricsIds,
-                    metrics: cleanedMetrics,
-                    metrics_secondary: cleanedMetricsSecondary,
-                    update_feature_flag_params: false,
-                })
-
-                actions.loadExperiment({ triggeredBy: 'config_change' })
+                try {
+                    const response = await experimentsSharedMetricsDestroy(
+                        String(values.currentProjectId),
+                        Number(values.experimentId),
+                        String(sharedMetricId)
+                    )
+                    actions.applySharedMetricLinks(response)
+                    // The inline arrays can change too when a stale copy is cleaned up, so
+                    // reload rather than guess at what the server removed.
+                    actions.loadExperiment({ triggeredBy: 'config_change' })
+                } catch (error: any) {
+                    lemonToast.error(error.detail || 'Failed to remove shared metric')
+                }
             },
             createExperimentDashboard: async () => {
                 actions.setIsCreatingExperimentDashboard(true)

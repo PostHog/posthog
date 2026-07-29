@@ -27960,6 +27960,32 @@ export namespace Schemas {
       results: ExperimentSessionContextItem[];
     }
 
+    export interface ExperimentSharedMetricLink {
+      /** The shared metric to link to this experiment. */
+      saved_metric_id: number;
+      /** Which metric section to write: 'primary' or 'secondary'.
+       *
+       * * `primary` - primary
+       * * `secondary` - secondary */
+      section: SectionEnum;
+    }
+
+    /**
+     * What a per-link write returns — the link set plus both ordering arrays.
+     *
+     * Unlike the metric collections, a client is never the source of truth for which shared
+     * metrics are linked, so returning the resolved set is safe. It still never returns the
+     * whole experiment.
+     */
+    export interface ExperimentSharedMetricLinkResponse {
+      /** The experiment's shared-metric links after the write. */
+      readonly saved_metrics: readonly ExperimentToSavedMetric[];
+      /** @nullable */
+      primary_metrics_ordered_uuids: string[] | null;
+      /** @nullable */
+      secondary_metrics_ordered_uuids: string[] | null;
+    }
+
     /**
      * Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.
      */
@@ -49166,6 +49192,29 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level?: string | null;
+    }
+
+    export type PatchedExperimentSharedMetricLinkPatchMetadataType = typeof PatchedExperimentSharedMetricLinkPatchMetadataType[keyof typeof PatchedExperimentSharedMetricLinkPatchMetadataType];
+
+
+    export const PatchedExperimentSharedMetricLinkPatchMetadataType = {
+      Primary: 'primary',
+      Secondary: 'secondary',
+    } as const;
+
+    export type PatchedExperimentSharedMetricLinkPatchMetadataBreakdownsItem = { [key: string]: unknown };
+
+    /**
+     * Link metadata to merge, such as breakdowns, or a 'type' of 'primary'/'secondary' to move the shared metric between sections. Keys you omit are preserved.
+     */
+    export type PatchedExperimentSharedMetricLinkPatchMetadata = {
+      type?: PatchedExperimentSharedMetricLinkPatchMetadataType;
+      breakdowns?: PatchedExperimentSharedMetricLinkPatchMetadataBreakdownsItem[];
+    };
+
+    export interface PatchedExperimentSharedMetricLinkPatch {
+      /** Link metadata to merge, such as breakdowns, or a 'type' of 'primary'/'secondary' to move the shared metric between sections. Keys you omit are preserved. */
+      metadata?: PatchedExperimentSharedMetricLinkPatchMetadata;
     }
 
     /**

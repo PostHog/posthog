@@ -352,85 +352,26 @@ describe('experimentLogic', () => {
             api.update.mockClear()
         })
 
-        it('removes orphaned shared metric from metrics array', async () => {
-            const orphanedSharedMetricId = 46275
-            const experimentWithOrphan = {
-                ...experiment,
+        it('unlinks through the per-link endpoint, never a whole-array write', async () => {
+            // The orphaned-inline-copy cleanup this used to do client-side is now the
+            // server's job, covered by TestExperimentSharedMetricLinks on the backend.
+            const sharedMetricId = 46275
+            logic.actions.setExperiment({ ...experiment, saved_metrics: [] } as unknown as Experiment)
+            jest.spyOn(api, 'delete')
+            api.delete.mockClear()
+            api.delete.mockResolvedValue({
                 saved_metrics: [],
-                metrics: [
-                    {
-                        kind: 'ExperimentMetric',
-                        name: 'Orphaned Shared Metric',
-                        uuid: 'orphan-uuid',
-                        isSharedMetric: true,
-                        sharedMetricId: orphanedSharedMetricId,
-                    },
-                    experiment.metrics[0],
-                ],
-                metrics_secondary: [],
-            } as unknown as Experiment
-
-            logic.actions.setExperiment(experimentWithOrphan)
-            api.update.mockResolvedValue(experimentWithOrphan)
-
-            useMocks({
-                get: {
-                    '/api/projects/:team/experiments/:id': experimentWithOrphan,
-                },
+                primary_metrics_ordered_uuids: [],
+                secondary_metrics_ordered_uuids: [],
             })
 
             await expectLogic(logic, () => {
-                logic.actions.removeSharedMetricFromExperiment(orphanedSharedMetricId)
+                logic.actions.removeSharedMetricFromExperiment(sharedMetricId)
             }).toFinishAllListeners()
 
-            expect(api.update).toHaveBeenCalledWith(
-                expect.stringContaining('/experiments/'),
-                expect.objectContaining({
-                    saved_metrics_ids: [],
-                    metrics: [experiment.metrics[0]],
-                    metrics_secondary: [],
-                })
-            )
-        })
-
-        it('removes orphaned shared metric from metrics_secondary array', async () => {
-            const orphanedSharedMetricId = 99999
-            const experimentWithOrphan = {
-                ...experiment,
-                saved_metrics: [],
-                metrics: [],
-                metrics_secondary: [
-                    {
-                        kind: 'ExperimentMetric',
-                        name: 'Orphaned Secondary Metric',
-                        uuid: 'orphan-secondary-uuid',
-                        isSharedMetric: true,
-                        sharedMetricId: orphanedSharedMetricId,
-                    },
-                ],
-            } as unknown as Experiment
-
-            logic.actions.setExperiment(experimentWithOrphan)
-            api.update.mockResolvedValue(experimentWithOrphan)
-
-            useMocks({
-                get: {
-                    '/api/projects/:team/experiments/:id': experimentWithOrphan,
-                },
-            })
-
-            await expectLogic(logic, () => {
-                logic.actions.removeSharedMetricFromExperiment(orphanedSharedMetricId)
-            }).toFinishAllListeners()
-
-            expect(api.update).toHaveBeenCalledWith(
-                expect.stringContaining('/experiments/'),
-                expect.objectContaining({
-                    saved_metrics_ids: [],
-                    metrics: [],
-                    metrics_secondary: [],
-                })
-            )
+            expect(api.delete).toHaveBeenCalledWith(expect.stringContaining(`/shared_metrics/${sharedMetricId}/`))
+            expect(api.update).not.toHaveBeenCalled()
+            api.delete.mockRestore()
         })
     })
     describe('duplicateSharedMetricAsInlineMetric', () => {
