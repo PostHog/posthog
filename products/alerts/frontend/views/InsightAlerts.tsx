@@ -60,7 +60,7 @@ function AlertRowMenu({ alert, deleting, onDelete }: AlertRowMenuProps): JSX.Ele
                     disabled={testDeliveryResultLoading}
                     onClick={sendTestDelivery}
                 >
-                    Send test
+                    Test delivery
                 </DropdownMenuItem>
                 <DropdownMenuItem
                     variant="destructive"

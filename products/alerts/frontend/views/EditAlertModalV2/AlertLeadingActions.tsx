@@ -59,7 +59,7 @@ export function AlertLeadingActions({
                 disabledReason={alert?.state === AlertState.FIRING ? undefined : 'Only firing alerts can be snoozed'}
             />
             <LemonButton type="secondary" onClick={onSendTestDelivery} loading={testDeliveryLoading}>
-                Send test
+                Test delivery
             </LemonButton>
             {alert?.state === AlertState.SNOOZED ? (
                 <LemonButton
