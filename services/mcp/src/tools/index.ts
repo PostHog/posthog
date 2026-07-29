@@ -1,8 +1,6 @@
 import { hasScopes } from '@/lib/api'
 import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 
-// Agent platform (hand-written — CRUD is codegen in generated/agent_platform.ts)
-import resolveResource from './agentPlatform/resolveResource'
 // AI observability
 import getLLMCosts from './aiObservability/getLLMCosts'
 // Conversations (settings tools are hand-written; ticket/view CRUD is codegen)
@@ -23,8 +21,12 @@ import queryInsight from './insights/query'
 // Links (utility — builds canonical app URLs from the frontend's route table)
 import generateAppUrl from './links/generate-app-url'
 import loopsReview from './loops/loopsReview'
-// Notebooks (edit is hand-written — generated CRUD lives in generated/notebooks.ts)
+// Notebooks (edit + cell tools are hand-written — generated CRUD lives in generated/notebooks.ts)
+import notebookAddCell from './notebooks/addCell'
+import notebookCreateMarkdown from './notebooks/createMarkdown'
+import notebookDeleteCell from './notebooks/deleteCell'
 import notebookEdit from './notebooks/edit'
+import notebookUpdateCell from './notebooks/updateCell'
 // Organizations
 import getOrganizations from './organizations/getOrganizations'
 import setActiveOrganization from './organizations/setActive'
@@ -99,6 +101,10 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Notebooks
     'notebook-edit': notebookEdit,
+    'notebooks-add-cell': notebookAddCell,
+    'notebooks-create-markdown': notebookCreateMarkdown,
+    'notebooks-delete-cell': notebookDeleteCell,
+    'notebooks-update-cell': notebookUpdateCell,
 
     // Debug
     'debug-mcp-ui-apps': debugMcpUiApps,
@@ -106,9 +112,6 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Feedback
     'agent-feedback': submitFeedback,
-
-    // Agent platform (read-only playbook resolver — CRUD lives in generated/agent_platform.ts)
-    'agent-resolve-resource': resolveResource,
 
     // PostHog AI tools
     [EXECUTE_SQL_TOOL_NAME]: executeSql,

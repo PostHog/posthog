@@ -6,7 +6,7 @@
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
 category: Customer analytics
 feature: customer_analytics
-url_prefix: /customer-analytics
+url_prefix: /customer_analytics
 ui_apps: {}
 tools:
     account-notes-list:
@@ -359,6 +359,12 @@ tools:
             deep-link it with the path `/customer_analytics/accounts/<id>/<tab>` (using the account `id`; tab is
             optional — one of notes/users/usage/spend, e.g. `/customer_analytics/accounts/<id>/usage`).
         feature_flag: customer-analytics-csp
+    accounts-summaries-list:
+        operation: accounts_summaries_list
+        enabled: false
+    accounts-support-tickets-list:
+        operation: accounts_support_tickets_list
+        enabled: false
     accounts-update:
         operation: accounts_update
         enabled: false

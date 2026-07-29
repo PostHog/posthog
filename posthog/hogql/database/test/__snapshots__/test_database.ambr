@@ -2768,6 +2768,19 @@
                   "table": "account_custom_properties",
                   "type": "lazy_table"
               },
+              "custom_properties_history": {
+                  "chain": null,
+                  "fields": [
+                      "account_id",
+                      "values"
+                  ],
+                  "hogql_value": "custom_properties_history",
+                  "id": "custom_properties_history",
+                  "name": "custom_properties_history",
+                  "schema_valid": true,
+                  "table": "account_custom_properties_history",
+                  "type": "lazy_table"
+              },
               "relationships": {
                   "chain": null,
                   "fields": [
@@ -8750,6 +8763,19 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "datetime"
+              },
+              "tags": {
+                  "chain": null,
+                  "fields": [
+                      "ticket_id",
+                      "names"
+                  ],
+                  "hogql_value": "tags",
+                  "id": "tags",
+                  "name": "tags",
+                  "schema_valid": true,
+                  "table": "ticket_tags",
+                  "type": "lazy_table"
               }
           },
           "id": "system.support_tickets",
@@ -11543,6 +11569,19 @@
                   "table": "account_custom_properties",
                   "type": "lazy_table"
               },
+              "custom_properties_history": {
+                  "chain": null,
+                  "fields": [
+                      "account_id",
+                      "values"
+                  ],
+                  "hogql_value": "custom_properties_history",
+                  "id": "custom_properties_history",
+                  "name": "custom_properties_history",
+                  "schema_valid": true,
+                  "table": "account_custom_properties_history",
+                  "type": "lazy_table"
+              },
               "relationships": {
                   "chain": null,
                   "fields": [
@@ -17525,6 +17564,19 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "datetime"
+              },
+              "tags": {
+                  "chain": null,
+                  "fields": [
+                      "ticket_id",
+                      "names"
+                  ],
+                  "hogql_value": "tags",
+                  "id": "tags",
+                  "name": "tags",
+                  "schema_valid": true,
+                  "table": "ticket_tags",
+                  "type": "lazy_table"
               }
           },
           "id": "system.support_tickets",

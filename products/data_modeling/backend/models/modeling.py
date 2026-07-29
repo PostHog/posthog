@@ -223,7 +223,14 @@ class BoundedResolver(Resolver):
     def visit_join_expr(self, node: ast.JoinExpr):
         """Override to add cycle detection and depth limiting for view tables."""
         # CTEs are handled entirely by the parent class, but for views we track visited for cycle detection
-        if isinstance(node.table, ast.Field) and self.database is not None:
+        if (
+            isinstance(node.table, ast.Field)
+            and self.database is not None
+            # CTEs shadow database tables (the parent checks self.ctes before any table lookup),
+            # so a name bound in the current WITH scope is never a view reference; without this
+            # skip, a view whose body defines a same-named CTE reads as a cycle with itself
+            and self.ctes.get(".".join(str(n) for n in node.table.chain)) is None
+        ):
             try:
                 database_table = self.database.get_table([str(n) for n in node.table.chain])
             except QueryError:

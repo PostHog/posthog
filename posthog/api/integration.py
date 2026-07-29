@@ -1,7 +1,8 @@
 import os
 import re
 import json
-from typing import Any, cast
+from collections.abc import Iterable
+from typing import Any, Protocol, cast
 from urllib.parse import urlencode
 
 from django.conf import settings
@@ -94,6 +95,7 @@ from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.tasks.email import send_integration_access_request
 from posthog.utils import is_relative_url
 
+from products.batch_exports.backend.models.batch_export import get_batch_exports_using_integration
 from products.cdp.backend.services.integration_usage import get_enabled_hog_functions_using_integration
 from products.tasks.backend.facade.api import count_in_progress_runs_for_github_integration
 from products.workflows.backend.services.integration_usage import get_active_hog_flows_using_integration
@@ -175,6 +177,17 @@ def _ensure_oauth_token_valid(instance: Integration) -> None:
                 "This integration's authentication token could not be refreshed. "
                 "Please reconnect or disconnect this integration and connect a different account."
             )
+
+
+class _HasNameOrId(Protocol):
+    id: Any
+
+    @property
+    def name(self) -> str | None: ...
+
+
+def _concat_names_or_ids(items: Iterable[_HasNameOrId]) -> str:
+    return ", ".join(sorted(it.name or str(it.id) for it in items))
 
 
 class NativeEmailIntegrationSerializer(serializers.Serializer):
@@ -978,15 +991,24 @@ class IntegrationViewSet(
         functions_using_integration = get_enabled_hog_functions_using_integration(
             team_id=instance.team_id, integration_id=instance.id
         )
+        batch_exports_using_integration = get_batch_exports_using_integration(
+            team_id=instance.team_id, integration_id=instance.id
+        )
+
         used_by = []
+
         if flows_using_integration:
-            flow_names = ", ".join(sorted(flow.name or str(flow.id) for flow in flows_using_integration))
+            flow_names = _concat_names_or_ids(flows_using_integration)
             used_by.append(f"active workflows: {flow_names}")
+
         if functions_using_integration:
-            function_names = ", ".join(
-                sorted(function.name or str(function.id) for function in functions_using_integration)
-            )
+            function_names = _concat_names_or_ids(functions_using_integration)
             used_by.append(f"enabled data pipelines: {function_names}")
+
+        if batch_exports_using_integration:
+            batch_export_names = _concat_names_or_ids(batch_exports_using_integration)
+            used_by.append(f"batch exports: {batch_export_names}")
+
         if used_by:
             raise ValidationError(
                 f"This integration is used by {' and '.join(used_by)}. "

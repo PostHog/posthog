@@ -184,6 +184,93 @@ fn deserialize_schema_version<'de, D: Deserializer<'de>>(deserializer: D) -> Res
     Ok(value)
 }
 
+pub(super) const RECONCILE_COMPLETE_KIND: &str = "reconcile_complete";
+
+/// A completion certificate emitted after one partition's reconcile snapshot is durable. Produced by
+/// the stream processor onto the membership topic and folded by the seeder's marker watcher, so it
+/// lives here — the shared seed contract — rather than in either crate. Field order is the wire order;
+/// the golden test below pins the exact bytes both ends depend on.
+///
+/// Deliberately carries no dispatch epoch. A marker is a run-scoped durable fact: that partition's
+/// snapshot drained under this run's pinned filters. If a re-dispatch's watcher folds a late marker
+/// from the previous dispatch, it counts toward the same end state the new drain would reach — a run
+/// is only re-dispatched for a *retryable* shortfall, whose hash still matches (a diverged cohort is
+/// superseded and excluded), so both dispatches drain identical filters. Adding an epoch here would
+/// discard that work and buy nothing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReconcileCompleteMarker {
+    #[serde(rename = "type")]
+    kind: ReconcileCompleteKind,
+    team_id: i32,
+    cohort_id: i32,
+    partition: u16,
+    run_id: RunId,
+    /// ClickHouse `DateTime64(6)` wire format.
+    last_updated: String,
+}
+
+impl ReconcileCompleteMarker {
+    pub fn new(
+        team_id: TeamId,
+        cohort_id: CohortId,
+        partition: u16,
+        run_id: RunId,
+        last_updated: String,
+    ) -> Self {
+        Self {
+            kind: ReconcileCompleteKind,
+            team_id: team_id.0,
+            cohort_id: cohort_id.0,
+            partition,
+            run_id,
+            last_updated,
+        }
+    }
+
+    pub const fn team_id(&self) -> TeamId {
+        TeamId(self.team_id)
+    }
+
+    pub const fn cohort_id(&self) -> CohortId {
+        CohortId(self.cohort_id)
+    }
+
+    pub const fn partition(&self) -> u16 {
+        self.partition
+    }
+
+    pub const fn run_id(&self) -> RunId {
+        self.run_id
+    }
+
+    pub fn last_updated(&self) -> &str {
+        &self.last_updated
+    }
+}
+
+/// A zero-sized discriminant proven to be [`RECONCILE_COMPLETE_KIND`] during deserialization.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ReconcileCompleteKind;
+
+impl Serialize for ReconcileCompleteKind {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(RECONCILE_COMPLETE_KIND)
+    }
+}
+
+impl<'de> Deserialize<'de> for ReconcileCompleteKind {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = String::deserialize(deserializer)?;
+        if value != RECONCILE_COMPLETE_KIND {
+            return Err(DeError::invalid_value(
+                Unexpected::Str(&value),
+                &"marker type \"reconcile_complete\"",
+            ));
+        }
+        Ok(Self)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use uuid::Uuid;
@@ -253,6 +340,45 @@ mod tests {
                 "accepted a reconcile tile with mutated {field}",
             );
         }
+    }
+
+    #[test]
+    fn reconcile_complete_marker_has_the_exact_wire_contract() {
+        let marker = ReconcileCompleteMarker::new(
+            TeamId(42),
+            CohortId(91204),
+            7,
+            RunId(Uuid::nil()),
+            "2026-05-26 12:34:56.789123".to_string(),
+        );
+
+        assert_eq!(
+            serde_json::to_string(&marker).unwrap(),
+            r#"{"type":"reconcile_complete","team_id":42,"cohort_id":91204,"partition":7,"run_id":"00000000-0000-0000-0000-000000000000","last_updated":"2026-05-26 12:34:56.789123"}"#,
+        );
+        assert_eq!(
+            serde_json::from_str::<ReconcileCompleteMarker>(
+                &serde_json::to_string(&marker).unwrap()
+            )
+            .unwrap(),
+            marker
+        );
+    }
+
+    #[test]
+    fn reconcile_complete_marker_rejects_another_message_type() {
+        let marker = ReconcileCompleteMarker::new(
+            TeamId(42),
+            CohortId(91204),
+            7,
+            RunId(Uuid::nil()),
+            "2026-05-26 12:34:56.789123".to_string(),
+        );
+        let payload = serde_json::to_string(&marker)
+            .unwrap()
+            .replace("reconcile_complete", "seed");
+
+        assert!(serde_json::from_str::<ReconcileCompleteMarker>(&payload).is_err());
     }
 
     #[test]
