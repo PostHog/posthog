@@ -17,7 +17,9 @@ export const AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM: AttachedContextItem = {
         'when the user asks you to create or change something, achieve it with the matching tool call rather than only ' +
         'describing the result or writing it out as text. For example, if the user asks you to write SQL, call the ' +
         'execute-sql tool to write the query and verify it runs – the executed query lands in their open editor; never just ' +
-        'print the SQL in your reply.',
+        'print the SQL in your reply. ' +
+        'When the user asks to be taken somewhere ("take me to the workflow", "open insights"), call the navigate-user tool ' +
+        'with the destination URL: the tab they are watching follows it. Include the link in your reply as well.',
 }
 
 const UNTRUSTED_HEADER =

@@ -16,7 +16,9 @@ import { ComposerModelEffortPickers } from '../../../components/composer/Compose
 import { ComposerModePicker } from '../../../components/composer/ComposerModePicker'
 import { ComposerModeShortcut } from '../../../components/composer/ComposerModeShortcut'
 import { useDebouncedDraft } from '../../../components/composer/useDebouncedDraft'
+import { useAttachedContext } from '../../../hooks/useAttachedContext'
 import { useForegroundStream } from '../../../hooks/useForegroundStream'
+import { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM } from '../../../utils/posthogContextBlock'
 import { taskDetailSceneLogic } from '../taskDetailSceneLogic'
 
 export interface TaskRunChatProps {
@@ -81,6 +83,10 @@ function TaskRunChatContent({
     // foreground stream (same key resolution as `RunSurface.Root`). A read-only staff view omits the
     // composer and could never answer a forced prompt, so it stays a background consumer.
     useForegroundStream(readOnly ? null : (logicProps.streamKey ?? logicProps.runId))
+
+    // A watched, interactive run applies tool results back to the app and can navigate the user's
+    // tab — tell the agent so (same item the side panel runner attaches; deduped per task chain).
+    useAttachedContext(readOnly ? null : [AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM])
     return (
         // `RunSurface.Root` and `runInteractionLogic` deliberately share the same stream key (`streamKey ?? runId`,
         // resolved inside each): the composer slot's gating must read the exact stream the thread renders. The
