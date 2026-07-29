@@ -160,13 +160,31 @@ TIMESTAMP_FIELDS = [
 ]
 
 
+def _milliseconds_to_seconds(value: Any) -> Any:
+    """Convert one epoch-milliseconds value to seconds, passing anything else through.
+
+    These field names are shared across endpoints and not every endpoint returns a number for
+    them — `/domains`, for instance, returns a non-numeric value for one. The map runs inside the
+    import activity, so raising here fails the whole job instead of one row; leaving the odd value
+    alone lets the rest of the table land.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int | float | str):
+        try:
+            # Integer division keeps the int64 type delta tables expect.
+            return int(value) // 1000
+        except (TypeError, ValueError, OverflowError):
+            # Non-numeric strings (ISO dates, enum-ish values), NaN and infinity.
+            return value
+    return value
+
+
 def _convert_timestamps(item: dict[str, Any]) -> dict[str, Any]:
     """Convert Clerk timestamp fields from milliseconds to seconds."""
     for field in TIMESTAMP_FIELDS:
         if field in item and item[field] is not None:
-            # Clerk returns timestamps in milliseconds, convert to seconds
-            # Use integer division to maintain int64 type for delta table compatibility
-            item[field] = item[field] // 1000
+            item[field] = _milliseconds_to_seconds(item[field])
     return item
 
 

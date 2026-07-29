@@ -305,6 +305,25 @@ class TestClerkEndpoints:
             assert converted[field] == (value // 1000 if value is not None else None)
 
     @pytest.mark.parametrize(
+        "item,expected",
+        [
+            # numeric string — still a millisecond timestamp, so convert it
+            ({"created_at": "1700000000000"}, {"created_at": 1700000000}),
+            # non-numeric value, e.g. what /domains returns — pass through instead of crashing
+            ({"expiration": "never"}, {"expiration": "never"}),
+            ({"last_used_at": ""}, {"last_used_at": ""}),
+            ({"period_end": {"nested": 1}}, {"period_end": {"nested": 1}}),
+            ({"canceled_at": None}, {"canceled_at": None}),
+        ],
+    )
+    def test_non_integer_timestamps_do_not_fail_the_import(
+        self, item: dict[str, Any], expected: dict[str, Any]
+    ) -> None:
+        # The map runs inside the import activity, so a TypeError here fails the whole job and the
+        # table lands empty rather than losing a single field.
+        assert _convert_timestamps(dict(item)) == expected
+
+    @pytest.mark.parametrize(
         "item,paths,expected",
         [
             # top-level redeemable link on invitations / organization_invitations
