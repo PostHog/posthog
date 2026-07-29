@@ -7,6 +7,7 @@ from llm_gateway.request_context import (
     _parse_traceparent_trace_id,
     apply_posthog_context_from_headers,
     get_traceparent_trace_id,
+    rebuild_request_context,
     set_request_context,
 )
 
@@ -50,3 +51,18 @@ class TestApplyCapturesTraceparent:
         set_request_context(RequestContext(request_id="r3"))
         apply_posthog_context_from_headers(SimpleNamespace(headers={"traceparent": "nonsense"}))
         assert get_traceparent_trace_id() is None
+
+
+class TestRebuildRequestContextCarriesTraceparent:
+    def test_survives_the_handler_rebuild(self):
+        # handler.py replaces the context mid-request; the traceparent must survive it.
+        try:
+            set_request_context(RequestContext(request_id="r4"))
+            request = SimpleNamespace(headers={"traceparent": VALID_TRACEPARENT})
+            apply_posthog_context_from_headers(request)
+
+            rebuild_request_context("llm_gateway")
+
+            assert get_traceparent_trace_id() == VALID_TRACE_UUID
+        finally:
+            set_request_context(RequestContext(request_id="r4"))
