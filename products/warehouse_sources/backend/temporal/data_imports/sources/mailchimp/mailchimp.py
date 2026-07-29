@@ -181,13 +181,9 @@ def validate_credentials(api_key: str) -> tuple[bool, str | None]:
         return False, str(e)
 
     url = f"https://{dc}.api.mailchimp.com/3.0/ping"
-    headers = {
-        "Authorization": f"apikey {api_key}",
-        "Accept": "application/json",
-    }
 
     try:
-        response = make_tracked_session().get(url, headers=headers, timeout=10)
+        response = _mailchimp_session(api_key).get(url, timeout=10)
 
         if response.status_code == 200:
             return True, None
@@ -218,12 +214,7 @@ def _fetch_all_lists(api_key: str, dc: str) -> list[dict[str, Any]]:
 
     # One session for the whole pagination loop so urllib3's connection
     # pool keeps the TLS connection warm across pages.
-    session = make_tracked_session(
-        headers={
-            "Authorization": f"apikey {api_key}",
-            "Accept": "application/json",
-        }
-    )
+    session = _mailchimp_session(api_key)
 
     while True:
         response = session.get(
@@ -258,12 +249,7 @@ def _fetch_contacts_for_list(
     page_size = 1000
 
     # One session for the whole pagination loop — see `_fetch_all_lists`.
-    session = make_tracked_session(
-        headers={
-            "Authorization": f"apikey {api_key}",
-            "Accept": "application/json",
-        }
-    )
+    session = _mailchimp_session(api_key)
 
     while True:
         params: dict[str, str | int] = {
@@ -345,12 +331,16 @@ def _get_contacts_iterator(
 
 
 def _mailchimp_session(api_key: str) -> Session:
+    # capture=False keeps requests metered and logged but excludes their bodies from HTTP sample
+    # capture: Mailchimp responses carry subscriber PII (email addresses, activity), campaign
+    # content, feedback, and ecommerce orders that the name-based scrubbers can't reliably redact.
     return make_tracked_session(
         headers={
             "Authorization": f"apikey {api_key}",
             "Accept": "application/json",
         },
         redact_values=(api_key,),
+        capture=False,
     )
 
 
@@ -618,6 +608,10 @@ def mailchimp_source(
                 "Accept": "application/json",
             },
             "paginator": MailchimpPaginator(page_size=endpoint_config.page_size),
+            # capture=False for the same reason as `_mailchimp_session`: account-level endpoints
+            # (conversations, ecommerce orders, and the rest) return subscriber PII and free-form
+            # content the name-based scrubbers can't reliably redact, so keep it out of samples.
+            "session": make_tracked_session(redact_values=(api_key,), capture=False),
         },
         "resource_defaults": {
             "write_disposition": "replace",

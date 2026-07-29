@@ -416,8 +416,10 @@ class TestRestEndpointResumeBehavior:
             sent_params.append(dict(request.params))
             return next(response_iter)
 
+        # The REST path builds its own capture-disabled session in mailchimp_source and passes it
+        # into the config, so patch it at that origin rather than inside rest_client.
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mailchimp.mailchimp.make_tracked_session"
         ) as MockSession:
             mock_session = MockSession.return_value
             mock_session.headers = {}
