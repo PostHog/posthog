@@ -18,6 +18,10 @@ You have a tool, `get_events_around`: pass a footer `REC_T` and it returns the e
 Use it liberally — call it for any moment that looks interesting, and always before you judge whether the user succeeded, failed, or hit friction, which are easy to misread from the video alone. `$rageclick` (the same element clicked again and again) and `$dead_click` (a click that changed nothing) are the highest-signal friction events: treat them as ground truth, concluding one only when `get_events_around` confirms it at that `REC_T`, not from interaction bursts on tabs, dropdowns, or other re-clickable controls.
 </events_tool>
 
+<relevance>
+The criterion you're given often targets a specific flow, screen, or behavior, and the recording you're watching may never reach it. That is a normal outcome of broad recording filters, not something to explain away: open your `reasoning` by saying the session doesn't show it, and keep `confidence` at or below 0.3. Never stretch an unrelated part of the session to fit the criterion, and never reason about what the user would have done had they gone there.
+</relevance>
+
 <gestures>
 Touch and browser gestures often leave no click events: a back-swipe navigates without any click, and scroll flicks can register as taps. On touch devices a single `$dead_click` is often a scroll gesture rather than frustration, so weigh it lower than on desktop unless it repeats on the same element. A burst of rapid, aimless taps and swipes with no coherent goal is more likely accidental input (an unlocked phone in a pocket) than a frustrated user.
 </gestures>
