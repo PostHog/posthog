@@ -62,6 +62,12 @@ export const mergeFoldSizeHistogram = new Histogram({
     buckets: [2, 5, 10, 25, 50, 100, 250, 500],
 })
 
+export const mergeDistinctIdOverrideCounter = new Counter({
+    name: 'person_merge_distinct_id_override_total',
+    help: 'Merge-added distinct id mapping rows, split by whether their version writes a ClickHouse override row.',
+    labelNames: ['call', 'overrideWritten'],
+})
+
 /** Thrown inside the fold transaction to roll it back when merge-mode move bounds would be exceeded. */
 class MergeFoldLimitError extends Error {}
 
@@ -260,6 +266,9 @@ export class PersonMergeService {
                     distinctIdToAdd
                 )
                 const distinctIdVersion = insertedDistinctId ? 0 : 1
+                mergeDistinctIdOverrideCounter
+                    .labels({ call: 'oneExists', overrideWritten: String(distinctIdVersion > 0) })
+                    .inc()
 
                 const kafkaMessages = await tx.addDistinctId(existingPerson, distinctIdToAdd, distinctIdVersion)
                 await this.context.produceMessages(kafkaMessages)
@@ -321,6 +330,9 @@ export class PersonMergeService {
                 // The first Distinct ID is used to create the new Person's UUID, and so it
                 // never needs an override.
                 const distinctId1Version = 0
+                mergeDistinctIdOverrideCounter
+                    .labels({ call: 'neitherExist', overrideWritten: String(distinctId2Version > 0) })
+                    .inc()
 
                 const [person, wasCreated] = await this.personCreateService.createPerson(
                     timestamp,
@@ -591,6 +603,9 @@ export class PersonMergeService {
                     // See mergeDistinctIds for the personless distinctIdVersion logic.
                     const inserted = await tx.addPersonlessDistinctIdForMerge(teamId, pair.anonDistinctId)
                     const distinctIdVersion = inserted ? 0 : 1
+                    mergeDistinctIdOverrideCounter
+                        .labels({ call: 'fold', overrideWritten: String(distinctIdVersion > 0) })
+                        .inc()
                     addMessages.push(...(await tx.addDistinctId(person, pair.anonDistinctId, distinctIdVersion)))
                 }
 
