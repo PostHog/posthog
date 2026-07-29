@@ -583,6 +583,15 @@ _SELF_IMPROVEMENT_TITLE_RE = re.compile(r"^\s*scout\s+self[\s-]?improvement\s*:"
 assert _SELF_IMPROVEMENT_TITLE_RE.match(SELF_IMPROVEMENT_REPORT_TITLE_PREFIX)
 
 
+def is_self_improvement_title(title: str | None) -> bool:
+    """Whether a report title marks it as a scout self-improvement report.
+
+    Public because the run row's derived metadata classifies authored reports the same way the
+    lifecycle events do (see `derived_metadata.build_derived_flags`), and the two must agree.
+    """
+    return _SELF_IMPROVEMENT_TITLE_RE.match(title or "") is not None
+
+
 def _report_classification_props(effective_title: str | None) -> dict[str, Any]:
     """Derived classification dimensions stamped on both report-channel lifecycle events (and their
     customer-facing copies): `report_kind` (enum, breakdown-friendly) + `is_self_improvement_report`
@@ -591,7 +600,7 @@ def _report_classification_props(effective_title: str | None) -> dict[str, Any]:
     than scout-declared, so the flag can't be omitted by the model and needs no tool-schema change.
     This helper is the single extension point for future derived telemetry dimensions — add them here
     so the emit and edit events never drift apart."""
-    is_self_improvement = _SELF_IMPROVEMENT_TITLE_RE.match(effective_title or "") is not None
+    is_self_improvement = is_self_improvement_title(effective_title)
     return {
         "report_kind": REPORT_KIND_SELF_IMPROVEMENT if is_self_improvement else REPORT_KIND_FINDING,
         "is_self_improvement_report": is_self_improvement,
