@@ -1,10 +1,13 @@
 import uuid
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.db import transaction
 
+from asgiref.sync import async_to_sync
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -16,7 +19,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
     build_table_name,
     resolve_table_and_folder_names,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import merge_columns
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
+    merge_columns,
+    validate_schema_and_update_table,
+)
 
 
 class TestResolveTableAndFolderNames:
@@ -271,3 +277,80 @@ class TestRegisterCDCCompanionTable(BaseTest):
             deleted=False,
         )
         assert companions.count() == 0
+
+
+# transaction=True: validate_schema_and_update_table writes from the async thread pool
+# (database_sync_to_async_pool), which can't see an atomic TestCase's uncommitted rows.
+@pytest.mark.django_db(transaction=True)
+class TestValidateSchemaAndUpdateTable:
+    def _source_schema_job_and_table(self, team) -> tuple[ExternalDataSchema, ExternalDataJob, DataWarehouseTable]:
+        source = ExternalDataSource.objects.create(
+            team=team,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            source_type="Stripe",
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="Invoice",
+            team=team,
+            source=source,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        )
+        table = DataWarehouseTable.objects.create(
+            team=team,
+            external_data_source=source,
+            name=build_table_name(source, "Invoice"),
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            url_pattern="s3://bucket/old_folder/*.parquet",
+            row_count=500,
+        )
+        schema.table = table
+        schema.save()
+        job = ExternalDataJob.objects.create(
+            team=team,
+            pipeline=source,
+            schema=schema,
+            status=ExternalDataJob.Status.RUNNING,
+            rows_synced=0,
+        )
+        return schema, job, table
+
+    @patch.object(DataWarehouseTable, "get_columns", return_value={})
+    @patch.object(DataWarehouseTable, "get_count")
+    def test_failed_cumulative_row_count_refresh_keeps_previous_count(self, mock_count, _mock_cols, team) -> None:
+        # The data is already written when the count runs, so a count query that blows up (chdb
+        # timeout, files disagreeing on a column's type) must not fail the whole job.
+        schema, job, table = self._source_schema_job_and_table(team)
+        mock_count.side_effect = ServerException("Cannot convert string '2017-06-30T05' to type Date", code=53)
+
+        async_to_sync(validate_schema_and_update_table)(
+            run_id=str(job.id),
+            team_id=team.pk,
+            schema_id=schema.id,
+            row_count=100,
+            table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            queryable_folder="s3://bucket/new_folder",
+            table_schema_dict={"id": "Int64"},
+        )
+
+        table.refresh_from_db()
+        assert table.row_count == 500
+        assert table.queryable_folder == "s3://bucket/new_folder"
+
+    @patch.object(DataWarehouseTable, "get_columns", return_value={})
+    @patch.object(DataWarehouseTable, "get_count", return_value=600)
+    def test_cumulative_row_count_is_refreshed_from_the_table(self, _mock_count, _mock_cols, team) -> None:
+        schema, job, table = self._source_schema_job_and_table(team)
+
+        async_to_sync(validate_schema_and_update_table)(
+            run_id=str(job.id),
+            team_id=team.pk,
+            schema_id=schema.id,
+            row_count=100,
+            table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            queryable_folder="s3://bucket/new_folder",
+            table_schema_dict={"id": "Int64"},
+        )
+
+        table.refresh_from_db()
+        assert table.row_count == 600

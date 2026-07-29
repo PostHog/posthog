@@ -203,7 +203,17 @@ async def validate_schema_and_update_table(
                 table_created.url_pattern = new_url_pattern
                 table_created.queryable_folder = queryable_folder
                 if external_data_schema.table_row_count_is_cumulative:
-                    table_created.row_count = table_created.get_count()
+                    # The data is already written at this point, so a failed count query (chdb
+                    # timeout, ClickHouse schema inference disagreeing across parquet files) must
+                    # not sink an otherwise successful job — keep the previous count instead.
+                    try:
+                        table_created.row_count = table_created.get_count(safe_expose_ch_error=False)
+                    except Exception as e:
+                        # get_count() already reports to error tracking
+                        logger.warning(
+                            f"Could not refresh cumulative row count for {_schema_name} ({_schema_id}), keeping previous value",
+                            exc_info=e,
+                        )
                 else:
                     table_created.row_count = row_count
                 # Scope to the fields changed here. This save is now outside the transaction, so a
@@ -350,7 +360,16 @@ async def register_cdc_companion_table(
                 companion_table.format = table_format
                 companion_table.url_pattern = new_url_pattern
                 companion_table.queryable_folder = queryable_folder
-                companion_table.row_count = companion_table.get_count()
+                # As in `validate_schema_and_update_table`, the CDC history is already written, so a
+                # failed count query must not fail the job — keep the previous count instead.
+                try:
+                    companion_table.row_count = companion_table.get_count(safe_expose_ch_error=False)
+                except Exception as e:
+                    # get_count() already reports to error tracking
+                    logger.warning(
+                        f"Could not refresh row count for CDC companion table {companion_table_name}, keeping previous value",
+                        exc_info=e,
+                    )
                 # Scope to the fields changed here so this out-of-transaction save doesn't rewrite
                 # `columns` with its pre-merge value before the column save below.
                 companion_table.save(update_fields=["format", "url_pattern", "queryable_folder", "row_count"])

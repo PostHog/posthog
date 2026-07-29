@@ -98,6 +98,17 @@ class TestSafeExposeChError:
         with pytest.raises(ClickHouseAtCapacity):
             DataWarehouseTable()._safe_expose_ch_error(ServerException("busy", code=code))
 
+    def test_type_mismatch_across_files_does_not_blame_credentials(self) -> None:
+        # Schema inference over the parquet glob fails when files disagree on a column's physical
+        # type. Without a matching entry this fell through to the catch-all, telling users to check
+        # a URL pattern, format, and credentials that are all fine.
+        err = ServerException(
+            "DB::Exception: Cannot convert string '2017-06-30T05' to type Date: While executing ReadFromObjectStorage.",
+            code=53,  # TYPE_MISMATCH
+        )
+        with pytest.raises(Exception, match="don't agree on the type"):
+            DataWarehouseTable()._safe_expose_ch_error(err)
+
 
 class TestRunChdbQuery:
     def test_hung_query_is_killed_and_raises_instead_of_blocking(self) -> None:

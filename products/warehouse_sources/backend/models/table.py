@@ -84,6 +84,9 @@ ExtractErrors = {
     "deserialize thrift": CORRUPTED_PARQUET_METADATA_MESSAGE,
     "Rows have different amount of values": "The provided file has rows with different amount of values",
     "The operation is not valid for the object's storage class": "Some files in the bucket are archived (e.g. Glacier or S3 Intelligent-Tiering archive). Restore them to Standard storage or narrow the URL pattern to exclude archived files.",
+    # Schema inference reads the type of each column from the files themselves, so files that
+    # disagree on a column's type fail the read rather than the query being at fault.
+    "Cannot convert string": "The files behind this table don't agree on the type of one of their columns, so the data couldn't be read. Resync the table to rewrite it with a consistent schema.",
 }
 
 type DataWarehouseTableColumn = str | dict[str, Any]
