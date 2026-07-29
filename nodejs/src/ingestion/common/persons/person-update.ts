@@ -69,7 +69,11 @@ export function computeEventPropertyUpdates(
     const ignoredProperties: string[] = []
 
     Object.entries(propertiesOnce).forEach(([key, value]) => {
-        if (typeof personProperties[key] === 'undefined') {
+        const existing = personProperties[key]
+        // A null already on the person counts as absent, so a real first-touch value can still land
+        // later. Persons poisoned by SDKs that sent null campaign params would otherwise stay null.
+        const isAbsent = typeof existing === 'undefined' || (existing === null && value !== null)
+        if (isAbsent) {
             hasChanges = true
             toSet[key] = value
             if (shouldUpdatePersonIfOnlyChange(event, key, updateAllProperties)) {

@@ -2,7 +2,7 @@ import { Counter } from 'prom-client'
 
 import { PERSONS_OUTPUT } from '~/common/outputs'
 import { PersonMessage } from '~/common/persons/person-message'
-import { eventToPersonProperties } from '~/common/persons/person-property-utils'
+import { eventToPersonProperties, isCampaignProperty } from '~/common/persons/person-property-utils'
 import { Properties } from '~/plugin-scaffold'
 import { BasePerson, InternalPerson, RawPerson, TimestampFormat } from '~/types'
 
@@ -80,6 +80,13 @@ export function personInitialAndUTMProperties(properties: Properties): Propertie
         }
 
         const value = properties[key]
+
+        // SDKs send every known campaign param on every event, using null (or '') for the ones that
+        // weren't in the URL. Lifting those onto the person makes $initial_gclid: null stick forever
+        // and blocks the real first-touch value, so treat an empty campaign param as absent.
+        if ((value === null || value === '') && isCampaignProperty(key)) {
+            continue
+        }
 
         if ($set === undefined) {
             // Handle malformed $set/$set_once (e.g. string instead of object)

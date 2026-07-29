@@ -104,6 +104,23 @@ describe('person-update', () => {
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'changed' })
             })
 
+            it('should compute updates when $set_once overwrites a null person property', () => {
+                const event: PluginEvent = {
+                    event: 'pageview',
+                    properties: {
+                        $set_once: { $initial_gclid: 'GOOGLE ADS ID' },
+                    },
+                } as any
+
+                // Persons poisoned by SDKs that sent null campaign params must still be correctable
+                const personProperties = { $initial_gclid: null }
+
+                const result = computeEventPropertyUpdates(event, personProperties)
+
+                expect(result.hasChanges).toBe(true)
+                expect(result.toSet).toEqual({ $initial_gclid: 'GOOGLE ADS ID' })
+            })
+
             it('should compute updates when a new eventToPersonProperty is set (not just updated)', () => {
                 const event: PluginEvent = {
                     event: 'pageview',

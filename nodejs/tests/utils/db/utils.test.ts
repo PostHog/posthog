@@ -136,6 +136,28 @@ describe('personInitialAndUTMProperties()', () => {
             $set_once: { $initial_utm_source: 'newsletter' },
         })
     })
+    it('does not lift empty campaign params, so a real value can still land later', () => {
+        // SDKs send every known campaign param on every event, null when it wasn't in the URL.
+        // Lifting those would make $initial_gclid: null stick and block the real first touch.
+        const properties = {
+            gclid: null,
+            fbclid: '',
+            utm_source: 'newsletter',
+            $current_url: 'https://test.com',
+        }
+        expect(personInitialAndUTMProperties(properties)).toEqual({
+            gclid: null,
+            fbclid: '',
+            utm_source: 'newsletter',
+            $current_url: 'https://test.com',
+            $set: { utm_source: 'newsletter', $current_url: 'https://test.com' },
+            $set_once: { $initial_utm_source: 'newsletter', $initial_current_url: 'https://test.com' },
+        })
+    })
+    it('returns properties untouched when every campaign param is empty', () => {
+        const properties = { gclid: null, utm_source: null, utm_medium: '' }
+        expect(personInitialAndUTMProperties(properties)).toEqual(properties)
+    })
     it('does not let a server $os_name alias into $initial_os', () => {
         const result = personInitialAndUTMProperties({ $is_server: true, $os_name: 'Linux' })
         expect((result.$set_once as Record<string, any> | undefined)?.$initial_os).toBeUndefined()
