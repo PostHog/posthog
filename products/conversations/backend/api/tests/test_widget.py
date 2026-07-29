@@ -654,6 +654,21 @@ class TestWidgetIdentityVerification(BaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_list_tickets_without_secret_api_token_says_not_configured(self):
+        self.team.secret_api_token = None
+        self.team.save()
+
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": self.identity_hash,
+            },
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("not configured", response.json()["error"])
+
     def test_list_tickets_missing_identity_fields_uses_session(self):
         self._create_ticket()
         response = self.client.get(

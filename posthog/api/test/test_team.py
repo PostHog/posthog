@@ -704,38 +704,37 @@ def team_api_test_factory():
                 ]
             )
 
+        @parameterized.expand(
+            [
+                ("no_existing_token", None, False, status.HTTP_400_BAD_REQUEST),
+                ("existing_token", "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C", False, status.HTTP_200_OK),
+                # Support has no alternative to this token for signing widget identity hashes
+                ("no_existing_token_conversations_enabled", None, True, status.HTTP_200_OK),
+            ]
+        )
         @patch("posthog.api.team.posthoganalytics.feature_enabled", return_value=True)
-        def test_generate_first_secret_token_blocked_when_psak_enabled(self, _mock_flag):
+        def test_secret_token_generation_when_psak_enabled(
+            self, _name, existing_token, conversations_enabled, expected_status, _mock_flag
+        ):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
 
-            self.team.secret_api_token = None
+            self.team.secret_api_token = existing_token
             self.team.secret_api_token_backup = None
+            self.team.conversations_enabled = conversations_enabled
             self.team.save()
 
             response = self.client.patch(f"/api/environments/{self.team.id}/rotate_secret_token/")
 
             self.team.refresh_from_db()
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-            self.assertIn("project secret API key", response.json()["detail"])
-            self.assertIsNone(self.team.secret_api_token)
-
-        @patch("posthog.api.team.posthoganalytics.feature_enabled", return_value=True)
-        def test_rotate_existing_secret_token_allowed_when_psak_enabled(self, _mock_flag):
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
-
-            secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
-            self.team.secret_api_token = secret_api_token
-            self.team.secret_api_token_backup = None
-            self.team.save()
-
-            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_secret_token/")
-
-            self.team.refresh_from_db()
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertNotEqual(self.team.secret_api_token, secret_api_token)
-            self.assertEqual(self.team.secret_api_token_backup, secret_api_token)
+            self.assertEqual(response.status_code, expected_status)
+            if expected_status == status.HTTP_400_BAD_REQUEST:
+                self.assertIn("project secret API key", response.json()["detail"])
+                self.assertIsNone(self.team.secret_api_token)
+            else:
+                self.assertNotEqual(self.team.secret_api_token, existing_token)
+                self.assertTrue((self.team.secret_api_token or "").startswith("phs_"))
+                self.assertEqual(self.team.secret_api_token_backup, existing_token)
 
         @freeze_time("2022-02-08")
         def test_delete_secret_backup_token(self):

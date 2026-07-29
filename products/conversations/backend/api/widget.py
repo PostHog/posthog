@@ -57,6 +57,19 @@ logger = logging.getLogger(__name__)
 class IdentityVerificationFailed(Exception):
     """Raised when identity fields are present but HMAC verification fails."""
 
+    # Surfaced to the widget. Keep it generic so a signature mismatch reveals nothing.
+    public_error = "Forbidden"
+
+
+class IdentityVerificationNotConfigured(IdentityVerificationFailed):
+    """Raised when the team has no secret API key to verify identity hashes against."""
+
+    # A signed request can't succeed until the project generates a key, and the site owner
+    # is the only one who sees this, so naming the cause beats an unexplained Forbidden.
+    public_error = (
+        "Identity verification is not configured. Generate a secret API key in your PostHog support settings."
+    )
+
 
 def _verify_identity(data: dict, team: Team) -> str | None:
     """
@@ -71,7 +84,7 @@ def _verify_identity(data: dict, team: Team) -> str | None:
 
     if not team.secret_api_token:
         logger.warning("Identity verification attempted but team has no secret_api_token")
-        raise IdentityVerificationFailed("Team has no secret_api_token")
+        raise IdentityVerificationNotConfigured("Team has no secret_api_token")
 
     if not verify_identity_hash(distinct_id, hash_value, team.secret_api_token):
         raise IdentityVerificationFailed("Invalid identity hash")
@@ -144,8 +157,8 @@ class WidgetMessageView(APIView):
 
         try:
             verified_distinct_id = _verify_identity(serializer.validated_data, team)
-        except IdentityVerificationFailed:
-            return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        except IdentityVerificationFailed as e:
+            return Response({"error": e.public_error}, status=status.HTTP_403_FORBIDDEN)
 
         if verified_distinct_id is not None:
             distinct_id = verified_distinct_id
@@ -320,8 +333,8 @@ class WidgetMessagesView(APIView):
         # Verify ownership: identity mode uses distinct_id, legacy uses widget_session_id
         try:
             verified_distinct_id = _verify_identity(query_serializer.validated_data, team)
-        except IdentityVerificationFailed:
-            return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        except IdentityVerificationFailed as e:
+            return Response({"error": e.public_error}, status=status.HTTP_403_FORBIDDEN)
 
         if verified_distinct_id is not None:
             allowed_ids = get_person_distinct_ids(team.id, verified_distinct_id)
@@ -434,8 +447,8 @@ class WidgetTicketsView(APIView):
 
         try:
             verified_distinct_id = _verify_identity(query_serializer.validated_data, team)
-        except IdentityVerificationFailed:
-            return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        except IdentityVerificationFailed as e:
+            return Response({"error": e.public_error}, status=status.HTTP_403_FORBIDDEN)
 
         if verified_distinct_id is not None:
             cache_key_id = f"iv:{verified_distinct_id}"
@@ -540,8 +553,8 @@ class WidgetMarkReadView(APIView):
         # Verify ownership: identity mode uses distinct_id, legacy uses widget_session_id
         try:
             verified_distinct_id = _verify_identity(body_serializer.validated_data, team)
-        except IdentityVerificationFailed:
-            return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        except IdentityVerificationFailed as e:
+            return Response({"error": e.public_error}, status=status.HTTP_403_FORBIDDEN)
 
         if verified_distinct_id is not None:
             allowed_ids = get_person_distinct_ids(team.id, verified_distinct_id)
