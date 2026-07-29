@@ -365,6 +365,26 @@ describe('runInteractionLogic', () => {
         expect(logic.values.composerForm.draft).toBe('')
     })
 
+    // The surface re-keys to the new run's logic instance once the create resolves, so a reset that
+    // waits for the response lands on the orphaned instance and the visible composer keeps the text.
+    it('clears the draft synchronously when resuming a terminal run, before the create resolves', async () => {
+        let resolveCreate: (value: unknown) => void = () => {}
+        ;(tasksRunCreate as jest.Mock).mockReturnValue(
+            new Promise((resolve) => {
+                resolveCreate = resolve
+            })
+        )
+        setStatus('completed')
+        logic.actions.setComposerFormValues({ draft: 'continue from here' })
+
+        logic.actions.submitComposerForm()
+        expect(logic.values.composerForm.draft).toBe('')
+
+        resolveCreate({ latest_run: { id: 'run-2' } })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.composerForm.draft).toBe('')
+    })
+
     it('keeps the draft and toasts when starting a new run fails', async () => {
         ;(tasksRunCreate as jest.Mock).mockRejectedValue(new Error('boom'))
         setStatus('completed')

@@ -726,6 +726,10 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 let claimedStreamKey = streamKey
                 const pendingContext = values.pendingContextItems
                 actions.claimApplyBackTargets(streamKey)
+                // Clear the draft synchronously before the await: once the create resolves, the surface
+                // re-keys to the new run's logic instance, so a reset issued afterwards lands on this
+                // orphaned instance and the visible composer keeps the text. A failed create restores it.
+                actions.resetComposerForm()
                 try {
                     // Same endpoint as the "Run again" button, but seeded with the user's message and chained
                     // from the finished run so the new run continues the thread, and carrying the picked model /
@@ -740,7 +744,6 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                         pending_user_message: wrapWithPosthogContext(content, pendingContext),
                     }
                     const result = await tasksRunCreate(String(values.currentProjectId), props.taskId, createRequest)
-                    actions.resetComposerForm()
                     markPendingContextSent(pendingContext)
                     const latestRunId = result.latest_run?.id
                     if (latestRunId) {
@@ -752,6 +755,10 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     }
                 } catch {
                     actions.releaseApplyBackTargets(claimedStreamKey)
+                    // Restore the unsent content for retry, ahead of anything typed since (mirrors `sendNow`).
+                    actions.setComposerFormValues({
+                        draft: values.composerForm.draft ? `${content}\n\n${values.composerForm.draft}` : content,
+                    })
                     lemonToast.error('Failed to start a new run. Please try again.')
                 } finally {
                     actions.setStartingRun(false)
