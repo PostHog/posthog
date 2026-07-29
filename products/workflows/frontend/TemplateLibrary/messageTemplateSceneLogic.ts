@@ -87,12 +87,15 @@ export const messageTemplateSceneLogic = kea<messageTemplateSceneLogicType>([
             },
         ],
     }),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, props }) => {
         // The template editor is an AI-first surface: surface the assistant alongside the canvas.
         if (!sidePanelStateLogic.findMounted()?.values.sidePanelOpen) {
             sidePanelStateLogic.findMounted()?.actions.openSidePanel(SidePanelTab.Max)
         }
-        actions.registerHeadline(WELCOME_HEADLINE_PROVIDER_ID, 'What template would you like to build?')
+        actions.registerHeadline(
+            WELCOME_HEADLINE_PROVIDER_ID,
+            props.id === 'new' ? 'What template would you like to build?' : 'How can we improve this email template?'
+        )
     }),
     beforeUnmount(({ actions }) => {
         actions.deregisterHeadline(WELCOME_HEADLINE_PROVIDER_ID)
