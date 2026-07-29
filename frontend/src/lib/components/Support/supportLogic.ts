@@ -766,6 +766,7 @@ export const supportLogic = kea<supportLogicType>([
             severity_level,
             message,
             exception_event,
+            tags,
             target,
         }: Partial<SupportFormFields> & { target?: 'modal' | 'sidePanel' }) => {
             let area = target_area ?? getURLPathToTargetArea(window.location.pathname)
@@ -781,6 +782,7 @@ export const supportLogic = kea<supportLogicType>([
                 severity_level: severity_level ?? null,
                 message: message ?? values.sendSupportRequest.message ?? '',
                 exception_event,
+                tags,
             })
 
             if (isEmailFormOpen === 'true' || isEmailFormOpen === true) {

@@ -60,6 +60,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.models.webauthn_credential import WebauthnCredential
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -323,6 +324,40 @@ class TestLoginAPI(APIBaseTest):
 
         # Events never get reported
         mock_capture.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("no_password_column", ""),
+            ("unusable_password", "!unusable"),
+        ]
+    )
+    def test_passkey_only_user_is_told_their_account_has_no_password(self, _name: str, password: str) -> None:
+        self.user.password = password
+        self.user.save()
+        WebauthnCredential.objects.create(
+            user=self.user,
+            credential_id=b"passkey-signup-credential",
+            label="Passkey",
+            public_key=b"public-key",
+            algorithm=-7,
+            counter=0,
+            transports=["internal"],
+            verified=True,
+        )
+
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": "anything-at-all"})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "passkey_required")
+
+    def test_user_without_passkeys_still_gets_the_generic_credential_error(self) -> None:
+        self.user.password = ""
+        self.user.save()
+
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": "anything-at-all"})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json(), self.ERROR_INVALID_CREDENTIALS)
 
     @patch("posthoganalytics.capture")
     def test_user_cant_login_with_incorrect_email(self, mock_capture):

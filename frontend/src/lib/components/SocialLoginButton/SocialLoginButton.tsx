@@ -85,11 +85,38 @@ export function SocialLoginButton({
 interface PasskeyLoginButtonProps {
     isLastUsed?: boolean
     extraQueryParams?: Record<string, string>
+    /** Render a labelled, full-width button instead of the icon-only one in the provider row. */
+    actionText?: string
 }
 
-export function PasskeyLoginButton({ isLastUsed, extraQueryParams }: PasskeyLoginButtonProps): JSX.Element {
+export function PasskeyLoginButton({ isLastUsed, extraQueryParams, actionText }: PasskeyLoginButtonProps): JSX.Element {
     const { beginPasskeyLogin } = useActions(passkeyLogic)
     const { isLoading } = useValues(passkeyLogic)
+
+    const onClick = (): void => {
+        beginPasskeyLogin(undefined, extraQueryParams as BeginPasskeyLoginParams)
+    }
+    const icon = <img src={passkeyLogo} alt="" className="object-contain w-7 h-7" />
+
+    if (actionText) {
+        return (
+            <LemonButton
+                className="btn-bridge"
+                type="secondary"
+                size="large"
+                fullWidth
+                center
+                icon={icon}
+                htmlType="button"
+                onClick={onClick}
+                loading={isLoading}
+                // Distinct from the icon-only button, which can be on screen at the same time
+                data-attr="passkey-login-prompt"
+            >
+                {actionText}
+            </LemonButton>
+        )
+    }
 
     return (
         <div className="relative">
@@ -99,9 +126,7 @@ export function PasskeyLoginButton({ isLastUsed, extraQueryParams }: PasskeyLogi
                 active={isLastUsed}
                 tooltip="Passkey"
                 htmlType="button"
-                onClick={() => {
-                    beginPasskeyLogin(undefined, extraQueryParams as BeginPasskeyLoginParams)
-                }}
+                onClick={onClick}
                 loading={isLoading}
                 data-attr="passkey-login"
             />

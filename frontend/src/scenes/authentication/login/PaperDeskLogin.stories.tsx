@@ -17,7 +17,7 @@ type StoryArgs = {
     gitlab: boolean
     samlAvailable: boolean
     ssoEnforcement: 'none' | 'google-oauth2' | 'github' | 'gitlab' | 'saml'
-    generalError: 'none' | 'invalid_credentials' | 'code_based_verification_sent'
+    generalError: 'none' | 'invalid_credentials' | 'passkey_required' | 'code_based_verification_sent'
 }
 
 const meta: Meta<StoryArgs> = {
@@ -43,7 +43,7 @@ const meta: Meta<StoryArgs> = {
         generalError: {
             control: 'select',
             name: 'General error',
-            options: ['none', 'invalid_credentials', 'code_based_verification_sent'],
+            options: ['none', 'invalid_credentials', 'passkey_required', 'code_based_verification_sent'],
         },
     },
     args: {
@@ -104,6 +104,8 @@ const Template: StoryFn<StoryArgs> = ({
         if (generalError !== 'none') {
             const messages: Record<string, string> = {
                 invalid_credentials: 'Invalid email or password.',
+                passkey_required:
+                    "This account signs in with a passkey, so there's no password to enter. Use your passkey to log in.",
                 code_based_verification_sent: 'Check your email to verify your account.',
             }
             loginLogic.actions.setGeneralError(generalError, messages[generalError] ?? '')
@@ -131,6 +133,9 @@ SAMLAvailable.args = { samlAvailable: true }
 
 export const LoginError: StoryFn<StoryArgs> = Template.bind({})
 LoginError.args = { generalError: 'invalid_credentials' }
+
+export const PasskeyRequired: StoryFn<StoryArgs> = Template.bind({})
+PasskeyRequired.args = { generalError: 'passkey_required' }
 
 export const EmailVerification: StoryFn<StoryArgs> = Template.bind({})
 EmailVerification.args = { generalError: 'code_based_verification_sent' }

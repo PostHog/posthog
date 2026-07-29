@@ -9,7 +9,11 @@ import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
 
 import { getCookie } from 'lib/api'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
-import { SSOEnforcedLoginButton, SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
+import {
+    PasskeyLoginButton,
+    SSOEnforcedLoginButton,
+    SocialLoginButtons,
+} from 'lib/components/SocialLoginButton/SocialLoginButton'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { usePrevious } from 'lib/hooks/usePrevious'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -119,6 +123,8 @@ function Login(): JSX.Element {
                                                 kind: 'support',
                                                 target_area: 'login',
                                                 email: login.email,
+                                                // Tag with the error the user hit, so the ticket lands triaged.
+                                                tags: [`login_error_${generalError.code}`],
                                             })
                                         }}
                                     >
@@ -130,6 +136,7 @@ function Login(): JSX.Element {
                     </LemonBanner>
                 )}
                 {generalError?.code === 'invalid_credentials' && <OtherRegionHint />}
+                {generalError?.code === 'passkey_required' && <PasskeyLoginButton actionText="Log in with a passkey" />}
                 {isCodeSent ? (
                     <Form
                         logic={loginLogic}

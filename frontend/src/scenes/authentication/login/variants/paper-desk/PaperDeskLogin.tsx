@@ -6,7 +6,11 @@ import { twMerge } from 'tailwind-merge'
 import { IconCheckCircle } from '@posthog/icons'
 
 import { getCookie } from 'lib/api'
-import { SocialLoginButtons, SSOEnforcedLoginButton } from 'lib/components/SocialLoginButton/SocialLoginButton'
+import {
+    PasskeyLoginButton,
+    SocialLoginButtons,
+    SSOEnforcedLoginButton,
+} from 'lib/components/SocialLoginButton/SocialLoginButton'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { usePrevious } from 'lib/hooks/usePrevious'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -105,6 +109,8 @@ function Login(): JSX.Element {
                                             kind: 'support',
                                             target_area: 'login',
                                             email: login.email,
+                                            // Tag with the error the user hit, so the ticket lands triaged.
+                                            tags: [`login_error_${generalError.code}`],
                                         })
                                     }}
                                     className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
@@ -118,6 +124,11 @@ function Login(): JSX.Element {
                 {generalError?.code === 'invalid_credentials' && (
                     <div className="mb-4">
                         <OtherRegionHint />
+                    </div>
+                )}
+                {generalError?.code === 'passkey_required' && (
+                    <div className="mb-4">
+                        <PasskeyLoginButton actionText="Log in with a passkey" />
                     </div>
                 )}
                 {isCodeSent ? (

@@ -23,6 +23,15 @@ export function isWebAuthnCancellation(error: unknown): boolean {
     return typeof nestedName === 'string' && WEBAUTHN_CANCELLATION_ERROR_NAMES.has(nestedName)
 }
 
+/**
+ * The login banner picks its copy and follow-up action from the error code, so prefer the code
+ * the API returned (e.g. `not_verified`) over the generic passkey bucket.
+ */
+export function getPasskeyErrorCode(error: any): string {
+    const code = error?.data?.code ?? error?.code
+    return typeof code === 'string' && code ? code : 'passkey_error'
+}
+
 export function getPasskeyErrorMessage(error: any, defaultMessage?: string): string {
     if (error?.name && WEBAUTHN_ERROR_MESSAGES[error.name]) {
         return WEBAUTHN_ERROR_MESSAGES[error.name]

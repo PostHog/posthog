@@ -354,11 +354,15 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
                 return sso_enforcement_response
 
             if not is_email_verified_for_login(verified_user):
+                # `is_email_verified_for_login` has just sent a fresh link, so say so — otherwise a
+                # passkey-only account that hasn't been verified yet has nothing left to try.
                 return Response(
                     {
+                        "code": "not_verified",
                         "error": (
-                            "Your account is awaiting verification. Please check your email for a verification link."
-                        )
+                            "Your account is awaiting verification. We just sent a new verification link to"
+                            " your email. Click it to finish logging in."
+                        ),
                     },
                     status=status.HTTP_400_BAD_REQUEST,
                 )

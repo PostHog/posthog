@@ -36,4 +36,11 @@ export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     invalid_invite:
         'This invite link is no longer valid. It may have expired or been revoked. Please ask your administrator for a new invite.',
     social_login_failure: 'Login failed. Please try again or contact your administrator.',
+    invalid_credentials: 'Invalid email or password.',
+    // Accounts created through passkey signup have no password at all, so the password form can
+    // never work for them.
+    passkey_required:
+        "This account signs in with a passkey, so there's no password to enter. Use your passkey to log in.",
+    not_verified:
+        'Your account is awaiting verification. We just sent a new verification link to your email. Click it to finish logging in.',
 }

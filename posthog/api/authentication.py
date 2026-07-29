@@ -208,6 +208,20 @@ def is_email_verified_for_login(user: User, next_url: str | None = None) -> bool
     return True
 
 
+def is_passkey_only(user: User) -> bool:
+    """Whether the password form can never succeed for this account.
+
+    Passkey signup creates the user with `password=None`, which leaves the column empty rather
+    than calling `set_unusable_password()` — so Django's `has_usable_password()` still reports
+    True and we have to check the raw field as well. Gated on the account actually having a
+    passkey, so a caller learns nothing that `/api/login/precheck` doesn't already return for
+    the same email address.
+    """
+    if user.password and user.has_usable_password():
+        return False
+    return has_passkeys(user)
+
+
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField()
@@ -320,11 +334,19 @@ class LoginSerializer(serializers.Serializer):
             if handler.is_locked(axes_request, credentials=axes_credentials):
                 raise AxesBackendPermissionDenied("Account locked: too many login attempts.")
 
+            if existing_user and is_passkey_only(existing_user):
+                raise serializers.ValidationError(
+                    "This account signs in with a passkey, so there's no password to enter."
+                    " Use your passkey to log in.",
+                    code="passkey_required",
+                )
+
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
 
         if not is_email_verified_for_login(user, next_url):
             raise serializers.ValidationError(
-                "Your account is awaiting verification. Please check your email for a verification link.",
+                "Your account is awaiting verification. We just sent a new verification link to your email."
+                " Click it to finish logging in.",
                 code="not_verified",
             )
 

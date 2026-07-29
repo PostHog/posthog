@@ -11,7 +11,11 @@ import api from 'lib/api'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { isWebKitBrowser } from 'lib/utils/dom'
 import { handleLoginRedirect, loginLogic } from 'scenes/authentication/login/loginLogic'
-import { getPasskeyErrorMessage, isWebAuthnCancellation } from 'scenes/settings/user/passkeys/utils'
+import {
+    getPasskeyErrorCode,
+    getPasskeyErrorMessage,
+    isWebAuthnCancellation,
+} from 'scenes/settings/user/passkeys/utils'
 import { userLogic } from 'scenes/userLogic'
 
 export interface PasskeyLoginBeginResponse {
@@ -191,7 +195,7 @@ export const passkeyLogic = kea<passkeyLogicType>([
                             actions.passkeyAuthenticationCancelled()
                             return null
                         }
-                        actions.setGeneralError('passkey_error', getPasskeyErrorMessage(e))
+                        actions.setGeneralError(getPasskeyErrorCode(e), getPasskeyErrorMessage(e))
                         throw e
                     }
                 },
@@ -243,7 +247,7 @@ export const passkeyLogic = kea<passkeyLogicType>([
                 // The autofill passkey prompt is routinely dismissed — the user types a password
                 // instead, or navigates away. Swallow those; surface anything genuinely wrong.
                 if (!isWebAuthnCancellation(e)) {
-                    actions.setGeneralError('passkey_error', getPasskeyErrorMessage(e))
+                    actions.setGeneralError(getPasskeyErrorCode(e), getPasskeyErrorMessage(e))
                 }
             }
         },
