@@ -1,6 +1,7 @@
 import { IntegrationType } from '~/cdp/types'
 import { JWT, PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { buildIntegerMatcherWithPercentage } from '~/common/config/config'
+import { logger } from '~/common/utils/logger'
 import { internalFetch } from '~/common/utils/request'
 import { ValueMatcher } from '~/types'
 
@@ -71,12 +72,21 @@ export class IntegrationGatewayService {
 export function createIntegrationGatewayService(
     config: IntegrationGatewayServiceConfig
 ): IntegrationGatewayService | null {
-    if (
-        !config.CDP_INTEGRATION_GATEWAY_URL ||
-        !config.CDP_INTEGRATION_GATEWAY_JWT_SECRET ||
-        !config.CDP_INTEGRATION_GATEWAY_ROLLOUT
-    ) {
+    const missing = [
+        !config.CDP_INTEGRATION_GATEWAY_URL && 'CDP_INTEGRATION_GATEWAY_URL',
+        !config.CDP_INTEGRATION_GATEWAY_JWT_SECRET && 'CDP_INTEGRATION_GATEWAY_JWT_SECRET',
+        !config.CDP_INTEGRATION_GATEWAY_ROLLOUT && 'CDP_INTEGRATION_GATEWAY_ROLLOUT',
+    ].filter(Boolean)
+    if (missing.length > 0) {
+        // One-time startup breadcrumb: makes it obvious why credential reads stay on Postgres.
+        logger.info('[IntegrationManager]', 'Integration gateway disabled; reading credentials from Postgres', {
+            missing,
+        })
         return null
     }
+    logger.info('[IntegrationManager]', 'Integration gateway enabled for credential reads', {
+        url: config.CDP_INTEGRATION_GATEWAY_URL,
+        rollout: config.CDP_INTEGRATION_GATEWAY_ROLLOUT,
+    })
     return new IntegrationGatewayService(config)
 }
