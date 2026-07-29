@@ -48,6 +48,10 @@ from posthog.session_recordings.queries.session_replay_events import SessionRepl
 from posthog.utils import get_safe_cache
 
 from products.cohorts.backend.models.cohort import Cohort
+
+# The module is also imported whole: the capped-session check reads MAX_SCANNED_METRICS as a
+# module attribute so it always sees the same value the scan applies (tests patch it there).
+from products.experiments.backend import metric_events
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     build_exposure_event_conditions,
     get_exposure_event_and_property,
@@ -209,9 +213,12 @@ def get_session_experiment_contexts(
     metadata doesn't exist (yet) are omitted and never cached, mirroring the single endpoint's
     not-found rule; so are ids without a parseable uuidv7 timestamp, whose metadata lookup
     would otherwise run unbounded. The batch is best-effort: a day-chunk whose scans fail is
-    logged and omitted rather than failing the whole request, and a session whose metric enrichment was
-    truncated by the shared scan's metric cap is returned but not cached, so the cache never
-    holds less than a single-session request would compute.
+    logged and omitted rather than failing the whole request, and a session is returned but
+    not cached when the shared scan's metric cap dropped a metric that session's own
+    single-session scan would have kept — so the cache never holds less than a single-session
+    request would compute. A session whose own metrics already exceed the cap is cached
+    despite the truncation: a recompute would drop the same metrics again, mirroring how the
+    single-session endpoint caches its own capped results.
     """
     unique_ids = list(dict.fromkeys(session_ids))
     results: dict[str, list[ExperimentSessionContextItem]] = {}
@@ -250,9 +257,10 @@ def get_session_experiment_contexts(
             team, windows, experiments, user, fail_open=True
         )
         for session_id, items in computed.items():
-            # A session whose metric enrichment was truncated by the batch-wide scan cap is
-            # returned best-effort but never cached: the single-session endpoint scans only that
-            # session's own experiments, so its recompute restores the full set the batch dropped.
+            # A capped session lost a metric to the batch-wide scan cap that its own
+            # single-session scan would have kept, so caching would serve less than the
+            # single-session endpoint computes; it is returned best-effort and left for
+            # on-demand recompute instead.
             if session_id not in capped_session_ids:
                 cache.set(_cache_key(team, user, session_id), items, timeout=SESSION_CONTEXT_CACHE_TTL)
         results.update(computed)
@@ -293,9 +301,11 @@ def _compute_session_experiment_contexts(
     *,
     fail_open: bool,
 ) -> tuple[dict[str, list[ExperimentSessionContextItem]], set[str]]:
-    """Returns (session_id -> items, capped session ids). Capped sessions had metric enrichment
-    truncated by the batch-wide scan cap; their items are still returned, but the batch caller
-    must not cache them, because a single-session recompute would return more."""
+    """Returns (session_id -> items, capped session ids). Capped sessions had a metric dropped
+    by the batch-wide scan cap that their own single-session scan would have kept; their items
+    are still returned, but the batch caller must not cache them, because a single-session
+    recompute would return more. Sessions whose own metrics exceed the cap by themselves are
+    not marked capped — a recompute would drop the same metrics — so they stay cacheable."""
     if not windows:
         return {}, set()
 
@@ -585,19 +595,23 @@ def _compute_chunk_contexts(
             surfaced.append((experiment, variant, variants_seen, first_exposure_timestamp))
         surfaced_by_session[session_id] = surfaced
 
-    # Only the experiments that actually surfaced (typically 1–3 per session, not the candidate
-    # cap) get their metrics scanned — one scan covers the union across the chunk's sessions,
-    # shared saved metrics dedupe by uuid inside the scan, and each session's experiments claim
-    # their own metrics' hits back by uuid. MAX_SCANNED_METRICS caps that union in surfacing
-    # order, so a batch can drop metrics of a co-occurring experiment that a single request for
-    # the same session (whose own surfaced experiments rarely approach the cap) would return.
-    # On the experiment tab every session surfaces the target experiment, which therefore
-    # registers within the first session's block and in practice survives; the sessions whose
-    # experiments lost metrics are reported as capped below so the batch never caches them —
-    # any caller wanting their full set recomputes per session on demand. Metric hits are
-    # enrichment on top of the exposure context: an unexpected failure here (one experiment's
-    # malformed stored metric, say) must degrade to "no metric hits", never take down the
-    # exposure context that already resolved above.
+    # Only the experiments that actually surfaced get their metrics scanned — one scan covers
+    # the union across the chunk's sessions, shared saved metrics dedupe by uuid inside the
+    # scan, and each session's experiments claim their own metrics' hits back by uuid.
+    # MAX_SCANNED_METRICS caps that union in surfacing order. On experiment-heavy teams a
+    # single session can surface dozens of experiments carrying well over the cap by itself,
+    # so hitting the cap is the steady state there, for the batch and single request alike.
+    # A session is reported as capped below only when the batch dropped a metric its own
+    # single-session scan would have kept (see _single_scan_accepted_uuids) — those the batch
+    # never caches, so a single request can recompute the fuller set on demand. Sessions whose
+    # own metrics exceed the cap anyway stay cacheable: a recompute would drop the same
+    # metrics, so withholding the cache entry would buy nothing and cost a full recompute per
+    # open (which, before this distinction, made the prefetch useless on experiment-heavy
+    # teams — every session shares the same over-cap experiment set, so every session was
+    # marked capped and nothing was ever cached). Metric hits are enrichment on top of the
+    # exposure context: an unexpected failure here (one experiment's malformed stored metric,
+    # say) must degrade to "no metric hits", never take down the exposure context that already
+    # resolved above.
     sources_by_experiment: dict[int, list[MetricEventSource]] = {}
     hits_by_session: dict[str, dict[str, MetricHit]] = {}
     dropped_metric_uuids: set[str] = set()
@@ -632,11 +646,7 @@ def _compute_chunk_contexts(
         capped_session_ids = {
             session_id
             for session_id, session_surfaced in surfaced_by_session.items()
-            if any(
-                source.metric_uuid in dropped_metric_uuids
-                for experiment, *_ in session_surfaced
-                for source in sources_by_experiment.get(experiment.pk, [])
-            )
+            if dropped_metric_uuids & _single_scan_accepted_uuids(session_surfaced, sources_by_experiment)
         }
 
     results: dict[str, list[ExperimentSessionContextItem]] = {}
@@ -668,6 +678,29 @@ def _compute_chunk_contexts(
             )
         results[session_id] = sorted(items, key=lambda item: item.experiment_name.lower())
     return results, capped_session_ids
+
+
+def _single_scan_accepted_uuids(
+    session_surfaced: list[tuple[Experiment, str, list[str], Optional[datetime]]],
+    sources_by_experiment: dict[int, list[MetricEventSource]],
+) -> set[str]:
+    """The metric uuids a single-session request's scan would accept for this session.
+
+    Mirrors scan_sessions_for_metric_events' acceptance rule — the first MAX_SCANNED_METRICS
+    distinct session-linkable uuids, in source order — applied to only this session's surfaced
+    experiments. The order matches what a single-session request produces: its scan receives
+    the session's surfaced experiments in candidate (newest-first) order, which is exactly the
+    order of `session_surfaced` here. A batch-dropped uuid outside this set would be dropped
+    by a single-session recompute too, so it must not disqualify the session from caching."""
+    accepted: set[str] = set()
+    for experiment, *_ in session_surfaced:
+        for source in sources_by_experiment.get(experiment.pk, []):
+            if not source.session_linkable or source.metric_uuid in accepted:
+                continue
+            if len(accepted) >= metric_events.MAX_SCANNED_METRICS:
+                return accepted
+            accepted.add(source.metric_uuid)
+    return accepted
 
 
 def _resolve_exposure(flag_key: str, exposure_criteria: Optional[dict]) -> _ResolvedExposure:
