@@ -1,7 +1,7 @@
 import { RecordingsQueryResponse } from '~/queries/schema/schema-general'
 import { SessionRecordingType } from '~/types'
 
-import { mergeRecordingPage } from './playerPersonRecordingsLogic'
+import { mergeRecordingPage, retentionDateFrom } from './playerPersonRecordingsLogic'
 
 describe('playerPersonRecordingsLogic', () => {
     const rec = (id: string): SessionRecordingType => ({ id }) as SessionRecordingType
@@ -28,5 +28,16 @@ describe('playerPersonRecordingsLogic', () => {
 
         expect(merged.results.map((r) => r.id)).toEqual(['a', 'b'])
         expect(merged.has_next).toBe(true)
+    })
+
+    // A window shorter than the retention period would drop the current recording (which sits at
+    // the retention edge) from its own list; the +1 buffer and the fallback both guard against that.
+    it.each([
+        [90, '-91d'],
+        [30, '-31d'],
+        [null, '-31d'],
+        [undefined, '-31d'],
+    ])('retentionDateFrom(%s) is %s', (retention, expected) => {
+        expect(retentionDateFrom(retention as number | null | undefined)).toBe(expected)
     })
 })

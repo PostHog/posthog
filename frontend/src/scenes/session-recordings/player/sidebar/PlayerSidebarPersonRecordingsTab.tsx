@@ -14,7 +14,7 @@ import { playerPersonRecordingsLogic } from './playerPersonRecordingsLogic'
 
 export function PlayerSidebarPersonRecordingsTab(): JSX.Element {
     const { logicProps, sessionRecordingId } = useValues(sessionRecordingPlayerLogic)
-    const { recordings, recordingsResponseLoading, hasMore, hasLoaded, loadError } = useValues(
+    const { recordings, recordingsResponseLoading, hasMore, hasLoaded, loadError, loadMoreError } = useValues(
         playerPersonRecordingsLogic(logicProps)
     )
     const { loadRecordings, loadMoreRecordings } = useActions(playerPersonRecordingsLogic(logicProps))
@@ -54,16 +54,21 @@ export function PlayerSidebarPersonRecordingsTab(): JSX.Element {
                 />
             ))}
             {hasMore && (
-                <LemonButton
-                    fullWidth
-                    center
-                    size="small"
-                    type="secondary"
-                    loading={recordingsResponseLoading}
-                    onClick={() => loadMoreRecordings({})}
-                >
-                    Load older recordings
-                </LemonButton>
+                <>
+                    {loadMoreError && (
+                        <p className="text-danger text-xs text-center">Could not load older recordings.</p>
+                    )}
+                    <LemonButton
+                        fullWidth
+                        center
+                        size="small"
+                        type="secondary"
+                        loading={recordingsResponseLoading}
+                        onClick={() => loadMoreRecordings({})}
+                    >
+                        {loadMoreError ? 'Try again' : 'Load older recordings'}
+                    </LemonButton>
+                </>
             )}
         </div>
     )
