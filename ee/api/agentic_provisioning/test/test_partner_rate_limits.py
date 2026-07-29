@@ -11,7 +11,7 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefres
 
 from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX, PARTNER_RATE_LIMIT_DEFAULTS
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
-from ee.api.agentic_provisioning.test.base import ProvisioningTestBase
+from ee.api.agentic_provisioning.test.base import TEST_PARTNER_CLIENT_SECRET, ProvisioningTestBase
 from ee.api.agentic_provisioning.throttling import enforce_partner_rate_limit
 
 PARTNER_CLIENT_ID = "partner_rate_limit_test"
@@ -27,13 +27,13 @@ class TestPartnerRateLimits(ProvisioningTestBase):
         self.partner_app = OAuthApplication.objects.create(
             client_id=PARTNER_CLIENT_ID,
             name="Rate Limit Test Partner",
-            client_secret="partner_secret",
+            client_secret=TEST_PARTNER_CLIENT_SECRET,
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://partner.example.com/callback",
             algorithm="RS256",
             is_first_party=True,
-            provisioning_auth_method="pkce",
+            is_provisioning_partner=True,
             provisioning_partner_type="test_partner",
             provisioning_active=True,
             provisioning_can_create_accounts=True,
@@ -112,7 +112,7 @@ class TestPartnerRateLimits(ProvisioningTestBase):
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://other.example.com/callback",
             algorithm="RS256",
-            provisioning_auth_method="pkce",
+            is_provisioning_partner=True,
             provisioning_partner_type="other",
             provisioning_active=True,
             provisioning_rate_limit_account_requests=2,
@@ -144,6 +144,7 @@ class TestPartnerRateLimits(ProvisioningTestBase):
                 "grant_type": "authorization_code",
                 "code": code,
                 "code_verifier": code_verifier,
+                **self._client_credentials(self.partner_app),
             }
         ).encode()
         res = self.client.post(
@@ -183,6 +184,7 @@ class TestPartnerRateLimits(ProvisioningTestBase):
             {
                 "grant_type": "refresh_token",
                 "refresh_token": "test_refresh_token_1",
+                **self._client_credentials(self.partner_app),
             }
         ).encode()
         res = self.client.post(
@@ -213,6 +215,7 @@ class TestPartnerRateLimits(ProvisioningTestBase):
             {
                 "grant_type": "refresh_token",
                 "refresh_token": "test_refresh_token_2",
+                **self._client_credentials(self.partner_app),
             }
         ).encode()
         res = self.client.post(

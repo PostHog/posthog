@@ -11,7 +11,7 @@ from posthog.models.oauth import OAuthApplication
 from posthog.models.user import User
 
 from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
-from ee.api.agentic_provisioning.test.base import TEST_PARTNER_SCOPES, ProvisioningTestBase
+from ee.api.agentic_provisioning.test.base import TEST_PARTNER_CLIENT_SECRET, TEST_PARTNER_SCOPES, ProvisioningTestBase
 
 PARTNER_CALLBACK = "https://partner.example.com/callback"
 
@@ -37,14 +37,14 @@ class AuthorizeTestBase(ProvisioningTestBase):
         return OAuthApplication.objects.create(
             client_id="authorize-skip-consent-partner",
             name="Skip Consent Partner",
-            client_secret="",
+            client_secret=TEST_PARTNER_CLIENT_SECRET,
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris=PARTNER_CALLBACK,
             algorithm="RS256",
             is_first_party=True,
             scopes=TEST_PARTNER_SCOPES,
-            provisioning_auth_method="bearer",
+            is_provisioning_partner=True,
             provisioning_partner_type="test_partner",
             provisioning_active=True,
             provisioning_skip_existing_user_consent=True,
@@ -165,7 +165,12 @@ class TestAgenticAuthorize(AuthorizeTestBase):
 
         token_res = self._post_api(
             "/api/agentic/oauth/token",
-            {"grant_type": "authorization_code", "code": code, "code_verifier": verifier},
+            {
+                "grant_type": "authorization_code",
+                "code": code,
+                "code_verifier": verifier,
+                **self._client_credentials(partner),
+            },
         )
         assert token_res.status_code == 200
         data = token_res.json()
@@ -229,7 +234,7 @@ class TestAgenticAuthorizeConfirm(AgenticAuthorizeMultiOrgBase):
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris=PARTNER_CALLBACK,
             algorithm="RS256",
-            provisioning_auth_method="pkce",
+            is_provisioning_partner=True,
             provisioning_partner_type="test_partner",
             provisioning_active=True,
         )
