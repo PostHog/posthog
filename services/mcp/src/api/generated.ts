@@ -75438,6 +75438,10 @@ export namespace Schemas {
      */
     limit?: number;
     /**
+     * Return exact matches for these event names. Pass names as repeated or comma-separated values.
+     */
+    names?: string[];
+    /**
      * The initial index from which to return the results.
      */
     offset?: number;
