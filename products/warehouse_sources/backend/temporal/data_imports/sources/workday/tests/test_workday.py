@@ -8,8 +8,8 @@ from unittest import mock
 from requests import Response
 from requests.exceptions import ConnectionError as RequestsConnectionError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.workday.settings import (
     WORKDAY_ENDPOINTS,
     build_endpoint_path,
