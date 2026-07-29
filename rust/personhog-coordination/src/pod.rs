@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::result::Result as StdResult;
 use std::str::from_utf8;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -474,7 +475,7 @@ impl PodHandle {
 
     /// Classify the session keepalive task's exit. Any exit while the
     /// session is live means the lease can no longer be trusted.
-    fn heartbeat_exit_error(result: std::result::Result<Result<()>, JoinError>) -> Error {
+    fn heartbeat_exit_error(result: StdResult<Result<()>, JoinError>) -> Error {
         match result {
             Ok(Ok(())) => Error::invalid_state("lease keepalive exited unexpectedly".to_string()),
             Ok(Err(e)) => e,
