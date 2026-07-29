@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db import models, transaction
+from django.db import connection, models, transaction
 from django.db.models import Q
 from django.dispatch import receiver
 from django.http import HttpRequest
@@ -137,9 +137,14 @@ def preserved_push_config(
             )
         return {CONFIG_PUSH_IDENTITY_VERIFICATION: push_identity_verification}
 
-    # Lock the row for the rest of the caller's transaction. The read and the upsert that follows it
-    # are separate statements, so without this a concurrent write that enables verification could land
-    # in between and then be overwritten by the stale value read here — silently disabling the policy.
+    # Serialize concurrent setup of this one integration for the rest of the caller's transaction.
+    # `select_for_update` alone only locks a row that already exists, so two first-time setups could
+    # both read "no policy" and the later write would clobber a policy the earlier one had just set.
+    # An advisory lock covers the not-yet-created case too, keyed on the integration's identity so it
+    # only serializes writers racing for the same integration.
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock(%s, hashtext(%s))", [team_id, f"{kind}:{integration_id}"])
+
     existing = (
         Integration.objects.select_for_update()
         .filter(team_id=team_id, kind=kind, integration_id=integration_id)
