@@ -1,5 +1,5 @@
 import json
-from typing import cast
+from typing import Any, cast
 from urllib.parse import parse_qs, unquote, urlparse
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
@@ -79,7 +79,7 @@ class TestMetricRunExecution(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestMetricRunPreparation(APIBaseTest):
-    def _run(self, definition: dict, **overrides: str) -> tuple[dict, dict]:
+    def _run(self, definition: dict, **overrides: Any) -> tuple[dict, dict]:
         """Run a metric with the engine mocked; returns (query handed to the engine, envelope)."""
         metric = upsert_metric(team=self.team, user=self.user, name="prep", description="d", definition=definition)
         captured: dict = {}

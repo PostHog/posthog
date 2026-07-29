@@ -103,5 +103,6 @@ def get_client(region: str = "US", **kwargs: Any):
         host=host,
         super_properties={"region": region},
         _use_ai_lane=True,
+        _enable_multimodal_capture=True,
         **kwargs,
     )

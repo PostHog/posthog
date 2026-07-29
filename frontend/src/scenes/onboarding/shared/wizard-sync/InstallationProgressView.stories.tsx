@@ -192,6 +192,20 @@ export const FailedWizard: Story = {
     },
 }
 
+// A run whose stream never delivered any state: no pipeline steps to show, only the recovery CTAs.
+export const LostContact: Story = {
+    args: {
+        progress: progress({
+            phase: 'error',
+            steps: [],
+            error: {
+                title: 'Setup lost contact',
+                detail: 'We stopped hearing back from this run. Run the wizard yourself, or dismiss it and start over.',
+            },
+        }),
+    },
+}
+
 export const FailedNoDetail: Story = {
     args: {
         progress: progress({
