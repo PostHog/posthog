@@ -6,6 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiError } from 'lib/api'
 import { JSONContent, RichContentEditorType } from 'lib/components/RichContentEditor/types'
+import { slackChannelId } from 'lib/integrations/slackChannel'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { isEmptyObject } from 'lib/utils/guards'
 import { membersLogic } from 'scenes/organization/membersLogic'
@@ -584,14 +585,15 @@ export const commentsLogic = kea<commentsLogicType>([
                     // "Send to Slack" composer mode: mirror the new top-level comment to the chosen
                     // channel right away. Replies/tasks never mirror from here. The comment is created
                     // regardless; the Slack post is best-effort with its own toast.
-                    const slackChannelId = values.composerSlackChannel?.split('|')[0]
-                    const slackChannelName = values.composerSlackChannel?.split('|')[1]?.replace(/^#/, '') ?? ''
+                    const composerChannelId = values.composerSlackChannel
+                        ? slackChannelId(values.composerSlackChannel)
+                        : null
                     if (
                         values.composerSendToSlack &&
                         !isReply &&
                         !asTask &&
                         values.composerSlackIntegrationId &&
-                        slackChannelId &&
+                        composerChannelId &&
                         values.currentProjectId
                     ) {
                         let sentToSlack = false
@@ -600,8 +602,7 @@ export const commentsLogic = kea<commentsLogicType>([
                             // project id for non-default environments and 404s.
                             await commentsSendToSlackCreate(String(values.currentProjectId), newComment.id, {
                                 integration_id: values.composerSlackIntegrationId,
-                                channel_id: slackChannelId,
-                                channel_name: slackChannelName,
+                                channel_id: composerChannelId,
                             })
                             sentToSlack = true
                             lemonToast.success('Discussion sent to Slack')
@@ -715,7 +716,7 @@ export const commentsLogic = kea<commentsLogicType>([
         ],
     })),
 
-    listeners(({ values, actions, selectors, cache }) => ({
+    listeners(({ props, values, actions, selectors, cache }) => ({
         startNewComment: () => {
             if (!values.replyingCommentId) {
                 // No reply to exit, so the footer composer won't remount - deregistering its
@@ -773,9 +774,12 @@ export const commentsLogic = kea<commentsLogicType>([
         },
         // After the ⋯-menu "Send to Slack" modal mirrors a comment, refresh so its tracked state
         // (the Slack icon) shows immediately instead of after a reload. The composer flow reloads
-        // itself in the send loader.
-        [sendCommentToSlackLogic.actionTypes.submitSuccess]: () => {
-            actions.loadComments()
+        // itself in the send loader. The modal logic is a singleton while this logic is keyed per
+        // discussion, so only the instance the comment belongs to should reload.
+        [sendCommentToSlackLogic.actionTypes.submitSuccess]: ({ comment }) => {
+            if (comment.scope === props.scope && (comment.item_id ?? '') === (props.item_id ?? '')) {
+                actions.loadComments()
+            }
         },
         sendComposedContentSuccess: () => {
             const sendContext = cache.sendContext

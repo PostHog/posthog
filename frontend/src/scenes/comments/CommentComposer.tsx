@@ -1,20 +1,17 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { LemonButton, LemonLabel } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
-import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { LemonRichContentEditor } from 'lib/lemon-ui/LemonRichContent/LemonRichContentEditor'
-import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { CommentsLogicProps, commentsLogic } from './commentsLogic'
+import { SlackDestinationPicker } from './SlackDestinationPicker'
 
 export type CommentComposerProps = CommentsLogicProps & {
     /** The footer variant swaps to a "New comment" button while a reply is in progress; 'inline-reply' renders inside the thread */
@@ -44,11 +41,9 @@ export const CommentComposer = ({ variant = 'footer', ...props }: CommentCompose
         setComposerSlackChannel,
     } = useActions(commentsLogic(props))
     const { featureFlags } = useValues(featureFlagLogic)
-    const { slackIntegrations, integrationsLoading } = useValues(integrationsLogic)
 
     // Toggling a brand-new top-level comment straight to Slack; replies sync automatically.
     const showSlackToggle = !replyingCommentId && !!featureFlags[FEATURE_FLAGS.DISCUSSIONS_SLACK_SYNC]
-    const selectedIntegration = slackIntegrations?.find((integration) => integration.id === composerSlackIntegrationId)
 
     const placeholder = replyingCommentId
         ? 'Reply...'
@@ -121,36 +116,13 @@ export const CommentComposer = ({ variant = 'footer', ...props }: CommentCompose
                 }
             />
             {composerSendToSlack ? (
-                // Integrations load async on mount — don't flash "not configured" at users who
-                // have Slack set up.
-                !slackIntegrations?.length && integrationsLoading ? (
-                    <div className="flex justify-center p-2">
-                        <Spinner />
-                    </div>
-                ) : !slackIntegrations?.length ? (
-                    <SlackNotConfiguredBanner />
-                ) : (
-                    <div className="flex flex-col gap-2 rounded border border-border p-2">
-                        <div className="flex flex-col gap-1">
-                            <LemonLabel>Slack workspace</LemonLabel>
-                            <IntegrationChoice
-                                integration="slack"
-                                value={composerSlackIntegrationId ?? undefined}
-                                onChange={(nextValue) => setComposerSlackIntegrationId(nextValue ?? null)}
-                            />
-                        </div>
-                        {selectedIntegration ? (
-                            <div className="flex flex-col gap-1">
-                                <LemonLabel>Channel</LemonLabel>
-                                <SlackChannelPicker
-                                    value={composerSlackChannel ?? undefined}
-                                    onChange={(nextValue) => setComposerSlackChannel(nextValue ?? null)}
-                                    integration={selectedIntegration}
-                                />
-                            </div>
-                        ) : null}
-                    </div>
-                )
+                <SlackDestinationPicker
+                    integrationId={composerSlackIntegrationId}
+                    channel={composerSlackChannel}
+                    onIntegrationChange={setComposerSlackIntegrationId}
+                    onChannelChange={setComposerSlackChannel}
+                    className="rounded border border-border p-2"
+                />
             ) : null}
             <div className="flex justify-between items-center gap-2">
                 <div className="flex-1" />
