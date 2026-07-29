@@ -407,6 +407,29 @@ class TestWizardSessionViewSet(APIBaseTest):
         self.assertNotIn("prompts", stored)
         self.assertTrue(stored["sensitive"])
 
+    def test_pending_input_with_asked_at_survives_every_read_path(self):
+        # asked_at is validated as a datetime but stored as a string, since the column is JSON.
+        # Every read serializes that string back out through the same DateTimeField.
+        create = self.client.post(
+            self._url(),
+            self._payload(pending_input={"id": "ask-1", "asked_at": "2026-05-19T10:05:00Z"}),
+            format="json",
+        )
+        self.assertEqual(create.status_code, status.HTTP_201_CREATED)
+
+        for label, url in [
+            ("latest", self._url("latest/") + "?workflow_id=onboarding"),
+            ("retrieve", self._url("onboarding-nextjs-2026-05-19T10:00:00Z/")),
+            ("list", self._url()),
+        ]:
+            with self.subTest(read=label):
+                response = self.client.get(url)
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                body = response.json()
+                payload = body["results"][0] if label == "list" else body
+                self.assertEqual(payload["pending_input"]["id"], "ask-1")
+                self.assertIn("asked_at", payload["pending_input"])
+
     @parameterized.expand(
         [
             ("prompt_not_a_string", {"prompts": [{}]}),
