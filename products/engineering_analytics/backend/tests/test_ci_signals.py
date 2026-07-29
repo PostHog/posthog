@@ -754,9 +754,7 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
             _run_row(2, "slow-ci", "c2", "success", current - timedelta(hours=1), 120),
             _run_row(3, "slow-ci", "b1", "success", baseline, 10),
             _run_row(4, "slow-ci", "b2", "success", baseline - timedelta(hours=1), 10),
-            # long-ci: 1000s → 1350s (+35% / +350s), the Rust CI shape the 0.5 gate blocked: a
-            # long workflow's realistic regression clears the absolute floor by minutes but can
-            # never near-double, so it must fire on the recalibrated relative gate.
+            # long-ci: 1000s → 1350s (+35% / +350s) clears both gates well short of a doubling → regression.
             _run_row(13, "long-ci", "c7", "success", current, 1350),
             _run_row(14, "long-ci", "c8", "success", current - timedelta(hours=1), 1350),
             _run_row(15, "long-ci", "b7", "success", baseline, 1000),
@@ -766,8 +764,7 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
             _run_row(6, "steady-ci", "c4", "success", current - timedelta(hours=1), 104),
             _run_row(7, "steady-ci", "b3", "success", baseline, 100),
             _run_row(8, "steady-ci", "b4", "success", baseline - timedelta(hours=1), 100),
-            # mild-ci: 950s → 1100s (+16% / +150s) clears the absolute floor but stays under the
-            # 20% relative gate, pinning that ordinary week-over-week drift still doesn't fire.
+            # mild-ci: 950s → 1100s (+16% / +150s) clears the absolute floor but fails the relative gate → no signal.
             _run_row(17, "mild-ci", "c9", "success", current, 1100),
             _run_row(18, "mild-ci", "c10", "success", current - timedelta(hours=1), 1100),
             _run_row(19, "mild-ci", "b9", "success", baseline, 950),
