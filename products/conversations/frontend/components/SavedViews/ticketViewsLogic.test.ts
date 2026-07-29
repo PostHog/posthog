@@ -15,7 +15,7 @@ function makeSavedView(shortId: string, filters: TicketViewFilters, isPrivate: b
         created_at: '2026-01-01T00:00:00Z',
         created_by: null,
         is_favorited: true,
-        is_private: isPrivate,
+        visibility: isPrivate ? 'private' : 'shared',
     }
 }
 
@@ -68,18 +68,26 @@ describe('ticketViewsLogic', () => {
 
             expect(lastCreateBody?.name).toBe('Copy of View abc')
             expect(lastCreateBody?.filters).toEqual({ status: ['open'] })
-            expect(lastCreateBody?.is_private).toBe(isPrivate)
+            expect(lastCreateBody?.visibility).toBe(isPrivate ? 'private' : 'shared')
             // Favorites are personal per user, so a duplicate must start un-favorited regardless of the source
             expect(lastCreateBody?.is_favorited).toBeUndefined()
         }
     )
 
     it('only blocks saving while a save is in flight, not while the list reloads', async () => {
+        // A list reload must not trip the save guard...
         await expectLogic(logic, () => {
             logic.actions.loadViews()
         }).toMatchValues({ viewsLoading: true, isSavingView: false })
-
         await expectLogic(logic).toFinishAllListeners()
+
+        // ...but a save must: on while the request is in flight, off again once it lands
+        await expectLogic(logic, () => {
+            logic.actions.createView({ name: 'Guarded view', filters: {} })
+        })
+            .toMatchValues({ isSavingView: true })
+            .toDispatchActions(['createViewSuccess'])
+            .toMatchValues({ isSavingView: false })
     })
 
     it('saves a view as personal when the private toggle is set', async () => {
@@ -91,6 +99,6 @@ describe('ticketViewsLogic', () => {
         }).toDispatchActions(['createView', 'createViewSuccess'])
 
         expect(lastCreateBody?.name).toBe('My personal view')
-        expect(lastCreateBody?.is_private).toBe(true)
+        expect(lastCreateBody?.visibility).toBe('private')
     })
 })

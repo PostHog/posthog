@@ -173,7 +173,7 @@ export function SavedViewsModal({ id }: TicketViewsLogicProps): JSX.Element {
             dataIndex: 'name',
             render: (_, view) => (
                 <span className="font-medium flex items-center gap-1">
-                    {view.is_private && (
+                    {view.visibility === 'private' && (
                         <Tooltip title="Personal view (only visible to you)">
                             <IconLock className="text-secondary" />
                         </Tooltip>
@@ -268,9 +268,15 @@ export function SavedViewsModal({ id }: TicketViewsLogicProps): JSX.Element {
                                     ...(!!user && view.created_by?.id === user.id
                                         ? [
                                               {
-                                                  label: view.is_private ? 'Share with team' : 'Make personal',
+                                                  label:
+                                                      view.visibility === 'private'
+                                                          ? 'Share with team'
+                                                          : 'Make personal',
                                                   onClick: () =>
-                                                      updateView(view.short_id, { is_private: !view.is_private }),
+                                                      updateView(view.short_id, {
+                                                          visibility:
+                                                              view.visibility === 'private' ? 'shared' : 'private',
+                                                      }),
                                               },
                                           ]
                                         : []),

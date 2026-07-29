@@ -376,11 +376,12 @@ export const ConversationsViewsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user.'
         ),
-    is_private: zod
-        .boolean()
+    visibility: zod
+        .enum(['private', 'shared'])
+        .describe('\* `private` - Private (only visible to creator)\n\* `shared` - Shared with team')
         .optional()
         .describe(
-            'When true, this view is personal and visible only to the user who created it. When false (the default), the view is shared with the whole team.'
+            "Who can see this view. 'private' means only the user who created it; 'shared' (the default) means the whole team.\n\n\* `private` - Private (only visible to creator)\n\* `shared` - Shared with team"
         ),
 })
 
@@ -400,11 +401,12 @@ export const ConversationsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user.'
         ),
-    is_private: zod
-        .boolean()
+    visibility: zod
+        .enum(['private', 'shared'])
+        .describe('\* `private` - Private (only visible to creator)\n\* `shared` - Shared with team')
         .optional()
         .describe(
-            'When true, this view is personal and visible only to the user who created it. When false (the default), the view is shared with the whole team.'
+            "Who can see this view. 'private' means only the user who created it; 'shared' (the default) means the whole team.\n\n\* `private` - Private (only visible to creator)\n\* `shared` - Shared with team"
         ),
 })
 

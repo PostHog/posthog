@@ -7,12 +7,17 @@ from posthog.utils import generate_short_id
 
 
 class TicketView(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+    # Same shape as ColumnConfiguration.Visibility, the repo's pattern for creator-scoped records
+    class Visibility(models.TextChoices):
+        PRIVATE = "private", "Private (only visible to creator)"
+        SHARED = "shared", "Shared with team"
+
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     short_id = models.CharField(max_length=12, blank=True, default=generate_short_id)
     name = models.CharField(max_length=400)
     filters = models.JSONField(default=dict)
-    # Personal views are visible only to their creator; shared views (the default) are visible to the whole team.
-    is_private = models.BooleanField(default=False)
+    # Private views are visible only to their creator; shared views (the default) are visible to the whole team.
+    visibility = models.CharField(max_length=10, choices=Visibility, default=Visibility.SHARED)
 
     # Not a column — a per-request annotation set by the viewset/serializer.
     is_favorited: bool

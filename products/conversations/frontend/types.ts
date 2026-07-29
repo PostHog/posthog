@@ -116,7 +116,7 @@ export interface SavedTicketView {
     created_at: string
     created_by: { id: number; first_name?: string; email?: string } | null
     is_favorited: boolean
-    is_private: boolean
+    visibility: 'private' | 'shared'
 }
 
 export interface UserBasic {

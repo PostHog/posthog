@@ -11,10 +11,9 @@
  * * `private` - Private (only visible to creator)
  * * `shared` - Shared with team
  */
-export type ColumnConfigurationVisibilityEnumApi =
-    (typeof ColumnConfigurationVisibilityEnumApi)[keyof typeof ColumnConfigurationVisibilityEnumApi]
+export type VisibilityEnumApi = (typeof VisibilityEnumApi)[keyof typeof VisibilityEnumApi]
 
-export const ColumnConfigurationVisibilityEnumApi = {
+export const VisibilityEnumApi = {
     Private: 'private',
     Shared: 'shared',
 } as const
@@ -35,7 +34,7 @@ export interface ColumnConfigurationApi {
     order_by?: string[] | null
     /** Product-specific view state that does not fit the columnar fields (e.g. Customer analytics overview tiles and column display). */
     properties?: unknown
-    visibility?: ColumnConfigurationVisibilityEnumApi
+    visibility?: VisibilityEnumApi
     /** @nullable */
     readonly created_by: number | null
     readonly created_at: string
@@ -67,7 +66,7 @@ export interface PatchedColumnConfigurationApi {
     order_by?: string[] | null
     /** Product-specific view state that does not fit the columnar fields (e.g. Customer analytics overview tiles and column display). */
     properties?: unknown
-    visibility?: ColumnConfigurationVisibilityEnumApi
+    visibility?: VisibilityEnumApi
     /** @nullable */
     readonly created_by?: number | null
     readonly created_at?: string

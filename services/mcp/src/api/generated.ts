@@ -14066,10 +14066,10 @@ export namespace Schemas {
      * * `private` - Private (only visible to creator)
      * * `shared` - Shared with team
      */
-    export type ColumnConfigurationVisibilityEnum = typeof ColumnConfigurationVisibilityEnum[keyof typeof ColumnConfigurationVisibilityEnum];
+    export type VisibilityEnum = typeof VisibilityEnum[keyof typeof VisibilityEnum];
 
 
-    export const ColumnConfigurationVisibilityEnum = {
+    export const VisibilityEnum = {
       Private: 'private',
       Shared: 'shared',
     } as const;
@@ -14090,7 +14090,7 @@ export namespace Schemas {
       order_by?: string[] | null;
       /** Product-specific view state that does not fit the columnar fields (e.g. Customer analytics overview tiles and column display). */
       properties?: unknown;
-      visibility?: ColumnConfigurationVisibilityEnum;
+      visibility?: VisibilityEnum;
       /** @nullable */
       readonly created_by: number | null;
       readonly created_at: string;
@@ -45811,8 +45811,11 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       /** Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user. */
       is_favorited?: boolean;
-      /** When true, this view is personal and visible only to the user who created it. When false (the default), the view is shared with the whole team. */
-      is_private?: boolean;
+      /** Who can see this view. 'private' means only the user who created it; 'shared' (the default) means the whole team.
+       *
+       * * `private` - Private (only visible to creator)
+       * * `shared` - Shared with team */
+      visibility?: VisibilityEnum;
     }
 
     export interface PaginatedTicketViewList {
@@ -47282,7 +47285,7 @@ export namespace Schemas {
       order_by?: string[] | null;
       /** Product-specific view state that does not fit the columnar fields (e.g. Customer analytics overview tiles and column display). */
       properties?: unknown;
-      visibility?: ColumnConfigurationVisibilityEnum;
+      visibility?: VisibilityEnum;
       /** @nullable */
       readonly created_by?: number | null;
       readonly created_at?: string;
@@ -53726,8 +53729,11 @@ export namespace Schemas {
       readonly created_by?: UserBasic;
       /** Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user. */
       is_favorited?: boolean;
-      /** When true, this view is personal and visible only to the user who created it. When false (the default), the view is shared with the whole team. */
-      is_private?: boolean;
+      /** Who can see this view. 'private' means only the user who created it; 'shared' (the default) means the whole team.
+       *
+       * * `private` - Private (only visible to creator)
+       * * `shared` - Shared with team */
+      visibility?: VisibilityEnum;
     }
 
     /**

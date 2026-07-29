@@ -1047,6 +1047,17 @@ export interface TicketErrorApi {
 }
 
 /**
+ * * `private` - Private (only visible to creator)
+ * * `shared` - Shared with team
+ */
+export type VisibilityEnumApi = (typeof VisibilityEnumApi)[keyof typeof VisibilityEnumApi]
+
+export const VisibilityEnumApi = {
+    Private: 'private',
+    Shared: 'shared',
+} as const
+
+/**
  * Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys.
  */
 export type TicketViewApiFilters = { [key: string]: unknown }
@@ -1062,8 +1073,11 @@ export interface TicketViewApi {
     readonly created_by: UserBasicApi
     /** Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user. */
     is_favorited?: boolean
-    /** When true, this view is personal and visible only to the user who created it. When false (the default), the view is shared with the whole team. */
-    is_private?: boolean
+    /** Who can see this view. 'private' means only the user who created it; 'shared' (the default) means the whole team.
+     *
+     * * `private` - Private (only visible to creator)
+     * * `shared` - Shared with team */
+    visibility?: VisibilityEnumApi
 }
 
 export interface PaginatedTicketViewListApi {
@@ -1091,8 +1105,11 @@ export interface PatchedTicketViewApi {
     readonly created_by?: UserBasicApi
     /** Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user. */
     is_favorited?: boolean
-    /** When true, this view is personal and visible only to the user who created it. When false (the default), the view is shared with the whole team. */
-    is_private?: boolean
+    /** Who can see this view. 'private' means only the user who created it; 'shared' (the default) means the whole team.
+     *
+     * * `private` - Private (only visible to creator)
+     * * `shared` - Shared with team */
+    visibility?: VisibilityEnumApi
 }
 
 export interface ZendeskImportStartApi {

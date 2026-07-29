@@ -263,14 +263,16 @@ class TestTicketViewAPI(APIBaseTest):
 
     # --- Personal views ---
 
-    @parameterized.expand([("shared_by_default", {}, False), ("explicit_private", {"is_private": True}, True)])
-    def test_create_respects_is_private(self, _label, overrides, expected):
+    @parameterized.expand(
+        [("shared_by_default", {}, "shared"), ("explicit_private", {"visibility": "private"}, "private")]
+    )
+    def test_create_respects_visibility(self, _label, overrides, expected):
         data = self._create_via_api(**overrides)
-        assert data["is_private"] is expected
-        assert TicketView.objects.get(pk=data["id"]).is_private is expected
+        assert data["visibility"] == expected
+        assert TicketView.objects.get(pk=data["id"]).visibility == expected
 
     def test_private_view_visible_only_to_creator(self):
-        private = self._create_via_api(name="My private view", is_private=True)
+        private = self._create_via_api(name="My private view", visibility="private")
         self._create_via_api(name="Team view")
 
         other_user = self._create_user("other@posthog.com")
@@ -287,7 +289,7 @@ class TestTicketViewAPI(APIBaseTest):
         assert other_client.get(f"{self.base_url}{private['short_id']}/").status_code == status.HTTP_404_NOT_FOUND
 
         # Flipping it back to shared makes it visible to everyone
-        self.client.patch(f"{self.base_url}{private['short_id']}/", {"is_private": False}, format="json")
+        self.client.patch(f"{self.base_url}{private['short_id']}/", {"visibility": "shared"}, format="json")
         assert {r["name"] for r in other_client.get(self.base_url).json()["results"]} == {
             "My private view",
             "Team view",
@@ -296,7 +298,7 @@ class TestTicketViewAPI(APIBaseTest):
     def test_personal_view_falls_back_to_shared_once_its_creator_is_gone(self):
         creator = self._create_user("creator@posthog.com")
         orphaned = TicketView.objects.create(
-            team=self.team, name="Their personal view", created_by=creator, is_private=True
+            team=self.team, name="Their personal view", created_by=creator, visibility="private"
         )
 
         def listed():
@@ -313,24 +315,28 @@ class TestTicketViewAPI(APIBaseTest):
         visible = listed()
         assert orphaned.short_id in visible
         # It also reads as shared, so the list can't badge a team-wide view with a lock
-        assert visible[orphaned.short_id]["is_private"] is False
+        assert visible[orphaned.short_id]["visibility"] == "shared"
 
-        # ...and nobody can claim it as their own personal view, which could not be honored
+        # ...and nobody can claim it as their own private view, which could not be honored
         assert (
-            self.client.patch(f"{self.base_url}{orphaned.short_id}/", {"is_private": True}, format="json").status_code
+            self.client.patch(
+                f"{self.base_url}{orphaned.short_id}/", {"visibility": "private"}, format="json"
+            ).status_code
             == status.HTTP_400_BAD_REQUEST
         )
         assert (
-            self.client.patch(f"{self.base_url}{orphaned.short_id}/", {"is_private": False}, format="json").status_code
+            self.client.patch(
+                f"{self.base_url}{orphaned.short_id}/", {"visibility": "shared"}, format="json"
+            ).status_code
             == status.HTTP_200_OK
         )
         orphaned.refresh_from_db()
-        assert orphaned.is_private is False
+        assert orphaned.visibility == "shared"
 
     @parameterized.expand(
         [
             ("visibility_omitted", {"name": "Renamed"}),
-            ("visibility_resent_unchanged", {"name": "Renamed", "is_private": False}),
+            ("visibility_resent_unchanged", {"name": "Renamed", "visibility": "shared"}),
         ]
     )
     def test_editing_a_view_does_not_revert_a_concurrent_visibility_change(self, label, payload):
@@ -342,7 +348,7 @@ class TestTicketViewAPI(APIBaseTest):
 
         # What a teammate's in-flight request already loaded, before the creator acted
         stale = TicketView.objects.get(pk=created["id"])
-        TicketView.objects.filter(pk=created["id"]).update(is_private=True)
+        TicketView.objects.filter(pk=created["id"]).update(visibility="private")
 
         serializer = TicketViewSerializer(
             stale, data=payload, partial=True, context={"request": request, "team_id": self.team.pk}
@@ -354,7 +360,7 @@ class TestTicketViewAPI(APIBaseTest):
         assert refreshed.name == "Renamed"
         # The edit must not carry the stale visibility back over the creator's change, whether
         # the teammate omitted the field or resent the value they were shown.
-        assert refreshed.is_private is True
+        assert refreshed.visibility == "private"
 
     def test_only_creator_can_change_visibility(self):
         created = self._create_via_api(name="Shared team view")
@@ -365,9 +371,11 @@ class TestTicketViewAPI(APIBaseTest):
 
         # Hiding someone else's shared view would strand it: it stays theirs, so the
         # person who hid it can no longer see it to undo the change.
-        response = other_client.patch(f"{self.base_url}{created['short_id']}/", {"is_private": True}, format="json")
+        response = other_client.patch(
+            f"{self.base_url}{created['short_id']}/", {"visibility": "private"}, format="json"
+        )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert TicketView.objects.get(pk=created["id"]).is_private is False
+        assert TicketView.objects.get(pk=created["id"]).visibility == "shared"
 
         # Non-visibility edits by other team members still work on shared views
         assert (
@@ -379,7 +387,7 @@ class TestTicketViewAPI(APIBaseTest):
         assert (
             other_client.patch(
                 f"{self.base_url}{created['short_id']}/",
-                {"name": "Renamed again", "is_private": False},
+                {"name": "Renamed again", "visibility": "shared"},
                 format="json",
             ).status_code
             == status.HTTP_200_OK
@@ -387,7 +395,9 @@ class TestTicketViewAPI(APIBaseTest):
 
         # ...and the creator can still change it
         assert (
-            self.client.patch(f"{self.base_url}{created['short_id']}/", {"is_private": True}, format="json").status_code
+            self.client.patch(
+                f"{self.base_url}{created['short_id']}/", {"visibility": "private"}, format="json"
+            ).status_code
             == status.HTTP_200_OK
         )
 

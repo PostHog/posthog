@@ -28,9 +28,10 @@ class TicketViewSerializer(serializers.ModelSerializer):
         required=False,
         help_text="Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user.",
     )
-    is_private = serializers.BooleanField(
+    visibility = serializers.ChoiceField(
+        choices=TicketView.Visibility.choices,
         required=False,
-        help_text="When true, this view is personal and visible only to the user who created it. When false (the default), the view is shared with the whole team.",
+        help_text="Who can see this view. 'private' means only the user who created it; 'shared' (the default) means the whole team.",
     )
 
     def validate_filters(self, value: dict) -> dict:
@@ -38,27 +39,27 @@ class TicketViewSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Filters payload is too large.")
         return value
 
-    def validate_is_private(self, value: bool) -> bool:
+    def validate_visibility(self, value: str) -> str:
         if not self.instance:
             return value
         if self.instance.created_by_id is None:
             # Nobody is left to keep it for, so it reads as shared and can't be claimed as
-            # anyone else's personal view — the queryset would keep showing it to the team.
-            if value:
-                raise serializers.ValidationError("A view whose creator no longer exists cannot be made personal.")
+            # anyone else's private view — the queryset would keep showing it to the team.
+            if value == TicketView.Visibility.PRIVATE:
+                raise serializers.ValidationError("A view whose creator no longer exists cannot be made private.")
             return value
-        # Making someone else's view personal would strand it: it stays theirs, so whoever
+        # Making someone else's view private would strand it: it stays theirs, so whoever
         # hid it can no longer see it to undo the change.
-        if value != self.instance.is_private and self.instance.created_by_id != self.context["request"].user.pk:
-            raise serializers.ValidationError("Only the creator of a view can change whether it is personal.")
+        if value != self.instance.visibility and self.instance.created_by_id != self.context["request"].user.pk:
+            raise serializers.ValidationError("Only the creator of a view can change its visibility.")
         return value
 
     def to_representation(self, instance: TicketView) -> dict[str, Any]:
         data = super().to_representation(instance)
         if instance.created_by_id is None:
             # Report what the queryset actually enforces, so the team doesn't see a view
-            # badged as personal that everyone can read.
-            data["is_private"] = False
+            # badged as private that everyone can read.
+            data["visibility"] = TicketView.Visibility.SHARED
         return data
 
     class Meta:
@@ -71,7 +72,7 @@ class TicketViewSerializer(serializers.ModelSerializer):
             "created_at",
             "created_by",
             "is_favorited",
-            "is_private",
+            "visibility",
         ]
         read_only_fields = [
             "id",
@@ -102,11 +103,11 @@ class TicketViewSerializer(serializers.ModelSerializer):
         # Anyone but the creator may resend the visibility they were shown as part of a wider
         # edit, but must never write the column: the value was read before validation, so
         # persisting it could revert a change the creator made in between. A view with no
-        # creator left is exempt — nobody can privatize it, so there is nothing to revert.
+        # creator left is exempt — nobody can make it private, so there is nothing to revert.
         if instance.created_by_id is not None and instance.created_by_id != self.context["request"].user.pk:
-            validated_data.pop("is_private", None)
+            validated_data.pop("visibility", None)
         # Write only the submitted columns. A plain save() persists every field this request
-        # loaded, so renaming a view would carry a stale is_private back over a change its
+        # loaded, so renaming a view would carry a stale visibility back over a change its
         # creator made in the meantime.
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
@@ -138,11 +139,13 @@ class TicketViewViewSet(
 
     def safely_get_queryset(self, queryset: Any) -> Any:
         queryset = queryset.filter(team_id=self.team_id)
-        # Personal views are visible only to their creator; shared views are visible to the whole team.
-        # Deleting a user nulls created_by, so their personal views fall back to shared rather than
+        # Private views are visible only to their creator; shared views are visible to the whole team.
+        # Deleting a user nulls created_by, so their private views fall back to shared rather than
         # lingering invisible to everyone with no way to clean them up.
         queryset = queryset.filter(
-            Q(is_private=False) | Q(created_by=cast("User", self.request.user)) | Q(created_by__isnull=True)
+            Q(visibility=TicketView.Visibility.SHARED)
+            | Q(created_by=cast("User", self.request.user))
+            | Q(created_by__isnull=True)
         )
         queryset = queryset.select_related("created_by")
         # Personal favorites float to the top, for the requesting user only.
@@ -161,7 +164,7 @@ class TicketViewViewSet(
                 "short_id": instance.short_id,
                 "name": instance.name,
                 "has_filters": bool(instance.filters),
-                "is_private": instance.is_private,
+                "visibility": instance.visibility,
             },
             team=self.team,
             request=self.request,
