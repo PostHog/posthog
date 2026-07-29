@@ -1,7 +1,7 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use anyhow::{anyhow, Result};
-use tracing::info;
+use anyhow::{anyhow, Context, Result};
+use tracing::{info, warn};
 
 use crate::{
     api::{self, releases::ReleaseBuilder, symbol_sets::SymbolSetUpload},
@@ -35,6 +35,47 @@ pub struct Args {
     /// Implies --force unless --skip-on-conflict is set. [default: false]
     #[arg(long, default_value_t = false)]
     pub include_source: bool,
+
+    /// Path to the built app's Info.plist. When set, the created release's id is written into it as
+    /// `PostHogReleaseId`, so the SDK emits it as `$release_id` on every event and the server
+    /// resolves the release with a plain foreign-key lookup. Xcode provides the path as
+    /// `${BUILT_PRODUCTS_DIR}/${INFOPLIST_PATH}` in a build phase. Injecting into the built bundle
+    /// (not source) keeps git clean; the build phase runs before code signing.
+    #[arg(long)]
+    pub inject_release_id: Option<PathBuf>,
+
+    /// Upload the symbol sets without associating them with the created release. The release is
+    /// still created, so the server can resolve it from the app version and namespace the SDK sends
+    /// on every event, but the uploaded chunks stay content-addressed and release-independent. Use
+    /// this for mobile builds that don't inject a `$release_id`. [default: false]
+    #[arg(long, default_value_t = false)]
+    pub no_release_association: bool,
+}
+
+/// Write `PostHogReleaseId` into a built app's Info.plist. The built plist is a binary plist, so it
+/// is read and written back in binary form; iOS reads either format at runtime.
+fn inject_release_id_into_plist(plist_path: &Path, release_id: &str) -> Result<()> {
+    let mut value = plist::Value::from_file(plist_path)
+        .with_context(|| format!("Failed to read Info.plist at {}", plist_path.display()))?;
+
+    let dict = value
+        .as_dictionary_mut()
+        .ok_or_else(|| anyhow!("Info.plist at {} is not a dictionary", plist_path.display()))?;
+    dict.insert(
+        "PostHogReleaseId".to_string(),
+        plist::Value::String(release_id.to_string()),
+    );
+
+    value
+        .to_file_binary(plist_path)
+        .with_context(|| format!("Failed to write Info.plist at {}", plist_path.display()))?;
+
+    info!(
+        "Injected PostHogReleaseId={} into {}",
+        release_id,
+        plist_path.display()
+    );
+    Ok(())
 }
 
 pub fn upload(args: &Args) -> Result<()> {
@@ -44,6 +85,8 @@ pub fn upload(args: &Args) -> Result<()> {
         conflict,
         main_dsym,
         include_source,
+        inject_release_id,
+        no_release_association,
     } = args;
     let release_args = release;
 
@@ -168,6 +211,24 @@ pub fn upload(args: &Args) -> Result<()> {
 
     let release_id = created_release.map(|r| r.id.to_string());
 
+    if let Some(plist_path) = inject_release_id {
+        match &release_id {
+            Some(id) => inject_release_id_into_plist(plist_path, id)?,
+            None => warn!(
+                "Skipping Info.plist injection: no release was created. Pass --release-name and --release-version."
+            ),
+        }
+    }
+
+    // With --no-release-association the release is still created above (so the server can resolve it
+    // from the app metadata the SDK sends on each event), but the uploaded chunks are left
+    // release-independent.
+    let chunk_release_id = if *no_release_association {
+        None
+    } else {
+        release_id.clone()
+    };
+
     // Process each dSYM
     let mut uploads: Vec<SymbolSetUpload> = Vec::new();
 
@@ -176,7 +237,7 @@ pub fn upload(args: &Args) -> Result<()> {
 
         match DsymFile::new(&dsym_path, *include_source) {
             Ok(mut dsym_file) => {
-                dsym_file.release_id = release_id.clone();
+                dsym_file.release_id = chunk_release_id.clone();
                 info!(
                     "  UUIDs: {} ({})",
                     dsym_file.uuids().join(", "),
