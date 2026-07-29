@@ -91,10 +91,11 @@ function asText(value: unknown): string | null {
  * `identified_only`). Linking to an event search always resolves, shows `$lib` and the URL, and
  * keeps the person page one click away from any row.
  */
-export function DistinctIdLink({ distinctId }: { distinctId: unknown }): JSX.Element | null {
+export function DistinctIdLink({ distinctId }: { distinctId: unknown }): JSX.Element {
     const id = asText(distinctId)
     if (!id) {
-        return null
+        // Still show what arrived — a malformed ID is often the thing being debugged.
+        return <code>{JSON.stringify(distinctId)}</code>
     }
     return (
         <Tooltip title="Search events sent with this distinct ID">
@@ -110,15 +111,14 @@ export const WARNING_TYPE_RENDERER = {
             distinctId?: unknown
             message?: unknown
         }
-        const distinctId = asText(details.distinctId)
         const eventUuid = asText(details.eventUuid)
         return (
             <>
                 {asText(details.message) ?? 'An SDK reported a problem with how it was being used.'}
                 <ul>
-                    {distinctId ? (
+                    {details.distinctId != null ? (
                         <li>
-                            distinct_id: <DistinctIdLink distinctId={distinctId} />
+                            distinct_id: <DistinctIdLink distinctId={details.distinctId} />
                         </li>
                     ) : null}
                     {eventUuid ? (

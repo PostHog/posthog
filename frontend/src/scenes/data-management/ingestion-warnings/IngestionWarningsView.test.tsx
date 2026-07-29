@@ -42,11 +42,18 @@ describe('IngestionWarningsView', () => {
         { name: 'an object message', details: { message: { nested: 'oops' } } },
         { name: 'an array message', details: { message: ['a', 'b'] } },
         { name: 'a numeric message', details: { message: 42 } },
-        { name: 'an object distinctId', details: { message: 'ok', distinctId: { nested: 'oops' } } },
-    ])('renders a fallback for $name instead of throwing', ({ details }) => {
+    ])('falls back to a generic description for $name', ({ details }) => {
         const { html, unmount } = renderWarning(details)
 
-        expect(html).not.toContain('oops')
+        expect(html).toContain('An SDK reported a problem with how it was being used.')
+        unmount()
+    })
+
+    it('shows a malformed distinct ID as text rather than a link', () => {
+        const { html, unmount } = renderWarning({ message: 'ok', distinctId: { nested: 'oops' } })
+
+        expect(html).toContain('nested')
+        expect(html).not.toContain('<a')
         unmount()
     })
 })
