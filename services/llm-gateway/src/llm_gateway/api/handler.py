@@ -21,13 +21,9 @@ from llm_gateway.metrics.prometheus import (
 )
 from llm_gateway.observability import capture_exception
 from llm_gateway.request_context import (
-    RequestContext,
-    get_posthog_flags,
-    get_posthog_properties,
-    get_request_id,
+    rebuild_request_context,
     set_auth_user,
     set_effort,
-    set_request_context,
     set_time_to_first_token,
 )
 from llm_gateway.streaming.sse import format_sse_stream
@@ -241,14 +237,7 @@ async def handle_llm_request(
     settings = get_settings()
     start_time = time.monotonic()
 
-    set_request_context(
-        RequestContext(
-            request_id=get_request_id(),
-            product=product,
-            posthog_properties=get_posthog_properties(),
-            posthog_flags=get_posthog_flags(),
-        )
-    )
+    rebuild_request_context(product)
     set_auth_user(user)
 
     # Stash effort for the PostHog callback to stamp on the $ai_generation event (mirrors
