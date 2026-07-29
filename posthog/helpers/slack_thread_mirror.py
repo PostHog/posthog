@@ -29,6 +29,11 @@ def slack_author_from_user(user: object | None) -> tuple[str, str]:
     return "PostHog", ""
 
 
+def _mrkdwn_safe_url(url: str) -> str:
+    """Percent-encode the characters that terminate or split a mrkdwn ``<url|label>`` link."""
+    return url.replace("<", "%3C").replace(">", "%3E").replace("|", "%7C")
+
+
 def _discussion_card_blocks(*, body_mrkdwn: str, author_name: str, item_url: str, item_label: str) -> list[dict]:
     """A Block Kit card for the thread root: 'New comment on <link> from <author>', the comment
     body, and an 'Open in PostHog' button. Replies stay plain text since they're threaded under it.
@@ -38,7 +43,7 @@ def _discussion_card_blocks(*, body_mrkdwn: str, author_name: str, item_url: str
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": f":speech_balloon: New comment on <{item_url}|{escape_slack_mrkdwn(item_label)}>",
+                "text": f":speech_balloon: New comment on <{_mrkdwn_safe_url(item_url)}|{escape_slack_mrkdwn(item_label)}>",
             },
         },
         {"type": "context", "elements": [{"type": "mrkdwn", "text": f"From *{escape_slack_mrkdwn(author_name)}*"}]},
