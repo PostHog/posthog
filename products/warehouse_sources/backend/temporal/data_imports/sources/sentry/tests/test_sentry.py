@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 import pytest
@@ -12,16 +12,26 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry import (
     SentryPaginator,
     SentryResumeConfig,
+    _custom_endpoint_rows,
     _normalize_api_base_url,
     _parse_next_link,
+    _retention_bounded_start_param,
     _retry_wait_seconds,
     _start_param_for_sentry,
     get_resource,
     sentry_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.settings import REQUIRED_SENTRY_SCOPES
+from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.settings import (
+    REQUIRED_SENTRY_SCOPES,
+    SENTRY_ENDPOINTS,
+    SENTRY_RETENTION_DAYS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.source import SentrySource
+
+CUSTOM_ITERATOR_ENDPOINTS = [
+    name for name, config in SENTRY_ENDPOINTS.items() if config.custom_iterator and name != "issue_tag_values"
+]
 
 
 def _response(payload, status_code: int = 200, link_header: str = "") -> Mock:
@@ -221,6 +231,19 @@ class TestSentryTransport:
             ("issue_events",),
             ("issue_hashes",),
             ("issue_tag_values",),
+            ("release_deploys",),
+            ("release_commits",),
+            ("repo_commits",),
+            ("monitor_checkins",),
+            ("project_user_feedback",),
+            ("project_filters",),
+            ("sessions",),
+            ("organization_stats",),
+            ("organization_stats_summary",),
+            ("trace_item_attributes",),
+            ("trace_item_stats",),
+            ("project_ownership",),
+            ("project_stats",),
         ]
     )
     def test_get_resource_rejects_fanout_endpoints(self, endpoint) -> None:
@@ -975,3 +998,539 @@ class TestHelpers:
         )
 
         assert _retry_wait_seconds(state) == 9.0
+
+
+class TestSentryRetentionWindow:
+    @parameterized.expand(
+        [
+            ("no_watermark", None),
+            ("pre_retention_watermark", datetime(2001, 1, 1, tzinfo=UTC)),
+            ("pre_retention_string", "2001-01-01T00:00:00Z"),
+        ]
+    )
+    def test_start_param_floors_to_retention(self, _name, value) -> None:
+        # Sentry rejects a range reaching further back than retention, so a missing or
+        # stale watermark must not produce the 1970 sentinel the issues endpoints tolerate.
+        floor = datetime.now(UTC) - timedelta(days=SENTRY_RETENTION_DAYS)
+
+        parsed = datetime.strptime(_retention_bounded_start_param(value), "%Y-%m-%dT%H:%M:%S").replace(tzinfo=UTC)
+
+        assert abs((parsed - floor).total_seconds()) < 60
+
+    def test_start_param_keeps_watermark_inside_retention(self) -> None:
+        value = datetime.now(UTC) - timedelta(days=3)
+
+        parsed = datetime.strptime(_retention_bounded_start_param(value), "%Y-%m-%dT%H:%M:%S").replace(tzinfo=UTC)
+
+        assert abs((parsed - value).total_seconds()) < 2
+
+    def test_start_param_caps_future_watermark_at_now(self) -> None:
+        now = datetime.now(UTC)
+
+        parsed = datetime.strptime(
+            _retention_bounded_start_param(datetime(2999, 1, 1, tzinfo=UTC)), "%Y-%m-%dT%H:%M:%S"
+        ).replace(tzinfo=UTC)
+
+        assert abs((parsed - now).total_seconds()) < 60
+
+
+class TestSentryNewFlatEndpoints:
+    @parameterized.expand(
+        [
+            ("repos", "/organizations/acme/repos/", None, None),
+            ("dashboards", "/organizations/acme/dashboards/", "per_page", None),
+            ("discover_saved_queries", "/organizations/acme/discover/saved/", "per_page", None),
+            ("workflows", "/organizations/acme/workflows/", None, None),
+            ("detectors", "/organizations/acme/detectors/", None, None),
+            ("organization_tags", "/organizations/acme/tags/", None, None),
+            ("integrations", "/organizations/acme/integrations/", None, None),
+            ("sentry_app_installations", "/organizations/acme/sentry-app-installations/", None, None),
+            ("replays", "/organizations/acme/replays/", "per_page", "data"),
+            ("organization_events", "/organizations/acme/events/", "per_page", "data"),
+        ]
+    )
+    def test_resource_path_page_size_and_selector(self, endpoint, expected_path, page_size_param, selector) -> None:
+        # Sending `limit` where Sentry documents `per_page` silently ignores the page size,
+        # and dropping the selector on a `{"data": [...]}` payload yields zero rows.
+        resource = cast(
+            dict[str, Any],
+            get_resource(endpoint=endpoint, organization_slug="acme", should_use_incremental_field=False),
+        )
+
+        params = resource["endpoint"]["params"]
+        assert resource["endpoint"]["path"] == expected_path
+        assert resource["table_format"] == "delta"
+        assert resource["endpoint"].get("data_selector") == selector
+        assert "limit" not in params or page_size_param == "limit"
+        if page_size_param:
+            assert params[page_size_param] == 100
+        else:
+            assert "per_page" not in params
+
+    def test_replays_requests_ascending_sort(self) -> None:
+        # sort_mode is "asc" for replays, so the request must ask for ascending
+        # started_at or the incremental watermark advances to the newest row immediately.
+        resource = cast(
+            dict[str, Any],
+            get_resource(endpoint="replays", organization_slug="acme", should_use_incremental_field=False),
+        )
+
+        assert resource["endpoint"]["params"]["sort"] == "started_at"
+        assert SENTRY_ENDPOINTS["replays"].sort_mode == "asc"
+
+    def test_organization_events_requests_discover_projection(self) -> None:
+        resource = cast(
+            dict[str, Any],
+            get_resource(endpoint="organization_events", organization_slug="acme", should_use_incremental_field=False),
+        )
+
+        params = resource["endpoint"]["params"]
+        assert params["dataset"] == "errors"
+        assert params["field"] == ["id", "timestamp", "transaction"]
+        assert params["sort"] == "timestamp"
+
+    @parameterized.expand(
+        [
+            ("replays", "started_at"),
+            ("organization_events", "timestamp"),
+        ]
+    )
+    def test_incremental_window_is_retention_bounded(self, endpoint, cursor_path) -> None:
+        # These endpoints 400 on a pre-retention `start`, so the first incremental sync
+        # must not fall back to the 1970 sentinel used by the issues endpoints.
+        resource = cast(
+            dict[str, Any],
+            get_resource(endpoint=endpoint, organization_slug="acme", should_use_incremental_field=True),
+        )
+
+        incremental = resource["endpoint"]["incremental"]
+        assert incremental["cursor_path"] == cursor_path
+        assert incremental["start_param"] == "start"
+        assert incremental["end_param"] == "end"
+        assert incremental["initial_value"] != "1970-01-01T00:00:00"
+        floor = datetime.now(UTC) - timedelta(days=SENTRY_RETENTION_DAYS)
+        parsed = datetime.strptime(incremental["initial_value"], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=UTC)
+        assert abs((parsed - floor).total_seconds()) < 60
+        assert resource["write_disposition"]["disposition"] == "merge"
+
+
+class TestSentryNewFanoutEndpoints:
+    @parameterized.expand(
+        [
+            (
+                "release_deploys",
+                "releases",
+                {"version": "1.0.0"},
+                {"id": "d1", "_releases_version": "1.0.0"},
+                {"release_version": "1.0.0"},
+            ),
+            (
+                "release_commits",
+                "releases",
+                {"version": "1.0.0"},
+                {"id": "c1", "_releases_version": "1.0.0"},
+                {"release_version": "1.0.0"},
+            ),
+            (
+                "repo_commits",
+                "repos",
+                {"id": "77"},
+                {"id": "c1", "_repos_id": "77"},
+                {"repo_id": "77"},
+            ),
+            (
+                "monitor_checkins",
+                "monitors",
+                {"id": "55"},
+                {"id": "ci1", "_monitors_id": "55"},
+                {"monitor_id": "55"},
+            ),
+            (
+                "project_user_feedback",
+                "projects",
+                {"id": "1", "slug": "web"},
+                {"id": "f1", "_projects_id": "1", "_projects_slug": "web"},
+                {"project_id": "1", "project_slug": "web"},
+            ),
+            (
+                "project_filters",
+                "projects",
+                {"id": "1", "slug": "web"},
+                {"id": "browser-extensions", "_projects_id": "1", "_projects_slug": "web"},
+                {"project_id": "1", "project_slug": "web"},
+            ),
+        ]
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
+    )
+    def test_parent_identifier_lands_in_the_row(
+        self, endpoint, parent_name, parent_row, child_row, expected, mock_rest_api_resources
+    ) -> None:
+        # The parent identifier is part of each of these tables' composite primary key,
+        # so losing the rename leaves a non-unique key and duplicate rows on every merge.
+        mock_rest_api_resources.return_value = [
+            _FakeDltResource(parent_name, [parent_row]),
+            _FakeDltResource(endpoint, [child_row]),
+        ]
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint=endpoint,
+            team_id=123,
+            job_id="job-id",
+        )
+
+        rows = list(cast(Any, resp.items()))
+        assert len(rows) == 1
+        row = rows[0]
+        for key, value in expected.items():
+            assert row[key] == value
+        assert not any(key.startswith("_") for key in row)
+        assert set(resp.primary_keys or []) <= set(row)
+
+
+class TestSentryCustomIteratorEndpoints:
+    @parameterized.expand([(endpoint,) for endpoint in CUSTOM_ITERATOR_ENDPOINTS])
+    def test_every_custom_iterator_endpoint_is_routed(self, endpoint) -> None:
+        # An endpoint marked custom_iterator with no matching branch would only blow up
+        # mid-sync, once the pipeline pulls the first row.
+        rows = _custom_endpoint_rows(
+            endpoint=endpoint,
+            base_api_url="https://sentry.io/api/0",
+            headers={},
+            organization_slug="acme",
+        )
+
+        assert iter(rows) is not None
+
+    def test_unknown_custom_iterator_endpoint_raises(self) -> None:
+        with pytest.raises(ValueError, match="No custom iterator registered"):
+            _custom_endpoint_rows(
+                endpoint="not_an_endpoint",
+                base_api_url="https://sentry.io/api/0",
+                headers={},
+                organization_slug="acme",
+            )
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
+    def test_sessions_flattens_series_into_one_row_per_interval(self, mock_request) -> None:
+        seen_params: list[dict | None] = []
+
+        def side_effect(url, headers=None, params=None, timeout=None):
+            seen_params.append(params)
+            return _response(
+                {
+                    "intervals": ["2026-03-01T00:00:00Z", "2026-03-02T00:00:00Z"],
+                    "groups": [
+                        {
+                            "by": {
+                                "project": 1,
+                                "release": "1.0.0",
+                                "environment": "prod",
+                                "session.status": "healthy",
+                            },
+                            "series": {"sum(session)": [5, 7], "count_unique(user)": [2, 3]},
+                            "totals": {"sum(session)": 12},
+                        },
+                        {
+                            "by": {"project": 1, "environment": "prod", "session.status": "crashed"},
+                            "series": {"sum(session)": [1, 0]},
+                            "totals": {"sum(session)": 1},
+                        },
+                    ],
+                }
+            )
+
+        mock_request.side_effect = side_effect
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="sessions",
+            team_id=123,
+            job_id="job-id",
+        )
+
+        rows = list(cast(Any, resp.items()))
+        assert rows == [
+            {
+                "interval_start": "2026-03-01T00:00:00Z",
+                "project": "1",
+                "release": "1.0.0",
+                "environment": "prod",
+                "session_status": "healthy",
+                "sum_session": 5,
+                "count_unique_user": 2,
+            },
+            {
+                "interval_start": "2026-03-02T00:00:00Z",
+                "project": "1",
+                "release": "1.0.0",
+                "environment": "prod",
+                "session_status": "healthy",
+                "sum_session": 7,
+                "count_unique_user": 3,
+            },
+            # An absent dimension becomes "" — a null would never match on merge.
+            {
+                "interval_start": "2026-03-01T00:00:00Z",
+                "project": "1",
+                "release": "",
+                "environment": "prod",
+                "session_status": "crashed",
+                "sum_session": 1,
+                "count_unique_user": None,
+            },
+            {
+                "interval_start": "2026-03-02T00:00:00Z",
+                "project": "1",
+                "release": "",
+                "environment": "prod",
+                "session_status": "crashed",
+                "sum_session": 0,
+                "count_unique_user": None,
+            },
+        ]
+        assert seen_params[0] is not None
+        assert seen_params[0]["groupBy"] == ["project", "release", "environment", "session.status"]
+        assert seen_params[0]["interval"] == "1d"
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
+    def test_organization_stats_flattens_series_and_excludes_project_grouping(self, mock_request) -> None:
+        seen_params: list[dict | None] = []
+
+        def side_effect(url, headers=None, params=None, timeout=None):
+            seen_params.append(params)
+            return _response(
+                {
+                    "intervals": ["2026-03-01T00:00:00Z"],
+                    "groups": [
+                        {
+                            "by": {"outcome": "accepted", "category": "error", "reason": "none"},
+                            "series": {"sum(quantity)": [42]},
+                            "totals": {"sum(quantity)": 42},
+                        }
+                    ],
+                }
+            )
+
+        mock_request.side_effect = side_effect
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="organization_stats",
+            team_id=123,
+            job_id="job-id",
+        )
+
+        rows = list(cast(Any, resp.items()))
+        assert rows == [
+            {
+                "interval_start": "2026-03-01T00:00:00Z",
+                "outcome": "accepted",
+                "category": "error",
+                "reason": "none",
+                "quantity": 42,
+            }
+        ]
+        # Grouping by project collapses the series into a single period total, which
+        # would make the interval column meaningless.
+        assert seen_params[0] is not None
+        assert "project" not in seen_params[0]["groupBy"]
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
+    def test_stats_summary_yields_one_row_per_project_category(self, mock_request) -> None:
+        mock_request.return_value = _response(
+            {
+                "start": "2026-01-01T00:00:00Z",
+                "end": "2026-03-01T00:00:00Z",
+                "projects": [
+                    {
+                        "id": "1",
+                        "slug": "web",
+                        "stats": [
+                            {"category": "error", "outcomes": {"accepted": 5}, "totals": {"sum(quantity)": 5}},
+                            {"category": "transaction", "outcomes": {"accepted": 2}, "totals": {"sum(quantity)": 2}},
+                        ],
+                    }
+                ],
+            }
+        )
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="organization_stats_summary",
+            team_id=123,
+            job_id="job-id",
+        )
+
+        rows = list(cast(Any, resp.items()))
+        assert [(row["project_id"], row["category"]) for row in rows] == [("1", "error"), ("1", "transaction")]
+        assert rows[0]["project_slug"] == "web"
+        assert rows[0]["quantity"] == 5
+        assert rows[0]["period_start"] == "2026-01-01T00:00:00Z"
+        assert rows[0]["period_end"] == "2026-03-01T00:00:00Z"
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
+    def test_trace_item_attributes_stamps_dataset_and_skips_unavailable_ones(self, mock_request) -> None:
+        def side_effect(url, headers=None, params=None, timeout=None):
+            dataset = (params or {}).get("dataset")
+            if dataset == "spans":
+                return _response([{"key": "browser.name", "attributeType": "string"}])
+            if dataset == "preprod":
+                # Not every organization has every trace item dataset enabled.
+                return _response(None, status_code=400)
+            return _response([])
+
+        mock_request.side_effect = side_effect
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="trace_item_attributes",
+            team_id=123,
+            job_id="job-id",
+        )
+
+        rows = list(cast(Any, resp.items()))
+        assert rows == [{"key": "browser.name", "attributeType": "string", "dataset": "spans"}]
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
+    def test_trace_item_stats_flattens_attribute_distributions(self, mock_request) -> None:
+        def side_effect(url, headers=None, params=None, timeout=None):
+            if (params or {}).get("itemType") == "spans":
+                return _response(
+                    {
+                        "data": [
+                            {
+                                "attributeDistributions": {
+                                    "data": {
+                                        "sentry.device": [
+                                            {"label": "mobile", "value": 3},
+                                            {"label": "desktop", "value": 1},
+                                        ]
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                )
+            return _response(None, status_code=403)
+
+        mock_request.side_effect = side_effect
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="trace_item_stats",
+            team_id=123,
+            job_id="job-id",
+        )
+
+        rows = list(cast(Any, resp.items()))
+        assert rows == [
+            {"item_type": "spans", "attribute": "sentry.device", "label": "mobile", "value": 3},
+            {"item_type": "spans", "attribute": "sentry.device", "label": "desktop", "value": 1},
+        ]
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
+    def test_project_ownership_yields_one_row_per_project_and_skips_missing_config(self, mock_request) -> None:
+        def side_effect(url, headers=None, params=None, timeout=None):
+            if url.endswith("/organizations/acme/projects/"):
+                return _response([{"id": "1", "slug": "web"}, {"id": "2", "slug": "api"}])
+            if url.endswith("/projects/acme/web/ownership/"):
+                return _response({"raw": "*.py @backend", "fallthrough": True})
+            return _response(None, status_code=404)
+
+        mock_request.side_effect = side_effect
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="project_ownership",
+            team_id=123,
+            job_id="job-id",
+        )
+
+        rows = list(cast(Any, resp.items()))
+        assert rows == [{"raw": "*.py @backend", "fallthrough": True, "project_id": "1", "project_slug": "web"}]
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
+    def test_project_stats_flattens_point_pairs(self, mock_request) -> None:
+        def side_effect(url, headers=None, params=None, timeout=None):
+            if url.endswith("/organizations/acme/projects/"):
+                return _response([{"id": "1", "slug": "web"}])
+            if (params or {}).get("stat") == "received":
+                return _response([[1772409600, 12], [1772496000, 8]])
+            return _response([])
+
+        mock_request.side_effect = side_effect
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="project_stats",
+            team_id=123,
+            job_id="job-id",
+        )
+
+        rows = list(cast(Any, resp.items()))
+        assert rows == [
+            {"stat": "received", "timestamp": 1772409600, "value": 12, "project_id": "1", "project_slug": "web"},
+            {"stat": "received", "timestamp": 1772496000, "value": 8, "project_id": "1", "project_slug": "web"},
+        ]
+
+    @parameterized.expand(
+        [
+            ("pre_retention_watermark", 946684800, True),
+            ("no_watermark", None, True),
+            ("recent_watermark", None, False),
+        ]
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
+    def test_project_stats_since_never_predates_retention(self, _name, watermark, expect_floor, mock_request) -> None:
+        seen_params: list[dict | None] = []
+        recent = int((datetime.now(UTC) - timedelta(days=2)).timestamp())
+
+        def side_effect(url, headers=None, params=None, timeout=None):
+            if url.endswith("/organizations/acme/projects/"):
+                return _response([{"id": "1", "slug": "web"}])
+            seen_params.append(params)
+            return _response([])
+
+        mock_request.side_effect = side_effect
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="project_stats",
+            team_id=123,
+            job_id="job-id",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=watermark if expect_floor else recent,
+        )
+
+        list(cast(Any, resp.items()))
+
+        floor = int((datetime.now(UTC) - timedelta(days=SENTRY_RETENTION_DAYS)).timestamp())
+        assert seen_params
+        since = seen_params[0]["since"] if seen_params[0] else None
+        assert since is not None
+        assert since >= floor - 60
+        if expect_floor:
+            assert abs(since - floor) < 60
+        else:
+            assert abs(since - recent) < 60
