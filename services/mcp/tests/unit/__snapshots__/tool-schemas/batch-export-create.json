@@ -394,6 +394,136 @@
                     },
                     "required": ["type", "config"],
                     "type": "object"
+                },
+                {
+                    "description": "Request shape for creating or updating a Redshift batch-export destination.",
+                    "properties": {
+                        "config": {
+                            "description": "Typed configuration for a Redshift batch-export destination.\n\nRedshift connection credentials live in the linked Integration. Database, schema, table and\nCOPY staging settings remain on the export.",
+                            "properties": {
+                                "copy_inputs": {
+                                    "anyOf": [
+                                        {
+                                            "description": "COPY-mode S3 configuration for a Redshift batch-export destination.",
+                                            "properties": {
+                                                "authorization": {
+                                                    "anyOf": [
+                                                        {
+                                                            "description": "IAM role ARN Redshift uses to read staged files.",
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "description": "AWS access keys Redshift uses to read staged files.",
+                                                            "properties": {
+                                                                "aws_access_key_id": {
+                                                                    "description": "AWS access key ID.",
+                                                                    "type": "string"
+                                                                },
+                                                                "aws_secret_access_key": {
+                                                                    "description": "AWS secret access key.",
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "required": ["aws_access_key_id", "aws_secret_access_key"],
+                                                            "type": "object"
+                                                        }
+                                                    ],
+                                                    "description": "IAM role ARN or AWS access keys Redshift uses to read staged files."
+                                                },
+                                                "bucket_credentials": {
+                                                    "description": "Credentials PostHog uses to write staged files.",
+                                                    "properties": {
+                                                        "aws_access_key_id": {
+                                                            "description": "AWS access key ID.",
+                                                            "type": "string"
+                                                        },
+                                                        "aws_secret_access_key": {
+                                                            "description": "AWS secret access key.",
+                                                            "type": "string"
+                                                        }
+                                                    },
+                                                    "required": ["aws_access_key_id", "aws_secret_access_key"],
+                                                    "type": "object"
+                                                },
+                                                "region_name": {
+                                                    "description": "AWS region for the S3 staging bucket.",
+                                                    "type": "string"
+                                                },
+                                                "s3_bucket": {
+                                                    "description": "S3 bucket used for Redshift COPY staging.",
+                                                    "type": "string"
+                                                },
+                                                "s3_key_prefix": {
+                                                    "default": "/",
+                                                    "description": "S3 key prefix for staged files.",
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "required": [
+                                                "s3_bucket",
+                                                "region_name",
+                                                "bucket_credentials",
+                                                "authorization"
+                                            ],
+                                            "type": "object"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Required when mode is COPY."
+                                },
+                                "database": {
+                                    "description": "Redshift database to write to.",
+                                    "type": "string"
+                                },
+                                "host": {
+                                    "description": "Redshift host to connect to.",
+                                    "type": "string"
+                                },
+                                "mode": {
+                                    "default": "INSERT",
+                                    "description": "SQL command used to write exported rows.\n\n* `COPY` - COPY\n* `INSERT` - INSERT",
+                                    "enum": ["COPY", "INSERT"],
+                                    "type": "string"
+                                },
+                                "port": {
+                                    "description": "Redshift port to connect to.",
+                                    "maximum": 65535,
+                                    "minimum": 0,
+                                    "type": "number"
+                                },
+                                "properties_data_type": {
+                                    "default": "varchar",
+                                    "description": "Redshift type to use for semi-structured fields.\n\n* `varchar` - varchar\n* `super` - super",
+                                    "enum": ["varchar", "super"],
+                                    "type": "string"
+                                },
+                                "schema": {
+                                    "default": "public",
+                                    "description": "Redshift schema containing the destination table.",
+                                    "type": "string"
+                                },
+                                "table_name": {
+                                    "default": "events",
+                                    "description": "Destination table name.",
+                                    "type": "string"
+                                }
+                            },
+                            "required": ["database", "host", "port"],
+                            "type": "object"
+                        },
+                        "integration_id": {
+                            "description": "ID of a redshift-kind Integration providing connection credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one.",
+                            "type": "number"
+                        },
+                        "type": {
+                            "enum": ["Redshift"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["type", "integration_id", "config"],
+                    "type": "object"
                 }
             ],
             "description": "Destination configuration. Required integration_id is enforced per destination type."
