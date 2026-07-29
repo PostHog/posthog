@@ -7,6 +7,7 @@ from unittest import mock
 from unittest.mock import MagicMock, patch
 
 import stripe as stripe_lib
+from parameterized import parameterized
 from stripe import ListObject
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
@@ -16,17 +17,41 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe import stripe as stripe_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
+    APPLICATION_FEE_RESOURCE_NAME,
     BILLING_CREDIT_BALANCE_SUMMARY_RESOURCE_NAME,
+    BILLING_CREDIT_BALANCE_TRANSACTION_RESOURCE_NAME,
+    BILLING_CREDIT_GRANT_RESOURCE_NAME,
+    BILLING_METER_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME,
+    CHECKOUT_SESSION_RESOURCE_NAME,
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
     CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,
     DISCOUNT_RESOURCE_NAME,
+    EARLY_FRAUD_WARNING_RESOURCE_NAME,
+    ENTITLEMENTS_ACTIVE_ENTITLEMENT_RESOURCE_NAME,
+    ENTITLEMENTS_FEATURE_RESOURCE_NAME,
+    EVENT_RESOURCE_NAME,
+    INVOICE_PAYMENT_RESOURCE_NAME,
     PAYMENT_INTENT_RESOURCE_NAME,
+    PAYMENT_LINK_RESOURCE_NAME,
+    PLAN_RESOURCE_NAME,
+    PROMOTION_CODE_RESOURCE_NAME,
+    QUOTE_RESOURCE_NAME,
+    RESOURCE_TO_STRIPE_OBJECT_TYPE,
     RESOURCE_TO_STRIPE_WEBHOOK_EVENT,
+    REVIEW_RESOURCE_NAME,
+    SETUP_ATTEMPT_RESOURCE_NAME,
+    SETUP_INTENT_RESOURCE_NAME,
+    SHIPPING_RATE_RESOURCE_NAME,
     STRIPE_API_VERSION_ACACIA,
     SUBSCRIPTION_ITEM_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME,
+    SUBSCRIPTION_SCHEDULE_RESOURCE_NAME,
+    TAX_ID_RESOURCE_NAME,
+    TAX_RATE_RESOURCE_NAME,
+    TOPUP_RESOURCE_NAME,
+    TRANSFER_RESOURCE_NAME,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import (
@@ -590,15 +615,87 @@ class TestWebhookEventMapping:
         # the event map — otherwise we'd subscribe the source webhook to unrelated events.
         assert CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME not in RESOURCE_TO_STRIPE_WEBHOOK_EVENT
 
-    def test_no_billing_events_subscribed(self):
-        # The removed "billing" mapping was the only thing pulling in billing.* events (credit
-        # grants, meters, alerts) — none of which can populate any table we sync.
-        assert not any(e.startswith("billing.") or e.startswith("billing_") for e in _all_known_webhook_events())
+    def test_billing_alert_events_not_subscribed(self):
+        # Narrowed from a blanket "no billing.* events" assertion now that BillingMeter,
+        # BillingCreditGrant and BillingCreditBalanceTransaction are real tables. The original bug
+        # it guards against was subscribing to billing.* events nothing could consume, and
+        # billing.alert.* is the remaining example: there is no BillingAlert table.
+        subscribed = _all_known_webhook_events()
+        assert not any(e.startswith("billing.alert.") for e in subscribed)
+        assert any(e.startswith("billing.meter.") for e in subscribed)
+
+    def test_every_subscribed_event_can_populate_a_table(self):
+        # The general form of the bug above: an event the endpoint subscribes to but whose object
+        # type no table claims is pure inbound traffic the HogFunction drops. Each subscribed event
+        # must be prefixed by a resource that also has a routing entry.
+        routable_prefixes = {
+            RESOURCE_TO_STRIPE_WEBHOOK_EVENT[resource]
+            for resource in RESOURCE_TO_STRIPE_WEBHOOK_EVENT
+            if resource in RESOURCE_TO_STRIPE_OBJECT_TYPE
+        }
+        unroutable = [
+            event
+            for event in _all_known_webhook_events()
+            if not any(event.startswith(f"{prefix}.") for prefix in routable_prefixes)
+        ]
+        assert unroutable == []
 
     def test_payment_method_events_still_subscribed(self):
         # CustomerPaymentMethod keeps its mapping, so payment_method.* events stay subscribed.
         assert RESOURCE_TO_STRIPE_WEBHOOK_EVENT[CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME] == "payment_method"
         assert any(e.startswith("payment_method.") for e in _all_known_webhook_events())
+
+    @parameterized.expand(
+        [
+            (PAYMENT_INTENT_RESOURCE_NAME, "payment_intent", "payment_intent"),
+            (CHECKOUT_SESSION_RESOURCE_NAME, "checkout.session", "checkout.session"),
+            (SUBSCRIPTION_SCHEDULE_RESOURCE_NAME, "subscription_schedule", "subscription_schedule"),
+            (PROMOTION_CODE_RESOURCE_NAME, "promotion_code", "promotion_code"),
+            (PLAN_RESOURCE_NAME, "plan", "plan"),
+            (TAX_RATE_RESOURCE_NAME, "tax_rate", "tax_rate"),
+            # Event prefix and object type diverge for this one.
+            (TAX_ID_RESOURCE_NAME, "customer.tax_id", "tax_id"),
+            (QUOTE_RESOURCE_NAME, "quote", "quote"),
+            (BILLING_METER_RESOURCE_NAME, "billing.meter", "billing.meter"),
+            (BILLING_CREDIT_GRANT_RESOURCE_NAME, "billing.credit_grant", "billing.credit_grant"),
+            (
+                BILLING_CREDIT_BALANCE_TRANSACTION_RESOURCE_NAME,
+                "billing.credit_balance_transaction",
+                "billing.credit_balance_transaction",
+            ),
+            (INVOICE_PAYMENT_RESOURCE_NAME, "invoice_payment", "invoice_payment"),
+            (SETUP_INTENT_RESOURCE_NAME, "setup_intent", "setup_intent"),
+            (PAYMENT_LINK_RESOURCE_NAME, "payment_link", "payment_link"),
+            (TRANSFER_RESOURCE_NAME, "transfer", "transfer"),
+            (APPLICATION_FEE_RESOURCE_NAME, "application_fee", "application_fee"),
+            (TOPUP_RESOURCE_NAME, "topup", "topup"),
+            (REVIEW_RESOURCE_NAME, "review", "review"),
+            (EARLY_FRAUD_WARNING_RESOURCE_NAME, "radar.early_fraud_warning", "radar.early_fraud_warning"),
+        ]
+    )
+    def test_new_resource_is_webhook_routable(self, resource: str, event_prefix: str, object_type: str) -> None:
+        # Both halves are needed: the event map drives what the endpoint subscribes to, the object
+        # map drives where the HogFunction writes the payload. One without the other is a no-op.
+        assert RESOURCE_TO_STRIPE_WEBHOOK_EVENT[resource] == event_prefix
+        assert RESOURCE_TO_STRIPE_OBJECT_TYPE[resource] == object_type
+        assert any(e.startswith(f"{event_prefix}.") for e in _all_known_webhook_events())
+
+    @parameterized.expand(
+        [
+            (SUBSCRIPTION_ITEM_RESOURCE_NAME,),
+            (SETUP_ATTEMPT_RESOURCE_NAME,),
+            (SHIPPING_RATE_RESOURCE_NAME,),
+            (EVENT_RESOURCE_NAME,),
+            (BILLING_CREDIT_BALANCE_SUMMARY_RESOURCE_NAME,),
+            (ENTITLEMENTS_FEATURE_RESOURCE_NAME,),
+            (ENTITLEMENTS_ACTIVE_ENTITLEMENT_RESOURCE_NAME,),
+        ]
+    )
+    def test_resource_without_stripe_event_stays_api_sweep_only(self, resource: str) -> None:
+        # Stripe emits no event carrying these objects, so mapping them would only subscribe the
+        # endpoint to traffic that can never populate the table.
+        assert resource not in RESOURCE_TO_STRIPE_WEBHOOK_EVENT
+        assert resource not in RESOURCE_TO_STRIPE_OBJECT_TYPE
 
 
 class TestWebhookOnlyResponseWiring:

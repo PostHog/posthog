@@ -48,9 +48,12 @@ STRIPE_API_VERSION_ACACIA = "2024-09-30.acacia"
 
 # Maps PostHog resource name -> Stripe API object type (as it appears in webhook data.object.object)
 #
-# Only resources we want the source webhook to feed belong here. Adding a resource also widens the
-# event set `_all_known_webhook_events` subscribes existing endpoints to, so resources synced purely
-# by the API sweep are intentionally absent.
+# This is what the webhook HogFunction routes on: it reads `data.object.object` off the incoming
+# event and looks the value up here to find the table to write into. A resource missing from this
+# map can never be fed by a webhook, no matter how many events the endpoint subscribes to.
+#
+# A resource belongs here only when Stripe actually emits an event carrying that object type. The
+# ones that do not are listed at the bottom of RESOURCE_TO_STRIPE_WEBHOOK_EVENT below.
 RESOURCE_TO_STRIPE_OBJECT_TYPE: dict[str, str] = {
     ACCOUNT_RESOURCE_NAME: "account",
     BALANCE_TRANSACTION_RESOURCE_NAME: "balance_transaction",
@@ -69,6 +72,27 @@ RESOURCE_TO_STRIPE_OBJECT_TYPE: dict[str, str] = {
     CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME: "payment_method",
     COUPON_RESOURCE_NAME: "coupon",
     DISCOUNT_RESOURCE_NAME: "discount",
+    PAYMENT_INTENT_RESOURCE_NAME: "payment_intent",
+    CHECKOUT_SESSION_RESOURCE_NAME: "checkout.session",
+    SUBSCRIPTION_SCHEDULE_RESOURCE_NAME: "subscription_schedule",
+    PROMOTION_CODE_RESOURCE_NAME: "promotion_code",
+    PLAN_RESOURCE_NAME: "plan",
+    TAX_RATE_RESOURCE_NAME: "tax_rate",
+    # Stripe namespaces the event as `customer.tax_id.*` but puts a bare `tax_id` object on it, so
+    # this map and RESOURCE_TO_STRIPE_WEBHOOK_EVENT deliberately disagree for this one resource.
+    TAX_ID_RESOURCE_NAME: "tax_id",
+    QUOTE_RESOURCE_NAME: "quote",
+    BILLING_METER_RESOURCE_NAME: "billing.meter",
+    BILLING_CREDIT_GRANT_RESOURCE_NAME: "billing.credit_grant",
+    BILLING_CREDIT_BALANCE_TRANSACTION_RESOURCE_NAME: "billing.credit_balance_transaction",
+    INVOICE_PAYMENT_RESOURCE_NAME: "invoice_payment",
+    SETUP_INTENT_RESOURCE_NAME: "setup_intent",
+    PAYMENT_LINK_RESOURCE_NAME: "payment_link",
+    TRANSFER_RESOURCE_NAME: "transfer",
+    APPLICATION_FEE_RESOURCE_NAME: "application_fee",
+    TOPUP_RESOURCE_NAME: "topup",
+    REVIEW_RESOURCE_NAME: "review",
+    EARLY_FRAUD_WARNING_RESOURCE_NAME: "radar.early_fraud_warning",
 }
 
 RESOURCE_TO_STRIPE_WEBHOOK_EVENT: dict[str, str] = {
@@ -94,4 +118,41 @@ RESOURCE_TO_STRIPE_WEBHOOK_EVENT: dict[str, str] = {
     CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME: "payment_method",
     COUPON_RESOURCE_NAME: "coupon",
     DISCOUNT_RESOURCE_NAME: "customer.discount",
+    PAYMENT_INTENT_RESOURCE_NAME: "payment_intent",
+    CHECKOUT_SESSION_RESOURCE_NAME: "checkout.session",
+    SUBSCRIPTION_SCHEDULE_RESOURCE_NAME: "subscription_schedule",
+    PROMOTION_CODE_RESOURCE_NAME: "promotion_code",
+    PLAN_RESOURCE_NAME: "plan",
+    TAX_RATE_RESOURCE_NAME: "tax_rate",
+    # `customer.tax_id.*` events were already arriving via the CUSTOMER "customer" prefix; they
+    # simply had nowhere to route until TaxId joined RESOURCE_TO_STRIPE_OBJECT_TYPE. Naming the
+    # narrower prefix here is what makes the schema advertise `supports_webhooks` in the picker.
+    TAX_ID_RESOURCE_NAME: "customer.tax_id",
+    QUOTE_RESOURCE_NAME: "quote",
+    BILLING_METER_RESOURCE_NAME: "billing.meter",
+    BILLING_CREDIT_GRANT_RESOURCE_NAME: "billing.credit_grant",
+    BILLING_CREDIT_BALANCE_TRANSACTION_RESOURCE_NAME: "billing.credit_balance_transaction",
+    INVOICE_PAYMENT_RESOURCE_NAME: "invoice_payment",
+    SETUP_INTENT_RESOURCE_NAME: "setup_intent",
+    PAYMENT_LINK_RESOURCE_NAME: "payment_link",
+    # Duplicates the "transfer" prefix BalanceTransaction already carries. Harmless: this map's
+    # values are collapsed to a set to build the subscription, and the two tables stay distinct
+    # because routing keys off the object type (`balance_transaction` vs `transfer`), not the event.
+    TRANSFER_RESOURCE_NAME: "transfer",
+    APPLICATION_FEE_RESOURCE_NAME: "application_fee",
+    TOPUP_RESOURCE_NAME: "topup",
+    REVIEW_RESOURCE_NAME: "review",
+    EARLY_FRAUD_WARNING_RESOURCE_NAME: "radar.early_fraud_warning",
+    # Deliberately absent, because Stripe emits no event carrying these objects. Verified against
+    # the `enabled_events` literal in the pinned SDK, which is the same list `_all_known_webhook_events`
+    # filters. They stay API-sweep-only:
+    #   SubscriptionItem     - changes ride along on `customer.subscription.*` as nested `items`
+    #   SetupAttempt         - no `setup_attempt.*` events exist
+    #   ShippingRate         - no `shipping_rate.*` events exist
+    #   Event                - the event log itself; subscribing to it to populate it is circular
+    #   BillingCreditBalanceSummary   - only reachable as a retrieve off a credit grant
+    #   EntitlementsFeature           - no `entitlements.feature.*` events exist
+    #   EntitlementsActiveEntitlement - the one entitlements event carries an
+    #       `entitlements.active_entitlement_summary` object (a per-customer summary), not an
+    #       individual active entitlement, so routing it here would write the wrong shape.
 }
