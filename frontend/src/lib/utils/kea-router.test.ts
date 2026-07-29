@@ -1,9 +1,4 @@
-import { kea, path } from 'kea'
-import { router, urlToAction } from 'kea-router'
-
 import { addProjectIdIfMissing, ensureRoutablePathname, stripTrailingSlash } from 'lib/utils/kea-router'
-
-import { initKeaTests } from '~/test/init'
 
 describe('router-utils', () => {
     it('does not redirect account URLs to a project URL', () => {
@@ -74,48 +69,6 @@ describe('router-utils', () => {
         })
         it('leaves the empty string unchanged', () => {
             expect(stripTrailingSlash('')).toEqual('')
-        })
-    })
-
-    describe('named route segments', () => {
-        // kea-router matches routes against `decodeURI(pathname)`, so an encoded segment arrives
-        // partly decoded — `%5B` becomes `[`, `%20` a space, and every non-ASCII escape its char.
-        // While URL_PATTERN_OPTIONS was an ASCII allowlist, an error tracking alert link such as
-        // /error_tracking/fingerprint/Error%3A%20%5BcashFlowDrilldown%5D matched no route at all
-        // and the app rendered its 404 scene instead of resolving the fingerprint.
-        let matchedSegment: string | null = null
-
-        const routeLogic = kea([
-            path(['lib', 'utils', 'kea-router', 'test', 'routeLogic']),
-            urlToAction(() => ({
-                '/error_tracking/fingerprint/:fingerprint': ({ fingerprint }: { fingerprint?: string }) => {
-                    matchedSegment = fingerprint ?? null
-                },
-            })),
-        ])
-
-        beforeEach(() => {
-            matchedSegment = null
-            initKeaTests(false)
-            routeLogic.mount()
-        })
-
-        afterEach(() => routeLogic.unmount())
-
-        it.each([
-            ['Error: [cashFlowDrilldown] FDQL row validation failed'],
-            ['Błąd podczas ładowania 中文 🙂'],
-            ['TypeError: {"a":1} <html> `tpl` (500)'],
-        ])('routes a path segment containing %s', (fingerprint) => {
-            router.actions.push(`/error_tracking/fingerprint/${encodeURIComponent(fingerprint)}`)
-
-            expect(matchedSegment).toEqual(decodeURI(encodeURIComponent(fingerprint)))
-        })
-
-        it('does not let a segment swallow a slash', () => {
-            router.actions.push('/error_tracking/fingerprint/one/two')
-
-            expect(matchedSegment).toBeNull()
         })
     })
 

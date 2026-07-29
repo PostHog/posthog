@@ -29,18 +29,6 @@ const exactPathsWithoutProjectId = ['/feature_flags/staff']
 
 const projectIdentifierInUrlRegex = /^\/project\/(\d+|phc_)/
 
-/**
- * `segmentValueCharset` says what chars a named segment (`:key` in `/url/:key`) may contain.
- * url-pattern interpolates it straight into a character class, so `^/` yields the usual `([^/]+)`.
- *
- * An allowlist can't work here. kea-router matches routes against `decodeURI(pathname)`, and
- * `decodeURI` unescapes brackets, braces, angle brackets, backticks and every non-ASCII char — so
- * a segment carrying arbitrary user data (an error tracking fingerprint, a group key, a distinct id)
- * would match no route at all and land on the 404 scene. url-pattern's own default is
- * `a-zA-Z0-9-_~ %`.
- */
-export const URL_PATTERN_OPTIONS = { segmentValueCharset: '^/' }
-
 function isPathWithoutProjectId(path: string): boolean {
     const pathname = path.split(/[?#]/)[0]
     if (

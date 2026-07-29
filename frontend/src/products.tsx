@@ -150,7 +150,11 @@ export const productRoutes: Record<string, [string, string]> = {
     ],
     '/engineering-analytics/authors/:handle': ['EngineeringAnalyticsAuthor', 'engineeringAnalyticsAuthor'],
     '/error_tracking': ['ErrorTracking', 'errorTracking'],
-    '/error_tracking/fingerprint/:fingerprint': ['ErrorTrackingFingerprint', 'errorTrackingFingerprint'],
+    // Wildcard, not `:fingerprint`: a fingerprint is arbitrary exception text, and kea-router matches
+    // against `decodeURI(pathname)`, which unescapes brackets, braces and every non-ASCII char. Those
+    // fall outside the router's `segmentValueCharset` allowlist, so a named segment matches no route
+    // at all and an alert link lands on 404. A wildcard compiles to `(.*?)`, which skips the charset.
+    '/error_tracking/fingerprint/*': ['ErrorTrackingFingerprint', 'errorTrackingFingerprint'],
     '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
     '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
     '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
