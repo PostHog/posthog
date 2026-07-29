@@ -6,7 +6,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from ..constants import EVALUATION_SUMMARY_CHUNK_SIZE
+from ..constants import EVALUATION_SUMMARY_CHUNK_SIZE, EVALUATION_SUMMARY_MAX_RUNS
 
 
 class EvaluationPattern(BaseModel):
@@ -54,8 +54,8 @@ class EvaluationPatternCandidate(BaseModel):
     title: str = Field(max_length=60, description="Short title for the candidate theme (3-5 words)")
     occurrence_count: int = Field(
         ge=1,
-        le=EVALUATION_SUMMARY_CHUNK_SIZE,
-        description="Exact number of matching runs in this batch",
+        le=EVALUATION_SUMMARY_MAX_RUNS,
+        description="Exact number of evaluation runs represented by this theme",
     )
     example_reasoning: str = Field(
         max_length=240,
@@ -73,5 +73,5 @@ class EvaluationSummaryMapResponse(BaseModel):
 
     patterns: list[EvaluationPatternCandidate] = Field(
         max_length=EVALUATION_SUMMARY_CHUNK_SIZE,
-        description="Candidate themes partitioning the runs in this batch",
+        description="Candidate themes representing evaluation runs",
     )

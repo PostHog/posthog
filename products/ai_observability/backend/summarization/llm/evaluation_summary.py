@@ -1,13 +1,18 @@
 """Evaluation summary generation, routed through the internal Go ai-gateway when
 configured, else the Python LLM gateway.
 
-Large evaluations use a concurrent map-reduce: a single LLM call over all runs takes long
-enough to trip the ai-gateway's ~30s hard timeout, so each chunk extracts counted candidate
-themes and a final call merges them globally. See ``EVALUATION_SUMMARY_CHUNK_SIZE``.
+Large evaluations use a concurrent hierarchical map-reduce because one LLM call over all
+runs can trip the ai-gateway's ~30s hard timeout.
 """
 
+import json
 import asyncio
-from typing import Any, TypeVar, cast
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from typing import Any, Literal, TypeVar, cast
+from uuid import uuid4
+
+from django.core.cache import cache
 
 import structlog
 from openai import AsyncOpenAI
@@ -19,24 +24,60 @@ from posthog.llm.gateway_client import build_async_openai_client
 
 from ..constants import (
     EVALUATION_SUMMARY_CHUNK_SIZE,
-    EVALUATION_SUMMARY_MAP_PROMPT_MAX_CHARS,
+    EVALUATION_SUMMARY_GENERATION_LOCK_TIMEOUT,
     EVALUATION_SUMMARY_MAP_REASONING_MAX_CHARS,
     EVALUATION_SUMMARY_MAX_CONCURRENT_MAP_CALLS,
+    EVALUATION_SUMMARY_MIN_USER_PROMPT_CHARS,
+    EVALUATION_SUMMARY_PROMPT_MAX_CHARS,
+    EVALUATION_SUMMARY_REDUCE_MAX_CANDIDATES_PER_RESULT,
     SUMMARIZATION_TIMEOUT,
 )
 from ..models import OpenAIModel
 from ..utils import load_summarization_template
-from .evaluation_schema import EvaluationSummaryMapResponse, EvaluationSummaryResponse, EvaluationSummaryStatistics
+from .evaluation_schema import (
+    EvaluationPatternCandidate,
+    EvaluationSummaryMapResponse,
+    EvaluationSummaryResponse,
+    EvaluationSummaryStatistics,
+)
 
 logger = structlog.get_logger(__name__)
 
 StructuredResponse = TypeVar("StructuredResponse", bound=BaseModel)
+ResultCategory = Literal["pass", "fail", "na"]
+
+
+@asynccontextmanager
+async def _team_generation_lock(team_id: int) -> AsyncIterator[None]:
+    lock_key = f"llm_eval_summary_generation_lock:{team_id}"
+    lock_token = uuid4().hex
+    acquired = await cache.aadd(
+        lock_key,
+        lock_token,
+        timeout=EVALUATION_SUMMARY_GENERATION_LOCK_TIMEOUT,
+    )
+    if not acquired:
+        raise exceptions.Throttled(
+            detail="An evaluation summary is already being generated for this project. Try again when it finishes."
+        )
+
+    try:
+        yield
+    finally:
+        if await cache.aget(lock_key) == lock_token:
+            await cache.adelete(lock_key)
 
 
 def _result_label(result: bool | None) -> str:
     if result is None:
         return "N/A"
     return "PASS" if result else "FAIL"
+
+
+def _result_category(result: bool | None) -> ResultCategory:
+    if result is None:
+        return "na"
+    return "pass" if result else "fail"
 
 
 def _compute_statistics(evaluation_runs: list[dict]) -> EvaluationSummaryStatistics:
@@ -69,6 +110,19 @@ def _build_runs_prompt(evaluation_runs: list[dict]) -> str:
 {runs_text}"""
 
 
+def _available_user_prompt_chars(system_prompt: str) -> int:
+    available_characters = EVALUATION_SUMMARY_PROMPT_MAX_CHARS - len(system_prompt)
+    if available_characters < EVALUATION_SUMMARY_MIN_USER_PROMPT_CHARS:
+        raise exceptions.ValidationError(
+            "The evaluation context is too long to summarize. Shorten the evaluation prompt or description and try again."
+        )
+    return available_characters
+
+
+def _prompt_fits(system_prompt: str, user_prompt: str) -> bool:
+    return len(system_prompt) + len(user_prompt) <= EVALUATION_SUMMARY_PROMPT_MAX_CHARS
+
+
 def _truncate_reasoning(reasoning: str) -> str:
     if len(reasoning) <= EVALUATION_SUMMARY_MAP_REASONING_MAX_CHARS:
         return reasoning
@@ -80,7 +134,7 @@ def _truncate_reasoning(reasoning: str) -> str:
     return f"{reasoning[:prefix_length]}{marker}{reasoning[-suffix_length:]}"
 
 
-def _build_bounded_chunks(evaluation_runs: list[dict]) -> list[list[dict]]:
+def _build_bounded_chunks(evaluation_runs: list[dict], max_prompt_chars: int) -> list[list[dict]]:
     chunks: list[list[dict]] = []
     current_chunk: list[dict] = []
 
@@ -90,13 +144,17 @@ def _build_bounded_chunks(evaluation_runs: list[dict]) -> list[list[dict]]:
         proposed_prompt = _build_runs_prompt(proposed_chunk)
 
         if current_chunk and (
-            len(proposed_chunk) > EVALUATION_SUMMARY_CHUNK_SIZE
-            or len(proposed_prompt) > EVALUATION_SUMMARY_MAP_PROMPT_MAX_CHARS
+            len(proposed_chunk) > EVALUATION_SUMMARY_CHUNK_SIZE or len(proposed_prompt) > max_prompt_chars
         ):
             chunks.append(current_chunk)
             current_chunk = [bounded_run]
         else:
             current_chunk = proposed_chunk
+
+        if len(_build_runs_prompt(current_chunk)) > max_prompt_chars:
+            raise exceptions.ValidationError(
+                "An evaluation result is too long to summarize. Shorten its reasoning and try again."
+            )
 
     if current_chunk:
         chunks.append(current_chunk)
@@ -104,11 +162,104 @@ def _build_bounded_chunks(evaluation_runs: list[dict]) -> list[list[dict]]:
     return chunks
 
 
-def _map_response_schema(max_candidates: int) -> dict[str, Any]:
+def _map_response_schema(max_candidates: int, max_occurrences: int) -> dict[str, Any]:
     schema = EvaluationSummaryMapResponse.model_json_schema()
     schema["properties"]["patterns"]["maxItems"] = max_candidates
-    schema["$defs"]["EvaluationPatternCandidate"]["properties"]["occurrence_count"]["maximum"] = max_candidates
+    schema["$defs"]["EvaluationPatternCandidate"]["properties"]["occurrence_count"]["maximum"] = max_occurrences
     return schema
+
+
+def _candidate_counts(candidates: list[EvaluationPatternCandidate]) -> dict[str, int]:
+    counts = {"pass": 0, "fail": 0, "na": 0}
+    for candidate in candidates:
+        counts[candidate.result] += candidate.occurrence_count
+    return counts
+
+
+def _run_counts(evaluation_runs: list[dict]) -> dict[str, int]:
+    statistics = _compute_statistics(evaluation_runs)
+    return {
+        "pass": statistics.pass_count,
+        "fail": statistics.fail_count,
+        "na": statistics.na_count,
+    }
+
+
+def _validate_map_response(response: EvaluationSummaryMapResponse, evaluation_runs: list[dict]) -> None:
+    expected_counts = _run_counts(evaluation_runs)
+    actual_counts = _candidate_counts(response.patterns)
+    if actual_counts != expected_counts:
+        raise ValueError(f"candidate counts {actual_counts} do not match run counts {expected_counts}")
+
+    generation_results = {run["generation_id"]: _result_category(run["result"]) for run in evaluation_runs}
+    if any(
+        generation_results.get(generation_id) != candidate.result
+        for candidate in response.patterns
+        for generation_id in candidate.example_generation_ids
+    ):
+        raise ValueError("candidate response contains a generation ID from the wrong result category")
+
+
+def _validate_reduce_response(
+    response: EvaluationSummaryMapResponse, input_candidates: list[EvaluationPatternCandidate]
+) -> None:
+    input_counts = _candidate_counts(input_candidates)
+    output_counts = _candidate_counts(response.patterns)
+    if output_counts != input_counts:
+        raise ValueError("reduced candidate counts do not match the input counts")
+
+    generation_results = {
+        generation_id: candidate.result
+        for candidate in input_candidates
+        for generation_id in candidate.example_generation_ids
+    }
+    if any(
+        generation_results.get(generation_id) != candidate.result
+        for candidate in response.patterns
+        for generation_id in candidate.example_generation_ids
+    ):
+        raise ValueError("reduced response contains a generation ID from the wrong result category")
+
+
+def _build_candidates_prompt(
+    candidates: list[EvaluationPatternCandidate], statistics: EvaluationSummaryStatistics
+) -> str:
+    candidate_payload = json.dumps(
+        [candidate.model_dump() for candidate in candidates],
+        separators=(",", ":"),
+    )
+    return f"""Ground-truth statistics for the complete evaluation:
+{statistics.model_dump_json()}
+
+Candidate themes to consolidate:
+{candidate_payload}"""
+
+
+def _build_bounded_candidate_groups(
+    candidates: list[EvaluationPatternCandidate],
+    statistics: EvaluationSummaryStatistics,
+    max_prompt_chars: int,
+) -> list[list[EvaluationPatternCandidate]]:
+    groups: list[list[EvaluationPatternCandidate]] = []
+    current_group: list[EvaluationPatternCandidate] = []
+
+    for candidate in candidates:
+        proposed_group = [*current_group, candidate]
+        if current_group and len(_build_candidates_prompt(proposed_group, statistics)) > max_prompt_chars:
+            groups.append(current_group)
+            current_group = [candidate]
+        else:
+            current_group = proposed_group
+
+        if len(_build_candidates_prompt(current_group, statistics)) > max_prompt_chars:
+            raise exceptions.APIException(
+                "Couldn't fit evaluation evidence within the summary prompt limit. Reduce the number of runs and try again."
+            )
+
+    if current_group:
+        groups.append(current_group)
+
+    return groups
 
 
 async def _run_structured_completion(
@@ -153,39 +304,172 @@ async def _run_structured_completion(
     return response_model.model_validate_json(content)
 
 
+async def _run_map_completion(
+    client: AsyncOpenAI,
+    model: OpenAIModel,
+    system_prompt: str,
+    evaluation_runs: list[dict],
+    team_id: int,
+    user_distinct_id: str,
+) -> EvaluationSummaryMapResponse:
+    last_error: ValueError | None = None
+    for attempt in range(2):
+        response = await _run_structured_completion(
+            client=client,
+            model=model,
+            system_prompt=system_prompt,
+            user_prompt=_build_runs_prompt(evaluation_runs),
+            team_id=team_id,
+            user_distinct_id=user_distinct_id,
+            response_model=EvaluationSummaryMapResponse,
+            schema_name="evaluation_summary_candidates",
+            response_schema=_map_response_schema(
+                max_candidates=len(evaluation_runs),
+                max_occurrences=len(evaluation_runs),
+            ),
+        )
+        try:
+            _validate_map_response(response, evaluation_runs)
+            return response
+        except ValueError as error:
+            last_error = error
+            logger.warning(
+                "evaluation_summary_map_response_invalid",
+                team_id=team_id,
+                model=str(model),
+                attempt=attempt + 1,
+                error=str(error),
+            )
+
+    raise exceptions.APIException("Couldn't generate a complete evaluation summary. Try again.") from last_error
+
+
+async def _run_reduce_completion(
+    client: AsyncOpenAI,
+    model: OpenAIModel,
+    system_prompt: str,
+    input_candidates: list[EvaluationPatternCandidate],
+    statistics: EvaluationSummaryStatistics,
+    team_id: int,
+    user_distinct_id: str,
+) -> EvaluationSummaryMapResponse:
+    result_category_count = sum(count > 0 for count in _candidate_counts(input_candidates).values())
+    max_candidates = min(
+        EVALUATION_SUMMARY_REDUCE_MAX_CANDIDATES_PER_RESULT * result_category_count,
+        max(result_category_count, len(input_candidates) - 1),
+    )
+    max_occurrences = sum(candidate.occurrence_count for candidate in input_candidates)
+    last_error: ValueError | None = None
+
+    for attempt in range(2):
+        response = await _run_structured_completion(
+            client=client,
+            model=model,
+            system_prompt=system_prompt,
+            user_prompt=_build_candidates_prompt(input_candidates, statistics),
+            team_id=team_id,
+            user_distinct_id=user_distinct_id,
+            response_model=EvaluationSummaryMapResponse,
+            schema_name="evaluation_summary_reduced_candidates",
+            response_schema=_map_response_schema(
+                max_candidates=max_candidates,
+                max_occurrences=max_occurrences,
+            ),
+        )
+        try:
+            _validate_reduce_response(response, input_candidates)
+            return response
+        except ValueError as error:
+            last_error = error
+            logger.warning(
+                "evaluation_summary_reduce_response_invalid",
+                team_id=team_id,
+                model=str(model),
+                attempt=attempt + 1,
+                error=str(error),
+            )
+
+    raise exceptions.APIException("Couldn't consolidate the evaluation summary. Try again.") from last_error
+
+
+async def _reduce_candidates_to_budget(
+    client: AsyncOpenAI,
+    model: OpenAIModel,
+    candidates: list[EvaluationPatternCandidate],
+    statistics: EvaluationSummaryStatistics,
+    final_system_prompt: str,
+    prompt_context: dict[str, Any],
+    team_id: int,
+    user_distinct_id: str,
+    llm_call_semaphore: asyncio.Semaphore,
+) -> list[EvaluationPatternCandidate]:
+    final_user_prompt_chars = _available_user_prompt_chars(final_system_prompt)
+    reduce_system_prompt = load_summarization_template(
+        "prompts/evaluation_summary_reduce.djt",
+        {
+            **prompt_context,
+            "max_candidates_per_result": EVALUATION_SUMMARY_REDUCE_MAX_CANDIDATES_PER_RESULT,
+        },
+    )
+    reduce_user_prompt_chars = _available_user_prompt_chars(reduce_system_prompt)
+    reduced_candidates = candidates
+
+    while len(_build_candidates_prompt(reduced_candidates, statistics)) > final_user_prompt_chars:
+        groups = _build_bounded_candidate_groups(
+            reduced_candidates,
+            statistics,
+            reduce_user_prompt_chars,
+        )
+
+        async def reduce_group(group: list[EvaluationPatternCandidate]) -> EvaluationSummaryMapResponse:
+            if len(group) == 1:
+                return EvaluationSummaryMapResponse(patterns=group)
+            async with llm_call_semaphore:
+                return await _run_reduce_completion(
+                    client=client,
+                    model=model,
+                    system_prompt=reduce_system_prompt,
+                    input_candidates=group,
+                    statistics=statistics,
+                    team_id=team_id,
+                    user_distinct_id=user_distinct_id,
+                )
+
+        reduced_groups = await asyncio.gather(*(reduce_group(group) for group in groups))
+        next_candidates = [candidate for group in reduced_groups for candidate in group.patterns]
+        if len(next_candidates) >= len(reduced_candidates):
+            raise exceptions.APIException(
+                "Couldn't reduce the evaluation evidence enough to generate a summary. Reduce the number of runs and try again."
+            )
+        reduced_candidates = next_candidates
+
+    return reduced_candidates
+
+
 async def _merge_summaries(
     client: AsyncOpenAI,
     model: OpenAIModel,
     batch_candidates: list[EvaluationSummaryMapResponse],
-    chunk_sizes: list[int],
     statistics: EvaluationSummaryStatistics,
-    filter_type: str,
-    evaluation_name: str,
-    evaluation_description: str,
-    evaluation_prompt: str,
+    prompt_context: dict[str, Any],
     team_id: int,
     user_distinct_id: str,
+    llm_call_semaphore: asyncio.Semaphore,
 ) -> EvaluationSummaryResponse:
-    merge_system_prompt = load_summarization_template(
-        "prompts/evaluation_summary_merge.djt",
-        {
-            "filter": filter_type,
-            "evaluation_name": evaluation_name,
-            "evaluation_description": evaluation_description,
-            "evaluation_prompt": evaluation_prompt,
-        },
+    merge_system_prompt = load_summarization_template("prompts/evaluation_summary_merge.djt", prompt_context)
+    candidates = [candidate for batch in batch_candidates for candidate in batch.patterns]
+    candidates = await _reduce_candidates_to_budget(
+        client=client,
+        model=model,
+        candidates=candidates,
+        statistics=statistics,
+        final_system_prompt=merge_system_prompt,
+        prompt_context=prompt_context,
+        team_id=team_id,
+        user_distinct_id=user_distinct_id,
+        llm_call_semaphore=llm_call_semaphore,
     )
-
-    partials_json = "\n\n".join(
-        f"### Batch {i + 1} ({chunk_size} runs)\n{summary.model_dump_json(indent=2)}"
-        for i, (summary, chunk_size) in enumerate(zip(batch_candidates, chunk_sizes, strict=True))
-    )
-    merge_user_prompt = f"""Ground-truth statistics for the complete evaluation:
-{statistics.model_dump_json(indent=2)}
-
-Here are candidate themes from {len(batch_candidates)} batches to consolidate:
-
-{partials_json}"""
+    merge_user_prompt = _build_candidates_prompt(candidates, statistics)
 
     return await _run_structured_completion(
         client=client,
@@ -197,6 +481,75 @@ Here are candidate themes from {len(batch_candidates)} batches to consolidate:
         response_model=EvaluationSummaryResponse,
         schema_name="evaluation_summary",
     )
+
+
+async def _generate_evaluation_summary(
+    evaluation_runs: list[dict],
+    team_id: int,
+    model: OpenAIModel,
+    filter_type: str,
+    evaluation_name: str,
+    evaluation_description: str,
+    evaluation_prompt: str,
+    user_distinct_id: str,
+) -> EvaluationSummaryResponse:
+    statistics = _compute_statistics(evaluation_runs)
+    prompt_context = {
+        "filter": filter_type,
+        "evaluation_name": evaluation_name,
+        "evaluation_description": evaluation_description,
+        "evaluation_prompt": evaluation_prompt,
+        "max_candidates": EVALUATION_SUMMARY_CHUNK_SIZE,
+    }
+    client = build_async_openai_client("llma_eval_summary", ai_product="aio_eval_summary")
+    if len(evaluation_runs) <= EVALUATION_SUMMARY_CHUNK_SIZE:
+        single_system_prompt = load_summarization_template("prompts/evaluation_summary.djt", prompt_context)
+        single_user_prompt = _build_runs_prompt(evaluation_runs)
+        if _prompt_fits(single_system_prompt, single_user_prompt):
+            summary = await _run_structured_completion(
+                client=client,
+                model=model,
+                system_prompt=single_system_prompt,
+                user_prompt=single_user_prompt,
+                team_id=team_id,
+                user_distinct_id=user_distinct_id,
+                response_model=EvaluationSummaryResponse,
+                schema_name="evaluation_summary",
+            )
+            summary.statistics = statistics
+            return summary
+
+    map_system_prompt = load_summarization_template("prompts/evaluation_summary_map.djt", prompt_context)
+    chunks = _build_bounded_chunks(
+        evaluation_runs,
+        max_prompt_chars=_available_user_prompt_chars(map_system_prompt),
+    )
+    llm_call_semaphore = asyncio.Semaphore(EVALUATION_SUMMARY_MAX_CONCURRENT_MAP_CALLS)
+
+    async def summarize_chunk(chunk: list[dict]) -> EvaluationSummaryMapResponse:
+        async with llm_call_semaphore:
+            return await _run_map_completion(
+                client=client,
+                model=model,
+                system_prompt=map_system_prompt,
+                evaluation_runs=chunk,
+                team_id=team_id,
+                user_distinct_id=user_distinct_id,
+            )
+
+    batch_candidates = list(await asyncio.gather(*(summarize_chunk(chunk) for chunk in chunks)))
+    summary = await _merge_summaries(
+        client=client,
+        model=model,
+        batch_candidates=batch_candidates,
+        statistics=statistics,
+        prompt_context=prompt_context,
+        team_id=team_id,
+        user_distinct_id=user_distinct_id,
+        llm_call_semaphore=llm_call_semaphore,
+    )
+    summary.statistics = statistics
+    return summary
 
 
 async def summarize_evaluation_runs(
@@ -212,9 +565,8 @@ async def summarize_evaluation_runs(
     """
     Generate summary of evaluation runs using LLM gateway with structured outputs.
 
-    Runs are summarized in a single call when small; larger sets are split into
-    concurrently-summarized chunks that are then merged, so no individual call risks the
-    ai-gateway's ~30s timeout.
+    Runs are summarized in a single call when small. Larger sets use bounded map
+    calls and hierarchical reduction so each request stays below the prompt limit.
 
     Args:
         evaluation_runs: List of dicts with 'generation_id' (str), 'result' (bool or None), and 'reasoning' (str)
@@ -232,72 +584,20 @@ async def summarize_evaluation_runs(
     if not evaluation_runs:
         raise exceptions.ValidationError("No evaluation runs provided")
 
-    statistics = _compute_statistics(evaluation_runs)
-    prompt_context = {
-        "filter": filter_type,
-        "evaluation_name": evaluation_name,
-        "evaluation_description": evaluation_description,
-        "evaluation_prompt": evaluation_prompt,
-        "max_candidates": EVALUATION_SUMMARY_CHUNK_SIZE,
-    }
-    client = build_async_openai_client("llma_eval_summary", ai_product="aio_eval_summary")
-    single_user_prompt = _build_runs_prompt(evaluation_runs)
-
     try:
-        if (
-            len(evaluation_runs) <= EVALUATION_SUMMARY_CHUNK_SIZE
-            and len(single_user_prompt) <= EVALUATION_SUMMARY_MAP_PROMPT_MAX_CHARS
-        ):
-            system_prompt = load_summarization_template("prompts/evaluation_summary.djt", prompt_context)
-            summary = await _run_structured_completion(
-                client=client,
-                model=model,
-                system_prompt=system_prompt,
-                user_prompt=single_user_prompt,
+        async with _team_generation_lock(team_id):
+            return await _generate_evaluation_summary(
+                evaluation_runs=evaluation_runs,
                 team_id=team_id,
-                user_distinct_id=user_distinct_id,
-                response_model=EvaluationSummaryResponse,
-                schema_name="evaluation_summary",
-            )
-        else:
-            chunks = _build_bounded_chunks(evaluation_runs)
-            map_system_prompt = load_summarization_template("prompts/evaluation_summary_map.djt", prompt_context)
-            map_call_semaphore = asyncio.Semaphore(EVALUATION_SUMMARY_MAX_CONCURRENT_MAP_CALLS)
-
-            async def summarize_chunk(chunk: list[dict]) -> EvaluationSummaryMapResponse:
-                async with map_call_semaphore:
-                    return await _run_structured_completion(
-                        client=client,
-                        model=model,
-                        system_prompt=map_system_prompt,
-                        user_prompt=_build_runs_prompt(chunk),
-                        team_id=team_id,
-                        user_distinct_id=user_distinct_id,
-                        response_model=EvaluationSummaryMapResponse,
-                        schema_name="evaluation_summary_candidates",
-                        response_schema=_map_response_schema(len(chunk)),
-                    )
-
-            batch_candidates = list(await asyncio.gather(*(summarize_chunk(chunk) for chunk in chunks)))
-            summary = await _merge_summaries(
-                client=client,
                 model=model,
-                batch_candidates=batch_candidates,
-                chunk_sizes=[len(chunk) for chunk in chunks],
-                statistics=statistics,
                 filter_type=filter_type,
                 evaluation_name=evaluation_name,
                 evaluation_description=evaluation_description,
                 evaluation_prompt=evaluation_prompt,
-                team_id=team_id,
                 user_distinct_id=user_distinct_id,
             )
     except exceptions.APIException:
         raise
-    except Exception as e:
-        logger.exception("evaluation_summary_failed", team_id=team_id, model=str(model), error=str(e))
-        raise exceptions.APIException("Failed to generate evaluation summary") from e
-
-    # Statistics are ground-truth counts over the full input, not LLM-generated.
-    summary.statistics = statistics
-    return summary
+    except Exception as error:
+        logger.exception("evaluation_summary_failed", team_id=team_id, model=str(model), error=str(error))
+        raise exceptions.APIException("Failed to generate evaluation summary") from error
