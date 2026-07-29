@@ -57,10 +57,10 @@ export interface RenderDataVisualizationProps {
 }
 
 /** Mount a SQL insight (`DataVisualizationNode`) the way the real scene does — through
- *  `DataTableVisualization` → `dataVisualizationLogic` → `LineGraph` → the quill chart — with
+ *  `DataTableVisualization` → `dataVisualizationLogic` → `SqlChart` → the quill chart — with
  *  the query result injected via `cachedResults` so nothing hits the network. */
 export function renderDataVisualization(props: RenderDataVisualizationProps): ReturnType<typeof render> {
-    const featureFlags = { ...props.featureFlags }
+    const featureFlags = props.featureFlags ?? {}
 
     initKeaTests()
     actionsModel.mount()
