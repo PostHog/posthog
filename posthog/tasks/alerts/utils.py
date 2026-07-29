@@ -8,11 +8,16 @@ import structlog
 
 from posthog.schema import AlertCalculationInterval, AlertState, ChartDisplayType, NodeKind, TrendsQuery
 
-from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
-from posthog.exceptions_capture import capture_exception
 from posthog.tasks.alerts.schedule_restriction import snap_candidate_utc_to_schedule_restriction
 
+from products.alerts.backend.destinations import produce_alert_internal_event
 from products.alerts.backend.facade.api import send_alert_email
+from products.alerts.backend.insight_alert_state_machine import (
+    apply_invalid_configuration,
+    apply_outcome,
+    evaluate_alert_check,
+    should_notify,
+)
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, derive_detector_event_fields
 from products.alerts.backend.scheduling import (
     EVERY_15_MINUTES_CADENCE_MINUTES as EVERY_15_MINUTES_CADENCE_MINUTES,
@@ -23,6 +28,8 @@ from products.alerts.backend.scheduling import (
 )
 
 logger = structlog.get_logger(__name__)
+
+INSIGHT_ALERT_FIRING_EVENT = "$insight_alert_firing"
 
 
 @dataclass
@@ -106,7 +113,7 @@ def next_check_time(alert: AlertConfiguration) -> datetime:
 def next_check_at_after_schedule_restriction_change(alert: AlertConfiguration) -> datetime:
     """
     After persisting a new schedule_restriction (or clearing it), compute next_check_at like
-    ``mark_for_recheck`` + ``next_check_time`` (same as the worker after a check).
+    Clearing ``next_check_at`` before ``next_check_time`` matches the worker after a check.
 
     We temporarily clear ``next_check_at`` so the interval math uses *now* (not a stale future instant).
     Otherwise a previously snapped time (e.g. first minute after quiet hours) can stick at 4pm local
@@ -129,42 +136,23 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> 
         properties=properties,
     )
 
-    try:
-        props = {
-            "alert_id": str(alert.id),
-            "alert_name": alert.name,
-            "project_name": alert.team.name,
-            "insight_name": alert.insight.name,
-            "insight_id": alert.insight.short_id,
-            "state": alert.state,
-            "last_checked_at": alert.last_checked_at.isoformat() if alert.last_checked_at else None,
-            **derive_detector_event_fields(alert.detector_config),
-            **properties,
-        }
+    props = {
+        "alert_id": str(alert.id),
+        "alert_name": alert.name,
+        "project_name": alert.team.name,
+        "insight_name": alert.insight.name,
+        "insight_id": alert.insight.short_id,
+        "state": alert.state,
+        "last_checked_at": alert.last_checked_at.isoformat() if alert.last_checked_at else None,
+        **derive_detector_event_fields(alert.detector_config),
+        **properties,
+    }
 
-        produce_internal_event(
-            team_id=alert.team_id,
-            event=InternalEventEvent(
-                event="$insight_alert_firing",
-                distinct_id=f"team_{alert.team_id}",
-                properties=props,
-            ),
-        )
-
-    except Exception as e:
-        capture_exception(
-            e,
-            additional_properties={
-                "alert_id": str(alert.id),
-                "feature": "alerts",
-            },
-        )
-        logger.error(
-            "Failed to produce internal event for alert destinations/hog functions",
-            alert_id=alert.id,
-            error=str(e),
-            exc_info=True,
-        )
+    produce_alert_internal_event(
+        team_id=alert.team_id,
+        event_name=INSIGHT_ALERT_FIRING_EVENT,
+        properties=props,
+    )
 
 
 def send_notifications_for_breaches(
@@ -174,7 +162,7 @@ def send_notifications_for_breaches(
     extra_properties: dict[str, str] | None = None,
 ) -> list[str]:
     """A stable idempotency_key (typically alert_check.id) lets MessagingRecord enforce
-    per-recipient at-most-once delivery on retries.
+    per-recipient at-most-once email delivery on retries.
 
     `extra_properties` are merged into the internal-event properties that HogFunction
     destinations render (e.g. the anomaly investigation notebook URL for the Slack button).
@@ -203,7 +191,10 @@ def send_notifications_for_breaches(
 
     # Join with newlines so each breach/investigation line renders on its own line in
     # Slack/Discord/Teams destinations rather than as one run-on comma-separated string.
-    trigger_alert_hog_functions(alert=alert, properties={"breaches": "\n".join(breaches), **(extra_properties or {})})
+    trigger_alert_hog_functions(
+        alert=alert,
+        properties={"breaches": "\n".join(breaches), **(extra_properties or {})},
+    )
 
     return email_targets
 
@@ -317,16 +308,14 @@ def add_alert_check(
     successful delivery and treats a non-empty value as the idempotency sentinel on retry.
     ``last_notified_at`` is likewise set by the notify activity on success, not here.
     """
-    notify = False
-
-    if error:
-        alert.state = AlertState.ERRORED
-        notify = True
-    elif breaches:
-        alert.state = AlertState.FIRING
-        notify = True
-    else:
-        alert.state = AlertState.NOT_FIRING  # Threshold no longer met
+    error_message = error.get("message") if error else None
+    outcome = evaluate_alert_check(
+        alert,
+        threshold_breached=bool(breaches),
+        error_message=error_message,
+        now=datetime.now(UTC),
+    )
+    state_fields = apply_outcome(alert, outcome)
 
     alert.last_checked_at = datetime.now(UTC)
     # Update next_check_at per interval so we don't recheck until the next one is due.
@@ -346,9 +335,9 @@ def add_alert_check(
         interval=interval,
     )
 
-    alert.save(update_fields=["state", "last_checked_at", "next_check_at"])
+    alert.save(update_fields=[*state_fields, "last_checked_at", "next_check_at"])
 
-    return alert_check, notify
+    return alert_check, should_notify(outcome)
 
 
 def disable_invalid_alert(alert: AlertConfiguration, reason: str) -> AlertCheck:
@@ -359,12 +348,9 @@ def disable_invalid_alert(alert: AlertConfiguration, reason: str) -> AlertCheck:
     as an exception. Returns the recorded ERRORED AlertCheck so callers can reference it.
     """
     logger.warning("check_alert.auto_disabling", alert_id=alert.id, reason=reason)
-    AlertConfiguration.objects.filter(pk=alert.pk).update(
-        enabled=False,
-        state=AlertState.ERRORED,
-        last_checked_at=datetime.now(UTC),
-    )
-    alert.refresh_from_db()
+    state_fields = apply_invalid_configuration(alert)
+    alert.last_checked_at = datetime.now(UTC)
+    alert.save(update_fields=[*state_fields, "last_checked_at"])
 
     targets_to_notify = alert.get_subscribed_users_emails()
     alert_check = AlertCheck.objects.create(
