@@ -604,6 +604,7 @@ class TestMongoSourceCursorLifecycle(SimpleTestCase):
             fake_mongo_client,
         ):
             response = mongo_source(
+                # nosemgrep: trailofbits.generic.mongodb-insecure-transport.mongodb-insecure-transport
                 connection_string="mongodb://host/testdb",
                 collection_name="things",
                 logger=MagicMock(),
