@@ -23,6 +23,7 @@ import type { WizardConnectionStatus } from '../../../../../../products/wizard/f
 import { activeCloudRunLogic } from './activeCloudRunLogic'
 import type { CloudRunHandle } from './activeCloudRunLogic'
 import { finishedLocalRunLogic, FinishedLocalRunHandle } from './finishedLocalRunLogic'
+import { startedByFromSession } from './helpers'
 import {
     taskRunPrMerged,
     taskRunPrUrl,
@@ -141,6 +142,8 @@ export interface InstallationProgress {
     /** Set while the wizard is waiting on the user in the terminal — the widget's attention state.
      * Cleared by the next session push without the field (answered, cancelled, or timed out). */
     pendingInput: WizardPendingInput | null
+    /** Who started the run (null when unknown). `email` is for the "is this me?" check. */
+    startedBy: { name: string; email: string } | null
 }
 
 export interface InstallationProgressLogicProps {
@@ -329,6 +332,7 @@ export function cloudProgress(
         prMerged,
         isCurrent: phase !== 'idle',
         pendingInput: phase === 'running' ? pendingInputFromSession(session) : null,
+        startedBy: startedByFromSession(session),
     }
 }
 
@@ -351,6 +355,7 @@ export function localProgress(
             prMerged: false,
             isCurrent: false,
             pendingInput: null,
+            startedBy: null,
         }
     }
 
@@ -388,6 +393,7 @@ export function localProgress(
         prMerged: false,
         isCurrent: sessionIsCurrent && !dismissed,
         pendingInput: phase === 'running' && !dismissed ? pendingInputFromSession(latestSession) : null,
+        startedBy: startedByFromSession(latestSession),
     }
 }
 
@@ -405,6 +411,7 @@ export function progressFromFinishedLocalRun(handle: FinishedLocalRunHandle): In
         prMerged: false,
         isCurrent: true,
         pendingInput: null,
+        startedBy: handle.startedBy ?? null,
     }
 }
 
