@@ -76,6 +76,7 @@ import type {
     SharingConfigurationSettings,
     TileFilters,
     UserProductListItem,
+    UserUIConfiguration,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
@@ -383,6 +384,8 @@ export interface UserType extends UserBaseType {
     shortcut_position: UserShortcutPosition
     has_seen_product_intro_for?: Record<string, boolean>
     hide_mcp_hints?: boolean
+    /** Per-user UI customization. Null means no customization: every element is shown. */
+    ui_configuration?: UserUIConfiguration | null
     scene_personalisation?: SceneDashboardChoice[]
     theme_mode?: UserTheme | null
     hedgehog_config?: HedgehogConfig
@@ -1444,6 +1447,7 @@ export enum SessionRecordingSidebarTab {
     INSPECTOR = 'inspector',
     NETWORK_WATERFALL = 'network-waterfall',
     LINKED_ISSUES = 'linked-issues',
+    SESSIONS = 'sessions',
 }
 
 export enum SessionRecordingSidebarStacking {
@@ -5467,6 +5471,7 @@ export const INTEGRATION_KINDS = [
     'firebase',
     'jira',
     'pinterest-ads',
+    'pardot',
     'customerio-app',
     'customerio-webhook',
     'customerio-track',
