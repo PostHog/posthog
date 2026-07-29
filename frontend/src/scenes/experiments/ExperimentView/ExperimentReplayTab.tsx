@@ -21,7 +21,7 @@ import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/Se
 import { Experiment } from '~/types'
 
 import { isLaunched } from '../experimentStatus'
-import { EXPOSURE_UNLINKABLE_REASON } from '../viewRecordingsLinkabilityLogic'
+import { EXPOSURE_FALLBACK_NOTICE, EXPOSURE_UNLINKABLE_REASON } from '../viewRecordingsLinkabilityLogic'
 import { ExperimentReplayMetricOption, experimentReplayTabLogic } from './experimentReplayTabLogic'
 import { VariantTag } from './VariantTag'
 
@@ -37,6 +37,7 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
         variantKeys,
         recordingsFilters,
         exposureUnlinkable,
+        usingExposureFallback,
         effectiveMetricUuids,
         metricOptions,
     } = useValues(logic)
@@ -67,6 +68,11 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
 
     return (
         <div data-attr="experiment-recordings-tab">
+            {usingExposureFallback && (
+                <LemonBanner type="info" className="mb-2">
+                    {EXPOSURE_FALLBACK_NOTICE}
+                </LemonBanner>
+            )}
             <div className="mb-2 flex flex-wrap gap-2">
                 <LemonSegmentedButton
                     size="small"

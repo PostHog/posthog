@@ -1243,7 +1243,7 @@ class OrganizationInviteBurstThrottle(_OrganizationInviteRateThrottleBase):
 
 class OrganizationInviteSustainedThrottle(_OrganizationInviteRateThrottleBase):
     scope = "organization_invite_sustained"
-    rate = "100/day"
+    rate = "200/day"
 
 
 class GitHubRepositoryRefreshThrottle(PersonalApiKeyOrUserRateThrottle):
