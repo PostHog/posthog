@@ -552,6 +552,17 @@ class InviteSignupSerializer(serializers.Serializer):
                 code="sso_enforced",
             )
 
+        # The check above keys on the email's own domain; this one keys on the org: an org that requires
+        # a verified email domain only admits members on its verified domains, so a pre-existing
+        # outside-domain invite can't be accepted.
+        if invite.target_email and OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(
+            invite.target_email, invite.organization
+        ):
+            raise serializers.ValidationError(
+                "This organization only allows members with a verified email domain. Please use an email address on one of the organization's domains.",
+                code="verified_domain_required",
+            )
+
         with transaction.atomic():
             if not user:
                 is_new_user = True
@@ -922,6 +933,16 @@ def process_social_domain_jit_provisioning_signup(
     return user
 
 
+def _resolve_invite_organization(invite_id: str) -> Optional[Organization]:
+    """Organization an invite grants access to, or None for legacy team-invite surrogates / missing invites."""
+    try:
+        # nosemgrep: idor-lookup-without-org (invite UUID from server session serves as auth token)
+        invite = OrganizationInvite.objects.select_related("organization").get(id=invite_id)
+    except (OrganizationInvite.DoesNotExist, ValidationError):
+        return None
+    return invite.organization
+
+
 @partial
 def social_create_user(
     strategy: DjangoStrategy,
@@ -947,6 +968,23 @@ def social_create_user(
     if not invite_id and organization_domain_id:
         invite = lookup_invite_for_saml(email, organization_domain_id)
         invite_id = invite.id if invite else None
+
+    # Domain enforcement: an org that requires a verified email domain blocks logins and joins for
+    # emails outside its verified domains — existing memberships included. Checked here rather than in
+    # `social_auth_allowed` because that gate never sees the user's organizations.
+    enforcement_email = user.email if user else email
+    organizations_to_check: list[Organization] = list(user.organizations.all()) if user else []
+    invite_organization = _resolve_invite_organization(invite_id) if invite_id else None
+    if invite_organization is not None:
+        organizations_to_check.append(invite_organization)
+    if enforcement_email:
+        for organization in organizations_to_check:
+            if OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(enforcement_email, organization):
+                logger.warning(
+                    "social_create_user_blocked_domain_enforcement",
+                    organization=str(organization.id),
+                )
+                return redirect("/login?error_code=verified_domain_required")
 
     if user:
         # If the user is already authenticated, we're looking for outstanding invites for them

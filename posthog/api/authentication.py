@@ -328,6 +328,16 @@ class LoginSerializer(serializers.Serializer):
                 code="not_verified",
             )
 
+        # Domain enforcement: an org that requires a verified email domain blocks logins for members
+        # whose email is outside its verified domains. Checked after authentication so the error is
+        # only shown for valid credentials.
+        for organization in user.organizations.all():
+            if OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(user.email, organization):
+                raise serializers.ValidationError(
+                    "Your organization requires a verified email domain to log in. Please contact your administrator.",
+                    code="verified_domain_required",
+                )
+
         clear_two_factor_session_flags(request)
 
         if self._check_if_2fa_required(user):

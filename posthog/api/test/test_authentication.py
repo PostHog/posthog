@@ -225,6 +225,27 @@ class TestLoginAPI(APIBaseTest):
             },
         )
 
+    def test_login_blocked_when_org_requires_verified_domain(self):
+        self.user.is_email_verified = True
+        self.user.save()
+        self.organization.enforce_login_with_verified_domain = True
+        self.organization.save()
+        OrganizationDomain.objects.create(
+            domain="hogflix.com", organization=self.organization, verified_at=timezone.now()
+        )
+
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "verified_domain_required")
+        self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_401_UNAUTHORIZED)
+
+        # Once the member's own domain is verified for the org, login works again.
+        OrganizationDomain.objects.create(
+            domain=self.CONFIG_EMAIL.split("@")[1], organization=self.organization, verified_at=timezone.now()
+        )
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     @patch("posthog.api.authentication.is_email_available", return_value=True)
     @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
     def test_email_unverified_user_cant_log_in_if_email_available(
