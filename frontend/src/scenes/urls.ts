@@ -78,6 +78,7 @@ export const urls = {
         connectionId,
         dashboard,
         filters,
+        metricName,
     }: {
         /** Raw SQL, or a node whose visualization settings (display, chartSettings) should survive the trip */
         query?: string | DataVisualizationNode | DataTableNode
@@ -91,6 +92,8 @@ export const urls = {
         dashboard?: number
         /** Applied on top of the opened query/insight — carries unsaved view-mode filter edits into the editor */
         filters?: HogQLFilters
+        /** Opens the editor bound to this data catalog metric so its query can be updated in place */
+        metricName?: string
     } = {}): string => {
         const params = new URLSearchParams()
 
@@ -114,6 +117,10 @@ export const urls = {
 
         if (source) {
             params.set('source', source)
+        }
+
+        if (metricName) {
+            params.set('edit_metric', metricName)
         }
 
         if (dashboard) {
@@ -153,7 +160,6 @@ export const urls = {
     projectCreateFirst: (): string => '/organization/create-project',
     projectRoot: (): string => '/',
     projectHomepage: (): string => '/home',
-    quickstart: (): string => '/quickstart',
     ai: (chat?: string, ask?: string): string => combineUrl('/ai', { ask, chat }).url,
     aiHistory: (): string => '/ai/history',
     settings: (section: SettingSectionId | SettingLevelId = 'project', setting?: SettingId): string =>

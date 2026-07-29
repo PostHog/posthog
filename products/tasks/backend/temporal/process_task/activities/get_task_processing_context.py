@@ -24,6 +24,7 @@ from products.tasks.backend.constants import (
     vm_sandbox_default_base_origin_products,
 )
 from products.tasks.backend.exceptions import TaskInvalidStateError, TaskRunNotReadyError
+from products.tasks.backend.facade.api import ensure_task_run_session
 from products.tasks.backend.feature_flags import is_agent_otel_telemetry_enabled
 from products.tasks.backend.logic.services.sandbox_config import (
     MAX_SANDBOX_CPU_CORES,
@@ -65,6 +66,7 @@ class TaskProcessingContext:
     repository: str | None
     distinct_id: str
     origin_product: str | None = None
+    task_runtime: str = Task.Runtime.ACP
     environment: str | None = None
     github_user_integration_id: str | None = None
     task_created_by_id: int | None = None
@@ -107,7 +109,6 @@ class TaskProcessingContext:
 
     @property
     def mode(self) -> str:
-        """Get the execution mode from state. Defaults to 'background'."""
         return (self.state or {}).get("mode", "background")
 
     @property
@@ -139,6 +140,12 @@ class TaskProcessingContext:
         return value if isinstance(value, str) else None
 
     @property
+    def loop_trigger_id(self) -> str | None:
+        """Set alongside loop_id when a loop trigger fired this run."""
+        value = (self.state or {}).get("loop_trigger_id")
+        return value if isinstance(value, str) else None
+
+    @property
     def runtime_adapter(self) -> str | None:
         value = (self.state or {}).get("runtime_adapter")
         return value if isinstance(value, str) else None
@@ -157,6 +164,16 @@ class TaskProcessingContext:
     def reasoning_effort(self) -> str | None:
         value = (self.state or {}).get("reasoning_effort")
         return value if isinstance(value, str) else None
+
+    @property
+    def context_window(self) -> str | None:
+        value = (self.state or {}).get("context_window")
+        return value if isinstance(value, str) else None
+
+    @property
+    def fast_mode(self) -> bool | None:
+        value = (self.state or {}).get("fast_mode")
+        return value if isinstance(value, bool) else None
 
     @property
     def initial_permission_mode(self) -> str | None:
@@ -663,6 +680,9 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     emit_agent_log(run_id, "debug", "Fetching task details")
 
     task: Task = task_run.task
+    if task.runtime == Task.Runtime.PI:
+        ensure_task_run_session(task_run.id)
+
     team: Team = task.team
     organization_id = str(team.organization_id)
     if not task.created_by:
@@ -781,12 +801,17 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         or False
     )  # Ensure we get a boolean value even if the flag is missing
     emit_agent_log(run_id, "debug", f"pr_loop_enabled: {pr_loop_enabled} for this task run")
-    sandbox_event_ingest_enabled = _is_sandbox_event_ingest_enabled(
-        distinct_id=distinct_id,
-        organization_id=organization_id,
-        run_id=run_id,
-        state=state,
-    )
+    pi_persistent_streaming = task.runtime == Task.Runtime.PI and not is_slack_interaction_state(state)
+    sandbox_event_ingest_override = state.get("sandbox_event_ingest_enabled")
+    if pi_persistent_streaming and not isinstance(sandbox_event_ingest_override, bool):
+        sandbox_event_ingest_enabled = True
+    else:
+        sandbox_event_ingest_enabled = _is_sandbox_event_ingest_enabled(
+            distinct_id=distinct_id,
+            organization_id=organization_id,
+            run_id=run_id,
+            state=state,
+        )
     emit_agent_log(
         run_id,
         "debug",
@@ -911,6 +936,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         repository=task.repository,
         distinct_id=distinct_id,
         origin_product=task.origin_product,
+        task_runtime=task.runtime,
         environment=task_run.environment,
         task_created_by_id=task.created_by_id,
         create_pr=input.create_pr,

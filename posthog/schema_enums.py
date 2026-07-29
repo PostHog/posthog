@@ -2432,6 +2432,11 @@ class ExternalDataSourceType(StrEnum):
     MELTWATER = "Meltwater"
     USER_COM = "UserCom"
     LATITUDE = "Latitude"
+    WORKATO = "Workato"
+    SIDE_SHIFT = "SideShift"
+    DUCK_LAKE = "DuckLake"
+    STARBURST = "Starburst"
+    EASYBILL = "Easybill"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -3381,6 +3386,7 @@ class ProductKey(StrEnum):
     COMMENTS = "comments"
     CONVERSATIONS = "conversations"
     CUSTOMER_ANALYTICS = "customer_analytics"
+    DATA_CATALOG = "data_catalog"
     DATA_WAREHOUSE = "data_warehouse"
     DATA_WAREHOUSE_SAVED_QUERIES = "data_warehouse_saved_queries"
     EARLY_ACCESS_FEATURES = "early_access_features"
