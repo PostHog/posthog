@@ -73,7 +73,6 @@ async def _run_post_load(
             source=MagicMock(),
             delta_table_helper=helper,
             row_count=10,
-            file_uris=["s3://bucket/orders/1.parquet"],
             table_schema_dict={},
             resource_name="orders",
             logger=logger,
