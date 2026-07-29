@@ -69,11 +69,9 @@ from products.warehouse_sources.backend.facade.models import (
 from products.warehouse_sources.backend.models.external_table_definitions import external_tables
 from products.warehouse_sources.backend.temporal.data_imports.cdp_producer_job import CDPProducerJobWorkflow
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
-    DeltaTableHelper,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import DeltaTableHelper
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v2.pipeline import PipelineNonDLT
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
     process_message,
 )
@@ -2322,7 +2320,7 @@ async def test_partition_folders_with_existing_table(team, postgres_config, post
     # Emulate an existing table with no partitions
     with (
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.pipeline.setup_partitioning",
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v2.pipeline.setup_partitioning",
             mock_setup_partitioning,
         ),
         mock.patch(
@@ -2422,7 +2420,7 @@ async def test_partition_folders_with_existing_table_and_pipeline_reset(
     # Emulate an existing table with no partitions
     with (
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.pipeline.setup_partitioning",
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v2.pipeline.setup_partitioning",
             mock_setup_partitioning,
         ),
         mock.patch(
@@ -2808,7 +2806,7 @@ async def test_worker_shutdown_desc_sort_order(team):
             "products.warehouse_sources.backend.temporal.data_imports.external_data_job.trigger_schedule_buffer_one"
         ) as mock_trigger_schedule_buffer_one,
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher.DEFAULT_CHUNK_SIZE", 1
         ),
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.vitally.vitally.get_messages",
@@ -2853,7 +2851,7 @@ async def test_worker_shutdown_triggers_schedule_buffer_one(team, zendesk_brands
             "products.warehouse_sources.backend.temporal.data_imports.external_data_job.trigger_schedule_buffer_one"
         ) as mock_trigger_schedule_buffer_one,
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher.DEFAULT_CHUNK_SIZE", 1
         ),
     ):
         _, inputs = await _run(
@@ -3046,11 +3044,11 @@ async def test_pipeline_mb_chunk_size(team, zendesk_brands, pipeline_mode):
 
     with (
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE_BYTES",
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher.DEFAULT_CHUNK_SIZE_BYTES",
             1,
         ),
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE",
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher.DEFAULT_CHUNK_SIZE",
             5000,
         ),  # Explicitly make this big
         process_mock as mock_process,
@@ -3635,11 +3633,11 @@ async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_cli
 
     with (
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer.async_producer_scope",
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.async_producer_scope",
             _fake_scope,
         ),
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.pipeline.time.time_ns",
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v2.pipeline.time.time_ns",
             return_value=1768828644858352000,
         ),
     ):

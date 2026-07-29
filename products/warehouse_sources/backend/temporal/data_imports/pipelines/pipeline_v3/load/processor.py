@@ -32,15 +32,15 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.l
     run_post_load_operations,
     supports_partial_data_loading,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
-    DeltaTableHelper,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
-    append_partition_key_to_table,
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     evolve_pyarrow_schema,
     pyarrow_schema_from_arrow_exportable,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import DeltaTableHelper
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
+    append_partition_key_to_table,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
     validate_schema_and_update_table,
@@ -370,7 +370,6 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
             source=schema.source,
             delta_table_helper=delta_table_helper,
             row_count=export_signal.total_rows or 0,
-            file_uris=delta_table.file_uris(),
             table_schema_dict=table_schema_dict,
             resource_name=export_signal.resource_name,
             logger=logger,
@@ -790,11 +789,9 @@ def process_message(
                 source=schema.source,
                 delta_table_helper=delta_table_helper,
                 row_count=export_signal.total_rows or 0,
-                file_uris=delta_table.file_uris(),
                 table_schema_dict=internal_schema.to_hogql_types(),
                 resource_name=export_signal.resource_name,
                 logger=logger,
-                cdc_table_mode=export_signal.cdc_table_mode,
                 cdc_write_mode=export_signal.cdc_write_mode,
             )
 
