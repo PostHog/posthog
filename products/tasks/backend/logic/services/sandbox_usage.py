@@ -181,7 +181,6 @@ def get_task_sandbox_usage_by_team(begin: datetime, end: datetime) -> SandboxUsa
     # Unscoped: the usage report aggregates across every team in the region.
     sessions = (
         SandboxSession.objects.unscoped()
-        .annotate(task_loop_internal=F("task_run__task__loop__internal"))
         .filter(
             user_attributed_at__isnull=False,
             user_attributed_at__lt=end,
@@ -203,9 +202,7 @@ def get_task_sandbox_usage_by_team(begin: datetime, end: datetime) -> SandboxUsa
         team_usage[0] += seconds
         team_usage[1] += seconds * session.cpu_cores
         team_usage[2] += seconds * session.memory_gb
-        is_billable_loop = (
-            session.origin_product == Task.OriginProduct.LOOP and getattr(session, "task_loop_internal", None) is False
-        )
+        is_billable_loop = session.origin_product == Task.OriginProduct.LOOP and session.loop_internal is False
         is_verified_code_run = (
             session.origin_product == Task.OriginProduct.USER_CREATED and session.created_via_code is True
         )

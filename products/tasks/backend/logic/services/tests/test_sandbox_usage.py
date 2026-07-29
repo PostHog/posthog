@@ -247,6 +247,7 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
             "task_run": run,
             "origin_product": Task.OriginProduct.USER_CREATED,
             "created_via_code": True,
+            "loop_internal": loop.internal if loop is not None else None,
             "cpu_cores": 4.0,
             "memory_gb": 16.0,
             "ttl_seconds": 6 * 60 * 60,
@@ -342,6 +343,10 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
             origin_product=Task.OriginProduct.LOOP,
             loop=internal_loop,
         )
+        user_loop.internal = True
+        user_loop.save(update_fields=["internal", "updated_at"])
+        internal_loop.internal = False
+        internal_loop.save(update_fields=["internal", "updated_at"])
 
         usage = get_task_sandbox_usage_by_team(self.BEGIN, self.END)
 
