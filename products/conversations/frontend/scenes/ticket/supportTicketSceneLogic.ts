@@ -1087,10 +1087,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 await conversationsQuickActionsRunCreate(String(getCurrentTeamId()), quickAction.short_id, {
                     ticket_id: ticket.id,
                 })
-                // Only claim success once the run request is accepted; toasting before the await
+                // Only claim success once the run request is accepted, since toasting before the await
                 // reads as success-then-error when the run fails.
                 lemonToast.success(`Running "${quickAction.name}"`)
-                // The workflow may change the ticket server-side; refresh so a later local edit
+                // The workflow may change the ticket server-side, so refresh to prevent a later local edit
                 // doesn't PATCH over its changes with stale state.
                 actions.loadTicket()
             } catch (error) {

@@ -266,7 +266,7 @@ def _build_ticket_event_globals(ticket: Ticket, actor: User | None) -> dict:
 
     Includes the actor (the agent who ran the quick action) and the SLA state, matching what the
     real message events carry. Person globals are intentionally omitted: resolving a person requires
-    the full person-lookup, which this synchronous run path deliberately avoids — so a workflow
+    the full person-lookup, which this synchronous run path deliberately avoids, so a workflow
     filtering on person properties won't match when triggered this way."""
     properties: dict[str, Any] = {}
     properties.update(_get_ticket_base_properties(ticket))
@@ -322,11 +322,9 @@ class QuickActionViewSet(
         return True
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
-        # Attaching a workflow wires up an automation other agents can then trigger, so it's a
-        # workflow write, not just a ticket write. Mirror the explicit scopes on `run`: a
-        # ticket:write-only token can edit quick actions but not set or change workflow_id.
-        # Scopes only gate token auth; session users are unaffected and still hit the
-        # per-workflow RBAC check in the serializer like every other caller.
+        # Attaching a workflow wires up an automation other agents can then trigger, so treat it
+        # as a workflow write and mirror the explicit scopes on `run`. Scopes only gate token
+        # auth. Session users still hit the per-workflow RBAC check in the serializer.
         if self.action in ("create", "update", "partial_update") and self._sets_or_changes_workflow(request):
             return ["ticket:write", "hog_flow:write"]
         return None
@@ -340,7 +338,7 @@ class QuickActionViewSet(
         try:
             incoming = UUID(str(data["workflow_id"]))
         except ValueError:
-            # Not a valid UUID; the serializer rejects it later, so treat it as a change (fail closed).
+            # Not a valid UUID. The serializer rejects it later, so treat it as a change (fail closed).
             return True
         # `for_team` resolves to the canonical parent team, matching `safely_get_queryset`.
         stored = (
@@ -415,9 +413,8 @@ class QuickActionViewSet(
                 {"workflow_id": "This quick action's workflow isn't active in the current environment."}
             )
 
-        # RBAC: the runner (not the quick action's creator) must have access to the workflow —
-        # a shared quick action must not let a ticket-scoped user execute a workflow they can't
-        # operate, since workflows run privileged actions with their stored secrets.
+        # RBAC: the runner (not the quick action's creator) must have access to the workflow,
+        # since workflows run privileged actions with their stored secrets.
         if not user_can_run_workflow(request.user, self.team, quick_action.workflow_id):  # type: ignore[arg-type]
             raise PermissionDenied("You don't have access to the workflow this quick action runs.")
 
@@ -434,10 +431,9 @@ class QuickActionViewSet(
         except HogFlowNotRunnableError as e:
             raise serializers.ValidationError({"workflow_id": str(e)})
         except HogFlowServiceError:
-            # The workflow service (CDP) was unreachable or rejected the call — e.g. the manual-
-            # invocation route isn't deployed yet (a 404 requests doesn't raise on), a 5xx, or a
-            # connection failure. That's an upstream problem, not a bad request, so surface a clean
-            # 502 rather than a misleading workflow_id validation error.
+            # The workflow service (CDP) was unreachable or rejected the call (an undeployed
+            # route, a 5xx, a connection failure). That's an upstream problem, not a bad
+            # request, so surface a 502 rather than a misleading validation error.
             logger.exception("quick_action_run_workflow_service_unreachable", workflow_id=str(quick_action.workflow_id))
             return Response(
                 {"detail": "Couldn't reach the workflow service. Try again shortly."},

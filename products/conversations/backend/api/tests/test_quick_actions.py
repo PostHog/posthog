@@ -9,7 +9,6 @@ from posthog.models import Team, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.conversations.backend.api.quick_actions import QuickActionViewSet
 from products.conversations.backend.models import QuickAction, Ticket
 from products.workflows.backend.facade.api import HogFlowNotRunnableError, HogFlowServiceError
 
@@ -201,7 +200,7 @@ class TestQuickActionAPI(APIBaseTest):
 
     def test_run_requires_workflow_access_for_the_runner(self) -> None:
         # Security regression guard: a shared quick action must not let a runner without RBAC
-        # access to the workflow execute it — the runner's access is checked, not the creator's.
+        # access to the workflow execute it. The runner's access is checked, not the creator's.
         workflow_qa = self._create_workflow_quick_action("01890000-0000-0000-0000-000000000004")
         ticket = Ticket.objects.create_with_number(team=self.team, widget_session_id="s2", distinct_id="d2")
 
@@ -254,15 +253,33 @@ class TestQuickActionAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
         invoke.assert_not_called()
 
-    def test_run_action_requires_ticket_and_workflow_write_scopes(self) -> None:
-        # Security regression guard: running a workflow executes its stored-secret actions, so the
-        # run endpoint must require hog_flow:write on top of ticket:write. A ticket-scoped API key
-        # alone must not be able to trigger workflow execution.
-        self.assertEqual(QuickActionViewSet.run.kwargs["required_scopes"], ["ticket:write", "hog_flow:write"])
+    @parameterized.expand(
+        [
+            ("ticket_scope_only_forbidden", ["ticket:write"], status.HTTP_403_FORBIDDEN),
+            ("both_scopes_allowed", ["ticket:write", "hog_flow:write"], status.HTTP_202_ACCEPTED),
+        ]
+    )
+    def test_run_via_api_key_requires_workflow_write_scope(
+        self, _name: str, scopes: list[str], expected_status: int
+    ) -> None:
+        # Security regression guard: running a workflow executes its stored-secret actions, so a
+        # ticket:write-only personal API key must not be able to trigger workflow execution.
+        workflow_qa = self._create_workflow_quick_action("01890000-0000-0000-0000-000000000002")
+        ticket = Ticket.objects.create_with_number(team=self.team, widget_session_id="s1", distinct_id="d1")
+        client = self._bearer_client(scopes)
+        with (
+            patch("products.conversations.backend.api.quick_actions.invoke_hog_flow_now"),
+            patch("products.conversations.backend.api.quick_actions.workflow_is_runnable", return_value=True),
+            patch("products.conversations.backend.api.quick_actions.user_can_run_workflow", return_value=True),
+        ):
+            response = client.post(
+                f"{self.base_url}{workflow_qa['short_id']}/run/", {"ticket_id": str(ticket.id)}, format="json"
+            )
+        self.assertEqual(response.status_code, expected_status, response.content)
 
     def test_unrelated_edit_not_blocked_when_workflow_became_inactive(self) -> None:
         # Regression guard: once a workflow is attached, an unrelated edit (rename) must not be
-        # rejected just because the workflow was archived afterward — the active-workflow check
+        # rejected just because the workflow was archived afterward. The active-workflow check
         # applies only when the workflow reference itself is being set or changed.
         created = self._create_workflow_quick_action("01890000-0000-0000-0000-000000000007")
         runnable, can_run = self._allow_workflow(runnable=False)
