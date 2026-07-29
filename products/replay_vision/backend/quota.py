@@ -151,11 +151,11 @@ def compute_scanner_budgets(organization_id: UUID, scanner_ids: list[UUID]) -> d
     in_flight = _scanner_in_flight_credits(organization_id, scanner_ids, period)
     # Read the limits here rather than taking them as a parameter: a caller that forgot to pass them
     # would get credit_limit=None, which reads as "uncapped" and would silently disable enforcement.
-    limits: dict[UUID, int | None] = dict(
-        ReplayScanner.objects.filter(team__organization_id=organization_id, pk__in=scanner_ids).values_list(
-            "id", "monthly_credit_limit"
-        )
+    # nosemgrep: idor-lookup-without-team (org-level aggregation; the pk__in list is co-filtered by team__organization_id, so a scanner id outside this org matches nothing)
+    limit_rows = ReplayScanner.objects.filter(team__organization_id=organization_id, pk__in=scanner_ids).values_list(
+        "id", "monthly_credit_limit"
     )
+    limits: dict[UUID, int | None] = dict(limit_rows)
     result: dict[UUID, ScannerSpend] = {}
     for scanner_id in scanner_ids:
         settled_credits, observations = settled.get(scanner_id, (0, 0))
