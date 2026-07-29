@@ -1086,8 +1086,8 @@ class DesktopFileSystemViewSet(FileSystemViewSet):
 
     file_system_surface = "desktop"
 
-    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        queryset = super().safely_get_queryset(queryset)
+    def _scope_by_project(self, queryset: QuerySet) -> QuerySet:
+        queryset = super()._scope_by_project(queryset)
         # Personal-space rows share the same path across users, so their creator
         # is the ownership boundary even when project-level access is shared.
         is_personal_space = Q(path="me") | Q(path__startswith="me/")

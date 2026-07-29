@@ -192,6 +192,8 @@ class TestDesktopFolderInstructionsAPI(APIBaseTest):
         self.assertNotIn(folder_id, [row["id"] for row in listing.json()["results"]])
         children = self.client.get(f"/api/projects/{self.team.id}/desktop_file_system/?parent=me")
         self.assertNotIn(str(child.id), [row["id"] for row in children.json()["results"]])
+        count = self.client.post(f"/api/projects/{self.team.id}/desktop_file_system/count_by_path?path=me")
+        self.assertNotIn(str(child.id), [row["id"] for row in count.json()["entries"]])
         self.assertEqual(
             self.client.get(f"/api/projects/{self.team.id}/desktop_file_system/{child.id}/").status_code,
             status.HTTP_404_NOT_FOUND,
@@ -204,6 +206,8 @@ class TestDesktopFolderInstructionsAPI(APIBaseTest):
 
         own_folder_id = self._create_desktop_folder("me")
         self.assertNotEqual(own_folder_id, folder_id)
+        self.client.delete(f"/api/projects/{self.team.id}/desktop_file_system/{own_folder_id}/")
+        self.assertTrue(FileSystem.objects.filter(id=child.id).exists())
 
     def test_personal_api_key_can_read_and_publish_instructions(self):
         folder_id = self._create_desktop_folder()
