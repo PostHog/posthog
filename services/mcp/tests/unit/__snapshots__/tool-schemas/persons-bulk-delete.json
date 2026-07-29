@@ -18,6 +18,11 @@
             },
             "type": "array"
         },
+        "dry_run": {
+            "default": false,
+            "description": "If true, nothing is deleted and `persons_found` reports how many persons the request would delete in total. Use this to confirm the scope of a filter before running it.",
+            "type": "boolean"
+        },
         "ids": {
             "description": "A list of PostHog person UUIDs to delete (max 1000).",
             "items": {
@@ -29,6 +34,52 @@
             "default": false,
             "description": "If true, keep the person records but delete their events and recordings.",
             "type": "boolean"
+        },
+        "properties": {
+            "description": "Person property filters describing which persons to delete, in the same format as the `properties` parameter of the persons list endpoint. Deletes one page of up to 1000 matching persons per call, so repeat the same request while `has_more` is true to delete the rest.",
+            "items": {
+                "properties": {
+                    "key": {
+                        "description": "The person property to filter on, or the cohort ID when `type` is `cohort`.",
+                        "type": "string"
+                    },
+                    "operator": {
+                        "description": "Comparison operator, for example `exact`, `icontains`, `gt`, `is_set`. Defaults to `exact`.",
+                        "type": "string"
+                    },
+                    "type": {
+                        "description": "Either `person` (filter on a person property) or `cohort`. Defaults to `person`.",
+                        "type": "string"
+                    },
+                    "value": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "boolean"
+                            },
+                            {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            }
+                        ],
+                        "description": "The value to compare against. A list for operators like `exact` with multiple options."
+                    }
+                },
+                "required": ["key"],
+                "type": "object"
+            },
+            "type": "array"
+        },
+        "search": {
+            "description": "Restrict the persons to delete to those matching this search term. Can be combined with `properties`.",
+            "type": "string"
         }
     },
     "type": "object"
