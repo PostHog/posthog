@@ -1,17 +1,26 @@
+from datetime import UTC, datetime, timedelta
+
 from posthog.test.base import BaseTest
 from unittest import mock
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.tasks.calculate_cohort import trigger_cohort_events_backfill_task
 
+from products.cohorts.backend.backfill.pinning import PersonPinningCapExceeded
 from products.cohorts.backend.backfill.runs import (
     create_backfill_run_for_cohort,
+    create_person_backfill_run_for_cohort,
+    create_person_team_backfill_run,
     create_team_backfill_run,
     supersede_active_runs,
 )
+from products.cohorts.backend.backfill.sizing import PersonSeedEstimate
 from products.cohorts.backend.models.backfill import (
     CohortBackfillChunk,
+    CohortBackfillKind,
     CohortBackfillRun,
     CohortBackfillRunCohort,
     CohortBackfillRunStatus,
@@ -117,7 +126,10 @@ class TestBackfillRuns(BaseTest):
         run = create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
         assert run is not None
 
-        self.assertEqual(supersede_active_runs(self.team.id, [cohort.id]), 1)
+        self.assertEqual(
+            supersede_active_runs(self.team.id, [cohort.id], kind=CohortBackfillKind.BEHAVIORAL),
+            1,
+        )
 
         run.refresh_from_db()
         participation = CohortBackfillRunCohort.objects.for_team(self.team.id).get(run=run)
@@ -151,3 +163,270 @@ class TestBackfillRuns(BaseTest):
         trigger_cohort_events_backfill_task.run(self.team.id, cohort.id, "cohort_created")
 
         self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).filter(cohort=cohort).count(), 1)
+
+
+@override_settings(
+    REALTIME_COHORT_TEAM_ALLOWLIST="all",
+    BEHAVIORAL_BACKFILL_MERGE_GATE_ATTESTED=True,
+    BEHAVIORAL_BACKFILL_DURABILITY_ATTESTED=True,
+    BEHAVIORAL_BACKFILL_PERSON_SIZING_ATTESTED=True,
+    BEHAVIORAL_BACKFILL_PERSON_TTL_ATTESTED=True,
+    BEHAVIORAL_BACKFILL_PERSON_TOPIC_BYTES_BUDGET=1_000_000,
+)
+class TestPersonBackfillRuns(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        feature_patch = mock.patch(
+            "products.cohorts.backend.models.dependencies.posthoganalytics.feature_enabled",
+            return_value=False,
+        )
+        feature_patch.start()
+        self.addCleanup(feature_patch.stop)
+
+    def _filters(
+        self,
+        *,
+        person_hashes: tuple[str | None, ...] = ("person0000000001",),
+        behavioral: bool = True,
+        person_metadata: bool = False,
+    ) -> dict:
+        values: list[dict] = [
+            {
+                "type": "person",
+                "key": "email",
+                "value": ["person@example.com"],
+                "operator": "exact",
+                "conditionHash": condition_hash,
+            }
+            for condition_hash in person_hashes
+        ]
+        if behavioral:
+            values.append(
+                {
+                    "type": "behavioral",
+                    "key": "$pageview",
+                    "event_type": "events",
+                    "value": "performed_event",
+                    "conditionHash": "behavior00000001",
+                    "time_value": 7,
+                    "time_interval": "day",
+                }
+            )
+        if person_metadata:
+            values.append(
+                {
+                    "type": "person_metadata",
+                    "key": "created_at",
+                    "value": "2026-01-01",
+                    "operator": "is_date_after",
+                }
+            )
+        return {"properties": {"type": "AND", "values": values}}
+
+    def _cohort(self, **kwargs: object) -> Cohort:
+        return Cohort.objects.create(
+            team=self.team,
+            name="person cohort",
+            cohort_type=CohortType.REALTIME,
+            filters=self._filters(),
+            **kwargs,
+        )
+
+    def _estimate(self, *, estimated_topic_bytes: int = 2_940, budget_bytes: int = 1_000_000) -> PersonSeedEstimate:
+        return PersonSeedEstimate(
+            estimated_persons=10,
+            pinned_condition_count=1,
+            bytes_per_seed=294,
+            estimated_topic_bytes=estimated_topic_bytes,
+            budget_bytes=budget_bytes,
+        )
+
+    def test_cohort_run_pins_person_definition_and_scan_horizon(self) -> None:
+        cohort = self._cohort()
+        now = datetime(2026, 7, 29, 12, tzinfo=UTC)
+
+        with mock.patch(
+            "products.cohorts.backend.backfill.runs.django_timezone.now",
+            return_value=now,
+        ):
+            run = create_person_backfill_run_for_cohort(
+                self.team.id,
+                cohort.id,
+                "cohort_created",
+                person_horizon_days=30,
+            )
+
+        assert run is not None
+        participation = CohortBackfillRunCohort.objects.for_team(self.team.id).get(run=run)
+        self.assertEqual(run.backfill_kind, CohortBackfillKind.PERSON_PROPERTY)
+        self.assertEqual(run.person_scan_since, now - timedelta(days=30))
+        self.assertEqual(
+            run.pinned,
+            {
+                "schema_version": 1,
+                "conditions": [{"cohort_id": cohort.id, "condition_hash": "person0000000001"}],
+                "person_horizon_days": 30,
+            },
+        )
+        self.assertEqual(participation.filters_shape_hash, cohort.filters_shape_hash)
+        self.assertEqual(participation.behavioral_filters_shape_hash, "")
+        self.assertEqual(participation.person_filters_shape_hash, cohort.person_filters_shape_hash)
+        self.assertEqual(participation.pinned_filters, cohort.filters)
+
+    def test_behavioral_and_person_runs_coexist_but_duplicate_person_run_is_refused(self) -> None:
+        cohort = self._cohort()
+
+        behavioral = create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+        person = create_person_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+
+        self.assertIsNotNone(behavioral)
+        self.assertIsNotNone(person)
+        self.assertIsNone(create_person_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_edited"))
+        self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 2)
+
+    @override_settings(BEHAVIORAL_BACKFILL_PERSON_MAX_PINNED_CONDITIONS=0)
+    def test_cohort_run_warns_and_refuses_pinning_cap(self) -> None:
+        cohort = self._cohort()
+
+        with mock.patch("products.cohorts.backend.backfill.runs.logger") as logger:
+            run = create_person_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+
+        self.assertIsNone(run)
+        logger.warning.assert_called_once_with(
+            "cohort_person_backfill_pinning_cap_exceeded",
+            team_id=self.team.id,
+            cohort_id=cohort.id,
+            max_conditions=0,
+        )
+
+    @parameterized.expand(
+        [
+            ("behavioral", CohortBackfillKind.BEHAVIORAL),
+            ("person_property", CohortBackfillKind.PERSON_PROPERTY),
+        ]
+    )
+    def test_supersession_is_scoped_to_run_kind(self, _name: str, superseded_kind: CohortBackfillKind) -> None:
+        cohort = self._cohort()
+        behavioral = create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+        person = create_person_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+        assert behavioral is not None
+        assert person is not None
+
+        self.assertEqual(
+            supersede_active_runs(self.team.id, [cohort.id], kind=superseded_kind),
+            1,
+        )
+
+        behavioral.refresh_from_db()
+        person.refresh_from_db()
+        expected = {
+            CohortBackfillKind.BEHAVIORAL: behavioral,
+            CohortBackfillKind.PERSON_PROPERTY: person,
+        }
+        other = {
+            CohortBackfillKind.BEHAVIORAL: person,
+            CohortBackfillKind.PERSON_PROPERTY: behavioral,
+        }
+        self.assertEqual(expected[superseded_kind].status, CohortBackfillRunStatus.SUPERSEDED)
+        self.assertEqual(other[superseded_kind].status, CohortBackfillRunStatus.AWAITING_BOUNDARY)
+
+    @parameterized.expand(
+        [
+            ("behavioral_only", {"filters": None}),
+            ("static", {"is_static": True}),
+            ("deleted", {"deleted": True}),
+            ("non_realtime", {"cohort_type": CohortType.BEHAVIORAL}),
+            ("hashless", {"filters": "hashless"}),
+            ("person_metadata", {"filters": "person_metadata"}),
+        ]
+    )
+    def test_ineligible_cohort_is_refused(self, _name: str, overrides: dict[str, object]) -> None:
+        filters = self._filters()
+        if overrides.pop("filters", "") is None:
+            filters = self._filters(person_hashes=(), behavioral=True)
+        elif _name == "hashless":
+            filters = self._filters(person_hashes=(None,), behavioral=False)
+        elif _name == "person_metadata":
+            filters = self._filters(person_metadata=True)
+        cohort_type = overrides.pop("cohort_type", CohortType.REALTIME)
+        cohort = Cohort.objects.create(
+            team=self.team,
+            cohort_type=cohort_type,
+            filters=filters,
+            **overrides,
+        )
+
+        self.assertIsNone(create_person_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created"))
+
+    @mock.patch("products.cohorts.backend.backfill.runs.estimate_person_seed_topic_bytes")
+    def test_team_run_persists_estimate_and_uses_boundary_for_scan_horizon(self, estimate: mock.Mock) -> None:
+        cohort = self._cohort()
+        estimate.return_value = self._estimate()
+        boundary = datetime(2026, 7, 20, 12, tzinfo=UTC)
+
+        run = create_person_team_backfill_run(
+            self.team.id,
+            "disaster_recovery",
+            30,
+            [cohort.id],
+            boundary_at=boundary,
+        )
+
+        self.assertEqual(run.person_scan_since, boundary - timedelta(days=30))
+        self.assertEqual(run.preconditions["person_seed_estimated_persons"], 10)
+        self.assertEqual(run.preconditions["person_seed_estimated_topic_bytes"], 2_940)
+        participation = CohortBackfillRunCohort.objects.for_team(self.team.id).get(run=run)
+        self.assertEqual(participation.behavioral_filters_shape_hash, "")
+        self.assertNotEqual(participation.person_filters_shape_hash, "")
+
+    @mock.patch("products.cohorts.backend.backfill.runs.estimate_person_seed_topic_bytes")
+    def test_per_kind_team_uniqueness(self, estimate: mock.Mock) -> None:
+        self._cohort()
+        estimate.return_value = self._estimate()
+        behavioral = create_team_backfill_run(self.team.id, "team_enablement")
+        person = create_person_team_backfill_run(self.team.id, "team_enablement", 30)
+
+        self.assertEqual(behavioral.backfill_kind, CohortBackfillKind.BEHAVIORAL)
+        self.assertEqual(person.backfill_kind, CohortBackfillKind.PERSON_PROPERTY)
+        with self.assertRaisesMessage(ValueError, "active person-property backfill runs"):
+            create_person_team_backfill_run(self.team.id, "team_enablement", 30)
+
+    @mock.patch("products.cohorts.backend.backfill.runs.estimate_person_seed_topic_bytes")
+    def test_team_run_refuses_over_budget_estimate(self, estimate: mock.Mock) -> None:
+        self._cohort()
+        estimate.return_value = self._estimate(
+            estimated_topic_bytes=1_000_001,
+            budget_bytes=1_000_000,
+        )
+
+        with self.assertRaisesMessage(ValueError, "exceed budget"):
+            create_person_team_backfill_run(self.team.id, "team_enablement", 30)
+
+        self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 0)
+
+    @override_settings(BEHAVIORAL_BACKFILL_PERSON_MAX_PINNED_CONDITIONS=0)
+    @mock.patch("products.cohorts.backend.backfill.runs.estimate_person_seed_topic_bytes")
+    def test_team_run_refuses_pinning_cap_before_sizing(self, estimate: mock.Mock) -> None:
+        self._cohort()
+
+        with self.assertRaises(PersonPinningCapExceeded):
+            create_person_team_backfill_run(self.team.id, "team_enablement", 30)
+
+        estimate.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("sizing", "BEHAVIORAL_BACKFILL_PERSON_SIZING_ATTESTED", "person seed sizing"),
+            ("ttl", "BEHAVIORAL_BACKFILL_PERSON_TTL_ATTESTED", "person record TTL"),
+        ]
+    )
+    def test_team_run_requires_person_attestations(
+        self,
+        _name: str,
+        setting_name: str,
+        expected_error: str,
+    ) -> None:
+        self._cohort()
+
+        with self.settings(**{setting_name: False}), self.assertRaisesMessage(ValueError, expected_error):
+            create_person_team_backfill_run(self.team.id, "team_enablement", 30)

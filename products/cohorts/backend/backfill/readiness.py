@@ -9,7 +9,11 @@ from products.cohorts.backend.models.backfill import (
     CohortBackfillScope,
 )
 from products.cohorts.backend.models.cohort import Cohort
-from products.cohorts.backend.models.leaf_shape import extract_behavioral_leaf_shape_hash, extract_leaf_shape_hash
+from products.cohorts.backend.models.leaf_shape import (
+    extract_behavioral_leaf_shape_hash,
+    extract_leaf_shape_hash,
+    extract_person_leaf_shape_hash,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -37,6 +41,18 @@ def ensure_filters_shape_hash(cohort: Cohort) -> str:
             cohort.behavioral_filters_shape_hash = behavioral_shape_hash
         else:
             cohort.refresh_from_db(fields=["behavioral_filters_shape_hash"])
+
+    if cohort.__dict__.get("person_filters_shape_hash") is None:
+        person_shape_hash = extract_person_leaf_shape_hash(cohort.filters)
+        updated = Cohort.objects.filter(
+            id=cohort.id,
+            team_id=cohort.team_id,
+            person_filters_shape_hash__isnull=True,
+        ).update(person_filters_shape_hash=person_shape_hash)
+        if updated:
+            cohort.person_filters_shape_hash = person_shape_hash
+        else:
+            cohort.refresh_from_db(fields=["person_filters_shape_hash"])
 
     return cohort.filters_shape_hash or ""
 
