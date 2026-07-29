@@ -20,7 +20,10 @@ export const TAXONOMIC_FILTER_SURFACE = 'rebuild-menu'
 /** A single selectable entry — what the picker commits when chosen. */
 export interface MenuFilterEntry {
     item: TaxonomicDefinitionTypes
+    /** Canonical source group used for identity, values, persistence, recents, and pinning. */
     group: TaxonomicFilterGroup
+    /** Category where the entry is rendered when it differs from the canonical source group. */
+    displayGroup?: TaxonomicFilterGroup
     name: string
     friendlyLabel?: string
     recentPropertyFilter?: AnyPropertyFilter

@@ -80,6 +80,12 @@ function makeDefaultPinnedFilter(
     return { groupType, groupName, value, item: { name: value }, timestamp: Date.now() }
 }
 
+function canonicalPinnedGroupType(groupType: TaxonomicFilterGroupType): TaxonomicFilterGroupType {
+    return groupType === TaxonomicFilterGroupType.ExceptionProperties
+        ? TaxonomicFilterGroupType.EventProperties
+        : groupType
+}
+
 const DEFAULT_PIN_CANDIDATES = [
     {
         contextFlag: 'has_pageview' as const,
@@ -208,15 +214,26 @@ export const taxonomicFilterPinnedPropertiesLogic = kea<taxonomicFilterPinnedPro
                         return state
                     }
 
-                    const existingIndex = state.findIndex((f) => f.groupType === groupType && f.value === value)
+                    const canonicalGroupType = canonicalPinnedGroupType(groupType)
+                    const hasExistingPin = state.some(
+                        (filter) =>
+                            canonicalPinnedGroupType(filter.groupType) === canonicalGroupType && filter.value === value
+                    )
 
-                    if (existingIndex !== -1) {
-                        return state.filter((_, i) => i !== existingIndex)
+                    if (hasExistingPin) {
+                        return state.filter(
+                            (filter) =>
+                                canonicalPinnedGroupType(filter.groupType) !== canonicalGroupType ||
+                                filter.value !== value
+                        )
                     }
 
                     const entry: PinnedTaxonomicFilter = {
-                        groupType,
-                        groupName,
+                        groupType: canonicalGroupType,
+                        groupName:
+                            canonicalGroupType === TaxonomicFilterGroupType.EventProperties
+                                ? 'Event properties'
+                                : groupName,
                         value,
                         item: pickMinimalPinnedItem(item, value),
                         timestamp: Date.now(),
@@ -236,8 +253,11 @@ export const taxonomicFilterPinnedPropertiesLogic = kea<taxonomicFilterPinnedPro
                         ({
                             ...f.item,
                             _pinnedContext: {
-                                sourceGroupType: f.groupType,
-                                sourceGroupName: f.groupName,
+                                sourceGroupType: canonicalPinnedGroupType(f.groupType),
+                                sourceGroupName:
+                                    canonicalPinnedGroupType(f.groupType) === TaxonomicFilterGroupType.EventProperties
+                                        ? 'Event properties'
+                                        : f.groupName,
                                 value: f.value,
                             } as PinnedItemContext,
                         }) as unknown as TaxonomicDefinitionTypes
@@ -247,7 +267,11 @@ export const taxonomicFilterPinnedPropertiesLogic = kea<taxonomicFilterPinnedPro
             (s) => [s.pinnedFilters],
             (pinnedFilters: PinnedTaxonomicFilter[]) =>
                 (groupType: TaxonomicFilterGroupType, value: TaxonomicFilterValue): boolean =>
-                    pinnedFilters.some((f) => f.groupType === groupType && f.value === value),
+                    pinnedFilters.some(
+                        (filter) =>
+                            canonicalPinnedGroupType(filter.groupType) === canonicalPinnedGroupType(groupType) &&
+                            filter.value === value
+                    ),
         ],
     }),
     listeners(({ values }) => ({

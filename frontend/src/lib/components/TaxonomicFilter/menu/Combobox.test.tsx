@@ -58,6 +58,7 @@ function renderAll(options: {
     groupTypes: TaxonomicFilterGroupType[]
     recentEntries?: any[]
     pinnedEntries?: any[]
+    selectedEntry?: MenuFilterEntry
     searchQuery?: string
     onCommit?: any
     eventNames?: string[]
@@ -74,6 +75,7 @@ function renderAll(options: {
                     drillTo="all"
                     recentEntries={options.recentEntries}
                     pinnedEntries={options.pinnedEntries}
+                    selectedEntry={options.selectedEntry}
                     onCommit={options.onCommit ?? jest.fn()}
                     onBack={jest.fn()}
                 />
@@ -494,6 +496,94 @@ describe('MenuFilterCombobox', () => {
         await waitFor(() => expect(rowTexts().some((t) => t.includes('autocapture'))).toBe(true))
         const promotedRows = rowTexts().filter((t) => t.includes('MCP tool name') || t.includes('$mcp_tool_name'))
         expect(promotedRows).toHaveLength(1)
+    })
+
+    it('shows exception properties once under their display category', async () => {
+        const user = userEvent.setup()
+        apiGet.mockImplementation((url: string) => {
+            if (url.includes('property_definitions')) {
+                const excluded = new URL(url, 'http://localhost').searchParams.get('excluded_properties') ?? ''
+                const results = [
+                    { id: 1, name: '$exception_values' },
+                    { id: 2, name: '$browser' },
+                    { id: 3, name: '$exception_steps' },
+                    { id: 4, name: '$exception_list' },
+                    { id: 5, name: '$exception_fingerprint_record' },
+                ].filter(({ name }) => !excluded.includes(name))
+                return Promise.resolve({ results, count: results.length })
+            }
+            return Promise.resolve({ results: [], count: 0 })
+        })
+
+        renderAll({
+            groupTypes: [TaxonomicFilterGroupType.ExceptionProperties, TaxonomicFilterGroupType.EventProperties],
+        })
+
+        await waitFor(() => {
+            expect(rowTexts().filter((text) => text.includes('Exception message'))).toHaveLength(1)
+            expect(rowTexts().some((text) => text.includes('Browser'))).toBe(true)
+            expect(rowTexts().some((text) => text.includes('Exception steps'))).toBe(false)
+            expect(rowTexts().some((text) => text.includes('Exception list'))).toBe(false)
+            expect(rowTexts().some((text) => text.includes('Exception fingerprint record'))).toBe(false)
+        })
+
+        await user.click(screen.getByLabelText('Filter category'))
+        await user.click(within(await openedCategoryPopup()).getByText('Exception properties'))
+
+        await waitFor(() => {
+            expect(rowTexts().filter((text) => text.includes('Exception message'))).toHaveLength(1)
+            expect(rowTexts().some((text) => text.includes('Browser'))).toBe(false)
+        })
+    })
+
+    it('matches a canonical event-property selection to its exception display row', async () => {
+        const user = userEvent.setup()
+        const onCommit = jest.fn()
+        renderAll({
+            groupTypes: [TaxonomicFilterGroupType.ExceptionProperties],
+            selectedEntry: makeEntry(TaxonomicFilterGroupType.EventProperties, '$exception_values', 'Event properties'),
+            onCommit,
+        })
+
+        await waitFor(() => expect(rowTexts().filter((text) => text.includes('Exception message'))).toHaveLength(1))
+
+        const row = document.getElementById('menu-filter-row-event_properties-$exception_values')
+        expect(row).toBeInTheDocument()
+        expect(row?.classList.contains('bg-(--fill-hover)')).toBe(true)
+        expect(row?.textContent).toContain('Exception properties')
+
+        await user.click(row!)
+        expect(onCommit).toHaveBeenCalledWith(
+            expect.objectContaining({
+                group: expect.objectContaining({ type: TaxonomicFilterGroupType.EventProperties }),
+                displayGroup: expect.objectContaining({ type: TaxonomicFilterGroupType.ExceptionProperties }),
+            }),
+            undefined,
+            expect.any(Object)
+        )
+    })
+
+    it.each([
+        ['recent', 'Recent'],
+        ['pinned', 'Pinned'],
+    ] as const)('shows a canonical %s exception property once under its display category', async (kind, badge) => {
+        const shortcut = {
+            ...makeEntry(TaxonomicFilterGroupType.EventProperties, '$exception_values', 'Event properties'),
+            displayGroup: {
+                type: TaxonomicFilterGroupType.ExceptionProperties,
+                name: 'Exception properties',
+            },
+            friendlyLabel: 'Exception message',
+        }
+
+        renderAll({
+            groupTypes: [TaxonomicFilterGroupType.ExceptionProperties],
+            ...(kind === 'recent' ? { recentEntries: [shortcut] } : { pinnedEntries: [shortcut] }),
+        })
+
+        await waitFor(() => expect(rowTexts().filter((text) => text.includes('Exception message'))).toHaveLength(1))
+        expect(rowTexts()[0]).toContain('Exception properties')
+        expect(rowTexts()[0]).toContain(badge)
     })
 
     it('shows a recent that is also in the catalog only once (deduped from content)', async () => {

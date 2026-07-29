@@ -44,6 +44,7 @@ import {
 import { isQuickFilterItem } from 'lib/components/TaxonomicFilter/types'
 import { buildTaxonomicGroups } from 'lib/components/TaxonomicFilter/utils/buildTaxonomicGroups'
 import { isContainsShortcutItem } from 'lib/components/TaxonomicFilter/utils/collapsedContainsRow'
+import { resolveTaxonomicItemGroup } from 'lib/components/TaxonomicFilter/utils/resolveTaxonomicItemGroup'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -117,6 +118,7 @@ export interface TaxonomicFilterApi {
     searchPlaceholder: string
 
     // selection
+    resolveItemGroup: (group: TaxonomicFilterGroup, item: any) => TaxonomicFilterGroup
     selectItem: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue | null, item: any) => void
     /** Forwards Enter to the registered active list, falling back to onEnter(query). */
     selectSelected: () => void
@@ -322,17 +324,40 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         [taxonomicGroupTypes, allGroupTypes, eventNames]
     )
 
-    const getLocalOverride = useTaxonomicLocalOverrides({
-        taxonomicGroupTypes: groupTypes,
-        excludedOperators,
-        selectingKeyOnly,
-        excludedProperties,
-    })
-
     const groups = useMemo(() => {
         const byType = new Map(allGroups.map((g) => [g.type, g]))
         return groupTypes.map((t) => byType.get(t)!).filter(Boolean)
     }, [allGroups, groupTypes])
+
+    const sourceGroupTypes = useMemo(
+        () => Array.from(new Set(groups.flatMap((group) => [group.type, group.sourceGroupType ?? group.type]))),
+        [groups]
+    )
+
+    const effectiveShortcutExcludedProperties = useMemo<ExcludedProperties>(() => {
+        const merged: ExcludedProperties = Object.fromEntries(
+            Object.entries(excludedProperties ?? {}).map(([type, values]) => [type, [...(values ?? [])]])
+        )
+        for (const displayGroup of groups) {
+            const sourceGroup = resolveTaxonomicItemGroup(undefined, allGroups, displayGroup)
+            const shortcutExcludedProperties =
+                sourceGroup?.shortcutExcludedProperties ?? sourceGroup?.excludedProperties
+            if (!shortcutExcludedProperties?.length) {
+                continue
+            }
+            merged[sourceGroup.type] = Array.from(
+                new Set([...(merged[sourceGroup.type] ?? []), ...shortcutExcludedProperties])
+            )
+        }
+        return merged
+    }, [allGroups, excludedProperties, groups])
+
+    const getLocalOverride = useTaxonomicLocalOverrides({
+        taxonomicGroupTypes: sourceGroupTypes,
+        excludedOperators,
+        selectingKeyOnly,
+        excludedProperties: effectiveShortcutExcludedProperties,
+    })
 
     const metaGroupTypes = useMemo(
         () => new Set(groups.filter((g) => g.isMetaGroup || META_GROUP_TYPES.has(g.type)).map((g) => g.type)),
@@ -456,8 +481,17 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         return activeListGetterRef.current?.() ?? null
     }, [])
 
+    const resolveItemGroup = useCallback(
+        (group: TaxonomicFilterGroup, item: any): TaxonomicFilterGroup => {
+            return resolveTaxonomicItemGroup(item as TaxonomicDefinitionTypes, allGroups, group) ?? group
+        },
+        [allGroups]
+    )
+
     const selectItem = useCallback(
         (group: TaxonomicFilterGroup, valueIn: TaxonomicFilterValue | null, item: any) => {
+            const resolvedGroup = resolveItemGroup(group, item)
+            const resolvedValue = hasRecentContext(item) ? valueIn : (resolvedGroup.getValue?.(item) ?? valueIn)
             // Mirror the legacy `taxonomicFilterLogic.selectItem` recent
             // recording so menu commits show up in the dropdown's
             // "Recent" entry. Quick-filter items and the synthetic
@@ -466,26 +500,15 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
             // shortcut would shadow it on the next search, since the recent
             // shares its entryKey but lacks the contains label/telemetry);
             // pinned/recent context wrappers get stripped before persisting.
-            if (valueIn != null && item && !isQuickFilterItem(item) && !isContainsShortcutItem(item)) {
+            if (resolvedValue != null && item && !isQuickFilterItem(item) && !isContainsShortcutItem(item)) {
                 const recentContext = hasRecentContext(item) ? item._recentContext : undefined
                 const stripped = recentContext ? stripRecentContext(item) : item
-                // Options in curated tabs (MCP properties, internal event properties) declare
-                // the canonical group they commit as. Legacy resolves it via `getItemGroup`
-                // before dispatching, so recents must be recorded under the declared group
-                // here too — otherwise the same property gets near-duplicate Recent rows
-                // across variants (recents dedupe on groupType + value and share storage).
-                const declaredGroup =
-                    !recentContext && stripped && typeof stripped === 'object' && 'group' in stripped
-                        ? // Resolve against every group definition (like legacy `getItemGroup`), not just
-                          // the visible tabs — a curated tab can be requested without its canonical group.
-                          allGroups.find((g) => g.type === stripped.group)
-                        : undefined
-                const sourceGroupType = recentContext?.sourceGroupType ?? declaredGroup?.type ?? group.type
+                const sourceGroupType = recentContext?.sourceGroupType ?? resolvedGroup.type
                 const cleanItem = {
                     name: stripped.name,
                     ...(stripped.id ? { id: stripped.id } : {}),
                 }
-                const sourceGroupName = recentContext?.sourceGroupName ?? declaredGroup?.name ?? group.name
+                const sourceGroupName = recentContext?.sourceGroupName ?? resolvedGroup.name
                 const propertyFilterFromRecent = recentContext?.propertyFilter
                 // Defer one tick — keeps the recents write off the
                 // commit's render cycle so React doesn't re-render the
@@ -495,7 +518,7 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
                         recentTaxonomicFiltersLogic.actions.recordRecentFilter({
                             groupType: sourceGroupType,
                             groupName: sourceGroupName,
-                            value: valueIn,
+                            value: resolvedValue,
                             item: cleanItem,
                             teamId: teamLogic.values.currentTeamId ?? undefined,
                             propertyFilter: propertyFilterFromRecent,
@@ -503,10 +526,10 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
                     }
                 }, 0)
             }
-            onChange?.(group, valueIn, item)
+            onChange?.(resolvedGroup, resolvedValue, item)
             setSearchQuery('')
         },
-        [allGroups, onChange, setSearchQuery]
+        [onChange, resolveItemGroup, setSearchQuery]
     )
 
     const selectSelected = useCallback(() => {
@@ -605,6 +628,7 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         searchQuery,
         setSearchQuery,
         searchPlaceholder,
+        resolveItemGroup,
         selectItem,
         selectSelected,
         registerActiveList,
@@ -612,7 +636,7 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         value,
         selectingKeyOnly,
         excludedOperators,
-        excludedProperties,
+        excludedProperties: effectiveShortcutExcludedProperties,
         rootProps: { onKeyDown },
         inputProps: {
             value: searchQuery,

@@ -9,6 +9,7 @@ import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
 
 import { recentTaxonomicFiltersLogic } from '../recentTaxonomicFiltersLogic'
+import { taxonomicFilterPinnedPropertiesLogic } from '../taxonomicFilterPinnedPropertiesLogic'
 import { TaxonomicFilterGroupType } from '../types'
 import { useTaxonomicFilter } from './useTaxonomicFilter'
 import { __clearTaxonomicResourceCache } from './useTaxonomicResource'
@@ -295,6 +296,96 @@ describe('useTaxonomicFilter', () => {
         act(() => result.current.selectItem(eventsGroup, 'evt', { name: 'evt' }))
         expect(onChange).toHaveBeenCalledWith(eventsGroup, 'evt', { name: 'evt' })
         expect(result.current.searchQuery).toBe('')
+    })
+
+    it.each([TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.ExceptionProperties])(
+        'selects an exception display-category item declared as %s as an event property',
+        (declaredGroupType) => {
+            const onChange = jest.fn()
+            const { result } = renderHook(
+                () =>
+                    useTaxonomicFilter({
+                        taxonomicGroupTypes: [TaxonomicFilterGroupType.ExceptionProperties],
+                        onChange,
+                    }),
+                { wrapper }
+            )
+            const exceptionGroup = result.current.groups.find(
+                (group) => group.type === TaxonomicFilterGroupType.ExceptionProperties
+            )!
+            const item = {
+                name: '$exception_values',
+                value: '$exception_values',
+                group: declaredGroupType,
+            }
+
+            act(() => result.current.selectItem(exceptionGroup, '$exception_values', item))
+
+            expect(onChange).toHaveBeenCalledWith(
+                expect.objectContaining({ type: TaxonomicFilterGroupType.EventProperties }),
+                '$exception_values',
+                item
+            )
+        }
+    )
+
+    it('keeps list-only exception exclusions out of shortcut exclusions', () => {
+        const { result } = renderHook(
+            () =>
+                useTaxonomicFilter({
+                    taxonomicGroupTypes: [TaxonomicFilterGroupType.ExceptionProperties],
+                }),
+            { wrapper }
+        )
+
+        expect(result.current.groups[0].sourceGroupType).toBe(TaxonomicFilterGroupType.EventProperties)
+        const shortcutExclusions = result.current.excludedProperties?.[TaxonomicFilterGroupType.EventProperties]
+        expect(shortcutExclusions).not.toContain('$exception_values')
+        expect(shortcutExclusions).toEqual(
+            expect.arrayContaining(['$exception_steps', '$exception_list', '$exception_fingerprint_record'])
+        )
+    })
+
+    it('keeps curated exception properties visible in Recent and Pinned shortcuts', () => {
+        const recentLogic = recentTaxonomicFiltersLogic.build()
+        const pinnedLogic = taxonomicFilterPinnedPropertiesLogic.build()
+        recentLogic.mount()
+        pinnedLogic.mount()
+        recentLogic.actions.recordRecentFilter({
+            groupType: TaxonomicFilterGroupType.EventProperties,
+            groupName: 'Event properties',
+            value: '$exception_values',
+            item: { name: '$exception_values' },
+        })
+        pinnedLogic.actions.setPinnedFilters([
+            {
+                groupType: TaxonomicFilterGroupType.EventProperties,
+                groupName: 'Event properties',
+                value: '$exception_values',
+                item: { name: '$exception_values' },
+                timestamp: 1,
+            },
+        ])
+
+        try {
+            const { result } = renderHook(
+                () =>
+                    useTaxonomicFilter({
+                        taxonomicGroupTypes: [TaxonomicFilterGroupType.ExceptionProperties],
+                    }),
+                { wrapper }
+            )
+            const exceptionGroup = result.current.groups.find(
+                (group) => group.type === TaxonomicFilterGroupType.ExceptionProperties
+            )!
+            const listInput = result.current.getGroupListInput(exceptionGroup)
+
+            expect(listInput.promoteRecentItemsToTop).toEqual([expect.objectContaining({ name: '$exception_values' })])
+            expect(listInput.promotePinnedItemsToTop).toEqual([expect.objectContaining({ name: '$exception_values' })])
+        } finally {
+            recentLogic.unmount()
+            pinnedLogic.unmount()
+        }
     })
 
     it('selectItem records recents under an option-declared group, not the curated tab group', async () => {

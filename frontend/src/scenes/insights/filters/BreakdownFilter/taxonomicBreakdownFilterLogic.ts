@@ -123,7 +123,7 @@ export interface taxonomicBreakdownFilterLogicValues {
         | TaxonomicFilterGroupType.RevenueAnalyticsProperties
         | TaxonomicFilterGroupType.AccountCustomProperties
         | TaxonomicFilterGroupType.Resources
-        | TaxonomicFilterGroupType.ErrorTrackingProperties
+        | TaxonomicFilterGroupType.ExceptionProperties
         | TaxonomicFilterGroupType.ActivityLogProperties
         | TaxonomicFilterGroupType.MCPProperties
         | TaxonomicFilterGroupType.MaxAIContext
@@ -287,7 +287,7 @@ export interface taxonomicBreakdownFilterLogicMeta {
             | TaxonomicFilterGroupType.RevenueAnalyticsProperties
             | TaxonomicFilterGroupType.AccountCustomProperties
             | TaxonomicFilterGroupType.Resources
-            | TaxonomicFilterGroupType.ErrorTrackingProperties
+            | TaxonomicFilterGroupType.ExceptionProperties
             | TaxonomicFilterGroupType.ActivityLogProperties
             | TaxonomicFilterGroupType.MCPProperties
             | TaxonomicFilterGroupType.MaxAIContext

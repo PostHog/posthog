@@ -7,6 +7,7 @@ import {
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
+import { isFilterableExceptionPropertyForGroup } from 'lib/components/TaxonomicFilter/utils/errorTrackingProperties'
 
 /*
  * These mirror the legacy `infiniteListLogic` context-filter selectors
@@ -36,6 +37,11 @@ export function filterRecentsForContext(
         if (!hasRecentContext(item) || !availableTypes.has(item._recentContext.sourceGroupType)) {
             return false
         }
+        if (
+            !isFilterableExceptionPropertyForGroup(item._recentContext.sourceGroupType, item._recentContext.sourceValue)
+        ) {
+            return false
+        }
         // A group's excluded values (e.g. `message` for the logs group-by picker) must be dropped
         // from the Recent tab too, not just the group's own option list.
         const excludedValues = excludedProperties?.[item._recentContext.sourceGroupType]
@@ -58,13 +64,21 @@ export function filterRecentsForContext(
 /** Pinned items whose source group is one of the picker's groups. */
 export function filterPinnedForContext(
     pinnedFilterItems: TaxonomicDefinitionTypes[],
-    taxonomicGroupTypes: TaxonomicFilterGroupType[]
+    taxonomicGroupTypes: TaxonomicFilterGroupType[],
+    excludedProperties?: ExcludedProperties
 ): TaxonomicDefinitionTypes[] {
     if (!pinnedFilterItems?.length) {
         return []
     }
     const availableTypes = new Set(taxonomicGroupTypes)
-    return pinnedFilterItems.filter(
-        (item) => hasPinnedContext(item) && availableTypes.has(item._pinnedContext.sourceGroupType)
-    )
+    return pinnedFilterItems.filter((item) => {
+        if (!hasPinnedContext(item) || !availableTypes.has(item._pinnedContext.sourceGroupType)) {
+            return false
+        }
+        if (!isFilterableExceptionPropertyForGroup(item._pinnedContext.sourceGroupType, item._pinnedContext.value)) {
+            return false
+        }
+        const excludedValues = excludedProperties?.[item._pinnedContext.sourceGroupType]
+        return !excludedValues?.includes(item._pinnedContext.value)
+    })
 }

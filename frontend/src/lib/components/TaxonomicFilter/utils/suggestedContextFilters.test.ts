@@ -144,4 +144,15 @@ describe('suggestedContextFilters', () => {
             expect(names(filterPinnedForContext(items, types))).toEqual(expected)
         })
     })
+
+    it.each([EventProperties, TaxonomicFilterGroupType.ExceptionProperties])(
+        'drops non-filterable exception payloads from %s shortcuts',
+        (sourceGroupType) => {
+            const recentItems = [recent(sourceGroupType, '$exception_steps'), recent(sourceGroupType, '$browser')]
+            const pinnedItems = [pinned(sourceGroupType, '$exception_steps'), pinned(sourceGroupType, '$browser')]
+
+            expect(names(filterRecentsForContext(recentItems, [sourceGroupType]))).toEqual(['$browser'])
+            expect(names(filterPinnedForContext(pinnedItems, [sourceGroupType]))).toEqual(['$browser'])
+        }
+    )
 })

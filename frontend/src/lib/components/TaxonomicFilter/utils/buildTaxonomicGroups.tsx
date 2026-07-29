@@ -16,6 +16,11 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
+import {
+    getCuratedExceptionPropertyExclusions,
+    getCuratedExceptionPropertyOptions,
+    getNonFilterableExceptionProperties,
+} from 'lib/components/TaxonomicFilter/utils/errorTrackingProperties'
 import { withKeywordShortcuts } from 'lib/components/TaxonomicFilter/utils/keywordShortcuts'
 import {
     MCP_TOOL_CALL_EVENT,
@@ -196,6 +201,11 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
     } = ctx
     const { id: teamId } = currentTeam
     const { excludedProperties, propertyAllowList } = propertyFilters
+    const eventPropertyShortcutExclusions = [
+        ...(excludedProperties?.[TaxonomicFilterGroupType.EventProperties]?.filter(isString) ?? []),
+        ...(!featureFlags[FEATURE_FLAGS.TRAFFIC_TYPE_VIRTUAL_PROPERTIES] ? TRAFFIC_TYPE_VIRTUAL_PROPERTIES : []),
+        ...getNonFilterableExceptionProperties(),
+    ]
     // Opt the cohort picker into the trimmed `?basic=true` payload (drops the
     // filters/query/groups JSON the picker never reads). Gated by a flag so the
     // smaller response shape can be rolled out and rolled back independently.
@@ -363,15 +373,14 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
                     false
                 )}n't been seen with ${pluralize(eventNames.length, 'this event', 'these events', false)}`,
             excludedProperties: [
-                ...(excludedProperties?.[TaxonomicFilterGroupType.EventProperties]?.filter(isString) ?? []),
-                ...(!featureFlags[FEATURE_FLAGS.TRAFFIC_TYPE_VIRTUAL_PROPERTIES]
-                    ? TRAFFIC_TYPE_VIRTUAL_PROPERTIES
-                    : []),
+                ...eventPropertyShortcutExclusions,
                 // The known MCP schema lives only in its own group when that tab is
                 // present — excluded via the same mechanism as TRAFFIC_TYPE_VIRTUAL_PROPERTIES
                 // above; the exclusivity intent is documented on getMCPExcludedEventProperties.
                 ...getMCPExcludedEventProperties(eventNames, ctx.taxonomicGroupTypes),
+                ...getCuratedExceptionPropertyExclusions(ctx.taxonomicGroupTypes),
             ],
+            shortcutExcludedProperties: eventPropertyShortcutExclusions,
             propertyAllowList: propertyAllowList?.[TaxonomicFilterGroupType.EventProperties]?.filter(isString),
             ...withKeywordShortcuts<PropertyDefinition>(
                 {
@@ -479,21 +488,13 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
         {
             name: 'Exception properties',
             searchPlaceholder: 'exceptions',
-            type: TaxonomicFilterGroupType.ErrorTrackingProperties,
-            options: [
-                ...getProductEventPropertyFilterOptions('error-tracking').map((value) => ({
-                    name: value,
-                    value,
-                    group: TaxonomicFilterGroupType.EventProperties,
-                })),
-                ...(currentTeam?.person_display_name_properties
-                    ? currentTeam.person_display_name_properties.map((property) => ({
-                          name: property,
-                          value: property,
-                          group: TaxonomicFilterGroupType.PersonProperties,
-                      }))
-                    : []),
-            ],
+            type: TaxonomicFilterGroupType.ExceptionProperties,
+            sourceGroupType: TaxonomicFilterGroupType.EventProperties,
+            options: getCuratedExceptionPropertyOptions().map((value) => ({
+                name: value,
+                value,
+                group: TaxonomicFilterGroupType.EventProperties,
+            })),
             getIcon: getPropertyDefinitionIcon,
             getPopoverHeader: () => 'Exception properties',
         },

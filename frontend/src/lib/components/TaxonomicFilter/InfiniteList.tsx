@@ -31,6 +31,7 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterGroupValueMap,
 } from 'lib/components/TaxonomicFilter/types'
+import { resolveTaxonomicItemGroup as getItemGroup } from 'lib/components/TaxonomicFilter/utils/resolveTaxonomicItemGroup'
 import { dayjs } from 'lib/dayjs'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -280,7 +281,7 @@ const renderItemContents = ({
         listGroupType === TaxonomicFilterGroupType.Metadata ||
         listGroupType === TaxonomicFilterGroupType.SessionProperties ||
         listGroupType === TaxonomicFilterGroupType.MaxAIContext ||
-        listGroupType === TaxonomicFilterGroupType.ErrorTrackingProperties ||
+        listGroupType === TaxonomicFilterGroupType.ExceptionProperties ||
         listGroupType === TaxonomicFilterGroupType.MCPProperties ||
         listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix) ? (
         <>
@@ -1076,27 +1077,4 @@ function resolveItemRendering({
     }
 
     return { listGroupType, itemGroup }
-}
-
-export function getItemGroup(
-    item: TaxonomicDefinitionTypes | undefined,
-    groups: TaxonomicFilterGroup[],
-    defaultGroup: TaxonomicFilterGroup | undefined
-): TaxonomicFilterGroup | undefined {
-    let group = defaultGroup
-
-    const sourceType = item ? getSourceGroupType(item) : undefined
-    if (sourceType) {
-        const itemGroup = groups.find((g) => g.type === sourceType)
-        if (itemGroup) {
-            group = itemGroup
-        }
-    } else if (item && 'group' in item) {
-        const itemGroup = groups.find((g) => item.group === g.type)
-        if (itemGroup) {
-            group = itemGroup
-        }
-    }
-
-    return group
 }

@@ -12,6 +12,11 @@ import { Params } from 'scenes/sceneTypes'
 import { DateRange, ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+export {
+    INTERNAL_EXCEPTION_PROPERTY_KEYS,
+    SEARCHABLE_EXCEPTION_PROPERTIES,
+} from 'lib/components/TaxonomicFilter/utils/errorTrackingProperties'
+
 /** Reason error tracking write actions are disabled, or null when the user has editor access. */
 export function errorTrackingEditAccessDisabledReason(): string | null {
     return getAccessControlDisabledReason(AccessControlResourceType.ErrorTracking, AccessControlLevel.Editor)
@@ -22,19 +27,6 @@ export const ERROR_TRACKING_LISTING_RESOLUTION = 20
 export const ERROR_TRACKING_DETAILS_RESOLUTION = 50
 
 const THIRD_PARTY_SCRIPT_ERROR = 'Script error.'
-
-export const SEARCHABLE_EXCEPTION_PROPERTIES = [
-    '$exception_types',
-    '$exception_values',
-    '$exception_sources',
-    '$exception_functions',
-]
-export const INTERNAL_EXCEPTION_PROPERTY_KEYS = [
-    '$exception_list',
-    '$exception_fingerprint_record',
-    '$exception_proposed_fingerprint',
-    ...SEARCHABLE_EXCEPTION_PROPERTIES,
-]
 
 export const ISSUE_STATUS_OPTIONS: ErrorTrackingIssue['status'][] = ['active', 'resolved', 'suppressed']
 

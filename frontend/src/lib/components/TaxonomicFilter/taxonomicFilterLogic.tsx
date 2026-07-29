@@ -51,6 +51,11 @@ import {
     isQuickFilterItem,
 } from 'lib/components/TaxonomicFilter/types'
 import {
+    getCuratedExceptionPropertyExclusions,
+    getCuratedExceptionPropertyOptions,
+    getNonFilterableExceptionProperties,
+} from 'lib/components/TaxonomicFilter/utils/errorTrackingProperties'
+import {
     MCP_TOOL_CALL_EVENT,
     MCP_TOOL_CALL_SUGGESTED_PROPERTIES,
     getMCPExcludedEventProperties,
@@ -361,6 +366,7 @@ export interface taxonomicFilterLogicValues {
     endpointFilters: Record<string, any>
     eventNames: any
     eventNamesWithPrimaryProperties: {
+        errorTrackingExcludedEventProperties: string[]
         eventNames: string[]
         mcpExcludedEventProperties: string[]
         primaryPropertiesForContextEvents: string[]
@@ -500,6 +506,7 @@ export interface taxonomicFilterLogicMeta {
             primaryProperties: Record<string, string>,
             arg: any
         ) => {
+            errorTrackingExcludedEventProperties: string[]
             eventNames: string[]
             mcpExcludedEventProperties: string[]
             primaryPropertiesForContextEvents: string[]
@@ -542,6 +549,7 @@ export interface taxonomicFilterLogicMeta {
             groupAnalyticsTaxonomicGroups: TaxonomicFilterGroup[],
             groupAnalyticsTaxonomicGroupNames: TaxonomicFilterGroup[],
             eventNamesWithPrimaryProperties: {
+                errorTrackingExcludedEventProperties: string[]
                 eventNames: string[]
                 mcpExcludedEventProperties: string[]
                 primaryPropertiesForContextEvents: string[]
@@ -581,12 +589,12 @@ export interface taxonomicFilterLogicMeta {
         groupAnalyticsTaxonomicGroupNames: (
             groupTypes: Map<GroupTypeIndex, GroupType>,
             currentTeamId: number | null,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => TaxonomicFilterGroup[]
         groupAnalyticsTaxonomicGroups: (
             groupTypes: Map<GroupTypeIndex, GroupType>,
             currentProjectId: number | null,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => TaxonomicFilterGroup[]
         infiniteListLogics: (
             taxonomicGroupTypes: TaxonomicFilterGroupType[],
@@ -806,10 +814,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             (eventNames) => eventNames ?? [],
             { resultEqualityCheck: objectsEqual },
         ],
-        // Combined selector that returns the event names, the distinct primary properties for
-        // those events, and the known MCP schema to hide from Event properties when the MCP tab
-        // hosts it. Combined into a single selector so taxonomicGroups stays under kea's 16-dep
-        // tuple type limit; consumers destructure the fields.
+        // Combined to keep taxonomicGroups under kea's 16-dependency tuple limit.
         eventNamesWithPrimaryProperties: [
             (s) => [s.eventNames, s.primaryProperties, (_, props) => props.taxonomicGroupTypes],
             (
@@ -820,6 +825,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 eventNames: string[]
                 primaryPropertiesForContextEvents: string[]
                 mcpExcludedEventProperties: string[]
+                errorTrackingExcludedEventProperties: string[]
             } => {
                 return {
                     eventNames,
@@ -828,6 +834,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         primaryProperties
                     ),
                     mcpExcludedEventProperties: getMCPExcludedEventProperties(eventNames, taxonomicGroupTypes),
+                    errorTrackingExcludedEventProperties: [
+                        ...getNonFilterableExceptionProperties(),
+                        ...getCuratedExceptionPropertyExclusions(taxonomicGroupTypes),
+                    ],
                 }
             },
             { resultEqualityCheck: objectsEqual },
@@ -943,6 +953,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     eventNames: string[]
                     primaryPropertiesForContextEvents: string[]
                     mcpExcludedEventProperties: string[]
+                    errorTrackingExcludedEventProperties: string[]
                 },
                 schemaColumns: DatabaseSchemaField[],
                 schemaColumnsLoading: boolean | undefined,
@@ -970,8 +981,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 },
                 featureFlags: Record<string, boolean | string | undefined>
             ): TaxonomicFilterGroup[] => {
-                const { eventNames, primaryPropertiesForContextEvents, mcpExcludedEventProperties } =
-                    eventNamesWithPrimaryProperties
+                const {
+                    eventNames,
+                    primaryPropertiesForContextEvents,
+                    mcpExcludedEventProperties,
+                    errorTrackingExcludedEventProperties,
+                } = eventNamesWithPrimaryProperties
                 const { id: teamId } = currentTeam
                 const { excludedProperties, propertyAllowList } = propertyFilters
                 const groups: TaxonomicFilterGroup[] = [
@@ -1165,6 +1180,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             // present — excluded via the same mechanism as TRAFFIC_TYPE_VIRTUAL_PROPERTIES
                             // above; the exclusivity intent is documented on getMCPExcludedEventProperties.
                             ...mcpExcludedEventProperties,
+                            ...errorTrackingExcludedEventProperties,
                         ],
                         propertyAllowList:
                             propertyAllowList?.[TaxonomicFilterGroupType.EventProperties]?.filter(isString),
@@ -1284,21 +1300,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     {
                         name: 'Exception properties',
                         searchPlaceholder: 'exceptions',
-                        type: TaxonomicFilterGroupType.ErrorTrackingProperties,
-                        options: [
-                            ...getProductEventPropertyFilterOptions('error-tracking').map((value) => ({
-                                name: value,
-                                value,
-                                group: TaxonomicFilterGroupType.EventProperties,
-                            })),
-                            ...(currentTeam?.person_display_name_properties
-                                ? currentTeam.person_display_name_properties.map((property) => ({
-                                      name: property,
-                                      value: property,
-                                      group: TaxonomicFilterGroupType.PersonProperties,
-                                  }))
-                                : []),
-                        ],
+                        type: TaxonomicFilterGroupType.ExceptionProperties,
+                        sourceGroupType: TaxonomicFilterGroupType.EventProperties,
+                        options: getCuratedExceptionPropertyOptions().map((value) => ({
+                            name: value,
+                            value,
+                            group: TaxonomicFilterGroupType.EventProperties,
+                        })),
                         getIcon: getPropertyDefinitionIcon,
                         getPopoverHeader: () => 'Exception properties',
                     },

@@ -113,14 +113,6 @@ export const getProductEventPropertyFilterOptions = (contextId: HogFunctionConfi
                 'detail.changes',
                 'created_at',
             ]
-        case 'error-tracking':
-            return [
-                '$exception_types',
-                '$exception_values',
-                '$exception_sources',
-                '$exception_functions',
-                '$exception_handled',
-            ]
     }
 
     return []
@@ -162,7 +154,7 @@ export function HogFunctionFiltersInternal(): JSX.Element {
         if (contextId === 'error-tracking') {
             return [
                 TaxonomicFilterGroupType.ErrorTrackingIssues,
-                TaxonomicFilterGroupType.ErrorTrackingProperties,
+                TaxonomicFilterGroupType.ExceptionProperties,
                 TaxonomicFilterGroupType.EventProperties,
             ]
         } else if (contextId === 'insight-alerts') {

@@ -887,6 +887,44 @@ describe('taxonomicFilterLogic', () => {
         )
     })
 
+    describe('Exception properties display category', () => {
+        it.each([
+            { includeCategory: true, expectCuratedExcluded: true },
+            { includeCategory: false, expectCuratedExcluded: false },
+        ])(
+            'excludes exception keys from Event properties when category is present=$includeCategory',
+            ({ includeCategory, expectCuratedExcluded }) => {
+                const testLogic = taxonomicFilterLogic({
+                    taxonomicFilterLogicKey: `testExceptionProperties-${includeCategory}`,
+                    taxonomicGroupTypes: [
+                        ...(includeCategory ? [TaxonomicFilterGroupType.ExceptionProperties] : []),
+                        TaxonomicFilterGroupType.EventProperties,
+                    ],
+                })
+                testLogic.mount()
+
+                const eventProperties = testLogic.values.taxonomicGroups.find(
+                    (group) => group.type === TaxonomicFilterGroupType.EventProperties
+                )
+                const exceptionProperties = testLogic.values.taxonomicGroups.find(
+                    (group) => group.type === TaxonomicFilterGroupType.ExceptionProperties
+                )
+
+                expect(eventProperties?.excludedProperties?.includes('$exception_values')).toBe(expectCuratedExcluded)
+                expect(eventProperties?.excludedProperties).toEqual(
+                    expect.arrayContaining(['$exception_steps', '$exception_list', '$exception_fingerprint_record'])
+                )
+                expect(exceptionProperties?.options).toContainEqual({
+                    name: '$exception_values',
+                    value: '$exception_values',
+                    group: TaxonomicFilterGroupType.EventProperties,
+                })
+
+                testLogic.unmount()
+            }
+        )
+    })
+
     describe('SuggestedFilters presence by variant', () => {
         afterEach(() => {
             featureFlagLogic.actions.setFeatureFlags([], {

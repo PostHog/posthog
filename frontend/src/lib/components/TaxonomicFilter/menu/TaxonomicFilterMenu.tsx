@@ -51,6 +51,7 @@ import { useTaxonomicFilterContext } from '../headless/context'
 import { recentTaxonomicFiltersLogic } from '../recentTaxonomicFiltersLogic'
 import { taxonomicFilterPinnedPropertiesLogic } from '../taxonomicFilterPinnedPropertiesLogic'
 import { isQuickFilterItem, META_GROUP_TYPES, TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from '../types'
+import { getTaxonomicItemSourceGroupType, resolveTaxonomicDisplayGroup } from '../utils/resolveTaxonomicItemGroup'
 import { filterPinnedForContext, filterRecentsForContext } from '../utils/suggestedContextFilters'
 import { MenuFilterCombobox } from './Combobox'
 import { MenuFilterDwhConfig } from './DwhFlow'
@@ -252,6 +253,7 @@ export function TaxonomicFilterMenu({
 }: TaxonomicFilterMenuProps): JSX.Element {
     const {
         groups,
+        resolveItemGroup,
         selectItem,
         inputProps,
         searchQuery,
@@ -351,7 +353,10 @@ export function TaxonomicFilterMenu({
     // a global recent from a different picker (e.g. a cohort in an events-only
     // picker) would otherwise be remapped onto a fallback group and shown under
     // the wrong category.
-    const taxonomicGroupTypes = useMemo(() => groups.map((g) => g.type), [groups])
+    const taxonomicGroupTypes = useMemo(
+        () => Array.from(new Set(groups.flatMap((group) => [group.type, group.sourceGroupType ?? group.type]))),
+        [groups]
+    )
     const recentEntries = useMemo<MenuFilterEntry[]>(
         () =>
             mapShortcutItems(
@@ -362,20 +367,31 @@ export function TaxonomicFilterMenu({
                     selectingKeyOnly,
                     excludedProperties
                 ) as ShortcutItem[],
-                groups
+                groups,
+                resolveItemGroup
             ),
-        [recentFilterItems, taxonomicGroupTypes, groups, excludedOperators, selectingKeyOnly, excludedProperties]
+        [
+            recentFilterItems,
+            taxonomicGroupTypes,
+            groups,
+            excludedOperators,
+            selectingKeyOnly,
+            excludedProperties,
+            resolveItemGroup,
+        ]
     )
     const pinnedEntries = useMemo<MenuFilterEntry[]>(
         () =>
             mapShortcutItems(
                 filterPinnedForContext(
                     pinnedFilterItems as TaxonomicDefinitionTypes[],
-                    taxonomicGroupTypes
+                    taxonomicGroupTypes,
+                    excludedProperties
                 ) as ShortcutItem[],
-                groups
+                groups,
+                resolveItemGroup
             ),
-        [pinnedFilterItems, taxonomicGroupTypes, groups]
+        [pinnedFilterItems, taxonomicGroupTypes, excludedProperties, groups, resolveItemGroup]
     )
 
     const hasDwh = groups.some((g) => g.type === TaxonomicFilterGroupType.DataWarehouse)
@@ -388,10 +404,12 @@ export function TaxonomicFilterMenu({
             const mergedItem = extra
                 ? ({ ...(entry.item as unknown as object), ...extra } as unknown as TaxonomicDefinitionTypes)
                 : entry.item
-            const itemValue = entry.group.getValue?.(mergedItem) ?? null
+            const resolvedGroup = resolveItemGroup(entry.group, mergedItem)
+            const resolvedEntry = resolvedGroup === entry.group ? entry : { ...entry, group: resolvedGroup }
+            const itemValue = resolvedGroup.getValue?.(mergedItem) ?? entry.group.getValue?.(mergedItem) ?? null
             hadCommitRef.current = true
             posthog.capture('taxonomic filter menu item selected', {
-                groupType: entry.group.type,
+                groupType: resolvedGroup.type,
                 hadSearchInput: !!searchQuery,
                 query: searchQuery || undefined,
                 hadExtras: !!extra,
@@ -418,23 +436,23 @@ export function TaxonomicFilterMenu({
             posthog.capture('taxonomic filter item selected', {
                 surface: TAXONOMIC_FILTER_SURFACE,
                 groupType: selection?.groupType,
-                sourceGroupType: entry.group.type,
+                sourceGroupType: resolvedGroup.type,
                 wasFromRecents: selection?.wasFromRecents ?? false,
                 wasFromPinnedList: selection?.wasFromPinnedList ?? false,
                 wasQuickFilter: isQuickFilterItem(entry.item),
                 hadSearchInput: !!searchQuery,
                 position: selection?.position,
                 query: searchQuery || undefined,
-                wasStale: eventSelectionWasStale(entry.group.type, entry.item),
+                wasStale: eventSelectionWasStale(resolvedGroup.type, entry.item),
                 // True when the row is the synthetic "URL contains <query>" shortcut
                 // rather than a real picked item — lets us measure its adoption.
                 wasUrlContainsShortcut: (entry.item as { isContainsShortcut?: boolean }).isContainsShortcut === true,
             })
-            selectItem(entry.group, itemValue, mergedItem)
-            onCommit?.({ ...entry, item: mergedItem }, extra)
+            selectItem(resolvedGroup, itemValue, mergedItem)
+            onCommit?.({ ...resolvedEntry, item: mergedItem }, extra)
             closeAll()
         },
-        [selectItem, onCommit, closeAll, searchQuery]
+        [resolveItemGroup, selectItem, onCommit, closeAll, searchQuery]
     )
 
     // -- Trigger render --
@@ -839,11 +857,7 @@ interface ShortcutItem {
     name?: string
     id?: unknown
     value?: unknown
-    // `_pinnedContext.value` and `_recentContext.sourceValue` mean the
-    // same thing — the source-group field name diverged in master while
-    // this branch was in flight; consumers (this menu) read whichever
-    // shape exists. See `taxonomicFilterPinnedPropertiesLogic` /
-    // `recentTaxonomicFiltersLogic`.
+    // Pinned and recent storage use different field names for the canonical value.
     _pinnedContext?: { sourceGroupType?: TaxonomicFilterGroupType; value?: unknown }
     _recentContext?: {
         sourceGroupType?: TaxonomicFilterGroupType
@@ -852,69 +866,50 @@ interface ShortcutItem {
     }
 }
 
-/**
- * Resolve the most appropriate `TaxonomicFilterGroup` for a shortcut
- * item.
- *
- *   1. Recorded `sourceGroupType` if it points at a real content group
- *      that's available right now.
- *   2. If the recorded source is a META group (Suggested / Recent /
- *      Pinned), find a non-meta group in `groups` whose `getValue(item)`
- *      matches the saved value — that's the underlying definition the
- *      item really belongs to (e.g. SuggestedFilters → Events).
- *   3. Fall back to the first non-meta group so the row at least has a
- *      sensible category subtitle instead of "Suggested filters".
- */
-function resolveShortcutGroup(
-    item: ShortcutItem,
-    sourceType: TaxonomicFilterGroupType | undefined,
-    sourceValue: unknown,
-    groups: TaxonomicFilterGroup[]
-): TaxonomicFilterGroup | null {
-    if (sourceType && !META_GROUP_TYPES.has(sourceType)) {
-        const direct = groups.find((g) => g.type === sourceType)
-        if (direct) {
-            return direct
-        }
+function groupMatchesShortcutValue(
+    group: TaxonomicFilterGroup,
+    item: TaxonomicDefinitionTypes,
+    sourceValue: unknown
+): boolean {
+    if (META_GROUP_TYPES.has(group.type)) {
+        return false
     }
-    const matchByValue = groups.find((g) => {
-        if (META_GROUP_TYPES.has(g.type)) {
-            return false
-        }
-        try {
-            const candidate = g.getValue?.(item as TaxonomicDefinitionTypes)
-            return candidate != null && candidate === sourceValue
-        } catch {
-            return false
-        }
-    })
-    if (matchByValue) {
-        return matchByValue
+    try {
+        return group.getValue?.(item) === sourceValue
+    } catch {
+        return false
     }
-    return groups.find((g) => !META_GROUP_TYPES.has(g.type)) ?? null
 }
 
-function mapShortcutItems(items: ShortcutItem[], groups: TaxonomicFilterGroup[]): MenuFilterEntry[] {
+function mapShortcutItems(
+    items: ShortcutItem[],
+    groups: TaxonomicFilterGroup[],
+    resolveItemGroup: (group: TaxonomicFilterGroup, item: TaxonomicDefinitionTypes) => TaxonomicFilterGroup
+): MenuFilterEntry[] {
     return items
         .map((item) => {
-            const ctx = item._recentContext ?? item._pinnedContext
-            const sourceType = ctx?.sourceGroupType
-            // Recent stores the value under `sourceValue`, pinned under
-            // `value`. Read whichever side exists.
-            const sourceValue =
-                (ctx as { sourceValue?: unknown } | undefined)?.sourceValue ??
-                (ctx as { value?: unknown } | undefined)?.value
-            const group = resolveShortcutGroup(item, sourceType, sourceValue, groups)
-            if (!group) {
+            const sourceGroupType = getTaxonomicItemSourceGroupType(item as TaxonomicDefinitionTypes)
+            const sourceValue = item._recentContext?.sourceValue ?? item._pinnedContext?.value
+            const defaultGroup =
+                (!sourceGroupType || META_GROUP_TYPES.has(sourceGroupType)
+                    ? undefined
+                    : groups.find(
+                          (group) => group.type === sourceGroupType || group.sourceGroupType === sourceGroupType
+                      )) ??
+                groups.find((group) => groupMatchesShortcutValue(group, item as TaxonomicDefinitionTypes, sourceValue))
+            if (!defaultGroup) {
                 return null
             }
-            const name = (item.name as string) ?? group.getName?.(item as TaxonomicDefinitionTypes) ?? ''
+            const sourceGroup = resolveItemGroup(defaultGroup, item as TaxonomicDefinitionTypes)
+            const displayGroup = resolveTaxonomicDisplayGroup(item as TaxonomicDefinitionTypes, groups, sourceGroup)
+            const name = (item.name as string) ?? sourceGroup.getName?.(item as TaxonomicDefinitionTypes) ?? ''
             const recentPropertyFilter = item._recentContext?.propertyFilter
             return {
                 item: item as TaxonomicDefinitionTypes,
-                group,
+                group: sourceGroup,
+                displayGroup,
                 name,
-                friendlyLabel: getCoreFilterDefinition(name, group.type)?.label,
+                friendlyLabel: getCoreFilterDefinition(name, sourceGroup.type)?.label,
                 ...(recentPropertyFilter
                     ? { recentPropertyFilter, recentLabel: formatPropertyLabel(recentPropertyFilter, {}) }
                     : {}),

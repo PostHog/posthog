@@ -25,7 +25,7 @@ export function SuppressionRuleModal(): JSX.Element {
             pageKey="suppression-rule-modal"
             width={800}
             taxonomicGroupTypes={[
-                TaxonomicFilterGroupType.ErrorTrackingProperties,
+                TaxonomicFilterGroupType.ExceptionProperties,
                 TaxonomicFilterGroupType.EventProperties,
             ]}
             suffix={(issuesLink, dateRangeLabel) => (

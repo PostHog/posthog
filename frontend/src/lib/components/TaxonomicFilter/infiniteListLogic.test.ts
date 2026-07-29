@@ -1615,6 +1615,66 @@ describe('infiniteListLogic', () => {
             expect(names).toContain('level')
         })
 
+        it('hides a pinned value excluded for its source group', () => {
+            const pinnedLogic = taxonomicFilterPinnedPropertiesLogic.build()
+            pinnedLogic.mount()
+            pinnedLogic.actions.setPinnedFilters([
+                {
+                    groupType: TaxonomicFilterGroupType.LogAttributes,
+                    groupName: 'Log attributes',
+                    value: 'message',
+                    item: { name: 'message' },
+                    timestamp: 1,
+                },
+                {
+                    groupType: TaxonomicFilterGroupType.LogAttributes,
+                    groupName: 'Log attributes',
+                    value: 'level',
+                    item: { name: 'level' },
+                    timestamp: 2,
+                },
+            ])
+
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'logs-group-by-pins-test',
+                listGroupType: TaxonomicFilterGroupType.PinnedFilters,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.LogAttributes, TaxonomicFilterGroupType.PinnedFilters],
+                showNumericalPropsOnly: false,
+                excludedProperties: { [TaxonomicFilterGroupType.LogAttributes]: ['message'] },
+            })
+            listLogic.mount()
+
+            const names = listLogic.values.contextFilteredPinnedItems.map((item) => (item as { name: string }).name)
+            expect(names).toEqual(['level'])
+        })
+
+        it('hides structured exception payloads recorded before they became non-filterable', () => {
+            const recentLogic = recentTaxonomicFiltersLogic.build()
+            recentLogic.mount()
+            for (const value of ['$exception_steps', '$browser']) {
+                recentLogic.actions.recordRecentFilter({
+                    groupType: TaxonomicFilterGroupType.EventProperties,
+                    groupName: 'Event properties',
+                    value,
+                    item: { name: value },
+                })
+            }
+
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'exception-recents-test',
+                listGroupType: TaxonomicFilterGroupType.RecentFilters,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.RecentFilters],
+                showNumericalPropsOnly: false,
+            })
+            listLogic.mount()
+
+            const names = listLogic.values.contextFilteredRecentItems
+                .filter((item) => 'name' in item)
+                .map((item) => (item as { name: string }).name)
+            expect(names).not.toContain('$exception_steps')
+            expect(names).toContain('$browser')
+        })
+
         it('preserves sourceValue on recent Persons items so the row resolves the correct distinct_id', () => {
             // Persons items are stored stripped ({name, id?}) — distinct_ids is not persisted.
             // The fix in InfiniteListRow falls back to _recentContext.sourceValue instead of

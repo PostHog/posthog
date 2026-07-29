@@ -12,7 +12,7 @@ export function BypassRules(): JSX.Element {
             modalLogic={bypassRuleModalLogic}
             modal={<BypassRuleModal />}
             taxonomicGroupTypes={[
-                TaxonomicFilterGroupType.ErrorTrackingProperties,
+                TaxonomicFilterGroupType.ExceptionProperties,
                 TaxonomicFilterGroupType.EventProperties,
             ]}
             pageKeyPrefix="bypass-rule"

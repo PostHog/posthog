@@ -7,7 +7,7 @@ import { ErrorFilters } from 'products/error_tracking/frontend/components/IssueF
 import { ErrorTrackingQuickFilters } from 'products/error_tracking/frontend/components/IssueFilters/QuickFilters'
 
 const INSIGHTS_TAXONOMIC_GROUP_TYPES = [
-    TaxonomicFilterGroupType.ErrorTrackingProperties,
+    TaxonomicFilterGroupType.ExceptionProperties,
     TaxonomicFilterGroupType.EventProperties,
     TaxonomicFilterGroupType.PersonProperties,
     TaxonomicFilterGroupType.Cohorts,

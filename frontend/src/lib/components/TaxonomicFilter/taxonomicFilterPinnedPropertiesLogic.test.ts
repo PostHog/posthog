@@ -154,6 +154,34 @@ describe('taxonomicFilterPinnedPropertiesLogic', () => {
         expect(logic.values.pinnedFilters).toHaveLength(0)
     })
 
+    it('treats persisted exception property pins as event property pins', () => {
+        logic.actions.setPinnedFilters([
+            {
+                groupType: TaxonomicFilterGroupType.ExceptionProperties,
+                groupName: 'Exception properties',
+                value: '$exception_values',
+                item: { name: '$exception_values' },
+                timestamp: 1,
+            },
+        ])
+
+        expect(logic.values.isPinned(TaxonomicFilterGroupType.EventProperties, '$exception_values')).toBe(true)
+        const pinnedItem = logic.values.pinnedFilterItems[0]
+        expect(hasPinnedContext(pinnedItem)).toBe(true)
+        if (hasPinnedContext(pinnedItem)) {
+            expect(pinnedItem._pinnedContext).toEqual({
+                sourceGroupType: TaxonomicFilterGroupType.EventProperties,
+                sourceGroupName: 'Event properties',
+                value: '$exception_values',
+            })
+        }
+
+        logic.actions.togglePin(TaxonomicFilterGroupType.EventProperties, 'Event properties', '$exception_values', {
+            name: '$exception_values',
+        })
+        expect(logic.values.pinnedFilters).toEqual([])
+    })
+
     it('allows the same value in different group types', () => {
         logic.actions.togglePin(TaxonomicFilterGroupType.Events, 'Events', 'name', { name: 'name' })
         logic.actions.togglePin(TaxonomicFilterGroupType.PersonProperties, 'Person properties', 'name', {

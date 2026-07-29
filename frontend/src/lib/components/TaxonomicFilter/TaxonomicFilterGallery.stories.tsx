@@ -259,7 +259,7 @@ const USAGES: Usage[] = [
         entry: 'search',
         props: {
             taxonomicGroupTypes: [
-                G.ErrorTrackingProperties,
+                G.ExceptionProperties,
                 G.ErrorTrackingIssues,
                 G.EventProperties,
                 G.PersonProperties,

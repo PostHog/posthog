@@ -99,7 +99,7 @@ const FilterPicker = ({ taxonomicGroupTypes }: { taxonomicGroupTypes: TaxonomicF
         <TaxonomicFilterHeadless.Root
             className="contents"
             bindRootProps={false}
-            groupType={taxonomicGroupTypes[0] ?? TaxonomicFilterGroupType.ErrorTrackingProperties}
+            groupType={taxonomicGroupTypes[0] ?? TaxonomicFilterGroupType.ExceptionProperties}
             taxonomicGroupTypes={taxonomicGroupTypes}
             eventNames={ERROR_TRACKING_EVENT_NAMES}
             onChange={(group, value, item) => addGroupFilter(group, value, item)}

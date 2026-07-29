@@ -114,6 +114,10 @@ function entryValue(entry: MenuFilterEntry): string {
     return String(entry.group.getValue?.(entry.item) ?? entry.name)
 }
 
+function entryDisplayGroup(entry: MenuFilterEntry): TaxonomicFilterGroup {
+    return entry.displayGroup ?? entry.group
+}
+
 /** Identity for an entry's underlying definition — source group + value.
  *  Uses `::` as separator to serve as a dedup key (distinct from DOM ids). */
 function entryKey(entry: MenuFilterEntry): string {
@@ -209,7 +213,7 @@ export function MenuFilterCombobox({
     // (Pageview URLs, Screens, etc.) actually fetch — `useGroupList` reads
     // `searchQuery` from the orchestrator's `getGroupListInput`, not from
     // us. Keeping a local mirror just for the controlled input ergonomics.
-    const { groups, searchQuery, setSearchQuery } = useTaxonomicFilterContext()
+    const { groups, resolveItemGroup, searchQuery, setSearchQuery } = useTaxonomicFilterContext()
     // Open on the drill scope ("All" for the default surface). Reopening with a committed
     // selection used to jump to that item's category; we now lead with "All" so the user
     // lands on recents/pinned + a cross-category search (the selection still surfaces via
@@ -217,8 +221,8 @@ export function MenuFilterCombobox({
     // columns reach the combobox as DataWarehouseProperties) — they reopen on their own
     // chip so the user can reconfigure, mirroring the legacy `activeTab`.
     const [activeChip, setActiveChip] = useState<DrillCategory>(() =>
-        drillTo === 'all' && selectedEntry && OPEN_AS_SELF_ON_REOPEN.has(selectedEntry.group.type)
-            ? selectedEntry.group.type
+        drillTo === 'all' && selectedEntry && OPEN_AS_SELF_ON_REOPEN.has(entryDisplayGroup(selectedEntry).type)
+            ? entryDisplayGroup(selectedEntry).type
             : drillTo
     )
     // The scope the user is actually looking at: the active chip when chips show
@@ -374,6 +378,7 @@ export function MenuFilterCombobox({
                             isContainsShortcut: true,
                         } as unknown as TaxonomicDefinitionTypes,
                         group,
+                        displayGroup: group,
                         name: label,
                         friendlyLabel: label,
                     })
@@ -381,7 +386,7 @@ export function MenuFilterCombobox({
                 continue
             }
             for (const item of items) {
-                merged.push(buildMenuFilterEntry(item, group))
+                merged.push(buildMenuFilterEntry(item, group, resolveItemGroup))
             }
         }
         // Make sure the committed selection is reachable from the list
@@ -394,7 +399,7 @@ export function MenuFilterCombobox({
         if (selectedEntry) {
             // `recent`/`pinned` scopes already returned above, so the only
             // mixed scope left here is `all`.
-            const fitsScope = scope === 'all' || scope === selectedEntry.group.type
+            const fitsScope = scope === 'all' || scope === entryDisplayGroup(selectedEntry).type
             if (fitsScope) {
                 // `entryMatchesSelection` reconciles a synthetic `selected`
                 // shimmed in by callers like `TaxonomicPopoverMenu` against the
@@ -426,6 +431,7 @@ export function MenuFilterCombobox({
         drillTo,
         searchQuery,
         surveyQuestionLabels,
+        resolveItemGroup,
     ])
 
     // Stable DOM id for the selected row — drives `Row`'s checkmark, the
@@ -520,13 +526,13 @@ export function MenuFilterCombobox({
                 continue
             }
             const item = { name: option.name } as unknown as TaxonomicDefinitionTypes
-            const entry = buildMenuFilterEntry(item, realGroup)
+            const entry = buildMenuFilterEntry(item, realGroup, resolveItemGroup)
             if (!prefixKeys.has(entryKey(entry))) {
                 entries.push(entry)
             }
         }
         return entries
-    }, [showChips, activeChip, drillTo, searchQuery, groups, recentsPinnedPrefix])
+    }, [showChips, activeChip, drillTo, searchQuery, groups, recentsPinnedPrefix, resolveItemGroup])
 
     // Recency lookup so any row that is one of the user's recents/pinned gets a
     // "- recent" / "- pinned" tag on its category label, wherever it appears
@@ -562,7 +568,7 @@ export function MenuFilterCombobox({
             // vanish at "posthog team". So only Fuse locally-sourced groups
             // (Actions, etc., which load their full list client-side); pass
             // server-searched entries through untouched, preserving order.
-            const localSourced = indexed.filter((e) => !e.group.endpoint)
+            const localSourced = indexed.filter((e) => !entryDisplayGroup(e).endpoint)
             const localMatches =
                 localSourced.length > 0
                     ? new Set(
@@ -571,7 +577,7 @@ export function MenuFilterCombobox({
                               .map((r) => r.item)
                       )
                     : null
-            base = indexed.filter((e) => !!e.group.endpoint || (localMatches?.has(e) ?? false))
+            base = indexed.filter((e) => !!entryDisplayGroup(e).endpoint || (localMatches?.has(e) ?? false))
         }
         const scope = showChips ? activeChip : drillTo
         // Promote the committed selection to index 0 so base-ui's
@@ -1255,7 +1261,7 @@ function resolveRowCells(entry: MenuFilterEntry): {
     category: string
 } {
     if (entry.recentLabel) {
-        return { name: entry.recentLabel, category: entry.group.name }
+        return { name: entry.recentLabel, category: entryDisplayGroup(entry).name }
     }
     const friendly = entry.friendlyLabel
     const pathTail = parseUrlPathTail(entry.name)
@@ -1263,17 +1269,17 @@ function resolveRowCells(entry: MenuFilterEntry): {
         return {
             name: pathTail,
             value: entry.name,
-            category: entry.group.name,
+            category: entryDisplayGroup(entry).name,
         }
     }
     if (friendly && friendly.length > 0 && friendly !== entry.name) {
         return {
             name: friendly,
             value: entry.name,
-            category: entry.group.name,
+            category: entryDisplayGroup(entry).name,
         }
     }
-    return { name: entry.name, category: entry.group.name }
+    return { name: entry.name, category: entryDisplayGroup(entry).name }
 }
 
 function Row({
@@ -1454,15 +1460,22 @@ function getFriendlyLabel(item: TaxonomicDefinitionTypes, group: TaxonomicFilter
     if (!raw) {
         return undefined
     }
-    return getCoreFilterDefinition(raw, group.type)?.label
+    const sourceGroupType = (item as unknown as { group?: TaxonomicFilterGroupType }).group ?? group.type
+    return getCoreFilterDefinition(raw, sourceGroupType)?.label
 }
 
-function buildMenuFilterEntry(item: TaxonomicDefinitionTypes, group: TaxonomicFilterGroup): MenuFilterEntry {
+function buildMenuFilterEntry(
+    item: TaxonomicDefinitionTypes,
+    displayGroup: TaxonomicFilterGroup,
+    resolveItemGroup: (group: TaxonomicFilterGroup, item: TaxonomicDefinitionTypes) => TaxonomicFilterGroup
+): MenuFilterEntry {
+    const sourceGroup = resolveItemGroup(displayGroup, item)
     return {
         item,
-        group,
-        name: getRawName(item, group),
-        friendlyLabel: getFriendlyLabel(item, group),
+        group: sourceGroup,
+        displayGroup,
+        name: getRawName(item, sourceGroup),
+        friendlyLabel: getFriendlyLabel(item, sourceGroup),
     }
 }
 

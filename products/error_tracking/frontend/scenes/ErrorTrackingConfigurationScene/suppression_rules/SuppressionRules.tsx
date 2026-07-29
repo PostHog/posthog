@@ -13,7 +13,7 @@ export function SuppressionRules(): JSX.Element {
             modalLogic={suppressionRuleModalLogic}
             modal={<SuppressionRuleModal />}
             taxonomicGroupTypes={[
-                TaxonomicFilterGroupType.ErrorTrackingProperties,
+                TaxonomicFilterGroupType.ExceptionProperties,
                 TaxonomicFilterGroupType.EventProperties,
             ]}
             pageKeyPrefix="suppression-rule"
