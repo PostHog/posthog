@@ -1,7 +1,7 @@
 use crate::{
     config_cache::{get_cached_data, CacheNamespace},
     router::State as AppState,
-    sanitize::sanitize_config_for_client,
+    sanitize::{sanitize_config_for_client, ConfigCacheability},
     token::{Token, TokenError},
 };
 use axum::{
@@ -14,13 +14,43 @@ use serde_json::Value;
 use tracing::info;
 
 const REMOTE_CONFIG_COUNTER: &str = "remote_config_requests_total";
+const CACHEABILITY_COUNTER: &str = "remote_config_cacheability_total";
 
-/// Cache-Control and Vary headers matching Django's `add_config_cache_headers`.
-fn config_cache_headers() -> [(&'static str, &'static str); 2] {
-    [
-        ("cache-control", "public, max-age=300"),
-        ("vary", "Origin, Referer"),
-    ]
+/// Cache-Control and Vary headers for a config response.
+///
+/// When a team restricts replay to an allowlist of domains the body depends on
+/// Origin/Referer/User-Agent, and our CDN keys on the URL alone — `Vary` buys nothing
+/// there. Marking those responses `private` is what keeps the edge from pinning one
+/// caller's answer for everyone, e.g. a browser on an unlisted domain poisoning
+/// `sessionRecording: false` for the mobile SDKs that share the token.
+fn config_cache_headers(cacheability: ConfigCacheability) -> [(&'static str, &'static str); 2] {
+    match cacheability {
+        ConfigCacheability::Shared => [
+            ("cache-control", "public, max-age=300"),
+            ("vary", "Origin, Referer"),
+        ],
+        ConfigCacheability::PerClient => [
+            ("cache-control", "private, max-age=300"),
+            ("vary", "Origin, Referer, User-Agent"),
+        ],
+    }
+}
+
+/// Track how much of this endpoint's traffic the replay domain gate keeps out of the
+/// edge cache, so the origin load it shifts onto us stays visible.
+fn record_cacheability(endpoint: &'static str, cacheability: ConfigCacheability) {
+    let label = match cacheability {
+        ConfigCacheability::Shared => "shared",
+        ConfigCacheability::PerClient => "per_client",
+    };
+    inc(
+        CACHEABILITY_COUNTER,
+        &[
+            ("endpoint".to_string(), endpoint.to_string()),
+            ("cacheability".to_string(), label.to_string()),
+        ],
+        1,
+    );
 }
 
 /// Parse and validate a path token, returning the appropriate HTTP error on failure.
@@ -89,7 +119,7 @@ async fn get_validated_config(state: &AppState, token: &Token) -> Result<Value, 
 /// Reads pre-computed config from HyperCache (written by Django's RemoteConfig.sync).
 /// Public endpoint — no auth beyond token validation.
 ///
-/// Response headers: `Cache-Control: public, max-age=300`, `Vary: Origin, Referer`
+/// Response headers: see `config_cache_headers`
 pub async fn config_endpoint(
     State(state): State<AppState>,
     Path(raw_token): Path<String>,
@@ -100,9 +130,10 @@ pub async fn config_endpoint(
         return (StatusCode::NO_CONTENT, [("allow", "GET, OPTIONS, HEAD")]).into_response();
     }
     if method == Method::HEAD {
+        // No body, so there is no per-client replay decision to protect here.
         return (
             StatusCode::OK,
-            config_cache_headers(),
+            config_cache_headers(ConfigCacheability::Shared),
             [("content-type", "application/json")],
             axum::body::Body::empty(),
         )
@@ -119,9 +150,15 @@ pub async fn config_endpoint(
         Err(r) => return r,
     };
 
-    sanitize_config_for_client(&mut config, &headers);
+    let cacheability = sanitize_config_for_client(&mut config, &headers);
+    record_cacheability("config", cacheability);
 
-    (StatusCode::OK, config_cache_headers(), Json(config)).into_response()
+    (
+        StatusCode::OK,
+        config_cache_headers(cacheability),
+        Json(config),
+    )
+        .into_response()
 }
 
 /// `GET /array/:token/config.js` — returns JS wrapper around config.
@@ -143,13 +180,11 @@ pub async fn config_js_endpoint(
         return (StatusCode::NO_CONTENT, [("allow", "GET, OPTIONS, HEAD")]).into_response();
     }
     if method == Method::HEAD {
+        // No body, so there is no per-client replay decision to protect here.
         return (
             StatusCode::OK,
-            [
-                ("content-type", "application/javascript"),
-                ("cache-control", "public, max-age=300"),
-                ("vary", "Origin, Referer"),
-            ],
+            config_cache_headers(ConfigCacheability::Shared),
+            [("content-type", "application/javascript")],
             axum::body::Body::empty(),
         )
             .into_response();
@@ -193,7 +228,8 @@ pub async fn config_js_endpoint(
         obj.remove("siteApps");
     }
 
-    sanitize_config_for_client(&mut config, &headers);
+    let cacheability = sanitize_config_for_client(&mut config, &headers);
+    record_cacheability("config.js", cacheability);
 
     let config_json = match serde_json::to_string(&config) {
         Ok(s) => s,
@@ -216,11 +252,8 @@ pub async fn config_js_endpoint(
 
     (
         StatusCode::OK,
-        [
-            ("content-type", "application/javascript"),
-            ("cache-control", "public, max-age=300"),
-            ("vary", "Origin, Referer"),
-        ],
+        config_cache_headers(cacheability),
+        [("content-type", "application/javascript")],
         js_content,
     )
         .into_response()
@@ -399,6 +432,57 @@ mod tests {
         assert!(!body.contains("\"siteApps\""));
         // siteAppsJS should be removed from config JSON
         assert!(!body.contains("\"siteAppsJS\""));
+    }
+
+    // A shared cache keys on the URL alone, so a config whose `sessionRecording` depends
+    // on the caller must not be publicly cacheable — otherwise the first request of the
+    // TTL pins its answer and mobile SDKs silently get `sessionRecording: false`.
+    #[tokio::test]
+    async fn test_config_with_recording_domains_is_not_shared_cacheable() {
+        let token = "phc_recording_domains";
+        let key = cache_key("array", "config.json", token);
+
+        let config_data = json!({
+            "sessionRecording": {"endpoint": "/s/", "domains": ["https://allowed.com"]},
+            "heatmaps": true
+        });
+
+        let mut mock = MockRedisClient::new();
+        mock = mock.get_raw_bytes_ret(&key, Ok(pickle_json(&config_data)));
+
+        let surveys = mock_reader("surveys", "surveys.json", MockRedisClient::new());
+        let config = mock_reader("array", "config.json", mock);
+        let router = test_router(surveys, config);
+        let uri = format!("/array/{token}/config");
+
+        for (label, request_headers, recording_enabled) in [
+            (
+                "unlisted browser",
+                vec![("Origin", "https://evil.com")],
+                false,
+            ),
+            (
+                "mobile SDK",
+                vec![("User-Agent", "posthog-ios/3.0.0")],
+                true,
+            ),
+        ] {
+            let (status, body, headers) = get_with_headers(&router, &uri, request_headers).await;
+
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(
+                headers.get("cache-control").unwrap().to_str().unwrap(),
+                "private, max-age=300",
+                "{label} response must not be stored by shared caches"
+            );
+
+            let parsed: serde_json::Value = serde_json::from_str(&body).unwrap();
+            assert_eq!(
+                parsed["sessionRecording"].is_object(),
+                recording_enabled,
+                "{label} got the wrong sessionRecording payload"
+            );
+        }
     }
 
     #[tokio::test]

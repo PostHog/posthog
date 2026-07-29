@@ -4,7 +4,8 @@
 //! - Removes unused public config and survey fields
 //! - Removes `siteAppsJS` (raw JS only needed for array.js bundle, not JSON API)
 //! - Removes `sessionRecording.domains` (internal field, not needed by SDK)
-//! - Sets `sessionRecording` to `false` if request origin not in permitted domains
+//! - Sets `sessionRecording` to `false` if request origin not in permitted domains,
+//!   reporting back that the body is request-dependent and must not be shared-cached
 
 use axum::http::HeaderMap;
 use serde_json::{json, Value};
@@ -16,8 +17,23 @@ const AUTHORIZED_MOBILE_CLIENTS: &[&str] = &[
     "posthog-flutter",
 ];
 
+/// Whether a sanitized config body is the same for every caller.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfigCacheability {
+    /// Identical for every caller — safe for shared caches to store.
+    Shared,
+    /// Depends on request headers, so only the requesting client may store it.
+    PerClient,
+}
+
 /// Sanitize cached config before returning to clients.
-pub fn sanitize_config_for_client(cached_config: &mut Value, headers: &HeaderMap) {
+///
+/// Reports whether the result depended on request headers so the caller can pick
+/// cache headers that match — see `config_cache_headers`.
+pub fn sanitize_config_for_client(
+    cached_config: &mut Value,
+    headers: &HeaderMap,
+) -> ConfigCacheability {
     if let Some(obj) = cached_config.as_object_mut() {
         obj.remove("siteAppsJS");
         obj.remove("token");
@@ -26,29 +42,34 @@ pub fn sanitize_config_for_client(cached_config: &mut Value, headers: &HeaderMap
 
     let session_recording = match cached_config.get_mut("sessionRecording") {
         Some(sr) => sr,
-        None => return,
+        None => return ConfigCacheability::Shared,
     };
 
     let obj = match session_recording.as_object_mut() {
         Some(o) => o,
-        None => return,
+        None => return ConfigCacheability::Shared,
     };
 
     let domains = obj.remove("domains");
 
-    if let Some(domains_value) = domains {
-        if let Some(domains_array) = domains_value.as_array() {
-            let domain_strings: Vec<String> = domains_array
-                .iter()
-                .filter_map(|d| d.as_str().map(String::from))
-                .collect();
+    let Some(domains_array) = domains.as_ref().and_then(Value::as_array) else {
+        return ConfigCacheability::Shared;
+    };
 
-            // Empty domains list means always permitted
-            if !domain_strings.is_empty() && !on_permitted_domain(&domain_strings, headers) {
-                *session_recording = json!(false);
-            }
-        }
+    let domain_strings: Vec<String> = domains_array
+        .iter()
+        .filter_map(|d| d.as_str().map(String::from))
+        .collect();
+
+    // Empty domains list means always permitted
+    if domain_strings.is_empty() {
+        return ConfigCacheability::Shared;
     }
+
+    if !on_permitted_domain(&domain_strings, headers) {
+        *session_recording = json!(false);
+    }
+    ConfigCacheability::PerClient
 }
 
 pub fn sanitize_surveys_for_client(payload: &mut Value) {
@@ -290,6 +311,45 @@ mod tests {
         sanitize_config_for_client(&mut config, &HeaderMap::new());
 
         assert_eq!(config.get("sessionRecording"), Some(&json!(false)));
+    }
+
+    #[test]
+    fn test_cacheability_tracks_whether_body_depends_on_request() {
+        // Nothing to gate on, so every caller gets the same body.
+        let shared_cases = [
+            json!({"heatmaps": true}),
+            json!({"sessionRecording": false}),
+            json!({"sessionRecording": {"endpoint": "/s/"}}),
+            json!({"sessionRecording": {"endpoint": "/s/", "domains": []}}),
+        ];
+        for mut config in shared_cases {
+            let original = config.to_string();
+            assert_eq!(
+                sanitize_config_for_client(&mut config, &HeaderMap::new()),
+                ConfigCacheability::Shared,
+                "expected {original} to be shared-cacheable"
+            );
+        }
+
+        // With an allowlist the answer depends on Origin/Referer/User-Agent, so it must
+        // stay per-client whichever way the gate goes.
+        let allowlisted = json!({
+            "sessionRecording": {"endpoint": "/s/", "domains": ["https://allowed.com"]}
+        });
+        for (name, value) in [
+            ("Origin", "https://allowed.com"),
+            ("Origin", "https://evil.com"),
+            ("User-Agent", "posthog-ios/3.0.0"),
+        ] {
+            let mut config = allowlisted.clone();
+            let mut headers = HeaderMap::new();
+            headers.insert(name, value.parse().unwrap());
+            assert_eq!(
+                sanitize_config_for_client(&mut config, &headers),
+                ConfigCacheability::PerClient,
+                "expected {name}: {value} to be per-client"
+            );
+        }
     }
 
     #[test]

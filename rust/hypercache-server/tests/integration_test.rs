@@ -506,6 +506,11 @@ async fn test_config_domain_restriction_blocks_unknown_origin() -> anyhow::Resul
     // No Origin header → not permitted → sessionRecording disabled
     let resp = reqwest::get(server.url(&format!("/array/{token}/config"))).await?;
     assert_eq!(resp.status(), 200);
+    // The body now depends on the caller, so shared caches must not store it
+    assert_eq!(
+        resp.headers().get("cache-control").unwrap().to_str()?,
+        "private, max-age=300"
+    );
 
     let body: Value = resp.json().await?;
     assert_eq!(body["sessionRecording"], json!(false));
