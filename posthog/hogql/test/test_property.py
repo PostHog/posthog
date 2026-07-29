@@ -1085,7 +1085,15 @@ class TestProperty(BaseTest):
             self._parse_expr("person.extended_properties.bool_prop = true"),
         )
 
-    def test_data_warehouse_person_property_unqualified_key(self):
+    @parameterized.expand(
+        [
+            ("string_value", ["call"], "enquiry_type_grouped = 'call'"),
+            # A boolean-looking value routes through _handle_bool_values, which has no join segment
+            # in the chain to resolve the column type from.
+            ("bool_value", "true", "enquiry_type_grouped = 'true'"),
+        ]
+    )
+    def test_data_warehouse_person_property_unqualified_key(self, _name, value, expected):
         # An unqualified key (no `table.` prefix) references a column on the table already in
         # scope, e.g. an experiment data-warehouse funnel step that selects FROM the warehouse
         # table. It must resolve as a direct column rather than raising on the missing prefix.
@@ -1094,11 +1102,11 @@ class TestProperty(BaseTest):
                 {
                     "type": "data_warehouse_person_property",
                     "key": "enquiry_type_grouped",
-                    "value": ["call"],
+                    "value": value,
                     "operator": "exact",
                 }
             ),
-            self._parse_expr("enquiry_type_grouped = 'call'"),
+            self._parse_expr(expected),
         )
 
     def test_data_warehouse_property_with_list_values(self):

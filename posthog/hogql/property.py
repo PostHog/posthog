@@ -320,6 +320,11 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
         if not isinstance(expr, ast.Field):
             raise Exception(f"Requires a Field expression")
 
+        # An unqualified key targets a column on the table already in scope, so there is no
+        # DataWarehouseJoin to resolve the column's type from.
+        if len(expr.chain) < 2:
+            return value
+
         key = expr.chain[-2]
 
         # TODO: pass id of table item being filtered on instead of searching through joins
