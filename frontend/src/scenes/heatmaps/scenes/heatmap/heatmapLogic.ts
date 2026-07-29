@@ -5,11 +5,11 @@ import posthog from 'posthog-js'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { DEFAULT_HEATMAP_WIDTH } from 'lib/components/IframedToolbarBrowser/utils'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { heatmapsBrowserLogic, isUrlPattern } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
+import { isPrewarmEnabled } from 'scenes/heatmaps/flags'
 import { heatmapsSceneLogic } from 'scenes/heatmaps/scenes/heatmaps/heatmapsSceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -434,7 +434,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
             posthog.capture('in-app heatmap screenshot ready', {
                 heatmap_id: values.heatmapId,
                 time_to_screenshot_ready_ms: Math.round(performance.now() - cache.screenshotWaitStartedAt),
-                prewarm_enabled: !!values.featureFlags[FEATURE_FLAGS.HEATMAPS_SCREENSHOT_PREWARM],
+                prewarm_enabled: isPrewarmEnabled(values.featureFlags),
                 ready_on_arrival: !cache.screenshotPolled,
                 initial_status: cache.screenshotInitialStatus ?? null,
                 screen_width: values.widthOverride,
@@ -511,7 +511,11 @@ export const heatmapLogic = kea<heatmapLogicType>([
                     block_consent_modals: values.blockConsentModals,
                 }
                 const created = await savedCreate(String(values.currentTeamIdStrict), data)
-                posthog.capture('in-app heatmap created', { heatmap_type: values.type, ...context })
+                posthog.capture('in-app heatmap created', {
+                    heatmap_id: created.id,
+                    heatmap_type: values.type,
+                    ...context,
+                })
                 actions.creationCompleted(created.short_id)
                 actions.loadSavedHeatmaps()
                 router.actions.push(`/heatmaps/${created.short_id}`)

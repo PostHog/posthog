@@ -20,11 +20,11 @@ import {
     authorizedUrlListLogic,
     defaultAuthorizedUrlProperties,
 } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { ReplayIframeData, heatmapsBrowserLogic, isUrlPattern } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
+import { isPrewarmEnabled } from 'scenes/heatmaps/flags'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -738,7 +738,7 @@ export const heatmapCreationLogic = kea<heatmapCreationLogicType>([
                 captureWizardStepCompleted(values, 'review')
             },
             prewarmScreenshot: async () => {
-                if (!values.featureFlags[FEATURE_FLAGS.HEATMAPS_SCREENSHOT_PREWARM]) {
+                if (!isPrewarmEnabled(values.featureFlags)) {
                     return
                 }
                 const url = values.displayUrl?.trim()
