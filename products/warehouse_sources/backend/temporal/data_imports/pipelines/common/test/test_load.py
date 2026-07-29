@@ -16,9 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.l
 
 _LOAD_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load"
 _PIPELINE_SYNC_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync"
-_REPARTITION_MODULE = (
-    "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.repartition_controller"
-)
+_REPARTITION_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller"
 
 
 def _make_schema(*, is_cdc: bool, sync_type_config: dict | None = None, partition_count: int | None = 7) -> MagicMock:

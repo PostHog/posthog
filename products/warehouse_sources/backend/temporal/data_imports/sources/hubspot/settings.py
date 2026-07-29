@@ -40,6 +40,7 @@ TICKET = "ticket"
 QUOTE = "quote"
 EMAILS = "emails"
 MEETINGS = "meetings"
+LEAD = "lead"
 
 CRM_CONTACTS_ENDPOINT = "/crm/v3/objects/contacts?associations=deals,tickets,quotes"
 CRM_COMPANIES_ENDPOINT = "/crm/v3/objects/companies?associations=contacts,deals,tickets,quotes"
@@ -70,6 +71,7 @@ OBJECT_TYPE_SINGULAR = {
     "quotes": QUOTE,
     "emails": EMAILS,
     "meetings": MEETINGS,
+    "leads": LEAD,
 }
 
 OBJECT_TYPE_PLURAL = {v: k for k, v in OBJECT_TYPE_SINGULAR.items()}
@@ -83,6 +85,7 @@ ENDPOINTS = (
     OBJECT_TYPE_PLURAL[QUOTE],
     OBJECT_TYPE_PLURAL[EMAILS],
     OBJECT_TYPE_PLURAL[MEETINGS],
+    OBJECT_TYPE_PLURAL[LEAD],
 )
 
 # CRM search API constants — shared between windowing and pagination logic
@@ -175,6 +178,19 @@ DEFAULT_MEETINGS_PROPS = [
     "hs_attachment_ids",
 ]
 
+# Lead-specific standard properties are all hs_-prefixed, so custom-property auto-discovery (which
+# only pulls non-hs_ props) won't surface them — they must be listed here explicitly.
+DEFAULT_LEAD_PROPS = [
+    "hs_createdate",
+    "hs_lastmodifieddate",
+    "hs_lead_label",
+    "hs_lead_name",
+    "hs_lead_type",
+    "hs_object_id",
+    "hs_pipeline",
+    "hs_pipeline_stage",
+]
+
 DEFAULT_PROPS = {
     OBJECT_TYPE_PLURAL[CONTACT]: DEFAULT_CONTACT_PROPS,
     OBJECT_TYPE_PLURAL[COMPANY]: DEFAULT_COMPANY_PROPS,
@@ -183,6 +199,7 @@ DEFAULT_PROPS = {
     OBJECT_TYPE_PLURAL[QUOTE]: DEFAULT_QUOTE_PROPS,
     OBJECT_TYPE_PLURAL[EMAILS]: DEFAULT_EMAIL_PROPS,
     OBJECT_TYPE_PLURAL[MEETINGS]: DEFAULT_MEETINGS_PROPS,
+    OBJECT_TYPE_PLURAL[LEAD]: DEFAULT_LEAD_PROPS,
 }
 
 
@@ -205,6 +222,9 @@ class HubspotEndpointConfig:
     # Name of the HubSpot property used both as the search filter and as the incremental cursor
     # (e.g. hs_lastmodifieddate). None means the endpoint does not support incremental sync.
     cursor_filter_property_field: Optional[str] = None
+    # Whether this endpoint is selected for sync by default. False keeps a table off unless the
+    # user opts in — used for objects that need an OAuth scope existing connections lack (leads).
+    should_sync_default: bool = True
 
 
 HUBSPOT_ENDPOINTS: dict[str, HubspotEndpointConfig] = {
@@ -263,5 +283,17 @@ HUBSPOT_ENDPOINTS: dict[str, HubspotEndpointConfig] = {
         partition_key="hs_timestamp",
         cursor_filter_property_field="hs_lastmodifieddate",
         incremental_fields=[_incremental_field("hs_lastmodifieddate")],
+    ),
+    # Leads need the `crm.objects.leads.read` scope, which existing connections weren't granted,
+    # and the object must be enabled in the portal (Sales Hub Pro+). Default-disabled so existing
+    # customers aren't opted in — they reconnect (picking up the scope) before enabling it.
+    "leads": HubspotEndpointConfig(
+        name="leads",
+        path="/crm/v3/objects/leads",
+        associations=[],
+        partition_key="hs_createdate",
+        cursor_filter_property_field="hs_lastmodifieddate",
+        incremental_fields=[_incremental_field("hs_lastmodifieddate")],
+        should_sync_default=False,
     ),
 }

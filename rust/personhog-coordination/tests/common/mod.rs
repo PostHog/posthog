@@ -118,9 +118,11 @@ pub fn start_coordinator_with_deadline(
             reconcile_interval: Duration::from_millis(500),
             // Callers default this to a day: these tests deliberately
             // park handoffs mid-phase to assert what the protocol does
-            // with them, and a live deadline would delete the state under
-            // test. The cancellation test passes a short one explicitly.
+            // with them, and a live deadline would replace the state
+            // under test. The cancellation test passes a short one
+            // explicitly.
             handoff_deadline,
+            warming_deadline: Duration::from_secs(86_400),
         },
         strategy,
         None,
@@ -163,6 +165,9 @@ pub fn start_pod_with_address(
             lease_ttl,
             heartbeat_interval: Duration::from_secs(heartbeat_secs),
             advertise_address,
+            // Parked: event-driven tests assert exact handler-call
+            // sequences a live reconcile pass would duplicate.
+            reconcile_interval: Duration::from_secs(86_400),
             ..Default::default()
         },
         Arc::new(handler),
@@ -192,6 +197,9 @@ pub fn start_pod_blocking(
             pod_name: name.to_string(),
             lease_ttl,
             heartbeat_interval: Duration::from_secs(heartbeat_secs),
+            // Parked: event-driven tests assert exact handler-call
+            // sequences a live reconcile pass would duplicate.
+            reconcile_interval: Duration::from_secs(86_400),
             ..Default::default()
         },
         Arc::new(handler),
@@ -235,6 +243,9 @@ pub fn start_pod_slow(
         store,
         PodConfig {
             pod_name: name.to_string(),
+            // Parked: event-driven tests assert exact handler-call
+            // sequences a live reconcile pass would duplicate.
+            reconcile_interval: Duration::from_secs(86_400),
             ..Default::default()
         },
         Arc::new(handler),
@@ -277,6 +288,12 @@ pub fn start_router_with_lease_ttl(
             router_name: name.to_string(),
             lease_ttl,
             heartbeat_interval: Duration::from_secs(heartbeat_secs),
+            // Parked: event-driven tests assert exact handler-call
+            // sequences, which a live reconcile pass would re-assert
+            // nondeterministically. Reconcile-specific tests pass a
+            // short interval explicitly.
+            reconcile_interval: Duration::from_secs(86_400),
+            ..RoutingTableConfig::default()
         },
     );
     let table = router.table_handle();
@@ -490,7 +507,12 @@ impl StashHandler for MockCutoverHandler {
         Ok(())
     }
 
-    async fn drain_stash(&self, partition: u32, target: &str) -> Result<()> {
+    async fn drain_stash(
+        &self,
+        partition: u32,
+        target: &str,
+        _cancel: CancellationToken,
+    ) -> Result<()> {
         self.events.lock().await.push(CutoverEvent::StashDrained {
             partition,
             target: target.to_string(),

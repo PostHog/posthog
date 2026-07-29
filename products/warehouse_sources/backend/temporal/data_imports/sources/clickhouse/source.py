@@ -19,10 +19,6 @@ from posthog.schema import (
 
 from posthog.exceptions_capture import capture_exception
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.clickhouse import (
     ClickHouseConnectionError,
     _get_client,
@@ -44,6 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import (
     reconcile_source_schema_metadata,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clickhouse import (
     ClickHouseSourceConfig,
 )
@@ -242,7 +239,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # something we can change our side, so retrying just re-loads an
             # already disk-pressured server.
             "Code: 243": "Your ClickHouse server ran out of disk space while we were reading a table (it couldn't reserve space for a temporary file). Try scaling up your ClickHouse service or freeing disk space, or sync a smaller table or use an incremental sync, then resume.",
-            # Raised from the shared `evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
+            # Raised from the shared `evolve_pyarrow_schema` in `pipelines/core/arrow_utils.py`
             # when an integer column's source type was widened (e.g. `Int32` → `Int64`) after
             # the destination table was created with the narrower type. Delta Lake can't widen
             # an existing column in place, so retrying won't help — the table must be reset and

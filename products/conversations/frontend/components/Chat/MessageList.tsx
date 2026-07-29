@@ -27,6 +27,7 @@ export interface MessageListProps {
     feedbackByMessageId?: Record<string, AiReplyFeedbackRating>
     /** Whether AI reply feedback controls are enabled */
     showAiReplyFeedback?: boolean
+    aiReplyFeedbackDisabledReason?: string
     onSubmitAiReplyFeedback?: (messageId: string, rating: AiReplyFeedbackRating, feedbackText?: string) => void
     /** Non-message timeline entries, placed among the messages by their own timestamp. Opt-in, so a
      * customer-facing view never receives team-only content. */
@@ -56,6 +57,7 @@ export function MessageList({
     latestAiMessageId = null,
     feedbackByMessageId = {},
     showAiReplyFeedback = false,
+    aiReplyFeedbackDisabledReason,
     onSubmitAiReplyFeedback,
     extras = [],
 }: MessageListProps): JSX.Element {
@@ -134,6 +136,7 @@ export function MessageList({
                             showAiReplyFeedback && message.id === latestAiMessageId && message.authorType === 'AI'
                         }
                         aiReplyFeedbackRating={feedbackByMessageId[message.id] ?? null}
+                        aiReplyFeedbackDisabledReason={aiReplyFeedbackDisabledReason}
                         onSubmitAiReplyFeedback={
                             onSubmitAiReplyFeedback
                                 ? (rating, feedbackText) => onSubmitAiReplyFeedback(message.id, rating, feedbackText)
