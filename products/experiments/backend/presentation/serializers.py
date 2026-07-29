@@ -263,7 +263,10 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
         """
         if flag is None:
             return
-        parameters = dict(data.get("parameters") or {})
+        stored = data.get("parameters")
+        # The JSON column can legally hold a non-dict on legacy rows (see migration 0026); the flag
+        # is the source of truth for the keys below, so a malformed blob is simply dropped.
+        parameters = dict(stored) if isinstance(stored, dict) else {}
 
         parameters["feature_flag_variants"] = _with_split_percent(flag.variants)
 

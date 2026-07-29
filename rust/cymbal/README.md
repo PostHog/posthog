@@ -3,15 +3,20 @@
 You throw 'em, we catch 'em.
 
 Cymbal owns the HTTP ingress and full processing pipeline (fingerprinting,
-suppression, Kafka producers, issue linking). The binary runs in one of two
+suppression, Kafka producers, issue linking). The binary runs in one of three
 modes selected by `CYMBAL_MODE` (default `processing`): the processing
-pipeline, or the `cymbal.resolution.v1` gRPC symbol-resolution service
-(`CYMBAL_MODE=resolution`). Symbol resolution can run either inline inside the
-processing binary (default) or be offloaded to resolution-mode pods via the
-`cymbal.resolution.v1` contract. The remote path is opt-in via
-`CYMBAL_REMOTE_RESOLUTION_ENABLED=true` and has **no silent local fallback**
-— see the [resolution mode README](src/modes/resolution/README.md) for
-rollout, configuration, and operator guidance.
+pipeline, the `cymbal.resolution.v1` gRPC symbol-resolution service
+(`CYMBAL_MODE=resolution`), or the Kafka notification consumer
+(`CYMBAL_MODE=notifications`). The notification consumer starts the matching
+Temporal lifecycle workflow for every issue-created, issue-reopened, or
+issue-spiking notification.
+
+Symbol resolution can run either inline inside the processing binary (default)
+or be offloaded to resolution-mode pods via the `cymbal.resolution.v1`
+contract. The remote path is opt-in via
+`CYMBAL_REMOTE_RESOLUTION_ENABLED=true` and has **no silent local fallback**.
+See the [resolution mode README](src/modes/resolution/README.md) for rollout,
+configuration, and operator guidance.
 
 ## Remote resolution behavior
 
