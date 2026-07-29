@@ -77,6 +77,22 @@ class ClickHouseConnectionError(Exception):
     pass
 
 
+# clickhouse-connect probes the server with `SELECT version(), timezone()` while
+# constructing the client and unpacks the reply into exactly two tab-separated
+# values (BaseClient._init_common_settings). A host that answers 2xx with a body
+# that isn't a ClickHouse response — a proxy/load-balancer landing page, or a
+# different service listening on the host/port — splits into a different shape, so
+# the driver raises a bare `ValueError` ("too many values to unpack") before we ever
+# run a query. The endpoint isn't serving the ClickHouse HTTP interface, so a retry
+# replays the identical failure; we surface it as a connection error rather than
+# leaking the cryptic ValueError.
+NOT_A_CLICKHOUSE_HTTP_RESPONSE = (
+    "The host answered but did not return a valid ClickHouse response, so it isn't serving the "
+    "ClickHouse HTTP interface on that host/port. Check the host, port, and HTTPS setting "
+    "(and any tunnel or proxy in front of it)."
+)
+
+
 def _quote_identifier(identifier: str) -> str:
     """Quote a ClickHouse identifier with backticks.
 
@@ -256,6 +272,11 @@ def _get_client(
                 time.sleep(wait)
                 continue
             raise ClickHouseConnectionError(message) from e
+        except ValueError as e:
+            # The construction-time server probe got a response it couldn't parse as a
+            # ClickHouse handshake (see NOT_A_CLICKHOUSE_HTTP_RESPONSE). Deterministic, so
+            # never retryable — don't spend the transient-retry budget on it.
+            raise ClickHouseConnectionError(NOT_A_CLICKHOUSE_HTTP_RESPONSE) from e
 
         # Apply tuning settings after connect, not at construction, so a readonly
         # source profile that rejects one degrades to the server default instead
@@ -981,6 +1002,7 @@ def _get_incremental_row_count(
     incremental_field: str,
     last_value: Any,
     logger: FilteringBoundLogger,
+    incremental_field_type: Optional[IncrementalFieldType] = None,
 ) -> int | None:
     """Count rows the incremental sync will actually pull.
 
@@ -991,7 +1013,8 @@ def _get_incremental_row_count(
     back to the total-table count.
     """
     quoted_field = _quote_identifier(incremental_field)
-    query = f"SELECT count() FROM {_qualified_table(database, table_name)} WHERE {quoted_field} > %(last_value)s"
+    last_value_expr = _last_value_expr(incremental_field_type)
+    query = f"SELECT count() FROM {_qualified_table(database, table_name)} WHERE {quoted_field} > {last_value_expr}"
     try:
         result = client.query(
             query,
@@ -1147,6 +1170,21 @@ def _project_columns(
     return projected or columns
 
 
+def _last_value_expr(incremental_field_type: Optional[IncrementalFieldType]) -> str:
+    """SQL expression binding the `last_value` parameter for the incremental cursor.
+
+    The stored cursor for a `Date` column can arrive as a raw day-count integer
+    (ClickHouse's own on-disk representation) rather than a date/string, e.g. after a
+    round-trip through JSON. Comparing that integer directly against a `Date` column
+    fails with "Illegal types of arguments (Date, UInt16) of function greater". Casting
+    through `toDate32` accepts both a day-count integer and a date string, so the
+    comparison always type-checks regardless of which shape the cursor is in.
+    """
+    if incremental_field_type == IncrementalFieldType.Date:
+        return "toDate32(%(last_value)s)"
+    return "%(last_value)s"
+
+
 def _build_query(
     *,
     database: str,
@@ -1154,6 +1192,7 @@ def _build_query(
     columns: list[ClickHouseColumn],
     should_use_incremental_field: bool,
     incremental_field: Optional[str],
+    incremental_field_type: Optional[IncrementalFieldType] = None,
     row_filters: Optional[list[ValidatedRowFilter]] = None,
 ) -> tuple[str, dict[str, Any]]:
     """Build the data extraction query and its bound parameters.
@@ -1179,7 +1218,7 @@ def _build_query(
         raise ValueError("incremental_field can't be None when should_use_incremental_field is True")
 
     quoted_field = _quote_identifier(incremental_field)
-    conditions = [f"{quoted_field} > %(last_value)s", *filter_conditions]
+    conditions = [f"{quoted_field} > {_last_value_expr(incremental_field_type)}", *filter_conditions]
     query = f"SELECT {select_list} FROM {qualified} WHERE {' AND '.join(conditions)} ORDER BY {quoted_field} ASC"
     return query, filter_params
 
@@ -1309,6 +1348,7 @@ def clickhouse_source(
                     incremental_field,
                     db_incremental_field_last_value,
                     logger,
+                    incremental_field_type=incremental_field_type,
                 )
                 if incremental_count is not None:
                     rows_to_sync = incremental_count
@@ -1350,6 +1390,7 @@ def clickhouse_source(
                     columns=projected_columns,
                     should_use_incremental_field=should_use_incremental_field,
                     incremental_field=incremental_field,
+                    incremental_field_type=incremental_field_type,
                     row_filters=row_filters,
                 )
 

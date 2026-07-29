@@ -17271,6 +17271,10 @@
         "DatabaseSchemaBatchExportTable": {
             "additionalProperties": false,
             "properties": {
+                "certification": {
+                    "$ref": "#/definitions/DatabaseSchemaTableCertification",
+                    "description": "Present only when the table or view carries a settled data catalog certification."
+                },
                 "fields": {
                     "additionalProperties": {
                         "$ref": "#/definitions/DatabaseSchemaField"
@@ -17297,6 +17301,10 @@
         "DatabaseSchemaDataWarehouseTable": {
             "additionalProperties": false,
             "properties": {
+                "certification": {
+                    "$ref": "#/definitions/DatabaseSchemaTableCertification",
+                    "description": "Present only when the table or view carries a settled data catalog certification."
+                },
                 "fields": {
                     "additionalProperties": {
                         "$ref": "#/definitions/DatabaseSchemaField"
@@ -17344,6 +17352,10 @@
         "DatabaseSchemaEndpointTable": {
             "additionalProperties": false,
             "properties": {
+                "certification": {
+                    "$ref": "#/definitions/DatabaseSchemaTableCertification",
+                    "description": "Present only when the table or view carries a settled data catalog certification."
+                },
                 "fields": {
                     "additionalProperties": {
                         "$ref": "#/definitions/DatabaseSchemaField"
@@ -17420,6 +17432,10 @@
         "DatabaseSchemaManagedViewTable": {
             "additionalProperties": false,
             "properties": {
+                "certification": {
+                    "$ref": "#/definitions/DatabaseSchemaTableCertification",
+                    "description": "Present only when the table or view carries a settled data catalog certification."
+                },
                 "fields": {
                     "additionalProperties": {
                         "$ref": "#/definitions/DatabaseSchemaField"
@@ -17466,6 +17482,10 @@
         "DatabaseSchemaMaterializedViewTable": {
             "additionalProperties": false,
             "properties": {
+                "certification": {
+                    "$ref": "#/definitions/DatabaseSchemaTableCertification",
+                    "description": "Present only when the table or view carries a settled data catalog certification."
+                },
                 "fields": {
                     "additionalProperties": {
                         "$ref": "#/definitions/DatabaseSchemaField"
@@ -17501,6 +17521,10 @@
         "DatabaseSchemaPostHogTable": {
             "additionalProperties": false,
             "properties": {
+                "certification": {
+                    "$ref": "#/definitions/DatabaseSchemaTableCertification",
+                    "description": "Present only when the table or view carries a settled data catalog certification."
+                },
                 "fields": {
                     "additionalProperties": {
                         "$ref": "#/definitions/DatabaseSchemaField"
@@ -17625,6 +17649,10 @@
         "DatabaseSchemaSystemTable": {
             "additionalProperties": false,
             "properties": {
+                "certification": {
+                    "$ref": "#/definitions/DatabaseSchemaTableCertification",
+                    "description": "Present only when the table or view carries a settled data catalog certification."
+                },
                 "fields": {
                     "additionalProperties": {
                         "$ref": "#/definitions/DatabaseSchemaField"
@@ -17676,9 +17704,37 @@
                 }
             ]
         },
+        "DatabaseSchemaTableCertification": {
+            "additionalProperties": false,
+            "properties": {
+                "certified_at": {
+                    "type": "string"
+                },
+                "certified_by": {
+                    "type": "string"
+                },
+                "notes": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/DatabaseSchemaTableCertificationStatus",
+                    "description": "Settled data catalog trust mark: 'certified' (prefer this source) or 'deprecated' (avoid it)."
+                }
+            },
+            "required": ["status"],
+            "type": "object"
+        },
+        "DatabaseSchemaTableCertificationStatus": {
+            "enum": ["certified", "deprecated"],
+            "type": "string"
+        },
         "DatabaseSchemaTableCommon": {
             "additionalProperties": false,
             "properties": {
+                "certification": {
+                    "$ref": "#/definitions/DatabaseSchemaTableCertification",
+                    "description": "Present only when the table or view carries a settled data catalog certification."
+                },
                 "fields": {
                     "additionalProperties": {
                         "$ref": "#/definitions/DatabaseSchemaField"
@@ -17717,6 +17773,10 @@
         "DatabaseSchemaViewTable": {
             "additionalProperties": false,
             "properties": {
+                "certification": {
+                    "$ref": "#/definitions/DatabaseSchemaTableCertification",
+                    "description": "Present only when the table or view carries a settled data catalog certification."
+                },
                 "fields": {
                     "additionalProperties": {
                         "$ref": "#/definitions/DatabaseSchemaField"
@@ -27546,6 +27606,7 @@
                 "firebase",
                 "jira",
                 "pinterest-ads",
+                "pardot",
                 "customerio-app",
                 "customerio-webhook",
                 "customerio-track",

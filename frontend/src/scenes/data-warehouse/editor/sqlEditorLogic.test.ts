@@ -24,7 +24,12 @@ import { ChartDisplayType, InsightShortId, QueryBasedInsightModel } from '~/type
 
 import { editorSceneLogic } from './editorSceneLogic'
 import { OutputTab } from './outputPaneLogic'
-import { activeTabMatchesUrlTarget, getDisplayTypeToSaveInsight, sqlEditorLogic } from './sqlEditorLogic'
+import {
+    activeTabMatchesUrlTarget,
+    getDisplayTypeToSaveInsight,
+    sqlEditorLogic,
+    MANAGED_WAREHOUSE_SOURCE_PREFIX,
+} from './sqlEditorLogic'
 import { SQLEditorMode } from './sqlEditorModes'
 
 // endpointLogic uses permanentlyMount() with a keyed logic, which crashes in
@@ -1546,6 +1551,105 @@ describe('sqlEditorLogic', () => {
             expect(String(router.values.hashParams.raw)).toEqual('1')
         })
 
+        it('defaults to raw SQL mode for the managed warehouse connection', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/external_data_sources/connections/': [
+                        200,
+                        [
+                            {
+                                id: 'managed-conn-1',
+                                prefix: MANAGED_WAREHOUSE_SOURCE_PREFIX,
+                                engine: 'duckdb',
+                                source_type: 'Postgres',
+                                access_method: 'direct',
+                                supports_hogql: true,
+                            },
+                        ],
+                    ],
+                    '/api/environments/:team_id/external_data_sources/': [
+                        200,
+                        {
+                            results: [
+                                {
+                                    id: 'managed-conn-1',
+                                    source_id: 'src-managed-1',
+                                    prefix: MANAGED_WAREHOUSE_SOURCE_PREFIX,
+                                    source_type: 'Postgres',
+                                    access_method: 'direct',
+                                    engine: 'duckdb',
+                                } as any,
+                            ],
+                        },
+                    ],
+                },
+            })
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', c: 'managed-conn-1' })
+
+            await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
+            await expectLogic(logic).toDispatchActions(['setSendRawQuery'])
+
+            expect(logic.values.selectedConnectionSupportsHogQL).toEqual(true)
+            expect(logic.values.sourceQuery.source.sendRawQuery).toEqual(true)
+            expect(logic.values.sendRawQueryEnabled).toEqual(true)
+        })
+
+        it('does not force raw SQL mode for a user-managed Postgres direct connection', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/external_data_sources/connections/': [
+                        200,
+                        [
+                            {
+                                id: 'user-conn-1',
+                                prefix: 'my_postgres',
+                                engine: 'postgres',
+                                source_type: 'Postgres',
+                                access_method: 'direct',
+                                supports_hogql: true,
+                            },
+                        ],
+                    ],
+                    '/api/environments/:team_id/external_data_sources/': [
+                        200,
+                        {
+                            results: [
+                                {
+                                    id: 'user-conn-1',
+                                    source_id: 'src-user-1',
+                                    prefix: 'my_postgres',
+                                    source_type: 'Postgres',
+                                    access_method: 'direct',
+                                    engine: 'postgres',
+                                } as any,
+                            ],
+                        },
+                    ],
+                },
+            })
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', c: 'user-conn-1' })
+
+            await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
+
+            expect(logic.values.selectedConnectionSupportsHogQL).toEqual(true)
+            expect(logic.values.sourceQuery.source.sendRawQuery).toBeUndefined()
+            expect(logic.values.sendRawQueryEnabled).toEqual(false)
+        })
+
         it('forces raw SQL mode when the selected connection does not support HogQL', async () => {
             useMocks({
                 get: {
@@ -1658,6 +1762,80 @@ describe('sqlEditorLogic', () => {
             expect(performQuerySpy).toHaveBeenCalledTimes(1)
             expect(performQuerySpy.mock.calls[0][0]).toMatchObject({ connectionId: 'conn-123' })
             expect(databaseLogic.values.connectionId).toEqual('conn-123')
+
+            performQuerySpy.mockRestore()
+        })
+
+        it('hands the shared schema catalog back unscoped when a connected editor unmounts', async () => {
+            const performQuerySpy = jest
+                .spyOn(queryRunner, 'performQuery')
+                .mockResolvedValue({ tables: {}, joins: [] } as never)
+
+            const editorLogic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            editorLogic.mount()
+
+            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', c: 'conn-123' })
+            await expectLogic(editorLogic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            expect(databaseLogic.values.connectionId).toEqual('conn-123')
+
+            // databaseTableListLogic outlives the editor, so leaving it scoped hides everything the
+            // project owns (self-managed sources, views) from every other page that reads it.
+            performQuerySpy.mockClear()
+            editorLogic.unmount()
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(databaseLogic.values.connectionId).toBeNull()
+            expect(performQuerySpy).toHaveBeenCalledTimes(1)
+            expect(performQuerySpy.mock.calls[0][0]).toMatchObject({ connectionId: undefined })
+
+            performQuerySpy.mockRestore()
+        })
+
+        it('keeps the catalog scoped while another editor on the same connection is still mounted', async () => {
+            const performQuerySpy = jest
+                .spyOn(queryRunner, 'performQuery')
+                .mockResolvedValue({ tables: {}, joins: [] } as never)
+
+            // Notebooks, metrics and endpoints each mount their own embedded editor, so two can sit
+            // on the same connection at once.
+            const firstEditor = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            const secondEditor = sqlEditorLogic({
+                tabId: `${TAB_ID}-second`,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            firstEditor.mount()
+            secondEditor.mount()
+
+            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', c: 'conn-123' })
+            await expectLogic(firstEditor).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            expect(databaseLogic.values.connectionId).toEqual('conn-123')
+            expect(secondEditor.values.selectedConnectionId).toEqual('conn-123')
+
+            // Closing one must not yank the scope away from the other: it would keep running with
+            // the project catalog and never rescope, since its own connection never changed.
+            performQuerySpy.mockClear()
+            firstEditor.unmount()
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(databaseLogic.values.connectionId).toEqual('conn-123')
+            expect(performQuerySpy).not.toHaveBeenCalled()
+
+            secondEditor.unmount()
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(databaseLogic.values.connectionId).toBeNull()
+            expect(performQuerySpy.mock.calls[0][0]).toMatchObject({ connectionId: undefined })
 
             performQuerySpy.mockRestore()
         })

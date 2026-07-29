@@ -20,10 +20,12 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
+    DELTA_MERGE_CONFLICT_RETRIES,
     DeltaTableHelper,
     _delta_merge_spill_kwargs,
     _first_per_pk_table,
     _realign_decimal_buffers,
+    is_transient_delta_maintenance_error,
 )
 
 
@@ -397,15 +399,38 @@ class TestGetDeltaTableUnrecoverableErrors:
             patch(f"{module}.deltalake.DeltaTable") as mock_delta_table,
             patch(f"{module}.capture_exception") as mock_capture,
         ):
-            mock_delta_table.is_deltatable.side_effect = OSError(
-                "Generic S3 error: Received redirect without LOCATION, this normally indicates "
-                "an incorrectly configured region"
-            )
+            mock_delta_table.is_deltatable.side_effect = OSError("Access Denied: not authorized to list bucket")
 
-            with pytest.raises(OSError, match="Received redirect without LOCATION"):
+            with pytest.raises(OSError, match="Access Denied"):
                 await helper.get_delta_table()
 
             mock_capture.assert_called_once()
+            assert helper.is_first_sync is False
+
+    @pytest.mark.asyncio
+    async def test_is_deltatable_transient_error_is_not_captured_but_still_reraised(self):
+        """A known-transient object-store blip (e.g. an S3 LIST request timing out) must not be
+        reported to error tracking as a defect — it's a self-recovering network hiccup, not a bug —
+        but it must still propagate so Temporal's activity retry policy retries the sync."""
+        helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
+        delta_uri = "s3://bucket/team_id/job_id/t"
+
+        module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper"
+        with (
+            patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value=delta_uri)),
+            patch(f"{module}.deltalake.DeltaTable") as mock_delta_table,
+            patch(f"{module}.capture_exception") as mock_capture,
+        ):
+            mock_delta_table.is_deltatable.side_effect = OSError(
+                "Generic S3 error\nError getting list response body\nHTTP error\n"
+                "request or response body error\noperation timed out"
+            )
+
+            with pytest.raises(OSError, match="operation timed out"):
+                await helper.get_delta_table()
+
+            mock_capture.assert_not_called()
+            cast(AsyncMock, helper._logger.awarning).assert_awaited_once()
             assert helper.is_first_sync is False
 
 
@@ -453,6 +478,100 @@ class TestWriteToDeltalakeCommitMetadataPassThrough:
             else:
                 assert isinstance(commit_properties, deltalake.CommitProperties)
                 assert commit_properties.custom_metadata == expected_custom_metadata
+
+
+class TestExecuteWithConflictRetry:
+    """A committing operation's CommitFailedError means delta-rs's conflict checker rejected the
+    commit outright, without spending any of its own internal retry budget (see the comment on
+    DELTA_MERGE_CONFLICT_RETRIES). Regression coverage for the sync dying on the first such
+    conflict instead of refreshing the table and re-running the operation, as the error's own
+    "must be rerun" message calls for. Shared by merges and `compact_table`'s optimize.compact."""
+
+    def _helper(self) -> DeltaTableHelper:
+        return DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
+
+    @pytest.mark.asyncio
+    async def test_succeeds_without_retry(self):
+        helper = self._helper()
+        table = MagicMock()
+        operation_fn = MagicMock(return_value={"num_output_rows": 1})
+
+        result = await helper._execute_with_conflict_retry(table, operation_fn, "op")
+
+        assert result == {"num_output_rows": 1}
+        operation_fn.assert_called_once()
+        table.update_incremental.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_retries_on_conflict_then_succeeds(self):
+        helper = self._helper()
+        table = MagicMock()
+        operation_fn = MagicMock(
+            side_effect=[
+                deltalake.exceptions.CommitFailedError("Commit failed: a concurrent transactions added new data."),
+                {"num_output_rows": 1},
+            ]
+        )
+
+        result = await helper._execute_with_conflict_retry(table, operation_fn, "op")
+
+        assert result == {"num_output_rows": 1}
+        assert operation_fn.call_count == 2
+        table.update_incremental.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_gives_up_after_exhausting_retries(self):
+        helper = self._helper()
+        table = MagicMock()
+        operation_fn = MagicMock(
+            side_effect=deltalake.exceptions.CommitFailedError(
+                "Commit failed: a concurrent transactions added new data."
+            )
+        )
+
+        with pytest.raises(deltalake.exceptions.CommitFailedError):
+            await helper._execute_with_conflict_retry(table, operation_fn, "op")
+
+        assert operation_fn.call_count == DELTA_MERGE_CONFLICT_RETRIES + 1
+        assert table.update_incremental.call_count == DELTA_MERGE_CONFLICT_RETRIES
+
+    @pytest.mark.asyncio
+    async def test_other_errors_propagate_without_retry(self):
+        helper = self._helper()
+        table = MagicMock()
+        operation_fn = MagicMock(side_effect=ValueError("not a commit conflict"))
+
+        with pytest.raises(ValueError):
+            await helper._execute_with_conflict_retry(table, operation_fn, "op")
+
+        operation_fn.assert_called_once()
+        table.update_incremental.assert_not_called()
+
+
+class TestCompactTableConflictRetry:
+    """compact_table's optimize.compact() commits a REMOVE+ADD when rewriting fragmented files —
+    the same commit-conflict shape as a merge (see TestExecuteWithConflictRetry). Regression
+    coverage for a CommitFailedError propagating straight out of compact_table on the first
+    conflict instead of retrying with a refreshed table, like write_to_deltalake's merges do."""
+
+    @pytest.mark.asyncio
+    async def test_retries_compact_on_commit_conflict_then_succeeds(self, helper: DeltaTableHelper):
+        mock_delta = MagicMock()
+        mock_delta.optimize.compact = MagicMock(
+            side_effect=[
+                deltalake.exceptions.CommitFailedError(
+                    "Commit failed: a concurrent transaction deleted data this operation read."
+                ),
+                {"numFilesAdded": 1},
+            ]
+        )
+        mock_delta.vacuum = MagicMock(return_value=[])
+
+        with patch.object(helper, "get_delta_table", AsyncMock(return_value=mock_delta)):
+            await helper.compact_table()
+
+        assert mock_delta.optimize.compact.call_count == 2
+        mock_delta.update_incremental.assert_called_once()
 
 
 def _create_legacy_delta_table(path: str, *, partitioned: bool = False) -> deltalake.DeltaTable:
@@ -668,6 +787,43 @@ class TestAppendDecimalReconciliation:
             await helper.write_to_deltalake(
                 data=batch, write_type="append", should_overwrite_table=False, primary_keys=None
             )
+
+
+class TestSchemaEvolutionNullability:
+    """A column added mid-table-lifetime always predates its own addition: every file the
+    table already holds was written without it, so `optimize.compact()` must be able to
+    treat those rows as null for that column. If schema evolution adds the column as NOT
+    NULL — which happens whenever the batch that introduces it has no nulls, since delta-rs
+    takes the new field's nullability straight from the incoming Arrow field — compaction
+    later fails with "Non-nullable column '<name>' is missing from the physical schema"."""
+
+    @pytest.mark.asyncio
+    async def test_compact_survives_a_column_added_by_an_all_non_null_batch(self, tmp_path: Path) -> None:
+        delta_path = str(tmp_path / "table")
+        deltalake.write_deltalake(delta_path, pa.table({"id": pa.array([1, 2], type=pa.int64())}))
+
+        helper = _make_local_helper(delta_path)
+
+        # The incoming field is non-nullable because every value in *this* batch is
+        # non-null — exactly how upstream Arrow construction infers it, unrelated to
+        # whether the column can appear in prior or future batches.
+        fields: list[pa.Field] = [pa.field("id", pa.int64()), pa.field("status", pa.string(), nullable=False)]
+        batch_schema = pa.schema(fields)
+        batch = pa.table(
+            {"id": pa.array([3, 4], type=pa.int64()), "status": pa.array(["ok", "ok"])}, schema=batch_schema
+        )
+
+        result = await helper.write_to_deltalake(
+            data=batch, write_type="append", should_overwrite_table=False, primary_keys=None
+        )
+        status_field = next(f for f in result.schema().fields if f.name == "status")
+        assert status_field.nullable is True
+
+        await helper.compact_table()
+
+        final = result.to_pyarrow_table()
+        by_id = dict(zip(final.column("id").to_pylist(), final.column("status").to_pylist()))
+        assert by_id == {1: None, 2: None, 3: "ok", 4: "ok"}
 
 
 class TestIncrementalBatchDeduplication:
@@ -1059,3 +1215,25 @@ class TestIsTableCorrupted:
             result = await helper.is_table_corrupted()
 
         assert result is expected
+
+
+class TestIsTransientDeltaMaintenanceError:
+    @parameterized.expand(
+        [
+            # A concurrent optimize/vacuum losing the race on a file scan: safe to skip and retry.
+            (
+                "optimize_scan_file_not_found",
+                deltalake.exceptions.DeltaError(
+                    "Failed to parse parquet: Optimize selected-file scan failed while scanning data: "
+                    "Object at location .../part-0.parquet not found: 404 Not Found"
+                ),
+                True,
+            ),
+            # Other DeltaErrors are real failures (e.g. a genuinely corrupt log) and must still be captured.
+            ("unrelated_delta_error", deltalake.exceptions.DeltaError("no protocol found in delta log"), False),
+            # Same message shape but not the DeltaError type delta-rs actually raises for it.
+            ("wrong_exception_type", RuntimeError("Optimize selected-file scan failed"), False),
+        ]
+    )
+    def test_matches_only_the_racy_optimize_scan_signature(self, _name: str, error: Exception, expected: bool):
+        assert is_transient_delta_maintenance_error(error) is expected

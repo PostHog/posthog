@@ -271,6 +271,28 @@ class TestCoerceStringFields:
         assert data_map is not None
         assert data_map({"owner_id": 7, "id": "c1"}) == {"owner_id": "7", "id": "c1"}
 
+    @pytest.mark.parametrize("name", ["conversations", "tickets"])
+    def test_assignee_ids_data_map_coerces_to_str(self, name: str):
+        # REST-path wiring for both streams carrying flat assignee ids: Intercom returns
+        # team_assignee_id as an int on some rows and a string on others, which produced
+        # int64-vs-string parquet batches that pa.unify_schemas refused to merge. An
+        # unassigned id stays None so the column remains nullable.
+        resource = get_resource(
+            name, should_use_incremental_field=False, incremental_field=None, db_incremental_field_last_value=None
+        )
+        data_map = resource.get("data_map")
+        assert data_map is not None
+        assert data_map({"id": "1", "admin_assignee_id": 12345, "team_assignee_id": 678}) == {
+            "id": "1",
+            "admin_assignee_id": "12345",
+            "team_assignee_id": "678",
+        }
+        assert data_map({"id": "2", "admin_assignee_id": None, "team_assignee_id": "678"}) == {
+            "id": "2",
+            "admin_assignee_id": None,
+            "team_assignee_id": "678",
+        }
+
     def test_endpoint_without_coerce_fields_has_no_data_map(self):
         # Only endpoints declaring coerce_string_fields get a data_map — others stay untouched.
         resource = get_resource(
