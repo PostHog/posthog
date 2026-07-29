@@ -1266,6 +1266,8 @@ export interface ChartSettings {
     pie?: PieChartSettings
     /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
     resultCustomizations?: Record<string, ResultCustomizationByValue>
+    /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
+    chartStyle?: ChartStyle
 }
 
 export interface ConditionalFormattingRule {
@@ -5078,12 +5080,24 @@ export type DatabaseSchemaTableType =
     | 'managed_view'
     | 'endpoint'
 
+export type DatabaseSchemaTableCertificationStatus = 'certified' | 'deprecated'
+
+export interface DatabaseSchemaTableCertification {
+    /** Settled data catalog trust mark: 'certified' (prefer this source) or 'deprecated' (avoid it). */
+    status: DatabaseSchemaTableCertificationStatus
+    notes?: string
+    certified_by?: string
+    certified_at?: string
+}
+
 export interface DatabaseSchemaTableCommon {
     type: DatabaseSchemaTableType
     id: string
     name: string
     fields: Record<string, DatabaseSchemaField>
     row_count?: number
+    /** Present only when the table or view carries a settled data catalog certification. */
+    certification?: DatabaseSchemaTableCertification
 }
 
 export interface DatabaseSchemaViewTable extends DatabaseSchemaTableCommon {
@@ -8612,6 +8626,62 @@ export interface UserProductListItem {
     reason_text: string | null
     created_at: string
     updated_at: string
+}
+
+/** Visibility of a single customizable UI element. An absent config or an absent `visible` means the element is shown. */
+export interface UIVisibilityConfig {
+    visible?: boolean
+}
+
+/** Collapsible sections of the main navigation sidebar. Hiding a section hides everything inside it, except always-visible items like Activity. */
+export interface SidebarSectionsConfiguration {
+    /** The "Project" section (Home and the Data/Files/Tools/Starred panel triggers). Activity stays visible even when this section is hidden. */
+    project?: UIVisibilityConfig
+    /** The "Recents" section, listing recently viewed items. */
+    recents?: UIVisibilityConfig
+    /** The "My tools" section, listing the user's selected tools. */
+    my_tools?: UIVisibilityConfig
+}
+
+/** Individual items of the main navigation sidebar. Items inside a hidden section are hidden regardless of their own config. Activity and Settings are deliberately absent: they always stay visible. */
+export interface SidebarItemsConfiguration {
+    /** "Home" link in the Project section. */
+    home?: UIVisibilityConfig
+    /** "Inbox" link in the Project section. Only rendered when the inbox feature is available. */
+    inbox?: UIVisibilityConfig
+    /** "Data" panel trigger in the Project section. */
+    data?: UIVisibilityConfig
+    /** "Files" panel trigger in the Project section. */
+    files?: UIVisibilityConfig
+    /** "Tools" panel trigger in the Project section. */
+    tools?: UIVisibilityConfig
+    /** "Starred" panel trigger in the Project section. */
+    starred?: UIVisibilityConfig
+    /** "Notifications" entry in the sidebar footer. Only rendered when real-time notifications are available. */
+    notifications?: UIVisibilityConfig
+    /** "Help" entry in the sidebar footer. */
+    help?: UIVisibilityConfig
+}
+
+/** Customization of the main navigation sidebar. */
+export interface SidebarConfiguration {
+    sections?: SidebarSectionsConfiguration
+    items?: SidebarItemsConfiguration
+}
+
+/**
+ * Per-user UI customization, persisted on the User model as a single JSONB blob.
+ * A null configuration and any absent key mean "default", which for visibility is "shown",
+ * so newly added UI surfaces appear for everyone until explicitly hidden.
+ * Writers must send the complete object; the server validates and replaces it wholesale.
+ */
+export interface UserUIConfiguration {
+    /**
+     * Schema version of this configuration blob, for future format migrations.
+     * @asType integer
+     */
+    version: number
+    sidebar?: SidebarConfiguration
 }
 
 // Keep this in alphabetical order if you wanna maintain Rafa's sanity

@@ -50,6 +50,7 @@ fn main() {
         rejoins: 0,
         router_joins: 0,
         zombie_window,
+        cancels: 0,
         probes: false,
     };
     println!("exploring {:?} at http://localhost:3000 …", args.scenario);

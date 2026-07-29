@@ -67,6 +67,7 @@ from posthog.schema_enums import (
     CustomChannelField as CustomChannelField,
     CustomChannelOperator as CustomChannelOperator,
     DatabaseSchemaManagedViewTableKind as DatabaseSchemaManagedViewTableKind,
+    DatabaseSchemaTableCertificationStatus as DatabaseSchemaTableCertificationStatus,
     DatabaseSchemaTableType as DatabaseSchemaTableType,
     DatabaseSerializedFieldType as DatabaseSerializedFieldType,
     DataColorToken as DataColorToken,
@@ -2749,6 +2750,13 @@ class TrendsFormulaNode(BaseModel):
     formula: str
 
 
+class UIVisibilityConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    visible: bool | None = None
+
+
 class UserBasicType(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4397,31 +4405,26 @@ class DatabaseSchemaField(BaseModel):
     type: DatabaseSerializedFieldType
 
 
-class DatabaseSchemaPostHogTable(BaseModel):
+class DatabaseSchemaTableCertification(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    fields: dict[str, DatabaseSchemaField]
-    id: str
-    name: str
-    row_count: float | None = None
-    type: Literal["posthog"] = "posthog"
-
-
-class DatabaseSchemaSystemTable(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
+    certified_at: str | None = None
+    certified_by: str | None = None
+    notes: str | None = None
+    status: DatabaseSchemaTableCertificationStatus = Field(
+        ...,
+        description=("Settled data catalog trust mark: 'certified' (prefer this source) or 'deprecated' (avoid it)."),
     )
-    fields: dict[str, DatabaseSchemaField]
-    id: str
-    name: str
-    row_count: float | None = None
-    type: Literal["system"] = "system"
 
 
 class DatabaseSchemaTableCommon(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    certification: DatabaseSchemaTableCertification | None = Field(
+        default=None,
+        description=("Present only when the table or view carries a settled data catalog certification."),
     )
     fields: dict[str, DatabaseSchemaField]
     id: str
@@ -6395,6 +6398,51 @@ class SessionsTimelineQueryResponse(BaseModel):
             " warnings when a system-table query filters out objects the user can't"
             " access."
         ),
+    )
+
+
+class SidebarItemsConfiguration(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    data: UIVisibilityConfig | None = Field(default=None, description='"Data" panel trigger in the Project section.')
+    files: UIVisibilityConfig | None = Field(default=None, description='"Files" panel trigger in the Project section.')
+    help: UIVisibilityConfig | None = Field(default=None, description='"Help" entry in the sidebar footer.')
+    home: UIVisibilityConfig | None = Field(default=None, description='"Home" link in the Project section.')
+    inbox: UIVisibilityConfig | None = Field(
+        default=None,
+        description=('"Inbox" link in the Project section. Only rendered when the inbox feature is available.'),
+    )
+    notifications: UIVisibilityConfig | None = Field(
+        default=None,
+        description=(
+            '"Notifications" entry in the sidebar footer. Only rendered when real-time notifications are available.'
+        ),
+    )
+    starred: UIVisibilityConfig | None = Field(
+        default=None, description='"Starred" panel trigger in the Project section.'
+    )
+    tools: UIVisibilityConfig | None = Field(default=None, description='"Tools" panel trigger in the Project section.')
+
+
+class SidebarSectionsConfiguration(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    my_tools: UIVisibilityConfig | None = Field(
+        default=None,
+        description='The "My tools" section, listing the user\'s selected tools.',
+    )
+    project: UIVisibilityConfig | None = Field(
+        default=None,
+        description=(
+            'The "Project" section (Home and the Data/Files/Tools/Starred panel'
+            " triggers). Activity stays visible even when this section is hidden."
+        ),
+    )
+    recents: UIVisibilityConfig | None = Field(
+        default=None,
+        description='The "Recents" section, listing recently viewed items.',
     )
 
 
@@ -13586,6 +13634,10 @@ class ChartSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    chartStyle: ChartStyle | None = Field(
+        default=None,
+        description=("Chart rendering style overrides (line shape). Only applies to line and area charts."),
+    )
     goalLines: list[GoalLine] | None = None
     heatmap: HeatmapSettings | None = None
     leftYAxisSettings: YAxisSettings | None = None
@@ -14727,6 +14779,10 @@ class DatabaseSchemaBatchExportTable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    certification: DatabaseSchemaTableCertification | None = Field(
+        default=None,
+        description=("Present only when the table or view carries a settled data catalog certification."),
+    )
     fields: dict[str, DatabaseSchemaField]
     id: str
     name: str
@@ -14737,6 +14793,10 @@ class DatabaseSchemaBatchExportTable(BaseModel):
 class DatabaseSchemaDataWarehouseTable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    certification: DatabaseSchemaTableCertification | None = Field(
+        default=None,
+        description=("Present only when the table or view carries a settled data catalog certification."),
     )
     fields: dict[str, DatabaseSchemaField]
     format: str | None = Field(
@@ -14759,6 +14819,36 @@ class DatabaseSchemaDataWarehouseTable(BaseModel):
         default=None,
         description=("Absent for a dual-mode source's virtual tables, which have no synced S3 backing."),
     )
+
+
+class DatabaseSchemaPostHogTable(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    certification: DatabaseSchemaTableCertification | None = Field(
+        default=None,
+        description=("Present only when the table or view carries a settled data catalog certification."),
+    )
+    fields: dict[str, DatabaseSchemaField]
+    id: str
+    name: str
+    row_count: float | None = None
+    type: Literal["posthog"] = "posthog"
+
+
+class DatabaseSchemaSystemTable(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    certification: DatabaseSchemaTableCertification | None = Field(
+        default=None,
+        description=("Present only when the table or view carries a settled data catalog certification."),
+    )
+    fields: dict[str, DatabaseSchemaField]
+    id: str
+    name: str
+    row_count: float | None = None
+    type: Literal["system"] = "system"
 
 
 class DocumentSimilarityQueryResponse(BaseModel):
@@ -21600,6 +21690,14 @@ class SessionsTimelineQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class SidebarConfiguration(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    items: SidebarItemsConfiguration | None = None
+    sections: SidebarSectionsConfiguration | None = None
+
+
 class SurveyCreationSchema(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -21816,6 +21914,17 @@ class UsageMetricsQuery(BaseModel):
     response: UsageMetricsQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class UserUIConfiguration(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    sidebar: SidebarConfiguration | None = None
+    version: int = Field(
+        ...,
+        description=("Schema version of this configuration blob, for future format migrations."),
+    )
 
 
 class VectorSearchQueryResponse(BaseModel):
@@ -24423,6 +24532,10 @@ class DatabaseSchemaEndpointTable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    certification: DatabaseSchemaTableCertification | None = Field(
+        default=None,
+        description=("Present only when the table or view carries a settled data catalog certification."),
+    )
     fields: dict[str, DatabaseSchemaField]
     id: str
     name: str
@@ -24435,6 +24548,10 @@ class DatabaseSchemaEndpointTable(BaseModel):
 class DatabaseSchemaManagedViewTable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    certification: DatabaseSchemaTableCertification | None = Field(
+        default=None,
+        description=("Present only when the table or view carries a settled data catalog certification."),
     )
     fields: dict[str, DatabaseSchemaField]
     id: str
@@ -24450,6 +24567,10 @@ class DatabaseSchemaMaterializedViewTable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    certification: DatabaseSchemaTableCertification | None = Field(
+        default=None,
+        description=("Present only when the table or view carries a settled data catalog certification."),
+    )
     fields: dict[str, DatabaseSchemaField]
     id: str
     last_run_at: str | None = None
@@ -24463,6 +24584,10 @@ class DatabaseSchemaMaterializedViewTable(BaseModel):
 class DatabaseSchemaViewTable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    certification: DatabaseSchemaTableCertification | None = Field(
+        default=None,
+        description=("Present only when the table or view carries a settled data catalog certification."),
     )
     fields: dict[str, DatabaseSchemaField]
     id: str

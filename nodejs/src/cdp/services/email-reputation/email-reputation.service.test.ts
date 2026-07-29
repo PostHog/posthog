@@ -5,12 +5,20 @@ import { insertHogFlow } from '~/cdp/_tests/fixtures-hogflows'
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
+import { captureTeamEvent } from '~/common/utils/posthog'
+import { TeamManager } from '~/common/utils/team-manager'
 import { createTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub } from '~/types'
 
 import { DEFAULT_THRESHOLDS, ReputationMetrics } from './classifier'
 import { EmailReputationService, representativeVolume } from './email-reputation.service'
 import { HourlyEmailMetricsRow } from './types'
+
+jest.mock('~/common/utils/posthog', () => ({
+    ...jest.requireActual('~/common/utils/posthog'),
+    captureTeamEvent: jest.fn(),
+}))
+const mockCaptureTeamEvent = captureTeamEvent as jest.Mock
 
 const EVALUATED_AT = '2026-07-10T06:00:00.000Z'
 const HOURS_AGO = (hours: number): number => Math.floor(Date.parse(EVALUATED_AT) / 1000) - hours * 3600
@@ -88,9 +96,10 @@ describe('EmailReputationService', () => {
         const team = await getTeam(hub.postgres, 2)
         teamId = await createTeam(hub.postgres, team!.organization_id)
         mockClickhouse = { query: jest.fn() }
+        mockCaptureTeamEvent.mockClear()
         // multiplier 1 keeps these tests pinning the pure window-walk mechanics (representative
         // volume = the fixed target); the multiplier's own sizing behavior has its own block below.
-        service = new EmailReputationService(mockClickhouse as any, hub.postgres, {
+        service = new EmailReputationService(mockClickhouse as any, hub.postgres, new TeamManager(hub.postgres), {
             targetVolume: 1000,
             minWindowHours: 24,
             lookbackDays: 30,
@@ -297,13 +306,18 @@ describe('EmailReputationService', () => {
 
         let scaledService: EmailReputationService
         beforeEach(() => {
-            scaledService = new EmailReputationService(mockClickhouse as any, hub.postgres, {
-                targetVolume: 1000,
-                minWindowHours: 24,
-                lookbackDays: 30,
-                representativeVolumeMultiplier: 3,
-                thresholds: DEFAULT_THRESHOLDS,
-            })
+            scaledService = new EmailReputationService(
+                mockClickhouse as any,
+                hub.postgres,
+                new TeamManager(hub.postgres),
+                {
+                    targetVolume: 1000,
+                    minWindowHours: 24,
+                    lookbackDays: 30,
+                    representativeVolumeMultiplier: 3,
+                    thresholds: DEFAULT_THRESHOLDS,
+                }
+            )
         })
 
         it('one clean campaign cannot wash out yesterday`s disaster', async () => {
@@ -342,6 +356,81 @@ describe('EmailReputationService', () => {
             // 600 / 20000 = 3% — warning: last week's bad batch still counts, diluted by the clean one
             expect(teamRow).toMatchObject({ state: 'warning', emails_sent: '20000' })
             expect(teamRow.bounce_rate).toBeCloseTo(0.03)
+        })
+    })
+
+    describe('team state change events', () => {
+        const criticalMetrics = (flowId: string): HourlyEmailMetricsRow[] => [
+            { teamId, appSourceId: flowId, hourBucket: HOURS_AGO(2), sent: 1000, bounced: 60, complained: 0 },
+        ]
+        const healthyMetrics = (flowId: string): HourlyEmailMetricsRow[] => [
+            { teamId, appSourceId: flowId, hourBucket: HOURS_AGO(2), sent: 1000, bounced: 1, complained: 0 },
+        ]
+
+        it('emits on entering critical, with retries emitting nothing extra', async () => {
+            const flow = await insertEmailFlow()
+            mockMetrics(criticalMetrics(flow.id))
+
+            await service.evaluateTeamBatch([teamId], EVALUATED_AT)
+
+            expect(mockCaptureTeamEvent).toHaveBeenCalledTimes(1)
+            const [team, event, properties] = mockCaptureTeamEvent.mock.calls[0]
+            expect(team.id).toEqual(teamId)
+            expect(event).toEqual('workflow_email_reputation_state_changed')
+            expect(properties).toMatchObject({
+                scope: 'team',
+                affected_team_id: teamId,
+                previous_state: null,
+                new_state: 'critical',
+                emails_sent: 1000,
+                email_sending_suspended: false,
+            })
+
+            // A retried Temporal activity re-runs the batch; the ON CONFLICT dedupe must gate the emit too
+            await service.evaluateTeamBatch([teamId], EVALUATED_AT)
+            expect(mockCaptureTeamEvent).toHaveBeenCalledTimes(1)
+        })
+
+        it('emits a repeat every run while critical, carrying the suspension flag', async () => {
+            const flow = await insertEmailFlow()
+            mockMetrics(criticalMetrics(flow.id))
+            await service.evaluateTeamBatch([teamId], EVALUATED_AT)
+
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO workflows_teamworkflowsconfig (team_id, capture_workflows_engagement_events, email_tracking_consent_mode, email_sending_suspended_at, email_sending_suspension_reason)
+                 VALUES ($1, false, 'off', now(), 'test') `,
+                [teamId],
+                'testSuspendTeam'
+            )
+            await service.evaluateTeamBatch([teamId], '2026-07-11T06:00:00.000Z')
+
+            expect(mockCaptureTeamEvent).toHaveBeenCalledTimes(2)
+            expect(mockCaptureTeamEvent.mock.calls[1][2]).toMatchObject({
+                previous_state: 'critical',
+                new_state: 'critical',
+                email_sending_suspended: true,
+            })
+        })
+
+        it('emits the recovery transition but stays silent for always-healthy teams', async () => {
+            const flow = await insertEmailFlow()
+            mockMetrics(healthyMetrics(flow.id))
+            await service.evaluateTeamBatch([teamId], EVALUATED_AT)
+            // First evaluation landing on healthy is not an event
+            expect(mockCaptureTeamEvent).not.toHaveBeenCalled()
+
+            mockMetrics(criticalMetrics(flow.id))
+            await service.evaluateTeamBatch([teamId], '2026-07-11T06:00:00.000Z')
+            mockMetrics(healthyMetrics(flow.id))
+            await service.evaluateTeamBatch([teamId], '2026-07-12T06:00:00.000Z')
+
+            expect(mockCaptureTeamEvent).toHaveBeenCalledTimes(2)
+            expect(mockCaptureTeamEvent.mock.calls[1][2]).toMatchObject({
+                previous_state: 'critical',
+                new_state: 'healthy',
+                email_sending_suspended: false,
+            })
         })
     })
 })
