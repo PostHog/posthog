@@ -79,6 +79,21 @@ def is_transient_object_store_error(error: BaseException) -> bool:
 # asks the caller to do.
 DELTA_MERGE_CONFLICT_RETRIES = 3
 
+# `optimize.compact` plans its rewrite against the file list at the start of its scan, then reads
+# those files. A concurrent maintenance pass on the same table (e.g. a Temporal activity attempt that
+# heartbeat-timed-out but keeps running as a zombie — see this package's README on the equivalent
+# unfenced race for repartition) can vacuum one of those files out from under the scan before it gets
+# read, which delta-rs surfaces as this DeltaError. The scan failing here means the optimize aborted
+# before committing anything — the table is left exactly as it was, just still fragmented — so this is
+# safe to skip and retry on the next maintenance pass, not a bug in our logic.
+TRANSIENT_DELTA_MAINTENANCE_ERRORS = ("Optimize selected-file scan failed",)
+
+
+def is_transient_delta_maintenance_error(error: BaseException) -> bool:
+    return isinstance(error, deltalake.exceptions.DeltaError) and any(
+        needle in str(error) for needle in TRANSIENT_DELTA_MAINTENANCE_ERRORS
+    )
+
 
 def _delta_merge_spill_kwargs() -> dict[str, int]:
     """delta-rs `merge` kwargs that let DataFusion spill to disk instead of OOMing on large merges.
@@ -306,8 +321,14 @@ class DeltaTableHelper:
 
         delta_table_schema = pyarrow_schema_from_arrow_exportable(delta_table.schema())
 
+        # Columns added here always predate their own addition: every file the table already
+        # holds was written without this column, so it must tolerate absent values on those
+        # rows. Forcing nullable regardless of the incoming batch's own nullability (which
+        # reflects only whether *this* batch happened to contain nulls) is what lets a later
+        # `optimize.compact()` read those old files at all — a non-nullable add otherwise fails
+        # compaction with "Non-nullable column '<name>' is missing from the physical schema".
         new_fields = [
-            deltalake.Field.from_arrow(field)
+            deltalake.Field.from_arrow(field.with_nullable(True))
             for field in ensure_delta_compatible_arrow_schema(schema)
             if field.name not in delta_table_schema.names
         ]
