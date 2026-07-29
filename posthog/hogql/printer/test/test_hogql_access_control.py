@@ -509,6 +509,27 @@ class TestWarehouseTableAccessControl(BaseTest):
             "warehouse_table", set()
         )
 
+    def test_creator_keeps_access_when_the_resource_is_denied(self):
+        # The creator check compares the joined user row by identity, and the database build fetches
+        # that row with every column but the pk deferred - so a creator must still resolve.
+        from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+
+        DataWarehouseTable.objects.create(
+            name="own_table",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            credential=self.credential,
+            url_pattern="s3://bucket/own/*",
+            columns={"id": "String"},
+            created_by=self.user,
+        )
+        self._create_ac(resource="warehouse_objects", access_level="none")
+
+        database = Database.create_for(team=self.team, user=self.user)
+
+        assert "own_table" not in database._denied_tables
+        assert "denied_table" in database._denied_tables
+
     def test_warehouse_objects_resource_none_denies_all_tables(self):
         self._create_ac(resource="warehouse_objects", access_level="none")
 
