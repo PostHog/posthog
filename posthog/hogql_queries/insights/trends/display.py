@@ -17,6 +17,7 @@ class TrendsDisplay:
     def is_total_value(self) -> bool:
         return (
             self.display_type == ChartDisplayType.BOLD_NUMBER
+            or self.display_type == ChartDisplayType.PROGRESS
             or self.display_type == ChartDisplayType.ACTIONS_PIE
             or self.display_type == ChartDisplayType.ACTIONS_BAR_VALUE
             or self.display_type == ChartDisplayType.WORLD_MAP

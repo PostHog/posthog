@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconGlobe, IconGraph, IconPieChart, IconRetentionHeatmap, IconTrends } from '@posthog/icons'
+import { IconGlobe, IconGraph, IconPieChart, IconRetentionHeatmap, IconTarget, IconTrends } from '@posthog/icons'
 import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -154,6 +154,22 @@ export function ChartFilter(): JSX.Element {
                                   <ChartFilterOptionLabel
                                       label="Metric"
                                       description="A headline value with a sparkline and period-over-period change."
+                                  />
+                              ),
+                              disabledReason: trendsOnlyDisabledReason || singleSeriesOnlyDisabledReason,
+                          },
+                      ]
+                    : []),
+                ...(featureFlags[FEATURE_FLAGS.PROGRESS_INSIGHT]
+                    ? [
+                          {
+                              value: ChartDisplayType.Progress,
+                              icon: <IconTarget />,
+                              label: 'Progress',
+                              labelInMenu: (
+                                  <ChartFilterOptionLabel
+                                      label="Progress"
+                                      description="The total value against a target, as a progress bar."
                                   />
                               ),
                               disabledReason: trendsOnlyDisabledReason || singleSeriesOnlyDisabledReason,

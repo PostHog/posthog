@@ -2894,6 +2894,11 @@ const handleQuerySourceUpdateSideEffects = (
         ;(mergedUpdate as TrendsQuery).breakdownFilter = undefined
     }
 
+    // Remove breakdown filter if display type is Progress because it is single-series
+    if (kind === NodeKind.TrendsQuery && maybeChangedDisplay === ChartDisplayType.Progress) {
+        ;(mergedUpdate as TrendsQuery).breakdownFilter = undefined
+    }
+
     // Remove breakdown filter if display type is Heatmap because it is not supported
     if (kind === NodeKind.TrendsQuery && maybeChangedDisplay === ChartDisplayType.CalendarHeatmap) {
         ;(mergedUpdate as TrendsQuery).breakdownFilter = undefined

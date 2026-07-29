@@ -60,6 +60,8 @@ export function InsightDisplayConfig(): JSX.Element {
             display !== ChartDisplayType.ActionsAreaGraph &&
             display !== ChartDisplayType.CalendarHeatmap &&
             display !== ChartDisplayType.BoxPlot &&
+            // The progress bar only shows the current period against its target
+            display !== ChartDisplayType.Progress &&
             !isMetric &&
             !isSlopeGraph) ||
         isStickiness ||

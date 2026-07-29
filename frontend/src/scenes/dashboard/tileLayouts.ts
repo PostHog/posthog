@@ -256,7 +256,11 @@ export const calculateLayouts = (
             } else if (isTrendsQuery(query) && query.trendsFilter?.display === ChartDisplayType.BoldNumber) {
                 defaultW = 2
                 defaultH = 2
-            } else if (isTrendsQuery(query) && query.trendsFilter?.display === ChartDisplayType.Metric) {
+            } else if (
+                isTrendsQuery(query) &&
+                (query.trendsFilter?.display === ChartDisplayType.Metric ||
+                    query.trendsFilter?.display === ChartDisplayType.Progress)
+            ) {
                 defaultW = 3
                 defaultH = 3
             }

@@ -1,0 +1,89 @@
+{
+    "id": 9999002,
+    "short_id": "progrs01",
+    "name": "Signups against plan",
+    "derived_name": null,
+    "filters": {
+        "display": "Progress"
+    },
+    "filters_hash": "cache_1b8dd6a17ff8d9de1e0af5f30cf9bb62",
+    "order": null,
+    "deleted": false,
+    "dashboard": null,
+    "layouts": {},
+    "color": null,
+    "last_refresh": "2022-08-09T15:15:30.352651Z",
+    "refreshing": false,
+    "result": [
+        {
+            "action": {
+                "id": "signed_up",
+                "type": "events",
+                "order": 0,
+                "name": "signed_up",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "signed_up",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2022-08-02",
+                "2022-08-03",
+                "2022-08-04",
+                "2022-08-05",
+                "2022-08-06",
+                "2022-08-07",
+                "2022-08-08",
+                "2022-08-09"
+            ],
+            "aggregated_value": 3140
+        }
+    ],
+    "created_at": "2022-08-08T14:30:15.912394Z",
+    "created_by": null,
+    "description": "",
+    "updated_at": "2022-08-08T14:32:27.143626Z",
+    "favorited": false,
+    "saved": true,
+    "last_modified_at": "2022-08-08T14:32:27.095209Z",
+    "last_modified_by": null,
+    "is_sample": false,
+    "timezone": null,
+    "tags": [],
+    "query": {
+        "kind": "InsightVizNode",
+        "source": {
+            "dateRange": {
+                "date_from": "-7d"
+            },
+            "filterTestAccounts": false,
+            "interval": "day",
+            "kind": "TrendsQuery",
+            "series": [
+                {
+                    "event": "signed_up",
+                    "kind": "EventsNode",
+                    "name": "signed_up"
+                }
+            ],
+            "trendsFilter": {
+                "display": "Progress",
+                "goalLines": [
+                    {
+                        "label": "Q3 plan",
+                        "value": 4000,
+                        "displayLabel": true
+                    }
+                ],
+                "resultCustomizationBy": "value"
+            },
+            "version": 2
+        },
+        "full": true
+    }
+}

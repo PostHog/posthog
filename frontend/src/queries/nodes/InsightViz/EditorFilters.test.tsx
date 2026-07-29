@@ -20,7 +20,7 @@ import {
     TrendsQuery,
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { BaseMathType, InsightShortId } from '~/types'
+import { BaseMathType, ChartDisplayType, InsightShortId } from '~/types'
 
 import { attachedContextLogic } from 'products/posthog_ai/frontend/api/logics'
 
@@ -232,6 +232,23 @@ describe('EditorFilters', () => {
             await screen.findByText('Data warehouse insights always use the latest table properties.')
         ).toBeInTheDocument()
         expect(within(disabledArea as HTMLElement).getByRole('switch')).toBeDisabled()
+    })
+
+    // The progress display reads its target off the first goal line, so losing the goal-line editor
+    // for it would leave the target unsettable and the display permanently blank.
+    it.each([
+        [ChartDisplayType.Progress, true],
+        [ChartDisplayType.ActionsPie, false],
+    ])('goal lines available for %s: %s', async (display, expected) => {
+        setupAndRender({ ...makeTrendsQuery(), trendsFilter: { display } })
+
+        await userEvent.click(screen.getByText('Advanced options'))
+
+        if (expected) {
+            expect(screen.getByText('Goal lines')).toBeInTheDocument()
+        } else {
+            expect(screen.queryByText('Goal lines')).not.toBeInTheDocument()
+        }
     })
 
     it('shows funnel settings collapsed by default and expandable', async () => {

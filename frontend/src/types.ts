@@ -2976,6 +2976,7 @@ export enum ChartDisplayType {
     ActionsLineGraphCumulative = 'ActionsLineGraphCumulative',
     BoldNumber = 'BoldNumber',
     Metric = 'Metric',
+    Progress = 'Progress',
     ActionsPie = 'ActionsPie',
     ActionsBarValue = 'ActionsBarValue',
     ActionsTable = 'ActionsTable',

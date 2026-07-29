@@ -504,6 +504,7 @@ const AssistantTrendsFilter = z.object({
             'ActionsLineGraphCumulative',
             'BoldNumber',
             'Metric',
+            'Progress',
             'ActionsPie',
             'ActionsBarValue',
             'ActionsTable',

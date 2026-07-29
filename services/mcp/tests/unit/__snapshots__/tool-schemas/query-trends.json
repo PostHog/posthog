@@ -3617,6 +3617,7 @@
                         "ActionsLineGraphCumulative",
                         "BoldNumber",
                         "Metric",
+                        "Progress",
                         "ActionsPie",
                         "ActionsBarValue",
                         "ActionsTable",

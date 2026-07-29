@@ -5,6 +5,7 @@ export const DISPLAY_TYPES_WITHOUT_LEGEND = [
     ChartDisplayType.ActionsTable,
     ChartDisplayType.BoldNumber,
     ChartDisplayType.Metric,
+    ChartDisplayType.Progress,
     ChartDisplayType.ActionsBarValue,
 ]
 

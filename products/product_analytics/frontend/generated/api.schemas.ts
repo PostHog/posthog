@@ -1592,6 +1592,7 @@ export const ChartDisplayTypeApi = {
     ActionsLineGraphCumulative: 'ActionsLineGraphCumulative',
     BoldNumber: 'BoldNumber',
     Metric: 'Metric',
+    Progress: 'Progress',
     ActionsPie: 'ActionsPie',
     ActionsBarValue: 'ActionsBarValue',
     ActionsTable: 'ActionsTable',

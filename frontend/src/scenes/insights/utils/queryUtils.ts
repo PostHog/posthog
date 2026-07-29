@@ -247,6 +247,7 @@ const groupedChartDisplayTypes: Record<ChartDisplayType, ChartDisplayType> = {
 
     // total value
     [ChartDisplayType.BoldNumber]: ChartDisplayType.ActionsBarValue,
+    [ChartDisplayType.Progress]: ChartDisplayType.ActionsBarValue,
     [ChartDisplayType.ActionsBarValue]: ChartDisplayType.ActionsBarValue,
     [ChartDisplayType.ActionsPie]: ChartDisplayType.ActionsBarValue,
     [ChartDisplayType.ActionsTable]: ChartDisplayType.ActionsBarValue,

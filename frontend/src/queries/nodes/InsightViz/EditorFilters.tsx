@@ -107,6 +107,8 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                 ChartDisplayType.ActionsAreaGraph,
                 ChartDisplayType.ActionsBar,
                 ChartDisplayType.ActionsUnstackedBar,
+                // The progress display has no axis to overlay — it reads the first goal line as its target
+                ChartDisplayType.Progress,
             ].includes(display || ChartDisplayType.ActionsLineGraph)) ||
         (isFunnels && isTrendsFunnel) ||
         (isRetention &&

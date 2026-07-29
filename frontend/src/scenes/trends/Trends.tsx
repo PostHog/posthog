@@ -14,6 +14,8 @@ import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType, InsightType } from '~/types'
 
+import { TrendsProgress } from 'products/product_analytics/frontend/insights/trends/TrendsProgress/TrendsProgress'
+
 import { trendsDataLogic } from './trendsDataLogic'
 // Lazy-loaded viz types that are rarely used on dashboards
 const WorldMap = lazyWithRetry(() => import('scenes/insights/views/WorldMap').then((m) => ({ default: m.WorldMap })))
@@ -108,6 +110,9 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
         }
         if (display === ChartDisplayType.Metric) {
             return <MetricCard {...commonProps} />
+        }
+        if (display === ChartDisplayType.Progress) {
+            return <TrendsProgress {...commonProps} />
         }
         if (display === ChartDisplayType.ActionsTable) {
             return (
