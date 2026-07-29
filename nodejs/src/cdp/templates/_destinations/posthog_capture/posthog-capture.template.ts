@@ -6,7 +6,7 @@ export const template: HogFunctionTemplate = {
     type: 'destination',
     id: 'template-posthog-capture',
     name: 'Capture a PostHog event',
-    description: 'Capture a PostHog event to your account',
+    description: 'Capture a new PostHog event back into this same project',
     icon_url: '/static/posthog-icon.svg',
     category: ['Custom', 'Analytics'],
     code_language: 'hog',
