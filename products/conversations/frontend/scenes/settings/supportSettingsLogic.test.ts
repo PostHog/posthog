@@ -17,13 +17,13 @@ describe('supportSettingsLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                'api/conversations/v1/email/status': { configs: [] },
+                '/api/conversations/v1/email/status': { configs: [] },
             },
             post: {
-                'api/environments/:team_id/': async ({ request }) => [200, await request.json()],
-                'api/conversations/v1/teams/select-channel': { ok: true, teams_channels: [] },
-                'api/conversations/v1/teams/install': { ok: true, status: 'installed' },
-                'api/conversations/v1/teams/channels': { channels: [] },
+                '/api/environments/:team_id/': async ({ request }) => [200, await request.json()],
+                '/api/conversations/v1/teams/select-channel': { ok: true, teams_channels: [] },
+                '/api/conversations/v1/teams/install': { ok: true, status: 'installed' },
+                '/api/conversations/v1/teams/channels': { channels: [] },
             },
         })
         initKeaTests()
@@ -71,10 +71,10 @@ describe('supportSettingsLogic', () => {
         ])('surfaces the backend reason when connecting fails (%s)', async (_label, body) => {
             useMocks({
                 get: {
-                    'api/conversations/v1/email/status': { configs: [] },
+                    '/api/conversations/v1/email/status': { configs: [] },
                 },
                 post: {
-                    'api/conversations/v1/email/connect': () => [400, body],
+                    '/api/conversations/v1/email/connect': () => [400, body],
                 },
             })
             logic = supportSettingsLogic()
@@ -325,13 +325,13 @@ describe('supportSettingsLogic', () => {
 
             useMocks({
                 get: {
-                    'api/conversations/v1/email/status': { configs: [] },
+                    '/api/conversations/v1/email/status': { configs: [] },
                 },
                 post: {
-                    'api/environments/:team_id/': async ({ request }) => [200, await request.json()],
-                    'api/conversations/v1/teams/select-channel': { ok: true, teams_channels: updatedChannels },
-                    'api/conversations/v1/teams/install': { ok: true, status: 'installed' },
-                    'api/conversations/v1/teams/channels': { channels: [] },
+                    '/api/environments/:team_id/': async ({ request }) => [200, await request.json()],
+                    '/api/conversations/v1/teams/select-channel': { ok: true, teams_channels: updatedChannels },
+                    '/api/conversations/v1/teams/install': { ok: true, status: 'installed' },
+                    '/api/conversations/v1/teams/channels': { channels: [] },
                 },
             })
 
