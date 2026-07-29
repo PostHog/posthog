@@ -6,7 +6,7 @@ from django.test import SimpleTestCase
 
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.excel.excel import ExcelReadError
 from products.warehouse_sources.backend.temporal.data_imports.sources.excel.source import ExcelSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.excel import ExcelSourceConfig
