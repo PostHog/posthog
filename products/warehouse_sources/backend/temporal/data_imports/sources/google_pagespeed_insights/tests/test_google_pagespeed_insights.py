@@ -280,7 +280,7 @@ class TestFetch:
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status, expected_valid",
-        [(200, True), (400, False), (403, False), (500, False)],
+        [(200, True), (400, False), (403, False), (429, False), (500, False), (503, False)],
     )
     def test_status_mapping(self, status, expected_valid):
         with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
@@ -289,6 +289,18 @@ class TestValidateCredentials:
             is_valid, _ = validate_credentials("test-key", "https://posthog.com")
 
         assert is_valid is expected_valid
+
+    def test_server_error_is_transient_and_hides_the_status(self):
+        # A 5xx used to surface the raw status code, which is not actionable.
+        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
+            mock_session.return_value.get.return_value = _response(503)
+
+            is_valid, message = validate_credentials("test-key", "https://posthog.com")
+
+        assert is_valid is False
+        assert message is not None
+        assert "503" not in message
+        assert "temporary" in message
 
     def test_malformed_urls_is_invalid_without_request(self):
         with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
