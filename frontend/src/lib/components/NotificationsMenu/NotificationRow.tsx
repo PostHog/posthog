@@ -65,6 +65,10 @@ export const REALTIME_NOTIFICATION_TYPE_META: Record<string, { label: string; de
         label: 'Achievement unlocked',
         description: 'When you unlock a new achievement',
     },
+    subscription_nudge: {
+        label: 'Subscription suggestions',
+        description: 'When PostHog suggests subscribing to a dashboard you keep coming back to',
+    },
 }
 
 export function NotificationTitle({
@@ -214,7 +218,7 @@ export function NotificationRow({
                 </div>
             </div>
             <div className={`absolute bottom-1.5 right-1.5 flex items-center gap-1 ${ROW_ACTION_REVEAL_CLASSES}`}>
-                {archivingEnabled && !readOnly && notification.archivable && (
+                {archivingEnabled && !readOnly && (
                     <NotificationActionButton
                         icon={<IconArchive className="size-4" />}
                         tooltip="Archive"

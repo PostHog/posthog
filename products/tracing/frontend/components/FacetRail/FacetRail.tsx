@@ -28,7 +28,8 @@ export function FacetRail(): JSX.Element {
     const railRef = useRef<HTMLDivElement>(null)
     const { setFacetRailCollapsed } = useActions(tracingConfigLogic)
     const { serviceNames, filters } = useValues(tracingFiltersLogic)
-    const { facetValues, facetValuesLoading, visibleFacets } = useValues(facetCountsLogic)
+    const { facetValues, loadingFacetKeys, erroredFacetKeys, facetSearch, visibleFacets } = useValues(facetCountsLogic)
+    const { setFacetSearch } = useActions(facetCountsLogic)
     const { collapsedFacets, facetNameSearch } = useValues(facetRailLogic)
     const { toggleFacetValue, toggleFacetCollapsed, setFacetNameSearch } = useActions(facetRailLogic)
 
@@ -65,6 +66,8 @@ export function FacetRail(): JSX.Element {
                 label: row.value,
                 count: row.count,
             }))
+        const loading = loadingFacetKeys.includes(facet.key)
+        const error = erroredFacetKeys.includes(facet.key)
         const onToggle = (value: string): void => toggleFacetValue(source, value)
         const onToggleCollapsed = (): void => toggleFacetCollapsed(facet.key)
         const collapsed = collapsedFacets.includes(facet.key)
@@ -83,27 +86,34 @@ export function FacetRail(): JSX.Element {
                     options={options}
                     selected={selected}
                     onToggle={onToggle}
-                    loading={facetValuesLoading}
+                    loading={loading}
                     collapsed={collapsed}
                     onToggleCollapsed={onToggleCollapsed}
                     dimZeroCounts
+                    error={error}
                 />
             )
         }
 
         // Dynamic facet: values + counts come straight from the cross-filtered endpoint (zeros never
         // appear), with any selected-but-absent values injected so they stay visible and toggleable.
+        const search = facet.searchable ? facetSearch[facet.key] : undefined
         return (
             <Facet
                 key={facet.key}
                 title={facet.title}
-                options={mergeSelectedIntoOptions(fetched, selected)}
+                options={mergeSelectedIntoOptions(fetched, selected, search)}
                 selected={selected}
                 onToggle={onToggle}
-                loading={facetValuesLoading}
+                loading={loading}
                 emptyLabel={facet.emptyLabel}
+                searchValue={facet.searchable ? (search ?? '') : undefined}
+                onSearchChange={facet.searchable ? (value) => setFacetSearch(facet.key, value) : undefined}
+                searchPlaceholder={facet.searchPlaceholder}
                 collapsed={collapsed}
                 onToggleCollapsed={onToggleCollapsed}
+                maxHeight={facet.maxHeight}
+                error={error}
             />
         )
     }
@@ -116,7 +126,9 @@ export function FacetRail(): JSX.Element {
             ref={railRef}
             className="relative flex flex-col shrink-0 border rounded bg-surface-primary overflow-hidden"
             // eslint-disable-next-line react/forbid-dom-props
-            style={{ width: desiredSize ?? DEFAULT_WIDTH_PX, minWidth: 'min-content', maxWidth: '40%' }}
+            // The width is the user's alone: a fixed min (not min-content) so a long facet value
+            // can never force the rail wider — values truncate to fit instead.
+            style={{ width: desiredSize ?? DEFAULT_WIDTH_PX, minWidth: COLLAPSE_THRESHOLD_PX, maxWidth: '40%' }}
             data-attr="tracing-facet-rail"
         >
             <div className="px-2 py-1 border-b">

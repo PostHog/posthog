@@ -23,6 +23,12 @@ export const CreateBody = /* @__PURE__ */ zod.object({
             'When True, organization members (below admin) are allowed to create new projects. Admins and owners can always create projects.'
         ),
     members_can_use_personal_api_keys: zod.boolean().optional(),
+    members_can_see_org_members: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When False, members (below admin) only see themselves in the members list and only project members in access control.'
+        ),
     allow_publicly_shared_resources: zod.boolean().optional(),
     is_ai_data_processing_approved: zod.boolean().nullish(),
     is_ai_training_opted_in: zod
@@ -63,6 +69,12 @@ export const UpdateBody = /* @__PURE__ */ zod.object({
             'When True, organization members (below admin) are allowed to create new projects. Admins and owners can always create projects.'
         ),
     members_can_use_personal_api_keys: zod.boolean().optional(),
+    members_can_see_org_members: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When False, members (below admin) only see themselves in the members list and only project members in access control.'
+        ),
     allow_publicly_shared_resources: zod.boolean().optional(),
     is_ai_data_processing_approved: zod.boolean().nullish(),
     is_ai_training_opted_in: zod
@@ -103,6 +115,12 @@ export const PartialUpdateBody = /* @__PURE__ */ zod.object({
             'When True, organization members (below admin) are allowed to create new projects. Admins and owners can always create projects.'
         ),
     members_can_use_personal_api_keys: zod.boolean().optional(),
+    members_can_see_org_members: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When False, members (below admin) only see themselves in the members list and only project members in access control.'
+        ),
     allow_publicly_shared_resources: zod.boolean().optional(),
     is_ai_data_processing_approved: zod.boolean().nullish(),
     is_ai_training_opted_in: zod
@@ -143,24 +161,40 @@ export const MembersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('\* `1` - member\n\* `8` - administrator\n\* `15` - owner'),
 })
 
+/**
+ * Role endpoints disclose member records, so they scope them the same way the members list
+ * does when the org restricts member list visibility.
+ */
 export const rolesCreateBodyNameMax = 200
 
 export const RolesCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(rolesCreateBodyNameMax),
 })
 
+/**
+ * Role endpoints disclose member records, so they scope them the same way the members list
+ * does when the org restricts member list visibility.
+ */
 export const rolesUpdateBodyNameMax = 200
 
 export const RolesUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(rolesUpdateBodyNameMax),
 })
 
+/**
+ * Role endpoints disclose member records, so they scope them the same way the members list
+ * does when the org restricts member list visibility.
+ */
 export const rolesPartialUpdateBodyNameMax = 200
 
 export const RolesPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(rolesPartialUpdateBodyNameMax).optional(),
 })
 
+/**
+ * Role endpoints disclose member records, so they scope them the same way the members list
+ * does when the org restricts member list visibility.
+ */
 export const RolesRoleMembershipsCreateBody = /* @__PURE__ */ zod.object({
     user_uuid: zod.uuid(),
 })
@@ -266,7 +300,9 @@ export const ApprovalPoliciesPartialUpdateBody = /* @__PURE__ */ zod.object({
  * Approve a change request.
  * If quorum is reached, automatically applies the change immediately.
  */
-export const ChangeRequestsApproveCreateBody = /* @__PURE__ */ zod.looseObject({})
+export const ChangeRequestsApproveCreateBody = /* @__PURE__ */ zod.object({
+    reason: zod.string().optional().describe('Optional note recorded with the approval vote explaining the decision.'),
+})
 
 /**
  * Cancel a change request.
@@ -277,7 +313,13 @@ export const ChangeRequestsCancelCreateBody = /* @__PURE__ */ zod.looseObject({}
 /**
  * Reject a change request.
  */
-export const ChangeRequestsRejectCreateBody = /* @__PURE__ */ zod.looseObject({})
+export const ChangeRequestsRejectCreateBody = /* @__PURE__ */ zod.object({
+    reason: zod
+        .string()
+        .describe(
+            'Reason for rejecting the change request. Required — recorded with the rejection vote and shown to the requester.'
+        ),
+})
 
 export const commentsCreateBodyIsTaskDefault = false
 export const commentsCreateBodyItemIdMax = 72

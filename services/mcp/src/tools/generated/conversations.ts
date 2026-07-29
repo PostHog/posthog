@@ -11,8 +11,15 @@ import {
     ConversationsTicketsReplyCreateBody,
     ConversationsTicketsReplyCreateParams,
     ConversationsTicketsRetrieveParams,
+    ConversationsViewsListQueryParams,
 } from '@/generated/conversations/api'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import {
+    withPostHogUrl,
+    withAgentNote,
+    pickResponseFields,
+    type WithPostHogUrl,
+    type WithAgentNote,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ConversationsTicketsListSchema = ConversationsTicketsListQueryParams
@@ -35,6 +42,7 @@ const conversationsTicketsList = (): ToolBase<
                 date_from: params.date_from,
                 date_to: params.date_to,
                 distinct_ids: params.distinct_ids,
+                emails: params.emails,
                 limit: params.limit,
                 offset: params.offset,
                 order_by: params.order_by,
@@ -65,7 +73,7 @@ const conversationsTicketsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/conversations/tickets')
+        return await withPostHogUrl(context, filtered, '/support/tickets')
     },
 })
 
@@ -128,7 +136,7 @@ const ConversationsTicketsRetrieveSchema = ConversationsTicketsRetrieveParams.om
 
 const conversationsTicketsRetrieve = (): ToolBase<
     typeof ConversationsTicketsRetrieveSchema,
-    WithPostHogUrl<Schemas.Ticket>
+    WithAgentNote<WithPostHogUrl<Schemas.Ticket>>
 > => ({
     name: 'conversations-tickets-retrieve',
     schema: ConversationsTicketsRetrieveSchema,
@@ -162,7 +170,10 @@ const conversationsTicketsRetrieve = (): ToolBase<
             'created_at',
             'updated_at',
         ]) as typeof result
-        return await withPostHogUrl(context, filtered, `/conversations/tickets/${filtered.id}`)
+        return withAgentNote(
+            await withPostHogUrl(context, filtered, `/support/tickets/${filtered.id}`),
+            "The PostHog Assistant may have investigated this ticket and written self-driving reports into the Inbox. To surface them, call inbox-reports-list with source_id set to this ticket's `id` and source_product=conversations (add include_all_statuses=true to include dismissed ones). Those reports hold the investigation and findings; the ticket's own messages do not."
+        )
     },
 })
 
@@ -199,7 +210,33 @@ const conversationsTicketsUpdate = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/conversations/tickets/${encodeURIComponent(String(params.id))}/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/conversations/tickets/${result.id}`)
+        return await withPostHogUrl(context, result, `/support/tickets/${result.id}`)
+    },
+})
+
+const ConversationsViewsListSchema = ConversationsViewsListQueryParams
+
+const conversationsViewsList = (): ToolBase<
+    typeof ConversationsViewsListSchema,
+    WithPostHogUrl<Schemas.PaginatedTicketViewList>
+> => ({
+    name: 'conversations-views-list',
+    schema: ConversationsViewsListSchema,
+    handler: async (context: Context, params: z.infer<typeof ConversationsViewsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedTicketViewList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/conversations/views/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) => pickResponseFields(item, ['short_id', 'name'])),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/support/tickets')
     },
 })
 
@@ -209,4 +246,5 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'conversations-tickets-reply-create': conversationsTicketsReplyCreate,
     'conversations-tickets-retrieve': conversationsTicketsRetrieve,
     'conversations-tickets-update': conversationsTicketsUpdate,
+    'conversations-views-list': conversationsViewsList,
 }

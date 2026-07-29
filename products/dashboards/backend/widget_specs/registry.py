@@ -111,7 +111,7 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
             product_access_denied_message=None,
             availability_requirements=(),
             form_fields=("limit", "dateRange", "filterTestAccounts"),
-            filter_fields=("eventName",),
+            filter_fields=("eventName", "properties"),
         ),
         ERROR_TRACKING_LIST_WIDGET_TYPE: WidgetSpec(
             widget_type=ERROR_TRACKING_LIST_WIDGET_TYPE,

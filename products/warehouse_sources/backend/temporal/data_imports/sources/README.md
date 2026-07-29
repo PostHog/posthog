@@ -75,7 +75,7 @@ We have a bunch of examples already in the sources directory of how we build up 
 - It's okay to yield items one at a time if that's how the source logic is handled (excluding pyarrow tables). The pipeline will buffer the incoming items until it has a reasonable amount before running the pipeline over the dataset
 - If you are returning a `pyarrow.Table` object, then please make sure that there is a reasonable limit on how many rows that get held in memory. For most of our sources, we limit this to either 200 MiB or 5,000 rows.
 
-We have some helper methods for returning a `pyarrow.Table` from the source, such as `table_from_iterator()` and `table_from_py_list()` from `products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline/utils.py`. The pipeline will ultimately convert everything to a `pyarrow.Table` using these methods
+We have some helper methods for returning a `pyarrow.Table` from the source, such as `table_from_iterator()` and `table_from_py_list()` from `products/warehouse_sources/backend/temporal/data_imports/pipelines/core/arrow_utils.py`. The pipeline will ultimately convert everything to a `pyarrow.Table` using these methods
 
 #### `primary_keys`
 
@@ -228,3 +228,16 @@ Common errors to handle:
 - **401 Unauthorized**: Invalid or expired API keys
 - **403 Forbidden**: Missing required scopes or permissions
 - **Invalid/Expired tokens**: OAuth tokens that need re-authentication
+
+## Retryable Errors
+
+Sources that retry transient failures internally (rate limits, transient 5xx) can re-raise once their own retries are exhausted.
+Temporal then retries the whole activity, so the failure is self-recovering — but by default it is logged as an exception and shows up as error-tracking noise.
+
+Override `get_retryable_errors()` to return a set of partial error messages the source already retries.
+Matching errors are logged at `warning` instead of `exception` before being re-raised for Temporal's retry:
+
+```python
+def get_retryable_errors(self) -> set[str]:
+    return {"Example API error (retryable)"}
+```

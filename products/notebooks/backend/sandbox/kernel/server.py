@@ -20,7 +20,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 from .auth import verify_command_token
-from .runner import execute_run, fetch_page
+from .runner import execute_run, fetch_page, request_interrupt
 
 DEFAULT_PORT = 47821
 
@@ -52,16 +52,16 @@ class KernelServerHandler(BaseHTTPRequestHandler):
             self._respond(202, {"accepted": True})
             return
         if self.path == "/interrupt":
-            self._handle_interrupt()
+            self._handle_interrupt(payload)
             return
         self._handle_page(payload)
 
-    def _handle_interrupt(self) -> None:
-        # Deferred so the server startup path never imports jupyter_client (sandbox-only).
-        from . import executor  # noqa: PLC0415 — keeps jupyter_client off the server import path
-
-        executor.get_executor().interrupt()
-        self._respond(200, {"interrupted": True})
+    def _handle_interrupt(self, payload: dict[str, Any]) -> None:
+        # Run-scoped: cancels the run's queued/waiting phases via its cancel event and
+        # SIGINTs the kernel only when this run is the cell executing right now. An
+        # unknown run (already finished, or not yet delivered) is an idempotent noop.
+        known = request_interrupt(str(payload.get("run_id") or ""))
+        self._respond(200, {"interrupted": known, "known": known})
 
     def _handle_page(self, payload: dict[str, Any]) -> None:
         from . import data_plane, result_store  # noqa: PLC0415 — keep pyarrow off the server startup path

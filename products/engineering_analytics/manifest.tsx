@@ -49,6 +49,14 @@ export const manifest: ProductManifest = {
             description: "One author's pull requests — a filtered view for finding work, not a ranking.",
             iconType: 'health',
         },
+        EngineeringAnalyticsTeam: {
+            import: () => import('./frontend/scenes/EngineeringAnalyticsTeamScene'),
+            projectBased: true,
+            name: 'Team CI health',
+            layout: 'app-container',
+            description: "One owning team's merge timing and the before/after signal on its owned tests.",
+            iconType: 'health',
+        },
     },
     // Detail paths follow GitHub's REST-API shape (repos/:owner/:repo/pull-requests/:n, .../actions/runs/:id)
     // — a repos/ prefix that keeps them clear of the tab routes and readable collection nouns. Cross-repo
@@ -59,6 +67,8 @@ export const manifest: ProductManifest = {
         '/engineering-analytics/pull-requests': ['EngineeringAnalytics', 'engineeringAnalyticsPullRequestList'],
         '/engineering-analytics/workflows': ['EngineeringAnalytics', 'engineeringAnalyticsWorkflows'],
         '/engineering-analytics/test-health': ['EngineeringAnalytics', 'engineeringAnalyticsTestHealth'],
+        '/engineering-analytics/teams': ['EngineeringAnalytics', 'engineeringAnalyticsTeams'],
+        '/engineering-analytics/teams/:ownerTeam': ['EngineeringAnalyticsTeam', 'engineeringAnalyticsTeam'],
         '/engineering-analytics/repos/:repoOwner/:repoName/pull-requests/:number': [
             'EngineeringAnalyticsPullRequest',
             'engineeringAnalyticsPullRequest',
@@ -86,6 +96,9 @@ export const manifest: ProductManifest = {
         engineeringAnalyticsPullRequestList: (): string => '/engineering-analytics/pull-requests',
         engineeringAnalyticsWorkflows: (): string => '/engineering-analytics/workflows',
         engineeringAnalyticsTestHealth: (): string => '/engineering-analytics/test-health',
+        engineeringAnalyticsTeams: (): string => '/engineering-analytics/teams',
+        engineeringAnalyticsTeam: (ownerTeam: string): string =>
+            `/engineering-analytics/teams/${encodeURIComponent(ownerTeam)}`,
         engineeringAnalyticsPullRequest: (repoOwner: string, repoName: string, number: number | string): string =>
             `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/pull-requests/${number}`,
         engineeringAnalyticsWorkflowRun: (repoOwner: string, repoName: string, runId: number | string): string =>

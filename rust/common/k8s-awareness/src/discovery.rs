@@ -113,6 +113,7 @@ fn is_not_found(e: &kube::Error) -> bool {
 #[derive(Debug, Clone, Serialize)]
 pub struct DiscoveredPod {
     pub name: String,
+    pub namespace: String,
     pub ip: Option<String>,
     pub node: Option<String>,
     pub phase: Option<String>,
@@ -140,6 +141,7 @@ impl From<Pod> for DiscoveredPod {
             .sum();
         Self {
             name: pod.metadata.name.unwrap_or_default(),
+            namespace: pod.metadata.namespace.unwrap_or_default(),
             ip: status.pod_ip,
             node: pod.spec.and_then(|s| s.node_name),
             phase: status.phase,
@@ -185,6 +187,7 @@ mod tests {
         let pod: Pod = serde_json::from_value(serde_json::json!({
             "metadata": {
                 "name": "consumer-abc",
+                "namespace": "ingestion-analytics-main",
                 "labels": {"app": "ingestion-analytics-main", "pod-template-hash": "x1"}
             },
             "spec": {"nodeName": "node-1", "containers": []},
@@ -203,6 +206,7 @@ mod tests {
 
         let discovered = DiscoveredPod::from(pod);
         assert_eq!(discovered.name, "consumer-abc");
+        assert_eq!(discovered.namespace, "ingestion-analytics-main");
         assert_eq!(discovered.ip.as_deref(), Some("10.0.0.7"));
         assert_eq!(discovered.node.as_deref(), Some("node-1"));
         assert_eq!(discovered.phase.as_deref(), Some("Running"));

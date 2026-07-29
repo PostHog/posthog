@@ -15,7 +15,7 @@
 //! ```
 //!
 //! Env knobs: `KAFKA_HOSTS` (default `localhost:9092`), `TOPIC` (default
-//! `icp-test-topic`), `GROUP` (default `test-group`), `HOT_MESSAGES`
+//! `ingestion-lag-demo`), `GROUP` (default `ingestion-lag-demo`), `HOT_MESSAGES`
 //! (default 2000). With `DATABASE_URL` set, real team tokens are used so the
 //! control plane's token -> team resolution shows real team ids.
 
@@ -93,8 +93,8 @@ async fn fetch_tokens(database_url: &str) -> Vec<String> {
 #[tokio::main]
 async fn main() {
     let kafka_hosts = env_or("KAFKA_HOSTS", "localhost:9092");
-    let topic = env_or("TOPIC", "icp-test-topic");
-    let group = env_or("GROUP", "test-group");
+    let topic = env_or("TOPIC", "ingestion-lag-demo");
+    let group = env_or("GROUP", "ingestion-lag-demo");
     let hot_messages: usize = env_or("HOT_MESSAGES", "2000")
         .parse()
         .expect("HOT_MESSAGES must be a number");

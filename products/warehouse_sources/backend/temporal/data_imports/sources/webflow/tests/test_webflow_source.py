@@ -2,9 +2,11 @@ from unittest.mock import MagicMock, patch
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import WebflowSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.webflow import (
+    WebflowSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.webflow.settings import STATIC_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.webflow.source import WebflowSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.webflow.webflow import WebflowResumeConfig
@@ -122,6 +124,7 @@ class TestWebflowSource:
             api_token="token",
             site_id="site-1",
             schema_name="collection_blog",
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=manager,
         )

@@ -19,21 +19,21 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import normalize_column_name
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
     sync_engineering_analytics_views,
     sync_revenue_analytics_views,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import normalize_column_name
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import set_initial_sync_complete
 from products.warehouse_sources.backend.temporal.data_imports.util import prepare_s3_files_for_querying
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
         DeltaTableHelper,
     )
-    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 LOGGER = get_logger(__name__)
 
@@ -43,6 +43,23 @@ async def update_job_row_count(job_id: str, count: int, logger: FilteringBoundLo
     await database_sync_to_async_pool(
         lambda: ExternalDataJob.objects.filter(id=job_id).update(rows_synced=F("rows_synced") + count)
     )()
+
+
+class IncrementalFieldMissingFromDataError(Exception):
+    """The configured incremental field isn't a column in the extracted rows.
+
+    A config error (e.g. a display label like "created_at" persisted instead of the real field
+    "created", or a field the endpoint simply doesn't return) — retrying can never fix it, so the
+    message is registered in ``Any_Source_Errors`` to pause the schema with user guidance instead
+    of failing every scheduled sync with a raw pyarrow KeyError.
+    """
+
+    def __init__(self, field_name: str, table: pa.Table) -> None:
+        super().__init__(
+            f'Incremental field "{field_name}" was not found in the data returned by the source. '
+            f"Edit the table's sync method and pick a valid incremental field. "
+            f"Available columns: {', '.join(sorted(table.column_names)[:50])}"
+        )
 
 
 def get_incremental_field_value(
@@ -55,7 +72,11 @@ def get_incremental_field_value(
     if incremental_field_name is None:
         return None
 
-    column = table[normalize_column_name(incremental_field_name)]
+    normalized_field_name = normalize_column_name(incremental_field_name)
+    if normalized_field_name not in table.column_names:
+        raise IncrementalFieldMissingFromDataError(incremental_field_name, table)
+
+    column = table[normalized_field_name]
     processed_column = pa.array(
         [process_incremental_value(val, schema.incremental_field_type) for val in column.to_pylist()]
     )
@@ -143,10 +164,10 @@ async def _seed_cdc_companion_from_snapshot(
         SCD2_VALID_FROM_COLUMN,
         SCD2_VALID_TO_COLUMN,
     )
-    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
         DeltaTableHelper,
     )
-    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
 
     snapshot_dt = await snapshot_delta_table_helper.get_delta_table()
     if snapshot_dt is None:
@@ -273,6 +294,9 @@ async def run_post_load_operations(
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
         finalize_desc_sort_incremental_value,
     )
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (  # noqa: PLC0415 — keeps the heavy deltalake dep off this module's top-level import path
+        is_transient_object_store_error,
+    )
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
         register_cdc_companion_table,
@@ -325,16 +349,24 @@ async def run_post_load_operations(
                         schema.id, schema.team_id, updates={watermark_key: new_version}
                     )
         except Exception as e:
-            capture_exception(e)
-            logger.exception(f"Delta maintenance failed: {e}", exc_info=e)
+            if is_transient_object_store_error(e):
+                # A rate-limited or connectivity blip talking to our own S3 bucket isn't a bug - the
+                # next tick's maintenance pass retries the same idempotent cleanup.
+                logger.warning(f"Delta maintenance skipped: transient object-store error: {e}")
+            else:
+                capture_exception(e)
+                logger.exception(f"Delta maintenance failed: {e}", exc_info=e)
     else:
         logger.debug("Triggering compaction and vacuuming on delta table")
         try:
             with POST_LOAD_DURATION_SECONDS.labels(operation="compact").time():
                 await delta_table_helper.compact_table()
         except Exception as e:
-            capture_exception(e)
-            logger.exception(f"Compaction failed: {e}", exc_info=e)
+            if is_transient_object_store_error(e):
+                logger.warning(f"Compaction skipped: transient object-store error: {e}")
+            else:
+                capture_exception(e)
+                logger.exception(f"Compaction failed: {e}", exc_info=e)
 
     if is_cdc_companion:
         # Look up the existing companion table's queryable_folder (not the main schema.table).
@@ -463,7 +495,7 @@ async def run_post_load_operations(
     # past the memory-safe budget. CDC tables are excluded for now (their companion-table semantics
     # need separate validation). Detection never raises — it must not break post-load.
     if not is_cdc_companion and schema.sync_type != ExternalDataSchema.SyncType.CDC:
-        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.repartition_controller import (
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
             maybe_flag_for_repartition,
         )
 

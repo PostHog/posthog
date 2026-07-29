@@ -53,6 +53,7 @@ from posthog.models.team.team import Team
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 from posthog.temporal.ducklake import ACTIVITIES as DUCKLAKE_ACTIVITIES
 from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import DuckLakeCopyDataImportsWorkflow
+from posthog.temporal.ducklake.ducklake_register_data_imports_workflow import DuckLakeRegisterDataImportsWorkflow
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -68,11 +69,9 @@ from products.warehouse_sources.backend.facade.models import (
 from products.warehouse_sources.backend.models.external_table_definitions import external_tables
 from products.warehouse_sources.backend.temporal.data_imports.cdp_producer_job import CDPProducerJobWorkflow
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
-    DeltaTableHelper,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import DeltaTableHelper
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v2.pipeline import PipelineNonDLT
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
     process_message,
 )
@@ -269,46 +268,15 @@ def _mysql_job_inputs(mysql_config: dict) -> dict[str, str | dict[str, str]]:
 
 @pytest.fixture
 def mock_paddle_client():
-    response_data: dict[str, Any] = {"items": []}
-
-    class MockResponse:
-        def __init__(self, json_data):
-            self.json_data = json_data
-            self.status_code = 200
-
-        def json(self):
-            return self.json_data
-
-        def raise_for_status(self):
-            pass
-
+    # Paddle now flows through the shared REST framework, so pagination is mocked by
+    # `_execute_run`'s `PostHogRESTClient.paginate` patch. This fixture only bypasses
+    # credential validation; `set_response` is a no-op kept for call-site compatibility.
     def set_response(items: Any) -> None:
-        response_data["items"] = items
+        pass
 
-    def mock_paddle_request(
-        session: Any,
-        method: str,
-        url: str,
-        headers: Optional[dict[str, Any]] = None,
-        params: Optional[dict[str, Any]] = None,
-        **kwargs,
-    ):
-        return MockResponse(
-            {
-                "data": response_data["items"],
-                "meta": {"pagination": {"next": None}},
-            }
-        )
-
-    with (
-        mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.paddle.paddle.paddle_request",
-            side_effect=mock_paddle_request,
-        ),
-        mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.paddle.paddle.validate_credentials",
-            return_value=True,
-        ),
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.paddle.paddle.validate_credentials",
+        return_value=True,
     ):
         yield set_response
 
@@ -581,6 +549,9 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
         hooks: Optional[Any] = None,
         resume_hook: Optional[Any] = None,
         initial_paginator_state: Optional[dict[str, Any]] = None,
+        data_selector_required: bool = False,
+        data_selector_empty_ok: bool = False,
+        data_selector_malformed_retryable: bool = False,
     ):
         return iter(mock_data_response)
 
@@ -596,6 +567,9 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
         hooks: Optional[Any] = None,
         resume_hook: Optional[Any] = None,
         initial_paginator_state: Optional[dict[str, Any]] = None,
+        data_selector_required: bool = False,
+        data_selector_empty_ok: bool = False,
+        data_selector_malformed_retryable: bool = False,
     ):
         # Yield each record as its own page so tests that probe chunking
         # by record size still see one call per record.
@@ -669,7 +643,12 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
             async with Worker(
                 activity_environment.client,
                 task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
-                workflows=[ExternalDataJobWorkflow, CDPProducerJobWorkflow, DuckLakeCopyDataImportsWorkflow],
+                workflows=[
+                    ExternalDataJobWorkflow,
+                    CDPProducerJobWorkflow,
+                    DuckLakeCopyDataImportsWorkflow,
+                    DuckLakeRegisterDataImportsWorkflow,
+                ],
                 activities=ACTIVITIES + DUCKLAKE_ACTIVITIES,  # type: ignore
                 workflow_runner=UnsandboxedWorkflowRunner(),
                 activity_executor=ThreadPoolExecutor(max_workers=50),
@@ -2341,7 +2320,7 @@ async def test_partition_folders_with_existing_table(team, postgres_config, post
     # Emulate an existing table with no partitions
     with (
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.pipeline.setup_partitioning",
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v2.pipeline.setup_partitioning",
             mock_setup_partitioning,
         ),
         mock.patch(
@@ -2441,7 +2420,7 @@ async def test_partition_folders_with_existing_table_and_pipeline_reset(
     # Emulate an existing table with no partitions
     with (
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.pipeline.setup_partitioning",
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v2.pipeline.setup_partitioning",
             mock_setup_partitioning,
         ),
         mock.patch(
@@ -2827,7 +2806,7 @@ async def test_worker_shutdown_desc_sort_order(team):
             "products.warehouse_sources.backend.temporal.data_imports.external_data_job.trigger_schedule_buffer_one"
         ) as mock_trigger_schedule_buffer_one,
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher.DEFAULT_CHUNK_SIZE", 1
         ),
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.vitally.vitally.get_messages",
@@ -2872,7 +2851,7 @@ async def test_worker_shutdown_triggers_schedule_buffer_one(team, zendesk_brands
             "products.warehouse_sources.backend.temporal.data_imports.external_data_job.trigger_schedule_buffer_one"
         ) as mock_trigger_schedule_buffer_one,
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher.DEFAULT_CHUNK_SIZE", 1
         ),
     ):
         _, inputs = await _run(
@@ -3065,11 +3044,11 @@ async def test_pipeline_mb_chunk_size(team, zendesk_brands, pipeline_mode):
 
     with (
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE_BYTES",
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher.DEFAULT_CHUNK_SIZE_BYTES",
             1,
         ),
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE",
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher.DEFAULT_CHUNK_SIZE",
             5000,
         ),  # Explicitly make this big
         process_mock as mock_process,
@@ -3654,11 +3633,11 @@ async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_cli
 
     with (
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer.async_producer_scope",
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.async_producer_scope",
             _fake_scope,
         ),
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.pipeline.time.time_ns",
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v2.pipeline.time.time_ns",
             return_value=1768828644858352000,
         ),
     ):

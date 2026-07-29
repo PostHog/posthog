@@ -57,6 +57,7 @@ export function MetricsTable({
     )
     const {
         duplicateMetric,
+        duplicateSharedMetricAsInlineMetric,
         updateExperimentMetrics,
         updateMetricBreakdown,
         removeMetricBreakdown,
@@ -104,11 +105,7 @@ export function MetricsTable({
         )
     }
 
-    /**
-     * Show this section's loader while any of its own metrics is loading: recalculating in place, or cold
-     * (no result and no error yet). Exposures load globally, so they count for whichever section has metrics.
-     */
-    const hasColdMetric = metrics.some((_, index) => !results[index] && !errors[index])
+    const hasColdMetric = isLaunched(experiment) && metrics.some((_, index) => !results[index] && !errors[index])
     const sectionLoading =
         sectionHasRecalculatingMetric(metrics)(recalculatingMetricUuids) || hasColdMetric || exposuresLoading
 
@@ -158,6 +155,19 @@ export function MetricsTable({
 
                                     const newUuid = crypto.randomUUID()
                                     duplicateMetric({ uuid: metric.uuid, isSecondary, newUuid })
+                                    updateExperimentMetrics()
+                                }}
+                                onDuplicateAsSingleUseMetric={() => {
+                                    if (!metric.isSharedMetric || !metric.sharedMetricId || !experiment) {
+                                        return
+                                    }
+
+                                    const newUuid = crypto.randomUUID()
+                                    duplicateSharedMetricAsInlineMetric({
+                                        sharedMetricId: metric.sharedMetricId,
+                                        isSecondary,
+                                        newUuid,
+                                    })
                                     updateExperimentMetrics()
                                 }}
                                 onDeleteMetric={() => {

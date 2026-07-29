@@ -87,24 +87,15 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
     const commonProps = {
         showPersonsModal,
         context,
-        inCardView: embedded && !inSharedMode,
+        // Fill the card in every embedded surface (dashboard tiles and shared/exported insights alike) so the
+        // Metric sparkline stretches and hugs the bottom instead of collapsing to a fixed height mid-card.
+        inCardView: embedded,
         inSharedMode,
     }
 
-    const renderViz = (): JSX.Element | undefined => {
+    const renderViz = (): JSX.Element => {
         if (isLifecycle) {
             return <TrendsLifecycleChart context={context} inSharedMode={inSharedMode} />
-        }
-        if (
-            !display ||
-            display === ChartDisplayType.ActionsLineGraph ||
-            display === ChartDisplayType.ActionsLineGraphCumulative ||
-            display === ChartDisplayType.ActionsAreaGraph
-        ) {
-            if (isStickiness) {
-                return <StickinessLineChart context={context} />
-            }
-            return <TrendsLineChart context={context} inSharedMode={inSharedMode} />
         }
         if (display === ChartDisplayType.ActionsBar || display === ChartDisplayType.ActionsUnstackedBar) {
             if (isStickiness) {
@@ -158,12 +149,24 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
         if (display === ChartDisplayType.SlopeGraph) {
             return <TrendsSlopeChart context={context} />
         }
+        // Line/area/cumulative displays land here, and so does any display value without a trends
+        // renderer (e.g. Auto, reachable via the API) — the default chart beats a blank tile.
+        if (isStickiness) {
+            return <StickinessLineChart context={context} />
+        }
+        return <TrendsLineChart context={context} inSharedMode={inSharedMode} />
     }
 
     return (
         <>
             {series && (
-                <div className={embedded ? 'InsightCard__viz' : `TrendsInsight TrendsInsight--${display}`}>
+                <div
+                    className={
+                        embedded
+                            ? `InsightCard__viz InsightCard__viz--${display}`
+                            : `TrendsInsight TrendsInsight--${display}`
+                    }
+                >
                     <Suspense
                         fallback={
                             <WrappingLoadingSkeleton fullWidth>

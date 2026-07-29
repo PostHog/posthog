@@ -354,19 +354,6 @@ def open_task_artifact(artifact: TaskArtifact) -> str | None:
     return _adapter_for_existing_artifact(artifact).open(artifact)
 
 
-def _artifact_type_from_manifest(manifest_entry: dict[str, Any]) -> str:
-    raw_type = str(manifest_entry.get("type") or "")
-    content_type = str(manifest_entry.get("content_type") or "").lower()
-    name = str(manifest_entry.get("name") or "").lower()
-    if raw_type in {choice for choice, _label in TaskArtifact.ArtifactType.choices}:
-        return raw_type
-    if _is_spreadsheet_name_or_type(name, content_type):
-        return TaskArtifact.ArtifactType.SPREADSHEET
-    if content_type.startswith("text/") or name.endswith((".md", ".txt", ".html")):
-        return TaskArtifact.ArtifactType.DOCUMENT
-    return TaskArtifact.ArtifactType.FILE
-
-
 def _find_source_artifact(
     run: TaskRun,
     *,
@@ -376,10 +363,22 @@ def _find_source_artifact(
     for candidate_run in reversed(run.get_resume_chain()):
         for artifact in candidate_run.artifacts or []:
             if source_artifact_id and str(artifact.get("id")) == str(source_artifact_id):
-                return artifact
+                return _require_shareable_source_artifact(artifact)
             if source_storage_path and artifact.get("storage_path") == source_storage_path:
-                return artifact
+                return _require_shareable_source_artifact(artifact)
     return None
+
+
+def _require_shareable_source_artifact(artifact: dict[str, Any]) -> dict[str, Any]:
+    # Run manifests also carry internal state (plans, context, tree snapshots, user
+    # uploads). Living artifacts are deliverables that leave PostHog, so only files
+    # the agent explicitly uploaded as run outputs may be used as a content source.
+    if artifact.get("type") != "output" or artifact.get("source") != "agent_output":
+        raise ValueError(
+            "Source artifact is not a shareable run output: only files uploaded as type=output run artifacts "
+            "can be delivered. Upload the file as an output artifact first, or pass content or content_base64."
+        )
+    return artifact
 
 
 def _is_textual_content(source_artifact: dict[str, Any]) -> bool:
@@ -396,16 +395,6 @@ def _is_textual_name_and_type(name: str, content_type: str) -> bool:
         or normalized_content_type in {"application/json", "application/xml", "application/xhtml+xml"}
         or normalized_name.endswith((".md", ".txt", ".csv", ".json", ".html", ".xml"))
     )
-
-
-def _is_spreadsheet_name_or_type(name: str, content_type: str) -> bool:
-    normalized_content_type = str(content_type or "").split(";")[0].strip().lower()
-    normalized_name = name.lower()
-    return normalized_content_type in {
-        "application/vnd.ms-excel",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "text/csv",
-    } or normalized_name.endswith((".csv", ".xls", ".xlsx"))
 
 
 def _guess_content_type(name: str) -> str:
@@ -635,11 +624,17 @@ class SlackCanvasArtifactAdapter(LivingArtifactAdapter):
     ) -> ArtifactCommit:
         mapping = _get_slack_mapping(run)
         if not _canvas_file_artifacts_enabled(mapping):
-            raise ValueError("Slack canvas delivery is not enabled for this workspace")
+            raise ValueError(
+                "Slack canvas delivery is not enabled for this workspace: you do not have this capability. "
+                "Use adapter=slack_message and deliver the content as text instead."
+            )
         slack_integration = _slack_integration_for_mapping(mapping)
         missing_scopes = slack_integration.missing_scopes(frozenset({SLACK_CANVAS_SCOPE}))
         if missing_scopes:
-            raise ValueError("Slack canvas delivery requires the canvases:write Slack scope")
+            raise ValueError(
+                "Slack canvas delivery is unavailable: the Slack integration is missing the canvases:write scope, "
+                "so you do not have this capability. Use adapter=slack_message and deliver the content as text instead."
+            )
         slack = slack_integration.client
         markdown = content.strip() or name
         if artifact is None:
@@ -725,11 +720,17 @@ class SlackFileArtifactAdapter(LivingArtifactAdapter):
     ) -> ArtifactCommit:
         mapping = _get_slack_mapping(run)
         if not _canvas_file_artifacts_enabled(mapping):
-            raise ValueError("Slack file delivery is not enabled for this workspace")
+            raise ValueError(
+                "Slack file delivery is not enabled for this workspace: you do not have this capability. "
+                "Use adapter=slack_message and summarize the result as text instead."
+            )
         slack_integration = _slack_integration_for_mapping(mapping)
         missing_scopes = slack_integration.missing_scopes(frozenset({SLACK_FILE_SCOPE}))
         if missing_scopes:
-            raise ValueError("Slack file delivery requires the files:write Slack scope")
+            raise ValueError(
+                "Slack file delivery is unavailable: the Slack integration is missing the files:write scope, "
+                "so you do not have this capability. Use adapter=slack_message and summarize the result as text instead."
+            )
 
         resolved_content_type = content_type or _guess_content_type(name)
         payload = content_bytes if content_bytes is not None else content.encode("utf-8")
@@ -1012,7 +1013,10 @@ def _living_artifacts_enabled_for_mapping(mapping: Any) -> bool:
 
 def _require_living_artifacts_enabled(run: TaskRun) -> None:
     if not _living_artifacts_enabled_for_run(run):
-        raise ValueError("Living artifacts are not enabled for this Slack workspace")
+        raise ValueError(
+            "Living artifacts are not enabled for this Slack workspace: you cannot create or deliver "
+            "artifacts on this run. Deliver results as plain text in your reply instead."
+        )
 
 
 def _canvas_file_artifacts_enabled(mapping: Any) -> bool:

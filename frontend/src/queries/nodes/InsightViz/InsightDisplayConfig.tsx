@@ -72,7 +72,7 @@ export function InsightDisplayConfig(): JSX.Element {
 
     const { items: advancedOptions, count: advancedOptionsCount } = useInsightDisplayOptions()
     const { featureFlags } = useValues(featureFlagLogic)
-    const useQuillDateFilter = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_DATE_FILTER]
+    const useQuillDateFilter = featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_DATE_FILTER] === 'test'
 
     return (
         <div

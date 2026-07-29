@@ -25,10 +25,13 @@ from products.tasks.backend.temporal.observability import emit_agent_log, log_ac
 from products.tasks.backend.temporal.process_task.utils import (
     McpServerConfig,
     format_allowed_domains_for_log,
+    get_imported_mcp_server_configs,
+    get_relayed_mcp_server_names,
     get_sandbox_ph_mcp_configs,
     get_task_run_credential_user,
     get_user_mcp_server_configs,
-    mark_mcp_token_issued,
+    loop_mcp_installation_allowlist,
+    mark_sandbox_mcp_session,
 )
 
 from .get_task_processing_context import TaskProcessingContext
@@ -164,9 +167,14 @@ class StartAgentServerOutput:
 @dataclass
 class _LaunchParams:
     mcp_configs: list[McpServerConfig]
+    relayed_mcp_servers: list[str]
+    # The user the boot-time credentials were minted for, recorded as the
+    # sandbox's initial session identity.
+    actor_user_id: int | None
     agentsh_domains: list[str] | None
     protected_base_branch: str | None
     event_ingest_token: str | None
+    task_run_session_token: str | None
     event_ingest_url: str | None
     event_ingest_keep_stream_open: bool
 
@@ -186,7 +194,7 @@ def _include_personal_mcp_for_task(task: Task) -> bool:
     return not task.internal
 
 
-def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _LaunchParams:
+def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbox_id: str) -> _LaunchParams:
     try:
         task = Task.objects.select_related("created_by", "team").get(id=ctx.task_id)
         actor_user = get_task_run_credential_user(task, ctx.state)
@@ -206,16 +214,28 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _La
     # Django ASGI short-circuit. Only meaningful once sequenced ingest is enabled. Unset means
     # the agent falls back to POSTHOG_API_URL (Django).
     event_ingest_url: str | None = settings.TASKS_AGENT_PROXY_INGEST_URL if event_stream_ingest_enabled else None
-    if event_stream_ingest_enabled:
+    # Fetched once; serves both the ingest token and the imported MCP servers below.
+    task_run = TaskRun.objects.filter(id=ctx.run_id, task_id=ctx.task_id, team_id=ctx.team_id).first()
+    if task_run is None:
+        raise SandboxExecutionError(
+            "Task run not found for agent server launch",
+            {"task_id": ctx.task_id, "run_id": ctx.run_id},
+            cause=TaskRun.DoesNotExist(f"TaskRun {ctx.run_id} not found"),
+        )
+    task_run_session_token: str | None = None
+    if event_stream_ingest_enabled or task.runtime == Task.Runtime.PI:
         try:
-            task_run = TaskRun.objects.get(id=ctx.run_id, task_id=ctx.task_id, team_id=ctx.team_id)
-            event_ingest_token = create_sandbox_event_ingest_token(task_run)
+            run_token = create_sandbox_event_ingest_token(task_run, sandbox_id=sandbox_id)
         except Exception as e:
             raise SandboxExecutionError(
-                "Failed to create sandbox event ingest token",
+                "Failed to create sandbox task run token",
                 {"task_id": ctx.task_id, "run_id": ctx.run_id, "error": str(e)},
                 cause=e,
             )
+        if event_stream_ingest_enabled:
+            event_ingest_token = run_token
+        if task.runtime == Task.Runtime.PI:
+            task_run_session_token = run_token
 
     mcp_configs = get_sandbox_ph_mcp_configs(
         token=access_token,
@@ -231,9 +251,22 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _La
         user_id=actor_user.id if actor_user else None,
         include_personal=include_personal,
         interaction_origin=ctx.interaction_origin,
+        allowed_installation_ids=loop_mcp_installation_allowlist(ctx.state),
     )
     if user_mcp_configs:
         mcp_configs = mcp_configs + user_mcp_configs
+
+    imported_mcp_configs = get_imported_mcp_server_configs(task_run, {config.name for config in mcp_configs})
+    if imported_mcp_configs:
+        mcp_configs = mcp_configs + imported_mcp_configs
+
+    relayed_names = get_relayed_mcp_server_names(task_run, {config.name for config in mcp_configs})
+    if relayed_names:
+        emit_agent_log(
+            ctx.run_id,
+            "debug",
+            f"Resolved {len(relayed_names)} relayed MCP server name(s) for agent server: {', '.join(relayed_names)}",
+        )
 
     if mcp_configs:
         emit_agent_log(
@@ -275,9 +308,12 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _La
 
     return _LaunchParams(
         mcp_configs=mcp_configs,
+        relayed_mcp_servers=relayed_names,
+        actor_user_id=actor_user.id if actor_user else None,
         agentsh_domains=agentsh_domains,
         protected_base_branch=protected_base_branch,
         event_ingest_token=event_ingest_token,
+        task_run_session_token=task_run_session_token,
         event_ingest_url=event_ingest_url,
         event_ingest_keep_stream_open=ctx.agent_proxy_keep_stream_open,
     )
@@ -301,14 +337,19 @@ def _invoke_start_agent_server(
             auto_publish=ctx.auto_publish,
             interaction_origin=ctx.interaction_origin,
             branch=params.protected_base_branch,
+            agent_runtime=ctx.task_runtime,
             runtime_adapter=ctx.runtime_adapter,
             provider=ctx.provider,
             model=ctx.model,
             reasoning_effort=ctx.reasoning_effort,
+            context_window=ctx.context_window,
+            fast_mode=ctx.fast_mode,
             initial_permission_mode=ctx.initial_permission_mode,
             mcp_configs=params.mcp_configs or None,
+            relayed_mcp_servers=params.relayed_mcp_servers or None,
             allowed_domains=params.agentsh_domains,
             event_ingest_token=params.event_ingest_token,
+            task_run_session_token=params.task_run_session_token,
             event_ingest_url=params.event_ingest_url,
             event_ingest_keep_stream_open=params.event_ingest_keep_stream_open,
             repo_ready_file=repo_ready_file,
@@ -316,10 +357,10 @@ def _invoke_start_agent_server(
             rtk_enabled=ctx.rtk_enabled,
         )
 
-        # Mark startup-time token issuance so follow-ups within the next
-        # 30m window skip the redundant refresh.
-        if params.mcp_configs:
-            mark_mcp_token_issued(ctx.run_id)
+        # Record the boot identity so same-actor follow-ups within the
+        # freshness window skip the redundant refresh.
+        if params.mcp_configs and params.actor_user_id is not None:
+            mark_sandbox_mcp_session(sandbox.id, params.actor_user_id)
 
         # Persist the effective rtk posture the agent launched with, so terminal
         # analytics can cohort runs by it (the state override alone misses the
@@ -410,7 +451,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         # repo directory can never appear later. The deferred/overlap path clones in parallel
         # and gates the session on the repo-ready barrier instead.
         _ensure_repository_on_disk(ctx, sandbox)
-        params = _prepare_launch(ctx, input.posthog_mcp_scopes)
+        params = _prepare_launch(ctx, input.posthog_mcp_scopes, input.sandbox_id)
 
         with StepTimer("agent_server_ready", boot_path=input.boot_path) as ready_timer:
             _invoke_start_agent_server(sandbox, ctx, params, repo_ready_file=None, wait_for_health=True)
@@ -448,7 +489,7 @@ def launch_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         emit_agent_log(ctx.run_id, "debug", "Launching agent server (deferred readiness)")
 
         sandbox = Sandbox.get_by_id(input.sandbox_id)
-        params = _prepare_launch(ctx, input.posthog_mcp_scopes)
+        params = _prepare_launch(ctx, input.posthog_mcp_scopes, input.sandbox_id)
 
         repo_ready_file = REPO_READY_FILE if input.defer_for_clone else None
         with StepTimer("agent_server_launch", boot_path=input.boot_path) as launch_timer:

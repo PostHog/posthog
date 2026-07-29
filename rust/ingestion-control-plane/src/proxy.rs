@@ -29,12 +29,12 @@ fn build_upstream_url(target: &str, rest: &str, query: Option<&str>) -> String {
     }
 }
 
-/// Proxy `GET /pods/:name/debug/<rest>` to the pod's debug API. The upstream
-/// body is piped through as a byte stream, which also carries SSE
-/// (`/debug/events`) without buffering.
+/// Proxy `GET /pods/:namespace/:name/debug/<rest>` to the pod's debug API.
+/// The upstream body is piped through as a byte stream, which also carries
+/// SSE (`/debug/events`) without buffering.
 pub async fn proxy_debug(
     State(state): State<AppState>,
-    Path((name, rest)): Path<(String, String)>,
+    Path((namespace, name, rest)): Path<(String, String, String)>,
     RawQuery(query): RawQuery,
 ) -> Result<Response, ApiError> {
     if !is_safe_debug_path(&rest) {
@@ -43,10 +43,10 @@ pub async fn proxy_debug(
 
     let target = state
         .pods
-        .resolve_proxy_target(&state.config, &name)
+        .resolve_proxy_target(&state.config, &namespace, &name)
         .await
         .map_err(|e| ApiError::unavailable(format!("pod discovery unavailable: {e:#}")))?
-        .ok_or_else(|| ApiError::not_found(format!("no matching pod '{name}'")))?;
+        .ok_or_else(|| ApiError::not_found(format!("no matching pod '{namespace}/{name}'")))?;
 
     let url = build_upstream_url(&target, &rest, query.as_deref());
     let mut request = state.http.get(&url);

@@ -35,7 +35,7 @@ def json_safe_rows(rows: Sequence[Sequence[Any]]) -> list[list[Any]]:
 
 def from_columns_and_rows(
     columns: list[str],
-    rows: list[tuple[Any, ...]],
+    rows: Sequence[Sequence[Any]],
     types: list[list[str]] | None = None,
     has_more: bool = False,
 ) -> dict[str, Any]:
@@ -52,6 +52,18 @@ def from_columns_and_rows(
 
 def from_error(message: str) -> dict[str, Any]:
     return {"status": "error", "error": message}
+
+
+INTERRUPTED_MESSAGE = "Run interrupted."
+
+
+def as_interrupted(result: dict[str, Any]) -> dict[str, Any]:
+    """Rewrite a non-ok envelope as the interrupted outcome, keeping any captured output.
+
+    The underlying error is almost always the interrupt itself (KeyboardInterrupt, an
+    aborted data-plane wait), so the user-facing message is the interrupt, not the symptom.
+    """
+    return {**result, "status": "interrupted", "error": INTERRUPTED_MESSAGE}
 
 
 def from_python_execution(

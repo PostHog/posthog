@@ -11,6 +11,16 @@ blocks (`EventsNode`, `ActionsNode`, `ExperimentDataWarehouseNode`) and the
 property-filter types are defined once under `$defs` and referenced by `$ref`.
 The schema is authoritative; the prose and examples below are guidance.
 
+## Contents
+
+- Schema
+- Mean metric
+- Funnel metric
+- Ratio metric
+- Retention metric
+- Adding metrics to an experiment
+- Property filters
+
 ## Schema
 
 ```json

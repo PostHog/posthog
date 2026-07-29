@@ -1,4 +1,4 @@
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 
 import { ApiError } from 'lib/api'
 import { getEventNamesForAction } from 'lib/utils/events'
@@ -90,7 +90,16 @@ type ReturnInsightModel<T> = T extends InsightModel
 /** Get an insight with `query` only. Eventual `filters` will be converted.  */
 export function getQueryBasedInsightModel<T extends InputInsightModel>(insight: T): ReturnInsightModel<T> {
     const { filters, ...baseInsight } = insight
-    return { ...baseInsight, query: getQueryFromInsightLike(insight) } as unknown as ReturnInsightModel<T>
+    // The API is phasing out the deprecated `dashboards` field (already omitted for token
+    // callers, eventually for all); derive it from `dashboard_tiles` so remaining readers
+    // keep working regardless of whether the response still carries it.
+    const dashboards =
+        insight.dashboards ?? insight.dashboard_tiles?.filter((tile) => !tile.deleted).map((tile) => tile.dashboard_id)
+    return {
+        ...baseInsight,
+        ...(dashboards ? { dashboards } : {}),
+        query: getQueryFromInsightLike(insight),
+    } as unknown as ReturnInsightModel<T>
 }
 
 /** Get a `query` from an object that potentially has `filters` instead of a `query`.  */

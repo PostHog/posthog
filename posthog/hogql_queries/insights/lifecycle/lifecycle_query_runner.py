@@ -325,6 +325,9 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
     def event_filter(self) -> ast.Expr:
         event_filters: list[ast.Expr] = []
         if not self.is_data_warehouse_series:
+            # Personless (anonymous) events are excluded: lifecycle classifies a user's activity
+            # across periods, which requires a person profile. This makes lifecycle counts lower
+            # than unique-user trends for projects with anonymous traffic.
             event_filters.append(
                 ast.CompareOperation(
                     left=ast.Field(chain=["properties", "$process_person_profile"]),

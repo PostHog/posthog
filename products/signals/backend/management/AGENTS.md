@@ -159,7 +159,7 @@ python manage.py run_signals_scout --team-id 1 --skill-name signals-scout-genera
 The team must have a `SignalScoutConfig` row for the scout (the coordinator auto-creates
 one; the command also seeds it). Configs default to `emit=False` — the scout runs and
 logs but `emit_finding` writes nothing, so no finding reaches the Signals inbox until you
-flip `emit=True` on that scout's config (e.g. via the `signals-scout-config-update` MCP tool).
+flip `emit=True` on that scout's config (e.g. via the `scout-config-update` MCP tool).
 
 ### Canonical skill sync
 

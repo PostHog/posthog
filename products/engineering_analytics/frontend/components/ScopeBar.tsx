@@ -14,7 +14,7 @@ import { cn } from 'lib/utils/css-classes'
 import { dateMapping } from 'lib/utils/dateFilters'
 import { urls } from 'scenes/urls'
 
-import { withScope } from '../lib/scope'
+import { scopeFromValue, withScope } from '../lib/scope'
 import { SHARED_DEFAULT_DATE_FROM, engineeringAnalyticsFiltersLogic } from '../scenes/engineeringAnalyticsFiltersLogic'
 import { engineeringAnalyticsLogic } from '../scenes/engineeringAnalyticsLogic'
 import { workflowSwitcherLogic } from '../scenes/workflowSwitcherLogic'
@@ -48,18 +48,22 @@ export interface LensChip {
 const CHIP_CLASS =
     'inline-flex items-center gap-1.5 rounded border border-primary bg-surface-primary px-2.5 py-1 text-xs text-secondary'
 
-/** A source picker on multi-source teams, otherwise the repo name. `pickerOnly` skips the static chip
- *  on pages that already state the repo elsewhere (the hub's entity header). */
+/** A repo picker on multi-repo teams (multiple sources, or one source syncing several repos), otherwise
+ *  the repo name. `pickerOnly` skips the static chip on pages that already state the repo elsewhere (the
+ *  hub's entity header). */
 export function SourceScopeChip({ pickerOnly = false }: { pickerOnly?: boolean }): JSX.Element | null {
-    const { hasMultipleSources, sourceOptions, sourceId, activeSource } = useValues(engineeringAnalyticsLogic)
-    const { setSourceId } = useActions(engineeringAnalyticsLogic)
+    const { hasMultipleSources, sourceOptions, selectedScope, activeSource } = useValues(engineeringAnalyticsLogic)
+    const { setScope } = useActions(engineeringAnalyticsLogic)
     const repoLabel = activeSource?.repo
     if (hasMultipleSources) {
         return (
             <LemonSelect
                 size="small"
-                value={sourceId}
-                onChange={setSourceId}
+                value={selectedScope}
+                onChange={(value) => {
+                    const { sourceId, repo } = value ? scopeFromValue(value) : { sourceId: null, repo: null }
+                    setScope(sourceId, repo)
+                }}
                 options={sourceOptions}
                 placeholder={repoLabel || 'Repository'}
                 allowClear

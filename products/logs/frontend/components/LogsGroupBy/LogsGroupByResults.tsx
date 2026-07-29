@@ -32,11 +32,11 @@ export function LogsGroupByResults({ id }: { id: string }): JSX.Element {
         logsGroupByLogic({ id })
     )
     const { setOrderGroupsBy } = useActions(logsGroupByLogic({ id }))
-    const { groupBy } = useValues(logsViewerConfigLogic({ id }))
+    const { groupBys } = useValues(logsViewerConfigLogic({ id }))
 
     // The Group view with no key chosen: prompt for one instead of showing an empty table.
-    // No query runs in this state (the logic's loader guards on a null key).
-    if (!groupBy) {
+    // No query runs in this state (the logic's loader guards on empty dimensions).
+    if (groupBys.length === 0) {
         return (
             <div className="flex-1 min-h-0 flex items-center justify-center text-muted" data-attr="logs-group-by-empty">
                 Pick an attribute to group by
@@ -45,11 +45,11 @@ export function LogsGroupByResults({ id }: { id: string }): JSX.Element {
     }
 
     const columns: LemonTableColumns<_LogsGroupByGroupApi> = [
-        {
-            title: groupBy.key,
-            dataIndex: 'value',
-            render: (_, row) => <span className="font-mono text-xs">{row.value}</span>,
-        },
+        // One value column per dimension, in pick order.
+        ...groupBys.map((dimension, index): LemonTableColumns<_LogsGroupByGroupApi>[number] => ({
+            title: dimension.key,
+            render: (_, row) => <span className="font-mono text-xs">{row.values[index]}</span>,
+        })),
         {
             title: 'Logs',
             dataIndex: 'log_count',
@@ -106,7 +106,9 @@ export function LogsGroupByResults({ id }: { id: string }): JSX.Element {
                         ? 'Grouping failed — try a shorter time range or narrower filters'
                         : 'No groups found for the current filters'
                 }
-                rowKey="value"
+                // Row identity is the full value tuple: with combined dimensions, groups can
+                // share a first value, and keying on `value` alone would duplicate React keys.
+                rowKey={(row) => JSON.stringify(row.values)}
                 size="small"
             />
         </div>

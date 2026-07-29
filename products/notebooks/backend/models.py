@@ -173,6 +173,16 @@ class KernelRuntime(UUIDTModel):
     last_error = models.TextField(null=True, blank=True)
     server_url = models.TextField(null=True, blank=True)
     server_connect_token = models.TextField(null=True, blank=True)
+    # The DuckDB objects a SQL node can currently SELECT from, as of this kernel's last run
+    # (Journey 7). Kernel-scoped rather than notebook-scoped on purpose: a row is only ever
+    # reused while its sandbox is verifiably alive, so the snapshot cannot outlive the kernel
+    # that produced it and go stale — a restarted kernel gets a new row with this unset.
+    frames: JSONField = JSONField(default=None, null=True, blank=True)
+    # Which run's snapshot `frames` holds, as that run's created_at. The kernel executes runs
+    # one at a time in arrival order, but their callbacks land on different web workers and can
+    # arrive out of order, so a slow older callback must not overwrite a newer snapshot. Runs
+    # are created before dispatch, so created_at orders them the same way the kernel ran them.
+    frames_run_created_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "posthog_kernelruntime"
@@ -190,6 +200,9 @@ class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
         RUNNING = "running", "running"
         DONE = "done", "done"
         FAILED = "failed", "failed"
+        # A user-requested stop (Journey 9); unlike FAILED, the envelope's captured
+        # stdout/stderr still surface to the UI.
+        INTERRUPTED = "interrupted", "interrupted"
 
     class NodeType(models.TextChoices):
         HOGQL = "hogql", "hogql"
@@ -200,6 +213,17 @@ class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
     # Tenant isolation is still enforced by the fail-closed TeamScopedRootMixin manager.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
     notebook = models.ForeignKey("notebooks.Notebook", on_delete=models.CASCADE)
+    # Who ran it. Kernels are per user, so this is the second half of a KernelRuntime's scope —
+    # the callback needs it to file the frame snapshot without a user-blind lookup by id.
+    # db_constraint=False: a real FK to the hot posthog_user table locks it on deploy.
+    # db_index=False: nothing queries runs by user — it is only ever read off a run we already
+    # hold. DO_NOTHING keeps that true: SET_NULL would have Django's collector issue an
+    # `UPDATE … WHERE user_id = …` against this unindexed column on every user delete, on the
+    # table that grows fastest. Nothing enforces referential integrity here anyway
+    # (db_constraint=False), and a dangling id already reads back as None.
+    user = models.ForeignKey(
+        "posthog.User", on_delete=models.DO_NOTHING, null=True, blank=True, db_constraint=False, db_index=False
+    )
     node_id = models.CharField(max_length=128)
     # How the run executed: hogql pushed to ClickHouse (pages re-query by `code`); python and
     # duckdb ran in the sandbox kernel (pages slice the on-sandbox result frame by `result_id`).
@@ -210,6 +234,11 @@ class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
     status = models.CharField(choices=Status, default=Status.RUNNING, max_length=20)
     envelope: JSONField = JSONField(default=None, null=True, blank=True)
     result_id = models.UUIDField(null=True, blank=True)
+    # Which kernel this run was dispatched to, so the callback can file the run's frame
+    # snapshot against the right KernelRuntime. A plain id rather than an FK: runtime rows
+    # are transient (starting/stopped/discarded/error) and run history must not be coupled
+    # to their churn — see sql_v2_result_delivery.md, "Related model notes".
+    kernel_runtime_id = models.UUIDField(null=True, blank=True)
     error = models.TextField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

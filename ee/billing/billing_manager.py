@@ -1,5 +1,7 @@
+import hmac
 import json
 import time
+import hashlib
 from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any, Optional, cast
@@ -19,9 +21,9 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization
 from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
+from posthog.models.team.logs_retention import reset_revoked_logs_retention
 from posthog.models.user import User
 
-from ee.api.agentic_provisioning.signature import compute_signature
 from ee.billing.billing_types import BillingProvider, BillingStatus
 from ee.billing.quota_limiting import set_org_usage_summary, update_org_billing_quotas
 from ee.models import License
@@ -143,13 +145,21 @@ def build_billing_token(
     return encoded_jwt
 
 
+def _compute_webhook_signature(secret: str, timestamp: int, body: bytes) -> str:
+    """HMAC-SHA256 over "<timestamp>.<body>", hex-encoded."""
+    mac = hmac.new(secret.encode(), digestmod=hashlib.sha256)
+    mac.update(f"{timestamp}.".encode())
+    mac.update(body)
+    return mac.digest().hex()
+
+
 def build_billing_provider_webhook_signature_headers(body: bytes) -> dict[str, str]:
     secret = getattr(settings, "BILLING_PROVIDER_WEBHOOK_SECRET", "")
     if not secret:
         raise ValueError("BILLING_PROVIDER_WEBHOOK_SECRET is not configured")
 
     timestamp = int(time.time())
-    digest = compute_signature(secret, timestamp, body)
+    digest = _compute_webhook_signature(secret, timestamp, body)
     return {
         BILLING_PROVIDER_WEBHOOK_SIGNATURE_HEADER: f"{BILLING_PROVIDER_WEBHOOK_SIGNATURE_VERSION}={digest}",
         BILLING_PROVIDER_WEBHOOK_TIMESTAMP_HEADER: str(timestamp),
@@ -169,10 +179,12 @@ def handle_billing_service_error(res: requests.Response, valid_codes=(200, 201, 
 class BillingManager:
     license: License | None
     user: User | None
+    ip_address: str | None
 
-    def __init__(self, license, user: User | None = None):
+    def __init__(self, license, user: User | None = None, ip_address: str | None = None):
         self.license = license or get_cached_instance_license()
         self.user = user
+        self.ip_address = ip_address
 
     def get_billing(
         self,
@@ -252,8 +264,20 @@ class BillingManager:
 
         available_product_features_json = res.json()
         available_product_features = available_product_features_json.get("available_product_features", [])
+        previous_feature_keys = {
+            feature.get("key") for feature in (organization.available_product_features or []) if feature
+        }
         organization.available_product_features = available_product_features
         organization.save()
+
+        # Only reset on a non-empty list: the retention reset is not self-healing, so an
+        # empty error-path response must not permanently downgrade team settings.
+        if available_product_features:
+            revoked_feature_keys = previous_feature_keys - {
+                feature.get("key") for feature in available_product_features if feature
+            }
+            if revoked_feature_keys:
+                reset_revoked_logs_retention(organization, revoked_feature_keys)
 
         return available_product_features
 
@@ -456,6 +480,7 @@ class BillingManager:
                 signals_credits=usage_summary.get("signals_credits", {}),
                 posthog_code_credits=usage_summary.get("posthog_code_credits", {}),
                 workflow_emails=usage_summary.get("workflow_emails", {}),
+                workflow_push=usage_summary.get("workflow_push", {}),
                 workflow_destinations_dispatched=usage_summary.get("workflow_destinations_dispatched", {}),
                 logs_mb_ingested=usage_summary.get("logs_mb_ingested", {}),
                 replay_vision_credits=usage_summary.get("replay_vision_credits", {}),
@@ -474,7 +499,16 @@ class BillingManager:
             should_update_org_billing_quotas = usage_changed or had_quota_limiting_markers
 
         available_product_features = data.get("available_product_features", None)
+        revoked_feature_keys: set[str] = set()
+        # An empty list is deliberately ignored: this runs on hot paths (get_billing, usage
+        # reports) and a partial or error-path billing response must not downgrade the org.
+        # Genuine cancellations still send the (non-empty) free-tier feature list.
         if available_product_features and available_product_features != organization.available_product_features:
+            previous_feature_keys = {
+                feature.get("key") for feature in (organization.available_product_features or []) if feature
+            }
+            new_feature_keys = {feature.get("key") for feature in available_product_features if feature}
+            revoked_feature_keys = previous_feature_keys - new_feature_keys
             organization.available_product_features = data["available_product_features"]
             org_modified = True
 
@@ -511,6 +545,9 @@ class BillingManager:
         if org_modified:
             organization.save()
 
+        if revoked_feature_keys:
+            reset_revoked_logs_retention(organization, revoked_feature_keys)
+
         if should_update_org_billing_quotas:
             update_org_billing_quotas(organization)
 
@@ -533,7 +570,12 @@ class BillingManager:
             billing_provider=billing_provider,
             service_action=service_action,
         )
-        return {"Authorization": f"Bearer {billing_service_token}"}
+        headers = {"Authorization": f"Bearer {billing_service_token}"}
+        if self.ip_address:
+            # Billing is called server-to-server, so it only ever sees PostHog's egress IP.
+            # Forward the end-user's IP so billing can attach it to activity-log records.
+            headers["X-PostHog-Actor-IP"] = self.ip_address
+        return headers
 
     def get_invoices(self, organization: Organization, status: str | None):
         res = requests.get(

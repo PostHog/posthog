@@ -7,11 +7,13 @@ input without importing the workflow code (which pulls in the heavy activity dep
 from dataclasses import dataclass
 
 # How a review run was triggered. Gates are trigger-aware: label → `review_labeled_prs`,
-# inbox → `review_inbox_prs`, manual (CLI/eval) → ungated. Plain strings (not an Enum) so Temporal
-# payloads stay forward/backward-compatible across deploys.
+# inbox → `review_inbox_prs`, manual (CLI/eval) and ui (an explicit human ask from the Code review
+# scene) → ungated. Plain strings (not an Enum) so Temporal payloads stay forward/backward-compatible
+# across deploys.
 TRIGGER_LABEL = "label"
 TRIGGER_INBOX = "inbox"
 TRIGGER_MANUAL = "manual"
+TRIGGER_UI = "ui"
 
 
 @dataclass
@@ -29,8 +31,9 @@ class ReviewPRWorkflowInputs:
     no resolvable PR stores the review instead — the target's shape decides, not a mode flag.
 
     `acting_user_id` overrides whose perspectives run: the label trigger leaves it None (the workflow
-    resolves the PR author after fetch, skipping if not a PostHog user); the eval CLI and the inbox
-    trigger set it explicitly (the inbox PR author is a bot, so it can't be resolved from GitHub).
+    resolves the PR author after fetch, falling back to the default run user when the author isn't a
+    PostHog user); the eval CLI and the inbox trigger set it explicitly (the inbox PR author is a
+    bot, so it can't be resolved from GitHub).
 
     `trigger_source` / `signal_report_id` default so in-flight payloads serialized before these
     fields existed still deserialize.

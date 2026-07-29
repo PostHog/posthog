@@ -125,6 +125,8 @@ export interface CodeSnippetProps {
     thing?: string
     /** If set, the snippet becomes expandable when there's more than this number of lines. */
     maxLinesWithoutExpansion?: number
+    /** Called after the snippet contents are copied to the clipboard. Useful for telemetry. */
+    onCopy?: () => void
 }
 
 export const CodeSnippet = React.memo(function CodeSnippet({
@@ -136,6 +138,7 @@ export const CodeSnippet = React.memo(function CodeSnippet({
     actions,
     thing = 'snippet',
     maxLinesWithoutExpansion,
+    onCopy,
 }: CodeSnippetProps): JSX.Element | null {
     const [expanded, setExpanded] = useState(false)
 
@@ -160,6 +163,7 @@ export const CodeSnippet = React.memo(function CodeSnippet({
                         if (text) {
                             e.stopPropagation()
                             void copyToClipboard(text, thing)
+                            onCopy?.()
                         }
                     }}
                     size={compact ? 'small' : 'medium'}

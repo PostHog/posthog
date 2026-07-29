@@ -27,6 +27,13 @@ from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 
 logger = logging.getLogger(__name__)
 
+# The event an experiment counts exposures on when its criteria don't name one. If the default
+# ever changes (e.g. to a dedicated exposure event), flip it here — consumers that resolve
+# criteria through this module's helpers key off this constant. Note the variant-property
+# pairing in `get_exposure_event_and_property` (and the handling of configs that explicitly
+# name `$feature_flag_called`) must move with it.
+DEFAULT_EXPOSURE_EVENT = "$feature_flag_called"
+
 
 def _is_actions_node_dict(config: dict) -> bool:
     """
@@ -180,15 +187,15 @@ def get_exposure_event_and_property(
     else:
         # For the default $feature_flag_called event, we need to get the variant from $feature_flag_response
         feature_flag_variant_property = "$feature_flag_response"
-        event = "$feature_flag_called"
+        event = DEFAULT_EXPOSURE_EVENT
 
     return event, feature_flag_variant_property
 
 
 def _get_event_name_from_config(exposure_config: Optional[Union[ActionsNode, ExperimentEventExposureConfig]]) -> str:
-    """Extract event name from exposure config, defaulting to $feature_flag_called."""
+    """Extract event name from exposure config, defaulting to DEFAULT_EXPOSURE_EVENT."""
     if not exposure_config or not hasattr(exposure_config, "event"):
-        return "$feature_flag_called"
+        return DEFAULT_EXPOSURE_EVENT
 
     event = exposure_config.event
     return str(event) if event and event != "$feature_flag_called" else "$feature_flag_called"

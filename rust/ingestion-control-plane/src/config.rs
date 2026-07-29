@@ -1,12 +1,30 @@
+use std::str::FromStr;
+
 use envconfig::Envconfig;
 
-/// A consumer group and the topic it consumes, as configured via
-/// `CONSUMER_TARGETS` (`group=topic` pairs). Groups and topics differ per
-/// ingestion lane, so they must be configured together.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ConsumerTarget {
-    pub group: String,
-    pub topic: String,
+/// How consumer pods are discovered, mirroring the ingestion-consumer's
+/// typed `DiscoveryMode`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PodDiscoveryMode {
+    /// Query the Kubernetes API for pods matching the configured targets.
+    #[default]
+    Kubernetes,
+    /// Fixed list from `STATIC_PODS` (local testing).
+    Static,
+}
+
+impl FromStr for PodDiscoveryMode {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_lowercase().as_str() {
+            "kubernetes" | "k8s" => Ok(PodDiscoveryMode::Kubernetes),
+            "static" => Ok(PodDiscoveryMode::Static),
+            other => Err(format!(
+                "unknown pod discovery mode '{other}' (expected 'kubernetes' or 'static')"
+            )),
+        }
+    }
 }
 
 #[derive(Envconfig, Clone)]
@@ -26,10 +44,26 @@ pub struct Config {
     #[envconfig(from = "KAFKA_CLIENT_RACK")]
     pub kafka_client_rack: Option<String>,
 
-    /// Comma-separated `group=topic` pairs, e.g.
-    /// `ingestion-analytics-main=ingestion-analytics-main-1024,ingestion-analytics-async=ingestion-analytics-async-8`.
-    #[envconfig(default = "events-ingestion-consumer=events_plugin_ingestion")]
-    pub consumer_targets: String,
+    /// Topics and consumer groups are discovered from the cluster by prefix
+    /// instead of being configured per environment; a group is associated
+    /// with a topic when it has committed offsets on it. The prefixes also
+    /// bound which groups/topics the API may scan.
+    #[envconfig(default = "ingestion-")]
+    pub topic_prefix: String,
+
+    #[envconfig(default = "ingestion-")]
+    pub group_prefix: String,
+
+    /// Topology (topics, groups, partitions) changes rarely; discovered
+    /// targets are cached this long.
+    #[envconfig(default = "300")]
+    pub discovery_cache_ttl_secs: u64,
+
+    /// The lag overview triggers broker-wide offset/watermark scans; results
+    /// are cached (with single-flight refresh) this long so repeated requests
+    /// coalesce instead of multiplying broker load.
+    #[envconfig(default = "15")]
+    pub overview_cache_ttl_secs: u64,
 
     /// Read-replica Postgres URL for token -> team_id resolution. When unset,
     /// resolution is disabled and analyses report `team_id: null`.
@@ -57,17 +91,24 @@ pub struct Config {
     /// the fixed `STATIC_PODS` list (local testing, like the
     /// ingestion-consumer's static worker discovery).
     #[envconfig(default = "kubernetes")]
-    pub pod_discovery_mode: String,
+    pub pod_discovery_mode: PodDiscoveryMode,
 
     /// Comma-separated `name=host:port` entries used by static discovery.
     #[envconfig(default = "local=127.0.0.1:3301")]
     pub static_pods: String,
 
+    /// Default namespace for `POD_LABEL_SELECTORS` entries without an
+    /// explicit `namespace/` prefix.
     #[envconfig(default = "posthog")]
     pub k8s_namespace: String,
 
     /// Comma-separated pod label selectors, one per consumer deployment.
-    #[envconfig(default = "app=ingestion-analytics-main,app=ingestion-analytics-async")]
+    /// Entries may be namespace-qualified (`namespace/key=value`) since each
+    /// ingestion lane runs in its own namespace; bare `key=value` entries use
+    /// `K8S_NAMESPACE`.
+    #[envconfig(
+        default = "ingestion-analytics-main/app=ingestion-analytics-main,ingestion-analytics-async/app=ingestion-analytics-async"
+    )]
     pub pod_label_selectors: String,
 
     /// Port the ingestion-consumer serves its debug API on.
@@ -94,38 +135,46 @@ impl Config {
         Self::init_from_env()
     }
 
-    pub fn targets(&self) -> Vec<ConsumerTarget> {
-        parse_targets(&self.consumer_targets)
-    }
-
-    pub fn target_for_group(&self, group: &str) -> Option<ConsumerTarget> {
-        self.targets().into_iter().find(|t| t.group == group)
-    }
-
-    pub fn label_selectors(&self) -> Vec<String> {
+    pub fn pod_targets(&self) -> Vec<PodTarget> {
         self.pod_label_selectors
             .split(',')
             .map(str::trim)
             .filter(|s| !s.is_empty())
-            .map(String::from)
+            .map(|entry| match entry.split_once('/') {
+                // Only treat the prefix as a namespace when it is a valid
+                // namespace name. Label keys may themselves contain `/`
+                // (`app.kubernetes.io/name=x`), but their prefixes are DNS
+                // subdomains with dots, which namespace names cannot contain.
+                // A selector with a prefixed label key must be written
+                // namespace-qualified (`ns/team.example.com/role=x`).
+                Some((namespace, selector)) if is_valid_namespace(namespace.trim()) => PodTarget {
+                    namespace: namespace.trim().to_string(),
+                    selector: selector.trim().to_string(),
+                },
+                _ => PodTarget {
+                    namespace: self.k8s_namespace.clone(),
+                    selector: entry.to_string(),
+                },
+            })
             .collect()
     }
 }
 
-fn parse_targets(raw: &str) -> Vec<ConsumerTarget> {
-    raw.split(',')
-        .filter_map(|pair| {
-            let (group, topic) = pair.trim().split_once('=')?;
-            let (group, topic) = (group.trim(), topic.trim());
-            if group.is_empty() || topic.is_empty() {
-                return None;
-            }
-            Some(ConsumerTarget {
-                group: group.to_string(),
-                topic: topic.to_string(),
-            })
-        })
-        .collect()
+/// RFC 1123 label: lowercase alphanumerics and `-`, no leading/trailing `-`.
+fn is_valid_namespace(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 63
+        && !s.starts_with('-')
+        && !s.ends_with('-')
+        && s.chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
+/// One pod-discovery target: a label selector scoped to a namespace.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PodTarget {
+    pub namespace: String,
+    pub selector: String,
 }
 
 #[cfg(test)]
@@ -133,20 +182,44 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_group_topic_pairs_and_skips_malformed_entries() {
-        let targets = parse_targets(
-            "ingestion-analytics-main=ingestion-analytics-main-1024, ingestion-analytics-async=ingestion-analytics-async-8,bad-entry,=no-group,no-topic=",
-        );
+    fn pod_targets_support_namespace_prefix_with_default_fallback() {
+        let mut config = Config::init_with_defaults().expect("config defaults are valid");
+        config.k8s_namespace = "default-ns".to_string();
+        config.pod_label_selectors =
+            "ingestion-analytics-main/app=ingestion-analytics-main, app=bare-selector".to_string();
+
         assert_eq!(
-            targets,
+            config.pod_targets(),
             vec![
-                ConsumerTarget {
-                    group: "ingestion-analytics-main".to_string(),
-                    topic: "ingestion-analytics-main-1024".to_string(),
+                PodTarget {
+                    namespace: "ingestion-analytics-main".to_string(),
+                    selector: "app=ingestion-analytics-main".to_string(),
                 },
-                ConsumerTarget {
-                    group: "ingestion-analytics-async".to_string(),
-                    topic: "ingestion-analytics-async-8".to_string(),
+                PodTarget {
+                    namespace: "default-ns".to_string(),
+                    selector: "app=bare-selector".to_string(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn prefixed_label_keys_are_not_mistaken_for_namespaces() {
+        let mut config = Config::init_with_defaults().expect("config defaults are valid");
+        config.k8s_namespace = "default-ns".to_string();
+        config.pod_label_selectors =
+            "app.kubernetes.io/name=consumer,my-ns/app.kubernetes.io/name=consumer".to_string();
+
+        assert_eq!(
+            config.pod_targets(),
+            vec![
+                PodTarget {
+                    namespace: "default-ns".to_string(),
+                    selector: "app.kubernetes.io/name=consumer".to_string(),
+                },
+                PodTarget {
+                    namespace: "my-ns".to_string(),
+                    selector: "app.kubernetes.io/name=consumer".to_string(),
                 },
             ]
         );

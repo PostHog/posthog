@@ -289,7 +289,9 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
             self._run({"trendsFilter": {"formula": "(A/3600)/B"}})[0]["data"],
             [0.0, 0.0, 0.0, 0.0, 0.0, 1 / 1200, 1 / 1800, 0.0],
         )
-        self.assertEqual(self._run({"trendsFilter": {"formula": "(A/3600)/B"}})[0]["count"], 1 / 720)
+        # The total is the formula applied to each series' summed value (ratio-of-sums):
+        # (1800/3600)/750, not the sum of the per-interval results (1/1200 + 1/1800 = 1/720).
+        self.assertEqual(self._run({"trendsFilter": {"formula": "(A/3600)/B"}})[0]["count"], 1 / 1500)
 
         self.assertEqual(
             self._run({"trendsFilter": {"formula": "A/0"}})[0]["data"],

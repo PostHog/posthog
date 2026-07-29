@@ -10,8 +10,8 @@ from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_pagespeed_insights.settings import (
     PAGESPEED_ENDPOINTS,
     PageSpeedEndpointConfig,
@@ -140,8 +140,20 @@ def _redact_key(text: str) -> str:
     return _KEY_RE.sub(r"\1REDACTED", text)
 
 
+# `ChunkedEncodingError` and `ContentDecodingError` are siblings of `ConnectionError` under
+# `RequestException`, not subclasses, so they must be listed explicitly: a connection broken
+# mid-response (server hung up before the body was fully streamed) or a body that fails to decode is
+# transient and safe to retry on the large PageSpeed payloads, not a reason to fail the whole sync.
 @retry(
-    retry=retry_if_exception_type((PageSpeedRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+    retry=retry_if_exception_type(
+        (
+            PageSpeedRetryableError,
+            requests.ReadTimeout,
+            requests.ConnectionError,
+            requests.exceptions.ChunkedEncodingError,
+            requests.exceptions.ContentDecodingError,
+        )
+    ),
     stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
     wait=wait_exponential_jitter(initial=2, max=60),
     reraise=True,

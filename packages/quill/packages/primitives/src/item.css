@@ -252,7 +252,7 @@
         align-items: center;
         width: fit-content;
         overflow: hidden;
-        font-size: var(--text-xs, 0.75rem);
+        font-size: var(--text-sm, 0.875rem);
         font-weight: 500;
         line-height: 1.375;
         text-underline-offset: 4px;
@@ -264,7 +264,7 @@
     .quill-item__description {
         display: -webkit-box;
         overflow: hidden;
-        font-size: var(--text-xxs, 0.625rem);
+        font-size: var(--text-xs, 0.75rem);
         font-weight: 400;
         line-height: 1rem;
         color: var(--muted-foreground);

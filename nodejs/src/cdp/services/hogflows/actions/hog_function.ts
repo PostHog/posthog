@@ -15,6 +15,7 @@ import { RecipientPreferencesService } from '../../messaging/recipient-preferenc
 import { trackHogFlowBillableInvocation } from '../billing-utils'
 import { HogFlowFunctionsService } from '../hogflow-functions.service'
 import { actionIdForLogging, findContinueAction } from '../hogflow-utils'
+import { observeMissingVariableReferences } from '../hogflow-variable-usage'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 
 type FunctionActionType = 'function' | 'function_email' | 'function_sms'
@@ -26,7 +27,7 @@ export class HogFunctionHandler implements ActionHandler {
         private hogFlowFunctionsService: HogFlowFunctionsService,
         private recipientPreferencesService: RecipientPreferencesService,
         private emailValidationService: EmailValidationService,
-        private hogFlowActionBillingType: 'fetch' | 'email'
+        private hogFlowActionBillingType: 'fetch' | 'email' | 'push'
     ) {}
 
     async execute({
@@ -35,6 +36,12 @@ export class HogFunctionHandler implements ActionHandler {
         result,
         hogExecutorOptions,
     }: ActionHandlerOptions<Action>): Promise<ActionHandlerResult> {
+        // Inputs are rendered once, on fresh entry into the action (continuations reuse the
+        // rendered state in hogFunctionState) - so this also fires at most once per step per run
+        if (!invocation.state.currentAction?.hogFunctionState) {
+            observeMissingVariableReferences(invocation, action, result)
+        }
+
         const functionResult = await this.executeHogFunction(invocation, action, hogExecutorOptions)
 
         // Add all logs
@@ -117,23 +124,38 @@ export class HogFunctionHandler implements ActionHandler {
                 })
         )
 
-        const shouldSkip = await instrumentFn(
+        const skipReason = await instrumentFn(
             { key: 'hogFlow.action.hogFunction.recipientPreferences', sendException: false },
             () => this.recipientPreferencesService.shouldSkipAction(hogFunctionInvocation, action)
         )
-        if (shouldSkip) {
+        if (skipReason) {
+            // Suppression and opt-out both short-circuit the send, but a customer reading the run
+            // log needs to know which one — the operator response is different (fix the recipient
+            // list vs. respect the unsubscribe). `email_suppressed` mirrors the metric name the
+            // send-time choke point in email.service.ts emits, so both entry points aggregate.
+            const message =
+                skipReason === 'suppressed'
+                    ? `Skipping send: recipient is on the suppression list.`
+                    : `Recipient has opted out, skipping message delivery.`
+            const metrics =
+                skipReason === 'suppressed'
+                    ? [
+                          {
+                              team_id: hogFunctionInvocation.teamId,
+                              app_source_id: hogFunctionInvocation.functionId,
+                              instance_id: action.id,
+                              metric_kind: 'email' as const,
+                              metric_name: 'email_suppressed' as const,
+                              count: 1,
+                          },
+                      ]
+                    : []
             return {
                 finished: true,
                 skipped: true,
                 invocation: hogFunctionInvocation,
-                logs: [
-                    {
-                        level: 'info',
-                        timestamp: DateTime.now(),
-                        message: `Recipient has opted out, skipping message delivery.`,
-                    },
-                ],
-                metrics: [],
+                logs: [{ level: 'info', timestamp: DateTime.now(), message }],
+                metrics,
                 capturedPostHogEvents: [],
                 warehouseWebhookPayloads: [],
                 emailAssets: [],

@@ -3506,6 +3506,15 @@ mod tests {
         }
     }
 
+    /// `condition_type` flags for a cohort with a behavioral condition — required for
+    /// `Cohort::uses_realtime_membership()` to route through the `cohort_membership`
+    /// provider rather than falling back to dynamic filter evaluation.
+    fn behavioral_condition_type() -> serde_json::Value {
+        json!({
+            "person_properties": false, "behavioral": true, "lifecycle": false, "cohorts": false
+        })
+    }
+
     /// Cohort filters requiring person property plan == `plan`, used so tests can
     /// tell provider-driven results apart from dynamic filter evaluation.
     fn plan_cohort_filters(plan: &str) -> serde_json::Value {
@@ -3568,11 +3577,16 @@ mod tests {
         ));
         let team = context.insert_new_team(None).await.unwrap();
 
-        // Realtime cohort with a backfill timestamp, so membership comes from the
-        // provider. Its filters require plan=enterprise, which the person does NOT
-        // satisfy — a match can only come from the provider.
+        // Realtime cohort with a backfill timestamp and a behavioral condition_type, so
+        // membership comes from the provider (uses_realtime_membership() requires all
+        // three). Its filters require plan=enterprise, which the person does NOT
+        // satisfy — a match can only come from the provider. The filters themselves are
+        // person-property (not actually behavioral) purely so this test can tell a
+        // provider-driven result apart from dynamic filter evaluation; condition_type is
+        // set directly since this test is exercising the matcher's provider routing, not
+        // condition_type derivation (covered separately in cohort_models.rs tests).
         let cohort = context
-            .insert_cohort_with_type(
+            .insert_cohort_with_type_and_condition_type(
                 team.id,
                 Some("Realtime Cohort".to_string()),
                 plan_cohort_filters("enterprise"),
@@ -3580,6 +3594,7 @@ mod tests {
                 Some(CohortType::Realtime),
                 Some(Utc::now()),
                 None,
+                Some(behavioral_condition_type()),
             )
             .await
             .unwrap();
@@ -3634,8 +3649,10 @@ mod tests {
         // The person DOES satisfy the cohort's filters (plan=enterprise), so if a
         // provider failure wrongly fell through to dynamic evaluation the flag
         // would match. Graceful degradation must treat the person as a non-member.
+        // condition_type is set directly (see comment in the sibling test above) so this
+        // cohort qualifies for uses_realtime_membership() and routes through the provider.
         let cohort = context
-            .insert_cohort_with_type(
+            .insert_cohort_with_type_and_condition_type(
                 team.id,
                 Some("Realtime Cohort Degraded".to_string()),
                 plan_cohort_filters("enterprise"),
@@ -3643,6 +3660,7 @@ mod tests {
                 Some(CohortType::Realtime),
                 Some(Utc::now()),
                 None,
+                Some(behavioral_condition_type()),
             )
             .await
             .unwrap();

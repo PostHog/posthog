@@ -9,7 +9,7 @@
             "type": "array"
         },
         "base_version": {
-            "description": "Latest version you are editing from. Used for optimistic concurrency checks.",
+            "description": "Latest version you are editing from. Used for optimistic concurrency checks. Required when publishing content changes; optional for an owner-only update (when omitted, owners are replaced without a concurrency check).",
             "minimum": 1,
             "type": "number"
         },
@@ -115,6 +115,14 @@
                 "type": "string"
             },
             "type": "object"
+        },
+        "owners": {
+            "description": "Replace the skill's owners with these user UUIDs (each a member of this project). Omit to leave owners unchanged; pass an empty list to clear them. Owners are keyed on the logical skill, so setting them is independent of the version being published — a body edit alone never changes ownership.",
+            "items": {
+                "type": "string"
+            },
+            "maxItems": 25,
+            "type": "array"
         },
         "skill_name": {
             "pattern": "^[^/]+$",

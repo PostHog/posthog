@@ -14,7 +14,7 @@ export const STREAM_TTL_SECONDS = 6 * 60 * 60 // 21600
 export const SEQUENCE_TTL_SECONDS = STREAM_TTL_SECONDS + 3600 // 25200
 
 // Redis XADD MAXLEN ~ (approximate trim, not exact).
-export const STREAM_MAX_LENGTH = 20_000
+export const STREAM_MAX_LENGTH = 5_000
 
 // XREAD tuning
 export const READ_COUNT = 16
