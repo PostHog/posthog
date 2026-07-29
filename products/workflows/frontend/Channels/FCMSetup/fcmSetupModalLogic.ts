@@ -8,7 +8,11 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { IntegrationType } from '~/types'
 
-import { PushIdentityVerificationMode, resolvePushIdentityVerification } from '../PushIdentityVerificationField'
+import {
+    PushIdentityVerificationMode,
+    pushIdentityVerificationPayload,
+    resolvePushIdentityVerification,
+} from '../PushIdentityVerificationField'
 
 export interface FCMSetupModalLogicProps {
     integration?: IntegrationType | null
@@ -153,7 +157,10 @@ export const fcmSetupModalLogic = kea<fcmSetupModalLogicType>([
                         kind: 'firebase',
                         config: {
                             key_info: keyInfo,
-                            push_identity_verification: values.fcmIntegration.identityVerification,
+                            ...pushIdentityVerificationPayload(
+                                values.fcmIntegration.identityVerification,
+                                props.integration
+                            ),
                         },
                     })
                     actions.loadIntegrations()

@@ -416,19 +416,21 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         team_id = self.context["team_id"]
         kind = validated_data["kind"]
 
-        # Enabling push identity verification is a security policy change, not a credential upload, so
-        # it needs the same admin bar as editing an integration. Without this a plain member could add
-        # a *new* APNs integration carrying someone else's bundle_id under a different Apple team id —
+        # Setting push identity verification is a security policy change, not a credential upload, so it
+        # needs the same admin bar as editing an integration. Without this a plain member could add a
+        # *new* APNs integration carrying someone else's bundle_id under a different Apple team id —
         # which sidesteps the overwrite check below, since it creates rather than overwrites — and set
         # `required` on it. The push endpoint resolves the strictest mode across every integration
         # matching a bundle_id, so that would start rejecting the real app's device registrations.
+        #
+        # `disabled` is gated too, not just the enabling modes. The overwrite check below reads the
+        # existing ids before the write, so a member racing the first setup of an integration would
+        # still be classified as a create and could land `disabled` over the policy an admin had just
+        # written. Omitting the key entirely stays open to members and is what connecting a channel
+        # without touching the policy does — that path preserves whatever is already stored.
         requested_verification = (validated_data.get("config") or {}).get("push_identity_verification")
-        if (
-            requested_verification
-            and requested_verification != "disabled"
-            and not github_callback_state.has_team_management_access(
-                self.context["request"].user, self.context["get_team"]()
-            )
+        if requested_verification and not github_callback_state.has_team_management_access(
+            self.context["request"].user, self.context["get_team"]()
         ):
             raise PermissionDenied("Changing push identity verification requires project admin access.")
 

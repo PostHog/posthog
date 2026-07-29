@@ -5002,11 +5002,16 @@ class TestIntegrationMembershipPermissions(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
         assert Integration.objects.filter(id=integration.id).exists()
 
-    def test_member_cannot_enable_push_identity_verification(self):
+    @parameterized.expand(["required", "disabled"])
+    def test_member_cannot_set_push_identity_verification(self, mode):
         # Creating a *new* APNs integration sidesteps the overwrite check below, because a different
         # Apple team id makes a different integration_id. But the push endpoint resolves the strictest
         # verification mode across every integration sharing a bundle_id, so a member could otherwise
         # set `required` on a lookalike and block the real app's device registrations.
+        #
+        # `disabled` is rejected too: the overwrite check reads existing ids before the write, so a
+        # member racing the first setup would look like a create and could land `disabled` over a
+        # policy an admin had just written.
         Integration.objects.create(
             team=self.team,
             kind="apns",
@@ -5024,7 +5029,7 @@ class TestIntegrationMembershipPermissions(APIBaseTest):
                     "key_id": "KEY2",
                     "team_id_apple": "ATTACKER",
                     "bundle_id": "com.example.app",
-                    "push_identity_verification": "required",
+                    "push_identity_verification": mode,
                 },
             },
             format="json",

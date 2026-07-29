@@ -8,7 +8,11 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { IntegrationType } from '~/types'
 
-import { PushIdentityVerificationMode, resolvePushIdentityVerification } from '../PushIdentityVerificationField'
+import {
+    PushIdentityVerificationMode,
+    pushIdentityVerificationPayload,
+    resolvePushIdentityVerification,
+} from '../PushIdentityVerificationField'
 
 export interface APNSSetupModalLogicProps {
     integration?: IntegrationType | null
@@ -254,7 +258,10 @@ export const apnsSetupModalLogic = kea<apnsSetupModalLogicType>([
                             team_id_apple: values.apnsIntegration.teamId,
                             bundle_id: values.apnsIntegration.bundleId,
                             environment: values.apnsIntegration.environment,
-                            push_identity_verification: values.apnsIntegration.identityVerification,
+                            ...pushIdentityVerificationPayload(
+                                values.apnsIntegration.identityVerification,
+                                props.integration
+                            ),
                         },
                     })
                     actions.loadIntegrations()

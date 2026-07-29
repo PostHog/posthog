@@ -20,6 +20,18 @@ export function resolvePushIdentityVerification(integration?: IntegrationType | 
     return PUSH_IDENTITY_VERIFICATION_MODES.includes(stored) ? stored : PUSH_IDENTITY_VERIFICATION_DEFAULT
 }
 
+/**
+ * Config fragment to merge into the create payload. Sending the key at all counts as changing the
+ * policy and requires project admin, so an unchanged field is omitted — that lets a member connect or
+ * reconnect a channel, and leaves the stored policy for the backend to carry forward.
+ */
+export function pushIdentityVerificationPayload(
+    mode: PushIdentityVerificationMode,
+    integration?: IntegrationType | null
+): { push_identity_verification?: PushIdentityVerificationMode } {
+    return mode === resolvePushIdentityVerification(integration) ? {} : { push_identity_verification: mode }
+}
+
 const MODE_HELP: Record<PushIdentityVerificationMode, string> = {
     disabled: 'Any client with your project API key can register a device for any user.',
     optional:
