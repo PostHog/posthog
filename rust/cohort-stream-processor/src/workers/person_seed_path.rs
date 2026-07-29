@@ -14,7 +14,7 @@ use std::sync::Arc;
 use chrono::Utc;
 use cohort_core::seed::PersonSeed;
 use metrics::counter;
-use tracing::warn;
+use tracing::{debug, warn};
 use uuid::Uuid;
 
 use crate::filters::manager::CatalogHandle;
@@ -168,24 +168,36 @@ impl Apply<'_> {
             self.merge.person_seed.live_margin_ms,
             filters.catalog_fingerprint,
         );
-        if verdict == PersonSeedVerdict::SkipLiveFresh {
-            counter!(PERSON_SEEDS_SKIPPED_TOTAL, "reason" => "stale_vs_live").increment(1);
-            return Ok(());
-        }
-
-        let update = record_update(&prior, self.seed, person, &effective);
-        update.record_metric(verdict);
+        // A live-fresh skip writes nothing but still falls through to `emit`. An earlier attempt may
+        // have committed stage 1 and then failed its produce, leaving the stage-2 bits unwritten,
+        // and a live event that re-derives the same matched set mints no transition and so composes
+        // nothing. Committing this offset without recomposing would strand that person outside
+        // every composed cohort, with no later event and no reconcile scan able to find them.
+        let update = match verdict {
+            PersonSeedVerdict::SkipLiveFresh => RecordUpdate::Unchanged,
+            _ => record_update(
+                &prior,
+                self.seed,
+                person,
+                &effective,
+                self.merge.person_seed.live_margin_ms,
+            ),
+        };
 
         let now_ms = Utc::now().timestamp_millis();
         self.commit_stage1(filters, &record_key, &update, now_ms)
             .await?;
+        // Counted after the stage-1 commit so a held redelivery cannot double-count it.
+        update.record_metric(verdict);
         self.emit(filters, &effective.leaves(person), &update, now_ms)
             .await
     }
 
+    /// A gate-off run is one message per scanned person, so this stays off `warn!` and leans on
+    /// `cohort_person_seeds_skipped_total{reason="apply_disabled"}` for the signal.
     fn skip_gate_off(&self) {
         counter!(PERSON_SEEDS_SKIPPED_TOTAL, "reason" => "apply_disabled").increment(1);
-        warn!(
+        debug!(
             partition_id = self.partition_id,
             team_id = self.seed.team_id().0,
             run_id = %self.seed.run_id().0,
@@ -294,8 +306,12 @@ impl Apply<'_> {
     }
 
     /// Recomposes every evaluated leaf, changed or not, so a crash between the two commits heals on
-    /// replay. The stage-2 bits land only after both produces ack, which keeps a failed produce
+    /// replay. The stage-2 bits land only after both produces ack, which keeps a composed flip
     /// re-derivable instead of lost against a flipped bit.
+    ///
+    /// Single-leaf changes are not re-derivable that way: the replay merges to `Unchanged` and
+    /// mints no transition, so a failed membership produce drops them. Their register row did
+    /// commit with stage 1, which is what lets the reconcile snapshot repair them.
     async fn emit(
         &self,
         filters: &TeamFilters,
@@ -385,11 +401,14 @@ impl RecordUpdate {
     /// `verdict` labels the writing arm only: an unchanged merge says nothing about which verdict
     /// admitted it.
     fn record_metric(&self, verdict: PersonSeedVerdict) {
-        match self {
-            Self::Changed { .. } => {
+        match (self, verdict) {
+            (_, PersonSeedVerdict::SkipLiveFresh) => {
+                counter!(PERSON_SEEDS_SKIPPED_TOTAL, "reason" => "stale_vs_live").increment(1);
+            }
+            (Self::Changed { .. }, _) => {
                 counter!(PERSON_SEEDS_APPLIED_TOTAL, "verdict" => verdict.as_str()).increment(1);
             }
-            Self::Unchanged => counter!(PERSON_SEEDS_UNCHANGED_TOTAL).increment(1),
+            (Self::Unchanged, _) => counter!(PERSON_SEEDS_UNCHANGED_TOTAL).increment(1),
         }
     }
 }
@@ -401,6 +420,7 @@ fn record_update(
     seed: &PersonSeed,
     person: Uuid,
     effective: &EffectiveHashes,
+    live_margin_ms: i64,
 ) -> RecordUpdate {
     let baseline = PersonRecord::absent();
     let from = match prior {
@@ -412,6 +432,7 @@ fn record_update(
         &effective.evaluated,
         &effective.matched,
         seed.scanned_at_ms(),
+        live_margin_ms,
     ) {
         PersonSeedOutcome::Unchanged => RecordUpdate::Unchanged,
         PersonSeedOutcome::Changed {
@@ -875,9 +896,10 @@ mod tests {
     async fn a_record_evaluated_under_another_catalog_still_applies() {
         let (person, partition_id) = dormant_person();
         let mut shell = Shell::new(mixed_cohorts());
+        let stamped_at = now_ms();
         let uncovered = PersonRecord {
-            last_seen_ms: now_ms(),
-            stamp: Stamp::new(now_ms(), 0),
+            last_seen_ms: stamped_at,
+            stamp: Stamp::new(stamped_at, 0),
             props_fingerprint: PropsFingerprint::of("{}"),
             // Evaluated against a catalog that did not hold this team's person conditions.
             catalog_fingerprint: crate::stage1::person_record::CatalogFingerprint(0xDEAD),
@@ -887,8 +909,8 @@ mod tests {
         };
         shell.put_record(partition_id, person, &uncovered);
 
-        // Older than the record's stamp: only the catalog mismatch admits it.
-        let seed = seed_for(person, &[PERSON_HASH], &[PERSON_HASH], 1_000);
+        // Inside the margin, so the record is not provably older; only the catalog rotation admits.
+        let seed = seed_for(person, &[PERSON_HASH], &[PERSON_HASH], stamped_at + 1_000);
         shell.run(partition_id, &seed, 0).await;
 
         assert!(shell
@@ -897,6 +919,45 @@ mod tests {
             .matched
             .contains(&hash(PERSON_HASH).as_bytes()));
         assert_eq!(shell.sink.changes().len(), 1);
+    }
+
+    /// A rotated catalog is a team-wide event, so without a recency test any backlogged scan would
+    /// overwrite live state on the strength of an unrelated cohort edit.
+    #[tokio::test]
+    async fn a_scan_older_than_the_record_never_applies_on_a_catalog_rotation_alone() {
+        let (person, partition_id) = dormant_person();
+        let mut shell = Shell::new(mixed_cohorts());
+        let live = PersonRecord {
+            last_seen_ms: now_ms(),
+            stamp: Stamp::new(now_ms(), 0),
+            props_fingerprint: PropsFingerprint::of(r#"{"email":"b@c.com"}"#),
+            catalog_fingerprint: crate::stage1::person_record::CatalogFingerprint(0xDEAD),
+            matched: MatchedSet::empty(),
+            applied_offsets: AppliedOffsets::default(),
+            redirect_dedup: Default::default(),
+        };
+        shell.put_record(partition_id, person, &live);
+
+        shell
+            .run(
+                partition_id,
+                &seed_for(
+                    person,
+                    &[PERSON_HASH],
+                    &[PERSON_HASH],
+                    now_ms() - 86_400_000,
+                ),
+                0,
+            )
+            .await;
+
+        assert_eq!(
+            shell.record(partition_id, person).unwrap(),
+            live,
+            "a day-old scan must not re-enter a person live already evaluated out",
+        );
+        assert!(shell.sink.changes().is_empty());
+        assert_eq!(shell.committable(partition_id), Some(1));
     }
 
     #[tokio::test]
@@ -1068,6 +1129,43 @@ mod tests {
         assert_eq!(shell.committable(partition_id), Some(3));
     }
 
+    /// The held replay can arrive after a live event has already re-derived the same matched set.
+    /// That event mints no transition, so it composes nothing, and the seed then reads as live
+    /// fresh. If the skip committed without recomposing, the person would sit outside every
+    /// composed cohort forever: no later event flips a leaf, and reconcile scans `cf_stage2` rows,
+    /// which is precisely what is missing.
+    #[tokio::test]
+    async fn a_live_fresh_skip_still_recomposes_a_stage_2_bit_a_held_attempt_never_wrote() {
+        let (person, partition_id) = dormant_person();
+        let mut shell = Shell::with_sinks(
+            mixed_cohorts(),
+            CaptureSink::failing_first(1),
+            CaptureSeedTileSink::new(),
+        );
+        shell.live_pageview(partition_id, person, None);
+        let seed = seed_for(person, &[PERSON_HASH], &[PERSON_HASH], now_ms());
+
+        shell.run(partition_id, &seed, 3).await;
+        assert_eq!(shell.committable(partition_id), None, "held for redelivery");
+        assert!(shell.stage2(partition_id, person, 2).is_none());
+
+        // A live event carrying the same properties re-evaluates to the set the seed already
+        // stored, so it mints no transition and composes nothing.
+        shell.live_pageview(partition_id, person, Some(r#"{"email":"a@b.com"}"#));
+        assert!(
+            shell.stage2(partition_id, person, 2).is_none(),
+            "the no-op re-eval leaves the composed bit unwritten",
+        );
+
+        shell.run(partition_id, &seed, 3).await;
+
+        assert!(
+            shell.stage2(partition_id, person, 2).unwrap().in_cohort,
+            "the live-fresh skip must still recompose the bit nothing else would ever write",
+        );
+        assert_eq!(shell.committable(partition_id), Some(3));
+    }
+
     #[tokio::test]
     async fn a_seeded_dormant_person_reaches_the_same_membership_as_a_live_evaluated_one() {
         let live_person = Uuid::from_u128(0xA11CE);
@@ -1127,10 +1225,9 @@ mod tests {
             "the seed's zeroed fingerprints must force a full re-eval on the next event",
         );
         assert_ne!(seeded.props_fingerprint, live.props_fingerprint);
-        assert_eq!(
-            seeded.stamp,
-            Stamp::MIN,
-            "the seed never adopts the scan instant into the argMax stamp",
+        assert!(
+            seeded.stamp < live.stamp,
+            "the seed installs a floor a margin below its scan, never the live event's own stamp",
         );
     }
 }

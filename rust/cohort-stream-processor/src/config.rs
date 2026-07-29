@@ -799,6 +799,17 @@ impl Config {
             );
         }
 
+        // A membership produce that fails after stage 1 commits drops the single-leaf change: the
+        // replayed seed merges to Unchanged and re-emits only composed flips. The reconcile
+        // snapshot is what repairs that, and it can, because the register row committed with
+        // stage 1 — but only if it is switched on.
+        if self.cohort_seed_person_apply_enabled && !self.cohort_seed_reconcile_enabled {
+            warn!(
+                "COHORT_SEED_PERSON_APPLY_ENABLED without COHORT_SEED_RECONCILE_ENABLED: a failed \
+                 membership produce drops its single-leaf change permanently, with no repair path.",
+            );
+        }
+
         ensure!(
             !self.checkpoint_enabled || self.durable_restore_enabled,
             "CHECKPOINT_ENABLED requires DURABLE_RESTORE_ENABLED: restoring a checkpoint without \

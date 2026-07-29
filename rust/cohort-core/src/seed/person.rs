@@ -3,6 +3,11 @@
 //!
 //! Field order is the wire order. New fields must be appended and skipped at their
 //! absent-equivalent value (see `redirect_hops`), or bytes an older seeder produced stop parsing.
+//!
+//! Every change here is consumer-first. An older consumer ignores an unknown field, so a producer
+//! that starts populating one is silently half-understood; bumping the schema version instead
+//! routes the payload to `UnsupportedSchema`, which commits the offset without applying. Either way
+//! the consumer has to reach every pod before the producer emits.
 
 use serde::de::{Deserializer, Error as DeError, Unexpected};
 use serde::ser::{SerializeSeq, Serializer};
@@ -68,6 +73,9 @@ impl PersonSeed {
         }
         if !is_subset(&matched, &evaluated) {
             return Err(PersonSeedError::MatchedNotSubset);
+        }
+        if scanned_at_ms.0 <= 0 {
+            return Err(PersonSeedError::ScannedAtNotPositive(scanned_at_ms.0));
         }
         Ok(Self {
             schema_version: PERSON_SCHEMA_VERSION,
@@ -149,6 +157,10 @@ pub enum PersonSeedError {
     MatchedNotSortedDistinct,
     #[error("matched must be a subset of evaluated")]
     MatchedNotSubset,
+    /// An unset or negative scan instant would floor `last_seen_ms` below every TTL cutoff and
+    /// never win the apply path's last-write-wins comparison.
+    #[error("scanned_at_ms must be a positive epoch-ms instant, got {0}")]
+    ScannedAtNotPositive(i64),
     #[error("malformed condition hash: {0}")]
     Hash(#[from] ConditionHashError),
 }
@@ -347,6 +359,17 @@ mod tests {
                 ClaimEpoch(1),
             )
         };
+        let scanned_at = |ms: i64| {
+            PersonSeed::new(
+                TeamId(2),
+                Uuid::from_u128(7),
+                vec![hash("0123456789abcdef")],
+                Vec::new(),
+                ScannedAtMs(ms),
+                RunId(Uuid::nil()),
+                ClaimEpoch(1),
+            )
+        };
         let a = hash("0123456789abcdef");
         let b = hash("fedcba9876543210");
 
@@ -378,6 +401,16 @@ mod tests {
             Err(PersonSeedError::MatchedNotSubset),
             "a matched hash the scan never evaluated cannot be applied",
         );
+        assert_eq!(
+            scanned_at(0),
+            Err(PersonSeedError::ScannedAtNotPositive(0)),
+            "an unset scan instant floors last_seen below every TTL cutoff",
+        );
+        assert_eq!(
+            scanned_at(-1),
+            Err(PersonSeedError::ScannedAtNotPositive(-1))
+        );
+        assert!(scanned_at(1).is_ok());
     }
 
     #[test]
@@ -408,6 +441,7 @@ mod tests {
                 serde_json::json!(["00000000000000ff"]),
                 "matched outside evaluated",
             ),
+            ("scanned_at_ms", serde_json::json!(0), "unset scan instant"),
         ] {
             let mut broken = golden.clone();
             broken[field] = value;

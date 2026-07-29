@@ -501,8 +501,15 @@ impl PersonSeedVerdict {
 /// Classify one person seed against the prior record. Pure: no store, HogVM, or clock.
 ///
 /// `scanned_at` is the seeder's wall clock; `record.stamp.ms` is client event time. Two different
-/// clocks, so the seed must beat the record by `live_margin_ms` rather than merely tie it — a tie
+/// clocks, so the seed must beat the record by `live_margin_ms` rather than merely tie it. A tie
 /// resolved for the seed lets a stale scan overwrite fresher live state.
+///
+/// Both apply arms need the scan to be at least as recent as the record. The catalog fingerprint
+/// covers every person condition in the team, so one unrelated cohort edit rotates it for every
+/// record at once; without the recency test an arbitrarily old scan would overwrite live state on
+/// the strength of an edit it had nothing to do with. What survives the test is the window between
+/// the two clocks, where a record can carry a newer stamp than the scan and still have been
+/// evaluated against a catalog that predates the seed's conditions.
 pub fn person_seed_verdict(
     prior: &PriorRecord,
     scanned_at: ScannedAtMs,
@@ -515,7 +522,7 @@ pub fn person_seed_verdict(
     if scanned_at.0.saturating_sub(live_margin_ms) > record.stamp.ms {
         return PersonSeedVerdict::ApplySeedNewer;
     }
-    if record.catalog_fingerprint != catalog_fp {
+    if record.catalog_fingerprint != catalog_fp && scanned_at.0 >= record.stamp.ms {
         return PersonSeedVerdict::ApplyCatalogUncovered;
     }
     PersonSeedVerdict::SkipLiveFresh
@@ -544,14 +551,14 @@ pub enum PersonSeedOutcome {
 /// instant as a floor, without which a record built from [`PersonRecord::absent`] starts at
 /// `i64::MIN` and is immediately TTL-eligible.
 ///
-/// The stamp and both dedup maps are never touched. Seed-topic offsets share no numbering with the
-/// live topic's, and a stamp advanced to the scan instant would classify near-scan live events as
-/// argMax-stale, suppressing the re-evaluation the zeroed fingerprints ask for.
+/// The stamp is raised to [`seed_stamp_floor`] but never lowered, and both dedup maps are left
+/// alone — seed-topic offsets share no numbering with the live topic's.
 pub fn apply_person_seed(
     prior: &PersonRecord,
     evaluated: &[[u8; 16]],
     matched: &MatchedSet,
     scanned_at: ScannedAtMs,
+    live_margin_ms: i64,
 ) -> PersonSeedOutcome {
     debug_assert_sorted(evaluated);
     let transitions: Vec<_> = prior.matched.diff(matched, evaluated).collect();
@@ -573,10 +580,24 @@ pub fn apply_person_seed(
     record.props_fingerprint = PropsFingerprint(0);
     record.catalog_fingerprint = CatalogFingerprint(0);
     record.last_seen_ms = record.last_seen_ms.max(scanned_at.0);
+    record.stamp = record
+        .stamp
+        .max(seed_stamp_floor(scanned_at, live_margin_ms));
     PersonSeedOutcome::Changed {
         record,
         transitions,
     }
+}
+
+/// The argMax floor a seed installs. An event older than this lost to the scan, so it must not
+/// re-evaluate the person and revert the seed — for a dormant person nothing newer would ever
+/// arrive to correct it. Margin-adjusted for the same two-clock reason [`person_seed_verdict`]
+/// applies it, and offset-minimal so an event exactly at the floor still counts as fresher.
+///
+/// Anything above the floor still takes `Eval` against the zeroed fingerprints, which is what keeps
+/// the seed from suppressing a genuinely newer evaluation.
+fn seed_stamp_floor(scanned_at: ScannedAtMs, live_margin_ms: i64) -> Stamp {
+    Stamp::new(scanned_at.0.saturating_sub(live_margin_ms), i64::MIN)
 }
 
 // --- Binary codec v1 ---
@@ -1253,6 +1274,9 @@ mod tests {
 
     // --- person-property seed (backfill) ---
 
+    /// Matches `COHORT_SEED_PERSON_LIVE_MARGIN_MS`'s default.
+    const MARGIN: i64 = 900_000;
+
     fn at(ms: i64) -> ScannedAtMs {
         ScannedAtMs(ms)
     }
@@ -1267,11 +1291,14 @@ mod tests {
 
     #[test]
     fn person_seed_verdict_truth_table() {
-        const MARGIN: i64 = 900_000;
         let catalog = CatalogFingerprint::of_sorted(&[hash(1), hash(2)]);
         let other = CatalogFingerprint::of_sorted(&[hash(1)]);
-        // A record a previous seed wrote: both fingerprints zeroed, so it can never be covered.
-        let seed_written = live_record(10_000_000, CatalogFingerprint(0));
+        // What a seed scanned at 1_000_000 leaves behind: fingerprints zeroed, stamp at the floor.
+        let seed_written = PriorRecord::Present(PersonRecord {
+            stamp: seed_stamp_floor(at(1_000_000), MARGIN),
+            catalog_fingerprint: CatalogFingerprint(0),
+            ..sample_record()
+        });
 
         let cases = [
             (
@@ -1307,8 +1334,20 @@ mod tests {
             (
                 live_record(1_000_000, other),
                 at(0),
+                PersonSeedVerdict::SkipLiveFresh,
+                "a rotated catalog does not license an older scan to overwrite a newer record",
+            ),
+            (
+                live_record(1_000_000, other),
+                at(1_000_000),
                 PersonSeedVerdict::ApplyCatalogUncovered,
-                "live-fresh but evaluated against another catalog: the hashes were not covered",
+                "same instant, rotated catalog: the record cannot have covered the seed's hashes",
+            ),
+            (
+                live_record(1_000_000, other),
+                at(1_000_000 + MARGIN),
+                PersonSeedVerdict::ApplyCatalogUncovered,
+                "inside the margin the record is not provably older, but the catalog rotated",
             ),
             (
                 live_record(i64::MAX, catalog),
@@ -1318,9 +1357,10 @@ mod tests {
             ),
             (
                 seed_written,
-                at(0),
+                at(1_000_000),
                 PersonSeedVerdict::ApplyCatalogUncovered,
-                "a seed-written record is never treated as covered, so replays converge",
+                "the stamp a seed installs sits a margin below its own scan, so a replay re-admits \
+                 and converges on Unchanged",
             ),
         ];
 
@@ -1354,6 +1394,7 @@ mod tests {
             &evaluated,
             &MatchedSet::from_iter([hash(2), hash(3)]),
             at(5_000),
+            MARGIN,
         )
         else {
             panic!("expected Changed");
@@ -1377,7 +1418,7 @@ mod tests {
     }
 
     #[test]
-    fn apply_person_seed_zeroes_fingerprints_floors_last_seen_and_freezes_stamp_and_dedup() {
+    fn apply_person_seed_zeroes_fingerprints_floors_last_seen_and_freezes_dedup() {
         let mut prior = sample_record();
         prior.matched = MatchedSet::empty();
         prior.last_seen_ms = 1_000;
@@ -1387,6 +1428,7 @@ mod tests {
             &[hash(1)],
             &MatchedSet::from_iter([hash(1)]),
             at(9_000),
+            MARGIN,
         ) else {
             panic!("expected Changed");
         };
@@ -1403,7 +1445,7 @@ mod tests {
         );
         assert_eq!(
             record.stamp, prior.stamp,
-            "the seed never adopts the scan instant into the argMax stamp",
+            "a floor below the record's own stamp never lowers it",
         );
         assert_eq!(record.applied_offsets, prior.applied_offsets);
         assert_eq!(record.redirect_dedup, prior.redirect_dedup);
@@ -1414,10 +1456,55 @@ mod tests {
             &[hash(1)],
             &MatchedSet::from_iter([hash(1)]),
             at(-9_000),
+            MARGIN,
         ) else {
             panic!("expected Changed");
         };
         assert_eq!(record.last_seen_ms, 1_000);
+    }
+
+    /// Without the floor a seeded record keeps [`Stamp::MIN`] and loses argMax to every event, so
+    /// any straggler older than the scan re-evaluates the person from staler properties and
+    /// silently reverts the backfill. A dormant person never gets a newer event to correct it.
+    #[test]
+    fn a_seed_installs_an_argmax_floor_that_older_stragglers_lose_to() {
+        let scanned_at = at(9_000_000);
+        let PersonSeedOutcome::Changed { record, .. } = apply_person_seed(
+            &PersonRecord::absent(),
+            &[hash(1)],
+            &MatchedSet::from_iter([hash(1)]),
+            scanned_at,
+            MARGIN,
+        ) else {
+            panic!("expected Changed");
+        };
+
+        let floor = seed_stamp_floor(scanned_at, MARGIN);
+        assert_eq!(record.stamp, floor);
+        assert_eq!(
+            decide(
+                &PriorRecord::Present(record.clone()),
+                Stamp::new(floor.ms - 1, i64::MAX),
+                coords(),
+                PropsFingerprint::of("{}"),
+                CatalogFingerprint::of_sorted(&[hash(1)]),
+            ),
+            Decision::Stale,
+            "an event from before the scan must not re-evaluate the person",
+        );
+        assert_eq!(
+            decide(
+                &PriorRecord::Present(record),
+                Stamp::new(floor.ms, i64::MIN + 1),
+                coords(),
+                PropsFingerprint::of("{}"),
+                CatalogFingerprint::of_sorted(&[hash(1)]),
+            ),
+            Decision::Eval {
+                freshness: Freshness::StaleBoth,
+            },
+            "anything above the floor still re-evaluates against the zeroed fingerprints",
+        );
     }
 
     #[test]
@@ -1441,7 +1528,7 @@ mod tests {
 
         for (prior, matched, why) in cases {
             assert_eq!(
-                apply_person_seed(&prior, &[hash(1), hash(2)], &matched, at(9_000)),
+                apply_person_seed(&prior, &[hash(1), hash(2)], &matched, at(9_000), MARGIN),
                 PersonSeedOutcome::Unchanged,
                 "{why}",
             );
@@ -1470,12 +1557,13 @@ mod tests {
             let mut prior = PersonRecord::absent();
             prior.matched = (0u8..8).filter(|i| prior_bits[*i as usize]).map(hash).collect();
 
-            let settled = match apply_person_seed(&prior, &evaluated, &matched, at(1_000)) {
+            let settled = match apply_person_seed(&prior, &evaluated, &matched, at(1_000), MARGIN)
+            {
                 PersonSeedOutcome::Changed { record, .. } => record,
                 PersonSeedOutcome::Unchanged => prior,
             };
             prop_assert_eq!(
-                apply_person_seed(&settled, &evaluated, &matched, at(1_000)),
+                apply_person_seed(&settled, &evaluated, &matched, at(1_000), MARGIN),
                 PersonSeedOutcome::Unchanged,
             );
         }
