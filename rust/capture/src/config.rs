@@ -465,9 +465,9 @@ pub struct Config {
     // Defaults are inert on purpose: empty hosts or topic makes
     // `create_ingestion_warning_emitter` report the emitter disabled and return
     // (fail open) rather than produce to a wrong or empty destination. TLS is a
-    // separate knob from hosts because pointing the emitter at a cluster whose
-    // TLS requirement differs from the main one otherwise fails the producer's
-    // one-shot startup metadata fetch and mutes the pod for its life.
+    // separate knob from hosts because the warnings cluster's TLS requirement
+    // need not match the main one — capture-ai is the live example, with a
+    // PLAINTEXT WarpStream event sink and a TLS MSK warnings destination.
     #[envconfig(default = "")]
     pub capture_ingestion_warnings_kafka_topic: String,
     #[envconfig(default = "")]

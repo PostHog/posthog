@@ -1026,6 +1026,55 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn disabled_emitter_with_live_handle_does_not_shut_capture_down() {
+        // `register_components` moves the warnings handle in here and keeps no
+        // clone, so bailing out early drops the last reference and fires
+        // `ComponentEvent::Died`. Removing the v0 fallback is what makes that
+        // reachable in production: a pod told to emit warnings but given no
+        // dedicated hosts now takes this path on every start. Warnings are
+        // best-effort, so it has to cost capture nothing.
+        let cfg_env: HashMap<String, String> = [
+            ("REDIS_URL", "redis://localhost:6379/"),
+            ("CAPTURE_MODE", "events"),
+            ("KAFKA_HOSTS", "v0-broker:9092"),
+            ("KAFKA_TOPIC", "events_plugin_ingestion"),
+            ("CAPTURE_INGESTION_WARNINGS_ENABLED", "true"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        let config: Config =
+            envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config");
+
+        let shutdown = tokio_util::sync::CancellationToken::new();
+        let mut manager = lifecycle::Manager::builder("test")
+            .with_trap_signals(false)
+            .with_prestop_check(false)
+            .with_shutdown_token(shutdown.clone())
+            .build();
+        // Mirrors the registration in `register_components`.
+        let handle = manager.register(
+            "ingestion-warnings",
+            lifecycle::ComponentOptions::new()
+                .with_liveness_deadline(Duration::from_secs(30))
+                .is_advisory(true),
+        );
+        let server = manager.register("server", lifecycle::ComponentOptions::new());
+        let _guard = manager.monitor_background();
+
+        let emitter = create_ingestion_warning_emitter(&config, Some(handle)).await;
+        assert!(emitter.is_none(), "emitter must stay disabled");
+
+        // Long enough for a Died-driven cancel to have landed.
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(
+            !shutdown.is_cancelled(),
+            "a disabled warnings emitter must not initiate capture shutdown"
+        );
+        assert!(!server.is_shutting_down(), "capture must still be serving");
+    }
+
     #[test]
     #[should_panic(expected = "S3_FALLBACK_ENABLED cannot be combined with AI secondary routing")]
     fn register_components_rejects_s3_fallback_with_ai_secondary() {
