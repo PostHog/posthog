@@ -59,7 +59,6 @@ from products.tasks.backend.facade.streams import (
     get_task_run_stream_key,
     run_uses_dedicated_stream,
 )
-from products.tasks.backend.models import ComputeSource
 from products.tasks.backend.presentation.serializers import (
     CodeInviteRedeemRequestSerializer,
     ConnectionTokenResponseSerializer,
@@ -159,7 +158,7 @@ def _pi_cloud_runtime_disabled_response() -> Response:
     )
 
 
-def _compute_source(request) -> ComputeSource | None:
+def _compute_source(request) -> tasks_facade.ComputeSource | None:
     authenticator = request.successful_authenticator
     if not isinstance(authenticator, OAuthAccessTokenAuthentication):
         return None
@@ -167,7 +166,7 @@ def _compute_source(request) -> ComputeSource | None:
         return None
     application = authenticator.access_token.application
     if application is not None and application.client_id in POSTHOG_DESKTOP_OAUTH_CLIENT_IDS:
-        return ComputeSource.POSTHOG_DESKTOP
+        return tasks_facade.ComputeSource.POSTHOG_DESKTOP
     return None
 
 
