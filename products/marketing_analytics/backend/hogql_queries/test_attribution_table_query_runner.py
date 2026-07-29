@@ -8,9 +8,11 @@ from posthog.schema import (
     ConversionGoalFilter1,
     ConversionGoalFilter2,
     DateRange,
+    EventPropertyFilter,
     MarketingAnalyticsAttributionBreakdown,
     MarketingAnalyticsAttributionQuery,
     PropertyMathType,
+    PropertyOperator,
 )
 
 from posthog.hogql import ast
@@ -587,3 +589,90 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         runner = MarketingAnalyticsAttributionQueryRunner(query=query, team=self.team)
         with self.assertRaises(ValueError):
             runner.to_query()
+
+    def test_goal_property_filters_narrow_the_conversions_counted(self):
+        # The goal's own property filters are part of what a conversion is. Matching on the event name
+        # alone counts purchases the Dashboard excludes, so the same goal reports two different numbers
+        # on two tabs with nothing saying which is right.
+        config = self.team.marketing_analytics_config
+        config.conversion_goals = [
+            ConversionGoalFilter1(
+                kind="EventsNode",
+                event=CONVERSION_EVENT,
+                name="Big purchases",
+                conversion_goal_id=GOAL_ID,
+                conversion_goal_name="Big purchases",
+                schema_map={},
+                math=BaseMathType.TOTAL,
+                properties=[
+                    EventPropertyFilter(key="plan", operator=PropertyOperator.EXACT, value=["pro"], type="event")
+                ],
+            ).model_dump()
+        ]
+        config.save()
+        create_person(team=self.team, distinct_ids=["p1"])
+        self._session("p1", ONE_DAY_BEFORE, utm_campaign="a")
+        for at, plan in ((CONVERSION_AT, "pro"), ("2023-01-10T13:00:00Z", "free")):
+            _create_event(
+                team=self.team,
+                event=CONVERSION_EVENT,
+                distinct_id="p1",
+                timestamp=at,
+                properties={"revenue": 100.0, "plan": plan},
+            )
+
+        response = self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN)
+
+        self.assertEqual(response.totalConversions, 1)
+        by_campaign = self._by_breakdown(response)
+        self.assertAlmostEqual(by_campaign["a"][AttributionMode.LAST_TOUCH], 1.0, places=4)
+
+    def test_action_goal_whose_action_is_gone_reports_the_misconfiguration(self):
+        # An unresolvable action used to raise Action.DoesNotExist out of query building, so a goal
+        # pointing at a deleted action 500d instead of telling the user to fix the goal.
+        config = self.team.marketing_analytics_config
+        config.conversion_goals = [
+            ConversionGoalFilter2(
+                kind="ActionsNode",
+                id=99999999,
+                name="Purchased",
+                conversion_goal_id=GOAL_ID,
+                conversion_goal_name="Purchased",
+                schema_map={},
+                math=BaseMathType.TOTAL,
+            ).model_dump()
+        ]
+        config.save()
+
+        query = MarketingAnalyticsAttributionQuery(
+            dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-31"),
+            conversionGoalId=GOAL_ID,
+            properties=[],
+        )
+        with self.assertRaises(ValueError) as raised:
+            MarketingAnalyticsAttributionQueryRunner(query=query, team=self.team).to_query()
+        self.assertIn("no longer exists", str(raised.exception))
+
+    def test_reconciliation_survives_a_result_with_no_dimension_rows(self):
+        # Conversions with no session at all produce neither credit nor reach, so the join emits nothing.
+        # The counts used to be scalar subqueries on that empty row set, reporting zero conversions
+        # instead of "all of them went uncredited", which is the one thing worth saying here.
+        create_person(team=self.team, distinct_ids=["p1"])
+        self._conversion("p1", CONVERSION_AT)
+
+        response = self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN)
+
+        self.assertEqual(response.results, [])
+        self.assertEqual(response.totalConversions, 1)
+        self.assertEqual(response.unattributedConversions, 1)
+
+    def test_per_conversion_is_materialized_for_its_two_readers(self):
+        # Two CTEs read per_conversion, and ClickHouse re-evaluates a plain CTE at each reference, which
+        # would run the events scan underneath it twice. Nothing about the results can show this.
+        query = MarketingAnalyticsAttributionQuery(
+            dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-31"),
+            conversionGoalId=GOAL_ID,
+            properties=[],
+        )
+        ctes = MarketingAnalyticsAttributionQueryRunner(query=query, team=self.team).to_query().ctes or {}
+        self.assertTrue(ctes["per_conversion"].materialized)

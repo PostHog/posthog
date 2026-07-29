@@ -24,13 +24,11 @@ from posthog.hogql import ast
 from posthog.hogql.database.schema.channel_type import ChannelTypeExprs, create_channel_type_expr
 from posthog.hogql.database.schema.exchange_rate import convert_currency_call
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.models import PropertyDefinition, Team, User
 
 from products.access_control.backend.property_access_control import get_restricted_property_names
-from products.actions.backend.models.action import Action
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     LazyComputationTable,
@@ -42,6 +40,11 @@ from .attribution_weights import (
     build_linear_weights,
     build_position_based_weights,
     build_time_decay_weights,
+)
+from .conversion_goal_conditions import (
+    action_match_expr,
+    add_conversion_goal_property_filters,
+    conversion_goal_match_expr,
 )
 from .marketing_analytics_config import MarketingAnalyticsConfig
 from .marketing_lazy_precompute import marketing_ensure_precomputed
@@ -353,25 +356,12 @@ class ConversionGoalProcessor:
 
     def get_base_where_conditions(self) -> list[ast.Expr]:
         """Build base WHERE conditions for conversion goal filtering"""
-        conditions: list[ast.Expr] = []
+        if self.goal.kind == "ActionsNode":
+            # A goal whose action is gone matches nothing, so the Dashboard's other goals still render.
+            return [action_match_expr(self.goal, self.team) or ast.Constant(value=False)]
 
-        if self.goal.kind == "EventsNode":
-            event_name = self.goal.event
-            if event_name:
-                conditions.append(
-                    ast.CompareOperation(
-                        left=ast.Field(chain=["events", "event"]),
-                        op=ast.CompareOperationOp.Eq,
-                        right=ast.Constant(value=event_name),
-                    )
-                )
-        elif self.goal.kind == "ActionsNode":
-            action_id = self.goal.id
-            if action_id:
-                action = Action.objects.get(pk=int(action_id), team__project_id=self.team.project_id)
-                conditions.append(action_to_expr(action))
-
-        return conditions
+        match = conversion_goal_match_expr(self.goal, self.team)
+        return [match] if match is not None else []
 
     def get_date_field(self) -> str:
         """Get appropriate timestamp field based on goal type"""
@@ -1251,13 +1241,8 @@ class ConversionGoalProcessor:
         # For ActionsNode (when conversion_event is None), we need to use the action condition
         # instead of matching all events
         if self.goal.kind == "ActionsNode":
-            action_id = self.goal.id
-            if action_id:
-                try:
-                    action = Action.objects.get(pk=int(action_id), team__project_id=self.team.project_id)
-                    return action_to_expr(action)
-                except Action.DoesNotExist:
-                    return ast.Constant(value=False)
+            # A goal whose action is gone matches nothing, so the Dashboard's other goals still render.
+            return action_match_expr(self.goal, self.team) or ast.Constant(value=False)
 
         # Fallback for other cases
         return ast.Constant(value=True)
@@ -2240,18 +2225,3 @@ class ConversionGoalProcessor:
                 return event_value == conversion_event or event_value == "$pageview"
 
         return False
-
-
-def add_conversion_goal_property_filters(
-    conditions: list[ast.Expr],
-    conversion_goal: ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3,
-    team: Team,
-) -> list[ast.Expr]:
-    """Add property filters for conversion goals"""
-    conversion_goal_properties = conversion_goal.properties
-    if conversion_goal_properties:
-        property_expr = property_to_expr(conversion_goal_properties, team=team, scope="event")
-        if property_expr:
-            conditions.append(property_expr)
-
-    return conditions

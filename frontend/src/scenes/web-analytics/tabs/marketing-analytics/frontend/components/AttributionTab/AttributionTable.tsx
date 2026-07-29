@@ -59,7 +59,7 @@ export function AttributionTable({
     const logic = dataNodeLogic({ query, key, dataNodeCollectionId: key })
     const { response, responseLoading, responseError } = useValues(logic)
     const { loadData } = useActions(logic)
-    const { breakdownBy } = useValues(marketingAttributionLogic)
+    const { breakdownBy, effectiveLookbackDays } = useValues(marketingAttributionLogic)
     const { baseCurrency } = useValues(teamLogic)
     useAttachedLogic(logic, attachTo)
 
@@ -67,7 +67,7 @@ export function AttributionTable({
     const rows = attributionResponse?.results ?? []
     const models = attributionResponse?.models ?? []
     const hasValue = attributionResponse?.hasValue ?? false
-    const windowDays = attributionResponse?.attributionWindowDays ?? 90
+    const windowDays = attributionResponse?.attributionWindowDays ?? effectiveLookbackDays
     const dimensionLabel = BREAKDOWN_LABELS[breakdownBy]
 
     // With repeat conversions counted, conversions-over-visitors is a ratio rather than a share, so it

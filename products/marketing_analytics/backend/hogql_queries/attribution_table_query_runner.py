@@ -18,7 +18,7 @@ same goal and window, because the Dashboard only ever sees UTM-tagged pageviews.
 """
 
 from functools import cached_property
-from typing import Any, cast
+from typing import Any
 
 from posthog.schema import (
     AttributionMode,
@@ -37,12 +37,9 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
-from posthog.hogql.property import action_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-
-from products.actions.backend.models.action import Action
 
 from .attribution_weights import (
     DAY_IN_SECONDS,
@@ -53,6 +50,7 @@ from .attribution_weights import (
     build_time_decay_weights,
 )
 from .constants import DEFAULT_LIMIT, PAGINATION_EXTRA, UNKNOWN_CHANNEL
+from .conversion_goal_conditions import conversion_goal_condition
 from .marketing_analytics_base_query_runner import MarketingAnalyticsBaseQueryRunner
 
 ConversionGoal = ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3
@@ -96,6 +94,8 @@ _PER_CONVERSION_CTE = "per_conversion"
 _PER_TOUCHPOINT_CTE = "per_touchpoint"
 _PER_CONVERSION_DIM_CTE = "per_conversion_dim"
 _TOTALS_CTE = "attribution_totals"
+_ROWS_CTE = "attribution_rows"
+_FOOTER_CTE = "attribution_footer"
 
 # Ceiling on how many sessions of one person can earn credit. Bots and shared devices would otherwise
 # fan out touchpoints x conversions in (D) and (E) far enough to dominate the query. Touchpoints are
@@ -111,6 +111,7 @@ _INFLUENCED_CONVERSIONS = "influenced_conversions"
 _INFLUENCED_VALUE = "influenced_value"
 _TOTAL_CONVERSIONS = "total_conversions"
 _ATTRIBUTED_CONVERSIONS = "attributed_conversions"
+_JOIN_KEY = "footer_key"
 # ARRAY JOIN index identifying a conversion within its person.
 _CONVERSION_INDEX = "i"
 
@@ -149,7 +150,7 @@ class MarketingAnalyticsAttributionQueryRunner(
         one `events` scan grouped by person_id, so there is nothing to join them on here.
         """
         all_goals = self._get_team_conversion_goals()
-        goals, warnings = self._filter_invalid_conversion_goals(all_goals)
+        goals, skipped_goals = self._filter_invalid_conversion_goals(all_goals)
         self._valid_conversion_goals_count = len(goals)
 
         for goal in goals:
@@ -165,7 +166,9 @@ class MarketingAnalyticsAttributionQueryRunner(
         # Only report it when it's the goal that was actually asked for.
         skipped = next((g for g in all_goals if g.conversion_goal_id == self.query.conversionGoalId), None)
         if skipped is not None:
-            reason = next((w for w in warnings if f"'{skipped.conversion_goal_name}'" in w), None)
+            reason = next(
+                (s.message for s in skipped_goals if s.conversion_goal_id == self.query.conversionGoalId), None
+            )
             raise ValueError(reason or f"Conversion goal '{skipped.conversion_goal_name}' can't be attributed")
 
         raise ValueError(f"Conversion goal '{self.query.conversionGoalId}' not found for this team")
@@ -174,18 +177,22 @@ class MarketingAnalyticsAttributionQueryRunner(
     def conversion_condition(self) -> ast.Expr:
         """True for an event row that counts as a conversion for this goal.
 
+        Shared with the Dashboard's pipeline so the two can't drift on what a conversion is, which
+        includes the goal's own property filters: a goal scoped to purchases over $100 has to mean that
+        here too, or this table reports a different number than the Dashboard for the same goal.
+
         Cached because the query references it three times, and the action branch hits Postgres.
         """
         goal = self.goal
-        if goal.kind == "EventsNode":
-            return ast.CompareOperation(
-                left=ast.Field(chain=["events", "event"]),
-                op=ast.CompareOperationOp.Eq,
-                right=ast.Constant(value=goal.event),
+        condition = conversion_goal_condition(goal, self.team)
+        if condition is None:
+            # Validation already rejected the goals with nothing to match on, so what's left is an
+            # action-based goal whose action was deleted.
+            raise ValueError(
+                f"Conversion goal '{goal.conversion_goal_name}' points to an action that no longer exists. "
+                "Update the goal in marketing analytics settings, or pick another goal."
             )
-        # Reuse the shared action->HogQL translation so the definition can't drift from the rest of PostHog.
-        action = Action.objects.get(pk=int(cast(str, goal.id)), team__project_id=self.team.project_id)
-        return action_to_expr(action)
+        return condition
 
     @cached_property
     def allows_multiple_conversions_per_visitor(self) -> bool:
@@ -678,8 +685,13 @@ class MarketingAnalyticsAttributionQueryRunner(
                 expr=self._build_person_arrays_select(date_range),
                 cte_type="subquery",
             )
+        # Materialized because two CTEs read it, and ClickHouse otherwise re-evaluates a CTE at each
+        # reference: without this the events scan underneath it happens twice.
         ctes[_PER_CONVERSION_CTE] = ast.CTE(
-            name=_PER_CONVERSION_CTE, expr=self._build_per_conversion_select(), cte_type="subquery"
+            name=_PER_CONVERSION_CTE,
+            expr=self._build_per_conversion_select(),
+            cte_type="subquery",
+            materialized=True,
         )
         ctes[_PER_TOUCHPOINT_CTE] = ast.CTE(
             name=_PER_TOUCHPOINT_CTE, expr=self._build_per_touchpoint_select(), cte_type="subquery"
@@ -688,19 +700,94 @@ class MarketingAnalyticsAttributionQueryRunner(
             name=_PER_CONVERSION_DIM_CTE, expr=self._build_per_conversion_dim_select(), cte_type="subquery"
         )
         ctes[_TOTALS_CTE] = ast.CTE(name=_TOTALS_CTE, expr=self._build_totals_select(), cte_type="subquery")
+        ctes[_ROWS_CTE] = ast.CTE(name=_ROWS_CTE, expr=self._build_rows_select(), cte_type="subquery")
+        ctes[_FOOTER_CTE] = ast.CTE(name=_FOOTER_CTE, expr=self._build_footer_select(), cte_type="subquery")
 
         query = self._build_outer_select()
         query.ctes = ctes
         return query
 
-    @staticmethod
-    def _scalar_over_per_conversion(aggregate: ast.Expr) -> ast.SelectQuery:
+    def _build_footer_select(self) -> ast.SelectQuery:
+        """(I) One row reconciling what the models could and couldn't credit.
+
+        Its own CTE rather than two scalar subqueries hanging off the outer SELECT, for two reasons.
+        `per_conversion` is read once here instead of twice. And a SELECT-list scalar is evaluated per
+        output row, so a query that returns no dimension rows would report zero conversions rather than
+        "you have conversions and none of them could be credited", which is the more useful of the two.
+        """
         return ast.SelectQuery(
-            select=[aggregate],
+            select=[
+                ast.Alias(alias=_TOTAL_CONVERSIONS, expr=ast.Call(name="count", args=[])),
+                ast.Alias(
+                    alias=_ATTRIBUTED_CONVERSIONS,
+                    expr=ast.Call(
+                        name="countIf",
+                        args=[
+                            ast.CompareOperation(
+                                left=ast.Call(name="length", args=[ast.Field(chain=["tps"])]),
+                                op=ast.CompareOperationOp.Gt,
+                                right=ast.Constant(value=0),
+                            )
+                        ],
+                    ),
+                ),
+                ast.Alias(alias=_JOIN_KEY, expr=ast.Constant(value=1)),
+            ],
             select_from=ast.JoinExpr(table=ast.Field(chain=[_PER_CONVERSION_CTE])),
         )
 
     def _build_outer_select(self) -> ast.SelectQuery:
+        """(J) Attach the footer counts to every row.
+
+        LEFT from the footer, which always has exactly one row, so the reconciliation survives a goal
+        whose conversions produced no dimension rows at all. That leaves one placeholder row when there
+        is nothing to show; `_JOIN_KEY` is 0 on it, and `_calculate` drops it.
+        """
+        select: list[ast.Expr] = [
+            ast.Alias(alias=name, expr=ast.Field(chain=[_ROWS_CTE, name])) for name in self._row_column_names()
+        ]
+        select.extend(
+            [
+                ast.Alias(alias=_TOTAL_CONVERSIONS, expr=ast.Field(chain=[_FOOTER_CTE, _TOTAL_CONVERSIONS])),
+                ast.Alias(alias=_ATTRIBUTED_CONVERSIONS, expr=ast.Field(chain=[_FOOTER_CTE, _ATTRIBUTED_CONVERSIONS])),
+                ast.Alias(alias=_JOIN_KEY, expr=ast.Field(chain=[_ROWS_CTE, _JOIN_KEY])),
+            ]
+        )
+
+        return ast.SelectQuery(
+            select=select,
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=[_FOOTER_CTE]),
+                next_join=ast.JoinExpr(
+                    join_type="LEFT JOIN",
+                    table=ast.Field(chain=[_ROWS_CTE]),
+                    constraint=ast.JoinConstraint(
+                        expr=ast.CompareOperation(
+                            left=ast.Field(chain=[_FOOTER_CTE, _JOIN_KEY]),
+                            op=ast.CompareOperationOp.Eq,
+                            right=ast.Field(chain=[_ROWS_CTE, _JOIN_KEY]),
+                        ),
+                        constraint_type="ON",
+                    ),
+                ),
+            ),
+            # Server ordering only decides which rows make the page; the table re-sorts client side.
+            order_by=[
+                ast.OrderExpr(expr=ast.Field(chain=[_INFLUENCED_CONVERSIONS]), order="DESC"),
+                ast.OrderExpr(expr=ast.Field(chain=[_VISITORS]), order="DESC"),
+            ],
+            limit=ast.Constant(value=(self.query.limit or DEFAULT_LIMIT) + PAGINATION_EXTRA),
+            offset=ast.Constant(value=self.query.offset or 0),
+        )
+
+    def _row_column_names(self) -> list[str]:
+        """The dimension columns, in the order `_build_rows_select` produces them."""
+        names = [_BREAKDOWN_VALUE, _VISITORS, _INFLUENCED_CONVERSIONS, _INFLUENCED_VALUE]
+        for alias in _ordered_weight_aliases():
+            names.extend([f"{alias}_conversions", f"{alias}_value"])
+        return names
+
+    def _build_rows_select(self) -> ast.SelectQuery:
         """(H) Join credit onto reach.
 
         FULL OUTER so a dimension keeps its row whether or not it has both sides: traffic that never
@@ -752,28 +839,9 @@ class MarketingAnalyticsAttributionQueryRunner(
                     )
                 )
 
-        # Footer reconciliation counts, as scalar subqueries over the already-materialized per_conversion
-        # CTE. A second query would rebuild the touchpoint scan, the most expensive part of all this.
-        select.append(
-            ast.Alias(alias=_TOTAL_CONVERSIONS, expr=self._scalar_over_per_conversion(ast.Call(name="count", args=[])))
-        )
-        select.append(
-            ast.Alias(
-                alias=_ATTRIBUTED_CONVERSIONS,
-                expr=self._scalar_over_per_conversion(
-                    ast.Call(
-                        name="countIf",
-                        args=[
-                            ast.CompareOperation(
-                                left=ast.Call(name="length", args=[ast.Field(chain=["tps"])]),
-                                op=ast.CompareOperationOp.Gt,
-                                right=ast.Constant(value=0),
-                            )
-                        ],
-                    )
-                ),
-            )
-        )
+        # Constant key the footer joins on, and the marker that tells a real row from the placeholder
+        # the outer LEFT JOIN emits when there are no rows at all.
+        select.append(ast.Alias(alias=_JOIN_KEY, expr=ast.Constant(value=1)))
 
         join = ast.JoinExpr(
             table=ast.Field(chain=[_TOTALS_CTE]),
@@ -787,18 +855,7 @@ class MarketingAnalyticsAttributionQueryRunner(
             ),
         )
 
-        limit = self.query.limit or DEFAULT_LIMIT
-        return ast.SelectQuery(
-            select=select,
-            select_from=join,
-            # Server ordering only decides which rows make the page; the table re-sorts client side.
-            order_by=[
-                ast.OrderExpr(expr=ast.Field(chain=[_INFLUENCED_CONVERSIONS]), order="DESC"),
-                ast.OrderExpr(expr=ast.Field(chain=[_VISITORS]), order="DESC"),
-            ],
-            limit=ast.Constant(value=limit + PAGINATION_EXTRA),
-            offset=ast.Constant(value=self.query.offset or 0),
-        )
+        return ast.SelectQuery(select=select, select_from=join)
 
     # ------------------------------------------------------------------ execution
 
@@ -816,22 +873,26 @@ class MarketingAnalyticsAttributionQueryRunner(
             context=self._shared_hogql_context,
         )
 
-        requested_limit = self.query.limit or DEFAULT_LIMIT
-        raw_results = response.results or []
-        has_more = len(raw_results) > requested_limit
-        if has_more:
-            raw_results = raw_results[:requested_limit]
-
-        has_value = bool(self.goal.counts_as_revenue)
         # Mapped by column name, not tuple position, so adding a column can't shift every later one.
         columns = response.columns or []
-        named_results = [dict(zip(columns, row)) for row in raw_results]
-        rows = [self._build_row(row, has_value=has_value) for row in named_results]
+        named_results = [dict(zip(columns, row)) for row in response.results or []]
 
-        # Every row carries the same reconciliation totals, so read them off the first one.
+        # Every row carries the same reconciliation totals, so read them off the first one. Read before
+        # the placeholder row is dropped, since that row exists precisely to carry them when there are
+        # no dimension rows.
         first = named_results[0] if named_results else {}
         total_conversions = int(first.get(_TOTAL_CONVERSIONS) or 0)
         attributed_conversions = int(first.get(_ATTRIBUTED_CONVERSIONS) or 0)
+
+        named_results = [row for row in named_results if row.get(_JOIN_KEY)]
+
+        requested_limit = self.query.limit or DEFAULT_LIMIT
+        has_more = len(named_results) > requested_limit
+        if has_more:
+            named_results = named_results[:requested_limit]
+
+        has_value = bool(self.goal.counts_as_revenue)
+        rows = [self._build_row(row, has_value=has_value) for row in named_results]
 
         return MarketingAnalyticsAttributionQueryResponse(
             results=rows,

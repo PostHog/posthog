@@ -33,7 +33,7 @@ export function AttributionTab(): JSX.Element {
         attributableGoals,
         selectedGoalId,
         query,
-        attributionWindowDays,
+        attribution_window_days,
         effectiveLookbackDays,
         effectiveAllowMultipleConversions,
         optionsOpen,
@@ -62,11 +62,11 @@ export function AttributionTab(): JSX.Element {
         )
     }
 
-    const lookbackOptions = [...new Set([...LOOKBACK_PRESETS_DAYS, attributionWindowDays])]
+    const lookbackOptions = [...new Set([...LOOKBACK_PRESETS_DAYS, attribution_window_days])]
         .sort((a, b) => a - b)
         .map((days) => ({
             value: days,
-            label: days === attributionWindowDays ? `${days} days (default)` : `${days} days`,
+            label: days === attribution_window_days ? `${days} days (default)` : `${days} days`,
         }))
 
     const optionsContent = (
@@ -85,7 +85,7 @@ export function AttributionTab(): JSX.Element {
                     value={effectiveLookbackDays}
                     onChange={(value) =>
                         // Picking the default stores null, so a later settings change flows through.
-                        value && setLookbackWindowDays(value === attributionWindowDays ? null : value)
+                        value && setLookbackWindowDays(value === attribution_window_days ? null : value)
                     }
                     options={lookbackOptions}
                 />
