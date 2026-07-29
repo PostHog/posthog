@@ -1,6 +1,7 @@
 import { FEATURE_FLAGS, INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID } from 'lib/constants'
 
 import {
+    CyclotronJobFilterEvents,
     HogFunctionConfigurationContextId,
     HogFunctionSubTemplateIdType,
     HogFunctionSubTemplateType,
@@ -18,6 +19,47 @@ import {
 // fingerprint would close the surrounding markdown link `[text](url)` early, so encode them too.
 export const errorTrackingIssueLinkHogTemplate = (medium: string): string =>
     `{project.url}/error_tracking/fingerprint/{replaceAll(replaceAll(encodeURLComponent(event.properties.fingerprint), '(', '%28'), ')', '%29')}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=${medium}`
+
+// In single-exec mode $mcp_tool_name is always the 'exec' dispatcher; the inner tool the agent
+// actually invoked rides on $mcp_exec_tool_call_name, so fall back the same way the backend does.
+const MCP_EFFECTIVE_TOOL_EXPR =
+    'event.properties.$mcp_exec_tool_call_name ? event.properties.$mcp_exec_tool_call_name : event.properties.$mcp_tool_name'
+
+// How long one failing tool stays deduped. Long enough to collapse a retry loop, short enough that
+// a breakage that is still happening reappears in the channel.
+const MCP_ALERT_MASKING_TTL_SECONDS = 30 * 60
+
+// The masking key, which must never evaluate to an empty value: HogMaskerService skips masking
+// outright when the hash expression is falsy, so an event carrying neither tool-name property (the
+// filters only require $mcp_is_error, so anyone with the project token can send one) would
+// otherwise escape deduplication entirely. Nameless events all collapse into one bucket instead.
+const MCP_ALERT_MASKING_HASH =
+    `{concat(${MCP_EFFECTIVE_TOOL_EXPR}) != '' ` + `? concat(${MCP_EFFECTIVE_TOOL_EXPR}) : 'unknown-tool'}`
+
+// Every MCP failure notification triggers on an errored $mcp_tool_call. SDK versions stamp
+// $mcp_is_error as a boolean, the string 'true', or 1, so all three encodings are matched (CDP
+// compiles a multi-value Exact to IN, which the realtime bytecode rewrites to type-coercing
+// comparisons). Passing `errorType` narrows to one of the semantic buckets the SDK sets on
+// $mcp_error_type — see products/mcp_analytics/backend/hogql_queries/tool_tables.py for the list.
+function mcpFailedToolCallEvent(errorType?: string): CyclotronJobFilterEvents {
+    const properties: CyclotronJobFilterEvents['properties'] = [
+        {
+            key: '$mcp_is_error',
+            type: PropertyFilterType.Event,
+            value: ['true', true, 1],
+            operator: PropertyOperator.Exact,
+        },
+    ]
+    if (errorType) {
+        properties.push({
+            key: '$mcp_error_type',
+            type: PropertyFilterType.Event,
+            value: [errorType],
+            operator: PropertyOperator.Exact,
+        })
+    }
+    return { id: '$mcp_tool_call', type: 'events', properties }
+}
 
 export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
     HogFunctionSubTemplateIdType,
@@ -46,6 +88,17 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         type: 'destination',
         context_id: 'standard',
         filters: { events: [{ id: '$feature_enrollment_update', type: 'events' }] },
+    },
+    'mcp-tool-error': {
+        sub_template_id: 'mcp-tool-error',
+        type: 'destination',
+        context_id: 'standard',
+        filters: { events: [mcpFailedToolCallEvent()] },
+        // Deduped per failing tool, not per call. A broken tool fails on every invocation and
+        // agents retry in loops, so an undeduped alert would post a message per event — enough to
+        // bury a channel, and amplifiable by anyone holding the (public) project token. One message
+        // per tool per interval still surfaces each distinct breakage.
+        masking: { hash: MCP_ALERT_MASKING_HASH, ttl: MCP_ALERT_MASKING_TTL_SECONDS, threshold: null },
     },
     'activity-log': {
         sub_template_id: 'activity-log',
@@ -274,7 +327,203 @@ function buildHealthAlertSubTemplates(
     ]
 }
 
+// All $mcp_* text is producer-controlled and unbounded, so every interpolation is escaped
+// for the target chat format and truncated (post-escape, so entity expansion can't blow
+// past provider message limits: Slack 3000/section, Discord 2000/message).
+//
+// Discord worst case: message (template text + 3 fields x 200 + intent 600, all post-escape,
+// ~1260) + link (base ~80 + encoded tool name up to 480) = ~1820 < 2000.
+const MCP_INTENT_MAX_LENGTH = 600
+const MCP_FIELD_MAX_LENGTH = 200
+// The tool name is never shortened for the link. Truncating changes the tool's identity — the
+// detail page exact-matches the full event property, so a shortened link resolves to nothing —
+// and cutting mid-character can leave a lone surrogate, which makes encodeURLComponent throw
+// and drops the notification entirely. A name whose encoded form exceeds this budget links to
+// the tool list instead: less specific, still correct.
+const MCP_URL_ENCODED_TOOL_BUDGET = 480
+
+type ChatEscaper = (expression: string, maxLength?: number) => string
+
+/**
+ * Bounds a producer-controlled value before escaping it, so the escape never scans more than it
+ * can keep. Escaping only ever grows a string, so N output characters can come from at most N
+ * input characters — cutting the input at the same limit leaves the bounded result identical while
+ * keeping the work off a multi-megabyte property. The trailing bound still has to be applied after
+ * escaping, since expansion can push a short input past the limit.
+ */
+function boundedExpr(expression: string, maxLength: number): string {
+    return `substring(concat(${expression}), 1, ${maxLength})`
+}
+
+function slackEscapeExpr(expression: string, maxLength: number = MCP_FIELD_MAX_LENGTH): string {
+    // concat, not toString: concat(null) renders '' (matching bare {} interpolation), toString(null) prints 'null'
+    const bounded = boundedExpr(expression, maxLength)
+    return `substring(replaceAll(replaceAll(replaceAll(${bounded}, '&', '&amp;'), '<', '&lt;'), '>', '&gt;'), 1, ${maxLength})`
+}
+
+function markdownEscapeExpr(expression: string, maxLength: number = MCP_FIELD_MAX_LENGTH): string {
+    // Breaking the `](` adjacency is enough to neutralize masked links [text](url) in
+    // Discord and Teams; Discord mass mentions are already suppressed by the destination
+    // template's allowed_mentions, and Teams mentions can't be triggered from text.
+    return `substring(replaceAll(${boundedExpr(expression, maxLength)}, '](', '] ('), 1, ${maxLength})`
+}
+
+/** The producer-controlled values a notification message interpolates. */
+export type MCPMessageField = 'clientName' | 'serverName' | 'intent' | 'toolName'
+type MCPFieldRenderer = (field: MCPMessageField) => string
+
+// Renders each field as an escaped, length-bounded Hog interpolation.
+function hogFieldRenderer(escape: ChatEscaper): MCPFieldRenderer {
+    return (field) => {
+        switch (field) {
+            case 'clientName':
+                return `{${escape('event.properties.$mcp_client_name')}}`
+            case 'serverName':
+                return `{${escape('event.properties.$mcp_server_name')}}`
+            case 'intent':
+                return `{${escape('event.properties.$mcp_intent', MCP_INTENT_MAX_LENGTH)}}`
+            case 'toolName':
+                return `{${escape(MCP_EFFECTIVE_TOOL_EXPR)}}`
+        }
+    }
+}
+
+// The message copy lives here once; the Hog templates and the in-app preview differ only in how
+// fields are rendered, so the preview can never drift from what actually gets delivered.
+function mcpToolFailureMessage(field: MCPFieldRenderer, bold: string): string {
+    return (
+        `${bold}${field('toolName')}${bold} failed on your MCP server ` +
+        `${bold}${field('serverName')}${bold} ` +
+        `(client: ${field('clientName')}). ` +
+        `Agent intent: _${field('intent')}_`
+    )
+}
+
+export type MCPNotificationSubTemplateId = 'mcp-tool-error'
+
+export const MCP_NOTIFICATION_BUTTON_LABELS: Record<MCPNotificationSubTemplateId, string> = {
+    'mcp-tool-error': 'View tool detail',
+}
+
+/**
+ * The caps the delivered message applies to each interpolated field. Exported so a preview built
+ * from real event values cuts them exactly where the chat provider will, instead of showing more
+ * than actually gets sent.
+ */
+export const MCP_MESSAGE_FIELD_LIMITS: Record<MCPMessageField, number> = {
+    clientName: MCP_FIELD_MAX_LENGTH,
+    serverName: MCP_FIELD_MAX_LENGTH,
+    toolName: MCP_FIELD_MAX_LENGTH,
+    intent: MCP_INTENT_MAX_LENGTH,
+}
+
+/**
+ * The Slack message a notification will post, rendered with sample values in place of the Hog
+ * expressions — for previewing the real copy before wiring a destination up.
+ */
+export function mcpNotificationPreviewMessage(values: Record<MCPMessageField, string>): string {
+    const field: MCPFieldRenderer = (name) => values[name]
+    return mcpToolFailureMessage(field, '*')
+}
+
+const MCP_TOOL_ERROR_SLACK_MESSAGE = mcpToolFailureMessage(hogFieldRenderer(slackEscapeExpr), '*')
+const MCP_TOOL_ERROR_MARKDOWN_MESSAGE = mcpToolFailureMessage(hogFieldRenderer(markdownEscapeExpr), '**')
+
+const MCP_ENCODED_EFFECTIVE_TOOL_EXPR = `encodeURLComponent(concat(${MCP_EFFECTIVE_TOOL_EXPR}))`
+// Deep-links to the failing tool, falling back to the tool list when the encoded name would
+// blow the Discord budget (see MCP_URL_ENCODED_TOOL_BUDGET). project.url stays a plain
+// substitution so only the path suffix is conditional.
+const MCP_TOOL_ERROR_LINK =
+    `{project.url}/mcp-analytics/tool-quality` +
+    `{length(${MCP_ENCODED_EFFECTIVE_TOOL_EXPR}) <= ${MCP_URL_ENCODED_TOOL_BUDGET}` +
+    ` ? concat('/', ${MCP_ENCODED_EFFECTIVE_TOOL_EXPR}) : ''}`
+
+interface MCPNotificationVariantsOptions {
+    subTemplateId: HogFunctionSubTemplateIdType
+    nameSuffix: string
+    description: string
+    webhookDescription: string
+    slackMessage: string
+    slackFallbackText: string
+    markdownMessage: string
+    slackButton: { url: string; label: string }
+}
+
+function mcpNotificationVariants({
+    subTemplateId,
+    nameSuffix,
+    description,
+    webhookDescription,
+    slackMessage,
+    slackFallbackText,
+    markdownMessage,
+    slackButton,
+}: MCPNotificationVariantsOptions): HogFunctionSubTemplateType[] {
+    const commonProperties = HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES[subTemplateId]
+
+    return [
+        {
+            ...commonProperties,
+            template_id: 'template-slack',
+            name: `Post to Slack ${nameSuffix}`,
+            description,
+            inputs: {
+                blocks: {
+                    value: [
+                        { type: 'section', text: { type: 'mrkdwn', text: slackMessage } },
+                        {
+                            type: 'actions',
+                            elements: [
+                                {
+                                    url: slackButton.url,
+                                    text: { text: slackButton.label, type: 'plain_text' },
+                                    type: 'button',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                text: { value: slackFallbackText },
+            },
+        },
+        {
+            ...commonProperties,
+            template_id: 'template-microsoft-teams',
+            name: `Post to Microsoft Teams ${nameSuffix}`,
+            description,
+            inputs: {
+                text: { value: markdownMessage },
+            },
+        },
+        {
+            ...commonProperties,
+            template_id: 'template-discord',
+            name: `Post to Discord ${nameSuffix}`,
+            description,
+            inputs: {
+                content: { value: markdownMessage },
+            },
+        },
+        {
+            ...commonProperties,
+            template_id: 'template-webhook',
+            name: `HTTP Webhook ${nameSuffix}`,
+            description: webhookDescription,
+        },
+    ]
+}
+
 export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, HogFunctionSubTemplateType[]> = {
+    'mcp-tool-error': mcpNotificationVariants({
+        subTemplateId: 'mcp-tool-error',
+        nameSuffix: 'when an MCP tool call fails',
+        description: 'Know the moment agents hit an error on one of your tools',
+        webhookDescription: 'Send failing tool calls to your own endpoint',
+        slackMessage: MCP_TOOL_ERROR_SLACK_MESSAGE,
+        slackFallbackText: 'An MCP tool call failed',
+        markdownMessage: `${MCP_TOOL_ERROR_MARKDOWN_MESSAGE}\n\n${MCP_TOOL_ERROR_LINK}`,
+        slackButton: { url: MCP_TOOL_ERROR_LINK, label: MCP_NOTIFICATION_BUTTON_LABELS['mcp-tool-error'] },
+    }),
     'survey-response': [
         {
             ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['survey-response'],
@@ -967,6 +1216,9 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                         { type: 'divider' },
                         {
                             type: 'actions',
+                            // The alert id in the block_id is what lets the datetimepicker action identify
+                            // its alert — unlike select options, datetimepicker elements carry no value.
+                            block_id: 'insight_alert_snooze:{event.properties.alert_id}',
                             elements: [
                                 {
                                     // Points to the anomaly investigation notebook when present, otherwise falls
@@ -983,6 +1235,33 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                                     url: '{project.url}/insights/{event.properties.insight_id}?utm_source=alert&utm_campaign=alert_check_firing&utm_medium=slack',
                                     text: { text: 'View Insight', type: 'plain_text' },
                                     type: 'button',
+                                },
+                                {
+                                    action_id: 'insight_alert_snooze',
+                                    placeholder: { text: 'Snooze…', type: 'plain_text' },
+                                    options: [
+                                        {
+                                            text: { text: 'For 1 hour', type: 'plain_text' },
+                                            value: '{event.properties.alert_id}|1h',
+                                        },
+                                        {
+                                            text: { text: 'For 6 hours', type: 'plain_text' },
+                                            value: '{event.properties.alert_id}|6h',
+                                        },
+                                        {
+                                            text: { text: 'For 1 day', type: 'plain_text' },
+                                            value: '{event.properties.alert_id}|1d',
+                                        },
+                                        {
+                                            text: { text: 'For 1 week', type: 'plain_text' },
+                                            value: '{event.properties.alert_id}|1w',
+                                        },
+                                        {
+                                            text: { text: 'Pick a date & time…', type: 'plain_text' },
+                                            value: '{event.properties.alert_id}|custom',
+                                        },
+                                    ],
+                                    type: 'static_select',
                                 },
                             ],
                         },

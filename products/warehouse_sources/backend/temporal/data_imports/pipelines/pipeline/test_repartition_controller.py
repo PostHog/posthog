@@ -184,6 +184,30 @@ class TestRepartitionDetection:
         assert schema.repartition_pending is None
         assert capture.call_args.args[0] == "warehouse_repartition_skipped"
         assert capture.call_args.args[1]["reason"] == "unpartitionable_no_keys"
+        # A table with no usable partition target must engage the cooldown, otherwise detection
+        # re-measures and re-emits the skip on every 5-minute sync forever (the loop we're fixing).
+        assert schema.last_repartition_at is not None
+
+    def test_unpartitionable_skip_does_not_reflag_next_sync(self, team):
+        # Regression: the terminal skip stamps the cooldown so the immediately-following sync is a
+        # no-op instead of re-emitting flagged/skipped — this is the every-5-minute loop guard.
+        schema = _make_schema(team, {})
+        with tempfile.TemporaryDirectory() as d:
+            delta = _write_unpartitioned_delta(f"{d}/u")
+            with (
+                patch.object(ctrl, "target_partition_bytes", return_value=1),
+                patch.object(ctrl, "is_auto_repartition_enabled", return_value=True),
+                patch.object(ctrl, "capture_repartition_event") as capture,
+            ):
+                self._detect(team, schema, delta)
+                first_pass_events = [c.args[0] for c in capture.call_args_list]
+                capture.reset_mock()
+                schema.refresh_from_db()
+                self._detect(team, schema, delta)
+                second_pass_events = [c.args[0] for c in capture.call_args_list]
+
+        assert "warehouse_repartition_skipped" in first_pass_events
+        assert second_pass_events == []
 
     def test_unpartitioned_over_budget_with_keys_enables_partitioning(self, team):
         # An unpartitioned table that's over budget but HAS a usable key must be flagged to become
@@ -408,6 +432,9 @@ class TestRepartitionActivity:
         schema.refresh_from_db()
         assert schema.repartition_pending is None
         assert "warehouse_repartition_skipped" in [c.args[0] for c in capture.call_args_list]
+        # Clearing pending alone re-arms the loop — detection re-flags the unchanged table next sync.
+        # The cooldown stamp is what actually stops the flag → start → skip churn every 5 minutes.
+        assert schema.last_repartition_at is not None
 
     def test_failure_increments_attempts_without_clearing(self, team):
         schema = _make_schema(team, {})

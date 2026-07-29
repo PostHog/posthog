@@ -349,9 +349,9 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     # the runtime behaviour (a read-only SerializerMethodField backed by get_source) is correct.
     source = serializers.SerializerMethodField(  # type: ignore[assignment]
         read_only=True,
-        help_text="Lightweight parent-source summary (id, source_type, column-selection support, the requesting "
-        "user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so "
-        "read-only views can render without fetching the full source and all its schemas.",
+        help_text="Lightweight parent-source summary (id, source_type, access_method, column-selection support, "
+        "the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` "
+        "elsewhere — so read-only views can render without fetching the full source and all its schemas.",
     )
 
     class Meta:
@@ -442,6 +442,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "properties": {
                 "id": {"type": "string"},
                 "source_type": {"type": "string"},
+                "access_method": {"type": "string"},
                 "supports_column_selection": {"type": "boolean"},
                 "supports_row_filters": {"type": "boolean"},
                 "user_access_level": {"type": "string", "nullable": True},
@@ -472,6 +473,8 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         return {
             "id": str(source.id),
             "source_type": source.source_type,
+            # The schema page hides sync-history UI for direct-query sources, which have no jobs.
+            "access_method": source.access_method,
             "supports_column_selection": source_supports_column_selection(source.source_type),
             "supports_row_filters": source_supports_row_filters(source.source_type),
             "user_access_level": user_access_level,
@@ -1625,7 +1628,14 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 config, self.team_id, names=[instance.name], api_version=effective_api_version
             )
         except Exception as e:
-            capture_exception(e)
+            # `validate_credentials` above just probed the same connection successfully, so a
+            # failure here that the source itself classifies as non-retryable (e.g. a connect-time
+            # timeout, which usually means an unreachable host or unconfigured firewall) is an
+            # expected customer/upstream condition, not a bug — don't flood error tracking with it.
+            # Mirrors `refresh_schemas`'s `_classify_refresh_schemas_error`.
+            error_text = str(e)
+            if not any(pattern and pattern in error_text for pattern in new_source.get_non_retryable_errors()):
+                capture_exception(e)
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": str(e)},

@@ -387,7 +387,7 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                                 <span className="tabular-nums">
                                     {formatCredits(scanner.estimated_monthly_credits)}{' '}
                                     <span className="text-muted">
-                                        ({(scanner.estimated_monthly_observations ?? 0).toLocaleString()} observations)
+                                        · {(scanner.estimated_monthly_observations ?? 0).toLocaleString()} observations
                                     </span>
                                 </span>
                             ) : (

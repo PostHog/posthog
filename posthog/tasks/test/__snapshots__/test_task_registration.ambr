@@ -15,6 +15,7 @@
     'posthog.tasks.calculate_cohort.calculate_cohort_ch',
     'posthog.tasks.calculate_cohort.calculate_cohort_from_list',
     'posthog.tasks.calculate_cohort.collect_cohort_query_stats',
+    'posthog.tasks.calculate_cohort.finalize_cohort_backfill_runs',
     'posthog.tasks.calculate_cohort.insert_cohort_from_feature_flag',
     'posthog.tasks.calculate_cohort.insert_cohort_from_filters',
     'posthog.tasks.calculate_cohort.insert_cohort_from_query',

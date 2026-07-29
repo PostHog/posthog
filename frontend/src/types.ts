@@ -290,8 +290,10 @@ export enum AccessControlResourceType {
     LlmAnalytics = 'llm_analytics',
     Tagger = 'tagger',
     LlmSkill = 'llm_skill',
+    LlmPlayground = 'llm_playground',
     AiObservabilityClusters = 'ai_observability_clusters',
     Notebook = 'notebook',
+    Ticket = 'ticket',
     SessionRecording = 'session_recording',
     SharingConfiguration = 'sharing_configuration',
     RevenueAnalytics = 'revenue_analytics',
@@ -766,6 +768,8 @@ export interface ConversationsSettings {
     slack_notify_on_leave?: boolean
     slack_alert_channel_id?: string | null
     slack_nudge_enabled?: boolean
+    /** Bot scopes Slack granted at install. Absent for installs authorized before we recorded them. */
+    slack_scopes?: string[] | null
     email_enabled?: boolean
     teams_enabled?: boolean
     teams_team_id?: string | null
@@ -5708,8 +5712,6 @@ export const API_SCOPE_OBJECTS = [
     'access_control',
     'account',
     'activity_log',
-    'agents',
-    'agent_approvals',
     'alert',
     'annotation',
     'approvals',
@@ -5762,6 +5764,7 @@ export const API_SCOPE_OBJECTS = [
     'llm_analytics',
     'ai_observability_clusters',
     'llm_gateway',
+    'llm_playground',
     'llm_prompt',
     'llm_provider_key',
     'llm_skill',
@@ -5783,6 +5786,7 @@ export const API_SCOPE_OBJECTS = [
     'query',
     'query_performance',
     'replay_scanner',
+    'review_hog',
     'revenue_analytics',
     'session_recording',
     'session_recording_playlist',
@@ -6114,6 +6118,8 @@ export interface DataModelingDAG {
     name: string
     description: string
     sync_frequency: DataModelingSyncInterval | null
+    /** True when per-model freshness targets drive scheduling, making the DAG-level frequency read-only */
+    frequency_managed_by_nodes?: boolean
     node_count: number
     created_at: string
     updated_at: string
@@ -6446,6 +6452,7 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
 export interface ExternalDataSchemaSourceSummary {
     id: string
     source_type: ExternalDataSourceType
+    access_method?: ExternalDataSource['access_method']
     supports_column_selection?: boolean
     supports_row_filters?: boolean
     user_access_level: AccessControlLevel | null
@@ -6900,6 +6907,7 @@ export enum SDKKey {
     DOTNET = 'dotnet',
     DSPY = 'dspy',
     ELIXIR = 'elixir',
+    EVE = 'eve',
     FRAMER = 'framer',
     FIREWORKS_AI = 'fireworks_ai',
     FLUTTER = 'flutter',
@@ -7218,6 +7226,7 @@ export type HogFunctionConfigurationContextId =
 export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
     | 'survey-response'
+    | 'mcp-tool-error'
     | 'activity-log'
     | 'feature-flag-change'
     | 'error-tracking-issue-created'
@@ -7574,6 +7583,12 @@ export interface FeaturePreviewGateConfig {
     title: string
     description: string
     docsURL?: string
+    /**
+     * Support ticket target area for the "Request access" action. Set this for betas that aren't
+     * self-serve early-access features, so the gated state offers a way to request access instead
+     * of dead-ending on the feature previews page.
+     */
+    supportTargetArea?: string
 }
 
 export interface ProductManifest {

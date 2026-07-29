@@ -782,6 +782,9 @@ def test_evolve_pyarrow_schema_whole_valued_floats_cast_into_stored_integer_colu
         (pa.bool_(), pa.array(["true", "processed"], type=pa.string())),
         # A value that overflows the stored decimal precision (Cannot convert ... overflow).
         (pa.decimal128(3, 1), pa.array([1.0, 999999999.0], type=pa.float64())),
+        # A cast pyarrow has no kernel for at all — raised as ArrowNotImplementedError, not
+        # ArrowInvalid (a binary column now arriving where a numeric one is stored).
+        (pa.float64(), pa.array([b"\x01", b"\x02"], type=pa.binary())),
     ],
 )
 def test_evolve_pyarrow_schema_incompatible_cast_raises_actionable_error(
@@ -802,6 +805,45 @@ def test_evolve_pyarrow_schema_incompatible_cast_raises_actionable_error(
 
     with pytest.raises(SchemaColumnTypeChangedException, match="Source column type changed"):
         evolve_pyarrow_schema(arrow_table, delta_schema)
+
+
+@pytest.mark.parametrize(
+    "incoming_column, expected_values",
+    [
+        # Batch with values: a SQL TIME arrives as a Python timedelta and infers as duration.
+        (
+            pa.array([datetime.timedelta(hours=1), datetime.timedelta(hours=2, minutes=30)], type=pa.duration("us")),
+            [3600.0, 9000.0],
+        ),
+        # All-null batch: keeps the source's declared time64, which used to fail to reconcile.
+        (pa.array([None, None], type=pa.time64("us")), [None, None]),
+        # Batch whose TIME values arrive typed as time64 rather than duration.
+        (pa.array([datetime.time(1, 0, 0), datetime.time(2, 30, 0)], type=pa.time64("us")), [3600.0, 9000.0]),
+    ],
+)
+def test_evolve_pyarrow_schema_time_columns_reconcile_to_stored_seconds(
+    incoming_column: pa.Array, expected_values: list[float | None]
+):
+    """A SQL TIME column oscillates between time64 (all-null batch) and duration (batch with
+    values, arriving as Python timedelta) across syncs. Both must normalize to the same float
+    seconds so they reconcile against a column already stored as double, instead of raising an
+    unretryable type-changed error on every all-null batch."""
+    arrow_table = pa.table(
+        {
+            "id": pa.array([1, 2], type=pa.int64()),
+            "redeem_time": incoming_column,
+        }
+    )
+    fields: list[pa.Field] = [
+        pa.field("id", pa.int64(), nullable=False),
+        pa.field("redeem_time", pa.float64(), nullable=True),
+    ]
+    delta_schema = deltalake.Schema.from_arrow(pa.schema(fields))
+
+    evolved_table = evolve_pyarrow_schema(arrow_table, delta_schema)
+
+    assert evolved_table.schema.field("redeem_time").type == pa.float64()
+    assert evolved_table.column("redeem_time").to_pylist() == expected_values
 
 
 def test_evolve_pyarrow_schema_with_struct_containing_datetime_and_decimal():

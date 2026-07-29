@@ -81,6 +81,7 @@ class ReasoningEffort(StrEnum):
     HIGH = "high"
     XHIGH = "xhigh"
     MAX = "max"
+    ULTRACODE = "ultracode"
 
 
 PUBLIC_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
@@ -89,7 +90,11 @@ PUBLIC_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
     ReasoningEffort.HIGH,
     ReasoningEffort.XHIGH,
     ReasoningEffort.MAX,
+    ReasoningEffort.ULTRACODE,
 )
+
+
+CONTEXT_WINDOW_CHOICES: tuple[str, ...] = ("200k", "1m")
 
 
 RUNTIME_PROVIDER_BY_ADAPTER: dict[RuntimeAdapter, LLMProvider] = {
@@ -124,6 +129,7 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.HIGH,
         ReasoningEffort.XHIGH,
         ReasoningEffort.MAX,
+        ReasoningEffort.ULTRACODE,
     ),
     "claude-opus-4-8": (
         ReasoningEffort.LOW,
@@ -131,6 +137,7 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.HIGH,
         ReasoningEffort.XHIGH,
         ReasoningEffort.MAX,
+        ReasoningEffort.ULTRACODE,
     ),
     "claude-opus-5": (
         ReasoningEffort.LOW,
@@ -138,6 +145,7 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.HIGH,
         ReasoningEffort.XHIGH,
         ReasoningEffort.MAX,
+        ReasoningEffort.ULTRACODE,
     ),
     "claude-fable-5": (
         ReasoningEffort.LOW,
@@ -145,6 +153,7 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.HIGH,
         ReasoningEffort.XHIGH,
         ReasoningEffort.MAX,
+        ReasoningEffort.ULTRACODE,
     ),
     "claude-sonnet-5": (
         ReasoningEffort.LOW,
@@ -152,6 +161,7 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.HIGH,
         ReasoningEffort.XHIGH,
         ReasoningEffort.MAX,
+        ReasoningEffort.ULTRACODE,
     ),
     "claude-sonnet-4-6": (
         ReasoningEffort.LOW,
@@ -308,6 +318,8 @@ class RunState(BaseModel, extra="allow"):
     provider: LLMProvider | None = None
     model: str | None = None
     reasoning_effort: ReasoningEffort | None = None
+    context_window: str | None = None
+    fast_mode: bool | None = None
     resume_from_run_id: str | None = None
     handoff_resumed: bool = False
     snapshot_external_id: str | None = None
@@ -1182,6 +1194,8 @@ def build_sandbox_environment_variables(
     if settings.SANDBOX_LLM_GATEWAY_URL:
         env_vars["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
 
+    env_vars.update(ai_gateway_env_vars())
+
     if otel_telemetry_enabled:
         env_vars.update(get_sandbox_otel_env_vars())
 
@@ -1204,6 +1218,20 @@ def get_sandbox_otel_env_vars() -> dict[str, str]:
     if settings.SANDBOX_AGENT_OTEL_TRACES_URL:
         env_vars["POSTHOG_AGENT_OTEL_TRACES_URL"] = settings.SANDBOX_AGENT_OTEL_TRACES_URL
     return env_vars
+
+
+def ai_gateway_env_vars() -> dict[str, str]:
+    """Env vars routing listed products to the Go ai-gateway, shared by every
+    injection site so the both-or-nothing guard cannot drift per site. Both
+    settings or nothing: a URL with no product allowlist would route every
+    sandbox caller, and a product list with no URL has nowhere to go.
+    """
+    if settings.SANDBOX_AI_GATEWAY_URL and settings.SANDBOX_AI_GATEWAY_PRODUCTS:
+        return {
+            "AI_GATEWAY_URL": settings.SANDBOX_AI_GATEWAY_URL,
+            "AI_GATEWAY_PRODUCTS": settings.SANDBOX_AI_GATEWAY_PRODUCTS,
+        }
+    return {}
 
 
 def get_pr_authorship_mode(task: Task, state: dict[str, Any] | None = None) -> PrAuthorshipMode:
