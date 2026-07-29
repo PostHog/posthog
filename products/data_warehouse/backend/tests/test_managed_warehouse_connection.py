@@ -145,6 +145,7 @@ class TestEnsureManagedWarehouseDirectSource:
         source = _ensure(team)
 
         assert source.direct_query_enabled is True
+        assert isinstance(source.connection_metadata, dict)
         assert source.connection_metadata["credential_kind"] == "org_root"
 
     def test_needs_no_control_plane_membership(self) -> None:
@@ -157,6 +158,7 @@ class TestEnsureManagedWarehouseDirectSource:
         source = _ensure(team)
 
         assert source.direct_query_enabled is True
+        assert isinstance(source.connection_metadata, dict)
         assert source.connection_metadata["credential_kind"] == "org_root"
 
     def test_refreshes_a_project_reader_source_onto_the_root_credential(self) -> None:
@@ -202,6 +204,7 @@ class TestEnsureManagedWarehouseDirectSource:
         assert managed_source.job_inputs["user"] == _CONNECTION["username"]
         assert managed_source.job_inputs["password"] == _CONNECTION["password"]
         assert managed_source.direct_query_enabled is True
+        assert isinstance(managed_source.connection_metadata, dict)
         assert managed_source.connection_metadata["credential_kind"] == "org_root"
         assert "reader_configured" not in managed_source.connection_metadata
         # Reader-discovered catalogs are already bounded and stay in place; only the
@@ -515,6 +518,8 @@ class TestManagedWarehouseLifecycle:
         source.refresh_from_db()
         other_source.refresh_from_db()
         server.refresh_from_db()
+        assert isinstance(source.job_inputs, dict)
+        assert isinstance(other_source.job_inputs, dict)
         assert source.job_inputs["password"] == "rotated"
         assert other_source.job_inputs["password"] == "rotated"
         assert server.password == "rotated"
@@ -528,10 +533,12 @@ class TestManagedWarehouseLifecycle:
         source.refresh_from_db()
         server.refresh_from_db()
         assert server.password == "rotated"
+        assert isinstance(source.job_inputs, dict)
         assert source.job_inputs["password"] == _CONNECTION["password"]
         # The next ensure revives the source and rewrites its credential from the server.
         revived = ensure_managed_warehouse_direct_source(team_id=source.team_id, organization_id=org.id)
         assert revived.deleted is False
+        assert isinstance(revived.job_inputs, dict)
         assert revived.job_inputs["password"] == "rotated"
 
     def test_soft_delete_removes_sources_and_their_tables(self) -> None:
