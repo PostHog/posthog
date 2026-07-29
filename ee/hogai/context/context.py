@@ -58,15 +58,20 @@ from .prompts import (
 # malicious or buggy client can't blow up the context window.
 NOTEBOOK_MARKDOWN_MAX_LENGTH = 100_000
 
-# A dashboard's executed-results context is bounded so it can't overflow the conversation window
-# (compaction_manager.CONVERSATION_WINDOW_SIZE = 100k). If it overflows, the whole conversation —
-# including this dashboard — gets summarized down to a few thousand tokens, so Max loses the
-# dashboard it was just asked about. Over budget, we fall back to schema-only (insight names +
-# queries, no result tables), which still lets Max identify and describe the dashboard and fetch
-# specific numbers via the read_data tool.
-DASHBOARD_CONTEXT_TOKEN_BUDGET = 50_000
+# A dashboard's executed-results context may claim only a minority slice of the conversation window
+# (compaction_manager.CONVERSATION_WINDOW_SIZE), so a big dashboard can't park a conversation over
+# the compaction threshold from its first turn. Over budget, we fall back to schema-only (insight
+# names + queries, no result tables), which still lets Max identify and describe the dashboard and
+# fetch specific numbers via the read_data tool. Kept as a literal rather than imported to avoid a
+# circular import; the ratio is asserted in ee/hogai/context/test/test_context.py.
+DASHBOARD_CONTEXT_TOKEN_BUDGET = 60_000
 # ~4 chars/token, matching compaction_manager.APPROXIMATE_TOKEN_LENGTH.
 DASHBOARD_CONTEXT_CHAR_BUDGET = DASHBOARD_CONTEXT_TOKEN_BUDGET * 4
+
+
+def _is_attached_context(message: AssistantMessageUnion) -> bool:
+    """Whether a message is the block of UI context attached to a turn (see ROOT_UI_CONTEXT_PROMPT)."""
+    return isinstance(message, ContextMessage) and message.content.startswith("<attached_context>")
 
 
 def _sanitize_inline_prompt_value(value: str) -> str:
@@ -648,15 +653,36 @@ class AssistantContextManager(AssistantContextMixin):
     def _deduplicate_context_messages(
         self, state: BaseStateWithMessages, context_messages: list[ContextMessage]
     ) -> list[ContextMessage]:
-        """Naive deduplication of context messages by content."""
-        existing_contents = {message.content for message in state.messages if isinstance(message, ContextMessage)}
+        """Naive deduplication of context messages by content.
+
+        Only messages still inside the conversation window count as duplicates: compaction can push
+        earlier context out of the window, and context the model can no longer see has to be
+        re-injected or it silently answers about a dashboard it doesn't have.
+        """
+        window_messages = self._get_messages_in_conversation_window(state)
+        existing_contents = {message.content for message in window_messages if isinstance(message, ContextMessage)}
         return [msg for msg in context_messages if msg.content not in existing_contents]
+
+    def _get_messages_in_conversation_window(self, state: BaseStateWithMessages) -> Sequence[AssistantMessageUnion]:
+        window_start_id = getattr(state, "root_conversation_start_id", None)
+        if not window_start_id:
+            return state.messages
+        for idx, message in enumerate(state.messages):
+            if message.id == window_start_id:
+                return state.messages[idx:]
+        return state.messages
 
     def _inject_context_messages(
         self, state: BaseStateWithMessages, context_messages: list[ContextMessage]
     ) -> list[AssistantMessageUnion]:
+        messages = state.messages
+        # The frontend re-sends attached context every turn and we re-execute it against live data,
+        # so the same dashboard rarely renders byte-identical. Drop the superseded copies instead of
+        # stacking a near-duplicate of a 60k-token dashboard onto the window each turn.
+        if any(_is_attached_context(message) for message in context_messages):
+            messages = [message for message in messages if not _is_attached_context(message)]
         # Insert context messages right before the start message
-        return insert_messages_before_start(state.messages, context_messages, start_id=state.start_id)
+        return insert_messages_before_start(messages, context_messages, start_id=state.start_id)
 
     def _get_mode_context_messages(self, state: BaseStateWithMessages) -> ContextMessage | None:
         """

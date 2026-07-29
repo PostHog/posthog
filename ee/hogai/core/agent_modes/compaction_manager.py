@@ -49,9 +49,22 @@ class ConversationCompactionManager(ABC):
     Manages conversation window boundaries, message filtering, and summarization decisions.
     """
 
-    CONVERSATION_WINDOW_SIZE = 100_000
+    CONVERSATION_WINDOW_SIZE = 150_000
     """
     Determines the maximum number of tokens allowed in the conversation window.
+    Sits well below the model's 200k context so the system prompts and the response still fit
+    alongside a full window, and far enough above `context.DASHBOARD_CONTEXT_TOKEN_BUDGET` that a
+    conversation with a dashboard attached isn't over the threshold from its first turn.
+    """
+    CONVERSATION_WINDOW_HARD_LIMIT = 165_000
+    """
+    Token count above which the conversation is always compacted, even if it was just compacted.
+    Keeps the request inside the model's context limit once system prompts and the response are added.
+    """
+    COMPACTION_MIN_GROWTH_TOKENS = 15_000
+    """
+    How much a conversation must grow after a compaction before compacting it again is worth it.
+    Re-summarizing a window that is already compacted costs a full LLM call per turn and frees nothing.
     """
     APPROXIMATE_TOKEN_LENGTH = 4
     """
@@ -90,13 +103,37 @@ class ConversationCompactionManager(ABC):
         return messages
 
     async def should_compact_conversation(
-        self, model: BaseChatModel, messages: list[BaseMessage], tools: LangchainTools | None = None, **kwargs
+        self,
+        model: BaseChatModel,
+        messages: list[BaseMessage],
+        tools: LangchainTools | None = None,
+        last_compaction_token_count: int | None = None,
+        **kwargs,
     ) -> bool:
         """
         Determine if the conversation should be summarized based on token count.
         Avoids summarizing if there are only two human messages or fewer.
         """
-        return await self.calculate_token_count(model, messages, tools, **kwargs) > self.CONVERSATION_WINDOW_SIZE
+        token_count = await self.calculate_token_count(model, messages, tools, **kwargs)
+        return self.should_compact(token_count, last_compaction_token_count=last_compaction_token_count)
+
+    def should_compact(self, token_count: int, last_compaction_token_count: int | None = None) -> bool:
+        """
+        Decide whether a conversation of `token_count` tokens needs compacting.
+
+        `last_compaction_token_count` is the size of the window right after the previous compaction.
+        Once a window has been compacted there is nothing left to summarize away, so a conversation
+        that stays near the threshold must grow by `COMPACTION_MIN_GROWTH_TOKENS` before it pays for
+        another summarization — otherwise every turn of a context-heavy conversation starts with a
+        full-conversation LLM call that frees nothing.
+        """
+        if token_count > self.CONVERSATION_WINDOW_HARD_LIMIT:
+            return True
+        if token_count <= self.CONVERSATION_WINDOW_SIZE:
+            return False
+        if last_compaction_token_count is None:
+            return True
+        return token_count >= last_compaction_token_count + self.COMPACTION_MIN_GROWTH_TOKENS
 
     async def calculate_token_count(
         self, model: BaseChatModel, messages: list[BaseMessage], tools: LangchainTools | None = None, **kwargs

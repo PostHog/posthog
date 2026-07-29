@@ -150,12 +150,15 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
         )
         window_id = state.root_conversation_start_id
         start_id = state.start_id
+        compacted_token_count: int | None = None
 
         # Summarize the conversation if it's too long.
         current_token_count = await self._window_manager.calculate_token_count(
             model, langchain_messages, tools=tools, thinking_config=self.THINKING_CONFIG
         )
-        if current_token_count > self._window_manager.CONVERSATION_WINDOW_SIZE:
+        if self._window_manager.should_compact(
+            current_token_count, last_compaction_token_count=state.root_conversation_compacted_token_count
+        ):
             # Exclude the last message if it's the first turn.
             messages_to_summarize = langchain_messages[:-1] if self._is_first_turn(state) else langchain_messages
             summary = await AnthropicConversationSummarizer(
@@ -182,6 +185,10 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
 
             # Update the window
             langchain_messages = self._construct_messages(messages_to_replace, window_id, state.root_tool_calls_count)
+            compacted_token_count = await self._window_manager.calculate_token_count(
+                model, langchain_messages, tools=tools, thinking_config=self.THINKING_CONFIG
+            )
+            self._capture_conversation_compacted(config, current_token_count, compacted_token_count, state)
 
         system_prompts = cast(list[BaseMessage], system_prompts)
         assert len(system_prompts) > 0
@@ -211,8 +218,34 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
             messages=new_messages,
             root_tool_calls_count=tool_call_count,
             root_conversation_start_id=window_id,
+            root_conversation_compacted_token_count=compacted_token_count,
             start_id=start_id,
             agent_mode=state.agent_mode_or_default,
+        )
+
+    def _capture_conversation_compacted(
+        self,
+        config: RunnableConfig,
+        token_count_before: int,
+        token_count_after: int,
+        state: AssistantState,
+    ) -> None:
+        distinct_id = self._get_user_distinct_id(config)
+        if not distinct_id:
+            return
+        ui_context = self.context_manager.get_ui_context(state)
+        posthoganalytics.capture(
+            distinct_id=distinct_id,
+            event="posthog ai conversation compacted",
+            properties={
+                **self._get_debug_props(config),
+                "token_count_before": token_count_before,
+                "token_count_after": token_count_after,
+                "window_size": self._window_manager.CONVERSATION_WINDOW_SIZE,
+                "has_dashboard_context": bool(ui_context and ui_context.dashboards),
+                "has_insight_context": bool(ui_context and ui_context.insights),
+            },
+            groups=groups(None, self._team),
         )
 
     def router(self, state: AssistantState):

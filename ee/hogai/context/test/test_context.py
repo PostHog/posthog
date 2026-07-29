@@ -40,7 +40,8 @@ from posthog.schema import (
 from posthog.models.organization import OrganizationMembership
 
 from ee.hogai.context import AssistantContextManager
-from ee.hogai.context.context import DASHBOARD_CONTEXT_CHAR_BUDGET
+from ee.hogai.context.context import DASHBOARD_CONTEXT_CHAR_BUDGET, DASHBOARD_CONTEXT_TOKEN_BUDGET
+from ee.hogai.core.agent_modes.compaction_manager import ConversationCompactionManager
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import AssistantMessageUnion
 
@@ -587,6 +588,46 @@ class TestAssistantContextManager(BaseTest):
         self.assertEqual(len(result), 2)
         self.assertEqual(result[0].content, "New context message")
         self.assertEqual(result[1].content, "Another new message")
+
+    def test_deduplicate_context_messages_reinjects_context_outside_window(self):
+        state = AssistantState(
+            messages=[
+                HumanMessage(content="User message 1", id="1"),
+                ContextMessage(content="<attached_context>Dashboard</attached_context>", id="2"),
+                AssistantMessage(content="Response", id="3"),
+                HumanMessage(content="User message 2", id="4"),
+            ],
+            root_conversation_start_id="3",
+        )
+
+        result = self.context_manager._deduplicate_context_messages(
+            state, [ContextMessage(content="<attached_context>Dashboard</attached_context>", id="new")]
+        )
+
+        self.assertEqual([msg.id for msg in result], ["new"])
+
+    def test_inject_context_messages_drops_superseded_attached_context(self):
+        state = AssistantState(
+            messages=[
+                ContextMessage(content="<attached_context>Dashboard turn 1</attached_context>", id="1"),
+                ContextMessage(content="Mode context", id="2"),
+                HumanMessage(content="User message 1", id="3"),
+                AssistantMessage(content="Response", id="4"),
+                HumanMessage(content="User message 2", id="5"),
+            ],
+            start_id="5",
+        )
+
+        result = self.context_manager._inject_context_messages(
+            state, [ContextMessage(content="<attached_context>Dashboard turn 2</attached_context>", id="new")]
+        )
+
+        self.assertEqual([msg.id for msg in result], ["2", "3", "4", "new", "5"])
+
+    def test_dashboard_budget_leaves_room_for_the_conversation(self):
+        self.assertLessEqual(
+            DASHBOARD_CONTEXT_TOKEN_BUDGET, ConversationCompactionManager.CONVERSATION_WINDOW_SIZE // 2
+        )
 
     async def test_get_context_messages_with_only_contextual_tools(self):
         """Test that context prompts work when only contextual tools are present"""

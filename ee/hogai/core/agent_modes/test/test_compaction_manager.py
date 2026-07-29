@@ -121,15 +121,23 @@ class TestAnthropicConversationCompactionManager(BaseTest):
 
     @parameterized.expand(
         [
-            # (num_human_messages, token_count, should_compact)
-            [1, 90000, False],  # Only 1 human message, under limit
-            [2, 90000, False],  # Only 2 human messages, under limit
-            [3, 80000, False],  # 3 human messages but under token limit
-            [3, 110000, True],  # 3 human messages and over token limit
-            [5, 110000, True],  # Many messages over limit
+            # (num_human_messages, token_count, last_compaction_token_count, should_compact)
+            [1, 140_000, None, False],  # Only 1 human message, under limit
+            [2, 140_000, None, False],  # Only 2 human messages, under limit
+            [3, 120_000, None, False],  # 3 human messages but under token limit
+            [3, 160_000, None, True],  # 3 human messages and over token limit
+            [5, 160_000, None, True],  # Many messages over limit
+            # Already compacted at roughly this size: don't pay for another summarization until the
+            # conversation actually grows, otherwise every turn starts with a full-conversation call.
+            [5, 160_000, 155_000, False],
+            [5, 160_000, 120_000, True],
+            # Over the hard limit the request must shrink regardless of the last compaction.
+            [5, 170_000, 169_000, True],
         ]
     )
-    async def test_should_compact_conversation(self, num_human_messages, token_count, should_compact):
+    async def test_should_compact_conversation(
+        self, num_human_messages, token_count, last_compaction_token_count, should_compact
+    ):
         """Test conversation compaction decision based on message count and tokens"""
         # Create messages with the specified number of human messages
         messages: list[BaseMessage] = []
@@ -141,7 +149,9 @@ class TestAnthropicConversationCompactionManager(BaseTest):
         # Mock the model and token counting
         mock_model = MagicMock()
         with patch.object(self.window_manager, "_get_token_count", new_callable=AsyncMock, return_value=token_count):
-            result = await self.window_manager.should_compact_conversation(mock_model, messages)
+            result = await self.window_manager.should_compact_conversation(
+                mock_model, messages, last_compaction_token_count=last_compaction_token_count
+            )
             self.assertEqual(result, should_compact)
 
     async def test_should_compact_conversation_with_tools_under_limit(self):
@@ -163,23 +173,23 @@ class TestAnthropicConversationCompactionManager(BaseTest):
         # With 2 human messages, should use estimation and not call _get_token_count
         result = await self.window_manager.should_compact_conversation(mock_model, messages, tools=tools)
 
-        # Total should be well under 100k limit
+        # Total should be well under the window limit
         self.assertFalse(result)
 
     async def test_should_compact_conversation_with_tools_over_limit(self):
         """Test that tools push estimation over limit with 2 or fewer human messages"""
         messages: list[BaseMessage] = [
-            LangchainHumanMessage(content="A" * 200000),  # ~50k tokens
-            LangchainAIMessage(content="B" * 200000),  # ~50k tokens
+            LangchainHumanMessage(content="A" * 280_000),  # ~70k tokens
+            LangchainAIMessage(content="B" * 280_000),  # ~70k tokens
         ]
 
-        # Create large tool schemas to push over 100k limit
+        # Create large tool schemas to push over the window limit
         tools = [{"type": "function", "function": {"name": f"tool_{i}", "description": "X" * 1000}} for i in range(100)]
 
         mock_model = MagicMock()
         result = await self.window_manager.should_compact_conversation(mock_model, messages, tools=tools)
 
-        # Should be over the 100k limit
+        # Should be over the window limit
         self.assertTrue(result)
 
     def test_get_estimated_assistant_message_tokens_human_message(self):

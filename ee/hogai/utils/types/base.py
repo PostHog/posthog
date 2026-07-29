@@ -427,6 +427,11 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     """
     The ID of the message to start from to keep the message window short enough.
     """
+    root_conversation_compacted_token_count: Annotated[Optional[int], replace_if_not_none] = Field(default=None)
+    """
+    Token count of the conversation window right after the last compaction. Used to avoid
+    re-summarizing a window that is already compacted on every subsequent turn.
+    """
     root_tool_call_id: Annotated[Optional[str], replace] = Field(default=None)
     """
     The ID of the tool call from the root node.
