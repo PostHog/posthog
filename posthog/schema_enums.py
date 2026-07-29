@@ -1363,6 +1363,7 @@ class ExternalDataSourceType(StrEnum):
     EBAY = "Ebay"
     COMMERCETOOLS = "Commercetools"
     LIGHTSPEED_RETAIL = "LightspeedRetail"
+    SHIP_MAIL = "ShipMail"
     SHIP_STATION = "ShipStation"
     CONSTANT_CONTACT = "ConstantContact"
     MAILGUN = "Mailgun"
