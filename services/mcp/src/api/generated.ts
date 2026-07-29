@@ -33871,6 +33871,15 @@ export namespace Schemas {
       readonly batch_export_id: string | null;
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type: SearchMatchTypeEnum | null;
+      /** Incremented every time the live config changes. See the revisions endpoint. */
+      readonly version: number;
+      /** Config staged for review but not live yet: a full snapshot of hog, inputs_schema, inputs, filters, mappings and masking. Null when nothing is staged. Publish or discard it to clear. */
+      readonly draft: unknown;
+      /**
+         * When config was last staged for review, or null when nothing is staged.
+         * @nullable
+         */
+      readonly draft_updated_at: string | null;
     }
 
     /**
@@ -33924,6 +33933,61 @@ export namespace Schemas {
       readonly execution_order: number | null;
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type: SearchMatchTypeEnum | null;
+      /**
+         * When config was last staged for review, or null when nothing is staged.
+         * @nullable
+         */
+      readonly draft_updated_at: string | null;
+    }
+
+    export interface HogFunctionPublishRequest {
+      /** False (default) previews the publish: returns which config fields would change without changing anything. True applies the staged draft to the live function. */
+      confirm?: boolean;
+      /** From the preview response, and required when confirm=true. Expires after 15 minutes, and any draft edit invalidates it (409), so you always publish the exact draft you previewed. */
+      confirm_token?: string;
+    }
+
+    export interface HogFunctionPublishResponse {
+      /** Whether the draft was applied to the live function. */
+      published: boolean;
+      /**
+         * The staged draft's timestamp, for reference; publishing is confirmed via confirm_token.
+         * @nullable
+         */
+      draft_updated_at: string | null;
+      /**
+         * Echo this back with confirm=true to publish the previewed draft. Only set on previews.
+         * @nullable
+         */
+      confirm_token: string | null;
+      /**
+         * Config fields publishing would change (hog, inputs_schema, inputs, filters, mappings, masking). Only set on previews.
+         * @nullable
+         */
+      changed_fields: string[] | null;
+      /** The function after publishing (only set when published=true). */
+      function?: HogFunction | null;
+    }
+
+    export interface HogFunctionRevision {
+      /** Function version this snapshot was published as. */
+      readonly version: number;
+      readonly created_at: string;
+      readonly created_by: UserBasic | null;
+      /** Full snapshot of the function's config fields (hog, inputs, filters, mappings, masking) at this version. */
+      readonly content: unknown;
+    }
+
+    export interface HogFunctionRevisionBasic {
+      /** Function version this snapshot was published as. */
+      readonly version: number;
+      readonly created_at: string;
+      readonly created_by: UserBasic | null;
+    }
+
+    export interface HogFunctionRevisionRestoreRequest {
+      /** Replace the open staged draft with this revision's config. Without it, restoring while a draft is open returns 409. */
+      overwrite?: boolean;
     }
 
     /**
@@ -42121,6 +42185,15 @@ export namespace Schemas {
       results: HogFunctionMinimal[];
     }
 
+    export interface PaginatedHogFunctionRevisionBasicList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: HogFunctionRevisionBasic[];
+    }
+
     export interface PaginatedHogFunctionTemplateList {
       count: number;
       /** @nullable */
@@ -49638,6 +49711,15 @@ export namespace Schemas {
       readonly batch_export_id?: string | null;
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type?: SearchMatchTypeEnum | null;
+      /** Incremented every time the live config changes. See the revisions endpoint. */
+      readonly version?: number;
+      /** Config staged for review but not live yet: a full snapshot of hog, inputs_schema, inputs, filters, mappings and masking. Null when nothing is staged. Publish or discard it to clear. */
+      readonly draft?: unknown;
+      /**
+         * When config was last staged for review, or null when nothing is staged.
+         * @nullable
+         */
+      readonly draft_updated_at?: string | null;
     }
 
     /**
@@ -76921,6 +77003,17 @@ export namespace Schemas {
       Day: 'day',
       Week: 'week',
     } as const;
+
+    export type HogFunctionsRevisionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type IdentityMatchingLinksListParams = {
     /**

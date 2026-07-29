@@ -171,9 +171,36 @@ tools:
             Delete a function by ID (soft delete). The function will no longer appear in lists or process events, but
             historical data is preserved.
         soft_delete: true
+    cdp-functions-discard-draft:
+        operation: hog_functions_discard_draft_create
+        enabled: true
+        scopes:
+            - hog_function:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Discard staged changes
+        description: >
+            Throw away the config staged on a function, leaving the live config untouched. Idempotent — discarding when
+            nothing is staged is a no-op. Returns 400 when drafts aren't enabled for the project.
     cdp-functions-enable-backfills-create:
         operation: hog_functions_enable_backfills_create
         enabled: false
+    cdp-functions-get-revision:
+        operation: hog_functions_revisions_retrieve
+        enabled: true
+        scopes:
+            - hog_function:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get function revision
+        description: >
+            Get one version of a function's config by version number, including the full snapshot (hog, inputs_schema,
+            inputs, filters, mappings, masking) as it was at that version. Secret input values are never included. Use
+            cdp-functions-list-revisions first to find the version you want.
     cdp-functions-icon-retrieve:
         operation: hog_functions_icon_retrieve
         enabled: false
@@ -227,6 +254,22 @@ tools:
                 - updated_at
                 - created_by
                 - filters
+    cdp-functions-list-revisions:
+        operation: hog_functions_revisions_list
+        enabled: true
+        scopes:
+            - hog_function:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List function revisions
+        description: >
+            List a function's config versions, newest first — one per change to its live config, with who made it and
+            when. The config itself is not included; fetch a single version with cdp-functions-get-revision, then stage
+            it for review with cdp-functions-restore-revision. Returns 400 when revision history isn't enabled for the
+            project.
     cdp-functions-logs-retrieve:
         operation: hog_functions_logs_retrieve
         enabled: true
@@ -274,6 +317,12 @@ tools:
             Partially update a function. Can enable/disable the function, change its name, description, source code,
             inputs, filters, mappings, or masking config. The 'type' field cannot be changed after creation. To delete a
             function, use the cdp-functions-delete tool instead.
+
+            On a function that is currently enabled, config edits (hog, inputs_schema, inputs, filters, mappings,
+            masking) are staged for review rather than applied — they show up as 'draft' on the function and do not
+            change what is running. Name, description and enable/disable still apply immediately. Tell the user what you
+            staged and that they need to publish it; publish it yourself only when they ask, with cdp-functions-publish.
+            Discard it with cdp-functions-discard-draft.
         exclude_params:
             - _create_in_folder
             - batch_export_id
@@ -313,6 +362,22 @@ tools:
             exclude:
                 - inputs.*.value
                 - mappings.*.inputs.*.value
+    cdp-functions-publish:
+        operation: hog_functions_publish_create
+        enabled: true
+        scopes:
+            - hog_function:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Publish staged changes
+        description: >
+            Apply the config staged on a function to what is actually running. Two steps, and the first is mandatory:
+            call it without 'confirm' to see which config fields would change and get a 'confirm_token', then call it
+            again with confirm=true and that token. The token expires after 15 minutes and any further edit to the
+            staged config invalidates it (409) — so you always publish exactly what you previewed. Returns 400 when
+            nothing is staged, when the token is missing or expired, or when drafts aren't enabled for the project.
     cdp-functions-rearrange-partial-update:
         operation: hog_functions_rearrange_partial_update
         enabled: true
@@ -327,6 +392,20 @@ tools:
             Update the execution order of transformation functions. Send an 'orders' object mapping function UUIDs to
             their new execution_order integer values. Only applies to functions with type=transformation. Returns the
             updated list of transformations.
+    cdp-functions-restore-revision:
+        operation: hog_functions_revisions_restore_create
+        enabled: true
+        scopes:
+            - hog_function:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Restore function revision
+        description: >
+            Roll a function back to an earlier version by staging that version's config for review. Nothing goes live
+            here — finish with cdp-functions-publish so the rollback is previewed and confirmed like any other change.
+            Returns 409 when config is already staged; pass overwrite=true to replace it.
     cdp-functions-retrieve:
         operation: hog_functions_retrieve
         enabled: true

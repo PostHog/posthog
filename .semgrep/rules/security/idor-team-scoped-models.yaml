@@ -177,6 +177,7 @@ rules:
                               |HogFlowSchedule
                               |HogFlowTemplate
                               |HogFunction
+                              |HogFunctionRevision
                               |Hook
                               |Insight
                               |InsightVariable
@@ -500,6 +501,7 @@ rules:
                         |HogFlowSchedule
                         |HogFlowTemplate
                         |HogFunction
+                        |HogFunctionRevision
                         |Hook
                         |Insight
                         |InsightVariable

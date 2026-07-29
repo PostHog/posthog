@@ -1429,6 +1429,18 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     'How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`.'
                 ),
+            version: zod
+                .number()
+                .describe('Incremented every time the live config changes. See the revisions endpoint.'),
+            draft: zod
+                .unknown()
+                .describe(
+                    'Config staged for review but not live yet: a full snapshot of hog, inputs_schema, inputs, filters, mappings and masking. Null when nothing is staged. Publish or discard it to clear.'
+                ),
+            draft_updated_at: zod.iso
+                .datetime({ offset: true })
+                .nullable()
+                .describe('When config was last staged for review, or null when nothing is staged.'),
         })
         .describe('Full function configuration to test.'),
     globals: zod
@@ -1444,6 +1456,23 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
         .default(hogFunctionsInvocationsCreateBodyMockAsyncFunctionsDefault)
         .describe('When true (default), async functions like fetch() are simulated.'),
     invocation_id: zod.string().nullish().describe('Optional invocation ID for correlation.'),
+})
+
+export const hogFunctionsPublishCreateBodyConfirmDefault = false
+
+export const HogFunctionsPublishCreateBody = /* @__PURE__ */ zod.object({
+    confirm: zod
+        .boolean()
+        .default(hogFunctionsPublishCreateBodyConfirmDefault)
+        .describe(
+            'False (default) previews the publish: returns which config fields would change without changing anything. True applies the staged draft to the live function.'
+        ),
+    confirm_token: zod
+        .string()
+        .optional()
+        .describe(
+            'From the preview response, and required when confirm=true. Expires after 15 minutes, and any draft edit invalidates it (409), so you always publish the exact draft you previewed.'
+        ),
 })
 
 /**
@@ -1522,6 +1551,17 @@ export const HogFunctionsRerunCreateBody = /* @__PURE__ */ zod
             ),
     })
     .describe('Rerun invocations of a hog function or hog flow from their stored payloads.')
+
+export const hogFunctionsRevisionsRestoreCreateBodyOverwriteDefault = false
+
+export const HogFunctionsRevisionsRestoreCreateBody = /* @__PURE__ */ zod.object({
+    overwrite: zod
+        .boolean()
+        .default(hogFunctionsRevisionsRestoreCreateBodyOverwriteDefault)
+        .describe(
+            "Replace the open staged draft with this revision's config. Without it, restoring while a draft is open returns 409."
+        ),
+})
 
 /**
  * Update the execution order of multiple HogFunctions.
