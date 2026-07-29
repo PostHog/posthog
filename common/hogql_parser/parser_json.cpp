@@ -28,46 +28,59 @@ using namespace std;
 
 // NESTING DEPTH GUARD
 
-// Cap on bracket nesting depth, mirroring the Rust backend's `MAX_RECURSION_DEPTH` and
-// ClickHouse's `max_parser_depth`. One nesting level per open bracket, so this maps
-// directly onto the descent depth ANTLR would reach — 1000 is absurdly deep for any real
-// query yet safely below the point where the parser gets into trouble.
+// Cap on parser recursion depth, mirroring the Rust backend's `MAX_RECURSION_DEPTH` and
+// ClickHouse's `max_parser_depth`. One level per open bracket or per prefix operator, so
+// this maps directly onto the descent depth ANTLR would reach — 1000 is absurdly deep for
+// any real query yet safely below the point where the parser gets into trouble.
 static constexpr size_t MAX_PARSER_DEPTH = 1000;
 
-// Reject pathologically deep bracket nesting BEFORE handing the stream to ANTLR. HogQL's
-// grammar recurses on nested parentheses (`(((…`), arrays/subqueries (`[[[…`), and Hog
-// blocks (`{{{…`). ANTLR's generated parser recurses on that nesting with no built-in cap,
-// and — worse — its ALL(*) prediction explores the ambiguous `(` alternatives before any
-// rule-entry hook fires, so deeply nested input either exhausts the native stack (an
-// uncatchable SIGSEGV) or drives prediction into effectively unbounded work. A parse-tree
-// listener can't help: the runaway happens in prediction, before the parse tree exists.
-// Lexing, by contrast, is iterative, so a linear pre-scan of the already-lexed token
-// stream is crash-safe and surfaces a clean SyntaxError. Counting all three bracket kinds
-// on one running depth bounds total nesting regardless of how the kinds are interleaved.
-// (Prefix-operator chains like `NOT NOT …` recurse without brackets and are not covered
-// here — the reported crash vector, and every backend's regression test, is bracket
-// nesting.)
+// Reject pathologically deep nesting BEFORE handing the stream to ANTLR. HogQL's grammar
+// recurses two ways: on bracket nesting — parentheses (`(((…`), arrays/subqueries (`[[[…`),
+// Hog blocks (`{{{…`) — and on runs of prefix operators, each of which recurses on its
+// operand: `NOT NOT … 1` (`ColumnExprNot`) and `- - - … 1` (`ColumnExprNegate`). ANTLR's
+// generated parser recurses on both with no built-in cap, and — worse for brackets — its
+// ALL(*) prediction explores the ambiguous `(` alternatives before any rule-entry hook
+// fires, so deeply nested input either exhausts the native stack (an uncatchable SIGSEGV)
+// or drives prediction into effectively unbounded work. A parse-tree listener can't help:
+// the bracket runaway happens in prediction, before the parse tree exists. Lexing, by
+// contrast, is iterative, so a linear pre-scan of the already-lexed token stream is
+// crash-safe and surfaces a clean SyntaxError.
+//
+// Depth is `bracket_depth + prefix_run`: brackets track open/close normally, and
+// `prefix_run` counts *consecutive* prefix operators — the only way prefixes stack into
+// deep recursion, since a non-prefix token (or the operand) ends the chain. Scattered
+// prefixes like `NOT a AND NOT b` reset the run at each operand and never accumulate, so
+// there are no false positives on real queries; only genuine `NOT NOT …` / `- - -…` runs
+// or deep brackets trip the cap.
 void guardNestingDepth(antlr4::CommonTokenStream* stream) {
   stream->fill();
-  size_t depth = 0;
+  size_t bracket_depth = 0;
+  size_t prefix_run = 0;
   for (antlr4::Token* token : stream->getTokens()) {
-    switch (token->getType()) {
-      case HogQLParser::LPAREN:
-      case HogQLParser::LBRACKET:
-      case HogQLParser::LBRACE:
-        if (++depth > MAX_PARSER_DEPTH) {
-          // Point at the bracket that tripped the cap so downstream tooling highlights where
-          // nesting ran away, matching the real-position errors the Rust guard reports.
-          throw SyntaxError("input too deeply nested", token->getStartIndex(), token->getStartIndex());
-        }
-        break;
-      case HogQLParser::RPAREN:
-      case HogQLParser::RBRACKET:
-      case HogQLParser::RBRACE:
-        if (depth > 0) --depth;
-        break;
-      default:
-        break;
+    size_t type = token->getType();
+    if (type == HogQLParser::NOT || type == HogQLParser::DASH) {
+      ++prefix_run;
+    } else {
+      prefix_run = 0;
+      switch (type) {
+        case HogQLParser::LPAREN:
+        case HogQLParser::LBRACKET:
+        case HogQLParser::LBRACE:
+          ++bracket_depth;
+          break;
+        case HogQLParser::RPAREN:
+        case HogQLParser::RBRACKET:
+        case HogQLParser::RBRACE:
+          if (bracket_depth > 0) --bracket_depth;
+          break;
+        default:
+          break;
+      }
+    }
+    if (bracket_depth + prefix_run > MAX_PARSER_DEPTH) {
+      // Point at the token that tripped the cap so downstream tooling highlights where
+      // nesting ran away, matching the real-position errors the Rust guard reports.
+      throw SyntaxError("input too deeply nested", token->getStartIndex(), token->getStartIndex());
     }
   }
 }
