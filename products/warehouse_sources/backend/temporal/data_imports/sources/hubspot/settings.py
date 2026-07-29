@@ -33,6 +33,10 @@ def apply_crm_api_version(path: str, api_version: str) -> str:
     return _CRM_VERSION_SEGMENT.sub(rf"/crm/\1/{api_version}/", path)
 
 
+# Reading leads requires Sales Hub Professional or above, so `OauthIntegration.oauth_config_for_kind`
+# asks HubSpot for this scope as an optional one and a connection can be authorized without it.
+LEADS_SCOPE = "crm.objects.leads.read"
+
 CONTACT = "contact"
 COMPANY = "company"
 DEAL = "deal"
@@ -225,6 +229,11 @@ class HubspotEndpointConfig:
     # Whether this endpoint is selected for sync by default. False keeps a table off unless the
     # user opts in — used for objects that need an OAuth scope existing connections lack (leads).
     should_sync_default: bool = True
+    # OAuth scope this endpoint needs beyond the mandatory set, when we request that scope as an
+    # `optional_scope` because it only exists on some HubSpot plans. HubSpot grants optional scopes
+    # silently, so the source checks the connection's granted scopes before offering or syncing
+    # these endpoints instead of finding out via a 403 mid-sync.
+    required_scope: Optional[str] = None
 
 
 HUBSPOT_ENDPOINTS: dict[str, HubspotEndpointConfig] = {
@@ -295,5 +304,6 @@ HUBSPOT_ENDPOINTS: dict[str, HubspotEndpointConfig] = {
         cursor_filter_property_field="hs_lastmodifieddate",
         incremental_fields=[_incremental_field("hs_lastmodifieddate")],
         should_sync_default=False,
+        required_scope=LEADS_SCOPE,
     ),
 }

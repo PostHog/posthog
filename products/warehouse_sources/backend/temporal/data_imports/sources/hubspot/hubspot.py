@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.he
     BASE_URL,
     _get_headers,
     _get_property_names,
+    raise_for_hubspot_status,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.settings import (
     ASSOCIATIONS_BATCH_SIZE,
@@ -359,7 +360,7 @@ def get_rows(
 
         if not response.ok:
             logger.error(f"Hubspot API error: status={response.status_code}, body={response.text}, url={page_url}")
-            response.raise_for_status()
+            raise_for_hubspot_status(response, page_url)
 
         # Parse inside the retry so a truncated/partial body (JSONDecodeError, e.g. an
         # "Unterminated string" mid-stream) is reissued like a 429/5xx instead of bubbling
@@ -473,7 +474,7 @@ def _batch_read_associations(
             logger.error(
                 f"Hubspot v4 associations error: status={response.status_code}, body={response.text}, url={url}"
             )
-            response.raise_for_status()
+            raise_for_hubspot_status(response, url)
 
         # See fetch_page: a truncated/partial body is transient, so retry rather than crash.
         try:
@@ -635,7 +636,7 @@ def get_rows_via_search(
 
         if not response.ok:
             logger.error(f"Hubspot search error: status={response.status_code}, body={response.text}, url={search_url}")
-            response.raise_for_status()
+            raise_for_hubspot_status(response, search_url)
 
         # See fetch_page: a truncated/partial body is transient, so retry rather than crash.
         try:
