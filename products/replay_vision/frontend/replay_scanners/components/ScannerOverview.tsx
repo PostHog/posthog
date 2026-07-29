@@ -282,13 +282,107 @@ function ScorerOverview({ scannerId }: { scannerId: string }): JSX.Element {
     )
 }
 
+function SummarizerOverview({ scannerId }: { scannerId: string }): JSX.Element | null {
+    const { scanner, summarizerFacetStats, hasActiveOverviewFilters, overviewStatsApiLoading } = useValues(
+        scannerOverviewLogic({ scannerId })
+    )
+    if (!scanner || scanner.scanner_type !== 'summarizer') {
+        return null
+    }
+    const { frictionRanked, keywordRanked, totalWithFacets } = summarizerFacetStats
+    const frictionEmpty = hasActiveOverviewFilters
+        ? 'No friction points match the current filter.'
+        : 'No friction points reported yet. They appear as summaries accumulate.'
+    const keywordEmpty = hasActiveOverviewFilters
+        ? 'No keywords match the current filter.'
+        : 'No keywords reported yet. They appear as summaries accumulate.'
+
+    // The fill is the row background so long phrases wrap instead of truncating.
+    const renderRankedPhrases = (ranked: [string, number][], emptyMessage: string): JSX.Element => {
+        if (ranked.length === 0) {
+            return <PanelEmpty loading={overviewStatsApiLoading} message={emptyMessage} />
+        }
+        const top = ranked.slice(0, 5)
+        const maxCount = top[0][1]
+        // Free-form phrases rarely repeat verbatim; without repeats a ranking is meaningless.
+        if (maxCount <= 1) {
+            return (
+                <ul className="space-y-1 text-xs text-secondary list-disc pl-4">
+                    {top.map(([term]) => (
+                        <li key={term}>{term}</li>
+                    ))}
+                </ul>
+            )
+        }
+        return (
+            <div className="space-y-1">
+                {top.map(([term, count]) => (
+                    <div key={term} className="relative rounded overflow-hidden">
+                        <div
+                            className="absolute inset-y-0 left-0"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{
+                                width: `${Math.round((count / maxCount) * 100)}%`,
+                                backgroundColor: 'color-mix(in srgb, var(--color-accent) 15%, transparent)',
+                            }}
+                        />
+                        <div className="relative flex items-baseline justify-between gap-2 px-2 py-1">
+                            <span className="text-xs text-secondary">{term}</span>
+                            <span className="text-xs font-medium tabular-nums shrink-0">{count.toLocaleString()}</span>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        )
+    }
+
+    const renderRankedTags = (ranked: [string, number][], emptyMessage: string): JSX.Element => {
+        if (ranked.length === 0) {
+            return <PanelEmpty loading={overviewStatsApiLoading} message={emptyMessage} />
+        }
+        const top = ranked.slice(0, 5)
+        const maxCount = top[0][1]
+        return (
+            <div className="space-y-1.5">
+                {top.map(([term, count]) => (
+                    <div key={term} className="flex items-center gap-2">
+                        <div className="w-40 shrink-0 flex">
+                            <LemonTag type="option" title={term} className="max-w-full truncate">
+                                {term}
+                            </LemonTag>
+                        </div>
+                        <LemonProgress percent={Math.round((count / maxCount) * 100)} className="flex-1" />
+                        <span className="text-xs text-muted tabular-nums text-right whitespace-nowrap shrink-0 w-12">
+                            {count.toLocaleString()}
+                        </span>
+                    </div>
+                ))}
+            </div>
+        )
+    }
+
+    const subtitle =
+        totalWithFacets > 0
+            ? `from ${totalWithFacets.toLocaleString()} summar${totalWithFacets === 1 ? 'y' : 'ies'}`
+            : undefined
+    return (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <OverviewPanel title="Top friction points" subtitle={subtitle} fill>
+                {renderRankedPhrases(frictionRanked, frictionEmpty)}
+            </OverviewPanel>
+            <OverviewPanel title="Common keywords" subtitle={subtitle} fill>
+                {renderRankedTags(keywordRanked, keywordEmpty)}
+            </OverviewPanel>
+        </div>
+    )
+}
+
 export function ScannerOverview({ scannerId }: { scannerId: string }): JSX.Element | null {
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     if (!scanner) {
         return null
     }
     const scannerType: ScannerType = scanner.scanner_type
-    // Summarizer panel deferred to the Max chat follow-up.
     const typeOverview =
         scannerType === 'monitor' ? (
             <MonitorOverview scannerId={scannerId} />
@@ -296,6 +390,8 @@ export function ScannerOverview({ scannerId }: { scannerId: string }): JSX.Eleme
             <ClassifierOverview scannerId={scannerId} />
         ) : scannerType === 'scorer' ? (
             <ScorerOverview scannerId={scannerId} />
+        ) : scannerType === 'summarizer' ? (
+            <SummarizerOverview scannerId={scannerId} />
         ) : null
     const showChart = scannerType !== 'summarizer'
     if (!showChart && !typeOverview) {
