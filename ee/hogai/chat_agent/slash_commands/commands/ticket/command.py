@@ -116,6 +116,9 @@ class TicketCommand(SlashCommand):
             user=self._user,
             team=self._team,
             max_tokens=2048,
+            # Sonnet 5 thinks by default and `max_tokens` covers thinking plus response together,
+            # so leaving it on would let thinking eat the summary's budget.
+            thinking={"type": "disabled"},
             billable=False,
         )
 
