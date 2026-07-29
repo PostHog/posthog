@@ -16,7 +16,8 @@ from posthog.admin.inline_registry import register_admin_inline
 from posthog.models.organization import Organization
 from posthog.schema_enums import ProductKey
 
-from products.growth.backend.models import ProductPushCampaign
+from products.growth.backend.enrichment.labels import RESERVED_OUTPUT_FIELD_KEYS, UNKNOWN
+from products.growth.backend.models import EnrichmentLabelResult, ProductPushCampaign
 from products.growth.backend.product_push.selection import select_next_product
 from products.growth.backend.product_push.service import cancel_campaigns, get_eligible_organization_queryset
 
@@ -271,3 +272,49 @@ def _next_up_preview(organization: Organization) -> str:
 # Surface the inline on core's Organization admin page without core importing the
 # product. OrganizationAdmin pulls it in via get_inlines() — see posthog.admin.inline_registry.
 register_admin_inline(Organization, ProductPushCampaignInline)
+
+
+@admin.register(EnrichmentLabelResult)
+class EnrichmentLabelResultAdmin(admin.ModelAdmin):
+    """Read-only: rows are written only by the batch runner."""
+
+    list_display = ("organization_link", "label_name", "prompt_version", "verdict", "model", "created_at")
+    list_filter = ("label_name", "prompt_version")
+    search_fields = ("organization__name",)
+    ordering = ("-created_at",)
+    show_full_result_count = False
+    list_select_related = ("organization",)
+    readonly_fields = (
+        "id",
+        "organization",
+        "fetch",
+        "label_name",
+        "prompt_version",
+        "prompt_hash",
+        "model",
+        "output",
+        "created_at",
+    )
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        return False
+
+    def has_change_permission(self, request: HttpRequest, obj: EnrichmentLabelResult | None = None) -> bool:
+        return False
+
+    def has_delete_permission(self, request: HttpRequest, obj: EnrichmentLabelResult | None = None) -> bool:
+        return False
+
+    @admin.display(description="Organization", ordering="organization__name")
+    def organization_link(self, result: EnrichmentLabelResult) -> SafeString:
+        url = reverse("admin:posthog_organization_change", args=[result.organization_id])
+        return format_html('<a href="{}">{}</a>', url, result.organization.name)
+
+    @admin.display(description="Verdict")
+    def verdict(self, result: EnrichmentLabelResult) -> str:
+        # Read out of the stored output rather than looking the config up per row: label_name is
+        # a human name, never an output key, and the output's key order follows output_fields.
+        for key, value in result.output.items():
+            if key not in RESERVED_OUTPUT_FIELD_KEYS and (isinstance(value, bool) or value == UNKNOWN):
+                return f"{key}={str(value).lower()}"
+        return "?"
