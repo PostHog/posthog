@@ -7,8 +7,10 @@ import dataclasses
 from django.conf import settings
 
 import posthoganalytics
+from asgiref.sync import async_to_sync
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
+from temporalio.client import Client
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.workflow import ParentClosePolicy, start_child_workflow
@@ -321,14 +323,53 @@ def create_source_templates(inputs: CreateSourceTemplateInputs) -> None:
     create_warehouse_templates_for_source(team_id=inputs.team_id, run_id=inputs.run_id)
 
 
+@async_to_sync
+async def _start_non_billable_resume_workflow(
+    temporal: Client, workflow_id: str, inputs: ExternalDataWorkflowInputs
+) -> None:
+    await temporal.start_workflow(
+        "external-data-job",
+        inputs,
+        id=workflow_id,
+        task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+    )
+
+
 @activity.defn
 def trigger_schedule_buffer_one_activity(schedule_id: str) -> None:
     schema = ExternalDataSchema.objects.get(id=schedule_id)
     logger = LOGGER.bind(team_id=schema.team.pk)
 
-    logger.debug(f"Triggering temporal schedule {schedule_id} with policy 'buffer one'")
+    info = activity.info()
+    billable = (
+        ExternalDataJob.objects.filter(
+            schema_id=schema.id, workflow_id=info.workflow_id, workflow_run_id=info.workflow_run_id
+        )
+        .values_list("billable", flat=True)
+        .first()
+    )
 
     temporal = sync_connect()
+
+    # The schedule's stored action is always billable, so resuming through it would charge the customer
+    # for a sync we told them was free (admin resyncs, corruption rebuilds). Start an ad-hoc run instead.
+    if billable is False:
+        workflow_id = f"{schema.id}-non-billable-resume-{info.workflow_run_id}"
+        logger.debug(f"Starting non-billable resume workflow {workflow_id} for schema {schedule_id}")
+        _start_non_billable_resume_workflow(
+            temporal,
+            workflow_id,
+            ExternalDataWorkflowInputs(
+                team_id=schema.team_id,
+                external_data_source_id=schema.source_id,
+                external_data_schema_id=schema.id,
+                billable=False,
+            ),
+        )
+        return
+
+    logger.debug(f"Triggering temporal schedule {schedule_id} with policy 'buffer one'")
+
     trigger_schedule_buffer_one(temporal, schedule_id)
 
 
