@@ -1024,7 +1024,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
         # Announce the first progress step immediately so the desktop card
         # shows up before any provisioning log lines arrive.
-        await self._emit_progress("sandbox", "in_progress", "Setting up sandbox", "setup")
+        sandbox_label = "Restoring sandbox" if self.context.is_snapshot_resume else "Setting up sandbox"
+        await self._emit_progress("sandbox", "in_progress", sandbox_label, "setup")
 
         await self._track_workflow_event(
             "task_run_started",

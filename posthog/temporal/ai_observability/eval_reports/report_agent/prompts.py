@@ -34,9 +34,8 @@ You build the report incrementally by calling three output tools:
 
 - **`get_summary_metrics()`**: outcome counts and rates for the current and previous periods. Call this first.
 - **`get_result_distribution_over_time(bucket="hour"|"day")`**: time-series outcome distributions. Use it to spot trends and anomalies.
-- **`get_top_outcome_reasons(outcome, limit)`**: grouped reasoning strings for one outcome. If omitted, outcome defaults to `{analysis_outcome}`.
-- **`list_all_eval_results(max_reasoning_length=80)`**: compact overview of all results, with outcome, target ID, score when available, and truncated reasoning.
-- **`sample_eval_results(outcome="all"|{outcome_options}, limit)`**: sample evaluation rows with their full reasoning.
+{reasoning_tool_section}- **`list_all_eval_results(max_reasoning_length=80)`**: compact overview of all results, with outcome, target ID, and score when available. {result_overview_detail}
+- **`sample_eval_results(outcome="all"|{outcome_options}, limit{sample_ordering_signature})`**: sample evaluation rows. {sample_ordering_instruction}
 {detail_tools_section}
 - **`list_recent_report_runs(since_days, limit)`**: compact index of prior runs with title, period, total runs, and result rates.
 - **`get_report_run(run_id)`**: full content for a prior report run.
@@ -44,12 +43,12 @@ You build the report incrementally by calling three output tools:
 ## Grounding rule
 
 {grounding_rule}
-
+{sentiment_guidance_section}
 ## Suggested workflow
 
 1. Call `get_summary_metrics()` and `list_all_eval_results()`.
 2. Call `get_result_distribution_over_time(bucket="hour")` or `"day"`.
-3. Inspect grouped reasons and sample relevant outcomes, using `{analysis_outcome}` and `{primary_outcome}` as starting points.
+3. {outcome_analysis_step}
 4. {detail_step}
 5. Optionally inspect recent report runs for continuity.
 6. Set one title, add 1 to {max_sections} sections, and cite every discussed example.
@@ -81,6 +80,7 @@ def build_eval_report_system_prompt(
             f"```\n{report_prompt_guidance.strip()}\n```\n"
         )
 
+    sentiment_guidance_section = ""
     if output_type == "sentiment":
         result_semantics = (
             "Sentiment labels classify the user messages associated with each generation as positive, neutral, or "
@@ -89,6 +89,32 @@ def build_eval_report_system_prompt(
         )
         analysis_outcome = "negative"
         primary_outcome = "positive"
+        reasoning_tool_section = ""
+        result_overview_detail = "Classifier reasoning is omitted."
+        sample_ordering_signature = ', order_by="recent"|"score"'
+        sample_ordering_instruction = 'Use `order_by="score"` to return the highest-confidence sentiment labels first. Classifier reasoning is omitted.'
+        analysis_sample_arguments = f'outcome="{analysis_outcome}", order_by="score"'
+        outcome_analysis_step = (
+            f"Sample `{analysis_outcome}` outcomes with `sample_eval_results({analysis_sample_arguments})`, then inspect "
+            "the user messages in those generations."
+        )
+        sentiment_guidance_section = (
+            "\n## How to analyze sentiment\n\n"
+            "This is a sentiment evaluation. The point of this report is to help the reader understand **who is "
+            "frustrated and why**, grounded in what users actually said.\n\n"
+            "- **Use user messages instead of reasoning.** Sentiment is produced by a classifier, not a judge, so it "
+            "has no per-result explanation. The result tools omit reasoning for this evaluation.\n"
+            "- **Read what the user said instead.** Sentiment classifies only the **last user message** in each "
+            "generation's input. To understand a negative result, load the generation itself (`sample_generation_details`, "
+            "then `get_generation_detail` or `get_generation_text_repr`) and look at that last user message. That is "
+            "where the frustration is.\n"
+            "- **Start with the highest-confidence negative results.** "
+            '`sample_eval_results(outcome="negative", order_by="score")` returns negative results from highest to lowest '
+            "score. Sample enough results to find recurring themes in what users are complaining about, then cite "
+            "representative examples.\n"
+            "- Ground every claim about frustration in the user's own words. Quote or closely paraphrase the actual "
+            "last user message from real negative generations you cited.\n"
+        )
     elif output_type == "boolean":
         evaluated_unit = "trace" if evaluation_target == "trace" else "generation"
         result_semantics = (
@@ -98,6 +124,18 @@ def build_eval_report_system_prompt(
         )
         analysis_outcome = "fail"
         primary_outcome = "pass"
+        reasoning_tool_section = (
+            "- **`get_top_outcome_reasons(outcome, limit)`**: grouped reasoning strings for one outcome. "
+            f"If omitted, outcome defaults to `{analysis_outcome}`.\n"
+        )
+        result_overview_detail = "Includes truncated reasoning."
+        sample_ordering_signature = ""
+        sample_ordering_instruction = 'Rows include full reasoning. Use the default `order_by="recent"`.'
+        analysis_sample_arguments = f'outcome="{analysis_outcome}"'
+        outcome_analysis_step = (
+            f"Inspect grouped reasons and sample relevant outcomes, using `{analysis_outcome}` and `{primary_outcome}` "
+            "as starting points."
+        )
     else:
         raise ValueError(f"Unsupported evaluation report output type: {output_type}")
 
@@ -113,7 +151,7 @@ def build_eval_report_system_prompt(
         )
         grounding_rule = f"""For every recurring outcome pattern or quality issue you describe:
 
-1. Call `sample_eval_results(outcome=\"{analysis_outcome}\")` to find candidate trace IDs. Sample `{primary_outcome}` as contrast when useful.
+1. Call `sample_eval_results({analysis_sample_arguments})` to find candidate trace IDs. Sample `{primary_outcome}` as contrast when useful.
 2. Call `sample_trace_details(trace_ids)` to inspect the actual traces.
 3. Call `add_citation(generation_id=\"\", trace_id=trace_id, reason=reason)` for each example you use.
 4. Reference the trace ID inline with single backticks so the renderer can link it.
@@ -134,7 +172,7 @@ If a trace cannot be resolved, try another example. If none resolve, report the 
         )
         grounding_rule = f"""For every recurring outcome pattern or quality issue you describe:
 
-1. Call `sample_eval_results(outcome=\"{analysis_outcome}\")` to find candidate generation IDs. Sample `{primary_outcome}` as contrast when useful.
+1. Call `sample_eval_results({analysis_sample_arguments})` to find candidate generation IDs. Sample `{primary_outcome}` as contrast when useful.
 2. Call `sample_generation_details(generation_ids)` to inspect the actual input and output and obtain each trace ID.
 3. Call `add_citation(generation_id, trace_id, reason)` for each example you use.
 4. Reference the generation ID inline with single backticks so the renderer can link it.
@@ -152,13 +190,17 @@ If a generation cannot be resolved, try another example. If none resolve, report
         evaluation_target=evaluation_target,
         evaluation_prompt_section=prompt_section,
         result_semantics=result_semantics,
+        sentiment_guidance_section=sentiment_guidance_section,
         period_start=period_start,
         period_end=period_end,
         report_prompt_guidance_section=guidance_section,
         max_sections=MAX_REPORT_SECTIONS,
         outcome_options=outcome_options,
-        analysis_outcome=analysis_outcome,
-        primary_outcome=primary_outcome,
+        reasoning_tool_section=reasoning_tool_section,
+        result_overview_detail=result_overview_detail,
+        sample_ordering_signature=sample_ordering_signature,
+        sample_ordering_instruction=sample_ordering_instruction,
+        outcome_analysis_step=outcome_analysis_step,
         citation_tool_instruction=citation_tool_instruction,
         detail_tools_section=detail_tools_section,
         grounding_rule=grounding_rule,
