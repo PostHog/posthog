@@ -26,7 +26,7 @@ import { schemaGoalLinesToConfigs } from 'products/product_analytics/frontend/in
 
 import { AxisSeries, AxisSeriesSettings, formatDataWithSettings } from '../../dataVisualizationLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
-import { LineGraphProps } from './LineGraph'
+import { type SqlChartProps } from './SqlChart'
 
 export const MAX_SERIES = 200
 
@@ -65,7 +65,7 @@ export function seriesDisplayType(
 /** True when the series resolve to a mix of bar and line/area — the case neither the line-only nor
  *  the bar-only quill path can render, so it routes to {@link SqlComboGraph}. */
 export function hasMixedSeriesTypes(
-    yData: NonNullable<LineGraphProps['yData']>,
+    yData: NonNullable<SqlChartProps['yData']>,
     visualizationType: ChartDisplayType
 ): boolean {
     let hasBar = false
@@ -109,7 +109,7 @@ export function buildTrendLineConfigs(ySeriesData: SqlLineYSeries[] | null | und
  * Series that mix a bar with a line/area route to {@link canRenderSqlComboGraph}; other mixes fall
  * back to the legacy chart.js path.
  */
-export function canRenderSqlLineGraph(props: LineGraphProps): boolean {
+export function canRenderSqlLineGraph(props: SqlChartProps): boolean {
     const { visualizationType, yData } = props
 
     if (
@@ -124,7 +124,7 @@ export function canRenderSqlLineGraph(props: LineGraphProps): boolean {
     return true
 }
 
-export function canRenderSqlBarGraph(props: LineGraphProps): boolean {
+export function canRenderSqlBarGraph(props: SqlChartProps): boolean {
     const { visualizationType, yData } = props
 
     if (visualizationType !== ChartDisplayType.ActionsBar && visualizationType !== ChartDisplayType.ActionsStackedBar) {
@@ -146,7 +146,7 @@ export function canRenderSqlBarGraph(props: LineGraphProps): boolean {
  * bars are supported as long as every line/area series is routed to the right axis — one sharing
  * the bars' axis can't be reconciled with the bars' [0, 1] percent scale, so that case falls back.
  */
-export function canRenderSqlComboGraph(props: LineGraphProps): boolean {
+export function canRenderSqlComboGraph(props: SqlChartProps): boolean {
     const { visualizationType, yData, chartSettings } = props
 
     if (
@@ -197,7 +197,7 @@ export function comboBarLayoutForDisplay(
 }
 
 /** Returns true when {@link MAX_SERIES} is exceeded and the user should be warned (not on dashboards). */
-export function exceedsMaxSeries(yData: LineGraphProps['yData'], dashboardId: LineGraphProps['dashboardId']): boolean {
+export function exceedsMaxSeries(yData: SqlChartProps['yData'], dashboardId: SqlChartProps['dashboardId']): boolean {
     return !!yData && yData.length > MAX_SERIES && !dashboardId
 }
 
@@ -208,7 +208,7 @@ export function warnTooManySeries(count: number): void {
 }
 
 /** Pure cap to {@link MAX_SERIES}; warn separately via {@link exceedsMaxSeries}/{@link warnTooManySeries}. */
-export function capYSeriesData(yData: LineGraphProps['yData']): SqlLineYSeries[] | null {
+export function capYSeriesData(yData: SqlChartProps['yData']): SqlLineYSeries[] | null {
     if (!yData) {
         return null
     }
