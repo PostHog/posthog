@@ -976,7 +976,6 @@ class AccountViewSet(
         data = serializer.validated_data
         try:
             account = api.create_account_for_view(
-                team_id=self.team_id,
                 team=self.team,
                 input=contracts.CreateAccountInput(
                     name=data.name,
@@ -985,7 +984,6 @@ class AccountViewSet(
                     tags=_account_tags_input(serializer),
                     slack_summary_cadence=data.slack_summary_cadence,
                 ),
-                organization_id=self.organization.id,
                 user=cast(User, request.user),
                 was_impersonated=is_impersonated(request),
             )

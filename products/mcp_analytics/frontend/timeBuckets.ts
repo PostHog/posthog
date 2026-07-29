@@ -69,14 +69,16 @@ export function buildBucketKeys(
 }
 
 // Normalize a raw bucket string from a query (a date or datetime) to BUCKET_FORMAT so it joins the
-// generated keys regardless of how ClickHouse rendered it. The value already carries the project-tz
-// wall clock — either a naive datetime (toString(dateTrunc)) or a Z-stamped ISO (a raw DateTime
-// column) — so read it in UTC to keep those digits verbatim. dayjs.tz(s, tz) would treat a Z-stamped
-// value as an instant and convert it by the project offset, shifting buckets off the axis so nothing
-// matches (flat charts for non-UTC projects). buildBucketKeys formats keys as the same wall clock.
+// generated keys regardless of how ClickHouse rendered it. The value always carries the project-tz
+// wall clock, in one of three shapes: naive (toString(dateTrunc)), Z-stamped (a raw DateTime
+// column), or offset-stamped like 2026-07-21T00:00:00-07:00 (a typed DateTime column in a non-UTC
+// project). Strip the zone designator before parsing so those digits survive verbatim: any parse
+// that honors the offset re-converts a wall clock that was never an instant, shifting every bucket
+// off the axis so nothing matches, which renders as a flat or empty chart. buildBucketKeys formats
+// keys as the same wall clock.
 export function normalizeBucket(raw: unknown): string {
     const s = String(raw ?? '')
-    return s ? dayjs.utc(s).format(BUCKET_FORMAT) : ''
+    return s ? dayjs.utc(s.replace(/(?:Z|[+-]\d{2}:?\d{2})$/, '')).format(BUCKET_FORMAT) : ''
 }
 
 // Human-readable axis/hover label for a bucket, showing the time only when the interval is sub-day.
