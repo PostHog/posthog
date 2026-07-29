@@ -221,6 +221,14 @@ pub struct RoutingTableConfig {
     /// (freeze-ack re-assertion, yielded-drain re-requests, address
     /// refresh).
     pub reconcile_failure_budget: u32,
+    /// How many consecutive coordination-attempt failures the run
+    /// supervisor tolerates before giving up and letting the process
+    /// restart. An attempt that ran healthily before failing resets the
+    /// count, so the budget bounds crash loops, not lifetime failures.
+    pub run_retry_budget: u32,
+    /// Base backoff between coordination attempts; doubles per
+    /// consecutive failure up to a fixed cap.
+    pub run_retry_backoff: Duration,
 }
 
 impl Default for RoutingTableConfig {
@@ -236,6 +244,8 @@ impl Default for RoutingTableConfig {
             participant_stall_threshold: Some(Duration::from_secs(60)),
             reconcile_interval: Duration::from_secs(5),
             reconcile_failure_budget: 12,
+            run_retry_budget: 10,
+            run_retry_backoff: Duration::from_millis(500),
         }
     }
 }
@@ -307,17 +317,93 @@ impl RoutingTable {
         Arc::clone(&self.addresses)
     }
 
-    /// Run the routing table. Registers with etcd, loads the initial state,
-    /// then watches the handoffs keyspace. Blocks until cancelled. Routing
-    /// changes flow exclusively through handoff Complete events; there is
-    /// no separate assignment watch.
+    /// Run the routing table, supervising the coordination loop across
+    /// etcd failures. Each attempt registers with etcd, loads the
+    /// initial state, and watches the handoffs keyspace; when an attempt
+    /// fails (a broken watch stream, a failed etcd write, an exhausted
+    /// reconcile budget), the failure is contained here instead of
+    /// killing the process: the data plane keeps serving from the
+    /// last-known routing table and the stash keeps its parked clients
+    /// while the coordination layer rebuilds in place through the same
+    /// bootstrap that recovers a restarted process.
+    ///
+    /// Serving while disconnected is safe because ownership cannot move
+    /// while etcd is unreachable — the coordinator cannot advance
+    /// handoffs — and once etcd recovers, any handoff created before we
+    /// re-register excludes us from its freeze quorum, so the old owner
+    /// fences before a new owner warms and our stale forwards bounce
+    /// into the drain/retry machinery rather than landing.
+    ///
+    /// Retries back off exponentially and are budgeted by consecutive
+    /// failures (an attempt that ran healthily for a while resets the
+    /// count); past the budget the last error is returned and the
+    /// process-restart path takes over as the backstop.
+    pub async fn run(
+        &self,
+        cancel: CancellationToken,
+        handler: Arc<dyn StashHandler>,
+    ) -> Result<()> {
+        // An attempt that survived this long was healthy — its failure
+        // is fresh, not part of a crash loop.
+        const HEALTHY_ATTEMPT: Duration = Duration::from_secs(60);
+        const BACKOFF_CAP: Duration = Duration::from_secs(15);
+
+        let mut consecutive_failures: u32 = 0;
+        loop {
+            let attempt_started = Instant::now();
+            let result = self.run_once(cancel.clone(), Arc::clone(&handler)).await;
+            if cancel.is_cancelled() {
+                return result;
+            }
+            let err = match result {
+                Ok(()) => return Ok(()),
+                Err(e) => e,
+            };
+
+            if attempt_started.elapsed() >= HEALTHY_ATTEMPT {
+                consecutive_failures = 1;
+            } else {
+                consecutive_failures += 1;
+            }
+            metrics::counter!(
+                "personhog_coordination_run_restarts_total",
+                "component" => "router"
+            )
+            .increment(1);
+            tracing::warn!(
+                router = %self.config.router_name,
+                error = %err,
+                consecutive = consecutive_failures,
+                budget = self.config.run_retry_budget,
+                "coordination run failed; rebuilding in place while the data \
+                 plane keeps serving from the last-known table"
+            );
+            if consecutive_failures >= self.config.run_retry_budget {
+                return Err(err);
+            }
+
+            let backoff = self
+                .config
+                .run_retry_backoff
+                .saturating_mul(2u32.saturating_pow(consecutive_failures.saturating_sub(1)))
+                .min(BACKOFF_CAP);
+            tokio::select! {
+                _ = cancel.cancelled() => return Ok(()),
+                _ = tokio::time::sleep(backoff) => {}
+            }
+        }
+    }
+
+    /// One coordination attempt: register, load initial state, watch.
+    /// Runs its own teardown on every exit path — tasks joined, drains
+    /// joined, lease revoked best-effort (an unreachable etcd lets it
+    /// lapse by TTL, which quorums already treat as departure) — so the
+    /// supervisor above can always start the next attempt from a clean
+    /// slate.
     ///
     /// The `handler` implements stashing and drain. It's invoked on handoff
     /// phase transitions: `begin_stash` at Freezing, `drain_stash` at Complete.
-    /// Accepting it here (rather than in the constructor) lets callers build
-    /// the handler after the routing table, avoiding circular-dependency
-    /// workarounds like `OnceCell`.
-    pub async fn run(
+    async fn run_once(
         &self,
         cancel: CancellationToken,
         handler: Arc<dyn StashHandler>,

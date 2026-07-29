@@ -163,6 +163,13 @@ pub struct PodConfig {
     /// must not restart the fleet, and sustained outage self-fences
     /// through the lease keepalive.
     pub reconcile_failure_budget: u32,
+    /// How many consecutive coordination-attempt failures the run
+    /// supervisor tolerates before giving up and letting the process
+    /// restart. A healthy attempt resets the count.
+    pub run_retry_budget: u32,
+    /// Base backoff between coordination attempts; doubles per
+    /// consecutive failure up to a fixed cap.
+    pub run_retry_backoff: Duration,
     /// `host:port` where this pod's gRPC server is reachable; registered
     /// so routers can dial the pod through the routing table.
     pub advertise_address: Option<String>,
@@ -186,6 +193,8 @@ impl Default for PodConfig {
             drain_timeout: Duration::from_secs(30),
             reconcile_interval: Duration::from_secs(5),
             reconcile_failure_budget: 12,
+            run_retry_budget: 10,
+            run_retry_backoff: Duration::from_millis(500),
             advertise_address: None,
             warm_concurrency: 4,
         }
@@ -225,6 +234,10 @@ pub struct PodHandle {
     drain_notify: Notify,
     /// Bounds concurrent `warm_partition` calls to `warm_concurrency`.
     warm_slots: Semaphore,
+    /// Set when a lease-loss self-fence failed: local serving state may
+    /// not reflect lost ownership, so the run supervisor must not retry
+    /// in place — only a process restart clears this.
+    fence_poisoned: std::sync::atomic::AtomicBool,
     /// Optional K8s awareness for departure classification during shutdown.
     k8s_awareness: Option<Arc<K8sAwareness>>,
 }
@@ -245,18 +258,92 @@ impl PodHandle {
             fenced_partitions: Mutex::new(HashSet::new()),
             drain_notify: Notify::new(),
             warm_slots,
+            fence_poisoned: std::sync::atomic::AtomicBool::new(false),
             k8s_awareness,
         }
     }
 
-    /// Run the pod coordination loop. Blocks until cancelled.
+    /// Run the pod's coordination, supervising attempts across etcd
+    /// failures. A failed attempt no longer kills the process — the
+    /// data plane keeps serving (and keeps its cache) while coordination
+    /// rebuilds in place through the same startup convergence that
+    /// recovers a restarted pod. Serving while disconnected is safe for
+    /// the same reason as on the router: ownership cannot move while
+    /// etcd is unreachable, and this pod's own admission checks reject
+    /// partitions it does not hold.
     ///
-    /// 1. Register with etcd (creates lease + key)
-    /// 2. Start heartbeat loop
-    /// 3. Watch for handoff and assignment events
-    /// 4. On cancellation (SIGTERM): transition to Draining, wait for
-    ///    partition handoffs to complete, then revoke lease and exit
+    /// The one hard rule survives intact: **lease loss still
+    /// self-fences** — every held partition is released locally before
+    /// any retry, because the coordinator already treats an expired
+    /// lease as death and may be reassigning. The retry then rejoins as
+    /// a fresh participant and re-acquires ownership through the normal
+    /// warm path. If that local fence itself fails, in-place retry is
+    /// refused and the error propagates so the process restart clears
+    /// everything.
     pub async fn run(&self, cancel: CancellationToken) -> Result<()> {
+        const HEALTHY_ATTEMPT: Duration = Duration::from_secs(60);
+        const BACKOFF_CAP: Duration = Duration::from_secs(15);
+
+        let mut consecutive_failures: u32 = 0;
+        loop {
+            let attempt_started = Instant::now();
+            let result = self.run_once(cancel.clone()).await;
+            if cancel.is_cancelled() {
+                return result;
+            }
+            let err = match result {
+                Ok(()) => return Ok(()),
+                Err(e) => e,
+            };
+            if self
+                .fence_poisoned
+                .load(std::sync::atomic::Ordering::SeqCst)
+            {
+                // The local self-fence failed: serving state may not
+                // reflect lost ownership, so an in-place retry is not
+                // safe. Only a full process restart clears it.
+                return Err(err);
+            }
+
+            if attempt_started.elapsed() >= HEALTHY_ATTEMPT {
+                consecutive_failures = 1;
+            } else {
+                consecutive_failures += 1;
+            }
+            counter!(
+                "personhog_coordination_run_restarts_total",
+                "component" => "pod"
+            )
+            .increment(1);
+            tracing::warn!(
+                pod = %self.config.pod_name,
+                error = %err,
+                consecutive = consecutive_failures,
+                budget = self.config.run_retry_budget,
+                "pod coordination failed; rebuilding in place while the data \
+                 plane keeps serving"
+            );
+            if consecutive_failures >= self.config.run_retry_budget {
+                return Err(err);
+            }
+
+            let backoff = self
+                .config
+                .run_retry_backoff
+                .saturating_mul(2u32.saturating_pow(consecutive_failures.saturating_sub(1)))
+                .min(BACKOFF_CAP);
+            tokio::select! {
+                _ = cancel.cancelled() => return Ok(()),
+                _ = tokio::time::sleep(backoff) => {}
+            }
+        }
+    }
+
+    /// One coordination attempt: register, converge, watch, and tear
+    /// down on every exit path. On lease loss the attempt self-fences
+    /// locally (releasing every held partition) before returning, so the
+    /// supervisor can rejoin as a fresh participant.
+    async fn run_once(&self, cancel: CancellationToken) -> Result<()> {
         let lease_id = self.store.grant_lease(self.config.lease_ttl).await?;
         self.register(lease_id).await?;
 
@@ -352,9 +439,47 @@ impl PodHandle {
             heartbeat_cancel.cancel();
             drop(heartbeat_handle.await);
             drop(self.store.revoke_lease(lease_id).await);
+        } else {
+            // Self-fence locally before the supervisor may retry: the
+            // coordinator treats the expired lease as death and may be
+            // reassigning these partitions right now. Every held
+            // partition is released (dropping its cache and serving
+            // authority); re-acquisition always re-warms, so nothing is
+            // lost but memory. A failed release poisons the fence and
+            // forbids in-place retry.
+            if let Err(e) = self.self_fence_locally().await {
+                self.fence_poisoned
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+                tracing::error!(
+                    pod = %self.config.pod_name,
+                    error = %e,
+                    "local self-fence failed; refusing in-place retry"
+                );
+            }
         }
 
         result
+    }
+
+    /// Release every locally held partition — warmed or fenced — through
+    /// the handler, clearing the pod's local ownership state. Purely
+    /// local: no etcd writes, callable with no lease.
+    async fn self_fence_locally(&self) -> Result<()> {
+        let held: HashSet<u32> = {
+            let warmed = self.warmed_partitions.lock().await;
+            let fenced = self.fenced_partitions.lock().await;
+            warmed
+                .keys()
+                .copied()
+                .chain(fenced.iter().copied())
+                .collect()
+        };
+        for partition in held {
+            self.handler.release_partition(partition).await?;
+            self.warmed_partitions.lock().await.remove(&partition);
+            self.fenced_partitions.lock().await.remove(&partition);
+        }
+        Ok(())
     }
 
     async fn register(&self, lease_id: i64) -> Result<()> {

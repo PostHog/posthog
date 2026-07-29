@@ -89,15 +89,16 @@ async fn wait_for_event(events: &Arc<Mutex<Vec<HandoffEvent>>>, expected: Handof
 /// etcd partition or missed heartbeats) must exit its run loop rather
 /// than continue serving as a zombie owner.
 #[tokio::test]
-async fn pod_self_fences_when_lease_revoked() {
+async fn pod_self_fences_locally_and_rejoins_after_lease_loss() {
     let (store, prefix) = test_store_with_prefix("pod-self-fence").await;
     let cancel = CancellationToken::new();
 
     // lease_ttl 5 → 1s heartbeat interval, so the keepalive observes the
     // revocation within ~a second.
-    let mut pod = start_pod_with_lease_ttl(Arc::clone(&store), "fence-pod-0", 5, cancel.clone());
+    let pod = start_pod_with_lease_ttl(Arc::clone(&store), "fence-pod-0", 5, cancel.clone());
 
-    // Wait until the pod has registered (its lease-bound key exists).
+    // Wait until the pod has registered, then hand it a partition so
+    // the self-fence has something real to release.
     let check_store = Arc::clone(&store);
     wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
         let store = Arc::clone(&check_store);
@@ -110,20 +111,58 @@ async fn pod_self_fences_when_lease_revoked() {
         }
     })
     .await;
+    put_handoff(&store, 0, None, "fence-pod-0", HandoffPhase::Warming).await;
+    let warmed_count = |events: Arc<Mutex<Vec<HandoffEvent>>>| async move {
+        events
+            .lock()
+            .await
+            .iter()
+            .filter(|e| matches!(e, HandoffEvent::Warmed(0)))
+            .count()
+    };
+    let events = Arc::clone(&pod.events);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let events = Arc::clone(&events);
+        async move { warmed_count(events).await >= 1 }
+    })
+    .await;
 
     revoke_lease_of_key(&format!("{prefix}pods/fence-pod-0")).await;
 
-    // The run loop must observe the dead lease and exit with an error —
-    // NOT keep serving. Generous timeout: one heartbeat tick plus slack.
-    let join = pod.join_handle.take().expect("join handle");
-    let result = tokio::time::timeout(Duration::from_secs(10), join)
-        .await
-        .expect("pod must self-fence after lease revocation instead of serving as a zombie")
-        .expect("pod task must not panic");
-    assert!(
-        result.is_err(),
-        "run() must surface the lease loss as an error so the process restarts"
-    );
+    // Lease loss must self-fence: the held partition is released
+    // locally before any rejoin, because the coordinator already treats
+    // the expired lease as death and may be reassigning.
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let events = Arc::clone(&events);
+        async move {
+            events
+                .lock()
+                .await
+                .iter()
+                .any(|e| matches!(e, HandoffEvent::Released(0)))
+        }
+    })
+    .await;
+
+    // The supervisor then rejoins as a fresh participant instead of
+    // dying: the pod re-registers, and startup convergence re-warms the
+    // still-Warming partition it just released.
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            store
+                .list_pods()
+                .await
+                .map(|pods| pods.iter().any(|p| p.pod_name == "fence-pod-0"))
+                .unwrap_or(false)
+        }
+    })
+    .await;
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let events = Arc::clone(&events);
+        async move { warmed_count(events).await >= 2 }
+    })
+    .await;
 
     cancel.cancel();
 }
@@ -132,37 +171,44 @@ async fn pod_self_fences_when_lease_revoked() {
 /// has already dropped it from the freeze quorum, so if it keeps serving
 /// it can forward writes to a draining old owner without stashing.
 #[tokio::test]
-async fn router_exits_when_lease_revoked() {
+async fn router_rejoins_with_a_fresh_lease_after_revocation() {
     let (store, prefix) = test_store_with_prefix("router-self-fence").await;
     let cancel = CancellationToken::new();
 
-    let mut router =
+    let _router =
         start_router_with_lease_ttl(Arc::clone(&store), "fence-router-0", 5, cancel.clone());
 
+    let registered = |store: Arc<PersonhogStore>| async move {
+        store
+            .list_routers()
+            .await
+            .map(|routers| routers.iter().any(|r| r.router_name == "fence-router-0"))
+            .unwrap_or(false)
+    };
     let check_store = Arc::clone(&store);
     wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
-        let store = Arc::clone(&check_store);
-        async move {
-            store
-                .list_routers()
-                .await
-                .map(|routers| routers.iter().any(|r| r.router_name == "fence-router-0"))
-                .unwrap_or(false)
-        }
+        registered(Arc::clone(&check_store))
     })
     .await;
 
     revoke_lease_of_key(&format!("{prefix}routers/fence-router-0")).await;
 
-    let join = router.join_handle.take().expect("join handle");
-    let result = tokio::time::timeout(Duration::from_secs(10), join)
-        .await
-        .expect("router must exit after lease revocation instead of serving with a stale table")
-        .expect("router task must not panic");
-    assert!(
-        result.is_err(),
-        "run() must surface the lease loss as an error so the process restarts"
-    );
+    // The failed attempt tears down (the revoked lease already removed
+    // the registration, so freeze quorums stop counting the router) and
+    // the supervisor rejoins with a fresh lease instead of dying.
+    // Serving through the gap is safe: any handoff created while the
+    // router is unregistered excludes it from the freeze quorum, so the
+    // old owner fences before a new owner warms and stale forwards
+    // bounce rather than land.
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move { !registered(store).await }
+    })
+    .await;
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        registered(Arc::clone(&check_store))
+    })
+    .await;
 
     cancel.cancel();
 }
@@ -1667,6 +1713,10 @@ async fn a_stalled_watch_loop_trips_the_watchdog_and_deregisters() {
             router_name: "wd-router".to_string(),
             participant_stall_threshold: Some(Duration::from_secs(1)),
             reconcile_interval: Duration::from_secs(86_400),
+            // Budget 1 pins the watchdog's fatal path: one tripped
+            // attempt fails the whole run. The rebuild-in-place path is
+            // covered by the supervisor tests.
+            run_retry_budget: 1,
             ..RoutingTableConfig::default()
         },
     );
@@ -1929,6 +1979,7 @@ async fn start_flaky_router(
             router_name: router_name.to_string(),
             reconcile_interval: Duration::from_millis(200),
             reconcile_failure_budget: budget,
+            run_retry_backoff: Duration::from_millis(100),
             ..RoutingTableConfig::default()
         },
     );
@@ -2043,6 +2094,58 @@ async fn reconcile_failures_past_the_budget_fail_the_run() {
                 .iter()
                 .any(|r| r.router_name == "rbe-router")
         }
+    })
+    .await;
+
+    cancel.cancel();
+}
+
+/// A failed coordination attempt must rebuild in place, not kill the
+/// run: while the handler (standing in for etcd trouble) fails, attempts
+/// tear down and back off; once it recovers, the next attempt
+/// re-registers and catches up on everything missed in the gap — here, a
+/// handoff created while coordination was down gets its freeze ack.
+#[tokio::test]
+async fn a_failed_coordination_attempt_rebuilds_in_place() {
+    let store = test_store("run-rebuilds-in-place").await;
+    let (fail, cancel) = start_flaky_router(&store, "rip-router", 12).await;
+
+    let ack_present = |store: Arc<PersonhogStore>, partition: u32| async move {
+        store
+            .list_freeze_acks(partition)
+            .await
+            .expect("list acks")
+            .iter()
+            .any(|a| a.router_name == "rip-router")
+    };
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        ack_present(Arc::clone(&store), 0)
+    })
+    .await;
+
+    // Break the handler, then deliver an event: the event arm fails the
+    // attempt, and re-bootstraps keep failing while the handler is down.
+    // The teardown of the failed attempt deregisters the router.
+    fail.store(true, std::sync::atomic::Ordering::SeqCst);
+    put_handoff(&store, 1, None, "keeper-pod", HandoffPhase::Freezing).await;
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&store);
+        async move {
+            !store
+                .list_routers()
+                .await
+                .expect("list routers")
+                .iter()
+                .any(|r| r.router_name == "rip-router")
+        }
+    })
+    .await;
+
+    // Recovery: the next attempt bootstraps, re-registers, and the
+    // fresh load acks the handoff that arrived during the outage.
+    fail.store(false, std::sync::atomic::Ordering::SeqCst);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        ack_present(Arc::clone(&store), 1)
     })
     .await;
 
