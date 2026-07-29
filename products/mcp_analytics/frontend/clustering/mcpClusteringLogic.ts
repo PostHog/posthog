@@ -1,15 +1,4 @@
-import {
-    MakeLogicType,
-    actions,
-    afterMount,
-    beforeUnmount,
-    connect,
-    kea,
-    listeners,
-    path,
-    reducers,
-    selectors,
-} from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -360,18 +349,18 @@ export const mcpClusteringLogic = kea<mcpClusteringLogicType>([
             actions.triggerRecompute()
         },
         startPolling: () => {
-            if (cache.pollHandle) {
-                return
-            }
-            cache.pollHandle = window.setInterval(() => {
-                actions.pollSnapshot()
-            }, POLL_INTERVAL_MS)
+            // Keyed add replaces any existing poller, and the disposables plugin
+            // pauses it while the tab is hidden — no full-snapshot refetches in
+            // background tabs — and cleans it up on unmount.
+            cache.disposables.add(() => {
+                const intervalId = window.setInterval(() => {
+                    actions.pollSnapshot()
+                }, POLL_INTERVAL_MS)
+                return () => window.clearInterval(intervalId)
+            }, 'snapshotPoll')
         },
         stopPolling: () => {
-            if (cache.pollHandle) {
-                window.clearInterval(cache.pollHandle)
-                cache.pollHandle = null
-            }
+            cache.disposables.dispose('snapshotPoll')
         },
         pollSnapshot: () => {
             actions.loadSnapshot()
@@ -379,8 +368,5 @@ export const mcpClusteringLogic = kea<mcpClusteringLogicType>([
     })),
     afterMount(({ actions }) => {
         actions.loadSnapshot()
-    }),
-    beforeUnmount(({ actions }) => {
-        actions.stopPolling()
     }),
 ])
