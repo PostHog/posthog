@@ -14,6 +14,8 @@ from posthog.test.base import (
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.hogql_queries.insights.retention.retention_query_runner import RetentionQueryRunner
 
 from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
@@ -438,6 +440,18 @@ class TestRetentionDataWarehouse24hWindow(ClickhouseTestMixin, APIBaseTest):
                 {"breakdownFilter": {"breakdown": "$browser", "breakdown_type": "event"}},
                 "Breakdowns are not supported for 24 hour windows with a data warehouse series.",
             ),
+            (
+                "group_aggregation",
+                {},
+                {"aggregation_group_type_index": 0},
+                "Group aggregation is not supported for 24 hour windows with a data warehouse series.",
+            ),
+            (
+                "property_aggregation",
+                {"aggregationType": "sum", "aggregationProperty": "amount"},
+                {},
+                "Sum and average aggregation are not supported for 24 hour windows.",
+            ),
         ]
     )
     def test_unsupported_dwh_24h_window_combinations_are_rejected(
@@ -459,3 +473,110 @@ class TestRetentionDataWarehouse24hWindow(ClickhouseTestMixin, APIBaseTest):
                     **query_extra,
                 }
             )
+
+    @parameterized.expand(
+        [
+            ("missing_aggregation_target_field", "aggregation_target_field", "requires aggregation_target_field"),
+            ("missing_timestamp_field", "timestamp_field", "requires table_name and timestamp_field"),
+        ]
+    )
+    def test_incomplete_dwh_entity_is_rejected_with_validation_error(
+        self, _name: str, missing_field: str, expected_error: str
+    ):
+        # The exception type is the contract: ValidationError maps to HTTP 400 at the API, a bare ValueError to a
+        # 500. The error raises while building the query, so no warehouse table fixture is needed.
+        entity = self._renewals_entity("warehouse_incomplete")
+        del entity[missing_field]
+
+        runner = RetentionQueryRunner(
+            team=self.team,
+            query={
+                "dateRange": {"date_from": "2025-01-01T00:00:00Z", "date_to": "2025-01-05T00:00:00Z"},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 4,
+                    "timeWindowMode": "24_hour_windows",
+                    "targetEntity": entity,
+                    "returningEntity": self._renewals_entity("warehouse_incomplete"),
+                },
+            },
+        )
+
+        with self.assertRaisesMessage(ValidationError, expected_error):
+            runner.to_query()
+
+    def test_actors_query_filters_to_selected_interval_24h_window(self):
+        person_ids = self._create_people()
+        activity_table = self._create_data_warehouse_table(
+            filename="warehouse_actors_activity.csv",
+            table_name="warehouse_actors_activity",
+            header=["id", "person_id", "activity_type", "occurred_at"],
+            rows=[
+                [1, person_ids["user-1"], "signed_up", "2025-01-01 09:00:00"],
+                [2, person_ids["user-2"], "signed_up", "2025-01-01 10:00:00"],
+                [3, person_ids["user-3"], "signed_up", "2025-01-02 09:00:00"],
+                [4, person_ids["user-4"], "signed_up", "2025-01-02 10:00:00"],
+                [5, person_ids["user-1"], "renewed", "2025-01-02 12:00:00"],
+            ],
+            table_columns=ACTIVITY_TABLE_COLUMNS,
+        )
+
+        runner = RetentionQueryRunner(
+            team=self.team,
+            query={
+                "dateRange": {"date_from": "2025-01-01T00:00:00Z", "date_to": "2025-01-05T00:00:00Z"},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 4,
+                    "timeWindowMode": "24_hour_windows",
+                    "targetEntity": _signed_up_entity(activity_table),
+                    "returningEntity": _renewed_entity(activity_table),
+                },
+            },
+        )
+        response = execute_hogql_query(query=runner.to_actors_query(interval=1), team=self.team)
+
+        # Only the Day 1 cohort (user-3 and user-4); without the start_interval_index filter every cohort leaks in.
+        self.assertEqual(
+            sorted(str(row[0]) for row in response.results),
+            [person_ids["user-3"], person_ids["user-4"]],
+        )
+
+    @snapshot_clickhouse_queries
+    def test_first_time_events_start_dwh_return_24h_window(self):
+        person_ids = self._create_people()
+        self._create_events(
+            [
+                ("user-1", "$browse", "2024-12-28 08:00:00"),  # unrelated activity must not affect the anchor
+                ("user-1", "$signup", "2024-12-30 09:00:00"),  # first signup, before the window
+                ("user-1", "$signup", "2025-01-03 09:00:00"),  # repeat signup in window must not re-cohort
+                ("user-2", "$signup", "2025-01-01 10:00:00"),  # first signup, in window
+            ]
+        )
+        renewals_table = self._create_renewals_table(
+            "warehouse_renewals_ft",
+            rows=[
+                [1, person_ids["user-2"], "2025-01-02 13:00:00"],  # 27h after t_0 -> interval 1
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": "2025-01-01T00:00:00Z", "date_to": "2025-01-05T00:00:00Z"},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 4,
+                    "timeWindowMode": "24_hour_windows",
+                    "retentionType": "retention_first_time",
+                    "targetEntity": {"id": "$signup", "name": "$signup", "type": "events"},
+                    "returningEntity": self._renewals_entity(renewals_table),
+                },
+            }
+        )
+
+        # user-1's first matching signup predates the window, so the guard nulls their anchor and the repeat
+        # signup inside the window must not resurrect them. Only user-2 is cohorted (Day 0, returning +27h).
+        day_0 = self._row(result, "Day 0")
+        self.assertEqual(day_0["values"][0]["count"], 1)
+        self.assertEqual(day_0["values"][1]["count"], 1)
+        self.assertEqual(sum(row["values"][0]["count"] for row in result), 1)

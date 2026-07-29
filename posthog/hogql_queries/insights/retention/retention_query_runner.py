@@ -41,6 +41,8 @@ from posthog.hogql_queries.insights.retention.retention_base_query_rolling impor
 from posthog.hogql_queries.insights.retention.retention_validation_rules import (
     DisallowBreakdownsWithDataWarehouse24HourWindows,
     DisallowCumulativeWith24HourWindows,
+    DisallowGroupAggregationWithDataWarehouse24HourWindows,
+    DisallowPropertyAggregationWith24HourWindows,
 )
 from posthog.hogql_queries.insights.utils.breakdowns import (
     ALL_USERS_COHORT_ID,
@@ -144,6 +146,8 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         return (
             DisallowCumulativeWith24HourWindows(),
             DisallowBreakdownsWithDataWarehouse24HourWindows(),
+            DisallowGroupAggregationWithDataWarehouse24HourWindows(),
+            DisallowPropertyAggregationWith24HourWindows(),
             DisallowUnsupportedDataWarehouseSettings(),
         )
 
