@@ -1603,9 +1603,11 @@ class _WorkflowMocks:
         *,
         activity_results: dict[Any, Any] | None = None,
         activity_errors: dict[Any, Exception] | None = None,
+        child_error: Exception | None = None,
     ) -> None:
         self.activity_results = activity_results or {}
         self.activity_errors = activity_errors or {}
+        self.child_error = child_error
         self.activity_calls: list[tuple[Any, Any]] = []
         self.child_calls: list[tuple[tuple, dict]] = []
 
@@ -1617,6 +1619,8 @@ class _WorkflowMocks:
 
     async def execute_child_workflow(self, *args: Any, **kwargs: Any) -> Any:
         self.child_calls.append((args, kwargs))
+        if self.child_error is not None:
+            raise self.child_error
         return None
 
 
@@ -1704,6 +1708,51 @@ async def test_apply_scanner_workflow_marks_failed_when_fetch_raises() -> None:
     failed_input = mocks.activity_calls[-1][1]
     assert failed_input.observation_id == new_observation_id
     assert "no events" in failed_input.error_reason.lower()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "rasterizer_type,expect_ineligible,expected_kind",
+    [
+        # An unrenderable recording is a gate, so it must not land on the failed path telling the user to retry.
+        ("NO_SNAPSHOTS", True, "no_snapshots"),
+        ("CAPTURE_ABORTED", False, "rasterization_failed"),
+        (None, False, "rasterization_failed"),
+    ],
+)
+async def test_apply_scanner_workflow_splits_rasterizer_failures_by_cause(
+    rasterizer_type: str | None, expect_ineligible: bool, expected_kind: str
+) -> None:
+    new_observation_id = uuid.uuid4()
+    leaf = (
+        ApplicationError("No snapshots after processing", type=rasterizer_type, non_retryable=True)
+        if rasterizer_type
+        else RuntimeError("browser pod vanished")
+    )
+    mocks = _WorkflowMocks(
+        activity_results={
+            create_observation_activity: CreateObservationOutput(
+                observation_id=new_observation_id, was_created=True, scanner_type=ScannerType.MONITOR
+            ),
+            ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
+        },
+        # Mirrors how the rasterizer's own error reaches the parent: wrapped twice by Temporal.
+        child_error=_wrap_in_child_workflow_error(_wrap_in_activity_error(leaf))
+        if isinstance(leaf, ApplicationError)
+        else leaf,
+    )
+
+    with pytest.raises(Exception):
+        await _run_workflow(_build_inputs(session_id="sess-raster"), mocks)
+
+    called = {fn for fn, _ in mocks.activity_calls}
+    terminal = mark_observation_ineligible_activity if expect_ineligible else mark_observation_failed_activity
+    other = mark_observation_failed_activity if expect_ineligible else mark_observation_ineligible_activity
+    assert terminal in called
+    assert other not in called
+    assert mocks.activity_calls[-1][1].error_reason.startswith(f"{expected_kind}:")
+    # The video is never uploaded when the render fails, so there is nothing to bill or clean up.
+    assert upload_video_to_gemini_activity not in called
 
 
 @pytest.mark.asyncio

@@ -5,9 +5,10 @@ APPLY_SCANNER_WORKFLOW_NAME = "replay-vision-apply-scanner"
 SWEEP_SCANNER_WORKFLOW_NAME = "replay-vision-sweep-scanner"
 
 # Shared by the sweep's children and the on-demand /observe/ trigger; the orphan cutoff below leans on it.
-# Must cover the sum of the per-phase budgets in `workflow.py` (fetch 2m + rasterize 40m + upload 20m + provider 25m
-# + state writes), or the phases at the back lose their retries to a parent timeout no matter what they're allowed.
-APPLY_SCANNER_EXECUTION_TIMEOUT = dt.timedelta(minutes=90)
+# Must exceed the sum of the per-phase budgets in `workflow.py` (fetch 2m + rasterize 40m + upload 20m + provider 25m
+# ≈ 87m), with headroom for the trailing state writes; otherwise the phases at the back lose their retries to a
+# parent timeout no matter what they're individually allowed.
+APPLY_SCANNER_EXECUTION_TIMEOUT = dt.timedelta(minutes=100)
 
 # Pending/running rows older than twice the apply execution timeout are provably orphaned.
 OBSERVATION_ORPHAN_CUTOFF = APPLY_SCANNER_EXECUTION_TIMEOUT * 2

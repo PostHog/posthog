@@ -375,8 +375,9 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 retry_policy=common.RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
                 # Temporal counts the whole retry chain against this, and the child's own render activity is allowed
-                # 30 minutes. Keep this comfortably above that, or a slow first render leaves no room to schedule a
-                # second one and the retries above go unspent exactly when a recording needs them.
+                # 30 minutes. Must exceed that 30m start-to-close, or a first render that fails fast leaves no room to
+                # schedule a retry at all. Held below a second full 30m render on purpose, to stay within the parent's
+                # phase budget.
                 execution_timeout=dt.timedelta(minutes=40),
                 search_attributes=TypedSearchAttributes(
                     search_attributes=[
