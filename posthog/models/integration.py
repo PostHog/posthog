@@ -2533,6 +2533,8 @@ class ClickUpIntegration:
 class EmailIntegration:
     integration: Integration
 
+    DEFAULT_MAIL_FROM_SUBDOMAIN = "feedback"
+
     def __init__(self, integration: Integration) -> None:
         if integration.kind != "email":
             raise Exception("EmailIntegration init called with Integration with wrong 'kind'")
@@ -2542,6 +2544,32 @@ class EmailIntegration:
     def ses_provider(self) -> SESProvider:
         return SESProvider()
 
+    @staticmethod
+    def _duplicate_sender_error(email_address: str) -> str:
+        return (
+            f"This project already has a sender for {email_address}. Configure the existing sender instead of adding "
+            "it again."
+        )
+
+    @staticmethod
+    def _senders_for_domain(domain: str, organization_id: str) -> list[Integration]:
+        return list(
+            Integration.objects.filter(kind="email", config__domain=domain, team__organization_id=organization_id)
+        )
+
+    @classmethod
+    def _sync_mail_from_subdomain_across_domain(
+        cls, domain: str, organization_id: str, mail_from_subdomain: str, exclude_pk: int | None = None
+    ) -> None:
+        # SES stores MAIL FROM on the domain identity rather than on each sender address, so a domain
+        # can only ever have one. Mirror the value we just pushed to SES onto every other sender on the
+        # domain, otherwise they keep advertising DNS records that no longer match reality.
+        for sender in cls._senders_for_domain(domain, organization_id):
+            if sender.pk == exclude_pk or sender.config.get("mail_from_subdomain") == mail_from_subdomain:
+                continue
+            sender.config["mail_from_subdomain"] = mail_from_subdomain
+            sender.save(update_fields=["config"])
+
     @classmethod
     def create_native_integration(
         cls, config: dict, team_id: int, organization_id: str, created_by: User | None = None
@@ -2549,20 +2577,37 @@ class EmailIntegration:
         email_address: str = config["email"].lower()
         name: str = config["name"]
         domain: str = email_address.split("@")[1]
-        mail_from_subdomain: str = config.get("mail_from_subdomain", "feedback")
         provider: str = config.get("provider", "ses")
 
         if domain in free_email_domains_list or domain in disposable_email_domains_list:
             raise ValidationError(f"Email domain {domain} is not supported. Please use a custom domain.")
 
+        if Integration.objects.filter(team_id=team_id, kind="email", integration_id=email_address).exists():
+            raise ValidationError(cls._duplicate_sender_error(email_address))
+
         # Check if any other integration already exists in a different team with the same domain,
         # if so, ensure this team is part of the same organization. If not, we block creation.
-        same_domain_integrations = Integration.objects.filter(kind="email", config__domain=domain)
+        same_domain_integrations = list(Integration.objects.filter(kind="email", config__domain=domain))
         for integration in same_domain_integrations:
             if str(integration.team.organization.id) != str(organization_id):
                 raise ValidationError(
                     f"An email integration with domain {domain} already exists in another organization. Try a different domain or contact support if you believe this is a mistake."
                 )
+
+        # MAIL FROM is a property of the SES domain identity, so a new sender inherits whatever the
+        # domain's existing senders use unless the request explicitly asks for something else. The most
+        # recently created sender is the one whose value SES currently holds.
+        inherited_subdomain = next(
+            (
+                subdomain
+                for integration in sorted(same_domain_integrations, key=lambda i: i.created_at, reverse=True)
+                if (subdomain := integration.config.get("mail_from_subdomain"))
+            ),
+            None,
+        )
+        mail_from_subdomain: str = (
+            config.get("mail_from_subdomain") or inherited_subdomain or cls.DEFAULT_MAIL_FROM_SUBDOMAIN
+        )
 
         # Create domain in the appropriate provider
         if provider == "ses":
@@ -2579,12 +2624,12 @@ class EmailIntegration:
         else:
             raise ValueError(f"Invalid provider: must be 'ses'")
 
-        integration, created = Integration.objects.update_or_create(
-            team_id=team_id,
-            kind="email",
-            integration_id=email_address,
-            defaults={
-                "config": {
+        try:
+            integration = Integration.objects.create(
+                team_id=team_id,
+                kind="email",
+                integration_id=email_address,
+                config={
                     "email": email_address,
                     "domain": domain,
                     "mail_from_subdomain": mail_from_subdomain,
@@ -2592,13 +2637,14 @@ class EmailIntegration:
                     "provider": provider,
                     "verified": True if provider == "maildev" else False,
                 },
-                "created_by": created_by,
-            },
-        )
+                created_by=created_by,
+            )
+        except IntegrityError:
+            raise ValidationError(cls._duplicate_sender_error(email_address))
 
-        if integration.errors:
-            integration.errors = ""
-            integration.save()
+        cls._sync_mail_from_subdomain_across_domain(
+            domain, organization_id, mail_from_subdomain, exclude_pk=integration.pk
+        )
 
         return integration
 
@@ -2607,8 +2653,10 @@ class EmailIntegration:
         domain = self.integration.config.get("domain")
         # Only name and mail_from_subdomain can be updated
         name: str = config.get("name", self.integration.config.get("name"))
-        mail_from_subdomain: str = config.get(
-            "mail_from_subdomain", self.integration.config.get("mail_from_subdomain", "feedback")
+        mail_from_subdomain: str = (
+            config.get("mail_from_subdomain")
+            or self.integration.config.get("mail_from_subdomain")
+            or self.DEFAULT_MAIL_FROM_SUBDOMAIN
         )
 
         # Update domain in the appropriate provider
@@ -2627,6 +2675,13 @@ class EmailIntegration:
             }
         )
         self.integration.save()
+
+        self._sync_mail_from_subdomain_across_domain(
+            domain,
+            str(self.integration.team.organization_id),
+            mail_from_subdomain,
+            exclude_pk=self.integration.pk,
+        )
 
         return self.integration
 

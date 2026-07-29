@@ -3,6 +3,7 @@ import { Form } from 'kea-forms'
 
 import { IconCheckCircle, IconCopy, IconQuestion, IconRefresh, IconWarning } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonInput,
     LemonModal,
@@ -17,12 +18,24 @@ import { DomainConnectBanner } from 'lib/components/DomainConnect'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { DnsRecord, EmailSetupModalLogicProps, emailSetupModalLogic } from './emailSetupModalLogic'
+import {
+    DEFAULT_MAIL_FROM_SUBDOMAIN,
+    DnsRecord,
+    EmailSetupModalLogicProps,
+    emailSetupModalLogic,
+} from './emailSetupModalLogic'
 
 export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element => {
     const logic = emailSetupModalLogic(props)
-    const { savedIntegration, verificationLoading, isEmailSenderSubmitting, dnsRecords, domain, isDomainVerified } =
-        useValues(logic)
+    const {
+        savedIntegration,
+        verificationLoading,
+        isEmailSenderSubmitting,
+        dnsRecords,
+        domain,
+        domainSenders,
+        isDomainVerified,
+    } = useValues(logic)
     const { verifyDomain, submitEmailSender } = useActions(logic)
 
     const emailDomain = savedIntegration?.config?.domain || ''
@@ -68,18 +81,25 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                         <LemonField
                             name="mail_from_subdomain"
                             label="MAIL FROM subdomain"
-                            help="The subdomain used for your emails' Return-Path header. Setting a MAIL FROM domain helps improve email deliverability."
+                            help="The subdomain used for your emails' Return-Path header, which helps improve deliverability. AWS SES stores it per domain, so all senders on a domain share one subdomain."
                         >
                             <LemonInput
                                 className="w-fit"
                                 type="text"
-                                placeholder="feedback"
+                                placeholder={DEFAULT_MAIL_FROM_SUBDOMAIN}
                                 suffix={<>.{domain || 'yourdomain.com'}</>}
                                 disabledReason={
                                     verificationLoading || isEmailSenderSubmitting ? 'Creating sender...' : undefined
                                 }
                             />
                         </LemonField>
+                        {domainSenders.length > 0 && (
+                            <LemonBanner type="info">
+                                The MAIL FROM subdomain applies to all of {domain}. Changing it here also changes it for{' '}
+                                {domainSenders.map((sender) => sender.config.email).join(', ')}, which will need the new
+                                DNS records to stay verified.
+                            </LemonBanner>
+                        )}
                         {!savedIntegration && (
                             <div className="flex justify-end">
                                 <LemonButton

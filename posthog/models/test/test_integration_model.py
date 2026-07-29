@@ -3603,6 +3603,90 @@ class TestEmailIntegrationDomainValidation(BaseTest):
         assert integration.config["verified"] is False
 
     @patch("products.workflows.backend.providers.SESProvider.create_email_domain")
+    def test_duplicate_sender_address_is_rejected_instead_of_overwriting(self, mock_create_email_domain):
+        existing = EmailIntegration.create_native_integration(
+            {"email": "hello@successdomain.com", "name": "Original", "mail_from_subdomain": "mail"},
+            team_id=self.team.id,
+            organization_id=str(self.organization.id),
+            created_by=self.user,
+        )
+        existing.config["verified"] = True
+        existing.save()
+
+        with pytest.raises(ValidationError) as exc:
+            EmailIntegration.create_native_integration(
+                {"email": "Hello@SuccessDomain.com", "name": "Replacement", "mail_from_subdomain": "bounce"},
+                team_id=self.team.id,
+                organization_id=str(self.organization.id),
+                created_by=self.user,
+            )
+        assert "already has a sender" in str(exc.value)
+
+        existing.refresh_from_db()
+        assert existing.config["name"] == "Original"
+        assert existing.config["mail_from_subdomain"] == "mail"
+        assert existing.config["verified"] is True
+
+    @parameterized.expand(
+        [
+            ("inherits_domain_subdomain_when_unspecified", None, "mail"),
+            ("propagates_requested_subdomain_to_domain", "bounce", "bounce"),
+        ]
+    )
+    @patch("products.workflows.backend.providers.SESProvider.create_email_domain")
+    def test_mail_from_subdomain_is_shared_across_the_domain(
+        self, _name, requested_subdomain, expected_subdomain, mock_create_email_domain
+    ):
+        first = EmailIntegration.create_native_integration(
+            {"email": "first@successdomain.com", "name": "First", "mail_from_subdomain": "mail"},
+            team_id=self.team.id,
+            organization_id=str(self.organization.id),
+            created_by=self.user,
+        )
+
+        config = {"email": "second@successdomain.com", "name": "Second"}
+        if requested_subdomain:
+            config["mail_from_subdomain"] = requested_subdomain
+        second = EmailIntegration.create_native_integration(
+            config,
+            team_id=self.team.id,
+            organization_id=str(self.organization.id),
+            created_by=self.user,
+        )
+
+        first.refresh_from_db()
+        assert first.config["mail_from_subdomain"] == expected_subdomain
+        assert second.config["mail_from_subdomain"] == expected_subdomain
+        assert mock_create_email_domain.call_args.kwargs["mail_from_subdomain"] == expected_subdomain
+
+    @patch("products.workflows.backend.providers.SESProvider.update_mail_from_subdomain")
+    @patch("products.workflows.backend.providers.SESProvider.create_email_domain")
+    def test_updating_mail_from_subdomain_propagates_to_other_senders_on_the_domain(
+        self, mock_create_email_domain, mock_update_mail_from_subdomain
+    ):
+        first = EmailIntegration.create_native_integration(
+            {"email": "first@successdomain.com", "name": "First", "mail_from_subdomain": "mail"},
+            team_id=self.team.id,
+            organization_id=str(self.organization.id),
+            created_by=self.user,
+        )
+        second = EmailIntegration.create_native_integration(
+            {"email": "second@successdomain.com", "name": "Second"},
+            team_id=self.team.id,
+            organization_id=str(self.organization.id),
+            created_by=self.user,
+        )
+
+        EmailIntegration(second).update_native_integration(
+            {"name": "Second", "mail_from_subdomain": "bounce"}, self.team.id
+        )
+
+        first.refresh_from_db()
+        second.refresh_from_db()
+        assert first.config["mail_from_subdomain"] == "bounce"
+        assert second.config["mail_from_subdomain"] == "bounce"
+
+    @patch("products.workflows.backend.providers.SESProvider.create_email_domain")
     @patch("products.workflows.backend.providers.SESProvider.verify_email_domain")
     def test_duplicate_domain_in_another_organization(self, mock_create_email_domain, mock_verify_email_domain):
         mock_create_email_domain.return_value = {"status": "success", "domain": "successdomain.com"}
