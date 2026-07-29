@@ -289,7 +289,7 @@ class TestRankAssigneeCandidates:
                 refreshed_at=timezone.now(),
             )
 
-    def test_stale_agent_candidate_demoted_below_active_area_owner(self, team):
+    def test_activity_only_owner_not_added_when_agent_candidate_exists(self, team):
         self._seed_area(team, "products/signals", [("active-owner", 12, 2)])
 
         with patch("products.signals.backend.report_generation.resolve_reviewers._schedule_activity_rebuild"):
@@ -297,10 +297,10 @@ class TestRankAssigneeCandidates:
                 team.id, "acme/app", ["old-timer"], ["products/signals/backend/models.py"]
             )
 
-        assert [candidate.login for candidate in ranked] == ["active-owner", "old-timer"]
-        # activity-only candidate carries generated evidence; the agent candidate keeps none
-        assert "Recently active in `products/signals`" in ranked[0].commits[0].reason
-        assert ranked[1].commits == []
+        # An agent-proposed candidate exists, so the broad area owner is not padded in as a
+        # last-resort fallback — only the real candidate is returned.
+        assert [candidate.login for candidate in ranked] == ["old-timer"]
+        assert ranked[0].commits == []
 
     def test_active_agent_candidate_keeps_top_spot(self, team):
         self._seed_area(team, "products/signals", [("agent-pick", 5, 3), ("bystander", 12, 1)])
@@ -310,7 +310,8 @@ class TestRankAssigneeCandidates:
                 team.id, "acme/app", ["agent-pick"], ["products/signals/backend/models.py"]
             )
 
-        assert ranked[0].login == "agent-pick"
+        # The agent candidate is the only weighted candidate, so the active bystander is not added.
+        assert [candidate.login for candidate in ranked] == ["agent-pick"]
 
     def test_paths_alone_yield_activity_candidates(self, team):
         self._seed_area(team, "products/signals", [("area-owner", 8, 1)])
@@ -331,17 +332,9 @@ class TestRankAssigneeCandidates:
 
 @pytest.mark.django_db
 class TestResolveSuggestedReviewersEndToEnd:
-    def test_stale_blame_author_demoted_and_active_owner_suggested(self, team):
-        class FakeGitHub:
-            def get_commit_author_info(self, repository, sha):
-                return GitHubCommitAuthor(
-                    login="old-timer",
-                    name="Old Timer",
-                    commit_url=f"https://github.com/acme/app/commit/{sha}",
-                    file_paths=("products/signals/backend/models.py",),
-                )
-
-        activity = {
+    @staticmethod
+    def _active_owner_activity() -> dict[str, list[ContributorActivity]]:
+        return {
             "products/signals": [
                 ContributorActivity(
                     login="active-owner",
@@ -354,6 +347,16 @@ class TestResolveSuggestedReviewersEndToEnd:
             ]
         }
 
+    def test_activity_only_owner_not_added_when_blame_author_exists(self, team):
+        class FakeGitHub:
+            def get_commit_author_info(self, repository, sha):
+                return GitHubCommitAuthor(
+                    login="old-timer",
+                    name="Old Timer",
+                    commit_url=f"https://github.com/acme/app/commit/{sha}",
+                    file_paths=("products/signals/backend/models.py",),
+                )
+
         with (
             patch(
                 "products.signals.backend.report_generation.resolve_reviewers.GitHubIntegration.first_for_team_repository",
@@ -361,7 +364,7 @@ class TestResolveSuggestedReviewersEndToEnd:
             ),
             patch(
                 "products.signals.backend.report_generation.resolve_reviewers.get_area_activity",
-                return_value=activity,
+                return_value=self._active_owner_activity(),
             ),
             patch(
                 "products.signals.backend.report_generation.resolve_reviewers.repository_activity_needs_rebuild",
@@ -370,9 +373,40 @@ class TestResolveSuggestedReviewersEndToEnd:
         ):
             reviewers = resolve_suggested_reviewers(team.id, "acme/app", {"d" * 7: "introduced the bug"})
 
-        assert [r.login for r in reviewers] == ["active-owner", "old-timer"]
-        # The activity-only candidate carries their latest area commit as evidence.
+        # A real blame author exists, so the broad area owner is not padded in — even though it
+        # is more recently active. The blame author is returned alone with its commit evidence.
+        assert [r.login for r in reviewers] == ["old-timer"]
+        assert reviewers[0].commits[0].sha == "d" * 7
+
+    def test_activity_only_owner_used_when_no_human_blame_author(self, team):
+        class FakeGitHub:
+            def get_commit_author_info(self, repository, sha):
+                return GitHubCommitAuthor(
+                    login="dependabot",
+                    name="Dependabot",
+                    commit_url=f"https://github.com/acme/app/commit/{sha}",
+                    file_paths=("products/signals/backend/models.py",),
+                    is_bot=True,
+                )
+
+        with (
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.GitHubIntegration.first_for_team_repository",
+                return_value=FakeGitHub(),
+            ),
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.get_area_activity",
+                return_value=self._active_owner_activity(),
+            ),
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.repository_activity_needs_rebuild",
+                return_value=False,
+            ),
+        ):
+            reviewers = resolve_suggested_reviewers(team.id, "acme/app", {"d" * 7: "introduced the bug"})
+
+        # The only commit author is a bot, so there is no weighted candidate — the area owner is
+        # kept as the genuine last-resort fallback rather than leaving the report with no reviewer.
+        assert [r.login for r in reviewers] == ["active-owner"]
         assert reviewers[0].commits[0].sha == "c" * 7
         assert "Recently active in `products/signals`" in reviewers[0].commits[0].reason
-        # The blame author keeps their blame commit evidence, just demoted.
-        assert reviewers[1].commits[0].sha == "d" * 7
