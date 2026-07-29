@@ -1,11 +1,14 @@
 use std::collections::{HashMap, HashSet};
+use std::str::from_utf8;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use etcd_client::{EventType, WatchStream};
+use futures::future::BoxFuture;
+use futures::stream::{FuturesUnordered, StreamExt};
 use metrics::{counter, gauge, histogram};
-use tokio::sync::{Mutex, Notify};
+use tokio::sync::{Mutex, Notify, Semaphore, SemaphorePermit};
 use tokio_util::sync::CancellationToken;
 
 use assignment_coordination::store::parse_watch_value;
@@ -147,10 +150,12 @@ pub struct PodConfig {
     /// Should be less than K8s terminationGracePeriodSeconds to allow
     /// time for lease revocation before SIGKILL.
     pub drain_timeout: Duration,
-    /// How often the watch loop re-derives every involved partition's
-    /// state from a fresh snapshot, independent of events — the same
-    /// truth path the router's reconcile pass provides. Runs as an arm
-    /// of the watch loop, serialized with event-driven convergence.
+    /// How often the watch loop re-derives the involved-partition set
+    /// from a fresh snapshot, independent of events — the same truth
+    /// path the router's reconcile pass provides. Runs as an arm of the
+    /// watch loop; each pass re-dispatches every involved partition
+    /// through the same single-flight convergence lanes the event path
+    /// uses.
     pub reconcile_interval: Duration,
     /// How many consecutive reconcile failures to tolerate before
     /// failing the run. Same reasoning as the router's budget: a failed
@@ -161,6 +166,13 @@ pub struct PodConfig {
     /// `host:port` where this pod's gRPC server is reachable; registered
     /// so routers can dial the pod through the routing table.
     pub advertise_address: Option<String>,
+    /// Maximum number of partition warms this pod runs concurrently.
+    /// Warming several partitions at once keeps a deploy-burst of
+    /// inbound handoffs from queueing each warm behind the last; the
+    /// bound keeps a cold restart from opening one Kafka replay per
+    /// assigned partition all at once. Only warms queue on this —
+    /// drains, releases, and acks are never held behind warm pressure.
+    pub warm_concurrency: usize,
 }
 
 impl Default for PodConfig {
@@ -175,6 +187,7 @@ impl Default for PodConfig {
             reconcile_interval: Duration::from_secs(5),
             reconcile_failure_budget: 12,
             advertise_address: None,
+            warm_concurrency: 4,
         }
     }
 }
@@ -210,6 +223,8 @@ pub struct PodHandle {
     fenced_partitions: Mutex<HashSet<u32>>,
     /// Signalled when a partition is released, waking `drain()` without polling.
     drain_notify: Notify,
+    /// Bounds concurrent `warm_partition` calls to `warm_concurrency`.
+    warm_slots: Semaphore,
     /// Optional K8s awareness for departure classification during shutdown.
     k8s_awareness: Option<Arc<K8sAwareness>>,
 }
@@ -221,6 +236,7 @@ impl PodHandle {
         handler: Arc<dyn HandoffHandler>,
         k8s_awareness: Option<Arc<K8sAwareness>>,
     ) -> Self {
+        let warm_slots = Semaphore::new(config.warm_concurrency);
         Self {
             store,
             config,
@@ -228,6 +244,7 @@ impl PodHandle {
             warmed_partitions: Mutex::new(HashMap::new()),
             fenced_partitions: Mutex::new(HashSet::new()),
             drain_notify: Notify::new(),
+            warm_slots,
             k8s_awareness,
         }
     }
@@ -263,14 +280,11 @@ impl PodHandle {
         // changes only ever happen atomically with a handoff Complete event,
         // so there's no need to watch assignments separately.
         //
-        // The outer `select!` against the cancel token is what guarantees we
-        // exit promptly even when `watch_handoff_loop` is parked inside a
-        // `handle_handoff_event` call. The loop's own `select!` only checks
-        // the cancel token between iterations; if a phase handler (e.g.
-        // `warm_partition`) blocks indefinitely, the inner check is never
-        // re-polled. Racing the cancel token at this level drops the
-        // in-flight loop future via cancel-by-drop, unwinding any stuck
-        // handler and letting the pod proceed to drain + lease revoke.
+        // The outer `select!` against the cancel token is what guarantees a
+        // prompt exit: dropping the loop future also drops every in-flight
+        // convergence it is driving, so even a phase handler (e.g.
+        // `warm_partition`) that blocks indefinitely cannot hold the pod
+        // back from proceeding to drain + lease revoke.
         //
         // The heartbeat task is raced here too: the coordinator treats
         // lease expiry as pod death and hands this pod's partitions to
@@ -282,21 +296,22 @@ impl PodHandle {
         let mut lease_lost = false;
         let result = tokio::select! {
             r = async {
-                // Converge every partition this pod is involved in before
-                // watching for new events. A pod that crash-restarts within
-                // its lease TTL keeps its registration and assignments but
-                // loses all in-memory state (cache, fences) — and because
-                // nothing about etcd changed, no event will ever arrive to
-                // repair the divergence. Re-deriving local state from the
-                // durable state at startup closes that structurally: cold
-                // assigned partitions re-warm, in-flight handoffs get their
+                // Seed the loop with every partition this pod is involved
+                // in before watching for new events. A pod that
+                // crash-restarts within its lease TTL keeps its
+                // registration and assignments but loses all in-memory
+                // state (cache, fences) — and because nothing about etcd
+                // changed, no event will ever arrive to repair the
+                // divergence. Re-deriving local state from the durable
+                // state at startup closes that structurally: cold assigned
+                // partitions re-warm, in-flight handoffs get their
                 // drain/warm/ack, completed ones release. The watch is
                 // anchored to the snapshot's revision, so an event landing
                 // between the snapshot and the watch attaching is replayed
                 // rather than lost.
-                let snapshot_revision = self.reconcile_all().await?;
+                let (initial, snapshot_revision) = self.involved_partitions().await?;
                 let stream = self.store.watch_handoffs_from(snapshot_revision + 1).await?;
-                self.watch_handoff_loop(stream, cancel.clone()).await
+                self.watch_handoff_loop(stream, cancel.clone(), initial).await
             } => r,
             r = &mut heartbeat_handle => {
                 lease_lost = true;
@@ -414,14 +429,14 @@ impl PodHandle {
         // otherwise be missed — and anchor the fresh watch to the
         // snapshot's revision.
         let drain_cancel = CancellationToken::new();
-        let snapshot_revision = self.reconcile_all().await?;
+        let (initial, snapshot_revision) = self.involved_partitions().await?;
         let stream = self
             .store
             .watch_handoffs_from(snapshot_revision + 1)
             .await?;
 
         tokio::select! {
-            r = self.watch_handoff_loop(stream, drain_cancel.clone()) => {
+            r = self.watch_handoff_loop(stream, drain_cancel.clone(), initial) => {
                 r?;
             },
             _ = self.wait_for_drain() => {
@@ -466,22 +481,17 @@ impl PodHandle {
         }
     }
 
-    /// Converge every partition this pod is involved in — assigned to it,
-    /// or named in a handoff as old or new owner — from a consistent
-    /// snapshot of the durable state. Returns the smaller of the two
-    /// snapshot revisions so the caller can anchor the handoff watch: any
-    /// change landing between the two reads (or between them and the watch
-    /// attaching) is redelivered as an event and re-converged with fresh
-    /// reads.
-    async fn reconcile_all(&self) -> Result<i64> {
+    /// Derive every partition this pod is involved in — assigned to it,
+    /// named in a handoff as old or new owner, or still held locally —
+    /// from a consistent snapshot of the durable state. Returns the set
+    /// alongside the smaller of the two snapshot revisions so the caller
+    /// can anchor the handoff watch: any change landing between the two
+    /// reads (or between them and the watch attaching) is redelivered as
+    /// an event and re-converged with fresh reads.
+    async fn involved_partitions(&self) -> Result<(HashSet<u32>, i64)> {
         let (assignments, rev_a) = self.store.list_assignments_with_revision().await?;
         let (handoffs, rev_h) = self.store.list_handoffs_with_revision().await?;
         let pod = &self.config.pod_name;
-
-        let assignment_map: std::collections::HashMap<u32, &PartitionAssignment> =
-            assignments.iter().map(|a| (a.partition, a)).collect();
-        let handoff_map: std::collections::HashMap<u32, &HandoffState> =
-            handoffs.iter().map(|h| (h.partition, h)).collect();
 
         let mut partitions: HashSet<u32> = HashSet::new();
         for a in &assignments {
@@ -506,16 +516,8 @@ impl PodHandle {
             partitions = partitions.len(),
             "reconciling local state against durable state"
         );
-        for partition in partitions {
-            self.apply(
-                partition,
-                assignment_map.get(&partition).copied(),
-                handoff_map.get(&partition).copied(),
-            )
-            .await?;
-        }
 
-        Ok(rev_a.min(rev_h))
+        Ok((partitions, rev_a.min(rev_h)))
     }
 
     /// Re-derive and apply the desired state for one partition from fresh
@@ -530,10 +532,21 @@ impl PodHandle {
             .await
     }
 
+    /// Bound on concurrent cache warms. Only the two warm sites in
+    /// `apply` queue here; everything else a convergence does (fence,
+    /// drain, release, ack) must stay prompt regardless of warm pressure.
+    async fn acquire_warm_slot(&self) -> Result<SemaphorePermit<'_>> {
+        self.warm_slots
+            .acquire()
+            .await
+            .map_err(|_| Error::invalid_state("warm semaphore closed".to_string()))
+    }
+
     /// Drive local state (cache warmth, write fence, acks, held set) to
-    /// the desired state. Every transition is idempotent; callers are
-    /// serialized (startup reconcile, then the single watch loop), so no
-    /// two applications for the same partition ever interleave.
+    /// the desired state. Every transition is idempotent; the watch loop
+    /// runs at most one convergence per partition at a time, so no two
+    /// applications for the same partition ever interleave — applications
+    /// for different partitions may run concurrently.
     async fn apply(
         &self,
         partition: u32,
@@ -547,6 +560,7 @@ impl PodHandle {
             DesiredState::Serving => {
                 if !self.warmed_partitions.lock().await.contains_key(&partition) {
                     tracing::info!(pod, partition, "converging to Serving: warming");
+                    let _warm_slot = self.acquire_warm_slot().await?;
                     let start = Instant::now();
                     self.handler.warm_partition(partition).await?;
                     histogram!("personhog_coordination_partition_warm_ms", "trigger" => "restart")
@@ -627,6 +641,7 @@ impl PodHandle {
                         self.handler.release_partition(partition).await?;
                     }
                     tracing::info!(pod, partition, "converging to Acquiring: warming");
+                    let _warm_slot = self.acquire_warm_slot().await?;
                     let start = Instant::now();
                     self.handler.warm_partition(partition).await?;
                     histogram!("personhog_coordination_partition_warm_ms", "trigger" => "handoff")
@@ -674,46 +689,150 @@ impl PodHandle {
         &self,
         mut stream: WatchStream,
         cancel: CancellationToken,
+        initial: HashSet<u32>,
     ) -> Result<()> {
-        // The truth path: periodically re-derive every involved
-        // partition from a fresh snapshot, repairing whatever the event
-        // path failed to deliver. First pass one interval out — the
-        // startup reconcile has just run. An arm of this loop on
-        // purpose: convergence stays serialized with event handling.
+        // The truth path: periodically re-derive the involved-partition
+        // set from a fresh snapshot and re-dispatch each member,
+        // repairing whatever the event path failed to deliver. First
+        // pass one interval out — the caller has just seeded `initial`
+        // from the same derivation.
         let mut reconcile_tick = tokio::time::interval_at(
             tokio::time::Instant::now() + self.config.reconcile_interval,
             self.config.reconcile_interval,
         );
+
+        // Convergence is single-flight per partition: at most one
+        // `converge` future per partition lives in `lanes` at a time,
+        // preserving the no-interleaving guarantee `apply` relies on,
+        // while different partitions converge concurrently — a deploy
+        // moving several partitions onto this pod warms them in
+        // parallel instead of queueing each behind the last. A signal
+        // arriving for a partition already converging parks in
+        // `pending`; `converge` reads fresh state, so one re-run
+        // absorbs any number of coalesced signals. Dropping this loop
+        // future drops every in-flight convergence with it, so cancel
+        // semantics are unchanged from converging inline.
+        let mut lanes: FuturesUnordered<BoxFuture<'_, (u32, Trigger, Result<()>)>> =
+            FuturesUnordered::new();
+        let mut in_flight: HashSet<u32> = HashSet::new();
+        let mut pending: HashMap<u32, Trigger> = HashMap::new();
+
+        fn dispatch<'s>(
+            handle: &'s PodHandle,
+            partition: u32,
+            trigger: Trigger,
+            in_flight: &mut HashSet<u32>,
+            pending: &mut HashMap<u32, Trigger>,
+            lanes: &mut FuturesUnordered<BoxFuture<'s, (u32, Trigger, Result<()>)>>,
+        ) {
+            if in_flight.contains(&partition) {
+                // Coalesce, keeping the stricter error disposition: a
+                // fatal Event request must not be downgraded by a later
+                // budgeted Reconcile one.
+                let entry = pending.entry(partition).or_insert(trigger);
+                if trigger == Trigger::Event {
+                    *entry = Trigger::Event;
+                }
+                return;
+            }
+            in_flight.insert(partition);
+            lanes.push(Box::pin(async move {
+                (partition, trigger, handle.converge(partition).await)
+            }));
+        }
+
+        for partition in initial {
+            // Seed convergence carries Event severity: a pod that cannot
+            // establish its local state at loop start must not serve.
+            dispatch(
+                self,
+                partition,
+                Trigger::Event,
+                &mut in_flight,
+                &mut pending,
+                &mut lanes,
+            );
+        }
+
+        // Reconcile health is judged per tick window, keeping the budget
+        // at the pass granularity it was sized for: a window where any
+        // reconcile-triggered convergence failed — or whose own
+        // durable-state snapshot failed — counts exactly one failure, so
+        // a single partition persistently failing (a bad warm, say)
+        // still exhausts the budget even while its neighbors converge
+        // fine, while one blip failing several things at once cannot
+        // burn the budget faster than real time. A window of only
+        // successes resets the count; a window with no completed
+        // reconcile convergence at all (one still in flight across the
+        // tick) is neutral.
         let mut consecutive_reconcile_failures: u32 = 0;
+        let mut window_err: Option<Error> = None;
+        let mut window_ok = false;
+
         loop {
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
                 _ = reconcile_tick.tick() => {
-                    // Tolerated for the same reason as the router's
-                    // reconcile arm: a failed pass leaves the pod as
-                    // stale as one tick ago and the next success fully
-                    // compensates, so a brief etcd blip must not take
-                    // the data plane down with it. The budget bounds
-                    // the reads-failing-while-lease-healthy mode.
-                    match self.reconcile_all().await {
-                        Ok(_) => consecutive_reconcile_failures = 0,
-                        Err(e) => {
-                            consecutive_reconcile_failures += 1;
-                            counter!(
-                                "personhog_coordination_reconcile_failures_total",
-                                "component" => "pod"
-                            )
-                            .increment(1);
-                            tracing::warn!(
-                                pod = %self.config.pod_name,
-                                error = %e,
-                                consecutive = consecutive_reconcile_failures,
-                                budget = self.config.reconcile_failure_budget,
-                                "pod reconcile failed; continuing on last-known state"
-                            );
-                            if consecutive_reconcile_failures >= self.config.reconcile_failure_budget {
-                                return Err(e);
+                    // One budget count per tick at most, no matter how
+                    // many things failed inside its window: the budget is
+                    // sized in passes, and a single blip failing both a
+                    // convergence and the following snapshot is one
+                    // failed pass, not two.
+                    let mut tick_err: Option<Error> = window_err.take();
+                    if tick_err.is_none() && window_ok {
+                        consecutive_reconcile_failures = 0;
+                    }
+                    window_ok = false;
+
+                    // List failures are tolerated for the same reason as
+                    // the router's reconcile arm: a failed pass leaves
+                    // the pod as stale as one tick ago and the next
+                    // success fully compensates, so a brief etcd blip
+                    // must not take the data plane down with it. The
+                    // budget bounds the reads-failing-while-lease-healthy
+                    // mode.
+                    match self.involved_partitions().await {
+                        Ok((partitions, _)) => {
+                            for partition in partitions {
+                                dispatch(
+                                    self,
+                                    partition,
+                                    Trigger::Reconcile,
+                                    &mut in_flight,
+                                    &mut pending,
+                                    &mut lanes,
+                                );
                             }
+                        }
+                        Err(e) => {
+                            if tick_err.is_none() {
+                                tick_err = Some(e);
+                            } else {
+                                tracing::warn!(
+                                    pod = %self.config.pod_name,
+                                    error = %e,
+                                    "durable-state snapshot failed in an already-failed window"
+                                );
+                            }
+                        }
+                    }
+
+                    if let Some(e) = tick_err {
+                        consecutive_reconcile_failures += 1;
+                        counter!(
+                            "personhog_coordination_reconcile_failures_total",
+                            "component" => "pod"
+                        )
+                        .increment(1);
+                        tracing::warn!(
+                            pod = %self.config.pod_name,
+                            error = %e,
+                            consecutive = consecutive_reconcile_failures,
+                            budget = self.config.reconcile_failure_budget,
+                            "pod reconcile failed; continuing on last-known state"
+                        );
+                        if consecutive_reconcile_failures >= self.config.reconcile_failure_budget {
+                            return Err(e);
                         }
                     }
                 }
@@ -730,17 +849,65 @@ impl PodHandle {
                             },
                             EventType::Delete => event
                                 .kv()
-                                .and_then(|kv| std::str::from_utf8(kv.key()).ok())
+                                .and_then(|kv| from_utf8(kv.key()).ok())
                                 .and_then(store::extract_partition_from_key),
                         };
                         if let Some(partition) = partition {
-                            self.converge(partition).await?;
+                            dispatch(
+                                self,
+                                partition,
+                                Trigger::Event,
+                                &mut in_flight,
+                                &mut pending,
+                                &mut lanes,
+                            );
                         }
+                    }
+                }
+                Some((partition, trigger, result)) = lanes.next(), if !lanes.is_empty() => {
+                    in_flight.remove(&partition);
+                    match result {
+                        Ok(()) => {
+                            if trigger == Trigger::Reconcile {
+                                window_ok = true;
+                            }
+                        }
+                        Err(e) => match trigger {
+                            // The pod was told about a specific durable
+                            // transition and cannot honor it; serving on
+                            // regardless would hold the handoff hostage
+                            // with no signal to the coordinator.
+                            Trigger::Event => return Err(e),
+                            Trigger::Reconcile => {
+                                tracing::warn!(
+                                    pod = %self.config.pod_name,
+                                    partition,
+                                    error = %e,
+                                    "reconcile-triggered convergence failed"
+                                );
+                                window_err = Some(e);
+                            }
+                        },
+                    }
+                    if let Some(next) = pending.remove(&partition) {
+                        dispatch(self, partition, next, &mut in_flight, &mut pending, &mut lanes);
                     }
                 }
             }
         }
     }
+}
+
+/// Why a convergence was dispatched — decides what its failure means.
+/// Event-driven convergence (including the seed at loop start) failing is
+/// fatal to the run: the pod cannot honor a specific durable transition
+/// it was told about. Reconcile-tick convergence failing is tolerated
+/// under the reconcile failure budget: the pod is merely as stale as one
+/// tick, and the next pass compensates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Trigger {
+    Event,
+    Reconcile,
 }
 
 #[cfg(test)]
