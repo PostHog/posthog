@@ -67,7 +67,9 @@ Then decide:
   — e.g. "This scanner is projected to produce ~X observations/month; you have Y of Z left this month." —
   and confirm before creating, or suggest tightening the `query` or lowering `sampling_rate` first.
 - If the org is already `exhausted`, say so — a new enabled scanner won't produce anything until the quota
-  resets, and its observations will be silently skipped.
+  resets, and its observations will be silently skipped. When `can_raise_credit_limit` is true, the limit is
+  the pre-billing safety cap rather than a billed limit, and an organization admin can lift it from the
+  Replay vision page (up to `self_serve_credit_ceiling`) instead of waiting for the reset.
 
 Confirmation here is a conversation step, not an API capability — surface the trade-off and let the user
 choose. When the projected volume is clearly small relative to the budget, you don't need to ask.

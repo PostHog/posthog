@@ -66,11 +66,18 @@ def check_observation_quota(organization_id: UUID, observation_credits: int) -> 
     if snapshot.would_exceed(observation_credits):
         # would_exceed is only ever true when a limit is set, so credit_limit is non-None here.
         assert snapshot.credit_limit is not None
+        # The message reaches users as a toast, so it has to name the way out, not just the wall.
+        if snapshot.billing_managed:
+            way_out = "Change your spend limit in your billing settings."
+        elif snapshot.can_raise_credit_limit:
+            way_out = "An organization admin can raise it from the Replay vision page."
+        else:
+            way_out = "Ask us for a higher budget from the Replay vision page."
         raise QuotaLimitExceeded(
             detail=(
-                f"Starting this observation would exceed your monthly Replay vision limit of "
+                f"This scan would exceed your monthly Replay vision budget of "
                 f"${snapshot.credit_limit / 100:,.2f}. Resets {snapshot.period_end.strftime('%b')} "
-                f"{snapshot.period_end.day}."
+                f"{snapshot.period_end.day}. {way_out}"
             )
         )
 

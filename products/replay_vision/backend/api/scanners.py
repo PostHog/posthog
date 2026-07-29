@@ -1265,6 +1265,8 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
 
     def _report_quota_exhausted(self, scanner: ReplayScanner, trigger: str) -> None:
         """A scan was blocked or capped by the org's monthly Replay vision credit limit."""
+        # The limit shape decides whether the block is self-serviceable, so it belongs on the event.
+        snapshot = compute_quota_snapshot(self.team.organization_id)
         report_user_action(
             cast(User, self.request.user),
             "replay_vision_quota_exhausted",
@@ -1272,6 +1274,10 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 "scanner_id": str(scanner.id),
                 "scanner_type": scanner.scanner_type,
                 "trigger": trigger,
+                "credit_limit": snapshot.credit_limit,
+                "credits_used": snapshot.credits_used,
+                "billing_managed": snapshot.billing_managed,
+                "can_raise_credit_limit": snapshot.can_raise_credit_limit,
             },
             team=self.team,
             request=self.request,

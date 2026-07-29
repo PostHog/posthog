@@ -190,7 +190,9 @@ tools:
             `period_start`/`period_end` of the current calendar-month window. Check `remaining`/`exhausted` before
             creating a scanner or calling `vision-scanners-scan-session` — observations requested over budget are
             silently skipped until the next period. Pair with `vision-scanners-estimate-create` to size a new scanner
-            against the remaining budget.
+            against the remaining budget. When `billing_managed` is false the limit is a pre-billing safety cap rather
+            than a billed spend limit, and `can_raise_credit_limit` says whether an organization admin can lift it (up
+            to `self_serve_credit_ceiling`) from the Replay vision page.
         feature_flag: replay-vision
     vision-scanners-affected-cohort-create:
         operation: vision_scanners_affected_cohort_create

@@ -9,6 +9,9 @@ A sub-product of Session Replay. Users configure named **scanners** that PostHog
 **Observation** — one application of a scanner to a session, unique per (scanner, session). Created in `pending` when triggered (by the scanner's schedule or the `/observe/` action), transitions to `running` while `ApplyScannerWorkflow` executes (rasterize the recording to video → upload to Gemini → multi-turn scan), and lands in `succeeded` (result persisted, then a `$recording_observed` event plus embeddings/tags emitted fail-soft), `failed` (with a `kind:message` `error_reason`), or `ineligible` (the session doesn't qualify — too short, too idle, no recording). Each observation snapshots the full scanner state (`scanner_snapshot`) that produced it, so subsequent edits to the scanner don't retro-mutate history. Rows stranded in `pending`/`running` by a dead workflow are failed as `orphaned` by a reaper on the reconciler tick.
 
 **Quota** — succeeded observations write an immutable usage receipt; usage (receipts + in-flight rows) is counted against a monthly per-organization quota, with per-scanner volume estimates summed into a projected-usage prognosis shown at configuration time.
+The limit comes from billing once billing has synced the product.
+Until then it is `MONTHLY_CREDIT_QUOTA`, a runaway-spend guard rather than a limit the organization is billed against, so organization admins can lift it themselves in `SELF_SERVE_CREDIT_STEP` increments up to `SELF_SERVE_CREDIT_CEILING` via `POST /vision/quota/raise_limit/`.
+That writes a single `is_self_serve` `ReplayQuotaGrant` per organization per period, which expires with the period; staff-issued grants stack on top and count against the same ceiling.
 
 ## Layout
 

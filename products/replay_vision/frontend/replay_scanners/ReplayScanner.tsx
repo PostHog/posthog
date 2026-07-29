@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconSparkles } from '@posthog/icons'
-import { LemonBanner, LemonButton, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonButton, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -17,11 +17,9 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { IngestionLimitBanner } from '../components/IngestionLimitBanner'
+import { QuotaBanner } from '../components/QuotaBanner'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
-import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
-import { formatCreditsRange } from '../utils/credits'
-import { quotaBannerState } from '../utils/quotaProjection'
 import { ScannerConfigReadonly } from './components/ScannerConfigReadonly'
 import { ScannerDigestCard } from './components/ScannerDigestCard'
 import { ScannerObservationsTable } from './components/ScannerObservationsTable'
@@ -154,22 +152,6 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                 ]}
             />
         </SceneContent>
-    )
-}
-
-// Assumes block-only overage policy; revisit when `usage_based` ships so we don't scare metered orgs.
-function QuotaBanner(): JSX.Element | null {
-    const { quota } = useValues(visionQuotaLogic)
-    const state = quotaBannerState(quota)
-    if (!state.kind) {
-        return null
-    }
-    return (
-        <LemonBanner type="warning">
-            {state.kind === 'exhausted'
-                ? `Monthly spend limit reached: ${formatCreditsRange(state.quota.credits_used, state.quota.credit_limit ?? 0)}. New observations are paused until ${state.resetsOn}.`
-                : `You've used ${formatCreditsRange(state.quota.credits_used, state.quota.credit_limit ?? 0)} this month. New observations will pause once you hit the limit. Resets ${state.resetsOn}.`}
-        </LemonBanner>
     )
 }
 

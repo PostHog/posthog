@@ -35,6 +35,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { FilterPill } from '../components/FilterPill'
 import { IngestionLimitBanner } from '../components/IngestionLimitBanner'
+import { QuotaBanner } from '../components/QuotaBanner'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
 import { getReplayVisionDeleteDisabledReason, getReplayVisionEditDisabledReason } from '../utils/accessControl'
@@ -211,6 +212,21 @@ export function ReplayScannersScene(): JSX.Element {
             sorter: true,
         },
         {
+            title: 'Projected per month',
+            key: 'estimated_monthly_credits',
+            tooltip:
+                'What this scanner is on track to cost over a full month, from its latest volume estimate. Disabled scanners still show their estimate but do not spend.',
+            render: (_, scanner) =>
+                scanner.estimated_monthly_credits === null ? (
+                    <span className="text-muted text-sm">Not estimated yet</span>
+                ) : (
+                    <div className="text-sm tabular-nums">
+                        <div>{formatCreditCount(scanner.estimated_monthly_credits)}</div>
+                        <div className="text-muted text-xs">≈ {creditsToUsd(scanner.estimated_monthly_credits)}</div>
+                    </div>
+                ),
+        },
+        {
             title: 'Created by',
             key: 'created_by',
             render: (_, scanner) =>
@@ -282,6 +298,7 @@ export function ReplayScannersScene(): JSX.Element {
                 }
             />
 
+            <QuotaBanner />
             <IngestionLimitBanner />
 
             <ProductIntroduction

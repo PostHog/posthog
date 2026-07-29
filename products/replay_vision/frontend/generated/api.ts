@@ -406,6 +406,26 @@ export const environmentVisionQuotaRetrieve = async (
     })
 }
 
+export const getEnvironmentVisionQuotaRaiseLimitUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/vision/quota/raise_limit/`
+}
+
+/**
+ * Lift the organization's Replay vision credit limit by one step, up to the self-serve ceiling.
+
+Only for organizations whose limit is the fallback cap — those are not billed for the product, so
+the cap is a runaway-spend guard admins should be able to move without a staff-issued grant.
+ */
+export const environmentVisionQuotaRaiseLimit = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<VisionQuotaApi> => {
+    return apiMutator<VisionQuotaApi>(getEnvironmentVisionQuotaRaiseLimitUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getVisionScannersListUrl = (projectId: string, params?: VisionScannersListParams) => {
     const normalizedParams = new URLSearchParams()
 

@@ -9,7 +9,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.date_util import start_of_month
-from posthog.models import Organization, Team
+from posthog.models import Organization, OrganizationMembership, Team
 
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import (
@@ -21,7 +21,13 @@ from products.replay_vision.backend.models.replay_observation_usage import Repla
 from products.replay_vision.backend.models.replay_quota_grant import ReplayQuotaGrant
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import ReplayScannerPromptSuggestion
-from products.replay_vision.backend.quota import MONTHLY_CREDIT_QUOTA, compute_quota_snapshot
+from products.replay_vision.backend.quota import (
+    MONTHLY_CREDIT_QUOTA,
+    SELF_SERVE_CREDIT_CEILING,
+    SelfServeRaiseUnavailable,
+    compute_quota_snapshot,
+    raise_self_serve_credit_limit,
+)
 from products.replay_vision.backend.tests.helpers import snapshot_for as _snapshot_for
 
 
@@ -446,6 +452,95 @@ class TestQuotaGrants(_VisionQuotaTestCase):
             assert snapshot.remaining == 1
 
 
+class TestSelfServeCreditLimit(_VisionQuotaTestCase):
+    def test_raise_steps_up_and_stops_at_the_ceiling(self) -> None:
+        with (
+            patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 100),
+            patch("products.replay_vision.backend.quota.SELF_SERVE_CREDIT_STEP", 60),
+            patch("products.replay_vision.backend.quota.SELF_SERVE_CREDIT_CEILING", 200),
+        ):
+            assert raise_self_serve_credit_limit(self.organization.id, self.user.pk).credit_limit == 160
+            # Second raise only takes the remaining headroom, not another full step.
+            assert raise_self_serve_credit_limit(self.organization.id, self.user.pk).credit_limit == 200
+            with self.assertRaises(SelfServeRaiseUnavailable):
+                raise_self_serve_credit_limit(self.organization.id, self.user.pk)
+            # Repeated raises grow one grant rather than stacking rows.
+            assert ReplayQuotaGrant.objects.filter(organization=self.organization, is_self_serve=True).count() == 1
+
+    def test_raise_unblocks_an_exhausted_org(self) -> None:
+        with (
+            patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 15),
+            patch("products.replay_vision.backend.quota.SELF_SERVE_CREDIT_STEP", 15),
+            patch("products.replay_vision.backend.quota.SELF_SERVE_CREDIT_CEILING", 60),
+        ):
+            self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
+            assert compute_quota_snapshot(organization_id=self.organization.id).exhausted is True
+            snapshot = raise_self_serve_credit_limit(self.organization.id, self.user.pk)
+            assert snapshot.exhausted is False
+            assert snapshot.would_exceed(15) is False
+
+    def test_grant_expires_with_the_period(self) -> None:
+        raise_self_serve_credit_limit(self.organization.id, self.user.pk)
+        grant = ReplayQuotaGrant.objects.get(organization=self.organization, is_self_serve=True)
+        assert grant.expires_at == compute_quota_snapshot(organization_id=self.organization.id).period_end
+
+    def test_staff_grants_count_against_the_self_serve_ceiling(self) -> None:
+        # Otherwise a hand-granted org could self-serve its way past the ceiling on top of the grant.
+        ReplayQuotaGrant.objects.create(
+            organization=self.organization, amount=80, expires_at=timezone.now() + timedelta(days=10)
+        )
+        with (
+            patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 100),
+            patch("products.replay_vision.backend.quota.SELF_SERVE_CREDIT_CEILING", 150),
+        ):
+            with self.assertRaises(SelfServeRaiseUnavailable):
+                raise_self_serve_credit_limit(self.organization.id, self.user.pk)
+
+    def test_billing_managed_org_cannot_self_serve(self) -> None:
+        self.organization.usage = {"replay_vision_credits": {"limit": 42, "usage": 0}}
+        self.organization.save()
+        snapshot = compute_quota_snapshot(organization_id=self.organization.id)
+        assert snapshot.billing_managed is True
+        assert snapshot.can_raise_credit_limit is False
+        with self.assertRaises(SelfServeRaiseUnavailable):
+            raise_self_serve_credit_limit(self.organization.id, self.user.pk)
+
+    def test_unsynced_org_advertises_the_ceiling(self) -> None:
+        snapshot = compute_quota_snapshot(organization_id=self.organization.id)
+        assert snapshot.billing_managed is False
+        assert snapshot.self_serve_credit_ceiling == SELF_SERVE_CREDIT_CEILING
+        assert snapshot.can_raise_credit_limit is True
+
+
+class TestRaiseLimitEndpoint(_VisionQuotaTestCase):
+    @property
+    def raise_url(self) -> str:
+        return f"/api/environments/{self.team.id}/vision/quota/raise_limit/"
+
+    def _promote_to_admin(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    def test_admin_raises_the_limit(self) -> None:
+        self._promote_to_admin()
+        with patch("products.replay_vision.backend.quota.SELF_SERVE_CREDIT_STEP", 500):
+            resp = self.client.post(self.raise_url)
+        assert resp.status_code == 200, resp.json()
+        assert resp.json()["credit_limit"] == MONTHLY_CREDIT_QUOTA + 500
+
+    def test_member_cannot_raise_the_limit(self) -> None:
+        resp = self.client.post(self.raise_url)
+        assert resp.status_code == 403, resp.json()
+        assert not ReplayQuotaGrant.objects.filter(organization=self.organization).exists()
+
+    def test_billing_managed_org_is_rejected(self) -> None:
+        self._promote_to_admin()
+        self.organization.usage = {"replay_vision_credits": {"limit": 42, "usage": 0}}
+        self.organization.save()
+        resp = self.client.post(self.raise_url)
+        assert resp.status_code == 400, resp.json()
+
+
 class TestReplayQuotaGrantAdmin(_VisionQuotaTestCase):
     def test_initial_form_renders(self) -> None:
         # Regression: `expires_at` initial must be a datetime, not a str. The admin's
@@ -531,7 +626,7 @@ class TestObserveQuotaEnforcement(_VisionQuotaTestCase):
             assert resp.status_code == 402, resp.json()
             body = resp.json()
             assert body["code"] == "quota_limit_exceeded"
-            assert "would exceed your monthly Replay vision limit of $0.05" in body["detail"]
+            assert "would exceed your monthly Replay vision budget of $0.05" in body["detail"]
             mock_sync_connect.assert_not_called()
             mock_async_to_sync.assert_not_called()
 

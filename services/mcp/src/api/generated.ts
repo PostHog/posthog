@@ -70396,6 +70396,15 @@ export namespace Schemas {
       readonly period_end: string;
       /** Credit-weighted sum of enabled scanners' projected observations/month across the organization. Scanners without a computed estimate contribute 0. */
       readonly projected_monthly_credits: number;
+      /** True when billing manages this organization's Replay vision spend limit. False means the limit is the fallback runaway-spend cap, which the organization is not billed against. */
+      readonly billing_managed: boolean;
+      /**
+         * Highest credit limit an organization admin can set for themselves without staff help. Null when billing manages the limit.
+         * @nullable
+         */
+      readonly self_serve_credit_ceiling: number | null;
+      /** True when `raise_limit` would lift this organization's cap — the limit is not billing-managed and is still below `self_serve_credit_ceiling`. Admin membership is checked separately, on the request. */
+      readonly can_raise_credit_limit: boolean;
     }
 
     export interface WarehouseConnection {

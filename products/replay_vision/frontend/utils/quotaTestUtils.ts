@@ -12,6 +12,9 @@ export function makeQuota(overrides: Partial<VisionQuotaApi> = {}): VisionQuotaA
         projected_monthly_credits: 0,
         period_start: daysFromNow(-10),
         period_end: daysFromNow(20),
+        billing_managed: true,
+        self_serve_credit_ceiling: null,
+        can_raise_credit_limit: false,
         ...overrides,
     }
 }

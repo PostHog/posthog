@@ -42,6 +42,14 @@ class ReplayQuotaGrant(UUIDModel):
         default="",
         help_text="Free-form note explaining why the bonus was granted.",
     )
+    is_self_serve = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text=(
+            "Raised by an organization admin rather than by staff. There is at most one of these per "
+            "organization per period; it grows in steps up to a ceiling."
+        ),
+    )
 
     class Meta:
         ordering = ["-granted_at"]

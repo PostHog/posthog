@@ -51,8 +51,8 @@ class ReplayObservationAdmin(admin.ModelAdmin):
 
 @admin.register(ReplayQuotaGrant)
 class ReplayQuotaGrantAdmin(admin.ModelAdmin):
-    list_display = ("organization", "amount", "granted_at", "expires_at", "granted_by", "reason")
-    list_filter = ("granted_at", "expires_at")
+    list_display = ("organization", "amount", "is_self_serve", "granted_at", "expires_at", "granted_by", "reason")
+    list_filter = ("is_self_serve", "granted_at", "expires_at")
     search_fields = ("organization__name", "reason")
     raw_id_fields = ("organization", "granted_by")
     readonly_fields = ("id", "granted_at")

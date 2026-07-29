@@ -93,7 +93,7 @@ describe('quotaUx', () => {
         expect(quotaUx(null)).toEqual({})
         // A zero limit with the backend reporting exhaustion must block, not read as uncapped.
         expect(quotaUx(makeQuota({ credit_limit: 0, remaining: 0, exhausted: true })).disabledReason).toMatch(
-            /spend limit reached/i
+            /budget used up/i
         )
         // Uncapped orgs never block or warn.
         expect(quotaUx(makeQuota({ credit_limit: null, credits_used: 999_999, remaining: null }))).toEqual({})
@@ -101,8 +101,30 @@ describe('quotaUx', () => {
 
     it('blocks with a disabledReason when exhausted', () => {
         const ux = quotaUx(makeQuota({ credits_used: 10_000, remaining: 0, exhausted: true }))
-        expect(ux.disabledReason).toMatch(/spend limit reached/i)
+        expect(ux.disabledReason).toMatch(/budget used up/i)
         expect(ux.tooltip).toBeUndefined()
+    })
+
+    // The blocked state used to dead-end on "paused until <reset>", which left beta orgs with nothing to do.
+    it.each([
+        [
+            'billing-managed org points at billing settings',
+            { billing_managed: true, can_raise_credit_limit: false },
+            /billing settings/i,
+        ],
+        [
+            'raisable beta org points at the admin control',
+            { billing_managed: false, can_raise_credit_limit: true },
+            /organization admin can raise it/i,
+        ],
+        [
+            'beta org at the ceiling points at us',
+            { billing_managed: false, can_raise_credit_limit: false },
+            /ask us for a higher budget/i,
+        ],
+    ])('%s', (_name, quotaOverrides, expected) => {
+        const ux = quotaUx(makeQuota({ credits_used: 10_000, remaining: 0, exhausted: true, ...quotaOverrides }))
+        expect(ux.disabledReason).toMatch(expected)
     })
 
     it('shows a remaining-credits tooltip near the warn threshold but does not block', () => {

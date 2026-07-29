@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
 
+from django.db import transaction
 from django.db.models import IntegerField, Sum, Value
 from django.db.models.functions import Coalesce
 
@@ -28,6 +29,12 @@ logger = structlog.get_logger(__name__)
 # Fallback monthly credit cap for orgs billing has never synced (self-hosted, pre-launch beta).
 MONTHLY_CREDIT_QUOTA = get_from_env("REPLAY_VISION_MONTHLY_CREDIT_QUOTA", 15000, type_cast=int)
 
+# Orgs on the fallback cap aren't billed for Replay vision, so that cap is a runaway-spend guard
+# rather than a spend limit anyone chose. Admins lift it themselves in these steps instead of
+# waiting on a staff-issued grant; past the ceiling someone should look at the numbers first.
+SELF_SERVE_CREDIT_STEP = get_from_env("REPLAY_VISION_SELF_SERVE_CREDIT_STEP", 50000, type_cast=int)
+SELF_SERVE_CREDIT_CEILING = get_from_env("REPLAY_VISION_SELF_SERVE_CREDIT_CEILING", 150000, type_cast=int)
+
 # Billing's usage_key for this product; see ee/billing/quota_limiting.QuotaResource.REPLAY_VISION_CREDITS.
 USAGE_KEY = "replay_vision_credits"
 
@@ -43,6 +50,10 @@ class QuotaSnapshot:
     period_end: datetime
     # Credit-weighted sum of enabled scanners' persisted estimates across the org; uncomputed estimates count 0.
     projected_monthly_credits: int
+    # False when the cap is the env fallback rather than a limit billing manages.
+    billing_managed: bool = True
+    # Ceiling an org admin may raise the fallback cap to themselves; None when billing manages the cap.
+    self_serve_credit_ceiling: int | None = None
 
     @property
     def remaining(self) -> int | None:
@@ -53,6 +64,13 @@ class QuotaSnapshot:
     @property
     def exhausted(self) -> bool:
         return self.credit_limit is not None and self.credits_used >= self.credit_limit
+
+    @property
+    def can_raise_credit_limit(self) -> bool:
+        """Whether an org admin can still lift the cap without staff help."""
+        if self.self_serve_credit_ceiling is None or self.credit_limit is None:
+            return False
+        return self.credit_limit < self.self_serve_credit_ceiling
 
     def would_exceed(self, credits: int) -> bool:
         """Whether starting an observation costing `credits` would push usage past the limit (uncapped never does)."""
@@ -208,4 +226,70 @@ def compute_quota_snapshot(organization_id: UUID) -> QuotaSnapshot:
         period_start=period_start,
         period_end=period_end,
         projected_monthly_credits=projected,
+        billing_managed=synced,
+        self_serve_credit_ceiling=None if synced else SELF_SERVE_CREDIT_CEILING,
     )
+
+
+class SelfServeRaiseUnavailable(Exception):
+    """The org can't lift its own cap: billing manages it, or it is already at the ceiling.
+
+    The message is surfaced to the user, so keep it user-facing.
+    """
+
+
+def raise_self_serve_credit_limit(organization_id: UUID, granted_by_id: int | None) -> QuotaSnapshot:
+    """Lift a non-billed org's credit cap by one step for the current period, and return the new snapshot.
+
+    Grows a single self-serve grant rather than stacking rows, so repeated clicks converge on the
+    ceiling instead of accumulating budget. The grant expires with the period, putting the org back
+    on the fallback cap next period.
+    """
+    now = datetime.now(UTC)
+    with transaction.atomic():
+        # Lock the org's self-serve grant (or, with none yet, serialize creators on the org row) so two
+        # concurrent raises can't each read the same headroom and both spend it.
+        organization = Organization.objects.select_for_update().filter(pk=organization_id).only("usage").first()
+        if organization is None:
+            raise SelfServeRaiseUnavailable("We couldn't find your organization.")
+        synced, _ = _billing_synced_limit(organization)
+        if synced:
+            raise SelfServeRaiseUnavailable(
+                "Billing manages your Replay vision spend limit. Change it in your billing settings."
+            )
+        period_end = _current_period_bounds(organization, now).end
+        grant = ReplayQuotaGrant.objects.filter(
+            organization_id=organization_id, is_self_serve=True, expires_at__gt=now
+        ).first()
+        staff_bonus = ReplayQuotaGrant.objects.filter(
+            organization_id=organization_id, is_self_serve=False, expires_at__gt=now
+        ).aggregate(total=Coalesce(Sum("amount"), Value(0)))["total"]
+        current_limit = MONTHLY_CREDIT_QUOTA + staff_bonus + (grant.amount if grant else 0)
+        headroom = SELF_SERVE_CREDIT_CEILING - current_limit
+        if headroom <= 0:
+            raise SelfServeRaiseUnavailable(
+                "You are already at the highest budget you can set yourself. Ask us to raise it further."
+            )
+        added = min(SELF_SERVE_CREDIT_STEP, headroom)
+        if grant is None:
+            ReplayQuotaGrant.objects.create(
+                organization_id=organization_id,
+                amount=added,
+                expires_at=period_end,
+                granted_by_id=granted_by_id,
+                is_self_serve=True,
+                reason="Raised by an organization admin during the Replay vision beta.",
+            )
+        else:
+            grant.amount += added
+            # Re-anchor to the current period so a grant written before a billing-period shift still expires with it.
+            grant.expires_at = period_end
+            grant.granted_by_id = granted_by_id
+            grant.save(update_fields=["amount", "expires_at", "granted_by"])
+    logger.info(
+        "replay_vision.self_serve_limit_raised",
+        organization_id=str(organization_id),
+        added_credits=added,
+        new_limit=current_limit + added,
+    )
+    return compute_quota_snapshot(organization_id)

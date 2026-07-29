@@ -122,7 +122,15 @@ export function quotaUx(quota: VisionQuotaApi | null): { disabledReason?: string
         return {}
     }
     if (state.kind === 'exhausted') {
-        return { disabledReason: `Monthly Replay vision spend limit reached. Resets ${state.resetsOn}.` }
+        // A trigger's disabled reason is a tooltip, so it can't hold a control; name where the way out lives.
+        const wayOut = state.quota.billing_managed
+            ? 'Change your spend limit in billing settings.'
+            : state.quota.can_raise_credit_limit
+              ? 'An organization admin can raise it on the Replay vision page.'
+              : 'Ask us for a higher budget from the Replay vision page.'
+        return {
+            disabledReason: `Replay vision budget used up. Scanning resumes ${state.resetsOn}. ${wayOut}`,
+        }
     }
     return {
         tooltip: `${formatCreditCount(state.quota.remaining ?? 0)} left this month (resets ${state.resetsOn})`,
