@@ -21,5 +21,7 @@ MAX_SUMMARY_ATTEMPTS = 3
 # One giant channel must not blow the LLM context or the activity's memory.
 MAX_TRANSCRIPT_MESSAGES = 1000
 MAX_TRANSCRIPT_CHARS = 150_000
+# 200 messages per page; caps the scan even when the window is all filtered-out noise.
+MAX_HISTORY_PAGES = 25
 
 CHANNEL_SUMMARY_TRACE_NAMESPACE = UUID("7f3a2b1c-9d4e-4f5a-8b6c-0d1e2f3a4b5c")

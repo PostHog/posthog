@@ -24,6 +24,7 @@ with workflow.unsafe.imports_passed_through():
     from products.conversations.backend.temporal.ai_reply.llms import anthropic_text, create_message, tracing_kwargs
     from products.conversations.backend.temporal.channel_summary.constants import (
         CHANNEL_SUMMARY_TRACE_NAMESPACE,
+        MAX_HISTORY_PAGES,
         MAX_SUMMARY_ATTEMPTS,
         MAX_TRANSCRIPT_CHARS,
         MAX_TRANSCRIPT_MESSAGES,
@@ -146,7 +147,9 @@ def _fetch_thread_replies(
 def _history_page(client: WebClient, channel_id: str, oldest: float, latest: float, keep) -> list[dict]:
     kept: list[dict] = []
     cursor: str | None = None
-    while True:
+    # Page cap on top of the kept-count cap: a window flooded with filtered-out noise
+    # (joins, bot posts) must not turn the scan into an unbounded crawl.
+    for _ in range(MAX_HISTORY_PAGES):
         response = client.conversations_history(
             channel=channel_id,
             oldest=str(oldest),
