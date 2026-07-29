@@ -973,6 +973,9 @@ class TestUserAPI(APIBaseTest):
         # The user clicking a verification email holds no session — and a logged-in blocked member
         # wouldn't reach the view anyway, since per-request enforcement rejects them at the auth layer.
         self.client.logout()
+        # The class fixture joins the user to a second organization, which would admit them and turn
+        # this into a login-with-org-move; withholding login requires that no organization admits them.
+        OrganizationMembership.objects.filter(user=self.user).exclude(organization=self.organization).delete()
         self.organization.enforce_verified_domains = True
         self.organization.save()
         OrganizationDomain.objects.create(

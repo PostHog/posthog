@@ -318,7 +318,9 @@ class TestLoginAPI(APIBaseTest):
         _, permitted_team = self._second_org_with_team()
         self._enforce_current_test_org()
         key_value = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="Test key", user=self.user, secure_value=hash_key_value(key_value))
+        PersonalAPIKey.objects.create(
+            label="Test key", user=self.user, secure_value=hash_key_value(key_value), scopes=["*"]
+        )
 
         response = self.client.get(f"/api/projects/{self.team.id}/", HTTP_AUTHORIZATION=f"Bearer {key_value}")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
