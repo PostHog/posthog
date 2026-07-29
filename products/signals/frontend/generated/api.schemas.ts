@@ -2625,10 +2625,29 @@ export interface ProjectProfileApi {
     payload: ProjectProfilePayloadApi
 }
 
+export type SignalScoutRunSummaryApiMetadataDerived = {
+    has_emit_report?: boolean
+    has_edit_report?: boolean
+    has_self_improvement?: boolean
+    has_chart?: boolean
+    has_self_validation?: boolean
+    [key: string]: boolean
+}
+
 /**
- * Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (whether the run held the report-authoring tools), and `skill_origin` (`canonical` or `custom`) — the provenance triple that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when routing overrode the agent-server default: `model`, `runtime_adapter`, and `reasoning_effort`. The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose, and expect no `derived` object at all on a run that never finalized. Empty object only for runs predating these fields.
+ * Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (whether the run held the report-authoring tools), `skill_origin` (`canonical` or `custom`), and `github_guidance` (whether the run got the GitHub evidence section) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when routing overrode the agent-server default: `model`, `runtime_adapter`, and `reasoning_effort`. The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed.
  */
-export type SignalScoutRunSummaryApiMetadata = { [key: string]: unknown }
+export type SignalScoutRunSummaryApiMetadata = {
+    harness_prompt_version?: string
+    report_channel?: boolean
+    skill_origin?: string
+    github_guidance?: boolean
+    model?: string
+    runtime_adapter?: string
+    reasoning_effort?: string
+    derived?: SignalScoutRunSummaryApiMetadataDerived
+    [key: string]: unknown
+}
 
 /**
  * * `not_started` - not_started
@@ -2714,14 +2733,33 @@ export interface SignalScoutRunSummaryApi {
     emitted_report_ids: string[]
     /** The `SignalReport` ids this run mutated via the `edit_report` channel (rewrote title/summary and/or appended a note), deduped. Distinct from `emitted_report_ids`: edit can target any inbox report, so these are generally not reports the run authored. Empty for runs that edited no report. */
     edited_report_ids: string[]
-    /** Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (whether the run held the report-authoring tools), and `skill_origin` (`canonical` or `custom`) — the provenance triple that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when routing overrode the agent-server default: `model`, `runtime_adapter`, and `reasoning_effort`. The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose, and expect no `derived` object at all on a run that never finalized. Empty object only for runs predating these fields. */
+    /** Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (whether the run held the report-authoring tools), `skill_origin` (`canonical` or `custom`), and `github_guidance` (whether the run got the GitHub evidence section) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when routing overrode the agent-server default: `model`, `runtime_adapter`, and `reasoning_effort`. The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed. */
     metadata: SignalScoutRunSummaryApiMetadata
 }
 
+export type SignalScoutRunDetailApiMetadataDerived = {
+    has_emit_report?: boolean
+    has_edit_report?: boolean
+    has_self_improvement?: boolean
+    has_chart?: boolean
+    has_self_validation?: boolean
+    [key: string]: boolean
+}
+
 /**
- * Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (whether the run held the report-authoring tools), and `skill_origin` (`canonical` or `custom`) — the provenance triple that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when routing overrode the agent-server default: `model`, `runtime_adapter`, and `reasoning_effort`. The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose, and expect no `derived` object at all on a run that never finalized. Empty object only for runs predating these fields.
+ * Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (whether the run held the report-authoring tools), `skill_origin` (`canonical` or `custom`), and `github_guidance` (whether the run got the GitHub evidence section) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when routing overrode the agent-server default: `model`, `runtime_adapter`, and `reasoning_effort`. The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed.
  */
-export type SignalScoutRunDetailApiMetadata = { [key: string]: unknown }
+export type SignalScoutRunDetailApiMetadata = {
+    harness_prompt_version?: string
+    report_channel?: boolean
+    skill_origin?: string
+    github_guidance?: boolean
+    model?: string
+    runtime_adapter?: string
+    reasoning_effort?: string
+    derived?: SignalScoutRunDetailApiMetadataDerived
+    [key: string]: unknown
+}
 
 /**
  * Full `SignalScoutRun` projection used by `get-run`. Same shape as the summary
@@ -2788,7 +2826,7 @@ export interface SignalScoutRunDetailApi {
     emitted_report_ids: string[]
     /** The `SignalReport` ids this run mutated via the `edit_report` channel (rewrote title/summary and/or appended a note), deduped. Distinct from `emitted_report_ids`: edit can target any inbox report, so these are generally not reports the run authored. Empty for runs that edited no report. */
     edited_report_ids: string[]
-    /** Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (whether the run held the report-authoring tools), and `skill_origin` (`canonical` or `custom`) — the provenance triple that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when routing overrode the agent-server default: `model`, `runtime_adapter`, and `reasoning_effort`. The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose, and expect no `derived` object at all on a run that never finalized. Empty object only for runs predating these fields. */
+    /** Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (whether the run held the report-authoring tools), `skill_origin` (`canonical` or `custom`), and `github_guidance` (whether the run got the GitHub evidence section) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when routing overrode the agent-server default: `model`, `runtime_adapter`, and `reasoning_effort`. The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed. */
     metadata: SignalScoutRunDetailApiMetadata
 }
 

@@ -25,6 +25,7 @@ from posthog.permissions import get_authenticator_scopes
 from products.signals.backend.artefact_schemas import ActionabilityChoice, Priority
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS
+from products.signals.backend.scout_harness.derived_metadata import DERIVED_FLAG_KEYS, DERIVED_METADATA_KEY
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.signals.backend.scout_harness.tools.emit import (
     MAX_FINDING_ID_LENGTH,
@@ -47,13 +48,35 @@ from products.skills.backend.models.skills import LLMSkill
 # --- Run history -----------------------------------------------------------
 
 
-@extend_schema_field({"type": "object", "additionalProperties": True})
+@extend_schema_field(
+    {
+        "type": "object",
+        "properties": {
+            "harness_prompt_version": {"type": "string"},
+            "report_channel": {"type": "boolean"},
+            "skill_origin": {"type": "string"},
+            "github_guidance": {"type": "boolean"},
+            "model": {"type": "string"},
+            "runtime_adapter": {"type": "string"},
+            "reasoning_effort": {"type": "string"},
+            DERIVED_METADATA_KEY: {
+                "type": "object",
+                "properties": {key: {"type": "boolean"} for key in DERIVED_FLAG_KEYS},
+                "additionalProperties": {"type": "boolean"},
+            },
+        },
+        # Older rows predate these keys and future runner-stamped dimensions land here before the
+        # schema catches up, so the object stays open rather than closed.
+        "additionalProperties": True,
+    }
+)
 class RunMetadataField(serializers.DictField):
-    """The run row's whole `metadata` column: runner-stamped string keys at the top level plus the
-    nested `derived` map of harness-computed booleans.
+    """The run row's whole `metadata` column: runner-stamped keys at the top level plus the nested
+    `derived` map of harness-computed booleans.
 
-    Declared as a free-form object rather than `DictField(child=CharField())` because the latter
-    coerces the nested `derived` map to its string repr on the way out, which turns a queryable
+    The known keys are spelled out so generated TypeScript and MCP consumers get real types
+    instead of `unknown` on every value. `DictField(child=CharField())` is what this replaced,
+    and it coerced the nested `derived` map to its string repr on the way out, turning a queryable
     object into unparseable prose. Output-only: writes come from the runner at creation and from
     `derived_metadata.stamp_derived_metadata` at finalize, never through this field.
     """
@@ -165,15 +188,18 @@ class SignalScoutRunSummarySerializer(serializers.Serializer):
             "Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner "
             "at run start. Always present: `harness_prompt_version` (id of the harness prompt build "
             "the run was given), `report_channel` (whether the run held the report-authoring tools), "
-            "and `skill_origin` (`canonical` or `custom`) — the provenance triple that says which "
-            "instructions the run actually got, so runs are only compared against runs of the same "
-            "shape. Present only when routing overrode the agent-server default: `model`, "
+            "`skill_origin` (`canonical` or `custom`), and `github_guidance` (whether the run got "
+            "the GitHub evidence section) — the provenance set that says which instructions the run "
+            "actually got, so runs are only compared against runs of the same shape. Present only "
+            "when routing overrode the agent-server default: `model`, "
             "`runtime_adapter`, and `reasoning_effort`. The nested `derived` object is the harness's "
             "own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, "
             "`has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use "
-            "`derived` to answer 'what kind of run was this?' instead of parsing the `summary` "
-            "prose, and expect no `derived` object at all on a run that never finalized. Empty "
-            "object only for runs predating these fields."
+            "`derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. "
+            "Note the flags describe the reports the run authored as they stand now, so charts "
+            "attached to someone else's report via an edit are not counted. A missing `derived` "
+            "object is unknown, not all-false: the run predates the field, never finalized, or its "
+            "stamp failed."
         ),
     )
 

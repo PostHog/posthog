@@ -24,15 +24,27 @@ def _compute_harness_prompt_version() -> str:
 
     Deliberately NOT a hash of the assembled prompt: `build_run_prompt` interpolates the skill
     body, scratchpad entries, project profile, and recent run summaries, so that hash would be
-    unique per run and could not group anything. This identifies the build; `report_channel` and
-    `skill_origin` on the run row identify which sections that build composed.
+    unique per run and could not group anything. This identifies the build; `report_channel`,
+    `skill_origin`, and `github_guidance` on the run row identify which sections that build
+    composed.
+
+    Imported values that get rendered into a section have to be hashed alongside the source,
+    because changing one changes the instructions while leaving this file's bytes untouched —
+    the false-merge direction the source hash otherwise rules out. Add to `_RENDERED_IMPORTS`
+    whenever a template starts interpolating something from another module.
     """
     try:
-        return hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:12]
+        source = Path(__file__).read_bytes()
     except OSError:
         # Falls back rather than failing the import: an unreadable source file must not take the
         # whole harness down for a field that only feeds analytics.
         return "unknown"
+    rendered_imports = "\n".join(f"{name}={value}" for name, value in sorted(_RENDERED_IMPORTS.items()))
+    return hashlib.sha256(source + rendered_imports.encode()).hexdigest()[:12]
+
+
+# Values imported from other modules that templates in this file render into the prompt.
+_RENDERED_IMPORTS: dict[str, object] = {"MAX_REPORT_CHARTS": MAX_REPORT_CHARTS}
 
 
 HARNESS_PROMPT_VERSION = _compute_harness_prompt_version()

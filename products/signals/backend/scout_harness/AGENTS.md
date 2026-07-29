@@ -282,8 +282,11 @@ one sandbox session → zero or more emitted signals.
   isn't worth a dedicated column — in two server-written regions.
   Top-level keys are stamped write-once at creation by `_create_run_row`, and split by whether they
   are always present.
-  `harness_prompt_version` / `report_channel` / `skill_origin` always are: together they pin down
-  which instructions the run was given, which is the thing an eval or A/B has to hold constant.
+  `harness_prompt_version` / `report_channel` / `skill_origin` / `github_guidance` always are:
+  together they pin down which instructions the run was given, which is the thing an eval or A/B
+  has to hold constant. The last three are composition forks the build alone doesn't capture, since
+  the same prompt build renders different sections depending on channel, skill origin, and whether
+  a read-only GitHub token could be minted.
   Each is unrecoverable after the fact (the prompt has no version history, a skill's
   `allowed_tools` can be edited, and a seeded canonical row flips to `custom` the moment a team
   edits it, taking every past run's origin with it), which is why they are stamped rather than
@@ -300,8 +303,11 @@ one sandbox session → zero or more emitted signals.
   Nothing in the column is scout-authored: a self-reported flag would only be as reliable as the
   model remembering to write it, which is what makes this column safe to query directly.
   Both regions surface verbatim on the run serializers / `scout-runs-*` MCP tools.
-  A run that dies before finalize has no `derived` region at all, so absence means "never
-  finalized", not "all false".
+  A missing `derived` region is unknown rather than all-false: the run predates the field, died
+  before finalize, or its stamp failed (best-effort and logged, since observability must not fail a
+  run that already committed its output). The flags read the authored reports' current state at
+  finalize rather than an emit-time snapshot, so a title or chart changed after the emit is what
+  lands; the emit-time record stays on the report lifecycle events.
 - Each run emits scout-owned lifecycle analytics events (best-effort, keyed on the team):
   `signals_scout_run_started` (the run cleared the guards and a TaskRun exists),
   `signals_scout_run_finished` (terminal: `completed`/`failed`/`cancelled` + runtime + emit

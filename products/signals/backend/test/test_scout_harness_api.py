@@ -2194,12 +2194,17 @@ class TestScoutRunDerivedMetadata(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("touched_during_run", timedelta(minutes=1), True),
-            ("stale_from_earlier_run", timedelta(hours=-1), False),
+            # An entry that predates the run and was written during it: the queue was worked.
+            ("worked_existing_entry", timedelta(hours=-2), timedelta(minutes=1), True),
+            ("existing_entry_untouched", timedelta(hours=-2), timedelta(hours=-1), False),
+            # An entry this run created is an ordinary investigation recording a future probe,
+            # not a validation pass. Both timestamps land inside the window, so only the
+            # created-before-the-run guard separates the two.
+            ("created_this_run", timedelta(minutes=1), timedelta(minutes=1), False),
         ]
     )
-    def test_self_validation_only_counts_queue_writes_inside_the_run_window(
-        self, _name: str, offset: timedelta, expected: bool
+    def test_self_validation_counts_only_writes_to_a_queue_that_already_existed(
+        self, _name: str, created_offset: timedelta, updated_offset: timedelta, expected: bool
     ) -> None:
         run = _make_run(self.team)
         entry = SignalScratchpad.objects.create(
@@ -2207,18 +2212,21 @@ class TestScoutRunDerivedMetadata(APIBaseTest):
             key=f"{FOLLOWUP_KEY_PREFIX}{run.skill_name}:checkout-errors",
             content="pending",
         )
-        # `updated_at` is auto_now, so a queryset update is the only way to place the write
+        # Both columns are auto-managed, so a queryset update is the only way to place the row
         # relative to the run window.
-        SignalScratchpad.objects.filter(pk=entry.pk).update(updated_at=run.created_at + offset)
+        SignalScratchpad.all_teams.filter(pk=entry.pk).update(
+            created_at=run.created_at + created_offset, updated_at=run.created_at + updated_offset
+        )
         assert self._stamp(run)["has_self_validation"] is expected
 
     def test_sibling_skills_queue_does_not_count(self) -> None:
         run = _make_run(self.team)
-        SignalScratchpad.objects.create(
+        entry = SignalScratchpad.objects.create(
             team=self.team,
             key=f"{FOLLOWUP_KEY_PREFIX}signals-scout-experiments:checkout-errors",
             content="pending",
         )
+        SignalScratchpad.all_teams.filter(pk=entry.pk).update(created_at=run.created_at - timedelta(hours=2))
         assert self._stamp(run)["has_self_validation"] is False
 
     def test_derived_map_round_trips_as_an_object_not_a_string(self) -> None:

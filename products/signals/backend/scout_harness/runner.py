@@ -491,6 +491,7 @@ async def _spawn_and_run(
             model=model,
             runtime_adapter=runtime_adapter,
             reasoning_effort=reasoning_effort,
+            github_guidance=bool(github_prompt_guidance),
         )
         # Lifecycle start marker. The row + TaskRun now exist and the run has cleared the
         # reap + single-flight guards, so this counts exactly the runs that actually start —
@@ -676,6 +677,7 @@ def _create_run_row(
     model: str | None = None,
     runtime_adapter: str | None = None,
     reasoning_effort: str | None = None,
+    github_guidance: bool = False,
 ) -> SignalScoutRun:
     # Stamp the routed model triple onto the row's `metadata` so "which model ran this?" is a
     # column read on the run API, not an analytics-event join. Keys are omitted (not null-valued)
@@ -699,6 +701,11 @@ def _create_run_row(
     metadata["harness_prompt_version"] = HARNESS_PROMPT_VERSION
     metadata["report_channel"] = skill_uses_report_channel(skill.allowed_tools)
     metadata["skill_origin"] = skill.origin
+    # Whether the run got the gh evidence section, which `_spawn_and_run` includes or omits from
+    # the whole prompt based on the team's flag posture and whether a read-only token could be
+    # minted. Both can change between runs, so this is a fourth composition fork rather than a
+    # property of the build.
+    metadata["github_guidance"] = github_guidance
     return SignalScoutRun.objects.unscoped().create(
         id=run_id,
         task_run=task_run,
