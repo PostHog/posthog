@@ -177,10 +177,12 @@ export function classifyExperimentMetricError({
     errorCode,
     statusCode,
     errorMessage,
+    hasDiagnostics,
 }: {
     errorCode: string | null
     statusCode: number | null
     errorMessage: string | null
+    hasDiagnostics?: boolean
 }): ExperimentMetricErrorType {
     if (errorCode && (EXPERIMENT_METRIC_ERROR_TYPES as readonly string[]).includes(errorCode)) {
         return errorCode as ExperimentMetricErrorType
@@ -194,10 +196,37 @@ export function classifyExperimentMetricError({
     if (statusCode === 429) {
         return 'rate_limited'
     }
+    // The no-results validators are the only thing that raises a diagnostics blob, and they mean the
+    // experiment has no usable data yet rather than a bad metric config. Both raise sites are a 400,
+    // so without this they would land in validation_error and mix "your metric is broken" together
+    // with "this experiment just started".
+    if (hasDiagnostics || errorCode === 'no-results') {
+        return 'insufficient_data'
+    }
     if (statusCode === 400) {
         return 'validation_error'
     }
     return 'server_error'
+}
+
+/**
+ * Pick the message to record for a failed metric query.
+ *
+ * The no-results diagnostics blob parses to a `{reason: boolean}` map with no prose in it, and for
+ * an ApiError `error.message` is the same raw JSON string as `error.detail`, so there is nothing
+ * cleaner to fall back to. Name the reasons that are actually set instead of storing the dump.
+ */
+export function experimentMetricErrorMessage(errorDetail: unknown): string | null {
+    if (typeof errorDetail === 'string') {
+        return errorDetail
+    }
+    if (errorDetail && typeof errorDetail === 'object') {
+        const reasons = Object.entries(errorDetail)
+            .filter(([, isSet]) => isSet)
+            .map(([reason]) => reason)
+        return reasons.length ? reasons.join(', ') : null
+    }
+    return null
 }
 
 export function getEventPropertiesForMetric(
@@ -1139,6 +1168,7 @@ export interface eventUsageLogicActions {
             error_code: string | null
             error_message: string | null
             execution_mode: 'async' | 'sync'
+            has_diagnostics: boolean
             is_primary: boolean
             is_retry: boolean
             metric_index: number
@@ -1153,6 +1183,7 @@ export interface eventUsageLogicActions {
                   error_code: string | null
                   error_message: string | null
                   execution_mode: 'async' | 'sync'
+                  has_diagnostics: boolean
                   is_primary: boolean
                   is_retry: boolean
                   metric_index: number
@@ -2510,6 +2541,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 error_code: string | null
                 status_code: number | null
                 error_message: string | null
+                has_diagnostics: boolean
             }
         ) => ({
             experimentId,
@@ -3655,7 +3687,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             })
         },
         reportExperimentMetricErrored: ({ experimentId, metric, teamId, queryId, context }) => {
-            const { error_code, status_code, error_message, ...rest } = context ?? {}
+            const { error_code, status_code, error_message, has_diagnostics, ...rest } = context ?? {}
             posthog.capture('experiment metric error', {
                 experiment_id: experimentId,
                 team_id: teamId,
@@ -3667,6 +3699,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                     errorCode: error_code ?? null,
                     statusCode: status_code ?? null,
                     errorMessage: error_message ?? null,
+                    hasDiagnostics: has_diagnostics,
                 }),
                 error_message: error_message?.slice(0, 500) ?? null,
                 error_code,

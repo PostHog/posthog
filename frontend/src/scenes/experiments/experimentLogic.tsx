@@ -23,7 +23,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { eventUsageLogic, experimentMetricErrorMessage } from 'lib/utils/eventUsageLogic'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { hasFormErrors } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
@@ -422,7 +422,8 @@ const loadMetrics = async ({
                     execution_mode: getExperimentExecutionMode(featureFlags),
                     error_code: errorCode,
                     status_code: statusCode,
-                    error_message: typeof errorDetail === 'string' ? errorDetail : (error.message ?? null),
+                    error_message: experimentMetricErrorMessage(errorDetail),
+                    has_diagnostics: hasDiagnostics,
                 })
 
                 onSetResults([...results])

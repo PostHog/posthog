@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { eventUsageLogic, experimentMetricErrorMessage } from 'lib/utils/eventUsageLogic'
 import { runWithLimit } from 'scenes/dashboard/dashboardUtils'
 import { isLegacyExperimentQuery, isLegacySharedMetric } from 'scenes/experiments/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -288,7 +288,8 @@ const loadLegacyMetrics = async ({
                     execution_mode: 'async',
                     error_code: errorCode,
                     status_code: statusCode,
-                    error_message: typeof errorDetail === 'string' ? errorDetail : (error.message ?? null),
+                    error_message: experimentMetricErrorMessage(errorDetail),
+                    has_diagnostics: hasDiagnostics,
                 })
 
                 legacyResults[originalIndex] = null
