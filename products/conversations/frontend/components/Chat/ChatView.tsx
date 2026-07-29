@@ -46,6 +46,8 @@ export interface ChatViewProps {
     threadExtras?: TimelineExtra[]
     /** Blocks sending customer-facing messages (private notes stay available) */
     replyDisabledReason?: string | JSX.Element
+    /** Blocks sending entirely, including private notes (e.g. the user lacks edit access) */
+    sendDisabledReason?: string | JSX.Element
     /** Whether draft mode is on: tints the composer green and confirms the recipient before sending */
     draftMode?: boolean
     /** Called when the draft-mode toggle changes */
@@ -59,6 +61,7 @@ export interface ChatViewProps {
     latestAiMessageId?: string | null
     feedbackByMessageId?: Record<string, AiReplyFeedbackRating>
     showAiReplyFeedback?: boolean
+    aiReplyFeedbackDisabledReason?: string
     onSubmitAiReplyFeedback?: (messageId: string, rating: AiReplyFeedbackRating, feedbackText?: string) => void
 }
 
@@ -84,6 +87,7 @@ export function ChatView({
     onPrivateChange,
     extraActions,
     replyDisabledReason,
+    sendDisabledReason,
     draftMode,
     onDraftModeChange,
     sendConfirmationMessage,
@@ -92,6 +96,7 @@ export function ChatView({
     latestAiMessageId,
     feedbackByMessageId,
     showAiReplyFeedback,
+    aiReplyFeedbackDisabledReason,
     onSubmitAiReplyFeedback,
 }: ChatViewProps): JSX.Element {
     const listMinHeight = minHeight ?? '400px'
@@ -114,6 +119,7 @@ export function ChatView({
                 latestAiMessageId={latestAiMessageId}
                 feedbackByMessageId={feedbackByMessageId}
                 showAiReplyFeedback={showAiReplyFeedback}
+                aiReplyFeedbackDisabledReason={aiReplyFeedbackDisabledReason}
                 onSubmitAiReplyFeedback={onSubmitAiReplyFeedback}
                 extras={threadExtras}
             />
@@ -129,6 +135,7 @@ export function ChatView({
                     onPrivateChange={onPrivateChange}
                     extraActions={extraActions}
                     replyDisabledReason={replyDisabledReason}
+                    sendDisabledReason={sendDisabledReason}
                     draftMode={draftMode}
                     onDraftModeChange={onDraftModeChange}
                     sendConfirmationMessage={sendConfirmationMessage}
