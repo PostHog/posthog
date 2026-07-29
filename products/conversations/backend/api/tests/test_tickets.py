@@ -754,10 +754,18 @@ class TestTicketAPI(APIBaseTest):
         self.assertEqual(ids, [str(vip.id), str(self.ticket.id), str(free.id), str(enterprise.id)])
         self.assertEqual(response.json()["response_target_counts"], {"0": 2, "1": 1, "2": 1})
 
-    def test_order_by_response_target_ignores_malformed_team_config(self, mock_on_commit):
-        """Garbage in conversations_settings falls back to the example default
-        ladder instead of erroring the list endpoint."""
-        self.team.conversations_settings = {"response_target_groups": [{"nope": True}, "what"]}
+    @parameterized.expand(
+        [
+            ("structural_garbage", [{"nope": True}, "what"]),
+            # A tag in two groups would sort by its first group but label by its
+            # last — the read side treats that as malformed as well.
+            ("tag_in_two_groups", [{"label": "A", "tags": ["urgent"]}, {"label": "B", "tags": ["urgent"]}]),
+        ]
+    )
+    def test_order_by_response_target_ignores_malformed_team_config(self, _name, groups, mock_on_commit):
+        """Bad config in conversations_settings falls back to the example
+        default ladder instead of erroring the list endpoint."""
+        self.team.conversations_settings = {"response_target_groups": groups}
         self.team.save()
         vip = self._ticket_with_tags("vip")
         urgent = self._ticket_with_tags("urgent")

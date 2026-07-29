@@ -101,6 +101,15 @@ describe('teamResponseTargetGroups', () => {
                 ],
             },
         ],
+        [
+            'a tag in two groups',
+            {
+                response_target_groups: [
+                    { label: 'A', tags: ['vip'] },
+                    { label: 'B', tags: ['vip', 'y'] },
+                ],
+            },
+        ],
     ])('falls back to the default ladder with %s', (_name, settings) => {
         const team = settings === undefined ? null : teamWith(settings as Record<string, any> | null)
         expect(teamResponseTargetGroups(team)).toBe(DEFAULT_RESPONSE_TARGET_GROUPS)

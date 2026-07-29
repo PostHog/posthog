@@ -44,8 +44,11 @@ def response_target_groups(team: Team) -> list[dict[str, Any]]:
             for group in groups
         )
         # Duplicate labels would collide in the frontend's per-label grouping
-        # (headers key on the label) — treat them as malformed too.
+        # (headers key on the label), and a tag in two groups would rank with
+        # its FIRST group in SQL while the frontend's tag→rank map keeps the
+        # LAST — treat both as malformed too.
         and len({group["label"] for group in groups}) == len(groups)
+        and len({tag for group in groups for tag in group["tags"]}) == sum(len(group["tags"]) for group in groups)
     ):
         return groups
     return DEFAULT_RESPONSE_TARGET_GROUPS
