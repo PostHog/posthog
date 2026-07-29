@@ -232,39 +232,41 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
     const urlInput = getUrlInput(selectedType)
 
     return (
-        <AlertNotificationDestinationEditor
-            destinations={{
-                showExisting: Boolean(alertId),
-                existingLoading: existingHogFunctionsLoading,
-                existing: existingDestinations,
-                pending: pendingDestinations,
-            }}
-            notificationType={{
-                options: ALERT_NOTIFICATION_TYPE_OPTIONS,
-                value: selectedType,
-                onChange: setSelectedType,
-            }}
-            slack={{
-                notificationType: ALERT_NOTIFICATION_TYPE_SLACK,
-                integrationsLoading,
-                integrationsFailed,
-                onRetryIntegrations: loadIntegrations,
-                integrations: slackIntegrations,
-                integration: selectedSlackIntegration,
-                onIntegrationChange: setSelectedSlackIntegrationId,
-                channelValue: slackChannelValue,
-                onChannelValueChange: setSlackChannelValue,
-            }}
-            url={urlInput ? { input: urlInput, value: webhookUrl, onChange: setWebhookUrl } : undefined}
-            add={{
-                onClick: handleAdd,
-                disabledReason: getAlertNotificationAddDisabledReason(
-                    selectedType,
-                    Boolean(selectedSlackIntegration),
-                    slackChannelValue,
-                    webhookUrl
-                ),
-            }}
-        />
+        <div>
+            <AlertNotificationDestinationEditor
+                destinations={{
+                    showExisting: Boolean(alertId),
+                    existingLoading: existingHogFunctionsLoading,
+                    existing: existingDestinations,
+                    pending: pendingDestinations,
+                }}
+                notificationType={{
+                    options: ALERT_NOTIFICATION_TYPE_OPTIONS,
+                    value: selectedType,
+                    onChange: setSelectedType,
+                }}
+                slack={{
+                    notificationType: ALERT_NOTIFICATION_TYPE_SLACK,
+                    integrationsLoading,
+                    integrationsFailed,
+                    onRetryIntegrations: loadIntegrations,
+                    integrations: slackIntegrations,
+                    integration: selectedSlackIntegration,
+                    onIntegrationChange: setSelectedSlackIntegrationId,
+                    channelValue: slackChannelValue,
+                    onChannelValueChange: setSlackChannelValue,
+                }}
+                url={urlInput ? { input: urlInput, value: webhookUrl, onChange: setWebhookUrl } : undefined}
+                add={{
+                    onClick: handleAdd,
+                    disabledReason: getAlertNotificationAddDisabledReason(
+                        selectedType,
+                        Boolean(selectedSlackIntegration),
+                        slackChannelValue,
+                        webhookUrl
+                    ),
+                }}
+            />
+        </div>
     )
 }
