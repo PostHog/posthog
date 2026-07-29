@@ -13,7 +13,7 @@ export function IssueSearchInput(): JSX.Element {
 
     return (
         <div className="w-64 max-w-full shrink-0">
-            <InputGroup>
+            <InputGroup className="h-7">
                 <InputGroupAddon>
                     <IconSearch />
                 </InputGroupAddon>
