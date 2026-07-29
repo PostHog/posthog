@@ -1,6 +1,10 @@
 """Contract types other products receive from the conversations facade.
 
 Frozen dataclasses only — no ORM objects or slack_sdk types cross the boundary.
+
+Named types.py, not the conventional contracts.py, because that filename is what
+`hogli product:lint` reads as "this product is isolated" and conversations isn't
+yet. Rename it once the product meets the strict structure rules.
 """
 
 from datetime import datetime

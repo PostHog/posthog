@@ -16,7 +16,7 @@ from slack_sdk.errors import SlackApiError
 from posthog.models.comment import Comment
 from posthog.models.team import Team
 
-from products.conversations.backend.facade.contracts import (
+from products.conversations.backend.facade.types import (
     SupportChannel as SupportChannel,
     TicketSummary as TicketSummary,
 )
