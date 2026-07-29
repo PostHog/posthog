@@ -5,20 +5,20 @@ from unittest.mock import patch
 
 from django.core.cache import cache
 from django.db import IntegrityError
+from django.http import JsonResponse
 from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
-from rest_framework.response import Response
 
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from ee.api.agentic_provisioning import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
+from ee.api.agentic_provisioning.analytics import capture_provisioning_event
+from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
 from ee.api.agentic_provisioning.test.base import ProvisioningTestBase
-from ee.api.agentic_provisioning.views import _capture_provisioning_event
 
 ACCOUNT_REQUESTS_URL = "/api/agentic/provisioning/account_requests"
 VALID_CODE_CHALLENGE = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
@@ -127,14 +127,32 @@ class TestAccountRequests(ProvisioningTestBase):
         assert res.status_code == 400
         assert res.json()["error"]["code"] == expected_code
 
-    def test_existing_user_with_inaccessible_team_id_returns_400(self):
+    @parameterized.expand(["other_org", "restricted_in_own_org"])
+    def test_existing_user_with_inaccessible_team_id_returns_400(self, case):
         token = self._silent_partner_token_for(self.user)
-        other_org = Organization.objects.create(name="Other Org")
-        other_team = Team.objects.create(organization=other_org, name="Other Team")
-        payload = self._account_request_payload(email=self.user.email, configuration={"team_id": other_team.id})
+        if case == "other_org":
+            other_org = Organization.objects.create(name="Other Org")
+            target = Team.objects.create(organization=other_org, name="Other Team")
+        else:
+            target = Team.objects.create_with_data(
+                initiating_user=self.user, organization=self.organization, name="Restricted project"
+            )
+            self._restrict_team_access(target)
+
+        payload = self._account_request_payload(email=self.user.email, configuration={"team_id": target.id})
         res = self._post_account_request(payload, token=token)
         assert res.status_code == 400
         assert res.json()["error"]["code"] == "team_resolution_failed"
+
+    def test_existing_user_auto_select_skips_restricted_team(self):
+        token = self._silent_partner_token_for(self.user)
+        self._restrict_team_access(self.team)
+
+        res = self._post_account_request(self._account_request_payload(email=self.user.email), token=token)
+
+        assert res.status_code == 200
+        code_data = cache.get(f"{AUTH_CODE_CACHE_PREFIX}{res.json()['oauth']['code']}")
+        assert code_data["team_id"] != self.team.id
 
     def test_existing_user_multi_team_creates_new_project(self):
         token = self._silent_partner_token_for(self.user)
@@ -184,7 +202,7 @@ class TestAccountRequests(ProvisioningTestBase):
     )
     @patch("ee.api.agentic_provisioning.region_proxy._proxy_to_region")
     def test_region_mismatch_proxies_to_other_region(self, _name, deployment, region, expected_host, mock_proxy):
-        mock_proxy.return_value = Response({"type": "oauth", "oauth": {"code": "proxied"}})
+        mock_proxy.return_value = JsonResponse({"type": "oauth", "oauth": {"code": "proxied"}})
         payload = self._account_request_payload(configuration={"region": region})
         with override_settings(CLOUD_DEPLOYMENT=deployment):
             res = self._post_account_request(payload)
@@ -199,7 +217,7 @@ class TestAccountRequests(ProvisioningTestBase):
         assert res.status_code == 200
         assert res.json()["type"] == "oauth"
 
-    @patch("ee.api.agentic_provisioning.views.User.objects.bootstrap", side_effect=IntegrityError)
+    @patch("ee.api.agentic_provisioning.accounts.User.objects.bootstrap", side_effect=IntegrityError)
     def test_integrity_error_with_existing_user_falls_back(self, _mock_bootstrap):
         User.objects.create_and_join(
             organization=self.organization, email="race@example.com", password="testpass", first_name="Race"
@@ -211,14 +229,14 @@ class TestAccountRequests(ProvisioningTestBase):
         # the partner is sent through consent rather than getting a silent code.
         assert res.json()["type"] == "requires_auth"
 
-    @patch("ee.api.agentic_provisioning.views.User.objects.bootstrap", side_effect=IntegrityError)
+    @patch("ee.api.agentic_provisioning.accounts.User.objects.bootstrap", side_effect=IntegrityError)
     def test_integrity_error_without_existing_user_returns_500(self, _mock_bootstrap):
         payload = self._account_request_payload(email="ghost@example.com")
         res = self._post_account_request(payload)
         assert res.status_code == 500
         assert res.json()["error"]["code"] == "account_creation_failed"
 
-    @patch("ee.api.agentic_provisioning.views._capture_provisioning_event")
+    @patch("ee.api.agentic_provisioning.accounts.capture_provisioning_event")
     def test_new_user_capture_includes_team_id(self, mock_capture_event):
         res = self._post_account_request(self._account_request_payload(email="capture@example.com"))
         assert res.status_code == 200
@@ -330,7 +348,7 @@ class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
         assert data["type"] == "oauth"
         assert "code" in data["oauth"]
 
-    @patch("ee.api.agentic_provisioning.views._capture_provisioning_event")
+    @patch("ee.api.agentic_provisioning.accounts.capture_provisioning_event")
     def test_pkce_partner_new_user_capture_attributes_client(self, mock_capture_event):
         payload = self._account_request_payload(email="attributed@example.com")
         res = self._post_as_pkce_partner(payload)
@@ -342,7 +360,7 @@ class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
         assert len(new_user_calls) == 1
         assert new_user_calls[0].kwargs["partner"] == self.pkce_partner
 
-    @patch("ee.api.agentic_provisioning.views.report_user_signed_up")
+    @patch("ee.api.agentic_provisioning.accounts.report_user_signed_up")
     def test_pkce_partner_new_user_emits_signup_event_with_client(self, mock_signup):
         payload = self._account_request_payload(email="pkce_signup@example.com")
         res = self._post_as_pkce_partner(payload)
@@ -609,10 +627,10 @@ class TestCaptureProvisioningEvent(ProvisioningTestBase):
             ("no_partner", None, False, None),
         ]
     )
-    @patch("ee.api.agentic_provisioning.views.posthoganalytics.capture")
+    @patch("ee.api.agentic_provisioning.analytics.posthoganalytics.capture")
     def test_partner_attribution(self, _name, partner_type, expects_client, expected_partner_type, mock_capture):
         partner = None if partner_type is None else self._make_partner(partner_type=partner_type)
-        _capture_provisioning_event("account_request", "new_user", partner=partner, team_id=42)
+        capture_provisioning_event("account_request", "new_user", partner=partner, team_id=42)
 
         props = mock_capture.call_args.kwargs["properties"]
         if expects_client:

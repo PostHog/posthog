@@ -1319,3 +1319,106 @@ class TestClickHouseReconcileSchemaMetadata(BaseTest):
         metadata = schema.schema_metadata
         assert metadata is not None
         assert [column["name"] for column in metadata["columns"]] == ["uuid", "timestamp"]
+
+
+class TestBypassEnvProxy:
+    """The proxy bypass for PostHog-internal direct connections.
+
+    `bypass_env_proxy=True` must hand clickhouse-connect a pool manager, which
+    stops it consulting HTTP(S)_PROXY env vars; `False` must leave the default
+    (proxy-honouring) behaviour intact.
+    """
+
+    @pytest.mark.parametrize("verify", [True, False])
+    def test_no_env_proxy_pool_manager_ignores_proxy_env(self, verify):
+        from urllib3 import PoolManager, ProxyManager
+
+        from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.clickhouse import (
+            _no_env_proxy_pool_manager,
+        )
+
+        with patch.dict("os.environ", {"HTTPS_PROXY": "http://egress-proxy:4750"}):
+            manager = _no_env_proxy_pool_manager(verify)
+        assert isinstance(manager, PoolManager)
+        assert not isinstance(manager, ProxyManager)
+        # Cached: streaming clients must share the manager (they don't own it).
+        assert _no_env_proxy_pool_manager(verify) is manager
+
+    @pytest.mark.parametrize(
+        "bypass,expected_pool_mgr_factory",
+        [
+            (True, lambda: ch_module._no_env_proxy_pool_manager(True)),
+            (False, lambda: None),
+        ],
+    )
+    def test_get_client_forwards_pool_manager_only_when_bypassing(self, bypass, expected_pool_mgr_factory):
+        with patch.object(ch_module, "get_client") as mock_get_client:
+            _get_client(
+                host="ch.example.com",
+                port=8443,
+                database="default",
+                user="reader",
+                password="secret",
+                secure=True,
+                verify=True,
+                bypass_env_proxy=bypass,
+            )
+        assert mock_get_client.call_count == 1
+        assert mock_get_client.call_args.kwargs["pool_mgr"] is expected_pool_mgr_factory()
+
+
+class TestInternalHostTeamAllowlist:
+    @pytest.mark.parametrize(
+        "region,team_id,expected",
+        [
+            ("US", 2, True),
+            ("US", 1, False),
+            ("US", 12345, False),
+            ("EU", 1, True),
+            ("EU", 2, False),
+            ("EU", 12345, False),
+            (None, 2, False),
+            ("DEV", 2, False),
+        ],
+    )
+    def test_allowlist(self, region, team_id, expected):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common import mixins
+
+        with patch.object(mixins, "get_instance_region", return_value=region):
+            assert mixins.is_team_allowlisted_for_internal_hosts(team_id) is expected
+
+
+class TestDirectQueryClientBypassEnvProxy:
+    """`direct_query_client` backs the HogQL direct-SQL adapter, and unlike every other
+    `_get_client` call site on `ClickHouseSource` it once omitted `bypass_env_proxy` entirely —
+    an allowlisted internal team's direct query silently routed through the egress proxy and
+    failed to reach the PostHog-internal host it was pointed at.
+    """
+
+    @pytest.mark.parametrize(
+        "region,team_id,expected_bypass",
+        [
+            ("US", 2, True),
+            ("US", 12345, False),
+        ],
+    )
+    def test_forwards_bypass_env_proxy_from_team_allowlist(self, region, team_id, expected_bypass):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import source as source_module
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common import mixins
+
+        source = ClickHouseSource()
+        config = MagicMock()
+        config.database = "default"
+        config.user = "default"
+        config.password = None
+        config.secure = True
+        config.verify = True
+
+        with patch.object(mixins, "get_instance_region", return_value=region):
+            with patch.object(source, "with_ssh_tunnel") as mock_with_ssh_tunnel:
+                mock_with_ssh_tunnel.return_value.__enter__.return_value = ("host", 8443)
+                with patch.object(source_module, "_get_client") as mock_get_client:
+                    with source.direct_query_client(config, team_id, query_timeout=60):
+                        pass
+
+        assert mock_get_client.call_args.kwargs["bypass_env_proxy"] is expected_bypass
