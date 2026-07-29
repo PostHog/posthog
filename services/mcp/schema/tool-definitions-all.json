@@ -6715,6 +6715,20 @@
         "feature_flag": "metrics",
         "system_prompt_hint": "Discover which server/infrastructure metrics exist before querying them"
     },
+    "navigate-user": {
+        "description": "Take the user's open PostHog tab to a page. Call when the user asks to go somewhere ('take me to the workflow', 'open the email template'). Pass `url` as a `_posthogUrl` from a tool result verbatim, or a path template plus `params` from the generate-app-url catalog. Navigation happens in the tab where the user is viewing this chat; include the returned `url` as a link in your reply as well.",
+        "category": "Utilities",
+        "feature": "links",
+        "summary": "Navigate the user's PostHog tab to a page.",
+        "title": "Navigate user",
+        "required_scopes": [],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": true
+        }
+    },
     "notebook-edit": {
         "description": "Edit part of a notebook's content by short_id.\n\nFor markdown notebooks, use `execute-sql` to read the current markdown from `system.notebooks.markdown`, then edit with `old_markdown` / `new_markdown`. These are plain markdown strings; do not copy or construct the nested `ph-markdown-notebook` JSON wrapper.\n\nFor legacy rich-text notebooks, inspect the JSON content from `system.notebooks.content`, then edit with `old_value` / `new_value` JSON subtree replacement. Matching is by content: the tool finds `old_value` anywhere in the notebook and swaps it for `new_value` in place.\n\nOn success, returns the updated notebook with the new content and bumped version. On a 409 or 410 error, the notebook has changed since you loaded it; reload the latest markdown or JSON content and re-apply your edit.",
         "category": "Notebooks",

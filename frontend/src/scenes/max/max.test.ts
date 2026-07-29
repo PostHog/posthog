@@ -215,4 +215,35 @@ describe('Max Logics Integration Tests', () => {
         expect(router.values.location.pathname.endsWith(expectedPathTail)).toBe(true)
         streamLogic.unmount()
     })
+
+    it.each([
+        ['navigates to a same-origin url', () => `${window.location.origin}/insights/abc123`, '/insights/abc123'],
+        ['ignores a foreign-origin url', () => 'https://evil.example.com/insights/abc123', '/workflows/library'],
+    ])('navigate-user completion: %s', async (_label, buildUrl, expectedPathTail) => {
+        logic = maxLogic({ panelId: 'test' })
+        logic.mount()
+        threadLogic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, panelId: 'test' })
+        threadLogic.mount()
+        router.actions.push('/workflows/library')
+
+        toolStreamEventsLogic.actions.emitToolEvent({
+            streamKey: MOCK_CONVERSATION_ID,
+            toolCallId: 'tc-nav',
+            toolName: 'navigate-user',
+            rawToolName: 'exec',
+            phase: 'completed',
+            source: 'live',
+            invocation: {
+                toolCallId: 'tc-nav',
+                rawServerName: 'posthog',
+                rawToolName: 'exec',
+                input: {},
+                output: { url: buildUrl() },
+                status: 'completed',
+            },
+        })
+        await expectLogic(threadLogic).toFinishAllListeners()
+
+        expect(router.values.location.pathname.endsWith(expectedPathTail)).toBe(true)
+    })
 })

@@ -1701,6 +1701,23 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     // Deferred to turn end so a workflow created later in the turn takes precedence.
                     cache.pendingTemplateRouteId = templateId
                 }
+            } else if (event.toolName === 'navigate-user') {
+                // The agent explicitly navigating (user asked to be taken somewhere) — only ever
+                // within this app's origin; foreign URLs stay a link in the reply.
+                const record = parseInvocationOutputRecord(event.invocation)
+                const url = typeof record?.url === 'string' ? record.url : null
+                if (!url) {
+                    return
+                }
+                let parsed: URL
+                try {
+                    parsed = new URL(url, window.location.origin)
+                } catch {
+                    return
+                }
+                if (parsed.origin === window.location.origin) {
+                    router.actions.push(parsed.pathname + parsed.search + parsed.hash)
+                }
             }
         },
 

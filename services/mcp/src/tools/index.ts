@@ -16,10 +16,10 @@ import submitFeedback from './feedback/submit'
 import { GENERATED_TOOL_MAP } from './generated'
 // Insights
 import queryInsight from './insights/query'
-
-import loopsReview from './loops/loopsReview'
 // Links (utility — builds canonical app URLs from the frontend's route table)
 import generateAppUrl from './links/generate-app-url'
+import navigateUser from './links/navigate-user'
+import loopsReview from './loops/loopsReview'
 // Notebooks (edit is hand-written — generated CRUD lives in generated/notebooks.ts)
 import notebookEdit from './notebooks/edit'
 // Organizations
@@ -86,6 +86,7 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Links (utility — canonical app URLs so the model never hand-builds/mis-slugs entity links)
     'generate-app-url': generateAppUrl,
+    'navigate-user': navigateUser,
 
     // AI observability
     'get-llm-total-costs-for-project': getLLMCosts,
