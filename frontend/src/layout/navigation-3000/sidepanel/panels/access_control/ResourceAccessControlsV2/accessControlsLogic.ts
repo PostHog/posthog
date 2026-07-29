@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
@@ -519,6 +519,21 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
     afterMount(({ actions }) => {
         // Only load defaults, roles/members are lazy loaded when their tab is opened
         actions.loadDefaults()
+    }),
+
+    beforeUnmount(() => {
+        // Settings navigation carries search params across sections, so our params would otherwise follow the
+        // user to other settings pages and reopen the same member/role on their way back. Drop them on the way out.
+        const { pathname, searchParams, hashParams } = router.values.currentLocation
+        const { access_tab, access_member, access_role_detail, access_role_id, ...rest } = searchParams
+        if (
+            access_tab !== undefined ||
+            access_member !== undefined ||
+            access_role_detail !== undefined ||
+            access_role_id !== undefined
+        ) {
+            router.actions.replace(pathname, rest, hashParams)
+        }
     }),
 
     actionToUrl(() => {
