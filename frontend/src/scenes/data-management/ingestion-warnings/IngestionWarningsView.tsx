@@ -11,6 +11,8 @@ import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { urlForEventsByDistinctId } from 'scenes/activity/explore/eventUrls'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -40,6 +42,7 @@ export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     schema_validation_failed: 'Event rejected due to schema validation failure',
     invalid_heatmap_data: 'Invalid heatmap data',
     invalid_group_set: 'Discarded a $groupidentify event whose $group_set is not an object',
+    client_ingestion_warning: 'An SDK reported a problem with how it was being used',
     // Emitted by the capture service when it drops events at validation time
     missing_event_name: 'Discarded event with no event name',
     event_name_too_long: 'Discarded event whose name exceeds the length limit',
@@ -74,7 +77,45 @@ export const WARNING_TYPE_TO_DOCS_ANCHOR: Record<string, string> = {
     invalid_heatmap_data: 'invalid-heatmap-data',
 }
 
+/**
+ * A distinct ID from a warning often has no person profile: the event may have been dropped before
+ * person processing, or the ID may belong to an anonymous visitor (the SDK default is
+ * `identified_only`). Linking to an event search always resolves, shows `$lib` and the URL, and
+ * keeps the person page one click away from any row.
+ */
+export function DistinctIdLink({ distinctId }: { distinctId: string }): JSX.Element {
+    return (
+        <Tooltip title="Search events sent with this distinct ID">
+            <Link to={urlForEventsByDistinctId(distinctId)}>{distinctId}</Link>
+        </Tooltip>
+    )
+}
+
 export const WARNING_TYPE_RENDERER = {
+    client_ingestion_warning: function Render(warning: IngestionWarning): JSX.Element {
+        const details = warning.details as {
+            eventUuid?: string
+            distinctId?: string
+            message?: string
+        }
+        return (
+            <>
+                {details.message ?? 'An SDK reported a problem with how it was being used.'}
+                <ul>
+                    {details.distinctId ? (
+                        <li>
+                            distinct_id: <DistinctIdLink distinctId={details.distinctId} />
+                        </li>
+                    ) : null}
+                    {details.eventUuid ? (
+                        <li>
+                            Event UUID: <code>{details.eventUuid}</code>
+                        </li>
+                    ) : null}
+                </ul>
+            </>
+        )
+    },
     cannot_merge_already_identified: function Render(warning: IngestionWarning): JSX.Element {
         const details = warning.details as {
             sourcePersonDistinctId: string
@@ -84,14 +125,9 @@ export const WARNING_TYPE_RENDERER = {
         return (
             <>
                 Refused to merge already identified person{' '}
-                <Link to={urls.personByDistinctId(details.sourcePersonDistinctId)}>
-                    {details.sourcePersonDistinctId}
-                </Link>{' '}
-                into{' '}
-                <Link to={urls.personByDistinctId(details.targetPersonDistinctId)}>
-                    {details.targetPersonDistinctId}
-                </Link>{' '}
-                via an $identify or $create_alias call (event uuid: <code>{details.eventUuid}</code>).
+                <DistinctIdLink distinctId={details.sourcePersonDistinctId} /> into{' '}
+                <DistinctIdLink distinctId={details.targetPersonDistinctId} /> via an $identify or $create_alias call
+                (event uuid: <code>{details.eventUuid}</code>).
             </>
         )
     },
@@ -103,10 +139,9 @@ export const WARNING_TYPE_RENDERER = {
         }
         return (
             <>
-                Refused to merge an illegal distinct_id{' '}
-                <Link to={urls.personByDistinctId(details.illegalDistinctId)}>{details.illegalDistinctId}</Link> with{' '}
-                <Link to={urls.personByDistinctId(details.otherDistinctId)}>{details.otherDistinctId}</Link> via an
-                $identify or $create_alias call (event uuid: <code>{details.eventUuid}</code>).
+                Refused to merge an illegal distinct_id <DistinctIdLink distinctId={details.illegalDistinctId} /> with{' '}
+                <DistinctIdLink distinctId={details.otherDistinctId} /> via an $identify or $create_alias call (event
+                uuid: <code>{details.eventUuid}</code>).
             </>
         )
     },
@@ -169,8 +204,8 @@ export const WARNING_TYPE_RENDERER = {
         return (
             <>
                 Event ingestion has overflowed capacity for distinct_id{' '}
-                <Link to={urls.personByDistinctId(details.overflowDistinctId)}>{details.overflowDistinctId}</Link>.
-                Events will still be processed, but are likely to be delayed longer than usual.
+                <DistinctIdLink distinctId={details.overflowDistinctId} />. Events will still be processed, but are
+                likely to be delayed longer than usual.
             </>
         )
     },
@@ -181,8 +216,7 @@ export const WARNING_TYPE_RENDERER = {
         }
         return (
             <>
-                Discarded event for distinct_id{' '}
-                <Link to={urls.personByDistinctId(details.distinctId)}>{details.distinctId}</Link> that exceeded 1MB in
+                Discarded event for distinct_id <DistinctIdLink distinctId={details.distinctId} /> that exceeded 1MB in
                 size after processing (event uuid: <code>{details.eventUuid}</code>)
             </>
         )
@@ -301,8 +335,8 @@ export const WARNING_TYPE_RENDERER = {
         return (
             <>
                 Event <strong>{details.eventName}</strong> was rejected because it failed schema validation for
-                distinct_id <Link to={urls.personByDistinctId(details.distinctId)}>{details.distinctId}</Link> (event
-                uuid: <code>{details.eventUuid}</code>):
+                distinct_id <DistinctIdLink distinctId={details.distinctId} /> (event uuid:{' '}
+                <code>{details.eventUuid}</code>):
                 <ul>
                     {(details.errors ?? []).map((error, index) => (
                         <li key={index}>

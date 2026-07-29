@@ -16,6 +16,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { urlForEventsByDistinctId } from 'scenes/activity/explore/eventUrls'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -79,7 +80,8 @@ function SampleEntityChips({ sample }: { sample: IngestionWarningV2Sample }): JS
             <EntityChip
                 label="distinct_id"
                 value={sample.distinct_id}
-                to={sample.distinct_id ? urls.personByDistinctId(sample.distinct_id) : undefined}
+                // Not a person link: a warning's distinct ID often has no person profile at all.
+                to={sample.distinct_id ? urlForEventsByDistinctId(sample.distinct_id) : undefined}
             />
             <EntityChip
                 label="person_id"

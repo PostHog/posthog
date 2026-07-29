@@ -1,7 +1,6 @@
 import './NotFound.scss'
 
 import { useActions, useValues } from 'kea'
-import { combineUrl } from 'kea-router'
 import posthog from 'posthog-js'
 import { useState } from 'react'
 
@@ -15,13 +14,12 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 import { cn } from 'lib/utils/css-classes'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
-import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
+import { urlForEventsByDistinctId } from 'scenes/activity/explore/eventUrls'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
-import { urls } from 'scenes/urls'
 
 import { adminLoginAs } from '~/layout/navigation/ImpersonationNotice/adminLoginAs'
 import { ImpersonationReasonModal } from '~/layout/navigation/ImpersonationNotice/ImpersonationReasonModal'
-import { ActivityTab, PropertyFilterType, PropertyOperator, UserBasicType } from '~/types'
+import { UserBasicType } from '~/types'
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { supportLogic } from '../Support/supportLogic'
@@ -43,6 +41,7 @@ export function NotFound({ object, caption, meta, className }: NotFoundProps): J
     const nodeLogic = useNotebookNode()
 
     const appContext = getAppContext()
+    const isPerson = object.toLowerCase() === 'person'
 
     useOnMountEffect(() => {
         posthog.capture('not_found_shown', { object })
@@ -71,6 +70,9 @@ export function NotFound({ object, caption, meta, className }: NotFoundProps): J
                             <br />
                             You're seeing this, because you're a staff user.
                         </>
+                    ) : isPerson ? (
+                        // Unlike most 404s, this one is frequently expected — don't imply something broke.
+                        'This distinct ID has no person profile.'
                     ) : (
                         'It might be lost in space.'
                     )}
@@ -80,7 +82,16 @@ export function NotFound({ object, caption, meta, className }: NotFoundProps): J
                 {appContext?.suggested_users_with_access ? (
                     <LogInAsSuggestions suggestedUsers={appContext.suggested_users_with_access} />
                 ) : (
-                    caption || (
+                    caption ||
+                    (isPerson ? (
+                        <>
+                            Not every distinct ID has a person profile. Anonymous visitors don't get one unless your SDK
+                            is set to <code>person_profiles: 'always'</code>, and events dropped during ingestion never
+                            create one.
+                            <br />
+                            Search the events for this distinct ID to see what was sent.
+                        </>
+                    ) : (
                         <>
                             It's possible this {object} has been deleted or its sharing settings have changed.
                             <br />
@@ -96,7 +107,7 @@ export function NotFound({ object, caption, meta, className }: NotFoundProps): J
                             ) : null}
                             .
                         </>
-                    )
+                    ))
                 )}
             </p>
             {nodeLogic && (
@@ -106,28 +117,13 @@ export function NotFound({ object, caption, meta, className }: NotFoundProps): J
                     </LemonButton>
                 </div>
             )}
-            {object === 'Person' && meta?.urlId && (
+            {isPerson && meta?.urlId && (
                 <div className="flex justify-center mt-4 w-fit">
                     <LemonButton
                         type="secondary"
                         size="small"
-                        tooltip={`View events matching distinct_id=${meta?.urlId}`}
-                        to={
-                            combineUrl(
-                                urls.activity(ActivityTab.ExploreEvents),
-                                {},
-                                {
-                                    q: getDefaultEventsSceneQuery([
-                                        {
-                                            type: PropertyFilterType.EventMetadata,
-                                            key: 'distinct_id',
-                                            value: meta.urlId,
-                                            operator: PropertyOperator.Exact,
-                                        },
-                                    ]),
-                                }
-                            ).url
-                        }
+                        tooltip={`View events matching distinct_id=${meta.urlId}`}
+                        to={urlForEventsByDistinctId(meta.urlId)}
                     >
                         View events
                     </LemonButton>
