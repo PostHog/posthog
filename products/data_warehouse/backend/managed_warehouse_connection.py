@@ -167,6 +167,13 @@ def reconcile_managed_warehouse_tables(*, team_id: int, organization_id: str | U
     """Discover and register the org-wide managed-warehouse catalog for this team's source."""
     from posthog.ducklake.models import DuckgresServer  # noqa: PLC0415
 
+    with transaction.atomic():
+        # Check before ensure: a tombstoned source means the warehouse was deprovisioned
+        # (its DuckgresServer row is deleted synchronously), and nothing may revive it —
+        # otherwise this sweep would resurrect sources right after deprovision.
+        if _managed_source_queryset(team_id).filter(deleted=True).exists():
+            return
+
     try:
         ensure_managed_warehouse_direct_source(team_id=team_id, organization_id=organization_id)
     except (DuckgresServer.DoesNotExist, Team.DoesNotExist):

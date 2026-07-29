@@ -90,15 +90,7 @@ def _ensure(team: Team) -> ExternalDataSource:
 
 
 def _create_server(org: Organization, **overrides: object) -> DuckgresServer:
-    return DuckgresServer.objects.create(
-        organization=org,
-        host=_CONNECTION["host"],
-        port=_CONNECTION["port"],
-        database=_CONNECTION["database"],
-        username=_CONNECTION["username"],
-        password=_CONNECTION["password"],
-        **overrides,
-    )
+    return DuckgresServer.objects.create(organization=org, **{**_CONNECTION, **overrides})
 
 
 @pytest.mark.django_db
