@@ -64,10 +64,33 @@ class UtmAuditQuerySerializer(serializers.Serializer):
     )
 
 
+class AlternativeSourceSerializer(serializers.Serializer):
+    utm_source = serializers.CharField(help_text="A utm_source value seen on events for this campaign name")
+    event_count = serializers.IntegerField(help_text="Number of pageview events carrying this utm_source")
+
+
 class UtmIssueSerializer(serializers.Serializer):
     field = serializers.CharField(help_text="The UTM field with the issue (e.g. utm_campaign, utm_source)")
     severity = serializers.ChoiceField(choices=["error", "warning"], help_text="Issue severity level")
+    # `kind` is a collision-prone enum name in drf-spectacular, so we expose it as a
+    # documented string rather than a ChoiceField to avoid a CI --fail-on-warn break.
+    kind = serializers.CharField(
+        help_text="Issue category: not_linked, name_collision, no_tagged_events, or unknown_source"
+    )
     message = serializers.CharField(help_text="Human-readable description of the issue")
+    alternative_sources = AlternativeSourceSerializer(
+        many=True, help_text="utm_source values seen for this campaign name instead of the expected one"
+    )
+    shared_with_integrations = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Other integrations whose campaigns match the same name",
+    )
+    suggested_actions = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "Ordered remediations, most recommended first: fix_platform_urls, add_source_mapping, or switch_to_id_match"
+        ),
+    )
 
 
 class CampaignAuditResultSerializer(serializers.Serializer):

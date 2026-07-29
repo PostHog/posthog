@@ -5,7 +5,9 @@ import { IconCheck, IconEllipsis, IconWarning } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
+    LemonCheckbox,
     LemonInput,
+    LemonSegmentedButton,
     LemonSelect,
     LemonSkeleton,
     LemonTable,
@@ -15,26 +17,35 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { IconLink } from 'lib/lemon-ui/icons'
 
-import {
-    MARKETING_INTEGRATION_CONFIGS,
-    NativeMarketingSource,
-    VALID_NATIVE_MARKETING_SOURCES,
-} from '~/queries/schema/schema-general'
+import { type CampaignFieldPreference, MatchField, NativeMarketingSource } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
-import type { AggregatedUtmSource, CampaignAuditResult, HealthTab, UtmEvent } from '../../logic/utmAuditLogic'
-import { utmAuditLogic } from '../../logic/utmAuditLogic'
+import type {
+    AggregatedUtmSource,
+    CampaignAuditResult,
+    HealthTab,
+    MappingPair,
+    UtmEvent,
+    UtmIssue,
+    UtmIssueKind,
+} from '../../logic/utmAuditLogic'
+import { SOURCE_TO_INTEGRATION, utmAuditLogic } from '../../logic/utmAuditLogic'
 import { NonIntegratedConversionsCellActions } from '../NonIntegratedConversionsTable/NonIntegratedConversionsCellActions'
 import { CampaignFieldPreferencesConfiguration } from '../settings/CampaignFieldPreferencesConfiguration'
 import { CampaignNameMappingsConfiguration } from '../settings/CampaignNameMappingsConfiguration'
 import { CustomSourceMappingsConfiguration } from '../settings/CustomSourceMappingsConfiguration'
 import { IntegrationSettingsModal } from '../settings/IntegrationSettingsModal'
 
-const SOURCE_TO_INTEGRATION: Record<string, NativeMarketingSource> = Object.fromEntries(
-    VALID_NATIVE_MARKETING_SOURCES.map((source) => [MARKETING_INTEGRATION_CONFIGS[source].primarySource, source])
-)
+const ISSUE_LABELS: Record<UtmIssueKind, string> = {
+    not_linked: 'Not linked',
+    name_collision: 'Name collision',
+    no_tagged_events: 'Source mismatch',
+    unknown_source: 'Source mismatch',
+}
 
 const DISPLAY_NAMES: Record<string, string> = {
     google: 'Google Ads',
@@ -92,6 +103,183 @@ function StatCard({
     )
 }
 
+/** Editing the audit's config is admin-only, same as the settings screens these controls write to. */
+function useConfigRestriction(): string | null {
+    return useRestrictedArea({ scope: RestrictionScope.Project, minimumAccessLevel: TeamMembershipLevel.Admin })
+}
+
+/** The name-vs-ID toggle, surfaced wherever the audit wants to recommend it. */
+function MatchFieldToggle({ integration }: { integration: NativeMarketingSource }): JSX.Element {
+    const { marketingAnalyticsConfig } = useValues(marketingAnalyticsSettingsLogic)
+    const { updateCampaignFieldPreferences } = useActions(marketingAnalyticsSettingsLogic)
+    const restrictedReason = useConfigRestriction()
+
+    const preferences = marketingAnalyticsConfig?.campaign_field_preferences || {}
+    const value = preferences[integration]?.match_field || MatchField.CAMPAIGN_NAME
+
+    return (
+        <LemonSegmentedButton
+            size="xsmall"
+            value={value}
+            onChange={(matchField) =>
+                updateCampaignFieldPreferences({
+                    ...preferences,
+                    [integration]: { match_field: matchField as CampaignFieldPreference['match_field'] },
+                })
+            }
+            options={[
+                { value: MatchField.CAMPAIGN_NAME, label: 'Campaign name' },
+                { value: MatchField.CAMPAIGN_ID, label: 'Campaign ID' },
+            ]}
+            disabledReason={restrictedReason ?? undefined}
+        />
+    )
+}
+
+/** Expands one audit issue into the remediations the backend computed for it. */
+function IssueDetail({ campaign, issue }: { campaign: CampaignAuditResult; issue: UtmIssue }): JSX.Element {
+    const { allMappedSources } = useValues(utmAuditLogic)
+    const { marketingAnalyticsConfig } = useValues(marketingAnalyticsSettingsLogic)
+    const { updateCustomSourceMappings, openIntegrationSettingsModal } = useActions(marketingAnalyticsSettingsLogic)
+    const restrictedReason = useConfigRestriction()
+
+    const integration = SOURCE_TO_INTEGRATION[campaign.source_name.toLowerCase()]
+    const alternativeSources = issue.alternative_sources ?? []
+    const sharedWith = issue.shared_with_integrations ?? []
+    const suggestedActions = issue.suggested_actions ?? []
+    // Only offer to claim sources no other integration already owns — mapping one of those
+    // would silently move that integration's traffic over here.
+    const claimableSources = alternativeSources.filter((s) => !allMappedSources.has(s.utm_source))
+
+    const addSourceMapping = (utmSource: string): void => {
+        if (!integration) {
+            return
+        }
+        const existing = marketingAnalyticsConfig?.custom_source_mappings || {}
+        updateCustomSourceMappings({
+            ...existing,
+            [integration]: [...new Set([...(existing[integration] || []), utmSource])],
+        })
+    }
+
+    return (
+        <div className="p-3 max-w-md space-y-3">
+            <div className="font-semibold text-sm">{issue.message}</div>
+
+            {alternativeSources.length > 0 && (
+                <div>
+                    <div className="text-xs text-secondary uppercase tracking-wide mb-1">Events are tagged with</div>
+                    <div className="space-y-1">
+                        {alternativeSources.map((source) => (
+                            <div key={source.utm_source} className="flex items-center justify-between gap-2 text-sm">
+                                <span className="font-mono">utm_source={source.utm_source}</span>
+                                <span className="text-secondary tabular-nums">
+                                    {formatNumber(source.event_count)} pageviews
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {sharedWith.length > 0 && (
+                <div className="text-sm">
+                    The same campaign name is already matching events on{' '}
+                    {sharedWith.map((s) => sourceLabel(s)).join(', ')}.
+                </div>
+            )}
+
+            <div>
+                <div className="text-xs text-secondary uppercase tracking-wide mb-1">How to fix</div>
+                <div className="space-y-2">
+                    {suggestedActions.includes('fix_platform_urls') && (
+                        <div className="text-sm">
+                            Tag this campaign's URLs with{' '}
+                            <span className="font-mono text-xs">utm_source={campaign.source_name}</span> and{' '}
+                            <span className="font-mono text-xs">utm_campaign={campaign.campaign_name}</span>. This is
+                            the only fix that also works for anything else reading your UTMs.
+                        </div>
+                    )}
+
+                    {suggestedActions.includes('add_source_mapping') &&
+                        claimableSources.map((source) => (
+                            <LemonButton
+                                key={source.utm_source}
+                                type="secondary"
+                                size="small"
+                                fullWidth
+                                disabledReason={
+                                    restrictedReason ??
+                                    (integration ? undefined : 'This source has no matching integration')
+                                }
+                                onClick={() => addSourceMapping(source.utm_source)}
+                            >
+                                Count "{source.utm_source}" as {sourceLabel(campaign.source_name)}
+                            </LemonButton>
+                        ))}
+
+                    {suggestedActions.includes('switch_to_id_match') && integration && (
+                        <div>
+                            <div className="text-sm mb-1">
+                                Matching on campaign ID tells the platforms apart, as long as your URLs use the ID in{' '}
+                                <span className="font-mono text-xs">utm_campaign</span>.
+                            </div>
+                            <MatchFieldToggle integration={integration} />
+                        </div>
+                    )}
+
+                    {integration && (
+                        <LemonButton
+                            type="tertiary"
+                            size="small"
+                            fullWidth
+                            onClick={() =>
+                                openIntegrationSettingsModal(integration, 'mappings', '', campaign.campaign_name)
+                            }
+                        >
+                            Map a utm_campaign value to this campaign
+                        </LemonButton>
+                    )}
+                </div>
+            </div>
+        </div>
+    )
+}
+
+function IssueCell({ campaign }: { campaign: CampaignAuditResult }): JSX.Element {
+    const [showDetail, setShowDetail] = useState(false)
+
+    if (campaign.issues.length === 0) {
+        return <LemonTag type="success">OK</LemonTag>
+    }
+
+    const issue = campaign.issues[0]
+    const label = ISSUE_LABELS[issue.kind] ?? (issue.severity === 'error' ? 'Not linked' : 'Source mismatch')
+
+    return (
+        <Popover
+            visible={showDetail}
+            onClickOutside={() => setShowDetail(false)}
+            overlay={<IssueDetail campaign={campaign} issue={issue} />}
+        >
+            <span
+                onClick={(e) => {
+                    e.stopPropagation()
+                    setShowDetail(!showDetail)
+                }}
+            >
+                <LemonTag
+                    type={issue.severity === 'error' ? 'danger' : 'warning'}
+                    icon={<IconWarning />}
+                    className="cursor-pointer"
+                >
+                    {label}
+                </LemonTag>
+            </span>
+        </Popover>
+    )
+}
+
 function ActionsMenu({ columnName, value }: { columnName: string; value: string }): JSX.Element {
     const [showActions, setShowActions] = useState(false)
 
@@ -106,52 +294,154 @@ function ActionsMenu({ columnName, value }: { columnName: string; value: string 
     )
 }
 
+/** Preview of what a bulk map is about to write, so nothing is applied sight-unseen. */
+function MappingPreview({ pairs }: { pairs: MappingPair[] }): JSX.Element {
+    return (
+        <div className="p-3 max-w-lg space-y-1">
+            {pairs.map((pair) => (
+                <div key={`${pair.integration}-${pair.matchValue}-${pair.utmCampaign}`} className="text-sm">
+                    <span className="font-mono">{pair.utmCampaign}</span>
+                    <span className="text-secondary"> → </span>
+                    <span className="font-medium">{pair.campaignName}</span>
+                    {pair.reason === 'case_only' && (
+                        <span className="text-secondary text-xs"> (capitalization only)</span>
+                    )}
+                </div>
+            ))}
+        </div>
+    )
+}
+
+function SuggestionsBanner(): JSX.Element | null {
+    const { autoMappingSuggestions } = useValues(utmAuditLogic)
+    const { applyMappings } = useActions(utmAuditLogic)
+    const restrictedReason = useConfigRestriction()
+    const [showPreview, setShowPreview] = useState(false)
+
+    if (autoMappingSuggestions.length === 0) {
+        return null
+    }
+
+    const caseOnlyCount = autoMappingSuggestions.filter((p) => p.reason === 'case_only').length
+
+    return (
+        <LemonBanner type="info" className="mb-4">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+                <span>
+                    {autoMappingSuggestions.length} utm_campaign{' '}
+                    {autoMappingSuggestions.length === 1 ? 'value looks' : 'values look'} like a campaign we already
+                    know about
+                    {caseOnlyCount > 0
+                        ? `, ${caseOnlyCount} of them differing only by capitalization. Attribution matches these values exactly, so a mapping is what makes them count.`
+                        : '. Mapping them lets their conversions attribute to the campaign.'}
+                </span>
+                <div className="flex items-center gap-2">
+                    <Popover
+                        visible={showPreview}
+                        onClickOutside={() => setShowPreview(false)}
+                        overlay={<MappingPreview pairs={autoMappingSuggestions} />}
+                    >
+                        <LemonButton type="secondary" size="small" onClick={() => setShowPreview(!showPreview)}>
+                            Review
+                        </LemonButton>
+                    </Popover>
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        disabledReason={restrictedReason ?? undefined}
+                        onClick={() => applyMappings(autoMappingSuggestions)}
+                    >
+                        Map all {autoMappingSuggestions.length}
+                    </LemonButton>
+                </div>
+            </div>
+        </LemonBanner>
+    )
+}
+
 function CampaignTabContent(): JSX.Element {
     const {
         auditDataLoading,
         filteredCampaigns,
-        selectedCampaign,
-        selectedUtmCampaign,
-        selectedCampaignData,
+        selectedCampaigns,
+        selectedUtmCampaigns,
+        pendingMappings,
         sortedUtmCampaigns,
         campaignSearch,
         utmSearch,
         baseCurrency,
     } = useValues(utmAuditLogic)
-    const { setSelectedCampaign, setSelectedUtmCampaign, setCampaignSearch, setUtmSearch } = useActions(utmAuditLogic)
-    const { openIntegrationSettingsModal } = useActions(marketingAnalyticsSettingsLogic)
+    const {
+        toggleCampaign,
+        toggleUtmCampaign,
+        setSelectedCampaigns,
+        setSelectedUtmCampaigns,
+        clearMappingSelection,
+        applyMappings,
+        setCampaignSearch,
+        setUtmSearch,
+    } = useActions(utmAuditLogic)
+    const restrictedReason = useConfigRestriction()
+    const [showPendingPreview, setShowPendingPreview] = useState(false)
 
-    const canMap = selectedCampaign !== null && selectedUtmCampaign !== null && selectedCampaignData !== null
+    const selectedCampaignsSet = new Set(selectedCampaigns)
+    const selectedUtmSet = new Set(selectedUtmCampaigns)
+    const skippedCount = selectedUtmCampaigns.length - pendingMappings.length
+
+    let mappingSummary: string
+    if (selectedCampaigns.length === 0 && selectedUtmCampaigns.length === 0) {
+        mappingSummary = 'Pick campaigns on the left and utm_campaign values on the right to map them in one go'
+    } else if (pendingMappings.length === 0) {
+        mappingSummary =
+            selectedCampaigns.length === 0
+                ? 'Also pick at least one ad platform campaign'
+                : 'Also pick at least one utm_campaign value'
+    } else {
+        mappingSummary = `Map ${pendingMappings.length} ${pendingMappings.length === 1 ? 'value' : 'values'}`
+        if (skippedCount > 0) {
+            mappingSummary += ` · ${skippedCount} skipped as too different or already mapped`
+        }
+    }
 
     return (
         <>
+            <SuggestionsBanner />
+
             {/* Map campaigns action bar */}
-            <div className="flex items-center justify-between p-3 rounded border mb-4">
-                <div className="text-sm text-secondary">
-                    {canMap
-                        ? `Map "${selectedUtmCampaign}" → "${selectedCampaign}"`
-                        : 'Select a campaign on the left and a UTM campaign on the right to create a mapping'}
-                </div>
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    disabled={!canMap}
-                    onClick={() => {
-                        if (canMap && selectedCampaignData) {
-                            const integration = SOURCE_TO_INTEGRATION[selectedCampaignData.source_name.toLowerCase()]
-                            if (integration) {
-                                openIntegrationSettingsModal(
-                                    integration,
-                                    'mappings',
-                                    selectedUtmCampaign!,
-                                    selectedCampaign!
-                                )
-                            }
+            <div className="flex items-center justify-between gap-3 p-3 rounded border mb-4 flex-wrap">
+                <div className="text-sm text-secondary">{mappingSummary}</div>
+                <div className="flex items-center gap-2">
+                    {(selectedCampaigns.length > 0 || selectedUtmCampaigns.length > 0) && (
+                        <LemonButton type="tertiary" size="small" onClick={clearMappingSelection}>
+                            Clear
+                        </LemonButton>
+                    )}
+                    {pendingMappings.length > 1 && (
+                        <Popover
+                            visible={showPendingPreview}
+                            onClickOutside={() => setShowPendingPreview(false)}
+                            overlay={<MappingPreview pairs={pendingMappings} />}
+                        >
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={() => setShowPendingPreview(!showPendingPreview)}
+                            >
+                                Review
+                            </LemonButton>
+                        </Popover>
+                    )}
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        disabledReason={
+                            restrictedReason ?? (pendingMappings.length === 0 ? 'Nothing selected to map' : undefined)
                         }
-                    }}
-                >
-                    Map campaign
-                </LemonButton>
+                        onClick={() => applyMappings(pendingMappings)}
+                    >
+                        {pendingMappings.length > 1 ? `Map ${pendingMappings.length} campaigns` : 'Map campaign'}
+                    </LemonButton>
+                </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -173,11 +463,41 @@ function CampaignTabContent(): JSX.Element {
                             dataSource={filteredCampaigns}
                             rowKey={(record) => `${record.source_name}-${record.campaign_id}`}
                             onRow={(record) => ({
-                                onClick: () => setSelectedCampaign(record.campaign_name),
+                                onClick: () => toggleCampaign(record.campaign_name),
                                 className: 'cursor-pointer',
                             })}
-                            rowStatus={(record) => (record.campaign_name === selectedCampaign ? 'highlighted' : null)}
+                            rowStatus={(record) =>
+                                selectedCampaignsSet.has(record.campaign_name) ? 'highlighted' : null
+                            }
                             columns={[
+                                {
+                                    title: (
+                                        <LemonCheckbox
+                                            checked={
+                                                filteredCampaigns.length > 0 &&
+                                                filteredCampaigns.every((c) =>
+                                                    selectedCampaignsSet.has(c.campaign_name)
+                                                )
+                                            }
+                                            onChange={(checked) =>
+                                                setSelectedCampaigns(
+                                                    checked ? filteredCampaigns.map((c) => c.campaign_name) : []
+                                                )
+                                            }
+                                            aria-label="Select all campaigns shown"
+                                        />
+                                    ),
+                                    width: 0,
+                                    render: (_, record: CampaignAuditResult) => (
+                                        <div onClick={(e) => e.stopPropagation()}>
+                                            <LemonCheckbox
+                                                checked={selectedCampaignsSet.has(record.campaign_name)}
+                                                onChange={() => toggleCampaign(record.campaign_name)}
+                                                aria-label={`Select ${record.campaign_name}`}
+                                            />
+                                        </div>
+                                    ),
+                                },
                                 {
                                     title: 'Campaign',
                                     dataIndex: 'campaign_name',
@@ -195,24 +515,7 @@ function CampaignTabContent(): JSX.Element {
                                 {
                                     title: 'Status',
                                     width: 120,
-                                    render: (_, record: CampaignAuditResult) => {
-                                        if (record.issues.length === 0) {
-                                            return <LemonTag type="success">OK</LemonTag>
-                                        }
-                                        const issue = record.issues[0]
-                                        return (
-                                            <Tooltip title={issue.message}>
-                                                <span>
-                                                    <LemonTag
-                                                        type={issue.severity === 'error' ? 'danger' : 'warning'}
-                                                        icon={<IconWarning />}
-                                                    >
-                                                        {issue.severity === 'error' ? 'Not linked' : 'Source mismatch'}
-                                                    </LemonTag>
-                                                </span>
-                                            </Tooltip>
-                                        )
-                                    },
+                                    render: (_, record: CampaignAuditResult) => <IssueCell campaign={record} />,
                                 },
                             ]}
                             size="small"
@@ -240,11 +543,37 @@ function CampaignTabContent(): JSX.Element {
                             dataSource={sortedUtmCampaigns}
                             rowKey={(record) => `${record.utm_campaign}-${record.utm_source}`}
                             onRow={(record) => ({
-                                onClick: () => setSelectedUtmCampaign(record.utm_campaign),
+                                onClick: () => toggleUtmCampaign(record.utm_campaign),
                                 className: 'cursor-pointer',
                             })}
-                            rowStatus={(record) => (record.utm_campaign === selectedUtmCampaign ? 'highlighted' : null)}
+                            rowStatus={(record) => (selectedUtmSet.has(record.utm_campaign) ? 'highlighted' : null)}
                             columns={[
+                                {
+                                    title: (
+                                        <LemonCheckbox
+                                            checked={
+                                                sortedUtmCampaigns.length > 0 &&
+                                                sortedUtmCampaigns.every((e) => selectedUtmSet.has(e.utm_campaign))
+                                            }
+                                            onChange={(checked) =>
+                                                setSelectedUtmCampaigns(
+                                                    checked ? sortedUtmCampaigns.map((e) => e.utm_campaign) : []
+                                                )
+                                            }
+                                            aria-label="Select all utm_campaign values shown"
+                                        />
+                                    ),
+                                    width: 0,
+                                    render: (_, record: UtmEvent) => (
+                                        <div onClick={(e) => e.stopPropagation()}>
+                                            <LemonCheckbox
+                                                checked={selectedUtmSet.has(record.utm_campaign)}
+                                                onChange={() => toggleUtmCampaign(record.utm_campaign)}
+                                                aria-label={`Select ${record.utm_campaign}`}
+                                            />
+                                        </div>
+                                    ),
+                                },
                                 {
                                     title: 'utm_campaign',
                                     dataIndex: 'utm_campaign',
@@ -445,11 +774,18 @@ export function UtmAuditTab(): JSX.Element {
     return (
         <div className="mt-4 mb-8 space-y-4">
             {/* Filter bar */}
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
                 <div className="flex items-center gap-2">
                     <LemonButton size="small" type="secondary" onClick={() => loadAuditData()}>
                         Reload
                     </LemonButton>
+                    {/* The fix the audit most often recommends, so it lives here rather than only in settings. */}
+                    {integrationFilter && (
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm text-secondary">Match utm_campaign by</span>
+                            <MatchFieldToggle integration={integrationFilter} />
+                        </div>
+                    )}
                 </div>
                 <LemonSelect
                     size="small"

@@ -27,6 +27,8 @@ export interface LemonCheckboxProps {
     /** @deprecated See https://github.com/PostHog/posthog/pull/9357#pullrequestreview-933783868. */
     color?: string
     'data-attr'?: string
+    /** Accessible name for checkboxes with no visible `label`, e.g. a table's per-row selector. */
+    'aria-label'?: string
     /** Whether to stop propagation of events from the input */
     stopPropagation?: boolean
 }
@@ -58,6 +60,7 @@ export function LemonCheckbox({
     color,
     size,
     'data-attr': dataAttr,
+    'aria-label': ariaLabel,
     stopPropagation,
 }: LemonCheckboxProps): JSX.Element {
     const indeterminate = checked === 'indeterminate'
@@ -119,6 +122,7 @@ export function LemonCheckbox({
                     }}
                     id={id}
                     disabled={disabled}
+                    aria-label={ariaLabel}
                 />
                 <label
                     htmlFor={id}
