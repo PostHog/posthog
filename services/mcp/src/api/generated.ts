@@ -62219,6 +62219,16 @@ export namespace Schemas {
          * @nullable
          */
       readonly last_run_at: string | null;
+      /**
+         * When this scout was auto-paused for repeatedly timing out, or null if it is not paused. A paused scout is skipped by the coordinator until it is resumed; editing the config (e.g. saving any change) clears the pause and lets it run again.
+         * @nullable
+         */
+      readonly auto_paused_at: string | null;
+      /**
+         * Human-readable explanation of why the scout was auto-paused. Null when it is not paused.
+         * @nullable
+         */
+      readonly auto_paused_reason: string | null;
       readonly created_at: string;
     }
 
